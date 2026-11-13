@@ -411,6 +411,53 @@ function hasSql(scope, f, env) {
   return (f.not ? 'NOT ' : '') + 'EXISTS (SELECT 1 FROM ' + fromSql(to) + ' ' + child.alias + ' ' + child.joins.join(' ') + ' WHERE ' + conds.join(' AND ') + ')'
 }
 
+/**
+ * "Only the rows these figures count": each figure's own rule (a dish sold
+ * is one on a closed check that wasn't voided), any of them. What a drill
+ * into the rows behind a figure is filtered by, so the list adds up to the
+ * figure. A figure with no rule counts every row, and one added up through a
+ * list of other rows is about those rows, not ours: either way nothing of
+ * ours is left out (null).
+ */
+function countedParts(subject, paths, levels) {
+  const rules = new Set()
+  const labels = []
+  for (const path of paths || []) {
+    const r = resolvePath(CATALOGUE, subject.key, path)
+    if (!r.ok || r.kind !== 'measure') fail('"' + path + '" isn\'t one of ' + subject.label + '\' figures')
+    if (r.hops.length) return null
+    if (!canSee(r.def, levels)) continue
+    const parts = r.def.ratio ? r.def.ratio.map(k => subject.measures[k]) : [r.def]
+    for (const m of parts) {
+      if (!m || !m.where) return null
+      rules.add(m.where)
+    }
+    labels.push(r.def.label)
+  }
+  return rules.size ? { rules: [...rules], labels } : null
+}
+
+function countedRules(scope, f, env) {
+  const parts = countedParts(scope.subject, f.counted, env.levels)
+  if (!parts) return { sql: null, labels: [] }
+  const sql = parts.rules.map(w => '(' + scope.render(w, scope.alias, scope.subject) + ')')
+  return { sql: sql.length === 1 ? sql[0] : '(' + sql.join(' OR ') + ')', labels: parts.labels }
+}
+
+/**
+ * The same as something to compare: which rows these figures count between
+ * them, '' when that is every row. Two figures with the same answer list the
+ * same rows, so a tap on either means the same thing.
+ */
+export function countedKey(subjectKey, paths, levels) {
+  const subject = CATALOGUE.subjects[subjectKey]
+  if (!subject || !paths?.length) return ''
+  try {
+    const parts = countedParts(subject, paths, levels)
+    return parts ? parts.rules.slice().sort().join(' | ') : ''
+  } catch { return '' }
+}
+
 function filtersSql(scope, filters, env) {
   const out = []
   for (const f of filters || []) {
@@ -418,7 +465,10 @@ function filtersSql(scope, filters, env) {
       const inner = filtersSql(scope, f.any || f.all, env)
       if (inner.length) out.push('(' + inner.join(f.any ? ' OR ' : ' AND ') + ')')
     } else if (f.has) out.push(hasSql(scope, f, env))
-    else {
+    else if (f.counted) {
+      const { sql } = countedRules(scope, f, env)
+      if (sql) out.push(sql)
+    } else {
       const sql = conditionSql(scope, f, env)
       if (sql) out.push(sql)
     }
@@ -515,12 +565,22 @@ function buildList(spec, env, what, limit) {
   }
   if (!cols.length) fail('None of this list\'s columns can be shown to your role', 403)
   const where = whereSql(scope, spec.filters, env)
+  // Said on the page (not something left out for the person's role, which
+  // is what `notes` are): a list that only holds the rows a figure counts.
+  const says = []
+  for (const f of spec.filters) {
+    if (!f.counted) continue
+    const { sql, labels } = countedRules(scope, f, env)
+    if (!sql) continue
+    const towards = labels.length > 3 ? 'the figures' : labels.length > 1 ? labels.slice(0, -1).join(', ') + ' and ' + labels[labels.length - 1] : labels[0]
+    says.push('Only the ' + lowerFirst(subject.label) + ' that count towards ' + towards + ' are listed')
+  }
   const idSql = '(' + scope.render(subject.id.sql, scope.alias, subject) + ')'
 
   if (what === 'totals') {
     const sums = cols.map((c, i) => (c.adds ? '(SUM(' + fieldSql(c.loc) + '))::float8 AS s' + i : null)).filter(Boolean)
     const text = 'SELECT COUNT(*)::int AS n' + (sums.length ? ', ' + sums.join(', ') : '') + ' ' + scope.fromClause() + ' WHERE ' + where.join(' AND ')
-    return { text, params: st.params, columns: cols.map(c => c.col), adds: cols.map(c => c.adds), notes }
+    return { text, params: st.params, columns: cols.map(c => c.col), adds: cols.map(c => c.adds), notes, says }
   }
 
   // The order asked for, else the subject's usual one; the row's own id last
@@ -542,7 +602,7 @@ function buildList(spec, env, what, limit) {
   const select = cols.map((c, i) => outSql(c.loc) + ' AS c' + i).concat(idSql + '::text AS _id')
   const text = 'SELECT ' + select.join(', ') + ' ' + scope.fromClause() + ' WHERE ' + where.join(' AND ')
     + ' ORDER BY ' + order.join(', ') + ' LIMIT ' + Math.max(1, Math.round(limit))
-  return { text, params: st.params, columns: cols.map(c => c.col), adds: cols.map(c => c.adds), notes }
+  return { text, params: st.params, columns: cols.map(c => c.col), adds: cols.map(c => c.adds), notes, says }
 }
 
 // ── Figures ──────────────────────────────────────────────────
@@ -829,7 +889,7 @@ export function compileReport(spec, envIn, { listLimit = SCREEN_ROWS + 1 } = {})
   if (spec.kind === 'list') {
     const rows = buildList(spec, env, 'rows', listLimit)
     const totals = buildList(spec, env, 'totals')
-    return { kind: 'list', subject: spec.subject, period, rows, totals, columns: rows.columns, adds: rows.adds, notes: rows.notes }
+    return { kind: 'list', subject: spec.subject, period, rows, totals, columns: rows.columns, adds: rows.adds, notes: rows.notes, says: rows.says }
   }
 
   const main = buildGrouped(spec, env)

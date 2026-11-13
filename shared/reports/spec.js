@@ -15,7 +15,8 @@
 //     rows:    [{ field: 'section.name', bucket?, label? }],     list: its columns
 //     columns: [{ field, bucket?, label? }],                     matrix only
 //     values:  [{ key, measure } | { key, agg, field } | { key, agg, of } | { key, calc }, ...label, format, decimals, hidden],
-//     filters: [{ field, bucket?, op, value | param } | { any: [...] } | { all: [...] } | { has: link, where: [...], not? }],
+//     filters: [{ field, bucket?, op, value | param } | { any: [...] } | { all: [...] } | { has: link, where: [...], not? }
+//               | { counted: [measure, ...] }],                   the rows at least one of these figures counts
 //     sort:    [{ by: <value key or row id>, dir }],
 //     limit:   { top | bottom: N, rest_as? },
 //     totals:  { grand, subtotals: [row id] },
@@ -156,6 +157,13 @@ function cleanFilters(raw, paramKeys, depth = 0) {
       const key = Array.isArray(f.any) ? 'any' : 'all'
       const inner = cleanFilters(f[key], paramKeys, depth + 1)
       if (inner.length) out.push({ [key]: inner })
+      continue
+    }
+    if (Array.isArray(f.counted)) {
+      // Only the rows these figures count (a dish sold is one on a closed
+      // check). What a drill into "the rows behind a figure" is filtered by.
+      const paths = [...new Set(f.counted.map(cleanPath).filter(Boolean))].slice(0, LIMITS.values)
+      if (paths.length) out.push({ counted: paths })
       continue
     }
     if (typeof f.has === 'string') {

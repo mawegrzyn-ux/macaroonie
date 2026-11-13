@@ -12,7 +12,7 @@
 //   venues    the group's venues; the venues choice shows with two or more
 //   today     the day it is at the venues, for the period picker's dates
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
 import { paramWords, filterValueOk, blankValue as blank } from '@shared/reports/build.js'
 import { Modal } from '@/components/staff/shared'
@@ -25,13 +25,16 @@ import ValueInput from '@/components/reports/ValueInput'
 function ValueChoice({ catalogue, input, value, onChange, currency }) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(value)
-  useEffect(() => { if (open) setDraft(value) }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  // The window starts from what is set now. Set with the tap that opens it
+  // (not in an effect after it), so it never shows the last visit's picks
+  // for a moment first.
+  const show = () => { setDraft(value); setOpen(true) }
   const type = input.field?.type || 'text'
   const words = paramWords(catalogue, input, value, { currency })
   const ok = blank(draft) || filterValueOk(type, input.bucket, input.op, draft)
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} aria-label={input.label + ': ' + words} data-testid="value-choice-button" data-key={input.key}
+      <button type="button" onClick={show} aria-label={input.label + ': ' + words} data-testid="value-choice-button" data-key={input.key}
         className="inline-flex items-center gap-2 min-h-[48px] px-3 py-1.5 rounded-lg border bg-background text-sm text-left touch-manipulation hover:bg-muted max-w-full">
         <SlidersHorizontal className="w-4 h-4 text-muted-foreground shrink-0" />
         <span className="min-w-0">

@@ -102,7 +102,7 @@ export function shapeList(plan, rows, total, { cap, sums = true } = {}) {
       : null,
     row_count: count,
     truncated: cut.length < count,
-    notes: [...plan.notes],
+    notes: [...plan.notes, ...(plan.says || [])],
   }
 }
 

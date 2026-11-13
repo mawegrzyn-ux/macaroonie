@@ -6,6 +6,32 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-13 — Reports: tap a row to open it up]
+
+No migration.
+
+**Added**
+- **Tap a row of a summary to open it up.** A window names the row, shows its figures and offers what it can be opened into: **By ...** (the same figures broken down by something else: a day's sales by dish, a dish by server) and **Show the rows** (the checks, dishes sold, payments, orders or bookings behind it). When there is only one thing to open into, the tap goes straight there. In a table across, tap a figure to open that one cell, or the row's name for the whole row.
+- **A trail above the table** shows where you are: All, then each row you opened and what you opened it into. Tap a step to go back to it. The period, venues and other choices still apply, Refresh reads the same place again, and the CSV and Excel files are of what is on the page.
+- **The rows behind a figure are the ones that figure counts.** Sales figures count dishes on closed checks that weren't voided, so open a day's sales and the list holds those dishes and adds up to the figure; the page says when only some rows are listed. Where a report's figures count different rows (payments beside refunds, bookings beside no-shows), tap the figure itself to list its rows, or the row's name for everything behind the row.
+- **Keep going.** What you opened can be opened further, each field once on the way down, and the Total row opens too.
+- **In the builder**, Set up ends with two lists for a summary. **Tap a row: break it down by** takes up to 8 fields, a day or a time by week, month, quarter, year, day of the week or hour as well. **Tap a row: show the rows** lists the usual columns for that kind of row, or your own, up to 30. Add a field with each list's Add button, or drag it from Data. The preview can be tapped the way the saved report can.
+- The starter reports already say what their rows break down by, and every summary can list its rows.
+- People who can only look at reports can open rows up too, and see only what their role may see.
+
+**Fixed**
+- A report's period, venues and other choice windows showed the picks from the last time they were open for an instant when opened again. They now open on what is set.
+
+**Notes**
+- A list has nothing to open (it is its own rows), and the row for "everything else" under a top few can't be opened.
+- The steps last for the visit: reloading the page goes back to the report itself. In the builder, any change to the report goes back to it too.
+- A share of the total (such as each dish's share of net sales) in an opened row is its share of what is on the page now.
+- Next: charts and printing, then opening the booking, order or check itself from a row.
+- Tested in Chromium at desktop, tablet and phone widths against test data.
+
+---
+
+
 ## [2026-11-13 — Reports: build your own]
 
 No migration.

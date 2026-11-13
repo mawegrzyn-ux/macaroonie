@@ -1,8 +1,10 @@
 // src/components/reports/builder/SetUp.jsx
 //
 // The report builder's Set up panel (docs/REPORTS.md 9): what kind of report
-// it is, then its shelves (rows, across the top, values, filters) and how it
-// is sorted, cut to a top few, totalled and compared.
+// it is, then its shelves (rows, across the top, values, filters), how it is
+// sorted, cut to a top few, totalled and compared, and what a tapped row
+// opens into (docs/REPORTS.md 8): the fields it can be broken down by, and
+// the columns of the rows behind it.
 //
 // Every change goes through an edit in shared/reports/build.js and comes
 // back as a whole definition (onChange). The shelves are drop targets of the
@@ -11,7 +13,8 @@
 //
 //   onOpen   ({ what: 'row', where, id } | { what: 'value', key } |
 //             { what: 'calc' } | { what: 'filter', index }) opens a window
-//   onAdd    (shelf) opens the Data panel for that shelf
+//   onAdd    (shelf) opens the Data panel for that shelf ('rows', 'columns',
+//            'values', 'filters', 'drill', 'drillrows')
 //   onKind   ('summary' | 'list')
 //   dragNode the Data panel field being dragged (shelves that can't take it dim)
 //   overShelf the shelf the drag is over
@@ -20,10 +23,11 @@ import { useEffect, useState } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { GripVertical, X, Plus, Calculator } from 'lucide-react'
+import { GripVertical, X, Plus, Calculator, Undo2 } from 'lucide-react'
 import {
   rowName, valueName, valueKindText, filterParts, sortChoices, limitOf, setLimit, setSort, setTotals, setCompare,
   compareProblem, removeRow, removeColumn, removeValue, removeFilter, roomLeft, BUCKET_LABELS,
+  pathUses, drillRoom, removeDrillLevel, updateDrillLevel, setDrillRows,
 } from '@shared/reports/build.js'
 import { rowId, COMPARE_WITH, COMPARE_LABELS, LIMITS } from '@shared/reports/spec.js'
 import { resolvePath, pathLabel } from '@shared/reports/paths.js'
@@ -41,6 +45,9 @@ export function accepts(node, shelf, spec) {
   if (shelf === 'columns') return !list && !!node.uses.group
   if (shelf === 'values') return !list && node.uses.values.length > 0
   if (shelf === 'filters') return !!node.uses.filter
+  // What a tapped row opens into: a field to break it down by, a column of the rows behind it.
+  if (shelf === 'drill') return !list && !!node.uses.group
+  if (shelf === 'drillrows') return !list && !!node.uses.column
   return false
 }
 
@@ -111,8 +118,38 @@ function Entry({ id, label, sub, onOpen, onRemove, kind }) {
   )
 }
 
+// One entry of a drill-down shelf: a grip, what it is (with how its days are
+// grouped, for a day or a time) and a button to take it off. There is
+// nothing more to set, so the entry itself isn't a button.
+function DrillEntry({ id, label, sub, kind, buckets = [], bucket = 'day', onBucket, onRemove }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  return (
+    <li ref={setNodeRef} style={{ transform: CSS.Translate.toString(transform), transition }} data-testid="shelf-entry" data-id={id} data-kind={kind}
+      className={cn('flex items-stretch rounded-lg border bg-background', isDragging && 'relative z-10 shadow-md opacity-80')}>
+      <button type="button" {...attributes} {...listeners} aria-label={'Drag ' + label + ' to another place'} data-testid="shelf-grip"
+        className="w-12 min-h-[48px] shrink-0 flex items-center justify-center text-muted-foreground/70 cursor-grab active:cursor-grabbing touch-none">
+        <GripVertical className="w-4 h-4" />
+      </button>
+      <div className="flex-1 min-w-0 min-h-[48px] py-1.5 flex flex-col justify-center">
+        <span className="block text-sm leading-tight break-words" data-testid="drill-entry-name">{label}</span>
+        {sub && <span className="block text-[11px] text-muted-foreground leading-tight mt-0.5 break-words" data-testid="drill-entry-sub">{sub}</span>}
+      </div>
+      {buckets.length > 0 && (
+        <select value={bucket} onChange={e => onBucket(e.target.value)} aria-label={'Group ' + label + ' by'} data-testid="drill-bucket"
+          className={cn(inputCls, 'h-12 w-[6.5rem] shrink-0 self-center px-2 text-xs')}>
+          {buckets.map(b => <option key={b} value={b}>{BUCKET_LABELS[b]}</option>)}
+        </select>
+      )}
+      <button type="button" onClick={onRemove} aria-label={'Take ' + label + ' off'} data-testid="shelf-remove"
+        className="w-12 min-h-[48px] shrink-0 flex items-center justify-center text-muted-foreground rounded-r-lg touch-manipulation hover:bg-muted hover:text-foreground">
+        <X className="w-4 h-4" />
+      </button>
+    </li>
+  )
+}
+
 // A shelf: a drop target with its entries and an Add button.
-function Shelf({ shelf, title, hint, empty, ids, children, onAdd, addLabel = 'Add', full, extra, over, dimmed }) {
+function Shelf({ shelf, title, hint, empty, ids, children, onAdd, addLabel = 'Add', full, extra, foot, over, dimmed }) {
   const { setNodeRef } = useDroppable({ id: 'shelf:' + shelf })
   return (
     <section ref={setNodeRef} data-testid={'shelf-' + shelf} data-over={over ? '1' : '0'}
@@ -132,6 +169,7 @@ function Shelf({ shelf, title, hint, empty, ids, children, onAdd, addLabel = 'Ad
         </SortableContext>
       ) : <ul className="space-y-1.5">{children}</ul>}
       {empty && <p className="rounded-lg border border-dashed px-3 py-3 text-xs text-muted-foreground" data-testid="shelf-empty">{empty}</p>}
+      {foot}
     </section>
   )
 }
@@ -177,6 +215,14 @@ export default function SetUp({ catalogue, spec, onChange, onOpen, onAdd, onKind
   const pickLimit = which => onChange(which === 'all' ? setLimit(spec, null) : setLimit(spec, { which, n: limit?.n || 10, by: limit?.by, rest: limit?.rest || '' }))
 
   const compareWhy = list ? null : compareProblem(catalogue, spec)
+
+  // ── What a tapped row opens into ──
+  const down = spec.drill?.down || []
+  const drillRows = spec.drill?.rows || []
+  const grouped = new Set([...spec.rows, ...spec.columns].map(rowId))
+  const usual = subject?.list || []            // the usual columns of a list of these, for this role
+  const what = lowerFirst(subject?.label || 'rows')
+  const columnName = path => pathLabel(catalogue, spec.subject, path)
 
   return (
     <div className={cn('p-3 space-y-3', className)} data-testid="setup">
@@ -342,6 +388,53 @@ export default function SetUp({ catalogue, spec, onChange, onOpen, onAdd, onKind
           {compareWhy && <p className={cn('text-[11px] leading-snug', spec.compare ? 'text-amber-800' : 'text-muted-foreground')} data-testid="compare-why">{compareWhy}.</p>}
           {!compareWhy && spec.compare && <p className="text-[11px] text-muted-foreground leading-snug">Each value gets the earlier period beside it and the change.</p>}
         </section>
+      )}
+
+      {!list && (
+        <div className="space-y-3" data-testid="setup-drill">
+          <Shelf shelf="drill" title="Tap a row: break it down by" onAdd={() => onAdd('drill')} full={drillRoom(spec) <= 0}
+            hint={down.length ? 'A tapped row shows the same figures by one of these. Each can be used once on the way down.' : null}
+            empty={!down.length ? 'Nothing yet. Add a field (a dish, a server, the hour) and a row of the report can be tapped to see its figures by it.' : null}
+            ids={down.map(x => 'drill:' + rowId(x))} over={overShelf === 'drill'} dimmed={dim('drill')}>
+            {down.map(x => {
+              const id = rowId(x)
+              const buckets = pathUses(catalogue, spec.subject, x.field).buckets || []
+              return (
+                <DrillEntry key={id} id={'drill:' + id} kind="drill" label={rowName(catalogue, spec.subject, x)}
+                  sub={grouped.has(id) ? 'The report is grouped by this already' : ''}
+                  buckets={buckets} bucket={x.bucket || 'day'} onBucket={bucket => onChange(updateDrillLevel(spec, id, { bucket }))}
+                  onRemove={() => onChange(removeDrillLevel(spec, id))} />
+              )
+            })}
+          </Shelf>
+
+          {drillRows.length ? (
+            <Shelf shelf="drillrows" title="Tap a row: show the rows" onAdd={() => onAdd('drillrows')} full={drillRows.length >= LIMITS.drill_rows}
+              hint={'The ' + what + ' behind a tapped row are listed with these columns, left to right.'}
+              ids={drillRows.map(path => 'drillrow:' + path)} over={overShelf === 'drillrows'} dimmed={dim('drillrows')}
+              foot={usual.length > 0 && (
+                <button type="button" onClick={() => onChange(setDrillRows(spec, []))} data-testid="drill-rows-usual" className={cn(addBtn, 'w-full justify-center')}>
+                  <Undo2 className="w-3.5 h-3.5" /> Back to the usual columns
+                </button>
+              )}>
+              {drillRows.map(path => (
+                <DrillEntry key={path} id={'drillrow:' + path} kind="drillrow" label={columnName(path)}
+                  onRemove={() => onChange(setDrillRows(spec, drillRows.filter(x => x !== path)))} />
+              ))}
+            </Shelf>
+          ) : (
+            // None chosen: the usual columns of a list of these. Choose starts from them.
+            <Shelf shelf="drillrows" title="Tap a row: show the rows" addLabel={usual.length ? 'Choose' : 'Add'}
+              onAdd={() => (usual.length ? onChange(setDrillRows(spec, usual)) : onAdd('drillrows'))}
+              over={overShelf === 'drillrows'} dimmed={dim('drillrows')}>
+              <li className="rounded-lg border border-dashed px-3 py-3 text-xs text-muted-foreground leading-snug" data-testid="drill-rows-usual-note">
+                {usual.length
+                  ? <>The {what} behind a tapped row are listed with their usual columns: {usual.map(columnName).join(', ')}. Choose to pick your own.</>
+                  : <>Your role can&apos;t see the usual columns of {what}, so a tapped row doesn&apos;t list them. Add the columns it should have.</>}
+              </li>
+            </Shelf>
+          )}
+        </div>
       )}
     </div>
   )

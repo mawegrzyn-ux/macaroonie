@@ -2087,6 +2087,35 @@ export default function Help() {
               guests). A report of the top 25 of something can end with a row for everything else. A
               note under the bar tells you when a column was left out because your role can't see it.
             </P>
+            <H3>Opening a row up</H3>
+            <P>
+              A row of a summary can be opened to see what is behind it. Tap the row (a line under
+              the bar says when rows can be tapped). A window names the row, shows its figures and
+              offers what it can be opened into: <strong>By ...</strong> shows the same figures broken
+              down by something else (a day's sales by dish, a dish by server), and{' '}
+              <strong>Show the rows</strong> lists the checks, dishes sold, payments, orders or
+              bookings behind it. When there is only one thing to open into, the tap goes straight
+              there. In a table across, tap a figure to open just that cell, or the row's name for
+              the whole row. The Total row opens the same way, for everything in the report.
+            </P>
+            <P>
+              A trail above the table shows where you are: <strong>All</strong>, then each row you
+              opened and what you opened it into. Tap a step to go back to it, or All for the report
+              itself. What you opened can be opened further, each field once on the way down. The
+              period, venues and other choices still apply, <strong>Refresh</strong> reads the same
+              place again, and the CSV and Excel files are of what is on the page. The steps last for
+              the visit: opening the report again starts at the top.
+            </P>
+            <P>
+              The rows behind a figure are the ones that figure counts. Sales count dishes on closed
+              checks that weren't voided, so the list behind a day's sales holds those dishes and adds
+              up to the figure, and a note says that only they are listed. Where a report's figures
+              count different rows (payments beside refunds, bookings beside no-shows), tap the figure
+              itself to list its rows, or the row's name for everything behind the row. A list has
+              nothing to open, since it is its own rows, and the row for everything else under a top
+              few can't be opened. A share of the total in an opened row is its share of what is on
+              the page now.
+            </P>
             <H3>Where the figures come from</H3>
             <P>
               Every figure is the one its own page shows. Till sales are the till's own X and Z report
@@ -2168,6 +2197,8 @@ export default function Help() {
                 ['Show', 'Every row, or only the top or bottom few by one of the values (the top 10 dishes), with an optional row for everything else.'],
                 ['Totals', 'A total row at the bottom. A subtotal after each group is set from the grouping itself.'],
                 ['Compare with', 'The period before, or the same dates last year: each value gets the earlier period beside it and the change.'],
+                ['Tap a row: break it down by', 'For a summary: the fields a tapped row can be broken down by, in the order they are offered (a dish, a server, the hour). Up to 8. A day or a time can be grouped by week, month, quarter, year or day of the week (a time also by hour). A field the report is grouped by already stays on the list but isn\'t offered on a tap.'],
+                ['Tap a row: show the rows', 'The columns of the list behind a tapped row. Left alone, the usual columns for that kind of row are used. Choose starts from them, and you can then add, take off and reorder columns (30 at most). Back to the usual columns undoes it.'],
               ]}
             />
             <P>
@@ -2176,6 +2207,11 @@ export default function Help() {
               time) set what it starts with; whoever opens it can pick something else. A report takes
               up to 8 groupings (30 columns in a list), 2 across the top, 20 values, 30 filters and 12
               choices.
+            </P>
+            <P>
+              The preview's rows can be tapped the way the saved report's can, to try what a row
+              opens into; a trail shows above it. Any change to the report goes back to the report
+              itself.
             </P>
             <H3>Saving and changing a report</H3>
             <P>
@@ -2213,8 +2249,8 @@ export default function Help() {
             <H3>Who can open, build and share reports</H3>
             <P>
               Reports is its own module on the Access page. <strong>View</strong> opens and runs the
-              starter reports and any report shared with you, and changes the period, venues and other
-              choices for the visit. <strong>Use</strong> also builds, saves, copies, renames and
+              starter reports and any report shared with you, changes the period, venues and other
+              choices for the visit, and opens rows up. <strong>Use</strong> also builds, saves, copies, renames and
               deletes reports of your own and downloads files. <strong>Manage</strong> also shares
               reports, sees every report in the group, including ones other people haven't shared
               (marked <strong>Not shared</strong> under From your team), and can change or delete them.
@@ -2223,8 +2259,8 @@ export default function Help() {
               and a guest's customer record needs Customers access as well.
             </P>
             <InfoBox>
-              Still to come: charts, tapping a figure to see the rows behind it, and printing; then
-              asking Pepper for a report in your own words. The builder has no undo (leaving without
+              Still to come: charts and printing, opening the booking, order or check itself from a
+              row, then asking Pepper for a report in your own words. The builder has no undo (leaving without
               saving goes back to the last save), and filters made of several parts, which a few
               starter reports use, can be taken off but not changed on screen. The Till reports page,
               the Online orders report and the Kitchen report stay where they are.

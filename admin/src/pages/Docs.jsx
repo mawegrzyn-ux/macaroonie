@@ -8124,7 +8124,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H2>Reports (report builder)</H2>
             <P>
               Migration 243. The plan is <Mono>docs/REPORTS.md</Mono>; this section is what is built so far: its
-              groundwork, the engine with a viewer, and the builder (till sales, online orders and bookings). One engine
+              groundwork, the engine with a viewer, the builder and drill-downs (till sales, online orders and bookings). One engine
               serves every way of making a report: a report is a JSON definition, checked by one shared function,
               looked up in a data catalogue kept in code, turned into SQL by the server and run as the person
               looking at it, inside their tenant, read only. Nobody writes SQL and no report holds any.
@@ -8143,12 +8143,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
   values:  [{ measure: 'net_sales' }, { agg: 'count' }, { agg: 'sum', field: 'qty' },
             { calc: 'net_sales / total(net_sales)', label: 'Share', format: 'percent' }],
   filters: [{ field: 'date', op: 'in_period', param: 'period' }, { field: 'venue', op: 'in', param: 'venues' },
-            { any: [...] }, { all: [...] }, { has: 'payments', where: [...], not: false }],
+            { any: [...] }, { all: [...] }, { has: 'payments', where: [...], not: false },
+            { counted: ['net_sales'] }],                           // the rows these figures count (drill-downs)
   sort:    [{ by: 'net_sales', dir: 'desc' }],
   limit:   { top: 25, rest_as: 'Every other dish' },
   totals:  { grand: true, subtotals: ['section.name'] },
   compare: { with: 'previous_period' | 'last_year' },             // summaries only
-  drill:   { down: [...], rows: [...] },
+  drill:   { down: [{ field: 'name' }, { field: 'sent_at', bucket: 'hour' }], rows: ['check.number', 'name', 'net'] },
   view:    { kind: 'table' | 'bar' | 'line' | 'area' | 'combo' | 'pie' | 'ring' | 'figures' | 'heat' } }`}</Code>
             <P>
               The kind is worked out from the parts when it isn&apos;t given (columns: matrix; else values: summary;
@@ -8449,6 +8450,106 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>more-delete</Mono>, <Mono>report-choices</Mono>, <Mono>value-choice-button</Mono>.
             </P>
 
+            <H3>Drill-downs</H3>
+            <P>
+              13 Nov 2026, no migration (<Mono>docs/REPORTS.md</Mono> 8). A row of a summary, or a figure of a
+              table across, can be opened: into the same figures broken down by another field, or into the rows
+              behind it. A definition says what its rows offer in <Mono>drill</Mono>: <Mono>down</Mono> (up to 8
+              fields, each <Mono>{'{ field, bucket? }'}</Mono>, in the order offered) and <Mono>rows</Mono> (the
+              columns of the list behind a row, up to 30; none = the subject&apos;s usual list columns, from{' '}
+              <Mono>listColumns()</Mono>). Nobody sends a drilled definition: the page sends steps and the
+              server makes each definition from the saved report&apos;s own, so someone who may only run a
+              report can still open its rows.
+            </P>
+            <Code>{`// a step, sent as drill: [...] (10 at most) with POST /:id/run, /:id/export, /preview and /export
+{ at: [{ field: 'date', value: '2026-11-13' }, { field: 'name', value: 'Pad Thai' }],
+  //   the row: each grouping it sits in, held to its value (null = the row for "none")
+  to: 'rows' | { field: 'section.name' } | { field: 'sent_at', bucket: 'hour' },
+  value: 'net_sales' }       // rows only: the figure whose rows are meant
+
+// with every summary and matrix result, for the person asking
+meta.drill = { down: [{ field, bucket?, label }], rows: true, of: 'Dishes sold', per_figure: true } | null`}</Code>
+            <P>
+              <Mono>shared/reports/drill.js</Mono>: <Mono>cleanDrill(raw)</Mono> tidies a step (a value key only
+              with rows) and <Mono>drillSpec(spec, step, {'{ listColumns, also }'})</Mono> returns{' '}
+              <Mono>{'{ spec }'}</Mono> or <Mono>{'{ problem }'}</Mono>. A held grouping must be one the report
+              has (its rows, its columns across, its <Mono>drill.down</Mono>, or one named in{' '}
+              <Mono>also</Mono>: the currency the engine groups by on its own for venues in two currencies) and
+              becomes an <Mono>is</Mono> or <Mono>empty</Mono> filter beside the report&apos;s own. To rows: a
+              list of <Mono>drill.rows</Mono>, else the usual columns. To a level: a summary with that one
+              grouping, the same values and comparison, ordered only by the report&apos;s figures (never by
+              where its rows were), a total, and a <Mono>drill</Mono> holding the levels not used yet and the
+              same row columns, so each field is offered once on the way down. A list has nothing to open.
+            </P>
+            <P>
+              The rows behind a figure are the rows that figure counts. <Mono>countedBy(spec, valueKey)</Mono>{' '}
+              gives the catalogue measures the tapped value is made of (every shown value when none is named; a
+              calculation through the values it reads), or null when one of them is a plain total, average or
+              count of the rows themselves, which leaves nothing out. They go into the list as a fifth filter
+              form, <Mono>{'{ counted: [measure paths] }'}</Mono>, which <Mono>compile.js</Mono> turns into the
+              measures&apos; own <Mono>where</Mono> rules joined by OR (<Mono>countedParts()</Mono>,{' '}
+              <Mono>countedRules()</Mono>; a ratio is its two parts): a row is listed when at least one of the
+              figures counts it. A figure with no rule of its own, or one reached through a link, means every
+              row counts, so the filter leaves nothing out; a path that isn&apos;t a measure is a 422. The list
+              then says so in a note (&quot;Only the dishes sold that count towards Net sales are
+              listed&quot;; more than three figures: &quot;the figures&quot;), on screen and in a file.{' '}
+              <Mono>countedKey()</Mono> gives which rows a set of figures counts as one string to compare.
+            </P>
+            <P>
+              <Mono>drillOffers(spec, envc)</Mono> in <Mono>run.js</Mono> writes <Mono>meta.drill</Mono>: the
+              levels of <Mono>drill.down</Mono> the report isn&apos;t grouped by already and the role may group
+              by, <Mono>rows</Mono> when there are columns to list, <Mono>of</Mono> the subject&apos;s name, and{' '}
+              <Mono>per_figure</Mono> when the shown values count different rows (their{' '}
+              <Mono>countedKey()</Mono>s differ). Null for a list and when there is nothing to offer. The routes
+              run the steps one after another through <Mono>drilled(spec, steps, levels)</Mono>{' '}
+              (<Mono>routes/reports.js</Mono>): each step is made from the definition the step before it gave,
+              one that can&apos;t be made is a 422 with its reason, and the last definition is what runs or
+              goes into the file. A run&apos;s record keeps each step as{' '}
+              <Mono>{'{ to, at: [grouping ids], value? }'}</Mono>, never the held values
+              (<Mono>drillRecord()</Mono> in <Mono>access.js</Mono>).
+            </P>
+            <P>
+              Admin: <Mono>components/reports/drill.jsx</Mono> decides nothing; it reads{' '}
+              <Mono>meta.drill</Mono>. <Mono>tapTarget(result, row, colIndex)</Mono> and{' '}
+              <Mono>totalTarget()</Mono> say what a tap stands for (<Mono>at</Mono> from the row&apos;s{' '}
+              <Mono>k</Mono> and, in a table across, the tapped column&apos;s <Mono>at</Mono>; its words and
+              figures; the tapped figure only with <Mono>per_figure</Mono>), <Mono>drillChoices()</Mono> what
+              it can open into, <Mono>stepOf()</Mono> makes the step, <Mono>drillBody()</Mono> leaves the
+              words out of what is sent, <Mono>drillHint()</Mono> is the line under the bar,{' '}
+              <Mono>DrillWindow</Mono> the choices (skipped when there is one) and <Mono>DrillTrail</Mono> the
+              way back. <Mono>ResultTable</Mono> takes <Mono>onTap(target)</Mono>: a row is tappable as a
+              whole (48 px tall on touch screens) with a real button in its first cell for the keyboard, and
+              in a table across each figure is its own button; the &quot;everything else&quot; row, a list
+              and a result being replaced aren&apos;t tappable. <Mono>ReportView.jsx</Mono> keeps the steps
+              in state for the visit (query key <Mono>[&apos;report-run&apos;, id, params, drill]</Mono>) and
+              sends them with the run and the downloads.
+            </P>
+            <P>
+              Builder: a Drill-down part of Set up for summaries and tables across, with two shelves, and the
+              edits in <Mono>shared/reports/build.js</Mono>: <Mono>addDrillLevel()</Mono> (a field the report
+              could be grouped by; a day bucket is stored as none), <Mono>removeDrillLevel()</Mono>,{' '}
+              <Mono>moveDrillLevel()</Mono>, <Mono>updateDrillLevel()</Mono> (its bucket),{' '}
+              <Mono>setDrillRows()</Mono> (the columns, or none for the usual ones), <Mono>drillLevels()</Mono>{' '}
+              (each level with its words and whether the report is grouped by it already) and{' '}
+              <Mono>drillRoom()</Mono>. Each keeps <Mono>drill.open</Mono>. The Data panel&apos;s modes{' '}
+              <Mono>drill</Mono> and <Mono>drillrows</Mono> are the shelves&apos; Add windows. The preview can
+              be tapped like the viewer, with steps of its own (query key{' '}
+              <Mono>[&apos;report-preview&apos;, live, drill]</Mono>); any change to the definition clears them.
+            </P>
+            <P>
+              Test ids: <Mono>report-drill-hint</Mono>, <Mono>tr[data-drill=&quot;1&quot;]</Mono>,{' '}
+              <Mono>report-row-open</Mono>, <Mono>report-cell-open</Mono>, <Mono>drill-window</Mono>,{' '}
+              <Mono>drill-figures</Mono>, <Mono>drill-choice</Mono> (<Mono>data-to</Mono>),{' '}
+              <Mono>drill-trail</Mono>, <Mono>drill-crumb</Mono> (<Mono>data-step</Mono>,{' '}
+              <Mono>data-current</Mono>); in the builder <Mono>setup-drill</Mono>, <Mono>shelf-drill</Mono>,{' '}
+              <Mono>shelf-drillrows</Mono>, <Mono>drill-bucket</Mono>, <Mono>drill-rows-usual</Mono>,{' '}
+              <Mono>drill-rows-usual-note</Mono>, <Mono>builder-drilled</Mono>. Tests:{' '}
+              <Mono>shared/test/reportSpec.test.mjs</Mono> and <Mono>reportBuild.test.mjs</Mono> (the rules),{' '}
+              <Mono>api/test/reports-engine.test.mjs</Mono> (the counted filter, what a result offers,
+              currencies), <Mono>reports-api.test.mjs</Mono> (steps through the routes, files, the record,
+              refusals) and <Mono>reports-build.test.mjs</Mono> (every level the builder offers runs).
+            </P>
+
             <H3>Admin pages</H3>
             <P>
               <Mono>pages/Reports.jsx</Mono> (<Mono>/reports</Mono>, Home menu after Dashboards: search, area
@@ -8473,8 +8574,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
 
             <InfoBox>
-              <strong>Not built yet.</strong> Charts, drill-down on the page (the routes take <Mono>drill</Mono>)
-              with its settings in the builder, and the print page come next; then Pepper, the other modules with
+              <strong>Not built yet.</strong> Charts and the print page come next, then opening the record
+              itself from a row (<Mono>drill.open</Mono> is kept by the definition and used by nothing yet); then Pepper, the other modules with
               stored results for rota pay and tips, cash variance and H&amp;S status, layouts and PDFs with
               schedules and email, and data links. The plan&apos;s private file store moves to the phase that
               first keeps files. Limits of the builder: no undo; filters made of several parts (<Mono>any</Mono>,{' '}
@@ -8493,7 +8594,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               summer time); a named period (Today, Yesterday) is the calendar day at the venues while till
               subjects are dated by their trading day (<Mono>pos_days.business_date</Mono>), so between midnight
               and the trading day&apos;s start tonight&apos;s sales are under Yesterday; platform-wide starters live in
-              code, not in a table.
+              code, not in a table. Limits of drill-downs: the steps aren&apos;t in the address (a reload goes
+              back to the report); a report can&apos;t name another report to open into; levels are the
+              report&apos;s own list (the catalogue has no hierarchies); in a summary a tap means the row,
+              and the figure tapped only where the report&apos;s figures count different rows; a figure with
+              no rule of its own, or one reached through a list of other rows, lists every row; the row for
+              everything else can&apos;t be opened; a share of the total in an opened row is of what is on
+              the page; chart taps come with charts.
             </InfoBox>
           </section>
 

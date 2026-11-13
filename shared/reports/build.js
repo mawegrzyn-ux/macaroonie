@@ -8,8 +8,9 @@
 //                 (and how it is added up), a filter
 //   dataTree()    everything a person can pick from, as the Data panel shows
 //                 it; searchTree() finds in it
-//   the edits     addRow(), addColumn(), addValue(), setKind(), setFilter()
-//                 and the rest: each gives back a whole definition, checked
+//   the edits     addRow(), addColumn(), addValue(), setKind(), setFilter(),
+//                 addDrillLevel() and the rest: each gives back a whole
+//                 definition, checked
 //   the words     rowName(), valueName(), filterWords(), filterParts(),
 //                 paramWords(): what a shelf or a choice says
 //   paramInputs() what a report asks for when it is opened
@@ -358,6 +359,10 @@ export function filterParts(catalogue, subjectKey, f, ctx = {}) {
     const inner = (f.any || f.all).map(x => filterWords(catalogue, subjectKey, x, ctx)).filter(Boolean)
     return { label: '', rest: (f.any ? 'Any of: ' : 'All of: ') + inner.join(f.any ? '; or ' : '; and '), sep: '' }
   }
+  if (f.counted) {
+    const names = f.counted.map(path => { const r = resolvePath(catalogue, subjectKey, path); return r.ok ? r.def.label : path })
+    return { label: '', rest: 'Counts towards ' + listWords(names, 3), sep: '' }
+  }
   if (f.has) {
     const r = resolvePath(catalogue, subjectKey, f.has)
     const what = r.ok ? lowerFirst(r.def.label) : f.has
@@ -418,6 +423,7 @@ export function filterWords(catalogue, subjectKey, f, ctx = {}) {
 const walkFilters = (filters, fn, catalogue = null, subjectKey = null) => {
   for (const f of arr(filters)) {
     if (f.any || f.all) walkFilters(f.any || f.all, fn, catalogue, subjectKey)
+    else if (f.counted) continue          // about the report's figures, not a field
     else if (f.has) {
       const r = catalogue ? resolvePath(catalogue, subjectKey, f.has) : null
       walkFilters(f.where, fn, catalogue, r?.ok && r.kind === 'link' ? r.def.to : null)
@@ -716,6 +722,69 @@ export function setKind(spec, kind, catalogue) {
     if (sum) values.push({ ...sum, ...(r.label ? { label: r.label } : {}) })
   }
   return normaliseReport({ ...spec, kind: 'summary', rows: [], columns: [], values: values.slice(0, LIMITS.values), sort: [] })
+}
+
+// ── Drill-down ───────────────────────────────────────────────
+// What a row of the report can be opened into (docs/REPORTS.md 8): the
+// levels it can be broken down by, in the order they are offered, and the
+// columns of the rows behind a figure. A list keeps what a summary had (a
+// list is its own rows), so switching back finds it again.
+
+const drillOf = spec => ({ down: spec.drill?.down || [], rows: spec.drill?.rows || [], ...(spec.drill?.open ? { open: spec.drill.open } : {}) })
+
+/** How many more levels a report's rows can be broken down by. */
+export const drillRoom = spec => LIMITS.drill_down - drillOf(spec).down.length
+
+/**
+ * A level a row can be broken down by: any field the report could be
+ * grouped by ({ field, bucket }). The same level twice is only added once.
+ */
+export function addDrillLevel(spec, ref) {
+  const r = refOf(ref)
+  const level = { field: r.field, ...(r.bucket && r.bucket !== 'day' ? { bucket: r.bucket } : {}) }
+  const d = drillOf(spec)
+  if (!level.field || d.down.some(x => rowId(x) === rowId(level)) || drillRoom(spec) <= 0) return spec
+  return normaliseReport({ ...spec, drill: { ...d, down: [...d.down, level] } })
+}
+
+export function removeDrillLevel(spec, id) {
+  const d = drillOf(spec)
+  if (!d.down.some(x => rowId(x) === id)) return spec
+  return normaliseReport({ ...spec, drill: { ...d, down: d.down.filter(x => rowId(x) !== id) } })
+}
+
+export function moveDrillLevel(spec, from, to) {
+  const d = drillOf(spec)
+  const next = move(d.down, from, to)
+  return next === d.down ? spec : normaliseReport({ ...spec, drill: { ...d, down: next } })
+}
+
+/** How a level's days are grouped (`bucket`); the same object when another level is that already. */
+export function updateDrillLevel(spec, id, patch) {
+  const d = drillOf(spec)
+  const i = d.down.findIndex(x => rowId(x) === id)
+  if (i === -1) return spec
+  const next = { field: d.down[i].field, ...(d.down[i].bucket ? { bucket: d.down[i].bucket } : {}) }
+  if ('bucket' in patch) { if (patch.bucket && patch.bucket !== 'day') next.bucket = patch.bucket; else delete next.bucket }
+  if (rowId(next) === id || d.down.some(x => rowId(x) === rowId(next))) return spec
+  return normaliseReport({ ...spec, drill: { ...d, down: d.down.map((x, n) => (n === i ? next : x)) } })
+}
+
+/**
+ * The columns the rows behind a figure are listed with, in order; none for
+ * the usual columns of what the report is about.
+ */
+export function setDrillRows(spec, paths) {
+  const d = drillOf(spec)
+  const rows = [...new Set(arr(paths).filter(x => typeof x === 'string' && x))].slice(0, LIMITS.drill_rows)
+  if (rows.length === d.rows.length && rows.every((x, i) => x === d.rows[i])) return spec
+  return normaliseReport({ ...spec, drill: { ...d, rows } })
+}
+
+/** The levels a report offers that it isn't grouped by already (the ones a tap can lead to). */
+export function drillLevels(spec) {
+  const taken = new Set([...spec.rows, ...spec.columns].map(rowId))
+  return drillOf(spec).down.filter(x => !taken.has(rowId(x)))
 }
 
 /**

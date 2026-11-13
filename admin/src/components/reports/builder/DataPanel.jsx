@@ -13,10 +13,12 @@
 //   spec      the report as it is (what is in it already is ticked)
 //   mode      null: everything a field can be. 'rows' | 'columns' | 'values'
 //             | 'filters': only what goes on that shelf (the shelves' Add
-//             buttons open the panel this way)
-//   onAct     ({ type: 'row' | 'column' | 'value' | 'filter', node, ref?,
-//             value? }) => { ok, text }: what happened, said for a moment
-//             over the foot of the panel
+//             buttons open the panel this way). 'drill' | 'drillrows': what
+//             a tapped row can be broken down by, and the columns of the
+//             rows behind it; these two are only offered when asked for
+//   onAct     ({ type: 'row' | 'column' | 'value' | 'filter' | 'drill' |
+//             'drillrow', node, ref?, value? }) => { ok, text }: what
+//             happened, said for a moment over the foot of the panel
 //   drag      show the grips (inside the builder's drag context only)
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -42,6 +44,13 @@ const lowerFirst = s => (s && /^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.sli
  * groupings, values and filters.
  */
 export function actionsFor(node, spec, mode = null) {
+  // What a tapped row opens into (a summary's): asked for by its own shelves only.
+  if (mode === 'drill') {
+    return spec.kind !== 'list' && node.uses.group ? [{ key: 'drill', label: 'Break down by', act: { type: 'drill', node, ref: { field: node.path } } }] : []
+  }
+  if (mode === 'drillrows') {
+    return spec.kind !== 'list' && node.uses.column ? [{ key: 'drillrow', label: 'Show as a column', act: { type: 'drillrow', node } }] : []
+  }
   const want = k => !mode || mode === k
   const out = []
   if (spec.kind === 'list') {
@@ -59,8 +68,10 @@ export function actionsFor(node, spec, mode = null) {
   return out
 }
 
-/** The paths a report already uses, for the ticks. */
-export function usedPaths(spec) {
+/** The paths a report already uses, for the ticks: on the shelf asked for, when it is one of the drill-down ones. */
+export function usedPaths(spec, mode = null) {
+  if (mode === 'drill') return new Set((spec.drill?.down || []).map(x => x.field))
+  if (mode === 'drillrows') return new Set(spec.drill?.rows || [])
   const out = new Set()
   for (const r of [...spec.rows, ...spec.columns]) out.add(r.field)
   for (const v of spec.values) { if (v.measure) out.add(v.measure); if (v.field) out.add(v.field) }
@@ -135,7 +146,7 @@ export default function DataPanel({ tree, spec, mode = null, onAct, drag = false
   const timer = useRef(null)
   useEffect(() => () => clearTimeout(timer.current), [])
 
-  const used = useMemo(() => usedPaths(spec), [spec])
+  const used = useMemo(() => usedPaths(spec, mode), [spec, mode])
   const found = useMemo(() => (q.trim() ? searchTree(tree, q) : null), [tree, q])
   const list = spec.kind === 'list'
 

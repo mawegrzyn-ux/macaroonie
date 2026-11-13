@@ -12,7 +12,9 @@
 // use), the preview (the report as it runs now, a moment after each change),
 // and Set up (its shelves and the rest). Wide enough, they sit side by side
 // and fields drag from the Data panel onto the shelves; narrower, they are
-// three tabs and fields are added with a tap.
+// three tabs and fields are added with a tap. The preview can be tapped into
+// the way the saved report can (components/reports/drill.jsx), so what a
+// tapped row opens is tried here before it is saved.
 //
 // The builder never writes a definition by hand: every change is an edit in
 // shared/reports/build.js, which gives back a whole checked definition.
@@ -28,13 +30,14 @@ import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { ChevronLeft, Save, CopyPlus, Eye, FileText, PanelLeftClose, PanelLeftOpen, ChevronRight, FileBarChart } from 'lucide-react'
 import {
   dataTree, startReport, paramInputs, setParamDefault, setKind, addRow, addColumn, addValue, addFilter,
-  moveRow, moveColumn, moveValue, roomLeft,
+  moveRow, moveColumn, moveValue, roomLeft, addDrillLevel, moveDrillLevel, setDrillRows,
 } from '@shared/reports/build.js'
 import { normaliseReport, reportProblems, rowId, LIMITS } from '@shared/reports/spec.js'
 import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
 import { useVenues, Modal, Field, PageHeader, inputCls } from '@/components/staff/shared'
 import ResultCard from '@/components/reports/ResultCard'
+import { DrillTrail, DrillWindow, drillBody, drillChoices, stepOf } from '@/components/reports/drill'
 import ParamInputs, { showsInputs } from '@/components/reports/ParamInputs'
 import DataPanel from '@/components/reports/builder/DataPanel'
 import SetUp, { accepts } from '@/components/reports/builder/SetUp'
@@ -71,8 +74,13 @@ const shelfOf = id => {
   if (s.startsWith('row:')) return 'rows'
   if (s.startsWith('col:')) return 'columns'
   if (s.startsWith('val:')) return 'values'
+  if (s.startsWith('drill:')) return 'drill'
+  if (s.startsWith('drillrow:')) return 'drillrows'
   return null
 }
+// The two lists that say what a tapped row opens into.
+const drillShelf = shelf => shelf === 'drill' || shelf === 'drillrows'
+const NO_STEPS = []
 
 // Where a drag is: the entry under the pointer, else the shelf under it,
 // else (the keyboard) whatever is nearest.
@@ -83,7 +91,10 @@ const collide = args => {
   return entries.length ? entries : hits
 }
 
-const SHELF_TITLES = { rows: 'Add a grouping', columns: 'Put a grouping across the top', values: 'Add a value', filters: 'Add a filter' }
+const SHELF_TITLES = {
+  rows: 'Add a grouping', columns: 'Put a grouping across the top', values: 'Add a value', filters: 'Add a filter',
+  drill: 'Break a tapped row down by', drillrows: 'A column of the rows behind a tapped row',
+}
 
 // ── What the report is about ─────────────────────────────────
 
@@ -202,6 +213,21 @@ function Builder({ catalogue, id, from, initial }) {
   const [win, setWin] = useState(null)
   const apply = next => { change(next); setWin(null) }
 
+  // A column for the rows behind a tapped row. With none chosen yet the
+  // usual columns of a list of these are the ones it joins. `overId`: the
+  // entry it was dropped on, whose place it takes.
+  const addDrillRow = (node, overId = null) => {
+    const chosen = spec.drill?.rows || []
+    const base = chosen.length ? chosen : subject?.list || []
+    if (base.includes(node.path)) return { ok: false, text: chosen.length ? 'It is one of the columns already' : 'It is one of the usual columns already' }
+    if (base.length >= LIMITS.drill_rows) return { ok: false, text: 'The rows take ' + LIMITS.drill_rows + ' columns at most' }
+    const next = [...base]
+    const to = overId?.startsWith('drillrow:') ? base.indexOf(overId.slice(9)) : -1
+    next.splice(to === -1 ? next.length : to, 0, node.path)
+    change(setDrillRows(spec, next))
+    return { ok: true, text: 'The rows behind a tapped row now show it' }
+  }
+
   // What a tap in the Data panel does; what it says back, the panel says for a moment.
   const act = a => {
     const node = a.node
@@ -229,6 +255,16 @@ function Builder({ catalogue, id, from, initial }) {
       change(next)
       return { ok: true, text: 'Added as a value' }
     }
+    if (a.type === 'drill') {
+      const next = addDrillLevel(spec, a.ref)
+      if (next === spec) {
+        const there = (spec.drill?.down || []).some(x => rowId(x) === rowId(a.ref))
+        return { ok: false, text: there ? 'A tapped row can be broken down by it already' : 'A row can be broken down by ' + LIMITS.drill_down + ' fields at most' }
+      }
+      change(next)
+      return { ok: true, text: 'A tapped row can now be broken down by it' }
+    }
+    if (a.type === 'drillrow') return addDrillRow(node)
     if (a.type === 'filter') {
       if (node.uses.filter === 'venues') {
         if (spec.filters.some(f => f.field === node.path)) return { ok: false, text: 'The report already asks which venues' }
@@ -256,7 +292,26 @@ function Builder({ catalogue, id, from, initial }) {
     if (!accepts(node, shelf, spec)) {
       say(shelf === 'values' ? (list ? 'A list has no values: make it a summary to add things up' : node.full + ' can\'t be added up')
         : shelf === 'filters' ? node.full + ' can\'t be filtered by'
-          : list ? node.full + ' can\'t be a column of a list' : node.full + ' can\'t be grouped by: it is a figure, so add it as a value')
+          : shelf === 'drill' ? 'A row can\'t be broken down by ' + node.full + ': it is a figure'
+            : shelf === 'drillrows' ? node.full + ' can\'t be a column of the rows behind a row'
+              : list ? node.full + ' can\'t be a column of a list' : node.full + ' can\'t be grouped by: it is a figure, so add it as a value')
+      return
+    }
+    if (shelf === 'drill') {
+      const ref = { field: node.path }
+      let next = addDrillLevel(spec, ref)
+      if (next === spec) { const r = act({ type: 'drill', node, ref }); if (r && !r.ok) say(r.text); return }
+      if (overId.startsWith('drill:')) {
+        const to = next.drill.down.findIndex(x => 'drill:' + rowId(x) === overId)
+        const at = next.drill.down.findIndex(x => rowId(x) === rowId(ref))
+        if (to !== -1 && at !== -1) next = moveDrillLevel(next, at, to)
+      }
+      change(next)
+      return
+    }
+    if (shelf === 'drillrows') {
+      const r = addDrillRow(node, overId)
+      if (!r.ok) say(r.text)
       return
     }
     if (shelf === 'rows' || shelf === 'columns') {
@@ -301,6 +356,28 @@ function Builder({ catalogue, id, from, initial }) {
       return
     }
     const home = shelfOf(a)
+    if (home === target && drillShelf(home)) {
+      if (a === o || o.startsWith('shelf:')) return
+      if (home === 'drill') {
+        const ids = (spec.drill?.down || []).map(x => 'drill:' + rowId(x))
+        change(moveDrillLevel(spec, ids.indexOf(a), ids.indexOf(o)))
+        return
+      }
+      const paths = [...(spec.drill?.rows || [])]
+      const at = paths.indexOf(a.slice(9))
+      const to = paths.indexOf(o.slice(9))
+      if (at === -1 || to === -1) return
+      paths.splice(to, 0, ...paths.splice(at, 1))
+      change(setDrillRows(spec, paths))
+      return
+    }
+    // What a tapped row opens into is its own two lists: nothing moves between them and the report.
+    if (drillShelf(home) || drillShelf(target)) {
+      say(drillShelf(home) && drillShelf(target) ? 'Those are two lists. Add the field to the other one with its own Add button'
+        : drillShelf(home) ? 'That list is for tapped rows. To use the field in the report itself, add it from the Data panel'
+          : 'To set what a tapped row opens into, add a field there from the Data panel')
+      return
+    }
     if (home === target) {
       if (a === o || o.startsWith('shelf:')) return
       const ids = home === 'rows' ? spec.rows.map(r => 'row:' + rowId(r)) : home === 'columns' ? spec.columns.map(r => 'col:' + rowId(r)) : spec.values.map(v => 'val:' + v.key)
@@ -335,10 +412,18 @@ function Builder({ catalogue, id, from, initial }) {
     return () => clearTimeout(t)
   }, [spec])
   const liveOk = useMemo(() => !reportProblems(live).length, [live])
+  // The preview can be tapped into like the saved report. Where it has been
+  // tapped to belongs to the definition it was tapped in: any change to the
+  // report starts again from the report itself.
+  const [drillAt, setDrillAt] = useState({ for: null, steps: NO_STEPS })
+  const steps = drillAt.for === live ? drillAt.steps : NO_STEPS
+  const drill = useMemo(() => drillBody(steps), [steps])
+  const [tappedAt, setTappedAt] = useState(null)       // a row waiting for what to open it into
+  const tapped = tappedAt?.for === live ? tappedAt.target : null
   const fresh = useRef(false)
   const previewQ = useQuery({
-    queryKey: ['report-preview', live],
-    queryFn: () => api.post('/reports/preview', { spec: live, rows: PREVIEW_ROWS, ...(fresh.current ? { fresh: true } : {}) }),
+    queryKey: ['report-preview', live, drill],
+    queryFn: () => api.post('/reports/preview', { spec: live, rows: PREVIEW_ROWS, ...(drill.length ? { drill } : {}), ...(fresh.current ? { fresh: true } : {}) }),
     enabled: liveOk,
     placeholderData: keepPreviousData,
     retry: false,
@@ -352,6 +437,15 @@ function Builder({ catalogue, id, from, initial }) {
     fresh.current = true
     previewQ.refetch().finally(() => { fresh.current = false })
   }
+  // One thing a row can open into: a tap goes there. More: the window asks.
+  const openInto = (target, choice) => { setDrillAt({ for: live, steps: [...steps, stepOf(target, choice)] }); setTappedAt(null) }
+  const onTap = target => {
+    if (!target) return
+    const choices = drillChoices(result)
+    if (choices.length === 1) openInto(target, choices[0])
+    else if (choices.length) setTappedAt({ for: live, target })
+  }
+  const backToStep = n => { setDrillAt({ for: live, steps: steps.slice(0, n) }); setTappedAt(null) }
 
   const inputs = useMemo(() => paramInputs(catalogue, spec), [catalogue, spec])
   const starts = Object.fromEntries(spec.params.map(p => [p.key, p.default]))
@@ -439,12 +533,19 @@ function Builder({ catalogue, id, from, initial }) {
         </div>
       )}
 
-      {!problems.length && previewQ.error && !previewQ.isFetching && <Problems error={previewQ.error} title="This report can't be shown" />}
+      {steps.length > 0 && (
+        <div data-testid="builder-drilled">
+          <p className="text-[11px] text-muted-foreground mb-1.5">What a tapped row opens. All goes back to the report; so does any change to it.</p>
+          <DrillTrail steps={steps} onGo={backToStep} />
+        </div>
+      )}
+
+      {!problems.length && previewQ.error && !previewQ.isFetching && <Problems error={previewQ.error} title={steps.length ? 'That can\'t be shown' : 'This report can\'t be shown'} />}
 
       {!problems.length && !result && previewQ.isFetching && <p className="text-sm text-muted-foreground" data-testid="report-loading">Working it out…</p>}
 
       {result && !(previewQ.error && !previewQ.isFetching) && (
-        <ResultCard result={result} fetching={previewQ.isFetching} stale={waiting || problems.length > 0} onRefresh={problems.length ? null : refresh}
+        <ResultCard result={result} fetching={previewQ.isFetching} stale={waiting || problems.length > 0} onRefresh={problems.length ? null : refresh} onTap={onTap}
           more={'The saved report shows up to 5,000, and its file has them all.'} />
       )}
     </div>
@@ -554,6 +655,10 @@ function Builder({ catalogue, id, from, initial }) {
       {said && (
         <p className="absolute left-1/2 -translate-x-1/2 bottom-4 touch:max-[700px]:bottom-[4.5rem] z-40 max-w-[min(32rem,calc(100%-2rem))] rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 shadow-lg pointer-events-none"
           role="status" data-testid="builder-said">{said}</p>
+      )}
+
+      {tapped && result && !waiting && !problems.length && (
+        <DrillWindow result={result} target={tapped} onPick={choice => openInto(tapped, choice)} onClose={() => setTappedAt(null)} />
       )}
 
       {adding && (

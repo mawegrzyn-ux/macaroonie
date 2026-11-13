@@ -14,6 +14,7 @@ import {
   roomLeft, addRow, addColumn, removeRow, removeColumn, moveRow, moveColumn, updateRow,
   addValue, updateValue, removeValue, moveValue, valueReaders, addFilter, setFilter, removeFilter, setParamDefault,
   setSort, setLimit, limitOf, setTotals, setCompare, compareProblem, setKind, startReport, sortChoices,
+  drillRoom, addDrillLevel, removeDrillLevel, moveDrillLevel, updateDrillLevel, setDrillRows, drillLevels,
 } from '../reports/build.js'
 
 const f = (key, label, type, more = {}) => [key, { key, label, type, ...more }]
@@ -663,4 +664,101 @@ test('a summary as a list and a list as a summary', () => {
   // Something with no usual columns keeps what it was grouped by.
   const bare = { subjects: { ...CAT.subjects, checks: { ...CAT.subjects.checks, list: [] } } }
   assert.deepEqual(setKind(addRow(startReport(bare, 'checks'), 'status'), 'list', bare).rows, [{ field: 'date' }, { field: 'status' }])
+})
+
+test('what a tapped row opens into: the fields to break it down by and the columns of its rows', () => {
+  const s = base()
+  assert.equal(s.drill, null, 'a new report offers its rows with their usual columns and nothing to break down by')
+  assert.equal(drillRoom(s), LIMITS.drill_down)
+  assert.deepEqual(drillLevels(s), [])
+
+  // A level is any field the report could be grouped by; a day or a time with how its days are grouped.
+  let d = addDrillLevel(s, 'server.name')
+  assert.deepEqual(d.drill, { down: [{ field: 'server.name' }], rows: [] })
+  assert.equal(addDrillLevel(d, 'server.name'), d, 'the same level twice is added once')
+  assert.equal(addDrillLevel(d, { field: 'server.name' }), d)
+  d = addDrillLevel(d, { field: 'opened_at', bucket: 'hour' })
+  d = addDrillLevel(d, { field: 'date', bucket: 'day' })
+  assert.deepEqual(d.drill.down, [{ field: 'server.name' }, { field: 'opened_at', bucket: 'hour' }, { field: 'date' }], 'by day is the field as it is')
+  assert.equal(addDrillLevel(d, 'date'), d)
+  assert.equal(addDrillLevel(d, ''), d)
+  assert.equal(addDrillLevel(d, {}), d)
+  assert.equal(drillRoom(d), LIMITS.drill_down - 3)
+  assert.deepEqual(reportProblems(d), [])
+  // The same day another way is another level.
+  assert.deepEqual(addDrillLevel(d, { field: 'date', bucket: 'week' }).drill.down.map(rowId), ['server.name', 'opened_at:hour', 'date', 'date:week'])
+
+  // The ones a tap can lead to: not what the report is grouped by already (down the side or across the top).
+  assert.deepEqual(drillLevels(d).map(rowId), ['server.name', 'opened_at:hour'], 'the report is by day already')
+  assert.deepEqual(drillLevels(addColumn(d, 'server.name')).map(rowId), ['opened_at:hour'])
+  assert.deepEqual(drillLevels(removeRow(d, 'date')).map(rowId), ['server.name', 'opened_at:hour', 'date'])
+
+  // Into another order, grouped another way, taken off.
+  assert.deepEqual(moveDrillLevel(d, 2, 0).drill.down.map(rowId), ['date', 'server.name', 'opened_at:hour'])
+  assert.equal(moveDrillLevel(d, 1, 1), d)
+  assert.equal(moveDrillLevel(d, 0, 7), d)
+  assert.equal(moveDrillLevel(d, -1, 0), d)
+  const weekly = updateDrillLevel(d, 'date', { bucket: 'week' })
+  assert.deepEqual(weekly.drill.down.map(rowId), ['server.name', 'opened_at:hour', 'date:week'], 'in its own place')
+  assert.deepEqual(updateDrillLevel(weekly, 'date:week', { bucket: 'day' }).drill.down, d.drill.down)
+  assert.equal(updateDrillLevel(d, 'date', { bucket: 'day' }), d, 'nothing changes')
+  assert.equal(updateDrillLevel(d, 'date', {}), d)
+  assert.equal(updateDrillLevel(d, 'nothing', { bucket: 'week' }), d)
+  const both = addDrillLevel(d, { field: 'date', bucket: 'week' })
+  assert.equal(updateDrillLevel(both, 'date', { bucket: 'week' }), both, 'not onto a level that is there already')
+  assert.deepEqual(removeDrillLevel(d, 'opened_at:hour').drill.down.map(rowId), ['server.name', 'date'])
+  assert.equal(removeDrillLevel(d, 'opened_at'), d)
+  assert.equal(removeDrillLevel(removeDrillLevel(removeDrillLevel(d, 'server.name'), 'opened_at:hour'), 'date').drill, null, 'with nothing left there is nothing to keep')
+
+  // Eight levels at most.
+  let full = s
+  for (const p of ['number', 'status', 'covers', 'order_no', 'net', 'share', 'paid', 'tab_name', 'server.name']) full = addDrillLevel(full, p)
+  assert.equal(full.drill.down.length, LIMITS.drill_down)
+  assert.equal(drillRoom(full), 0)
+  assert.equal(addDrillLevel(full, 'server.name'), full)
+
+  // The columns of the rows behind a row: in the order given, once each; none is the usual ones.
+  let r = setDrillRows(d, ['number', 'server.name', 'number', '', null, 'net'])
+  assert.deepEqual(r.drill, { down: d.drill.down, rows: ['number', 'server.name', 'net'] })
+  assert.equal(setDrillRows(r, ['number', 'server.name', 'net']), r)
+  assert.equal(setDrillRows(r, ['number', 'server.name', 'net', 'number']), r, 'the same columns with one named twice is no change')
+  assert.deepEqual(setDrillRows(r, ['net', 'number', 'server.name']).drill.rows, ['net', 'number', 'server.name'])
+  assert.deepEqual(setDrillRows(r, []).drill, { down: d.drill.down, rows: [] })
+  assert.equal(setDrillRows(d, []), d)
+  assert.equal(setDrillRows(d, 'number'), d, 'a list of paths, or nothing')
+  assert.deepEqual(setDrillRows(s, ['number']).drill, { down: [], rows: ['number'] })
+  assert.equal(setDrillRows(setDrillRows(s, ['number']), []).drill, null)
+  assert.equal(setDrillRows(s, Array.from({ length: 40 }, (_, i) => 'f' + i)).drill.rows.length, LIMITS.drill_rows)
+  assert.deepEqual(reportProblems(r), [])
+
+  // Changing the levels leaves the columns alone, and the other way round.
+  assert.deepEqual(removeDrillLevel(r, 'date').drill.rows, ['number', 'server.name', 'net'])
+  assert.deepEqual(addDrillLevel(r, 'status').drill.rows, ['number', 'server.name', 'net'])
+
+  // What a row opens in the app (set elsewhere) stays through every one of these edits.
+  const opens = normaliseReport({ ...r, drill: { ...r.drill, open: 'self' } })
+  assert.equal(opens.drill.open, 'self')
+  for (const next of [addDrillLevel(opens, 'status'), removeDrillLevel(opens, 'date'), moveDrillLevel(opens, 0, 1), updateDrillLevel(opens, 'date', { bucket: 'week' }), setDrillRows(opens, ['net'])]) {
+    assert.notEqual(next, opens)
+    assert.equal(next.drill.open, 'self')
+  }
+
+  // A list is its own rows: it keeps what the summary had, so switching back finds it.
+  const list = setKind(r, 'list', CAT)
+  assert.deepEqual(list.drill, r.drill)
+  assert.deepEqual(setKind(list, 'summary', CAT).drill, r.drill)
+  // The rest of the report is as it was after each edit.
+  for (const next of [d, weekly, r, full]) assert.deepEqual([next.rows, next.values, next.filters, next.params], [s.rows, s.values, s.filters, s.params])
+})
+
+test('a filter on what the figures count is said in words and asks for nothing', () => {
+  const counted = normaliseReport({ ...setKind(base(), 'list', CAT), filters: [...base().filters, { counted: ['net_sales', 'checks'] }] })
+  assert.deepEqual(counted.filters.at(-1), { counted: ['net_sales', 'checks'] })
+  assert.deepEqual(filterParts(CAT, 'checks', counted.filters.at(-1)), { label: '', rest: 'Counts towards Net sales, Checks', sep: '' })
+  assert.equal(filterWords(CAT, 'checks', { counted: ['net_sales', 'checks', 'average_check', 'typical'] }), 'Counts towards Net sales, Checks, Average check and 1 more')
+  assert.equal(filterWords(CAT, 'checks', { counted: ['gone'] }), 'Counts towards gone', 'a figure the catalogue no longer has is named as it was written')
+  // It isn't about a field: nothing to type in, no parameter of its own, and the ones the report has stay.
+  assert.deepEqual(usedParams(counted), usedParams(base()))
+  assert.deepEqual(paramInputs(CAT, counted).map(i => i.key), paramInputs(CAT, base()).map(i => i.key))
+  assert.deepEqual(removeFilter(counted, counted.filters.length - 1).filters, base().filters)
 })

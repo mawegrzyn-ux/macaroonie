@@ -9,6 +9,11 @@
 // usual choices, and nothing is saved. Changing the report itself is the
 // builder's job: Edit opens it on a report the person may change, Customise
 // starts a new report from a copy of any other.
+//
+// A row of a summary can be opened up (components/reports/drill.jsx): into
+// the same figures by another field, or into the rows behind it. The steps
+// taken are kept here for the visit, shown as a trail, and sent with every
+// run and file, so what is downloaded is what is on screen.
 
 import { useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -21,6 +26,7 @@ import { usePermission } from '@/hooks/usePermission'
 import { useVenues, Modal, Field, inputCls } from '@/components/staff/shared'
 import ResultCard from '@/components/reports/ResultCard'
 import ParamInputs, { showsInputs } from '@/components/reports/ParamInputs'
+import { DrillTrail, DrillWindow, drillBody, drillChoices, stepOf } from '@/components/reports/drill'
 import { StarButton, Problems, retryUnlessRefused, reportPath, editPath, customisePath } from '@/components/reports/shared'
 import { cn } from '@/lib/utils'
 
@@ -161,10 +167,14 @@ export default function ReportView() {
 
   // Only what the person changed here; anything else is the report's own.
   const [given, setGiven] = useState({})
+  // Where the person has drilled to: each step a tap on the result of the ones before.
+  const [steps, setSteps] = useState([])
+  const [tapped, setTapped] = useState(null)   // a row waiting for what to open it into
+  const drill = useMemo(() => drillBody(steps), [steps])
   const fresh = useRef(false)
   const runQ = useQuery({
-    queryKey: ['report-run', id, given],
-    queryFn: () => api.post('/reports/' + ref + '/run', { params: given, ...(fresh.current ? { fresh: true } : {}) }),
+    queryKey: ['report-run', id, given, drill],
+    queryFn: () => api.post('/reports/' + ref + '/run', { params: given, ...(drill.length ? { drill } : {}), ...(fresh.current ? { fresh: true } : {}) }),
     enabled: !!report?.runs,
     placeholderData: keepPreviousData,
     retry: false,
@@ -177,11 +187,21 @@ export default function ReportView() {
     runQ.refetch().finally(() => { fresh.current = false })
   }
 
+  // One thing a row can open into: a tap goes there. More: the window asks.
+  const openInto = (target, choice) => { setSteps(list => [...list, stepOf(target, choice)]); setTapped(null) }
+  const onTap = target => {
+    if (!target) return
+    const choices = drillChoices(result)
+    if (choices.length === 1) openInto(target, choices[0])
+    else if (choices.length) setTapped(target)
+  }
+  const backTo = n => { setSteps(list => list.slice(0, n)); setTapped(null) }
+
   const [file, setFile] = useState({ busy: null, error: null })
   const download = async format => {
     setFile({ busy: format, error: null })
     try {
-      await api.postDownload('/reports/' + ref + '/export', { format, params: given }, 'report.' + format)
+      await api.postDownload('/reports/' + ref + '/export', { format, params: given, ...(drill.length ? { drill } : {}) }, 'report.' + format)
       setFile({ busy: null, error: null })
     } catch (error) {
       setFile({ busy: null, error })
@@ -319,12 +339,14 @@ export default function ReportView() {
                     </div>
                   )}
 
-                  <Problems error={runQ.error} title="This report can't be shown" />
+                  <DrillTrail steps={steps} onGo={backTo} />
+
+                  <Problems error={runQ.error} title={steps.length ? 'That can\'t be shown' : 'This report can\'t be shown'} />
 
                   {runQ.isLoading && !result && <p className="text-sm text-muted-foreground" data-testid="report-loading">Working it out…</p>}
 
                   {result && !runQ.error && (
-                    <ResultCard result={result} fetching={runQ.isFetching} stale={runQ.isPlaceholderData} onRefresh={refresh}
+                    <ResultCard result={result} fetching={runQ.isFetching} stale={runQ.isPlaceholderData} onRefresh={refresh} onTap={onTap}
                       more={canUse ? 'Download the file for all of them.' : 'Pick a shorter period to see fewer.'} />
                   )}
                 </>
@@ -333,6 +355,10 @@ export default function ReportView() {
           )}
         </div>
       </div>
+
+      {tapped && result && !runQ.isPlaceholderData && (
+        <DrillWindow result={result} target={tapped} onPick={choice => openInto(tapped, choice)} onClose={() => setTapped(null)} />
+      )}
 
       {win === 'more' && report && (
         <Modal title={report.name} onClose={closeWin}>
