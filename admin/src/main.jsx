@@ -60,6 +60,7 @@ const Help = React.lazy(() => import('@/pages/Help'))
 // Reports: opened by some roles only, so kept out of the main bundle too.
 const Reports = React.lazy(() => import('@/pages/Reports'))
 const ReportView = React.lazy(() => import('@/pages/ReportView'))
+const ReportBuilder = React.lazy(() => import('@/pages/ReportBuilder'))
 const LoadingPage = () => <div className="p-6 text-sm text-muted-foreground">Loading…</div>
 import Settings    from '@/pages/Settings'
 import Website     from '@/pages/Website'
@@ -242,7 +243,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route index          element={<Dashboard />} />
                 <Route path="dashboards" element={<Dashboards />} />
                 <Route path="reports"     element={<React.Suspense fallback={<LoadingPage />}><Reports /></React.Suspense>} />
+                <Route path="reports/new" element={<React.Suspense fallback={<LoadingPage />}><ReportBuilder /></React.Suspense>} />
                 <Route path="reports/:id" element={<React.Suspense fallback={<LoadingPage />}><ReportView /></React.Suspense>} />
+                <Route path="reports/:id/edit" element={<React.Suspense fallback={<LoadingPage />}><ReportBuilder /></React.Suspense>} />
                 <Route path="today"      element={<OpsToday />} />
                 <Route path="local-info" element={<LocalInfo />} />
                 <Route path="timeline" element={<Timeline />} />

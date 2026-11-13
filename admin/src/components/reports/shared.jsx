@@ -17,6 +17,34 @@ export const retryUnlessRefused = (count, error) => count < 1 && !(error?.status
 /** A report's page. A starter's id has a colon in it ("starter:till_sales_by_day"). */
 export const reportPath = id => '/reports/' + encodeURIComponent(id)
 
+/** The builder open on a saved report. */
+export const editPath = id => '/reports/' + encodeURIComponent(id) + '/edit'
+
+/** The builder starting from a copy of a report (a starter, or one the person can't change). */
+export const customisePath = id => '/reports/new?from=' + encodeURIComponent(id)
+
+/** The API's reasons for a refusal: a list (a definition's problems) or one line. */
+export function reasons(error) {
+  if (!error) return []
+  const list = error.body?.problems
+  if (Array.isArray(list) && list.length) return list.map(String)
+  return [error.message || 'That didn\'t work. Try again.']
+}
+
+/** A refusal as a red box: a title, then the reasons. */
+export function Problems({ error, title, className }) {
+  const lines = reasons(error)
+  if (!lines.length) return null
+  return (
+    <div className={cn('rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800', className)} role="alert" data-testid="report-problems">
+      {title && <p className="font-medium">{title}</p>}
+      <ul className={cn(lines.length > 1 && 'list-disc pl-5', title && 'mt-1')}>
+        {lines.map((l, i) => <li key={i}>{l}</li>)}
+      </ul>
+    </div>
+  )
+}
+
 /** Star or unstar a report, shown at once and put right if the API says no. */
 export function useStar() {
   const api = useApi()

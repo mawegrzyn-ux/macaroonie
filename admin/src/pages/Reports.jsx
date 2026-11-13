@@ -2,7 +2,8 @@
 //
 // Reports (/reports): every report the person can open. Their starred ones
 // first, then their own, the team's, and the starter reports that come with
-// Macaroonie, by area. A report opens in the viewer (/reports/:id).
+// Macaroonie, by area. A report opens in the viewer (/reports/:id); New
+// report (with Use on Reports) opens the builder (/reports/new).
 //
 // A starter the person's role can't run (it reports on an area they have no
 // access to) is listed dimmed with what it needs, so they know it exists.
@@ -10,7 +11,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { FileBarChart, Search, Lock, X } from 'lucide-react'
+import { FileBarChart, Search, Lock, X, Plus } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { PageHeader, inputCls, ErrorNote } from '@/components/staff/shared'
 import { StarButton, reportPath, retryUnlessRefused } from '@/components/reports/shared'
@@ -69,12 +70,14 @@ function Section({ title, items, areaNames, testId }) {
 }
 
 // The starter reports, an area at a time.
-function Starters({ items, areas, areaNames }) {
+function Starters({ items, areas, areaNames, canUse }) {
   if (!items.length) return null
   return (
     <section data-testid="reports-starters">
       <h2 className="text-sm font-semibold">Starter reports <span className="font-normal text-muted-foreground">({items.length})</span></h2>
-      <p className="text-xs text-muted-foreground mt-0.5">They come with Macaroonie and stay as they are. Pick the period and the venues when you open one.</p>
+      <p className="text-xs text-muted-foreground mt-0.5">
+        They come with Macaroonie and stay as they are. Pick the period and the venues when you open one{canUse ? '; to change one, open it and choose Customise: that makes a report of your own.' : '.'}
+      </p>
       <div className="mt-3 space-y-5">
         {areas.filter(a => items.some(r => r.area === a.key)).map(a => (
           <div key={a.key} data-testid="reports-starter-area" data-area={a.key}>
@@ -113,7 +116,14 @@ export default function Reports() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden" data-testid="reports-page">
-      <PageHeader icon={FileBarChart} title="Reports" />
+      <PageHeader icon={FileBarChart} title="Reports">
+        {data?.can_use && (
+          <Link to="/reports/new" data-testid="reports-new"
+            className="inline-flex items-center gap-2 h-12 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation shrink-0">
+            <Plus className="w-4 h-4" /> New report
+          </Link>
+        )}
+      </PageHeader>
       <div className="flex-1 overflow-y-auto">
         <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
           <div className="space-y-3">
@@ -149,7 +159,7 @@ export default function Reports() {
               <Section testId="reports-starred" title="Starred" items={starred} areaNames={areaNames} />
               <Section testId="reports-mine" title="Your reports" items={saved.filter(r => r.mine)} areaNames={areaNames} />
               <Section testId="reports-team" title="From your team" items={saved.filter(r => !r.mine)} areaNames={areaNames} />
-              <Starters items={starters} areas={areas} areaNames={areaNames} />
+              <Starters items={starters} areas={areas} areaNames={areaNames} canUse={!!data.can_use} />
               {none && (
                 <p className="text-sm text-muted-foreground" data-testid="reports-none">
                   No report matches{q ? ' “' + q + '”' : ''}{area ? ' in ' + areaNames[area] : ''}.

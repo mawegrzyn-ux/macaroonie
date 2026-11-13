@@ -8124,7 +8124,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H2>Reports (report builder)</H2>
             <P>
               Migration 243. The plan is <Mono>docs/REPORTS.md</Mono>; this section is what is built so far: its
-              groundwork and the engine with a first viewer (till sales, online orders and bookings). One engine
+              groundwork, the engine with a viewer, and the builder (till sales, online orders and bookings). One engine
               serves every way of making a report: a report is a JSON definition, checked by one shared function,
               looked up in a data catalogue kept in code, turned into SQL by the server and run as the person
               looking at it, inside their tenant, read only. Nobody writes SQL and no report holds any.
@@ -8185,8 +8185,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               venue&apos;s wall time). <Mono>index.js</Mono> puts the subjects together and checks them when the API
               starts (a link to nothing, a template naming a link the subject lacks: the start fails, never a
               report): <Mono>CATALOGUE</Mono>, <Mono>AREAS</Mono>, <Mono>catalogueView(levels)</Mono> (what the
-              browser gets: labels, types and links, no SQL, only what the role may see),{' '}
-              <Mono>canReportOn()</Mono>, <Mono>canSee()</Mono>, <Mono>listColumns()</Mono>.
+              browser gets: labels, types and links, no SQL, only what the role may see; a subject says{' '}
+              <Mono>base</Mono> when the role may start a report from it, the others being there to look things
+              up, a server&apos;s name on a check; a measure says <Mono>across</Mono> when it can also be a figure
+              of a report about something that has several of these rows),{' '}
+              <Mono>canReportOn()</Mono>, <Mono>canSee()</Mono>, <Mono>listColumns()</Mono>,{' '}
+              <Mono>worksAcross()</Mono> / <Mono>ACROSS_AGGS</Mono> (a total, a count, a smallest or a largest, or
+              a ratio of two of those: the one list both <Mono>across</Mono> and the engine&apos;s refusal come
+              from).
             </P>
             <DataTable
               head={['Area (module)', 'Subjects']}
@@ -8239,7 +8245,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               things is right at every level); a matrix adds the column groupings. A figure through a{' '}
               <Mono>one</Mono> link may only be how many different, smallest or largest (a sum would count the
               check once per line); through a <Mono>many</Mono> link it is added up per base row in a LATERAL
-              subquery first. A list column the role can&apos;t see is left out with a note; grouping, filtering or
+              subquery first (a total, a count, a smallest or a largest only: <Mono>ACROSS_AGGS</Mono>). A
+              condition takes a statement parameter only on the path that uses it, since Postgres refuses a
+              statement with a parameter nothing reads. A list column the role can&apos;t see is left out with a note; grouping, filtering or
               sorting by one is refused (403). <Mono>run.js</Mono>: <Mono>runReport(ctx, spec, params, opts)</Mono>{' '}
               runs the plan through <Mono>withReport()</Mono> (<Mono>config/db.js</Mono>: the report builder&apos;s own
               pool <Mono>reportSql</Mono>, <Mono>REPORT_POOL_SIZE</Mono> 4, a REPEATABLE READ READ ONLY transaction
@@ -8332,28 +8340,151 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               on an area the role can&apos;t see is still listed, with <Mono>runs: false</Mono> and what it needs.
             </P>
 
+            <H3>The builder</H3>
+            <P>
+              13 Nov 2026, no migration (<Mono>docs/REPORTS.md</Mono> 9). <Mono>shared/reports/build.js</Mono> is the
+              builder&apos;s one set of rules, for the admin now and Pepper later. It knows the catalogue only as{' '}
+              <Mono>catalogueView()</Mono> gives it, and every edit returns a whole definition that has been through{' '}
+              <Mono>normaliseReport()</Mono>, or the very same object when nothing changes (so <Mono>===</Mono> says
+              &quot;it is in the report already&quot;). <Mono>pathUses(catalogue, subject, path)</Mono> says what a
+              field, figure or link can be in a report about a subject:
+            </P>
+            <DataTable
+              head={['Path', 'What it can be']}
+              rows={[
+                ['A measure of the subject itself', 'A value. Through a "one" link it isn\'t offered: each figure would count once for every one of the report\'s rows.'],
+                ['A field of the subject, or of something each row has one of (server.name)', 'A grouping (group, with buckets for a date or a moment) and a list column; a filter by value (not a time of day or an id). As a value: a number\'s smallest and largest, its total (own rows only, and only a field that adds) and its average (own rows only); anything else as how many different.'],
+                ['A "one" link itself (a check\'s server)', 'How many different; the link to venue is also the venues filter (filter: \'venues\').'],
+                ['Through a "many" link (a customer\'s bookings), straight off the subject and through no second list', 'Only what adds up for each row first: a measure the catalogue marks across, or the total, smallest or largest of a number field that adds. No grouping, column or filter.'],
+              ]}
+            />
+            <P>
+              <Mono>dataTree(catalogue, subject, {'{ depth: 2 }'})</Mono> is the Data panel (figures, fields, a folder
+              per link, two links deep; lists of rows only straight off the subject, and only when something in
+              them adds up; never round in a circle, never the same thing twice (a line&apos;s check&apos;s venue is the
+              line&apos;s own venue), and a link to another row of the same kind offered once, straight off the
+              subject), with <Mono>treeNodes()</Mono> and <Mono>searchTree()</Mono> (every word must be found;
+              names that start with the first word, then names that hold every word, then matches in a folder&apos;s
+              name or in what a thing is about). The edits: <Mono>startReport()</Mono>,{' '}
+              <Mono>setKind()</Mono>, <Mono>addRow()</Mono> / <Mono>addColumn()</Mono> / <Mono>removeRow()</Mono> /{' '}
+              <Mono>removeColumn()</Mono> / <Mono>moveRow()</Mono> / <Mono>moveColumn()</Mono> /{' '}
+              <Mono>updateRow()</Mono> (heading, bucket, rows to columns and back, a subtotal),{' '}
+              <Mono>addValue()</Mono> / <Mono>updateValue()</Mono> / <Mono>removeValue()</Mono> /{' '}
+              <Mono>moveValue()</Mono> / <Mono>valueReaders()</Mono> (the calculations that read a value),{' '}
+              <Mono>addFilter()</Mono> / <Mono>setFilter()</Mono> (<Mono>ask</Mono> makes a parameter,{' '}
+              <Mono>venues</Mono> the venues one) / <Mono>removeFilter()</Mono> (a parameter nothing asks for goes
+              with it), <Mono>setParamDefault()</Mono>, <Mono>setSort()</Mono>, <Mono>setLimit()</Mono> /{' '}
+              <Mono>limitOf()</Mono>, <Mono>setTotals()</Mono>, <Mono>setCompare()</Mono> /{' '}
+              <Mono>compareProblem()</Mono>, <Mono>roomLeft()</Mono>, <Mono>sortChoices()</Mono>. Because every edit
+              normalises, parts that no longer fit go by themselves: a top few with its last grouping or its last
+              shown value, a subtotal with its grouping, the comparison when something goes across the top. The
+              words: <Mono>rowName()</Mono>, <Mono>valueName()</Mono>, <Mono>valueKindText()</Mono>,{' '}
+              <Mono>filterParts()</Mono> / <Mono>filterWords()</Mono>, <Mono>paramWords()</Mono>,{' '}
+              <Mono>linkTrail()</Mono>. A filter&apos;s value: <Mono>filterOps(type, bucket)</Mono>,{' '}
+              <Mono>filterShape(op)</Mono> (none | one | two | many | period), <Mono>filterValueKind()</Mono>,{' '}
+              <Mono>filterValueOk()</Mono>, <Mono>blankValue()</Mono> (the one rule for &quot;nothing picked&quot;),{' '}
+              <Mono>shownNumber()</Mono> / <Mono>storedNumber()</Mono> (a percentage is typed as per cent, a
+              duration in minutes). What a report asks for: <Mono>usedParams()</Mono>,{' '}
+              <Mono>paramInputs(catalogue, spec)</Mono> (each with the subject its field belongs to: a condition
+              inside a <Mono>has</Mono> filter is a path from the linked rows), <Mono>paramKeyFor()</Mono>.
+            </P>
+            <P>
+              <Mono>api/test/reports-build.test.mjs</Mono> keeps the builder and the engine together: for every
+              subject it runs every grouping, column, value and way of filtering the Data panel offers, and checks
+              that what the builder leaves out is refused by the engine. Its first run found the engine fault fixed
+              here: a date or moment filtered by is empty / isn&apos;t empty took the time zone as a statement
+              parameter and then didn&apos;t use it, which Postgres refuses; <Mono>conditionSql()</Mono> now looks
+              at the operator first.
+            </P>
+            <P>
+              <Mono>pages/ReportBuilder.jsx</Mono> (its own chunk): <Mono>/reports/new</Mono> is{' '}
+              <Mono>SubjectPicker</Mono> (subjects with <Mono>base</Mono>, by area),{' '}
+              <Mono>/reports/new?subject=&lt;key&gt;</Mono> a new report, <Mono>/reports/new?from=&lt;id&gt;</Mono>{' '}
+              a copy of a starter or of a report the person can&apos;t change (a starter&apos;s key is kept as{' '}
+              <Mono>starter_key</Mono>), <Mono>/reports/:id/edit</Mono> a saved report (someone who may not change
+              it gets a copy instead; with View on Reports the builder&apos;s addresses lead back to Reports, or
+              from a report&apos;s edit address to the report). <Mono>Builder</Mono> lays the
+              three parts side by side from 860 px of the page&apos;s own room (<Mono>useWidth()</Mono>,{' '}
+              <Mono>WIDE</Mono>; the Data panel open to begin with from <Mono>ROOMY</Mono> 1000), else as three
+              tabs. One <Mono>DndContext</Mono> (pointer distance 6, touch delay 180, keyboard;{' '}
+              <Mono>collide()</Mono>: the entry under the pointer, else the shelf): fields drag from the Data panel
+              only side by side; entries drag into order within Rows, Across the top and Values, and between Rows
+              and Across the top, at any width.{' '}
+              <Mono>act()</Mono> answers a tap in the Data panel with <Mono>{'{ ok, text }'}</Mono>,{' '}
+              <Mono>dropNode()</Mono> / <Mono>onDragEnd()</Mono> a drop, <Mono>switchKind()</Mono> keeps what a
+              summary and a list each had while the page is open (<Mono>stash</Mono>). The preview is{' '}
+              <Mono>POST /reports/preview</Mono> with 200 rows, 600 ms after the last change, the result before
+              kept dimmed meanwhile; the choices above it change the parameters&apos; defaults. <Mono>save()</Mono>{' '}
+              is <Mono>PUT /reports/:id</Mono>, or <Mono>POST /reports</Mono> for a new report and for Save as
+              (<Mono>SaveAsWindow</Mono>); Save waits for a name and for a definition with no problems. Back and
+              View ask before leaving with changes not saved, and <Mono>beforeunload</Mono> covers closing the
+              tab. Messages said for a moment (<Mono>say()</Mono>, the Data panel&apos;s own) are overlays, so
+              nothing moves under a drag.
+            </P>
+            <DataTable
+              head={['File (components/reports/)', 'What is in it']}
+              rows={[
+                ['builder/DataPanel.jsx', 'The Data panel: search, Figures / the subject\'s fields / Linked folders, actionsFor(node, spec, mode) (what a tap offers; one choice acts at once), usedPaths() (ticked when in the report), grips with useDraggable. mode = a shelf\'s Add window.'],
+                ['builder/SetUp.jsx', 'Kind of report, Rows / Columns, Across the top, Values + Calculation, Filters, Sort (three levels), Show (every row, top, bottom, everything else), Totals, Compare with. accepts(node, shelf, spec) says whether a dragged field may land on a shelf; Shelf / Entry (sortable); WordsBox and CountBox keep what is typed while they have the focus.'],
+                ['builder/Windows.jsx', 'RowWindow (heading, bucket, subtotal, across the top, take off), ValueWindow (heading, format, decimals, Only for calculations, a calculation checked by calcProblem()), FilterWindow (operator, value, Ask each time, the values found in the data through /reports/preview).'],
+                ['ValueInput.jsx', 'A filter\'s value by kind (filterValueKind(): text, choice, number, yes / no, day, day of the week, hour, period) and shape (one, two or many values). NumberBox sends NaN for something typed that isn\'t a number.'],
+                ['ParamInputs.jsx', 'The choices a report asks for: the viewer\'s (for the visit) and the builder\'s (what it starts with). showsInputs().'],
+                ['ResultCard.jsx, shared.jsx', 'The result\'s bar, notes and table, one drawing for the viewer and the preview; Problems (a refusal with its reasons), reasons(), editPath(), customisePath().'],
+              ]}
+            />
+            <P>
+              Test ids: <Mono>report-builder</Mono> (<Mono>data-layout</Mono> wide | tabs, <Mono>data-dirty</Mono>),{' '}
+              <Mono>builder-name</Mono>, <Mono>builder-save</Mono>, <Mono>builder-save-note</Mono>,{' '}
+              <Mono>builder-save-as</Mono>, <Mono>builder-view</Mono>, <Mono>builder-leave</Mono>,{' '}
+              <Mono>builder-tab-data|setup|preview</Mono>, <Mono>builder-preview</Mono> (<Mono>data-waiting</Mono>),{' '}
+              <Mono>builder-problems</Mono>, <Mono>builder-starts</Mono>, <Mono>builder-said</Mono>;{' '}
+              <Mono>data-panel</Mono>, <Mono>data-search</Mono>, <Mono>data-node</Mono>, <Mono>data-node-button</Mono>,{' '}
+              <Mono>data-action</Mono>, <Mono>data-grip</Mono>, <Mono>data-said</Mono>;{' '}
+              <Mono>shelf-rows|columns|values|filters</Mono>, <Mono>shelf-entry</Mono>, <Mono>shelf-open</Mono>,{' '}
+              <Mono>shelf-remove</Mono>, <Mono>shelf-grip</Mono>, <Mono>shelf-add-&lt;shelf&gt;</Mono>,{' '}
+              <Mono>shelf-add-calc</Mono>, <Mono>setup-kind</Mono>, <Mono>setup-sort</Mono>, <Mono>setup-limit</Mono>,{' '}
+              <Mono>setup-totals</Mono>, <Mono>setup-compare</Mono>; <Mono>row-apply</Mono>, <Mono>value-apply</Mono>,{' '}
+              <Mono>filter-apply</Mono>; in the viewer <Mono>report-edit</Mono>, <Mono>report-customise</Mono>,{' '}
+              <Mono>report-more</Mono>, <Mono>more-copy</Mono>, <Mono>more-rename</Mono>, <Mono>more-share</Mono>,{' '}
+              <Mono>more-delete</Mono>, <Mono>report-choices</Mono>, <Mono>value-choice-button</Mono>.
+            </P>
+
             <H3>Admin pages</H3>
             <P>
               <Mono>pages/Reports.jsx</Mono> (<Mono>/reports</Mono>, Home menu after Dashboards: search, area
-              buttons, Starred / Your reports / From your team / Starter reports by area, stars) and{' '}
-              <Mono>pages/ReportView.jsx</Mono> (<Mono>/reports/:id</Mono>: the period and venues for this visit
-              only, the result, notes, Refresh, CSV and Excel with Use, Delete for a saved report). Components in{' '}
-              <Mono>components/reports/</Mono>: <Mono>ResultTable</Mono> (one drawing for list, summary and matrix;
-              sticky headings, first column and totals), <Mono>PeriodPicker</Mono> (named periods and two dates
-              from <Mono>shared/reports/period.js</Mono>), <Mono>VenuesPicker</Mono>, <Mono>shared.jsx</Mono>{' '}
-              (<Mono>StarButton</Mono>, <Mono>reportPath()</Mono>, <Mono>retryUnlessRefused</Mono>: the pages&apos;
-              queries don&apos;t try a refusal again, so no access or no such report shows at once). Someone with
-              Manage sees other people&apos;s private reports under From your team, marked Not shared. Both pages
-              load as their own chunks.
+              buttons, Starred / Your reports / From your team / Starter reports by area, stars, New report with
+              Use) and <Mono>pages/ReportView.jsx</Mono> (<Mono>/reports/:id</Mono>: the period, venues and any
+              other choice the report asks for, for this visit only, through <Mono>ParamInputs</Mono>; the
+              result, notes, Refresh; CSV and Excel with Use, for the choices showing; Edit for a report the
+              person may change, else Customise with Use; More: Make a copy (<Mono>POST /:id/copy</Mono>, then
+              the copy opens), Name and details (<Mono>RenameWindow</Mono>, a <Mono>PUT</Mono> of the name and
+              description), Share (<Mono>ShareWindow</Mono>, <Mono>PATCH /:id/sharing</Mono>, with Manage) and
+              Delete, which asks first). Components in <Mono>components/reports/</Mono>:{' '}
+              <Mono>ResultTable</Mono> (one drawing for list, summary and matrix; sticky headings, first column
+              and totals), <Mono>ResultCard</Mono>, <Mono>PeriodPicker</Mono> (named periods and two dates from{' '}
+              <Mono>shared/reports/period.js</Mono>), <Mono>VenuesPicker</Mono>, <Mono>ParamInputs</Mono>,{' '}
+              <Mono>ValueInput</Mono>, <Mono>shared.jsx</Mono> (<Mono>StarButton</Mono>, <Mono>reportPath()</Mono>,{' '}
+              <Mono>Problems</Mono>, <Mono>retryUnlessRefused</Mono>: the pages&apos; queries don&apos;t try a
+              refusal again, so no access or no such report shows at once). Someone with Manage sees other
+              people&apos;s private reports under From your team, marked Not shared. The three pages load as
+              their own chunks. <Mono>admin/tailwind.config.js</Mono> has a <Mono>touch:</Mono> variant
+              (<Mono>:root[data-touch] &amp;</Mono>) beside <Mono>notouch:</Mono>; the builder uses it to keep
+              its messages clear of the floating Mobile view button on a phone.
             </P>
 
             <InfoBox>
-              <strong>Not built yet.</strong> The builder (making and saving a report on screen), charts, drill-down
-              on the page (the routes take <Mono>drill</Mono>), inputs for value parameters, copy / rename / share
-              on the page and the print page come next; then Pepper, the other modules with stored results for
-              rota pay and tips, cash variance and H&amp;S status, layouts and PDFs with schedules and email, and
-              data links. The plan&apos;s private file store moves to the phase that first keeps files. Limits of what
-              is here: a filter naming a parameter the report doesn&apos;t have is dropped by{' '}
+              <strong>Not built yet.</strong> Charts, drill-down on the page (the routes take <Mono>drill</Mono>)
+              with its settings in the builder, and the print page come next; then Pepper, the other modules with
+              stored results for rota pay and tips, cash variance and H&amp;S status, layouts and PDFs with
+              schedules and email, and data links. The plan&apos;s private file store moves to the phase that
+              first keeps files. Limits of the builder: no undo; filters made of several parts (<Mono>any</Mono>,{' '}
+              <Mono>all</Mono>, <Mono>has</Mono>) are said in words and can be taken off, never made or edited on
+              screen; tags aren&apos;t edited; the Data panel walks two links deep (a deeper path a starter uses
+              still shows and runs); a top or bottom few ranks by a value that is shown; the question before
+              leaving covers the builder&apos;s own Back and View and closing the tab, not the app&apos;s menu or
+              the browser&apos;s Back; sharing needs Manage; Save as never carries a starter&apos;s key; the
+              values a text filter offers are the 60 most common in the report&apos;s period. Limits of the
+              engine: a filter naming a parameter the report doesn&apos;t have is dropped by{' '}
               <Mono>normaliseReport()</Mono> without a word; everything else shows only when the definition gives{' '}
               <Mono>limit.rest_as</Mono>; grouping by a link itself isn&apos;t offered; the kept results are per API
               process (another process reads again), while the two running slots are database locks shared by

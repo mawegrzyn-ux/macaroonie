@@ -2035,8 +2035,8 @@ export default function Help() {
               <strong>Reports</strong> (main menu, under Dashboards) answers questions about your own
               figures: till sales, online orders and table bookings to begin with, with the other areas
               to follow. It comes with 28 starter reports, such as Sales by day, Payments by tender, Top
-              dishes online and No-shows and cancellations. A report always runs as the person looking at
-              it, so it only ever shows what your role is allowed to see.
+              dishes online and No-shows and cancellations, and you can build your own. A report always
+              runs as the person looking at it, so it only ever shows what your role is allowed to see.
             </P>
             <H3>Finding a report</H3>
             <P>
@@ -2046,7 +2046,8 @@ export default function Help() {
               to search names and descriptions, or tap an area button to see just that area. The star on a
               report keeps it at the top for you only. A starter shown faded with <strong>Needs Online
               orders</strong> (or another area) is one your role can't run; an owner or admin can give
-              access on the Access page.
+              access on the Access page. <strong>New report</strong> (top right, with Use or Manage on
+              Reports) starts one of your own.
             </P>
             <H3>Opening a report</H3>
             <P>
@@ -2055,7 +2056,13 @@ export default function Help() {
               28 or 90 days (or any number of days up to yesterday), the days coming up (for bookings and
               orders ahead), or two dates of your own. A named period moves on with the calendar; your own
               dates stay as picked. With more than one venue, tap <strong>Venues</strong> for every venue
-              or just the ones you tick. What you change here lasts for this visit only:{' '}
+              or just the ones you tick.
+            </P>
+            <P>
+              A report can ask for more than its period and venues, for example which server or which
+              order types. Each such choice is a button beside Period that says what is picked. Tap it
+              to pick something else and press <strong>Show</strong>, or <strong>Show everything</strong>{' '}
+              to leave nothing out. What you change here lasts for this visit only:{' '}
               <strong>Back to the report's usual choices</strong> puts it back, and the report itself
               stays as it was.
             </P>
@@ -2096,12 +2103,12 @@ export default function Help() {
             <H3>Downloading a file</H3>
             <P>
               <strong>CSV</strong> and <strong>Excel</strong> (top right, with Use or Manage on Reports)
-              download the report for the period and venues showing. A list comes in full, not just the
-              rows on the page. Numbers stay numbers: money in pounds, percentages as percent, lengths of
-              time in seconds, with the unit in the heading (Net sales (GBP), No-show rate (%)). The
-              Excel file has an About sheet saying which report it is, the period, the venues, who made it
-              and when. A CSV list holds up to 250,000 rows and an Excel file up to 200,000 cells; a file
-              that was cut short says so.
+              download the report for the period, venues and other choices showing. A list comes in
+              full, not just the rows on the page. Numbers stay numbers: money in pounds, percentages as
+              percent, lengths of time in seconds, with the unit in the heading (Net sales (GBP), No-show
+              rate (%)). The Excel file has an About sheet saying which report it is, the period, the
+              venues, who made it and when. A CSV list holds up to 250,000 rows and an Excel file up to
+              200,000 cells; a file that was cut short says so.
             </P>
             <H3>The starter reports</H3>
             <DataTable
@@ -2113,25 +2120,114 @@ export default function Help() {
               ]}
             />
             <P>
-              Starter reports come with Macaroonie and stay as they are. Each needs access to its own
+              Starter reports come with Macaroonie and stay as they are; <strong>Customise</strong> on
+              one makes a report of your own that starts the same way. Each needs access to its own
               area as well as to Reports: Till reports for till sales, Online orders for online orders,
               Bookings for bookings.
             </P>
-            <H3>Who can open and download reports</H3>
+            <H3>Building a report of your own</H3>
+            <P>
+              With Use or Manage on Reports, tap <strong>New report</strong> on the Reports page and
+              pick what the report is about: checks, dishes sold, payments, online orders, bookings and
+              so on. Each report counts one kind of thing, and what belongs to it (its venue, its
+              server, its dishes) can be used in the report too. Only the areas your role can see are
+              offered. To begin with a report that is close to what you want instead, open it and tap{' '}
+              <strong>Customise</strong>.
+            </P>
+            <P>
+              The builder has three parts. <strong>Data</strong> lists everything that can go in the
+              report: Figures (ready-made sums such as Net sales), the fields of the thing itself, and
+              under Linked the things it belongs to, each opening to its own fields.{' '}
+              <strong>Set up</strong> is the report: what its rows are, what is added up, which rows
+              count. <strong>Preview</strong> shows the report as it stands (the first 200 rows), and
+              redraws a moment after every change. On a wide screen the three sit side by side; on a
+              tablet held upright or a phone they are three tabs.
+            </P>
+            <P>
+              Tap a field in Data and choose what it should be: <strong>Group by</strong>,{' '}
+              <strong>Across the top</strong>, <strong>Add as a value</strong> (a figure as it is; a
+              number as its Total, Average, Smallest or Largest; anything else as How many different)
+              or <strong>Filter</strong>. In a list the choice is <strong>Add as a column</strong>.
+              Side by side you can also drag a field by its grip onto Rows, Across the top, Values or
+              Filters. A field already in the report is ticked, one marked{' '}
+              <strong>Personal details</strong> holds a guest's name, email or phone, and{' '}
+              <strong>Find a field</strong> searches the whole list. The builder only offers what will
+              work: a field that can't be added up isn't offered as a total.
+            </P>
+            <H3>Rows, values and filters</H3>
+            <DataTable
+              head={['In Set up', 'What it does']}
+              rows={[
+                ['Kind of report', 'Summary: figures added up, by whatever you group them by. List: one row for each check, order or booking, with the columns you pick. Switching keeps what the other kind had while the builder is open.'],
+                ['Rows', 'What each row is: a day, a dish, a server. Several groupings nest (dish within section). Tap one to change its heading, group its days by day, week, month, quarter, year or day of the week (a time also by hour), put a subtotal after each, move it across the top or take it off. Drag by the grip to change the order. In a list this is Columns, left to right.'],
+                ['Across the top', 'Each grouping here becomes a set of columns, to compare side by side (sales by dish down the side and by hour across). Two at most.'],
+                ['Values', 'What is added up in each row. Tap one for its heading, how it is shown (as it comes, a number, money, a percentage, time taken) and its decimal places.'],
+                ['Calculation', 'A value worked out from the report\'s other values, written with their short names and + - * / and brackets. total(x) is x for the whole report, so net_sales / total(net_sales) is each row\'s share. Tap a value to put its name in. A value needed only for a calculation can be marked Only for calculations, so it isn\'t a column.'],
+                ['Filters', 'Which rows count: a server, an order type, checks over an amount, a period. Each filter is either fixed, or ticked Ask each time the report is opened, which makes it a choice at the top of the report that whoever opens it can change. For text the window offers the values found in your data to tap.'],
+                ['Sort', 'By a grouping or a value, low to high or high to low, three levels at most.'],
+                ['Show', 'Every row, or only the top or bottom few by one of the values (the top 10 dishes), with an optional row for everything else.'],
+                ['Totals', 'A total row at the bottom. A subtotal after each group is set from the grouping itself.'],
+                ['Compare with', 'The period before, or the same dates last year: each value gets the earlier period beside it and the change.'],
+              ]}
+            />
+            <P>
+              When something is missing the preview says <strong>Not ready to show yet</strong> and why.
+              Above the preview, the report's choices (its period, venues and anything it asks each
+              time) set what it starts with; whoever opens it can pick something else. A report takes
+              up to 8 groupings (30 columns in a list), 2 across the top, 20 values, 30 filters and 12
+              choices.
+            </P>
+            <H3>Saving and changing a report</H3>
+            <P>
+              Type a name at the top (and, under <strong>Details</strong>, what the report is for) and
+              press <strong>Save</strong>. Nothing is kept until you do: the line under the buttons says{' '}
+              <strong>Not saved yet</strong>, <strong>Changes not saved</strong> or{' '}
+              <strong>Nothing to save</strong>, and Back asks before leaving with changes not saved.{' '}
+              <strong>Save as</strong> keeps the report as it was and saves what you see as a new one
+              under another name. <strong>View</strong> opens the saved report. Each person can keep up
+              to 300 reports.
+            </P>
+            <P>
+              On a report of your own, <strong>Edit</strong> (top right of the report) opens it in the
+              builder. On a starter or a report someone else made the button is{' '}
+              <strong>Customise</strong>: it opens the builder on a copy, which becomes your own report
+              when you save it, and the original stays as it is. With Manage on Reports you can edit
+              anyone's report.
+            </P>
+            <H3>Copying, renaming, sharing and deleting a report</H3>
+            <P>
+              The <strong>More</strong> button (three dots, top right of a saved report) has the rest.{' '}
+              <strong>Make a copy</strong> saves a report of your own set up the same way and opens it.{' '}
+              <strong>Name and details</strong> renames it. <strong>Delete this report</strong> asks
+              first (Yes, delete it / Keep it); stars on it go with it.
+            </P>
+            <P>
+              <strong>Share</strong> (with Manage on Reports) sets who else can open it:{' '}
+              <strong>Only me</strong>, <strong>Some roles</strong> (tick them) or{' '}
+              <strong>Everyone</strong> whose role has Reports. <strong>Offer it to the team as a
+              starter report</strong> opens it to everyone with Reports, whatever is picked above, to
+              run and to make their own from; they find it under From your team. Sharing a report
+              shares how it is set up, never the figures: each person who opens it sees only what
+              their own role may see, and a column their role can't see is left out for them.
+            </P>
+            <H3>Who can open, build and share reports</H3>
             <P>
               Reports is its own module on the Access page. <strong>View</strong> opens and runs the
-              starter reports and any report shared with you, and changes the period and venues.{' '}
-              <strong>Use</strong> also downloads files. <strong>Manage</strong> sees every report in the
-              group, including ones other people haven't shared (marked <strong>Not shared</strong> under
-              From your team), and can delete them. To begin with owners and admins have Manage, operators
-              have View and viewers have no access. Guests' names, emails and phone numbers only appear in
-              reports that list them, and a guest's customer record needs Customers access as well.
+              starter reports and any report shared with you, and changes the period, venues and other
+              choices for the visit. <strong>Use</strong> also builds, saves, copies, renames and
+              deletes reports of your own and downloads files. <strong>Manage</strong> also shares
+              reports, sees every report in the group, including ones other people haven't shared
+              (marked <strong>Not shared</strong> under From your team), and can change or delete them.
+              To begin with owners and admins have Manage, operators have View and viewers have no
+              access. Guests' names, emails and phone numbers only appear in reports that list them,
+              and a guest's customer record needs Customers access as well.
             </P>
             <InfoBox>
-              This is the first part of the report builder. Building and saving your own reports on
-              screen, charts, tapping a figure to see the rows behind it, and printing come next, then
-              asking Pepper for a report in your own words. The Till reports page, the Online orders
-              report and the Kitchen report stay where they are.
+              Still to come: charts, tapping a figure to see the rows behind it, and printing; then
+              asking Pepper for a report in your own words. The builder has no undo (leaving without
+              saving goes back to the last save), and filters made of several parts, which a few
+              starter reports use, can be taken off but not changed on screen. The Till reports page,
+              the Online orders report and the Kitchen report stay where they are.
             </InfoBox>
           </section>
 

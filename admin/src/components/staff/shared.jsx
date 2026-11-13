@@ -255,7 +255,7 @@ export function Modal({ title, onClose, children, footer }) {
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-b">
           <h2 className="text-sm font-semibold truncate">{title}</h2>
           <button type="button" onClick={onClose}
-            className="h-11 px-3 rounded-lg text-sm text-muted-foreground hover:bg-muted touch-manipulation">Close</button>
+            className="h-12 min-w-[48px] px-3 rounded-lg text-sm text-muted-foreground hover:bg-muted touch-manipulation shrink-0">Close</button>
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-4">{children}</div>
         {footer && <div className="px-4 py-3 border-t flex flex-wrap gap-2">{footer}</div>}

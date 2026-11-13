@@ -130,12 +130,31 @@ export const canReportOn = (subject, levels) => !subject.hidden && can(levels, s
 /** May the person see this field or follow this link? */
 export const canSee = (def, levels) => can(levels, def.needs)
 
+/** How a figure may be added up when it is worked out for each of another subject's rows first (through a "many" link). */
+export const ACROSS_AGGS = ['sum', 'count', 'min', 'max']
+
+/**
+ * Can a figure be worked out through a list of rows (a customer's bookings,
+ * a check's payments)? A plain one that adds up, or a ratio of two that do.
+ * An average or a "how many different" doesn't: the engine refuses those,
+ * and the builder doesn't offer them.
+ */
+export function worksAcross(subject, m, levels = null) {
+  if (!m.ratio) return ACROSS_AGGS.includes(m.agg)
+  return m.ratio.every(k => {
+    const part = subject.measures[k]
+    return !!part && !part.ratio && ACROSS_AGGS.includes(part.agg) && (!levels || canSee(part, levels))
+  })
+}
+
 /**
  * The catalogue without its SQL, for the builder and for Pepper: each
  * subject with its fields, measures and links by key, and `base` (the
  * person may start a report from it). Fields and links the person's role
  * can't see are left out; subjects they can't report on stay as things to
- * look up (a server's name on a check), with no measures.
+ * look up (a server's name on a check), with no measures. A measure says
+ * `across` when it can also be a figure of a report about something that
+ * has several of these rows.
  */
 export function catalogueView(levels) {
   const subjects = {}
@@ -164,6 +183,7 @@ export function catalogueView(levels) {
           ...(m.about ? { about: m.about } : {}),
           ...(m.decimals != null ? { decimals: m.decimals } : {}),
           ...(m.ratio ? { ratio: true } : { agg: m.agg }),
+          ...(worksAcross(s, m, levels) ? { across: true } : {}),
         }
       }
     }

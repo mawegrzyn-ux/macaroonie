@@ -6,6 +6,38 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-13 — Reports: build your own]
+
+No migration.
+
+**Added**
+- **New report** on the Reports page, for people with Use or Manage on Reports. Say what the report is about (checks, dishes sold, payments, online orders, bookings and the rest: one kind of thing per report) and the builder opens with something to show straight away.
+- **The builder has three parts.** **Data** lists everything the report can use: its figures, its own fields and, in folders, the things each row belongs to (a dish sold has its check, its server, its menu section). **Set up** is the report itself: what each row is, what goes across the top, the values, the filters, the order, a top or bottom few, totals, and a comparison with the period before or the same dates last year. **Preview** shows the report as it now is, a moment after each change. With room they sit side by side and a field drags from Data onto Set up by its grip; on a narrower screen they are three tabs, and tapping a field offers what it can be.
+- **Summary or list.** A summary adds figures up by whatever you group them by: a day, a dish, a server, with days grouped by week, month, quarter, year, day of the week or hour. Put a grouping across the top for a table across, and tap a grouping for a subtotal after each group. A list shows one row for each check, order or booking, with the columns you pick. Switching between the two keeps what each had.
+- **Values.** Rename a value, show it as money, a percentage or a time, and choose its decimal places. A **Calculation** works a value out from the others: `net_sales / total(net_sales)` is each row's share of the whole. Tap a value to put its name into the sum.
+- **Filters.** By what a field says (is, is one of, contains, at least, between, is empty) and, for dates, by a period, a day of the week or an hour. A text field offers the values found in your own data to pick from. **Ask each time the report is opened** turns a filter into a choice for whoever opens the report, starting from what you set, or from everything.
+- **Nothing is saved until you press Save.** The page says when there are changes not saved and asks before you leave with them. **Save as** keeps the report you opened as it was and makes a new one from what is on screen.
+- **Customise** on a starter report, or on a report someone shared with you, opens the builder on a copy that becomes your own. **Edit** opens a report you may change.
+- **More** on a saved report: **Make a copy**, **Name and details**, **Share** and **Delete**. Share (people with Manage on Reports) lets some roles or everyone open a report, or offers it to the team as a starter report. Sharing a report shares how it is set up, never figures: each person sees what their own role may see.
+- **Reports that ask** show a button for each choice above the table. What you pick lasts for the visit, and the CSV and Excel files follow it.
+
+**Changed**
+- **Delete** for a report is under **More** now, and still asks first.
+- The **Close** button of the app's small windows (staff, rota, reports and the other pages that share them) is finger sized.
+
+**Fixed**
+- A filter for a time that **is empty** or **is not empty** (orders never accepted, checks never closed) stopped the report with an error. It works now.
+
+**Notes**
+- The builder only offers what will run: a figure that would be counted twice through a link isn't offered as a total, and the preview says in words what is missing when a report can't be shown yet.
+- A report takes up to 8 groupings (30 columns in a list), 2 across the top, 20 values, 30 filters and 12 choices to ask for. The preview shows the first 200 rows; the saved report shows up to 5,000 and its file has them all. Each person can keep 300 reports.
+- Not in this part: undo (leave without saving to go back to the last save), editing filters made of several parts (the "any of" and "has ... where" filters some starter reports use can be read and taken off), and dragging on a narrow screen (tap instead). The question before leaving covers the builder's own buttons and closing the tab, not the app's main menu.
+- Next: charts, tapping a figure to see the rows behind it, and printing; then asking Pepper for a report in your own words.
+- Built and tested in Chromium at desktop, tablet and phone widths against test data.
+
+---
+
+
 ## [2026-11-13 — Reports: the first part of the report builder]
 
 Migration 243.
