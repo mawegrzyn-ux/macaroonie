@@ -2248,10 +2248,43 @@ export default function Help() {
               area as well as to Reports: Till reports for till sales, Online orders for online orders,
               Bookings for bookings.
             </P>
+            <H3>Asking Pepper to build a report</H3>
+            <P>
+              With Use or Manage on Reports and access to Pepper, the New report page starts with{' '}
+              <strong>Describe it to Pepper</strong>. Say what the report should show in your own words
+              ("net sales by dish last month at Ware, the top 20"), tap one of the examples, or add a
+              photo or PDF of a report you use now (<strong>Add a photo or PDF</strong>, or{' '}
+              <strong>Take a photo</strong> on a tablet or phone: photos up to 5 MB, PDFs up to 10 MB,
+              10 files at most). Then tap <strong>Build it</strong>. Pepper works the report out and
+              runs it on your figures, which can take up to a minute.
+            </P>
+            <P>
+              The answer shows the report with your figures (the first 200 rows), its name and{' '}
+              <strong>What this shows</strong>: the report in one sentence, worked out from how it is
+              set up, so it always says what you see. <strong>What Pepper assumed</strong> lists what
+              it chose for you (a period, a figure) and <strong>What Pepper couldn't do</strong> what
+              it left out and why (a venue it couldn't find, something the reports don't hold yet).
+              When a name could mean more than one thing (a venue or a dish written loosely), Pepper
+              asks, and a tap on a choice changes the report straight away; answering a second
+              question keeps the first answer. When nothing the reports hold can show it (fridge
+              checks, stock), Pepper says so, and <strong>Ask in other words</strong> puts your words
+              back in the box.
+            </P>
+            <P>
+              Then <strong>Save it</strong> (its name and what it is for are filled in for you),{' '}
+              <strong>Change it</strong> (say what to change: "only Fridays", "add guests", "as a line
+              chart"), <strong>Open in the builder</strong> to carry on by hand (Back in the builder
+              comes back to Pepper's answer) or <strong>Start again</strong>. Nothing is saved until you
+              save it; going back and reloading the page keep the answer. Pepper is only shown the
+              names of the figures and fields your role can see, never your figures, and builds only
+              what the builder could have made; the report runs as you. Each build counts towards the
+              group's AI allowance and your daily share of it.
+            </P>
             <H3>Building a report of your own</H3>
             <P>
               With Use or Manage on Reports, tap <strong>New report</strong> on the Reports page and
-              pick what the report is about: checks, dishes sold, payments, online orders, bookings and
+              pick what the report is about (under <strong>Or build it yourself</strong> when Pepper is
+              on): checks, dishes sold, payments, online orders, bookings and
               so on. Each report counts one kind of thing, and what belongs to it (its venue, its
               server, its dishes) can be used in the report too. Only the areas your role can see are
               offered. To begin with a report that is close to what you want instead, open it and tap{' '}
@@ -2356,7 +2389,7 @@ export default function Help() {
               and a guest's customer record needs Customers access as well.
             </P>
             <InfoBox>
-              Still to come: asking Pepper for a report in your own words, and later reports sent by
+              Still to come: asking Pepper about your figures in the chat, and later reports sent by
               email as PDFs on a schedule. The builder has no undo (leaving without
               saving goes back to the last save), and filters made of several parts, which a few
               starter reports use, can be taken off but not changed on screen. The Till reports page,

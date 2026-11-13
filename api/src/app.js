@@ -73,6 +73,7 @@ import themeRoutes           from './routes/themes.js'
 import menuImportRoutes      from './routes/menuImport.js'
 import documentReadRoutes    from './routes/documentRead.js'
 import navAiRoutes           from './routes/navAi.js'
+import reportAiRoutes        from './routes/reportAi.js'
 import opsRoutes             from './routes/ops.js'
 import localInfoRoutes       from './routes/localInfo.js'
 import reportRoutes, { reportPrintRoutes } from './routes/reports.js'
@@ -300,6 +301,7 @@ export async function buildApp() {
   await app.register(menuImportRoutes,   { prefix: '/api/ai/menus' })
   await app.register(documentReadRoutes, { prefix: '/api/ai' })
   await app.register(navAiRoutes, { prefix: '/api/ai' })
+  await app.register(reportAiRoutes, { prefix: '/api/ai/reports' })
   await app.register(opsRoutes,          { prefix: '/api/ops' })
   await app.register(localInfoRoutes,    { prefix: '/api/local-info' })
   await app.register(reportRoutes,       { prefix: '/api/reports' })

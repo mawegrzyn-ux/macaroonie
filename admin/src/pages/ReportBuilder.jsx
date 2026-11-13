@@ -43,6 +43,8 @@ import DataPanel from '@/components/reports/builder/DataPanel'
 import SetUp, { accepts } from '@/components/reports/builder/SetUp'
 import { RowWindow, ValueWindow, FilterWindow } from '@/components/reports/builder/Windows'
 import { Problems, reportPath, editPath, retryUnlessRefused } from '@/components/reports/shared'
+import { DescribeCard, SmartAnswer } from '@/components/reports/SmartBuild'
+import { useAiStatus } from '@/components/ai/ChatView'
 import { cn } from '@/lib/utils'
 
 const WIDE = 860          // the three parts side by side from this much room
@@ -99,9 +101,15 @@ const SHELF_TITLES = {
 // ── What the report is about ─────────────────────────────────
 
 function SubjectPicker({ catalogue }) {
+  const location = useLocation()
+  const { data: ai } = useAiStatus()
   const groups = catalogue.areas
     .map(a => ({ ...a, subjects: Object.values(catalogue.subjects).filter(s => s.base && s.area === a.key) }))
     .filter(g => g.subjects.length)
+  // What Pepper built: kept in this page's history entry (SmartBuild.jsx).
+  const smart = location.state?.smart
+  if (smart && typeof smart === 'object') return <SmartAnswer catalogue={catalogue} smart={smart} />
+  const pepper = !!ai?.can_chat && groups.length > 0
   return (
     <div className="flex flex-col h-full overflow-hidden" data-testid="report-new">
       <PageHeader icon={FileBarChart} title="New report">
@@ -109,8 +117,9 @@ function SubjectPicker({ catalogue }) {
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
         <div className="p-4 sm:p-6 max-w-5xl space-y-6">
+          {pepper && <DescribeCard catalogue={catalogue} />}
           <div>
-            <h2 className="text-base font-semibold">What is the report about?</h2>
+            <h2 className="text-base font-semibold">{pepper ? 'Or build it yourself: what is the report about?' : 'What is the report about?'}</h2>
             <p className="text-sm text-muted-foreground mt-1">
               Each report counts one kind of thing. Pick it here; what belongs to it (its venue, its server, its dishes) can be used in the report too.
             </p>
@@ -502,7 +511,8 @@ function Builder({ catalogue, id, from, initial }) {
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [dirty])
-  const backTo = id ? reportPath(id) : from ? reportPath(from) : '/reports'
+  // A report Pepper built goes back to its answer (the page before), still there.
+  const backTo = id ? reportPath(id) : from ? reportPath(from) : initial.fromSmart ? -1 : '/reports'
 
   // ── The three parts ──
   const dataPart = (
@@ -726,6 +736,9 @@ export default function ReportBuilder() {
   })
   const catalogue = catQ.data
   const report = reportQ.data?.report
+  // A report the smart builder handed over (Open in the builder), not saved yet.
+  const location = useLocation()
+  const draft = !source && subjectKey ? location.state?.draft : null
 
   // What the builder opens on, worked out once for each thing it can open on.
   const initial = useMemo(() => {
@@ -740,9 +753,17 @@ export default function ReportBuilder() {
         starterKey: copy ? (report.starter_key || (report.kind === 'starter' ? String(report.id).replace(/^starter:/, '') : null)) : null,
       }
     }
-    if (subjectKey && catalogue.subjects[subjectKey]?.base) return { name: '', description: '', spec: startReport(catalogue, subjectKey), starterKey: null }
+    if (subjectKey && catalogue.subjects[subjectKey]?.base) {
+      if (draft?.spec?.subject === subjectKey) {
+        return {
+          name: String(draft.name || '').slice(0, LIMITS.name), description: String(draft.description || '').slice(0, 1000),
+          spec: normaliseReport(draft.spec), starterKey: null, fromSmart: true,
+        }
+      }
+      return { name: '', description: '', spec: startReport(catalogue, subjectKey), starterKey: null }
+    }
     return null
-  }, [catalogue, report, source, id, subjectKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [catalogue, report, source, id, subjectKey, draft]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loaded && !canUse) return <Navigate replace to={id ? reportPath(id) : '/reports'} />
   if (catQ.error || reportQ.error) {

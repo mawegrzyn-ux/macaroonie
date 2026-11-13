@@ -7,11 +7,17 @@
 // the usage after, and turns the API's failures into replies the admin can
 // show.
 //
-//   askForJson({ tenantId, person, system, schema, content, maxTokens, effort, what, model })
-//     content: the user message's blocks (images, documents, text)
-//     what:    what is being read, for the messages ("invoice", "receipt")
-//     model:   'main' (AI_MODEL, the default) or 'fast' (AI_MODEL_FAST, for
-//              quick everyday answers such as the menu search)
+//   askForJson({ tenantId, person, system, schema, content, maxTokens, effort, what, model, thinking, words })
+//     system:   the instructions; a list of texts is sent as one block each,
+//               each cached (fixed instructions first, then what changes)
+//     content:  the user message's blocks (images, documents, text)
+//     what:     what is being read, for the messages ("invoice", "receipt")
+//     model:    'main' (AI_MODEL, the default) or 'fast' (AI_MODEL_FAST, for
+//               quick everyday answers such as the menu search)
+//     thinking: true lets the model think first (adaptive thinking)
+//     words:    the messages for a refusal, a request Claude can't take and
+//               an answer too long, when the "read a file" ones don't fit
+//               ({ badRequest, refusal, tooLong })
 //     Returns the parsed answer (an object), or throws an httpError.
 //
 //   pepperOn(tenantId)  throws unless the AI key is set and Pepper is on for
@@ -81,15 +87,20 @@ export async function pepperOn(tenantId) {
   if (!(await getAiSettings(tenantId)).staff_enabled) throw httpError(403, ASSISTANT_NAME + ' is switched off for your group (' + ASSISTANT_NAME + ' > Settings).')
 }
 
-export async function askForJson({ tenantId, person, system, schema, content, maxTokens = 16000, effort = 'medium', what = 'file', model = 'main' }) {
+export async function askForJson({ tenantId, person, system, schema, content, maxTokens = 16000, effort = 'medium', what = 'file', model = 'main', thinking = false, words = {} }) {
   if ((await chatUnitsLeft(tenantId)) <= 0) throw httpError(429, 'This month\'s AI allowance is used up.')
   const mine = person?.sub ? await personUnitsLeft(tenantId, person.sub) : null
   if (mine !== null && mine <= 0) throw httpError(429, 'You\'ve used your share of the AI allowance for today. It starts again tomorrow.')
 
+  const texts = Array.isArray(system) ? system.filter(Boolean) : [system]
+  const blocks = extra => texts.map((text, i) => ({
+    type: 'text', text: i === texts.length - 1 ? text + extra : text, cache_control: { type: 'ephemeral' },
+  }))
   const params = {
     model: model === 'fast' ? (env.AI_MODEL_FAST || env.AI_MODEL) : env.AI_MODEL,
     max_tokens: maxTokens,
-    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+    system: blocks(''),
+    ...(thinking ? { thinking: { type: 'adaptive' } } : {}),
     output_config: { effort, format: { type: 'json_schema', schema } },
     messages: [{ role: 'user', content }],
   }
@@ -98,13 +109,13 @@ export async function askForJson({ tenantId, person, system, schema, content, ma
     res = await callClaude(params)
   } catch (err) {
     if (!(err instanceof Anthropic.BadRequestError) || !/schema|output_config|format/i.test(err.message || '')) {
-      if (err instanceof Anthropic.BadRequestError) throw httpError(422, 'Claude couldn\'t read that ' + what + '. Try a clearer photo (JPEG or PNG) or a PDF.')
+      if (err instanceof Anthropic.BadRequestError) throw httpError(422, words.badRequest || 'Claude couldn\'t read that ' + what + '. Try a clearer photo (JPEG or PNG) or a PDF.')
       throw err
     }
     res = await callClaude({
       ...params,
       output_config: { effort },
-      system: [{ type: 'text', text: system + '\n\nAnswer with one JSON object only, no other text, matching this JSON schema:\n' + JSON.stringify(schema), cache_control: { type: 'ephemeral' } }],
+      system: blocks('\n\nAnswer with one JSON object only, no other text, matching this JSON schema:\n' + JSON.stringify(schema)),
     })
   }
   const u = res.usage || {}
@@ -112,8 +123,8 @@ export async function askForJson({ tenantId, person, system, schema, content, ma
     input: u.input_tokens || 0, output: u.output_tokens || 0, cacheRead: u.cache_read_input_tokens || 0,
     cacheWrite: u.cache_creation_input_tokens || 0, model: res.model, person,
   })
-  if (res.stop_reason === 'refusal') throw httpError(422, ASSISTANT_NAME + ' can\'t read this one. Try another photo or a PDF of the ' + what + '.')
-  if (res.stop_reason === 'max_tokens') throw httpError(422, 'That ' + what + ' is too long to read in one go. Send it a few pages at a time.')
+  if (res.stop_reason === 'refusal') throw httpError(422, words.refusal || ASSISTANT_NAME + ' can\'t read this one. Try another photo or a PDF of the ' + what + '.')
+  if (res.stop_reason === 'max_tokens') throw httpError(422, words.tooLong || 'That ' + what + ' is too long to read in one go. Send it a few pages at a time.')
   const out = jsonIn((res.content || []).filter(b => b.type === 'text').map(b => b.text).join(''))
   if (!out) throw httpError(502, ASSISTANT_NAME + '\'s answer couldn\'t be read. Try again.')
   return out

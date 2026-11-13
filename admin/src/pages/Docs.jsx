@@ -8782,6 +8782,87 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
               files, drilled rows, the check route).
             </P>
 
+            <H3>The smart builder (Pepper builds a report)</H3>
+            <P>
+              <Mono>POST /api/ai/reports/build</Mono> (<Mono>routes/reportAi.js</Mono>, under{' '}
+              <Mono>/api/ai</Mono> for the 5-minute proxy timeout; Reports Use and Pepper view, Pepper switched
+              on, 10 a minute) takes <Mono>{'{ request, previous?: { spec, requests, name }, files?: [{ name, data }] }'}</Mono>{' '}
+              and answers <Mono>{'{ spec, name, about, assumed, couldnt, questions, result, problem }'}</Mono>.
+              Nothing is saved and the run isn&apos;t recorded (a preview isn&apos;t). Files: JPEG, PNG, WebP or GIF
+              photos up to 5 MB and PDFs up to 10 MB, checked from their first bytes by <Mono>detectFile()</Mono>,
+              10 files and 20 MB at most. <Mono>previous</Mono> is a report built before that the request changes
+              (&quot;only Fridays&quot;); its venues go through <Mono>refuseOtherVenues()</Mono>.
+            </P>
+            <P>
+              <Mono>smartBuild()</Mono> in <Mono>api/src/reports/smart.js</Mono>: (1) <Mono>rankSubjects()</Mono>{' '}
+              ranks the subjects the person&apos;s role can build on (<Mono>catalogueView(levels)</Mono>,{' '}
+              <Mono>base</Mono>) by BM25 over their words (labels, figures, fields, links; <Mono>stem()</Mono>{' '}
+              and a few <Mono>SYNONYMS</Mono>), and <Mono>buildSlice()</Mono> lists the best few in full (3 to 8,
+              about 7,000 tokens) and every other one in a line. A subject is an S ref and each figure, field and
+              link of a listed subject an F ref: the model never sees a table or column name and never writes
+              one. (2) One structured call through <Mono>askForJson()</Mono> on the main model with adaptive
+              thinking: the system prompt is two cached blocks (<Mono>SYSTEM</Mono>, then the slice), the answer{' '}
+              <Mono>ANSWER_SCHEMA</Mono> (every property required, empty for unset), the user message today at
+              the venues, the group&apos;s venue names, for a change the report as it is now in refs with its name
+              (<Mono>answerOf()</Mono>) and the requests that made it, then the request. (3){' '}
+              <Mono>toSpec()</Mono> makes the definition only through the builder&apos;s edits in{' '}
+              <Mono>shared/reports/build.js</Mono>, so it can only be what the builder could have made; a ref
+              that doesn&apos;t resolve or fit is left out and said in <Mono>couldnt</Mono>. Venue names are matched
+              among the group&apos;s venues (<Mono>matchNames()</Mono>), names in the data (a dish, a server) among
+              the report&apos;s own rows (<Mono>findNames()</Mono>, 3 lookups of 500 rows at most). (4) The
+              definition goes through <Mono>reportProblems()</Mono> and <Mono>checkedSpec()</Mono>, then{' '}
+              <Mono>runReport()</Mono> as the person (200 rows). An answer that can&apos;t be used goes back once with
+              the reasons (<Mono>retryText()</Mono>), and a subject listed in a line only once listed in full: two
+              calls at most, and a report too slow or too big isn&apos;t asked again. (5){' '}
+              <Mono>describeReport()</Mono> (<Mono>shared/reports/describe.js</Mono>) says what the report shows in
+              one sentence from the definition, never in the model&apos;s words.
+            </P>
+            <P>
+              Questions: several matches for a name become a question whose choices carry changes,{' '}
+              <Mono>{'{ venues: { from, to } }'}</Mono> or <Mono>{'{ filter: { index, from, to } }'}</Mono>, applied by{' '}
+              <Mono>applyChange()</Mono> (<Mono>shared/reports/choices.js</Mono>) to the report as it is then and
+              run through <Mono>POST /api/reports/preview</Mono>, so answers to two questions add up. The
+              model&apos;s own questions (2 at most, 2 to 4 choices) carry no change: the choice goes back to Pepper
+              in words. 3 questions at most, 6 notes each for assumed and couldn&apos;t. <Mono>askForJson()</Mono>{' '}
+              (<Mono>services/aiJson.js</Mono>) gained <Mono>system</Mono> as a list of cached blocks,{' '}
+              <Mono>thinking</Mono> and <Mono>words</Mono> (its messages for a refusal, a request Claude can&apos;t
+              take and an answer too long).
+            </P>
+            <P>
+              Admin: <Mono>components/reports/SmartBuild.jsx</Mono>. <Mono>DescribeCard</Mono> sits above the
+              subjects on <Mono>/reports/new</Mono> when <Mono>useAiStatus().can_chat</Mono> (the box, examples for
+              the areas the role can report on, Add a photo or PDF, Take a photo on a touch screen, Build it with
+              the seconds counting). <Mono>SmartAnswer</Mono> shows the requests, the name, What this shows, what
+              Pepper assumed and couldn&apos;t do, the questions, the result (<Mono>ResultCard</Mono>), Save it
+              (<Mono>SaveWindow</Mono>: name and description filled in, <Mono>POST /api/reports</Mono>, then the
+              report replaces the page), Change it, Open in the builder (<Mono>/reports/new?subject=</Mono> with{' '}
+              <Mono>state.draft</Mono>; the builder&apos;s Back goes back to the answer), Ask in other words and Start
+              again. The answer lives in the page&apos;s own history entry (<Mono>location.state.smart</Mono>, written
+              with <Mono>replace</Mono>): a reload and Back keep it, and saving replaces the page so one answer
+              can&apos;t be saved twice.
+            </P>
+            <P>
+              Checking it against the live model, by hand before a release (every request is a paid call):{' '}
+              <Mono>api/scripts/report-requests.js</Mono> (63 requests the way people type them, each with what a
+              right answer must contain, a few with a change asked afterwards; <Mono>checkAnswer()</Mono>,{' '}
+              <Mono>listProblems()</Mono>) and <Mono>api/scripts/report-smart-check.js</Mono> (<Mono>--tenant</Mono>,{' '}
+              <Mono>--email</Mono>, <Mono>--platform</Mono>, <Mono>--only</Mono>, <Mono>--area</Mono>,{' '}
+              <Mono>--no-changes</Mono>, <Mono>--out</Mono>, <Mono>--list</Mono>: runs them as one person of a group
+              through <Mono>smartBuild()</Mono> and prints each miss, the times and the allowance used). Test ids:{' '}
+              <Mono>smart-describe</Mono>, <Mono>smart-request</Mono>, <Mono>smart-example</Mono>,{' '}
+              <Mono>smart-add-file</Mono>, <Mono>smart-camera</Mono>, <Mono>smart-file</Mono>,{' '}
+              <Mono>smart-build</Mono>, <Mono>smart-building</Mono>, <Mono>smart-error</Mono>,{' '}
+              <Mono>smart-answer</Mono>, <Mono>smart-card</Mono>, <Mono>smart-name</Mono>, <Mono>smart-about</Mono>,{' '}
+              <Mono>smart-assumed</Mono>, <Mono>smart-couldnt</Mono>, <Mono>smart-question</Mono>,{' '}
+              <Mono>smart-choice</Mono> (<Mono>data-kind</Mono> change | words), <Mono>smart-save</Mono>,{' '}
+              <Mono>smart-change-open</Mono>, <Mono>smart-open-builder</Mono>, <Mono>smart-ask-again</Mono>,{' '}
+              <Mono>smart-start-again</Mono>, <Mono>smart-result</Mono>. Tests:{' '}
+              <Mono>shared/test/reportChoices.test.mjs</Mono>, <Mono>reportDescribe.test.mjs</Mono>,{' '}
+              <Mono>api/test/reports-smart.test.mjs</Mono> (a stand-in Claude: refs only, the role&apos;s subjects
+              only, names and questions, the retry, the second ask, a change keeping the name, files, nothing
+              fits, refusals; the request list against the catalogue).
+            </P>
+
             <H3>Admin pages</H3>
             <P>
               <Mono>pages/Reports.jsx</Mono> (<Mono>/reports</Mono>, Home menu after Dashboards: search, area
@@ -8806,8 +8887,8 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
             </P>
 
             <InfoBox>
-              <strong>Not built yet.</strong> Opening the record
-              itself from a row comes next (<Mono>drill.open</Mono> is kept by the definition and used by nothing yet); then Pepper, the other modules with
+              <strong>Not built yet.</strong> Pepper&apos;s report tools in the chat (<Mono>ask_data</Mono> and
+              the rest) come next; then the other modules with
               stored results for rota pay and tips, cash variance and H&amp;S status, layouts and PDFs with
               schedules and email, and data links. The plan&apos;s private file store moves to the phase that
               first keeps files. Limits of the builder: no undo; filters made of several parts (<Mono>any</Mono>,{' '}
@@ -8845,7 +8926,12 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
               file has them all); widths are estimates, so a table that only just fits may go on its side
               or into parts with room to spare; sheets are numbered where the browser supports page margin
               boxes (Chromium does); for its 15 minutes the link opens with no login for anyone who has
-              it, showing what the person who pressed Print could see then.
+              it, showing what the person who pressed Print could see then. Limits of the smart builder:
+              tested only against a stand-in Claude (run <Mono>report-smart-check.js</Mono> against the live
+              model before relying on it); one subject per report, as in the builder; names in the data are
+              looked for among the first 500 values of the report&apos;s period; filters made of several parts,
+              tags, drill settings and what a row opens aren&apos;t set by Pepper (Open in the builder for those);
+              a file is read for what it asks, not checked against your figures.
             </InfoBox>
           </section>
 
