@@ -122,9 +122,11 @@ export function autoCombosFor(check, config) {
  * The offers that apply to a check now (automatic combos, then promotions),
  * as a promotions.set payload: { payload, changed, offers }, or null when
  * the venue has none and the check has none. `add` / `remove` pick or drop
- * a promotion that staff choose (apply mode manual or code).
+ * a promotion that staff choose (apply mode manual or code). `at` (a time,
+ * default now) is when the offers are judged: test sales on a past day
+ * (api/src/services/tillSalesGen.js) take that day's promotions.
  */
-export function checkOffers(check, config, { add = null, remove = null } = {}) {
+export function checkOffers(check, config, { add = null, remove = null, at = null } = {}) {
   const promos = config?.promotions || []
   const combos = autoCombosFor(check, config)
   if (!promos.length && !combos.length && !(check.promotions || []).length) return null
@@ -137,7 +139,7 @@ export function checkOffers(check, config, { add = null, remove = null } = {}) {
   if (remove) kept.delete(remove)
   const chosen = promos.filter(p => p.apply_mode !== 'auto' && kept.has(p.id)).map(p => p.id)
   const result = lines.length && promos.length ? applyPromotions(lines, promos, {
-    at: venueNow(config.venue?.timezone || 'Europe/London'), venueId: config.venue?.id, chosen, unlocked: chosen,
+    at: venueNow(config.venue?.timezone || 'Europe/London', at ? new Date(at) : new Date()), venueId: config.venue?.id, chosen, unlocked: chosen,
   }) : { applied: [], line_discounts: [], offers: [] }
   const weights = result.line_discounts
   const next = [...combos, ...result.applied.map(a => {

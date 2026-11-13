@@ -868,7 +868,7 @@ export default async function posApiRoutes(app) {
       return withTenant(d.tenant_id, tx => tx`
         SELECT id, number, number_code, order_no, mode, table_id, tab_name, covers, server_id, status, opened_at, closed_at, total, paid, refunded, day_id
           FROM pos_checks
-         WHERE tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id} AND status = ${q.status}
+         WHERE tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id} AND status = ${q.status} AND NOT is_generated
          ORDER BY COALESCE(closed_at, opened_at) DESC
          LIMIT ${q.limit}`)
     })
@@ -876,7 +876,8 @@ export default async function posApiRoutes(app) {
     scoped.get('/checks/:id', async req => {
       const d = req.posDevice
       const id = CHECK_ID.parse(req.params.id)
-      const [c] = await withTenant(d.tenant_id, tx => tx`SELECT state FROM pos_checks WHERE id = ${id} AND tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id}`)
+      // Test checks (migration 245) are the admin's only, never a till's.
+      const [c] = await withTenant(d.tenant_id, tx => tx`SELECT state FROM pos_checks WHERE id = ${id} AND tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id} AND NOT is_generated`)
       if (!c) throw httpError(404, 'Check not found')
       return c.state
     })
@@ -900,7 +901,7 @@ export default async function posApiRoutes(app) {
       return withTenant(d.tenant_id, tx => tx`
         SELECT id, business_date::text AS business_date, z_number, opened_at, closed_at, declared_cash, recon_filled_at, recon_error,
                (figures->'sales'->>'total')::int AS total
-          FROM pos_days WHERE tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id}
+          FROM pos_days WHERE tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id} AND NOT is_generated
          ORDER BY opened_at DESC LIMIT 30`)
     })
 

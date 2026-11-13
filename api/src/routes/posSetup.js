@@ -2366,7 +2366,7 @@ export default async function posSetupRoutes(app) {
       await ownVenue(tx, req.tenantId, venueId)
       return tx`
         SELECT d.id, d.business_date::text AS business_date, d.z_number, d.opened_at, d.closed_at, d.declared_cash,
-               d.recon_filled_at, d.recon_error,
+               d.recon_filled_at, d.recon_error, d.is_generated,
                (d.figures->'sales'->>'total')::int AS total,
                (d.figures->>'takings')::int AS takings,
                (d.figures->>'cash_expected')::int AS cash_expected,

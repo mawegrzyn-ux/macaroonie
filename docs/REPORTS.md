@@ -651,6 +651,28 @@ Menu: a Reports entry with its description and search words (the rules migration
 | Browser | The builder, viewer, drill-downs, print page and schedule window at 1280, 1015 and 390 px; view only |
 | Load | A till sales generator on the Test data page (useful by itself), then timings at a year of trading for ten venues |
 
+### 19.1 Load: a year at ten venues (13 Nov 2026)
+
+Measured on the build machine (4 cores, 16 GB, Postgres 16 beside the API), not the live server. Ten venues of one group, each with the test fixtures' menu (a few dishes, a meal deal, options), one till serving tables, staff and roles; 365 past trading days each, about 120 orders a day on average, made through the Test data page's route in 31-day requests. The sales were made before a fix of the same day in how the generator frees tables (a table could take its next party a minute or two before the last one had paid); the fix changes which orders sit at a table and which on a tab, not how many orders a day holds.
+
+| What | Measured |
+|---|---|
+| Making the sales | 120 requests, 438,463 orders in 522 s (840 orders a second, 4 to 5 s a request); nothing refused by the till's rules, nothing left out |
+| Rows | 3,650 trading days, 438,463 checks (2,213 cancelled), 1,081,912 dish lines, 500,197 payments, 432,792 VAT lines, 21,755 discounts, no charges (these venues' charges are set for Drive thru, and their one till serves tables, so every check is Eat in) |
+| Database | 1.8 GB: checks 1.15 GB, dish lines 0.41 GB, payments 0.16 GB; about 4 KB a check with its lines and payments |
+| Starter reports, their own period | Every one under 1 s |
+| Starter reports, the last 365 days | Till summaries up to 1.5 s; by dish and by section 2.9 to 3.7 s (they read every dish line of the year); lists, online and bookings under 0.3 s |
+| Lists of a year | The screen's first 5,000 rows: checks 0.9 s (of 438,463), dish lines 2.0 s (of 1,081,912), payments 0.6 s (of 500,197) |
+| Files of a year | Summaries: CSV up to 3.2 s. Lists: CSV of 250,000 rows (the cut-off, said on its last line) 2.9 s for checks, 5.8 s for dish lines, 3.5 s for payments, 16 to 18 MB; Excel 1.3 to 2.6 s, 6 to 7 MB |
+| Cost estimates | The heaviest statement 185,187 units (by dish, a year), against the guard's 3,000,000 (10 times that for files). About 10 to 20 microseconds a unit on the heavier statements |
+| Refusals | None: no report hit the cost guard or the 20 s limit |
+
+What it says:
+
+- At this size every report is well inside its limits. The heaviest read dish lines: a report by dish over fifty venue-years (a year at fifty venues, or five years at ten) would take about 15 to 20 s on this machine, at the screen's limit.
+- The cost guard refuses only reports far past the time limit, as section 7.2 means it to: at 10 to 20 microseconds a unit, 3,000,000 units is 30 to 60 s of work. A report estimated between about 1 and 3 million units runs until the 20 s limit stops it. Leave the guard where it is until it has been measured on the live machine, which is likely slower than this one.
+- Moving to infrastructure that grows with the business (the database on its own service with a read replica for reports, several API machines) is in the backlog as a planning exercise (CLAUDE.md, Outstanding 42). The steps in 7.2 (indexes per subject, nightly roll-ups, a read replica) come before it is needed for reports.
+
 ## 20. Phases
 
 Each phase ends with something usable. Sizes compare with work already shipped: S is about the menu search, M about order flows on the till, L about loyalty, XL more than loyalty and in several pull requests.
@@ -667,7 +689,7 @@ Each phase ends with something usable. Sizes compare with work already shipped: 
 
 Phases 2, 3 and 4 can go in any order once phase 1 is in. The order above gets AI in front of you soonest, on three areas. Every module first gives the AI the whole catalogue from its first day. Paper and post first gets scheduled emails out soonest.
 
-Each phase ships with its Help and Docs sections, a changelog entry and its tests, as every change does.
+Each phase ships with its Help and Docs sections, a changelog entry and its tests, as every change does. Unit tests, API tests and CI run on every pull request; browser checks per pull request cover the screens it changes; mutation runs and a full browser re-run come once at the end of a phase (or once across phases 2 to 5); small, tightly linked pieces go in one pull request.
 
 ## 21. Risks
 

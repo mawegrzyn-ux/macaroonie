@@ -6,6 +6,21 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-13 — Test till sales on the Test data page]
+
+Migration 245 (`pos_days.is_generated`, `pos_checks.is_generated`).
+
+**Added**
+- **Generate past till sales** (Test data page): fills past days at a venue with till sales, as if its tills and kiosks had taken them, so Till reports and the report builder have something to show before a venue trades. Pick the days (up to about three years back) and how many orders a day on average, Preview, then Generate. A long range goes a few weeks at a time, with a progress line and Stop after these days.
+- The sales are made the way the till makes them: the venue's own menus (the ones on at each hour), prices, options and meal deals, order types and revenue streams with their VAT, the charges matrix, the discounts list and the promotions running on each day; tables with guests and counter orders through the day, busiest at lunch and dinner, more on Fridays, Saturdays and in December; numbered by each till's and kiosk's own range; paid mostly by card, some cash, now and then a voucher, a split bill or a tip; now and then a void, a comp, a discount, an optional charge taken off, a cancelled order or a refund, with a manager's approval where the person's role needs one. Kiosks take about a third of the orders where the venue has them. A party sits at a table big enough for it, and a table takes its next party a few minutes after the last one has paid. A venue with no till yet gets two stand-in tills, T1 at the counter and T2 at tables.
+- **Clear test till sales**: deletes only the days the generator made, for chosen dates or every test day of the venue, after you type DELETE.
+- Till reports marks test days (**Test sales**, no Z number, never sent to Cash Recon).
+
+**Notes**
+- Days with real till sales are never touched, closed days are left out unless you untick the box, and making the same days again replaces the test days made before. "Today" is the trading day open now: between midnight and the time the day starts, yesterday still counts as today, so a till never opens a day on a date with test sales.
+- Test sales aren't on any till, kitchen screen or venue hub and make no kitchen orders, print jobs, loyalty points or card machine payments. The report builder reads them like real sales and can't tell them apart: clear them when you are done.
+- Report builder phase 1 is done with this. Next: asking Pepper for a report in your own words.
+
 ## [2026-11-13 — Reports: open the check, order or booking from a row]
 
 No migration.
