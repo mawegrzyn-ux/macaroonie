@@ -5,7 +5,7 @@ import {
   cleanPath, cleanVenues, LIMITS, SPEC_VERSION, FILTER_OPS, OP_LABELS, OPS_BY_TYPE, AGGS, AGG_LABELS,
   VIEW_KINDS, VIEW_LABELS, REPORT_KINDS, KIND_LABELS,
 } from '../reports/spec.js'
-import { cleanDrill, drillSpec } from '../reports/drill.js'
+import { cleanDrill, drillSpec, countedBy } from '../reports/drill.js'
 import { resolvePath, pathLabel, bucketsFor, bucketType, fieldChoices } from '../reports/paths.js'
 import { VALUE_TYPES } from '../reports/format.js'
 
@@ -352,14 +352,23 @@ test('drilling makes another definition from the report\'s own', () => {
   assert.equal(rows.spec.kind, 'list')
   assert.equal(rows.spec.subject, 'till.lines')
   assert.deepEqual(rows.spec.rows.map(r => r.field), ['check.number', 'name', 'qty'])
-  assert.deepEqual(rows.spec.filters.slice(-2), [{ field: 'section.name', op: 'is', value: 'Mains' }, { field: 'name', op: 'is', value: 'Pad Thai' }])
+  // The report's own filters, then "this row", then "only what its figures count".
   assert.deepEqual(rows.spec.filters.slice(0, 2), spec.filters, 'the report\'s own filters stay')
+  assert.deepEqual(rows.spec.filters.slice(2), [
+    { field: 'section.name', op: 'is', value: 'Mains' }, { field: 'name', op: 'is', value: 'Pad Thai' },
+    { counted: ['qty_sold', 'net_sales'] },
+  ])
   assert.deepEqual(rows.spec.params, spec.params)
+  // A tap on one figure lists the rows that figure counts.
+  const one = drillSpec(spec, { at: [{ field: 'name', value: 'Pad Thai' }], to: 'rows', value: 'qty_sold' })
+  assert.deepEqual(one.spec.filters.slice(-1), [{ counted: ['qty_sold'] }])
+  // A value the report hasn't got is no value: the row as a whole.
+  assert.deepEqual(drillSpec(spec, { at: [], to: 'rows', value: 'nothing' }).spec.filters.slice(-1), [{ counted: ['qty_sold', 'net_sales'] }])
 
   // An empty group is "is empty"; the same grouping twice counts once.
   const empty = drillSpec(spec, { at: [{ field: 'section.name', value: null }, { field: 'section.name', value: 'x' }], to: 'rows' })
-  assert.deepEqual(empty.spec.filters.slice(-1), [{ field: 'section.name', op: 'empty' }])
-  assert.equal(empty.spec.filters.length, spec.filters.length + 1)
+  assert.deepEqual(empty.spec.filters.slice(-2, -1), [{ field: 'section.name', op: 'empty' }])
+  assert.equal(empty.spec.filters.length, spec.filters.length + 2)
 
   // Broken down by a field the report offers.
   const down = drillSpec(spec, { at: [{ field: 'section.name', value: 'Mains' }], to: { field: 'check.server.name' } })
@@ -368,15 +377,23 @@ test('drilling makes another definition from the report\'s own', () => {
   assert.deepEqual(down.spec.values, spec.values)
   assert.deepEqual(down.spec.sort, [{ by: 'net_sales', dir: 'desc' }])
   assert.deepEqual(down.spec.drill.down, [{ field: 'date', bucket: 'day' }], 'the next level keeps what is left')
+  assert.deepEqual(down.spec.drill.rows, ['check.number', 'name', 'qty'], 'and the report\'s own columns for its rows')
+  assert.deepEqual(drillSpec(down.spec, { at: [{ field: 'check.server.name', value: 'Sam' }], to: 'rows' }).spec.rows.map(r => r.field), ['check.number', 'name', 'qty'])
   // And from there by day, holding the server too.
   const day = drillSpec(down.spec, { at: [{ field: 'check.server.name', value: 'Sam' }], to: { field: 'date', bucket: 'day' } })
   assert.deepEqual(day.spec.rows, [{ field: 'date', bucket: 'day' }])
   assert.deepEqual(day.spec.filters.slice(-2), [{ field: 'section.name', op: 'is', value: 'Mains' }, { field: 'check.server.name', op: 'is', value: 'Sam' }])
 
+  // A breakdown is ordered by the report's figures, never by where its rows were:
+  // a report in day order, broken down by day, starts from the usual order.
+  const inDayOrder = normaliseReport({ subject: 'till.lines', rows: [{ field: 'date' }], values: [{ measure: 'net_sales' }], sort: [{ by: 'date', dir: 'desc' }], drill: { down: [{ field: 'date' }, { field: 'name' }] } })
+  assert.deepEqual(inDayOrder.sort, [{ by: 'date', dir: 'desc' }])
+  assert.deepEqual(drillSpec(inDayOrder, { at: [], to: { field: 'date' } }).spec.sort, [])
+
   // A bucket's value is held with its bucket.
   const byWeek = normaliseReport({ subject: 'till.checks', rows: [{ field: 'date', bucket: 'week' }], values: [{ measure: 'checks' }] })
   assert.deepEqual(drillSpec(byWeek, { at: [{ field: 'date', bucket: 'week', value: '2026-11-02' }], to: 'rows' }, { listColumns: ['number', 'total'] }).spec.filters,
-    [{ field: 'date', bucket: 'week', op: 'is', value: '2026-11-02' }])
+    [{ field: 'date', bucket: 'week', op: 'is', value: '2026-11-02' }, { counted: ['checks'] }])
 
   // What a report doesn't offer is refused, in words.
   assert.match(drillSpec(spec, { at: [{ field: 'check.tab_name', value: 'x' }], to: 'rows' }).problem, /isn't grouped by "check.tab_name"/)
@@ -387,4 +404,35 @@ test('drilling makes another definition from the report\'s own', () => {
   assert.equal(cleanDrill(null), null)
   assert.deepEqual(cleanDrill({ at: [{ field: 'a', value: '' }, { field: 'b', value: Infinity }, { field: 'c', value: true }, { value: 1 }], to: 'rows' }),
     { at: [{ field: 'a', value: null }, { field: 'b', value: null }, { field: 'c', value: true }], to: 'rows' })
+  // Which figure was tapped is kept for rows only, and only as a value's key.
+  assert.deepEqual(cleanDrill({ at: [], to: 'rows', value: 'net_sales' }), { at: [], to: 'rows', value: 'net_sales' })
+  assert.deepEqual(cleanDrill({ at: [], to: 'rows', value: 'Net sales; DROP' }), { at: [], to: 'rows' })
+  assert.deepEqual(cleanDrill({ at: [], to: { field: 'name' }, value: 'net_sales' }), { at: [], to: { field: 'name' } })
+})
+
+test('the rows behind a figure are the ones the figure counts', () => {
+  const spec = normaliseReport({
+    subject: 'till.lines', rows: [{ field: 'name' }],
+    values: [
+      { measure: 'qty_sold' }, { measure: 'net_sales', hidden: true }, { measure: 'gross_sales', hidden: true },
+      { calc: 'net_sales / qty_sold', label: 'Each' }, { agg: 'sum', field: 'qty', label: 'Every one' },
+    ],
+  })
+  const key = label => spec.values.find(v => v.label === label).key
+  // One figure: its own measure; a calculation: the figures it reads, hidden or not.
+  assert.deepEqual(countedBy(spec, 'qty_sold'), ['qty_sold'])
+  assert.deepEqual(countedBy(spec, key('Each')), ['net_sales', 'qty_sold'])
+  // A plain total of a field counts every row: nothing is left out.
+  assert.equal(countedBy(spec, key('Every one')), null)
+  // The row as a whole: every figure it shows (a hidden one only through what reads it). One that counts everything decides.
+  assert.equal(countedBy(spec), null)
+  const shown = normaliseReport({ ...spec, values: spec.values.filter(v => v.label !== 'Every one') })
+  assert.deepEqual(countedBy(shown), ['qty_sold', 'net_sales'])
+  // A calculation that can't be read adds nothing (such a report doesn't run); a report with no figures counts everything.
+  assert.deepEqual(countedBy({ values: [{ key: 'a', calc: '((' }, { key: 'b', measure: 'net_sales' }] }), ['net_sales'])
+  assert.equal(countedBy({ values: [] }), null)
+
+  // The definition keeps the filter, tidied: paths only, each once.
+  const kept = normaliseReport({ subject: 'till.lines', rows: [{ field: 'name' }], filters: [{ counted: ['Net_Sales', 'net_sales', 'no good!', 7] }, { counted: [] }] })
+  assert.deepEqual(kept.filters, [{ counted: ['net_sales'] }])
 })

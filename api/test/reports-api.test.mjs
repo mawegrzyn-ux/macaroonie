@@ -352,12 +352,24 @@ test('drilling: someone who may only run a report opens the rows behind a figure
   assert.deepEqual(servers.spec.rows, [{ field: 'server.name' }])
   assert.deepEqual(byKey(servers).map(r => [r['server.name'], r.checks, r.net_sales]).sort(), [[t.boss, 1, 20], [t.lead, 4, 58.8]].sort())
   assert.ok(!servers.spec.drill.down.some(d => d.field === 'server.name'), 'the level used is no longer offered')
+  // Each result says what its own rows open into: the report's levels, less the ones on the way here.
+  const whole = await ok(operator.post(`/api/reports/${day}/run`, { params: { period: today } }))
+  assert.deepEqual(whole.meta.drill, {
+    down: [
+      { field: 'venue.name', label: 'Venue' }, { field: 'server.name', label: 'Server' },
+      { field: 'order_type.name', label: 'Order type' }, { field: 'stream.name', label: 'Revenue stream' },
+    ],
+    rows: true, of: 'Checks',
+  })
+  assert.deepEqual(servers.meta.drill.down.map(d => d.field), ['venue.name', 'order_type.name', 'stream.name'])
+  assert.equal(servers.meta.drill.rows, true)
   // The server's checks that day: A, C, F and G.
   const step2 = { at: [{ field: 'server.name', value: t.lead }], to: 'rows' }
   const rows = await ok(operator.post(`/api/reports/${day}/run`, { params: { period: today }, drill: [step1, step2] }))
   assert.equal(rows.kind, 'list')
   assert.deepEqual(rows.rows.map(r => r.id).sort(), [t.checks.a, t.checks.c, t.checks.f, t.checks.g].sort())
   assert.equal(rows.totals.count, 4)
+  assert.equal(rows.meta.drill, null, 'a list is its own rows')
 
   // Only what the report offers.
   const off = await operator.post(`/api/reports/${day}/run`, { params: { period: today }, drill: [{ at: [], to: { field: 'tab_name' } }] })
@@ -370,10 +382,104 @@ test('drilling: someone who may only run a report opens the rows behind a figure
   assert.equal((await operator.post(`/api/reports/${day}/run`, { drill: Array.from({ length: 11 }, () => step1) })).status, 400)
 
   // The record says where a drill went, never the values it held.
-  const recorded = await runs()
+  const recorded = (await runs()).filter(r => r.params.drill)
   assert.deepEqual(recorded[0].params.drill, [{ to: 'server.name', at: ['date'] }])
   assert.deepEqual(recorded[1].params.drill, [{ to: 'server.name', at: ['date'] }, { to: 'rows', at: ['server.name'] }])
   assert.ok(!JSON.stringify(recorded.map(r => r.params)).includes(t.lead))
+})
+
+test('drilling into one figure: its rows, in a file too, and the record says which figure', async () => {
+  const tenders = 'starter:till_payments_by_tender'
+  await sql`DELETE FROM report_runs WHERE tenant_id = ${ids.a}`
+  const params = { period: today }
+  // Payments beside refunds count different rows, so the result says a figure can be tapped for its own.
+  const whole = await ok(operator.post(`/api/reports/${tenders}/run`, { params }))
+  assert.equal(whole.meta.drill.per_figure, true)
+  assert.equal((await ok(operator.post('/api/reports/starter:till_sales_by_day/run', { params }))).meta.drill.per_figure, undefined)
+  const cash = byKey(whole).find(r => r.tender === 'cash')
+  assert.deepEqual([cash.payments, cash.refunds], [3, 1])
+
+  const at = [{ field: 'tender', value: 'cash' }]
+  const refunds = await ok(operator.post(`/api/reports/${tenders}/run`, { params, drill: [{ at, to: 'rows', value: 'refunds' }] }))
+  assert.equal(refunds.kind, 'list')
+  assert.deepEqual(byKey(refunds).map(r => [r.kind, r.amount, r.reason]), [['refund', 3, 'Cold']])
+  assert.deepEqual(refunds.meta.notes, ['Only the till payments that count towards Refunds are listed'])
+  const payments = await ok(operator.post(`/api/reports/${tenders}/run`, { params, drill: [{ at, to: 'rows', value: 'payments' }] }))
+  assert.deepEqual(byKey(payments).map(r => r.kind), ['payment', 'payment', 'payment'])
+  // The row itself: every payment and refund in cash.
+  const row = await ok(operator.post(`/api/reports/${tenders}/run`, { params, drill: [{ at, to: 'rows' }] }))
+  assert.equal(row.rows.length, 4)
+  assert.deepEqual(row.meta.notes, [])
+  // A figure of a breakdown, two steps in: cash by who took it, then that person's refunds.
+  const byStaff = { at, to: { field: 'staff.name' } }
+  const deep = await ok(operator.post(`/api/reports/${tenders}/run`, { params, drill: [byStaff, { at: [{ field: 'staff.name', value: t.boss }], to: 'rows', value: 'refunds' }] }))
+  assert.deepEqual(byKey(deep).map(r => [r.kind, r.amount]), [['refund', 3]])
+  // What isn't a figure's name is dropped, not refused; a figure only counts for rows.
+  const odd = await ok(operator.post(`/api/reports/${tenders}/run`, { params, drill: [{ at, to: 'rows', value: 'Not A Key' }] }))
+  assert.equal(odd.rows.length, 4)
+  const downWith = await ok(operator.post(`/api/reports/${tenders}/run`, { params, drill: [{ ...byStaff, value: 'refunds' }] }))
+  assert.equal(downWith.kind, 'summary')
+
+  // The record: where each drill went and which figure, never a value it held.
+  const recorded = (await runs()).map(r => r.params.drill).filter(Boolean)
+  assert.deepEqual(recorded, [
+    [{ to: 'rows', at: ['tender'], value: 'refunds' }],
+    [{ to: 'rows', at: ['tender'], value: 'payments' }],
+    [{ to: 'rows', at: ['tender'] }],
+    [{ to: 'staff.name', at: ['tender'] }, { to: 'rows', at: ['staff.name'], value: 'refunds' }],
+    [{ to: 'rows', at: ['tender'] }],
+    [{ to: 'staff.name', at: ['tender'] }],
+  ])
+  assert.ok(!JSON.stringify(recorded).includes('cash') && !JSON.stringify(recorded).includes(t.boss))
+
+  // The same as a file (Use): the drilled list's rows, under the report's own name.
+  const csv = await builder.post(`/api/reports/${tenders}/export`, { format: 'csv', params, drill: [{ at, to: 'rows', value: 'refunds' }] })
+  assert.equal(csv.status, 200, csv.body)
+  assert.match(csv.headers['content-disposition'], /filename="payments-by-tender-/)
+  const lines = parseCsv(csv.body.slice(1))
+  assert.deepEqual(lines[0], ['Trading day', 'Time', 'Check', 'Payment or refund', 'Tender', 'Amount (GBP)', 'Tip (GBP)', 'Taken by', 'Reason'])
+  assert.equal(lines.length, 2)
+  assert.deepEqual([lines[1][3], lines[1][4], lines[1][5], lines[1][8]], ['Refund', 'Cash', '3', 'Cold'])
+  const xlsx = await getApp().then(a => a.inject({
+    method: 'POST', url: `/api/reports/${tenders}/export`,
+    headers: { authorization: 'Bearer test:' + BUILDER, 'x-tenant-id': ids.a, 'content-type': 'application/json' },
+    payload: JSON.stringify({ format: 'xlsx', params, drill: [byStaff] }),
+  }))
+  assert.equal(xlsx.statusCode, 200)
+  const book = XLSX.read(xlsx.rawPayload, { type: 'buffer' })
+  const sheetRows = XLSX.utils.sheet_to_json(book.Sheets.Report, { header: 1 })
+  assert.equal(sheetRows[0][0], 'Taken by', 'cash by who took it')
+  assert.deepEqual(sheetRows.slice(1).map(r => r[0]).sort(), [t.boss, t.lead, 'Total'].sort())
+  assert.equal((await operator.post(`/api/reports/${tenders}/export`, { format: 'csv', params, drill: [{ at, to: 'rows' }] })).status, 403, 'a file needs Use, drilled or not')
+  const refused = await builder.post(`/api/reports/${tenders}/export`, { format: 'csv', params, drill: [{ at: [{ field: 'reason', value: 'x' }], to: 'rows' }] })
+  assert.equal(refused.status, 422)
+})
+
+test('drilling where venues use two currencies: a row says its currency, though the report isn\'t grouped by it', async () => {
+  const [other] = await sql`SELECT id FROM venues WHERE tenant_id = ${ids.a} AND id <> ${t.V} ORDER BY created_at LIMIT 1`
+  await sql`UPDATE venues SET currency = 'EUR' WHERE id = ${other.id}`
+  forgetReportResults()
+  try {
+    const day = 'starter:till_sales_by_day'
+    const params = { period: today }
+    const whole = await ok(operator.post(`/api/reports/${day}/run`, { params, fresh: true }))
+    assert.equal(whole.meta.currency_column, 'venue.currency')
+    assert.deepEqual(whole.rows.filter(r => r.kind === 'row').map(r => r.k), [['GBP', t.date]])
+    const at = [{ field: 'venue.currency', value: 'GBP' }, { field: 'date', value: t.date }]
+    const servers = await ok(operator.post(`/api/reports/${day}/run`, { params, drill: [{ at, to: { field: 'server.name' } }], fresh: true }))
+    assert.deepEqual(byKey(servers).filter(r => r['server.name']).map(r => [r['venue.currency'], r['server.name'], r.checks]).sort(), [['GBP', t.boss, 1], ['GBP', t.lead, 4]].sort())
+    // And from a row of that: the currency again, with the server.
+    const rows = await ok(operator.post(`/api/reports/${day}/run`, {
+      params, fresh: true,
+      drill: [{ at, to: { field: 'server.name' } }, { at: [{ field: 'venue.currency', value: 'GBP' }, { field: 'server.name', value: t.boss }], to: 'rows' }],
+    }))
+    assert.deepEqual(rows.rows.map(r => r.id), [t.checks.b])
+    const euros = await ok(operator.post(`/api/reports/${day}/run`, { params, drill: [{ at: [{ field: 'venue.currency', value: 'EUR' }], to: 'rows' }], fresh: true }))
+    assert.equal(euros.rows.length, 0)
+  } finally {
+    await sql`UPDATE venues SET currency = 'GBP' WHERE id = ${other.id}`
+    forgetReportResults()
+  }
 })
 
 test('a preview runs a definition that isn\'t saved (Use), and isn\'t recorded', async () => {

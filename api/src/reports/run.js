@@ -23,8 +23,9 @@ import { withReport } from '../config/db.js'
 import { env } from '../config/env.js'
 import { normaliseReport, reportProblems, resolveParams, rowId, LIMITS } from '../../../shared/reports/spec.js'
 import { todayIn } from '../../../shared/reports/period.js'
-import { CATALOGUE, CATALOGUE_MODULES } from './catalogue/index.js'
-import { compileReport, ReportError, SCREEN_ROWS } from './compile.js'
+import { drillSpec, countedBy } from '../../../shared/reports/drill.js'
+import { CATALOGUE, CATALOGUE_MODULES, listColumns } from './catalogue/index.js'
+import { compileReport, countedKey, ReportError, SCREEN_ROWS } from './compile.js'
 import { shapeList, summaryShaper, matrixShaper } from './shape.js'
 
 const SCREEN_MS = 20000
@@ -88,9 +89,15 @@ const hasMoney = plan => (plan.kind === 'list'
 // Venues in more than one currency: pounds and euros never add up. A
 // summary is grouped by currency first with a subtotal for each and no
 // grand total; a list says each row's currency and sums nothing.
+/** Where a subject's rows say their currency: the path the engine groups by on its own. Null when they don't. */
+export function currencyPath(subjectKey) {
+  const s = CATALOGUE.subjects[subjectKey]
+  if (!s) return null
+  return s.key === 'venue' ? 'currency' : s.links.venue && !s.links.venue.many ? 'venue.currency' : null
+}
+
 function perCurrency(spec) {
-  const s = CATALOGUE.subjects[spec.subject]
-  const path = s.key === 'venue' ? 'currency' : s.links.venue && !s.links.venue.many ? 'venue.currency' : null
+  const path = currencyPath(spec.subject)
   if (!path) return null
   const column = { field: path, label: 'Currency' }
   if (spec.kind === 'list') {
@@ -142,12 +149,49 @@ async function prepare(tx, ctx, spec0, params, { listLimit, costFactor = 1 }) {
   const max = env.REPORT_MAX_COST * costFactor
   const check = async stmt => { if (await costOf(tx, stmt) > max) throw new ReportError(HEAVY) }
   const exec = async stmt => { await check(stmt); return tx.unsafe(stmt.text, stmt.params) }
-  return { scope, spec, plan, currencyColumn, check, exec }
+  return { scope, spec, base: spec0, envc, plan, currencyColumn, check, exec }
+}
+
+/**
+ * What a row of this result can be opened into, for the person asking
+ * (docs/REPORTS.md 8): the levels the definition offers that aren't its
+ * groupings already, each only if this person may group by it, and whether
+ * the rows behind a figure can be listed. Each is tried the way a drill
+ * would make it (shared/reports/drill.js) and compiled, so the page never
+ * offers what the run would refuse. `of` is what the rows are (the
+ * subject's name), `per_figure` says the rows behind one figure aren't the
+ * rows behind another. Null for a list, and when there is nothing to offer.
+ */
+export function drillOffers(spec, envc) {
+  if (spec.kind === 'list') return null
+  const taken = new Set([...spec.rows, ...spec.columns].map(rowId))
+  const down = []
+  for (const level of spec.drill?.down || []) {
+    if (taken.has(rowId(level))) continue
+    const next = drillSpec(spec, { at: [], to: level })
+    if (next.problem) continue
+    try {
+      const plan = compileReport(next.spec, envc)
+      down.push({ field: level.field, ...(level.bucket ? { bucket: level.bucket } : {}), label: plan.rows[0].col.label })
+    } catch { /* not for this person, or no longer in the catalogue */ }
+  }
+  let rows = false
+  const list = drillSpec(spec, { at: [], to: 'rows' }, { listColumns: listColumns(spec.subject, envc.levels) })
+  if (!list.problem) {
+    try { rows = compileReport(list.spec, envc, { listLimit: 1 }).columns.length > 0 } catch { /* none of its columns are for this person */ }
+  }
+  if (!down.length && !rows) return null
+  // Do the report's figures count different rows (sales on closed checks
+  // beside cancelled orders)? Then which figure was tapped decides which rows
+  // are listed; when they all count the same ones, a tap means the row.
+  const counts = new Set(spec.values.filter(v => !v.hidden).map(v => countedKey(spec.subject, countedBy(spec, v.key), envc.levels)))
+  return { down, rows, of: CATALOGUE.subjects[spec.subject]?.label || '', ...(rows && counts.size > 1 ? { per_figure: true } : {}) }
 }
 
 function metaOf(p, shaped, started) {
   const { plan, scope, currencyColumn } = p
   return {
+    drill: drillOffers(p.base, p.envc),
     period: plan.period ? { from: plan.period.range.from, to: plan.period.range.to, text: plan.period.text } : null,
     compare: plan.compare ? { with: plan.compare.with, from: plan.compare.from, to: plan.compare.to, text: plan.compare.text } : null,
     currency: currencyColumn ? null : scope.currencies[0] || 'GBP',
@@ -261,7 +305,7 @@ export async function streamList(ctx, rawSpec, given = {}, on = {}) {
       await on.start?.({
         columns: plan.columns,
         spec: p.spec,
-        meta: metaOf(p, { row_count: null, truncated: false, notes: [...plan.notes] }, started),
+        meta: metaOf(p, { row_count: null, truncated: false, notes: [...plan.notes, ...(plan.says || [])] }, started),
       })
       let count = 0
       let truncated = false

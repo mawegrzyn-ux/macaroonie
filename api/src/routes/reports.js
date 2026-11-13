@@ -33,7 +33,7 @@ import { ownRoleIds } from '../services/roles.js'
 import { AREAS, CATALOGUE, catalogueView, listColumns } from '../reports/catalogue/index.js'
 import { STARTERS, STARTER_PREFIX, starterByKey } from '../reports/starters/index.js'
 import { ReportError } from '../reports/compile.js'
-import { runReport } from '../reports/run.js'
+import { runReport, currencyPath } from '../reports/run.js'
 import { reportPerson, rightsOn, openTo, runsFor, checkedSpec, recordRun, refuseOtherVenues } from '../reports/access.js'
 import { csvExport } from '../reports/export/csv.js'
 import { xlsxExport } from '../reports/export/xlsx.js'
@@ -205,7 +205,7 @@ const drillSteps = raw => (raw || []).map(step => {
 function drilled(spec, steps, levels) {
   let cur = spec
   for (const step of steps) {
-    const next = drillSpec(cur, step, { listColumns: listColumns(cur.subject, levels) })
+    const next = drillSpec(cur, step, { listColumns: listColumns(cur.subject, levels), also: [currencyPath(cur.subject)] })
     if (next.problem) throw new ReportError(next.problem)
     cur = next.spec
   }

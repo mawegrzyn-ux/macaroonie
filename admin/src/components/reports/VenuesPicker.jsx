@@ -6,7 +6,7 @@
 //   value     'all' | [venue id]
 //   onChange  called with 'all' or the ids ticked (never an empty list)
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Building2 } from 'lucide-react'
 import { Modal } from '@/components/staff/shared'
 import { cn } from '@/lib/utils'
@@ -23,14 +23,14 @@ export default function VenuesPicker({ venues, value, onChange, label = 'Venues'
   const [open, setOpen] = useState(false)
   const [all, setAll] = useState(true)
   const [ticked, setTicked] = useState([])
-  // Opening the window starts from the venues showing.
-  useEffect(() => {
-    if (!open) return
+  // Opening the window starts from the venues showing: set with the tap that
+  // opens it, so it never shows the last visit's ticks first.
+  const show = () => {
     const ids = Array.isArray(value) ? value.filter(id => venues.some(v => v.id === id)) : []
     setAll(!ids.length)
     setTicked(ids)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+    setOpen(true)
+  }
 
   const toggle = id => {
     setAll(false)
@@ -48,7 +48,7 @@ export default function VenuesPicker({ venues, value, onChange, label = 'Venues'
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} aria-label={label + ': ' + venuesText(venues, value)} data-testid="venues-button"
+      <button type="button" onClick={show} aria-label={label + ': ' + venuesText(venues, value)} data-testid="venues-button"
         className="inline-flex items-center gap-2 min-h-[48px] px-3 py-1.5 rounded-lg border bg-background text-sm text-left touch-manipulation hover:bg-muted max-w-full">
         <Building2 className="w-4 h-4 text-muted-foreground shrink-0" />
         <span className="min-w-0">

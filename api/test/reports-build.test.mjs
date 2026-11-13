@@ -17,15 +17,16 @@ import { resetAndSeed, A } from './support/seed.mjs'
 import { fillTenant } from './support/fixtures.mjs'
 import { sellTwoDays } from './support/tillDays.mjs'
 import { runner, refused, rowsOf, totalsRow, LEVELS } from './support/reports.mjs'
-import { CATALOGUE, catalogueView, worksAcross, ACROSS_AGGS } from '../src/reports/catalogue/index.js'
+import { CATALOGUE, catalogueView, listColumns, worksAcross, ACROSS_AGGS } from '../src/reports/catalogue/index.js'
 import { normaliseReport, reportProblems, rowId, LIMITS } from '../../shared/reports/spec.js'
 import { resolvePath } from '../../shared/reports/paths.js'
+import { drillSpec } from '../../shared/reports/drill.js'
 import { NUMERIC_TYPES } from '../../shared/reports/format.js'
 import {
   pathUses, dataTree, treeNodes, searchTree, startReport, filterOps, filterShape, filterValueKind, filterWords,
   addRow, addColumn, removeRow, removeColumn, updateRow, addValue, updateValue, removeValue, addFilter, setFilter, removeFilter,
   setParamDefault, setSort, setLimit, limitOf, setTotals, setCompare, compareProblem, setKind, paramInputs, usedParams,
-  rowName, valueName, sortChoices,
+  rowName, valueName, sortChoices, addDrillLevel, setDrillRows, drillLevels, drillRoom,
 } from '../../shared/reports/build.js'
 
 let ids, run, t, view, d1, d2, d3
@@ -143,6 +144,104 @@ test('everything the Data panel offers runs, for every subject: each grouping, c
   assert.deepEqual(bad, [])
   assert.equal(counts.subjects, 26)
   assert.ok(counts.groupings > 1500 && counts.columns > 900 && counts.values > 1500 && counts.filters > 4000, JSON.stringify(counts))
+})
+
+test('every drill the builder offers is one the engine opens: each field a row can be broken down by, and each column of its rows', async () => {
+  const bad = []
+  const counts = { subjects: 0, levels: 0, opened: 0, columns: 0, refused: 0 }
+  const idOf = l => (l.bucket && l.bucket !== 'day' ? l.field + ':' + l.bucket : l.field)
+  const chunks = (list, size) => Array.from({ length: Math.ceil(list.length / size) }, (_, i) => list.slice(i * size, (i + 1) * size))
+  for (const key of Object.keys(view.subjects)) {
+    const nodes = treeNodes(dataTree(view, key))
+    const groupable = nodes.filter(n => n.uses.group)
+    assert.ok(groupable.length > 0, key + ' can be grouped by something')
+    counts.subjects++
+    // A summary to tap: how many of the subject's rows, by the first thing they can be grouped by.
+    const base = addRow(normaliseReport({ subject: key, values: [{ agg: 'count' }] }), groupable[0].path)
+    assert.deepEqual(reportProblems(base), [], key)
+    const grouped = rowId(base.rows[0])
+    const usual = listColumns(key, LEVELS)
+    const first = (await run(base)).rows.find(r => r.kind === 'row')
+    // The row that is tapped: the first one there is (none where the test data has no such rows).
+    const at = first ? base.rows.map((g, i) => ({ field: g.field, ...(g.bucket ? { bucket: g.bucket } : {}), value: first.k[i] ?? null })) : []
+
+    // Every level the Add window offers (a field the report could be grouped by), each way its days can be grouped.
+    const levels = groupable.flatMap(n => (n.uses.buckets.length ? n.uses.buckets.map(bucket => ({ field: n.path, bucket })) : [{ field: n.path }]))
+    counts.levels += levels.length
+    for (const chunk of chunks(levels, LIMITS.drill_down)) {
+      let spec = base
+      for (const level of chunk) {
+        const next = addDrillLevel(spec, level)
+        if (next === spec) bad.push(key + ': the level ' + idOf(level) + ' wasn\'t taken')
+        spec = next
+      }
+      assert.deepEqual(reportProblems(spec), [], key)
+      assert.equal(drillRoom(spec), LIMITS.drill_down - chunk.length, key)
+      const res = await run(spec)
+      const offered = new Map((res.meta.drill?.down || []).map(d => [rowId(d), d]))
+      // What the builder says a tap can lead to is what the engine says, level for level.
+      assert.deepEqual(drillLevels(spec).map(rowId), [...offered.keys()], key + ': the builder and the engine offer the same levels')
+      for (const level of chunk) {
+        const id = idOf(level)
+        if (id === grouped) { if (offered.has(id)) bad.push(key + ': ' + id + ' is offered though the report is grouped by it'); continue }
+        const offer = offered.get(id)
+        if (!offer) { bad.push(key + ': the engine doesn\'t offer the level ' + id); continue }
+        if (!offer.label) bad.push(key + ': the level ' + id + ' has no name')
+        const d = drillSpec(spec, { at, to: level.bucket === 'day' ? { field: level.field } : level }, { listColumns: usual })
+        if (d.problem) { bad.push(key + ' by ' + id + ': ' + d.problem); continue }
+        try {
+          const down = await run(d.spec)
+          if (down.kind !== 'summary' || down.columns[0].key !== id) bad.push(key + ' by ' + id + ': came back as ' + down.kind + ' by ' + down.columns[0]?.key)
+          counts.opened++
+        } catch (e) { bad.push(key + ' by ' + id + ': ' + why(e)) }
+      }
+    }
+
+    // The rows behind a row, with every column the Add window offers for them (a field a list can show).
+    const columns = nodes.filter(n => n.uses.column).map(n => n.path)
+    counts.columns += columns.length
+    for (const chunk of chunks(columns, LIMITS.drill_rows)) {
+      const spec = setDrillRows(base, chunk)
+      assert.deepEqual(spec.drill.rows, chunk, key)
+      const d = drillSpec(spec, { at, to: 'rows' }, { listColumns: usual })
+      if (d.problem) { bad.push(key + ' rows: ' + d.problem); continue }
+      try {
+        const offers = (await run(spec)).meta.drill
+        if (!offers?.rows) bad.push(key + ': rows with ' + chunk.join(', ') + ' aren\'t offered')
+        const list = await run(d.spec)
+        if (list.kind !== 'list' || list.columns.map(c => c.key).join() !== chunk.join()) bad.push(key + ' rows: came back as ' + list.kind + ' with ' + list.columns.map(c => c.key).join())
+        counts.opened++
+      } catch (e) {
+        // Say which column.
+        for (const path of chunk) {
+          try { await run(drillSpec(setDrillRows(base, [path]), { at, to: 'rows' }).spec) } catch (e2) { bad.push(key + ' rows with ' + path + ': ' + why(e2)) }
+        }
+        bad.push(key + ' rows (' + chunk.length + ' columns): ' + why(e))
+      }
+    }
+    // With none chosen: the usual columns of a list of them.
+    if (usual.length) {
+      const list = await run(drillSpec(base, { at, to: 'rows' }, { listColumns: usual }).spec)
+      assert.deepEqual(list.columns.map(c => c.key), usual, key)
+    }
+
+    // What the Add windows leave out can't be a level: a figure, and anything of rows there are several of.
+    const figure = nodes.find(n => !n.uses.group && n.uses.values.length)
+    const across = Object.entries(view.subjects[key].links).find(([, l]) => l.many && view.subjects[l.to])
+    const not = [figure?.path, across ? across[0] + '.' + Object.keys(view.subjects[across[1].to].fields)[0] : null].filter(Boolean)
+    for (const path of not) {
+      const spec = normaliseReport({ ...base, drill: { down: [path] } })
+      const res = await run(spec)
+      if (res.meta.drill?.down.length) bad.push(key + ': ' + path + ' is offered as a level')
+      const d = drillSpec(spec, { at, to: { field: path } }, { listColumns: usual })
+      const r = d.problem ? { status: 422 } : await refused(run(d.spec)).catch(e => ({ ran: String(e.message) }))
+      if (r.ran) bad.push(key + ': a breakdown by ' + path + ' ran')
+      counts.refused++
+    }
+  }
+  assert.deepEqual(bad, [])
+  assert.equal(counts.subjects, 26)
+  assert.ok(counts.levels > 1500 && counts.columns > 900 && counts.opened > 1500 && counts.refused >= 26, JSON.stringify(counts))
 })
 
 test('what the builder leaves out because the engine can\'t do it really is refused', async () => {

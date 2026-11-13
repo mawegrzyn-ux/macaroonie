@@ -20,8 +20,8 @@ import { resetAndSeed, A, B } from './support/seed.mjs'
 import { fillTenant } from './support/fixtures.mjs'
 import { sellTwoDays } from './support/tillDays.mjs'
 import { runner, rowsOf, totalsRow, measures, refused, LEVELS } from './support/reports.mjs'
-import { runReport, streamList, forgetReportResults } from '../src/reports/run.js'
-import { listColumns } from '../src/reports/catalogue/index.js'
+import { runReport, streamList, forgetReportResults, currencyPath } from '../src/reports/run.js'
+import { CATALOGUE, listColumns } from '../src/reports/catalogue/index.js'
 import { env } from '../src/config/env.js'
 import { normaliseReport } from '../../shared/reports/spec.js'
 import { drillSpec } from '../../shared/reports/drill.js'
@@ -511,6 +511,149 @@ test('a drill-down: the rows behind a figure, or the same figures by another gro
   assert.equal([...letters(await run(none.spec))].sort().join(''), 'acg')
 })
 
+test('a result says what its rows can be opened into, for the person asking', async () => {
+  const spec = {
+    subject: 'till.checks', rows: ['order_type.name'], values: measures(['checks', 'net_sales']), filters: [CLOSED],
+    drill: { down: ['server.name', { field: 'date', bucket: 'week' }, 'order_type.name', 'tab_name', { field: 'opened_at', bucket: 'hour' }] },
+  }
+  // The levels the report names, as they would head a column, less the one it is grouped by already.
+  assert.deepEqual((await run(spec)).meta.drill, {
+    down: [
+      { field: 'server.name', label: 'Server' }, { field: 'date', bucket: 'week', label: 'Week' },
+      { field: 'tab_name', label: 'Name on the order' }, { field: 'opened_at', bucket: 'hour', label: 'Opened (hour)' },
+    ],
+    rows: true, of: 'Checks',
+  })
+  // Across the top counts as grouped by too.
+  assert.deepEqual((await run({ ...spec, columns: ['server.name'] })).meta.drill.down.map(d => d.field), ['date', 'tab_name', 'opened_at'])
+  // A report that names nothing still lists its rows; a list is its own rows.
+  assert.deepEqual((await run({ subject: 'till.checks', rows: ['date'], values: measures(['checks']) })).meta.drill, { down: [], rows: true, of: 'Checks' })
+  assert.equal((await run({ subject: 'till.checks', kind: 'list', rows: ['number'] })).meta.drill, null)
+
+  // Only what this person may see: a level through a link their role can't follow isn't offered...
+  const online = { subject: 'online.orders', rows: ['date'], values: measures(['orders']), drill: { down: ['customer.name', 'fulfilment'] } }
+  const noCustomers = { levels: { web_orders: 'view' } }
+  assert.deepEqual((await run(online)).meta.drill.down.map(d => [d.field, d.label]), [['customer.name', 'Customer'], ['fulfilment', 'Type']])
+  assert.deepEqual((await run(online, undefined, noCustomers)).meta.drill, { down: [{ field: 'fulfilment', label: 'Type' }], rows: true, of: 'Online orders' })
+  // ...and rows whose columns are all hidden from them aren't either. With nothing left, there is nothing to tap.
+  const named = { ...online, drill: { down: ['fulfilment'], rows: ['customer.name'] } }
+  assert.deepEqual((await run(named)).meta.drill, { down: [{ field: 'fulfilment', label: 'Type' }], rows: true, of: 'Online orders' })
+  assert.deepEqual((await run(named, undefined, noCustomers)).meta.drill, { down: [{ field: 'fulfilment', label: 'Type' }], rows: false, of: 'Online orders' })
+  assert.equal((await run({ ...online, drill: { rows: ['customer.name'] } }, undefined, noCustomers)).meta.drill, null)
+
+  // Which figure was tapped only matters where the figures count different rows.
+  const perFigure = async values => (await run({ subject: 'till.checks', rows: ['date'], values })).meta.drill.per_figure === true
+  assert.equal(await perFigure(measures(['checks', 'open_checks'])), true, 'closed checks beside open ones')
+  assert.equal(await perFigure(measures(['checks', 'net_sales', 'average_check'])), false, 'all on closed checks, a ratio of two of them included')
+  assert.equal(await perFigure([{ measure: 'checks' }, { agg: 'count' }]), true, 'a count of every row beside a figure with a rule')
+  assert.equal(await perFigure([{ agg: 'count' }]), false)
+  assert.equal(await perFigure([{ measure: 'checks' }, { measure: 'open_checks', hidden: true }]), false, 'a figure that isn\'t shown can\'t be tapped')
+  assert.equal(await perFigure([{ measure: 'checks' }, { measure: 'open_checks', hidden: true }, { key: 'both', calc: 'checks + open_checks', label: 'Both' }]), true, 'a calculation counts what its parts count')
+  assert.equal(await perFigure(measures(['checks', 'lines.qty_sold'])), true, 'a figure added up through a list of other rows leaves none of ours out')
+})
+
+test('the rows behind a figure are the ones that figure counts, so the list adds up to it', async () => {
+  const at = [{ field: 'date', value: t.date }]
+  const behind = async (spec, drill, listColumns = ['number']) => {
+    const d = drillSpec(normaliseReport(spec), drill, { listColumns })
+    assert.equal(d.problem, undefined)
+    const res = await run(d.spec)
+    return { res, letters: [...letters(res)].sort().join(''), counted: d.spec.filters.filter(f => f.counted), notes: res.meta.notes }
+  }
+  // Closed checks beside the ones still open: a tap on the row lists both kinds, never the one called off (D).
+  const two = { subject: 'till.checks', rows: ['date'], values: measures(['checks', 'open_checks']) }
+  const any = await behind(two, { at, to: 'rows' })
+  assert.equal(any.letters, 'abcefg')
+  assert.deepEqual(any.counted, [{ counted: ['checks', 'open_checks'] }])
+  assert.deepEqual(any.notes, ['Only the checks that count towards Checks and Checks still open are listed'])
+  assert.equal(any.res.totals.count, 6)
+  // A tap on a figure lists that figure's: as many rows as the figure says.
+  const closed = await behind(two, { at, to: 'rows', value: 'checks' })
+  assert.equal(closed.letters, 'abcfg')
+  assert.equal(closed.res.totals.count, 5)
+  assert.deepEqual(closed.notes, ['Only the checks that count towards Checks are listed'])
+  const open = await behind(two, { at, to: 'rows', value: 'open_checks' })
+  assert.equal(open.letters, 'e')
+  assert.deepEqual(open.notes, ['Only the checks that count towards Checks still open are listed'])
+  assert.equal((await behind(two, { at, to: 'rows', value: 'nothing' })).letters, 'abcefg', 'a figure the report doesn\'t have: the row')
+
+  // A count of every row counts every row: nothing is left out, and nothing is said.
+  const beside = { subject: 'till.checks', rows: ['date'], values: [{ measure: 'checks' }, { agg: 'count' }] }
+  const all = await behind(beside, { at, to: 'rows' })
+  assert.equal(all.letters, 'abcdefg')
+  assert.deepEqual([all.counted, all.notes], [[], []])
+  assert.equal((await behind(beside, { at, to: 'rows', value: 'checks' })).letters, 'abcfg')
+  assert.equal((await behind(beside, { at, to: 'rows', value: normaliseReport(beside).values[1].key })).letters, 'abcdefg')
+
+  // A figure that isn't shown counts only through the calculation that reads it.
+  const calc = { subject: 'till.checks', rows: ['date'], values: [{ measure: 'checks' }, { measure: 'open_checks', hidden: true }, { key: 'both', calc: 'checks + open_checks', label: 'Both' }] }
+  assert.equal((await behind(calc, { at, to: 'rows', value: 'checks' })).letters, 'abcfg')
+  assert.equal((await behind(calc, { at, to: 'rows', value: 'both' })).letters, 'abcefg')
+  assert.equal((await behind(calc, { at, to: 'rows' })).letters, 'abcefg')
+  // A ratio counts what both of its parts count.
+  const ratio = await behind({ subject: 'till.checks', rows: ['date'], values: measures(['average_check']) }, { at, to: 'rows' })
+  assert.equal(ratio.letters, 'abcfg')
+  assert.deepEqual(ratio.notes, ['Only the checks that count towards Average check are listed'])
+  // A figure added up through a list of other rows is about those rows: every check is listed.
+  const through = { subject: 'till.checks', rows: ['date'], values: measures(['checks', 'lines.qty_sold']) }
+  assert.equal((await behind(through, { at, to: 'rows' })).letters, 'abcdefg')
+  assert.equal((await behind(through, { at, to: 'rows', value: 'checks' })).letters, 'abcfg')
+  assert.equal((await behind(through, { at, to: 'rows', value: 'lines.qty_sold' })).letters, 'abcdefg')
+
+  // Dishes: the lines behind a dish add up to its figures; the one on the open check and the voided ones aren't among them.
+  const dishes = { subject: 'till.lines', rows: ['name'], values: measures(['qty_sold', 'net_sales']) }
+  for (const [name, qty, net, every] of [[d1, 4, 46.8, 4], [d2, 6, 24, 5]]) {
+    const d = drillSpec(normaliseReport(dishes), { at: [{ field: 'name', value: name }], to: 'rows' }, { listColumns: ['check.number', 'qty', 'net'] })
+    const list = await run(d.spec)
+    assert.deepEqual(list.totals, { count: 3, cells: [null, qty, net] }, name)
+    assert.deepEqual(list.meta.notes, ['Only the dishes sold that count towards Quantity sold and Net sales are listed'])
+    const unfiltered = await run(normaliseReport({ ...d.spec, filters: d.spec.filters.filter(f => !f.counted) }))
+    assert.equal(unfiltered.rows.length, every, name + ': without the rule there are more')
+  }
+
+  // Payments, refunds and takings by tender: cash took three payments and gave one refund.
+  const tenders = { subject: 'till.payments', rows: ['tender'], values: measures(['payments', 'refunds', 'takings']) }
+  assert.deepEqual(cells(await run(tenders)).find(r => r[0] === 'cash'), ['cash', 3, 1, 44.5])
+  const cash = [{ field: 'tender', value: 'cash' }]
+  const kindsOf = async value => cells((await behind(tenders, { at: cash, to: 'rows', ...(value ? { value } : {}) }, ['kind', 'amount'])).res).map(r => r[0]).sort()
+  assert.deepEqual(await kindsOf('payments'), ['payment', 'payment', 'payment'])
+  assert.deepEqual(await kindsOf('refunds'), ['refund'])
+  assert.deepEqual(await kindsOf('takings'), ['payment', 'payment', 'payment', 'refund'], 'takings has no rule of its own')
+  assert.deepEqual(await kindsOf(null), ['payment', 'payment', 'payment', 'refund'])
+
+  // The page says which rows are listed: up to three figures by name, more as "the figures".
+  const said = async list => (await behind({ subject: 'till.checks', rows: ['date'], values: measures(list) }, { at, to: 'rows' })).notes
+  assert.deepEqual(await said(['checks', 'guests', 'net_sales']), ['Only the checks that count towards Checks, Guests and Net sales are listed'])
+  assert.deepEqual(await said(['checks', 'guests', 'net_sales', 'discounts']), ['Only the checks that count towards the figures are listed'])
+
+  // A figure the person's role can't see takes no part in which rows they are shown. No figure of the
+  // catalogue is kept from a role today, so one is for the length of this check.
+  const refunds = CATALOGUE.subjects['till.payments'].measures.refunds
+  refunds.needs = 'cash_recon'
+  try {
+    const both = { subject: 'till.payments', rows: ['tender'], values: measures(['payments', 'refunds']) }
+    const seen = await run(both)
+    assert.deepEqual(seen.columns.map(x => x.key), ['tender', 'payments'])
+    assert.deepEqual(seen.meta.notes, ['Refunds is left out: your role can\'t see it'])
+    const theirs = await behind(both, { at: cash, to: 'rows' }, ['kind', 'amount'])
+    assert.deepEqual(cells(theirs.res).map(r => r[0]), ['payment', 'payment', 'payment'])
+    assert.deepEqual(theirs.notes, ['Only the till payments that count towards Payments are listed'])
+    // With the area, both figures count again.
+    const list = drillSpec(normaliseReport(both), { at: cash, to: 'rows' }, { listColumns: ['kind', 'amount'] }).spec
+    const withIt = await run(list, undefined, { levels: { ...LEVELS, cash_recon: 'view' } })
+    assert.deepEqual(cells(withIt).map(r => r[0]).sort(), ['payment', 'payment', 'payment', 'refund'])
+    assert.deepEqual(withIt.meta.notes, ['Only the till payments that count towards Payments and Refunds are listed'])
+  } finally {
+    delete refunds.needs
+  }
+
+  // The filter in a definition of its own: any kind of report, only figures of the subject.
+  assert.equal([...letters(await run({ subject: 'till.checks', kind: 'list', rows: ['number'], filters: [{ counted: ['open_checks'] }] }))].join(''), 'e')
+  assert.deepEqual(cells(await run({ subject: 'till.checks', values: [{ agg: 'count' }], filters: [{ counted: ['checks'] }] })), [[5]])
+  assert.deepEqual(await refused(run({ subject: 'till.checks', kind: 'list', rows: ['number'], filters: [{ counted: ['status'] }] })),
+    { status: 422, problems: ['"status" isn\'t one of Checks\' figures'] })
+})
+
 test('a result is kept for a minute for the same person, definition and choices; fresh asks again', async () => {
   const ctx = { tenantId: ids.a, userKey: 'u-cache', levels: LEVELS }
   forgetReportResults()
@@ -643,6 +786,28 @@ test('venues in two currencies: money is shown for each currency on its own, nev
     }, { venues: [t.V] })
     assert.deepEqual(chosen.totals.cells, [null, 78.8])
     assert.equal(chosen.meta.currency, 'GBP')
+
+    // A row of a result the engine grouped by currency says so when it is opened: the routes let the
+    // currency through beside the report's own groupings (it isn't one of them).
+    assert.deepEqual([currencyPath('till.checks'), currencyPath('venue'), currencyPath('till.takers'), currencyPath('nothing')], ['venue.currency', 'currency', 'venue.currency', null])
+    // Rows that belong to no one venue (a dish on the menu, a customer) say no currency: they run as they are.
+    assert.deepEqual([currencyPath('menu.dishes'), currencyPath('guests.customers')], [null, null])
+    const dishes = await run({ subject: 'menu.dishes', kind: 'list', rows: ['name', 'price'] })
+    assert.deepEqual(dishes.columns.map(x => x.key), ['name', 'price'])
+    assert.ok(dishes.rows.length > 0)
+    assert.equal(dishes.meta.currency_column, null)
+    const byType = normaliseReport({ subject: 'till.checks', rows: ['order_type.name'], values: measures(['checks', 'net_sales']), filters: [CLOSED], drill: { down: ['server.name'] } })
+    const summary = await run(byType)
+    assert.deepEqual(summary.rows.map(r => r.k), [['GBP', 'Eat in'], ['GBP', 'Take out'], ['GBP']])
+    assert.deepEqual(summary.meta.drill, { down: [{ field: 'server.name', label: 'Server' }], rows: true, of: 'Checks' })
+    const step = { at: [{ field: 'venue.currency', value: 'GBP' }, { field: 'order_type.name', value: 'Take out' }], to: 'rows' }
+    assert.match(drillSpec(byType, step, { listColumns: ['number'] }).problem, /isn't grouped by "venue\.currency"/)
+    const also = { listColumns: ['number'], also: [currencyPath('till.checks')] }
+    assert.equal([...letters(await run(drillSpec(byType, step, also).spec))].sort().join(''), 'bf')
+    const down = drillSpec(byType, { ...step, to: { field: 'server.name' } }, also)
+    assert.deepEqual(down.spec.filters.slice(-2), [{ field: 'venue.currency', op: 'is', value: 'GBP' }, { field: 'order_type.name', op: 'is', value: 'Take out' }])
+    assert.deepEqual(cells(await run(down.spec)), [['GBP', lead, 1, 0], ['GBP', boss, 1, 20], ['GBP', null, 2, 20]])
+    assert.equal((await run(drillSpec(byType, { at: [{ field: 'venue.currency', value: 'EUR' }], to: 'rows' }, also).spec)).rows.length, 0, 'nothing was sold in euros')
   } finally {
     await sql`UPDATE venues SET currency = 'GBP' WHERE id = ${hertford.id}`
   }
@@ -705,6 +870,20 @@ test('one period beside the one before it: each figure now, before and the chang
     // A top N: the rest row is compared too.
     const top = await run({ ...spec, rows: ['server.name'], values: measures(['net_sales']), sort: [{ by: 'net_sales', dir: 'desc' }], limit: { top: 1, rest_as: 'Everyone else' } })
     assert.deepEqual(cells(top), [[lead, 15, 43.8, -0.657534], ['Everyone else', 0, 20, -1]])
+
+    // Opened up: broken down further the comparison stays; the rows behind a row are this period's only.
+    const base = normaliseReport({ ...spec, drill: { down: ['server.name'] } })
+    const eatIn = [{ field: 'order_type.name', value: 'Eat in' }]
+    const byServer = await run(drillSpec(base, { at: eatIn, to: { field: 'server.name' } }).spec)
+    // The manager's one eat-in check is still open: a row, with nothing counted.
+    assert.deepEqual(cells(byServer), [[lead, 15, 43.8, -0.657534, 1, 2, -0.5], [boss, 0, 0, null, 0, 0, null]])
+    assert.deepEqual([byServer.meta.compare.from, byServer.meta.compare.to], [yesterday, yesterday])
+    const todays = await run(drillSpec(base, { at: eatIn, to: 'rows' }, { listColumns: ['number'] }).spec)
+    assert.equal(letters(todays), 'g')
+    assert.equal(todays.meta.compare ?? null, null)
+    // Take out sold nothing today: its row is there for the day before, and has no rows of this period behind it.
+    const none = await run(drillSpec(base, { at: [{ field: 'order_type.name', value: 'Take out' }], to: 'rows' }, { listColumns: ['number'] }).spec)
+    assert.equal(none.rows.length, 0)
   } finally {
     await sql`UPDATE pos_days SET business_date = ${t.date}::date WHERE id = ${t.day1}`
   }

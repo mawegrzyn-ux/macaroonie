@@ -155,6 +155,7 @@ function recordable(spec, params) {
 const drillRecord = steps => (steps || []).map(s => ({
   to: s.to === 'rows' ? 'rows' : rowId(s.to),
   at: (s.at || []).map(rowId),
+  ...(s.to === 'rows' && s.value ? { value: s.value } : {}),
 }))
 
 /**

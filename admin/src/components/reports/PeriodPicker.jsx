@@ -10,7 +10,7 @@
 //   today     the day it is at the venues ('YYYY-MM-DD'), from the last
 //             result; the picker's dates are worked out from it
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { CalendarRange } from 'lucide-react'
 import {
   PERIOD_LABELS, MAX_N_DAYS, normalisePeriod, periodText, resolvePeriod, rangeText, todayIn,
@@ -69,17 +69,18 @@ export default function PeriodPicker({ value, onChange, today, label = 'Period' 
   const now = resolvePeriod(current, day)
   const [from, setFrom] = useState(now?.from || day)
   const [to, setTo] = useState(now?.to || day)
-  // Opening the window starts the two dates from the period showing.
-  useEffect(() => {
-    if (open && now) { setFrom(now.from); setTo(now.to) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  // Opening the window starts the two dates from the period showing: set
+  // with the tap that opens it, so it never shows the last visit's dates first.
+  const show = () => {
+    if (now) { setFrom(now.from); setTo(now.to) }
+    setOpen(true)
+  }
 
   const pick = p => { onChange(normalisePeriod(p)); setOpen(false) }
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} aria-label={label + ': ' + periodText(current, day)} data-testid="period-button"
+      <button type="button" onClick={show} aria-label={label + ': ' + periodText(current, day)} data-testid="period-button"
         className="inline-flex items-center gap-2 min-h-[48px] px-3 py-1.5 rounded-lg border bg-background text-sm text-left touch-manipulation hover:bg-muted max-w-full">
         <CalendarRange className="w-4 h-4 text-muted-foreground shrink-0" />
         <span className="min-w-0">
