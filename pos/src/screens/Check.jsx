@@ -23,7 +23,7 @@ import { ArrowLeft, Send, Printer, CreditCard, MoreHorizontal, Flame, Users, Eye
 import { checkLabel, heldCourses } from '@shared/pos/checks.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { useTill, useChecks, dispatch, toast, setPresence, othersOn, serverName, printBill, signOut, currentChecks } from '../lib/store.js'
-import { choiceZones } from '@shared/pos/tillLayout.js'
+import { choiceZones, buttonBorderStyle } from '@shared/pos/tillLayout.js'
 import { discountList, fitsScope } from '@shared/pos/discounts.js'
 import { useTillLayout, lastReceiptCheck } from '../lib/tillLayout.js'
 import LayoutScreen from '../components/LayoutScreen.jsx'
@@ -70,6 +70,8 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
   const orderZone = layout?.zones.find(z => z.type === 'check') || null
   const hidden = new Set(orderZone?.hide || [])
   const colourOf = key => orderZone?.colours?.[key] || null
+  // A button's colour and the zone's button border (shared/pos/tillLayout.js).
+  const lookOf = key => ({ ...fillStyle(colourOf(key)), ...buttonBorderStyle(orderZone) })
   // The menus on now (the menu times, or what staff picked in More > Menus).
   const shownMenus = useShownMenus(config, check ? streamOf(config, check.revenue_stream_id)?.menu_ids : null)
   // Order flows: the prompts waiting for this check (the first one shows) and
@@ -396,16 +398,16 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
 
   const header = (
     <div className={cx('flex items-center gap-2 py-2 border-b border-line', hidden.has('back') ? 'px-3' : 'px-2')}>
-      {!hidden.has('back') && <button className="btn btn-ghost w-12 px-0" onClick={() => leave()} aria-label="Back" data-testid="check-back"><ArrowLeft size={22} /></button>}
+      {!hidden.has('back') && <button className="btn btn-ghost text-inherit w-12 px-0" style={buttonBorderStyle(orderZone)} onClick={() => leave()} aria-label="Back" data-testid="check-back"><ArrowLeft size={22} /></button>}
       <button className="flex-1 min-w-0 text-left" onClick={() => setModal({ kind: 'actions' })}>
         <div className="font-bold text-lg truncate">
           {table ? 'Table ' + table.label : check.order_no != null ? 'Order #' + check.order_no : check.tab_name || 'Tab'}
-          {check.order_no == null && <span className="text-muted font-normal text-sm ml-2">{checkLabel(check)}</span>}
+          {check.order_no == null && <span className="zone-muted font-normal text-sm ml-2">{checkLabel(check)}</span>}
         </div>
-        <div className="text-xs text-muted truncate flex items-center gap-2">
+        <div className="text-xs zone-muted truncate flex items-center gap-2">
           {check.covers ? <span className="flex items-center gap-1"><Users size={12} />{check.covers}</span> : null}
           <span>{serverName(config, check.server_id)}</span>
-          {type && <span className="font-semibold text-ink" data-testid="check-type">{type.name}</span>}
+          {type && <span className="font-semibold text-inherit" data-testid="check-type">{type.name}</span>}
           {check.tent && <span className="font-semibold text-brand flex items-center gap-0.5" data-testid="check-tent"><Flag size={12} />{check.tent}</span>}
           {check.loyalty && <span className="font-semibold text-brand flex items-center gap-0.5 truncate" data-testid="check-member"><Star size={12} />{check.loyalty.name || 'Member'}</span>}
           {stream && (config.revenue_streams || []).length > 1 && <span className="font-semibold text-brand">{stream.name}</span>}
@@ -414,7 +416,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
       </button>
       {check.tab_name && (table || check.order_no != null) && <div className="text-sm font-semibold truncate max-w-[140px]" data-testid="check-name">{check.tab_name}</div>}
       {check.lines.length > 0 && !hidden.has('cancel') && (
-        <button className={cx('btn px-3 shrink-0', colourOf('cancel') ? '' : 'btn-ghost text-bad')} style={fillStyle(colourOf('cancel'))}
+        <button className={cx('btn px-3 shrink-0', colourOf('cancel') ? '' : 'btn-ghost text-bad')} style={lookOf('cancel')}
           onClick={() => setModal({ kind: 'cancel' })} data-testid="check-cancel" aria-label="Cancel order">
           <Ban size={20} /><span className="hidden xl:inline">Cancel order</span>
         </button>
@@ -425,22 +427,22 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
   // The Order zone's own buttons a layout keeps (all four on the standard screen).
   const foot = [
     !hidden.has('more') && (
-      <button key="more" className="btn h-16 flex-col gap-0" style={fillStyle(colourOf('more'))} onClick={() => setModal({ kind: 'actions' })} data-testid="check-more">
+      <button key="more" className="btn h-16 flex-col gap-0" style={lookOf('more')} onClick={() => setModal({ kind: 'actions' })} data-testid="check-more">
         <MoreHorizontal size={20} /><span className="text-xs">More</span>
       </button>
     ),
     !hidden.has('send') && showSend && (held.length > 0 && !unsent
-      ? <button key="send" className="btn h-16 flex-col gap-0 bg-held text-white border-held" onClick={() => setModal({ kind: 'fire' })} data-testid="check-fire"><Flame size={20} /><span className="text-xs">Fire</span></button>
-      : <button key="send" className={cx('btn h-16 flex-col gap-0', !colourOf('send') && 'btn-primary')} style={fillStyle(colourOf('send'))} disabled={!unsent} onClick={send} data-testid="check-send">
+      ? <button key="send" className="btn h-16 flex-col gap-0 bg-held text-white border-held" style={buttonBorderStyle(orderZone)} onClick={() => setModal({ kind: 'fire' })} data-testid="check-fire"><Flame size={20} /><span className="text-xs">Fire</span></button>
+      : <button key="send" className={cx('btn h-16 flex-col gap-0', !colourOf('send') && 'btn-primary')} style={lookOf('send')} disabled={!unsent} onClick={send} data-testid="check-send">
           <Send size={20} /><span className="text-xs">Send{unsent ? ' ' + unsent : ''}</span>
         </button>),
     !hidden.has('bill') && (
-      <button key="bill" className="btn h-16 flex-col gap-0" style={fillStyle(colourOf('bill'))} disabled={!check.lines.length} onClick={bill} data-testid="check-bill">
+      <button key="bill" className="btn h-16 flex-col gap-0" style={lookOf('bill')} disabled={!check.lines.length} onClick={bill} data-testid="check-bill">
         <Printer size={20} /><span className="text-xs">Bill</span>
       </button>
     ),
     !hidden.has('pay') && (
-      <button key="pay" className={cx('btn h-16 flex-col gap-0', !colourOf('pay') && 'btn-ok')} style={fillStyle(colourOf('pay'))} disabled={t.total <= 0 && !check.lines.length} onClick={() => pay()} data-testid="check-pay">
+      <button key="pay" className={cx('btn h-16 flex-col gap-0', !colourOf('pay') && 'btn-ok')} style={lookOf('pay')} disabled={t.total <= 0 && !check.lines.length} onClick={() => pay()} data-testid="check-pay">
         <CreditCard size={20} /><span className="text-xs">Pay {money(Math.max(0, t.balance))}</span>
       </button>
     ),
@@ -457,7 +459,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
       {others.length > 0 && (
         <div className="px-3 py-1.5 bg-warn-soft text-warn text-sm font-semibold flex items-center gap-2"><Eye size={14} />Also open on {others.map(o => o.device_name).join(', ')}</div>
       )}
-    </>} footer={footer} font={orderZone?.font || null} onLine={line => setModal({ kind: 'line', line })} onAction={swipeAction} onEdit={changeOptions} onRegroup={regroup}
+    </>} footer={footer} font={orderZone?.font || null} clear={!!orderZone?.background} onLine={line => setModal({ kind: 'line', line })} onAction={swipeAction} onEdit={changeOptions} onRegroup={regroup}
       onAllergy={() => setModal({ kind: 'allergy' })} />
   )
 

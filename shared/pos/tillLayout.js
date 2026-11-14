@@ -108,17 +108,50 @@
 // on a phone, and a till on a phone-sized screen draws only phone layouts
 // (pos/src/lib/tillLayout.js: any other layout, or none, gives way to the
 // phone template there). LAYOUT_TEMPLATES has three phone starting points.
+//
+// The look (14 Nov 2026). A Label zone (label) is words on the screen in the
+// size, colour and place set (text, font, colour, bold, align, valign).
+// Every zone but the Order can have a background colour (background; the
+// Order keeps its white panel), every zone a border (border: { style none |
+// thin | bold | dotted, colour }) and every zone with buttons a border for
+// its buttons (button_border: { style standard | none | thin | bold |
+// dotted, colour }; standard: each button's own). The layout has its own
+// background behind the zones (background: the gaps and the cells no zone
+// takes). A category's dishes zone can colour its dish buttons
+// (button_colour, button_text) and show the category's name above them
+// (show_name, name_font, name_colour). The till and the designer draw them
+// through zoneBoxStyle(), buttonBorderStyle() and categoryButtonStyle().
+// copyZone() copies a zone a layout can have several of, placed where it fits.
 
 export const LAYOUT_COLS = { min: 4, max: 24, default: 12 }
 export const LAYOUT_ROWS = { min: 3, max: 16, default: 8 }
 export const ZONE_GRID = { min: 1, max: 12 }
 export const FONT = { min: 12, max: 36, default: 16 }
-export const MAX_ZONES = 40
+export const MAX_ZONES = 50
 export const MAX_BUTTONS = 80
 export const MAX_SECTIONS = 100
 export const MAX_MENUS = 30
 export const MAX_HIDDEN = 300
 export const LABEL_MAX = 40
+// A Label zone's words and their size; a category's name above its dishes.
+export const LABEL_TEXT_MAX = 200
+export const LABEL_FONT = { min: 10, max: 72, default: 24 }
+export const NAME_FONT = { min: 12, max: 48, default: 18 }
+// The till's dark ink: a border's colour when none is set.
+const INK = '#1f2a44'
+
+// A zone's border, and the border of the buttons in it (standard: each
+// button's own).
+export const BORDER_STYLES = [
+  { key: 'none', label: 'None' },
+  { key: 'thin', label: 'Thin' },
+  { key: 'bold', label: 'Bold' },
+  { key: 'dotted', label: 'Dotted' },
+]
+export const BORDER_STYLE_KEYS = BORDER_STYLES.map(b => b.key)
+export const BUTTON_BORDERS = [{ key: 'standard', label: 'Standard' }, ...BORDER_STYLES]
+export const BUTTON_BORDER_KEYS = BUTTON_BORDERS.map(b => b.key)
+const BORDER_WIDTHS = { thin: 1, bold: 3, dotted: 2 }
 
 export const ZONE_TYPES = [
   { key: 'check', label: 'Order', hint: 'The order: its dishes, totals and More, Send, Bill and Pay.', max: 1 },
@@ -130,11 +163,14 @@ export const ZONE_TYPES = [
   { key: 'modifiers', label: 'Dish choices', hint: 'A dish\'s choices while it is being added: the must-pick ones, the optional ones, or both.', max: 2 },
   { key: 'seats', label: 'Seat and course', hint: 'The seat and course the next dish goes to (or just one of them).', max: 1 },
   { key: 'popup', label: 'Pop-up', hint: 'Buttons that show only when a button opens them, over the part of the screen you place them on.', max: 8 },
+  { key: 'label', label: 'Label', hint: 'Words on the screen: a heading or a note, in the size and colour you pick.', max: 12 },
 ]
 export const ZONE_KEYS = ZONE_TYPES.map(t => t.key)
 export const zoneLabel = type => ZONE_TYPES.find(t => t.key === type)?.label || type
 // Zones with a grid of buttons.
 export const GRID_ZONES = ['categories', 'menus', 'items', 'category', 'buttons', 'modifiers', 'popup']
+// Zones with buttons, whose border can be set (button_border): every zone but a Label.
+export const BUTTON_ZONES = [...GRID_ZONES, 'check', 'seats']
 
 // Zones that can show as a pop-up instead of always (show: 'popup'). Buttons
 // have the Pop-up zone for that; Dish choices float by themselves.
@@ -288,6 +324,11 @@ function int(v, min, max, dflt) {
 const text = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
 const pick = (v, keys, dflt) => (keys.includes(v) ? v : dflt)
 const bool = (v, dflt) => (typeof v === 'boolean' ? v : dflt)
+const hex = v => (HEX.test(String(v || '')) ? String(v).toLowerCase() : null)
+function normaliseBorder(b, keys, dflt) {
+  const r = b && typeof b === 'object' ? b : {}
+  return { style: pick(r.style, keys, dflt), colour: hex(r.colour) }
+}
 
 // A zone's own button grid when nothing is set (align / valign: where the
 // words sit, as each zone drew them before they could be set).
@@ -389,6 +430,14 @@ function normaliseZone(z, layout, i) {
   if (z.type === 'category') {
     zone.section_id = UUID.test(String(z.section_id || '')) ? String(z.section_id).toLowerCase() : null
     zone.price = bool(z.price, true)
+    // Its dish buttons' colour and their words' colour (none: the till's
+    // own look; words left to the colour are made readable on it), and the
+    // category's name above them.
+    zone.button_colour = hex(z.button_colour)
+    zone.button_text = hex(z.button_text)
+    zone.show_name = bool(z.show_name, false)
+    zone.name_font = int(z.name_font, NAME_FONT.min, NAME_FONT.max, NAME_FONT.default)
+    zone.name_colour = hex(z.name_colour)
   }
   if (z.type === 'items' || z.type === 'category') {
     const ids = Array.isArray(z.hide_item_ids) ? z.hide_item_ids.filter(i => UUID.test(String(i))).map(i => String(i).toLowerCase()) : []
@@ -433,6 +482,21 @@ function normaliseZone(z, layout, i) {
     const c = z.colours && typeof z.colours === 'object' ? z.colours : {}
     zone.colours = Object.fromEntries(COLOUR_KEYS.map(k => [k, HEX.test(String(c[k] || '')) ? String(c[k]).toLowerCase() : null]))
   }
+  if (z.type === 'label') {
+    // Its words as typed (lines kept), their size, colour (none: the zone's
+    // words colour) and where they sit.
+    zone.text = typeof z.text === 'string' ? z.text.replace(/\r\n?/g, '\n').trim().slice(0, LABEL_TEXT_MAX) : ''
+    zone.font = int(z.font, LABEL_FONT.min, LABEL_FONT.max, LABEL_FONT.default)
+    zone.colour = hex(z.colour)
+    zone.bold = bool(z.bold, true)
+    zone.align = pick(z.align, ALIGN_KEYS, 'center')
+    zone.valign = pick(z.valign, VALIGN_KEYS, 'middle')
+  }
+  // Every zone's look: its border, its background (not the Order's: it
+  // keeps its white panel) and the border of its buttons.
+  zone.border = normaliseBorder(z.border, BORDER_STYLE_KEYS, 'none')
+  if (z.type !== 'check') zone.background = hex(z.background)
+  if (BUTTON_ZONES.includes(z.type)) zone.button_border = normaliseBorder(z.button_border, BUTTON_BORDER_KEYS, 'standard')
   return zone
 }
 
@@ -459,6 +523,9 @@ export function normaliseTillLayout(raw) {
     top_bar: bool(r.top_bar, true),
     // Made for a phone: previewed on one, and what a phone-sized till draws.
     phone: bool(r.phone, false),
+    // Behind the zones: the gaps between them and the cells no zone takes
+    // (none: the till's own grey).
+    background: hex(r.background),
     zones: [],
   }
   const seen = new Set()
@@ -632,6 +699,68 @@ export function buttonTextStyle(zone) {
   }
 }
 
+/**
+ * Dark or white words on a colour (#rrggbb), by the till's own rule
+ * (inkOn() in pos/src/components/ui.jsx): for a zone's background and a
+ * category's dish buttons.
+ */
+export function inkOnColour(colour) {
+  const n = parseInt(String(colour).slice(1), 16)
+  const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
+  return lum > 0.6 ? '#111827' : '#ffffff'
+}
+
+/**
+ * The words on a zone with a background of its own: { ink, muted } (muted:
+ * notes, counts, empty lists), or null when it has none (the till's own).
+ */
+export function zoneInk(zone) {
+  if (!zone?.background) return null
+  const ink = inkOnColour(zone.background)
+  return { ink, muted: ink === '#ffffff' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(17, 24, 39, 0.7)' }
+}
+
+/**
+ * A zone's own box, as styles: its background with the words on it (color,
+ * and --zone-muted for the zone-muted class) and its border. Nothing set:
+ * no styles (the till's white box).
+ */
+export function zoneBoxStyle(zone) {
+  const out = {}
+  const ink = zoneInk(zone)
+  if (ink) Object.assign(out, { background: zone.background, color: ink.ink, '--zone-muted': ink.muted })
+  const b = zone?.border
+  const w = BORDER_WIDTHS[b?.style]
+  if (w) out.border = w + 'px ' + (b.style === 'dotted' ? 'dotted' : 'solid') + ' ' + (b.colour || INK)
+  return out
+}
+
+/**
+ * The border of a zone's buttons (button_border), as styles laid over each
+ * button's own: standard leaves its own; none takes it away; thin, bold and
+ * dotted set its width and style, and its colour when one is set (none:
+ * each button keeps its own colour).
+ */
+export function buttonBorderStyle(zone) {
+  const b = zone?.button_border
+  const w = BORDER_WIDTHS[b?.style]
+  if (b?.style === 'none') return { borderWidth: '0px' }
+  if (!w) return {}
+  return { borderWidth: w + 'px', borderStyle: b.style === 'dotted' ? 'dotted' : 'solid', ...(b.colour ? { borderColor: b.colour } : {}) }
+}
+
+/**
+ * A category's dishes zone's dish buttons, as styles: its button colour
+ * with words in its words colour, else made readable on it. Nothing set (or
+ * another kind of zone): no styles (the till's own look).
+ */
+export function categoryButtonStyle(zone) {
+  if (zone?.type !== 'category') return {}
+  const bg = zone.button_colour
+  const ink = zone.button_text || (bg ? inkOnColour(bg) : null)
+  return { ...(bg ? { background: bg, borderColor: bg } : {}), ...(ink ? { color: ink } : {}) }
+}
+
 export const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
 
 /**
@@ -717,6 +846,7 @@ export function layoutWarnings(layout) {
     if (z.type === 'category' && !z.section_id) out.push({ code: 'category_unset', message: 'A category\'s dishes zone has no category picked yet.', zones: [z.id] })
     if (z.type === 'buttons' && !z.buttons.length) out.push({ code: 'empty_buttons', message: 'A Buttons zone has no buttons yet.', zones: [z.id] })
     if (z.type === 'popup' && !z.buttons.length) out.push({ code: 'empty_popup', message: 'A pop-up has no buttons yet (' + z.title + ').', zones: [z.id] })
+    if (z.type === 'label' && !z.text) out.push({ code: 'empty_label', message: 'A Label zone has no words yet.', zones: [z.id] })
     // (An Order zone nothing opens stops the save: layoutProblems().) A
     // button that can't be tapped opens nothing either.
     if (isPopup(z) && z.type !== 'check') {
@@ -755,6 +885,63 @@ export function layoutWarnings(layout) {
     }
   }
   return out
+}
+
+/**
+ * A copy of a zone, for the designer's Duplicate: { layout, id } (the copy's
+ * id), or null when the zone isn't there or the layout can't take another
+ * of its kind (its type's most, or MAX_ZONES). The copy goes last in the
+ * zones with a fresh id (the zone's id without its number, then 2, 3 ...),
+ * in the first free space of its size, else a smaller one, else on the
+ * zone it copies (an overlap to move); a zone that floats goes a cell down
+ * and to the right when it fits. A name gets (copy); a Dishes zone's copy
+ * follows a Categories zone no Dishes zone follows yet, else the same one;
+ * a Dish choices zone's copy shows the other kind (Must pick, Optional),
+ * so the two split the choices.
+ */
+export function copyZone(layout, id) {
+  const zones = layout?.zones || []
+  const src = zones.find(z => z.id === id)
+  const type = src && ZONE_TYPES.find(t => t.key === src.type)
+  if (!type || zones.length >= MAX_ZONES || zones.filter(z => z.type === src.type).length >= type.max) return null
+  const ids = new Set(zones.map(z => z.id))
+  const base = (src.id.replace(/\d+$/, '') || 'z').slice(0, 20)
+  let n = 2
+  while (ids.has(base + n)) n++
+  const copy = JSON.parse(JSON.stringify(src))
+  copy.id = base + n
+  if (copy.title) copy.title = (copy.title + ' (copy)').slice(0, LABEL_MAX)
+  if (copy.type === 'items') {
+    const free = zones.find(z => z.type === 'categories' && !dishesZonesOf(layout, z).length)
+    if (free) copy.follows = free.id
+  }
+  if (copy.type === 'modifiers') copy.kind = src.kind === 'optional' ? 'required' : 'optional'
+  if (floats(copy)) {
+    if (copy.x + 1 + copy.w <= layout.cols && copy.y + 1 + copy.h <= layout.rows) Object.assign(copy, { x: copy.x + 1, y: copy.y + 1 })
+  } else {
+    const spot = freeSpace(layout, copy.w, copy.h)
+    if (spot) Object.assign(copy, spot)
+  }
+  const next = normaliseTillLayout({ ...layout, zones: [...zones, copy] })
+  return { layout: next, id: copy.id }
+}
+
+// The first free space for a zone that sits in the grid: the size asked
+// for, else one cell lower, narrower ... (high first), row by row; null
+// when the grid has no free cell.
+function freeSpace(layout, w, h) {
+  const solid = (layout?.zones || []).filter(z => !floats(z))
+  for (let hh = h; hh >= 1; hh--) {
+    for (let ww = w; ww >= 1; ww--) {
+      for (let y = 0; y + hh <= layout.rows; y++) {
+        for (let x = 0; x + ww <= layout.cols; x++) {
+          const r = { x, y, w: ww, h: hh }
+          if (!solid.some(z => overlaps(z, r))) return r
+        }
+      }
+    }
+  }
+  return null
 }
 
 /**
@@ -984,7 +1171,7 @@ export const TEMPLATE_KEYS = LAYOUT_TEMPLATES.map(t => t.key)
 
 // The colours of the phone templates' buttons: the order in the till's dark
 // ink, Send and Pay as on the order itself.
-const ORDER_INK = '#1f2a44'
+const ORDER_INK = INK
 const SEND_BLUE = '#2f5bd3'
 const PAY_GREEN = '#15803d'
 

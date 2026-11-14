@@ -17,6 +17,7 @@ import { useTill, useChecks, toast, currentChecks, printBill, signOut } from '..
 import { useTillNav } from '../components/TillMenu.jsx'
 import { useTillLayout, lastReceiptCheck } from '../lib/tillLayout.js'
 import LayoutScreen from '../components/LayoutScreen.jsx'
+import { PendingDraft } from '../components/DraftLine.jsx'
 import { cx } from '../components/ui.jsx'
 import {
   openCheck, addChosen, needsChoices, defaultStreamId, streamOf, streamTypes, defaultTypeId, promptsFor, typeOf,
@@ -114,9 +115,11 @@ export default function Counter() {
     return toast('Start an order first', 'info')
   }
   const shown = answers && [typeOf(config, typeId)?.name, answers.name, answers.tent && 'Tent ' + answers.tent].filter(Boolean)
+  // A layout's Order zone with a background of its own shows through the panel.
+  const clear = !!layout?.zones.find(z => z.type === 'check')?.background
 
   const panel = cls => (
-      <aside className={cx(cls, 'bg-white flex flex-col')} data-testid="counter-panel">
+      <aside className={cx(cls, !clear && 'bg-white', 'flex flex-col')} data-testid="counter-panel">
         <div className="p-3 border-b border-line space-y-2">
           <div className="flex items-center gap-2 font-bold">
             <ShoppingBag size={20} className="text-brand" /> New order
@@ -132,7 +135,7 @@ export default function Counter() {
             )}
           </div>
           {answers ? (
-            <div className="rounded-xl border border-brand bg-brand-soft p-3" data-testid="counter-answers">
+            <div className="rounded-xl border border-brand bg-brand-soft text-ink p-3" data-testid="counter-answers">
               <div className="font-bold text-lg leading-tight">{shown[0]}</div>
               {shown.length > 1 && <div className="text-sm">{shown.slice(1).join(' · ')}</div>}
               <div className="flex gap-2 mt-2">
@@ -143,14 +146,16 @@ export default function Counter() {
           ) : asks ? (
             <button className="btn btn-primary w-full h-16 text-lg" onClick={() => setPrompt({ then: 'hold' })} data-testid="counter-new"><Plus size={22} /> New order</button>
           ) : null}
-          <div className="text-xs text-muted">
+          <div className="text-xs zone-muted">
             {answers ? 'Tap a dish to start the order.' : asks ? 'Or tap a dish: the till asks first.' : 'Tap a dish to start.'}{' '}
             {[types.length === 1 ? types[0].type.name : null, streamOf(config, streamId)?.name].filter(Boolean).join(' · ')}
           </div>
         </div>
+        {/* The first dish being added (a layout's Dish choices zones): not an order yet. */}
+        <PendingDraft className="border-b border-line" />
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          <div className="label px-1">Waiting to pay or collect</div>
-          {!waiting.length && <div className="text-sm text-muted px-1">No open orders.</div>}
+          <div className="label zone-muted px-1">Waiting to pay or collect</div>
+          {!waiting.length && <div className="text-sm zone-muted px-1">No open orders.</div>}
           {waiting.map(c => <CheckRow key={c.id} check={c} config={config} onClick={() => setCurrent(c.id)} />)}
         </div>
       </aside>

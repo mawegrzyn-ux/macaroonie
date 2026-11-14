@@ -28,15 +28,22 @@ button { touch-action: manipulation; }
   .btn-warn { @apply bg-warn text-white border-warn; }
   .btn-ghost { @apply bg-transparent border-transparent; }
   .chip {
-    @apply inline-flex items-center justify-center rounded-full px-4 min-h-[44px] text-sm font-semibold border border-line bg-white touch-manipulation;
+    @apply inline-flex items-center justify-center rounded-full px-4 min-h-[44px] text-sm font-semibold border border-line bg-white text-ink touch-manipulation;
   }
   .chip-on { @apply bg-ink text-white border-ink; }
-  .card { @apply bg-white rounded-2xl border border-line; }
+  .card { @apply bg-white text-ink rounded-2xl border border-line; }
   .label { @apply text-xs font-semibold uppercase tracking-wide text-muted; }
   .input {
-    @apply w-full rounded-xl border border-line bg-white px-3 min-h-[48px] text-base outline-none focus:border-brand;
+    @apply w-full rounded-xl border border-line bg-white text-ink px-3 min-h-[48px] text-base outline-none focus:border-brand;
   }
 }
+
+/* Notes, counts and empty lists on a till layout zone: the zone's own muted
+   words on a background of its own (--zone-muted from zoneBoxStyle() in
+   shared/pos/tillLayout.js), else the till's. A window opened inside a zone
+   (zone-plain) is white: back to the till's own. */
+.zone-muted { color: var(--zone-muted, theme('colors.muted')); }
+.zone-plain { --zone-muted: theme('colors.muted'); }
 
 .scroll-x { overflow-x: auto; scrollbar-width: none; }
 .scroll-x::-webkit-scrollbar { display: none; }

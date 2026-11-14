@@ -32,7 +32,7 @@ export function Modal({ title, onClose, children, footer, wide = false, full = f
   }, [onClose])
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onPointerDown={e => { if (e.target === e.currentTarget && onClose) onClose() }}>
-      <div className={cx('bg-white rounded-2xl shadow-xl flex flex-col max-h-[92vh] w-full', bare && 'overflow-hidden',
+      <div className={cx('bg-white text-ink zone-plain rounded-2xl shadow-xl flex flex-col max-h-[92vh] w-full', bare && 'overflow-hidden',
         full ? 'max-w-[1200px] h-[92vh]' : wide ? 'max-w-3xl' : 'max-w-md')} style={panelStyle || undefined}>
         {title !== undefined && (
           <div className={cx('flex items-center gap-3 px-5 border-b border-line shrink-0', wrapTitle ? 'min-h-[64px] py-2' : 'h-16')}>

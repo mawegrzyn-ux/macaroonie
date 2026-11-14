@@ -21,7 +21,7 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
-import { LAYOUT_TEMPLATES, templateLayout, normaliseTillLayout, layoutProblems, layoutWarnings } from '../../../shared/pos/tillLayout.js'
+import { LAYOUT_TEMPLATES, templateLayout, normaliseTillLayout, layoutProblems, layoutWarnings, MAX_ZONES } from '../../../shared/pos/tillLayout.js'
 import { ownTillLayout, layoutUses } from '../services/tillLayoutSvc.js'
 
 const canView = requirePermission('pos_setup', 'view')
@@ -29,7 +29,7 @@ const canManage = requirePermission('pos_setup', 'manage')
 const UUID = z.string().uuid()
 const MAX_LAYOUTS = 30
 const Name = z.string().trim().min(1).max(60)
-const Layout = z.object({ zones: z.array(z.any()).max(40) }).passthrough()
+const Layout = z.object({ zones: z.array(z.any()).max(MAX_ZONES) }).passthrough()
 
 async function ownLayoutRow(tx, tenantId, id) {
   const [l] = await tx`SELECT * FROM pos_till_layouts WHERE id = ${id} AND tenant_id = ${tenantId}`
