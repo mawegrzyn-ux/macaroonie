@@ -335,3 +335,21 @@ test('the H&S day starters: status by day, food safety by venue, the days needin
   assert.ok(want.length > 0)
   assert.deepEqual(needing.map(r => keyOf(r.date, r['venue.name'])).sort(), want.sort())
 })
+
+test('venues in different time zones: each venue\'s days end at its own today', async () => {
+  const was = await sql`SELECT id::text AS id, timezone FROM venues WHERE id = ANY(${[V, V2]}::uuid[])`
+  try {
+    // Kiritimati is 25 hours ahead of Pago Pago: always a day or two later there.
+    await sql`UPDATE venues SET timezone = 'Pacific/Kiritimati' WHERE id = ${V}`
+    await sql`UPDATE venues SET timezone = 'Pacific/Pago_Pago' WHERE id = ${V2}`
+    const behind = todayIn('Pacific/Pago_Pago'), ahead = todayIn('Pacific/Kiritimati')
+    assert.ok(ahead > behind, 'the two venues are on different days')
+    const rows = rowsOf(await run({ subject: 'safety.days', kind: 'list', rows: ['date', 'venue.name'], filters: [inPeriod(addDays(behind, -1), addDays(ahead, 1))] }))
+    const days = id => rows.filter(r => r['venue.name'] === names.get(id)).map(r => r.date).sort()
+    assert.equal(days(V).at(-1), ahead, 'Kiritimati up to its own today')
+    assert.equal(days(V2).at(-1), behind, 'Pago Pago up to its own today, never Kiritimati\'s')
+    assert.ok(days(V2).length >= 2, 'the day before is there too')
+  } finally {
+    for (const v of was) await sql`UPDATE venues SET timezone = ${v.timezone} WHERE id = ${v.id}`
+  }
+})

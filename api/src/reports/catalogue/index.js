@@ -26,8 +26,11 @@ import local from './local.js'
 import menus from './menus.js'
 import screens from './screens.js'
 import website from './website.js'
+import pepper from './pepper.js'
+import group from './group.js'
 import { templateRefs } from './define.js'
-import { MODULE_KEYS } from '../../config/modules.js'
+import { MODULE_KEYS, permissionAtLeast } from '../../config/modules.js'
+import { ASSISTANT_NAME } from '../../../../shared/assistant.js'
 import { NUMERIC_TYPES } from '../../../../shared/reports/format.js'
 import { bucketsFor } from '../../../../shared/reports/paths.js'
 import { LIMITS } from '../../../../shared/reports/spec.js'
@@ -48,6 +51,7 @@ export const AREAS = [
   { key: 'website', label: 'Website and reviews' },
   { key: 'local', label: 'Local info' },
   { key: 'tech', label: 'Store tech' },
+  { key: 'pepper', label: ASSISTANT_NAME },
   { key: 'shared', label: 'Your group' },
 ]
 
@@ -151,7 +155,7 @@ function build(lists) {
   return { subjects }
 }
 
-export const CATALOGUE = build([common, till, online, bookings, cash, staff, kitchen, kiosks, loyalty, purchasing, safety, menus, website, local, screens])
+export const CATALOGUE = build([common, till, online, bookings, cash, staff, kitchen, kiosks, loyalty, purchasing, safety, menus, website, local, screens, pepper, group])
 
 /** Every module a subject, field, figure or link of the catalogue asks for. */
 export const CATALOGUE_MODULES = [...new Set(Object.values(CATALOGUE.subjects).flatMap(s => [
@@ -161,10 +165,11 @@ export const CATALOGUE_MODULES = [...new Set(Object.values(CATALOGUE.subjects).f
   ...Object.values(s.links).map(l => l.needs),
 ]).filter(Boolean))]
 
-const can = (levels, moduleKey) => !moduleKey || (levels?.[moduleKey] && levels[moduleKey] !== 'none')
+// View on the module, or the level a subject asks for (Pepper's Activity is Manage).
+const can = (levels, moduleKey, level = 'view') => !moduleKey || permissionAtLeast(levels?.[moduleKey], level)
 
 /** May the person report on this subject (start a report from it, or count its rows)? */
-export const canReportOn = (subject, levels) => !subject.hidden && can(levels, subject.module)
+export const canReportOn = (subject, levels) => !subject.hidden && can(levels, subject.module, subject.level)
 /** May the person see this field or follow this link? */
 export const canSee = (def, levels) => can(levels, def.needs)
 

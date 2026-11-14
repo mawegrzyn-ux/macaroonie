@@ -5,6 +5,15 @@
 
 import { subject, text, number, money, percent, yesno, choice, moment, count, one, many } from './define.js'
 
+// A dish priced by its options has no menu price of its own: it counts as
+// priced when it has an option group or options of its own to price it by.
+const PRICED = '({t}.price_pence IS NOT NULL'
+  + ' OR EXISTS (SELECT 1 FROM menu_item_variant_groups g WHERE g.tenant_id = {t}.tenant_id AND g.item_id = {t}.id)'
+  + ' OR EXISTS (SELECT 1 FROM menu_item_variants v WHERE v.tenant_id = {t}.tenant_id AND v.item_id = {t}.id))'
+// The allergens a dish is tagged with, at any level (contains, may contain, can be removed).
+const ALLERGENS = '(SELECT count(*) FROM menu_item_dietary d JOIN menu_dietary_tags g ON g.id = d.tag_id'
+  + " WHERE d.tenant_id = {t}.tenant_id AND d.item_id = {t}.id AND g.kind = 'allergen')"
+
 export default [
   subject({
     key: 'venue',
@@ -109,6 +118,8 @@ export default [
       kitchen_name: text('kitchen_name', { label: 'Kitchen name' }),
       min_order_qty: number('min_order_qty', { label: 'Smallest online order', decimals: 0 }),
       has_photo: yesno({ sql: "(COALESCE({t}.image_url, '') <> '')" }, { label: 'Has a photo' }),
+      has_price: yesno({ sql: PRICED }, { label: 'Has a price', about: 'Its own menu price, or options that price it.' }),
+      allergens: number({ sql: ALLERGENS }, { label: 'Allergens tagged', decimals: 0, about: 'How many allergens the dish is tagged with, at any level. None may mean nobody has tagged it yet.' }),
       created_at: moment('created_at', { label: 'Added' }),
     },
     measures: {

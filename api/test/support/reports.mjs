@@ -3,8 +3,8 @@
 import { runReport } from '../../src/reports/run.js'
 import { CATALOGUE_MODULES } from '../../src/reports/catalogue/index.js'
 
-/** View on every module the catalogue asks for. */
-export const LEVELS = Object.fromEntries(CATALOGUE_MODULES.map(k => [k, 'view']))
+/** Manage on every module the catalogue asks for (some subjects ask for more than View). */
+export const LEVELS = Object.fromEntries(CATALOGUE_MODULES.map(k => [k, 'manage']))
 
 /** runner(tenantId)(spec, given?, { levels, userKey, ...opts }?) -> the report's result, never from the kept results. */
 export const runner = tenantId => (spec, given, { levels = LEVELS, userKey = 'u-test', ...opts } = {}) =>

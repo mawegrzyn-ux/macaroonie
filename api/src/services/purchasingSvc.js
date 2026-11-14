@@ -425,7 +425,7 @@ export function sendLateness(settings, deliveryDate, sentAt, tz) {
  * without an order is never judged, and an order judged already keeps its
  * judgement (a resend after a change doesn't move it). An order changed
  * after sending before migration 247 doesn't know when it first went and
- * stays unjudged. Returns the judgement, or null.
+ * stays unjudged. Returns the judgement it made, or null when it made none.
  */
 export async function judgeFirstSend(tx, tenantId, poId) {
   const [po] = await tx`

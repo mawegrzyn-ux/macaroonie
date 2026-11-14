@@ -26,7 +26,7 @@ import { runner, rowsOf } from './support/reports.mjs'
 import { STARTERS } from '../src/reports/starters/index.js'
 import { addDays, nowAt } from '../../shared/procurement.js'
 import { zonedToUtc } from '../src/services/orderSvc.js'
-import { backfillSentLate } from '../src/services/purchasingSvc.js'
+import { backfillSentLate, judgeFirstSend } from '../src/services/purchasingSvc.js'
 
 const TZ = 'Europe/London'
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
@@ -172,6 +172,8 @@ test('emailed: judged when it goes, not when the email fails; emailing it again 
   assert.equal(ms(again.first_sent_at), ms(r.first_sent_at))
   assert.equal(ms(again.deadline_at), ms(r.deadline_at))
   assert.ok(ms(again.sent_at) >= ms(r.sent_at), 'the last send moves on')
+  // Asked straight, the judge makes no second judgement of an order judged already.
+  assert.equal(await sql.begin(tx => judgeFirstSend(tx, ids.a, po.id)), null, 'judged once only')
 
   // First emailed after its deadline: late.
   failMail = true
@@ -233,6 +235,7 @@ test('a delivery booked in without an order is never sent, so never judged', asy
   assert.deepEqual([r.first_sent_at, r.deadline_at, r.sent_late], [null, null, null])
   // Even with a send time from somewhere, the backfill leaves it alone.
   await sql`UPDATE purchase_orders SET first_sent_at = now() WHERE id = ${po.id}`
+  assert.equal(await sql.begin(tx => judgeFirstSend(tx, ids.a, po.id)), null, 'asked straight, the judge leaves it alone')
   await backfillSentLate(null)
   assert.equal((await judged(po.id)).sent_late, null)
   await sql`UPDATE purchase_orders SET first_sent_at = NULL WHERE id = ${po.id}`

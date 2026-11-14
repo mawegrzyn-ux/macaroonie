@@ -279,8 +279,14 @@ test('a loyalty member\'s points are what their history adds up to, as the membe
 const poNumber = n => 'PO-' + String(n).padStart(5, '0')
 
 test('supplier orders are the purchase order list\'s own, and their lines add up to them', async () => {
+  // One order cancelled, as the purchase order page cancels it: listed, never counted.
+  const placed = await ok(owner.get(`/api/purchasing/pos?venue_id=${V}&limit=500`))
+  const gone = placed.find(po => ['to_send', 'sent'].includes(po.status))
+  assert.ok(gone, 'an order that can still be cancelled')
+  await ok(owner.post(`/api/purchasing/pos/${gone.id}/cancel`, {}), 'cancel an order')
   const page = await ok(owner.get(`/api/purchasing/pos?venue_id=${V}&limit=500`))
   assert.ok(page.length >= 3, 'the fixtures placed, split and booked in orders')
+  assert.equal(page.find(po => po.id === gone.id)?.status, 'cancelled')
   const res = await go({
     subject: 'purchasing.orders', kind: 'list',
     rows: ['number', 'status', 'date', 'no_order', 'goods_value', 'vat_value', 'delivery_value', 'total_value'],
@@ -308,8 +314,10 @@ test('supplier orders are the purchase order list\'s own, and their lines add up
   assert.ok(rowsOf(lines).length >= 3, 'orders with lines')
   for (const row of rowsOf(lines)) {
     const po = page.find(x => poNumber(x.number) === row['order.number'])
-    assert.deepEqual([p(row.goods), p(row.vat)], [p(po.subtotal), p(po.vat)], row['order.number'])
+    // A cancelled order's lines count for nothing.
+    assert.deepEqual([p(row.goods), p(row.vat)], po.status === 'cancelled' ? [0, 0] : [p(po.subtotal), p(po.vat)], row['order.number'])
   }
+  assert.ok(rowsOf(lines).some(r => r['order.number'] === poNumber(gone.number)), 'the cancelled order\'s lines are there to count for nothing')
 
   // Prices are for people who see purchasing prices; counts aren't.
   const counted = await go({ subject: 'purchasing.orders', values: measures(['orders']), filters: [here()] }, { ...ALL, purchasing_setup: 'none' })
@@ -335,11 +343,14 @@ test('readings out of range with nothing done, and checklists done, are the Over
     return row.id
   }
   // A fridge reading out of range with nothing done, and one the day before
-  // put right; a hold reading whose action was left empty; a cooking check
-  // put right; a delivery turned away with nothing done.
+  // put right; a hold reading whose action was left empty, and one the day
+  // before whose action is only spaces (the Overview counts any action
+  // written as put right); a cooking check put right; a delivery turned away
+  // with nothing done.
   await sql`UPDATE fs_temp_logs SET is_within_range = false, corrective_action = NULL WHERE id = ${await one('fs_temp_logs', 'log_date', day)}`
   await sql`UPDATE fs_temp_logs SET is_within_range = false, corrective_action = 'Moved the stock' WHERE id = ${await one('fs_temp_logs', 'log_date', before)}`
   await sql`UPDATE fs_hold_checks SET is_within_range = false, corrective_action = '' WHERE id = ${await one('fs_hold_checks', 'check_date', day)}`
+  await sql`UPDATE fs_hold_checks SET is_within_range = false, corrective_action = '  ' WHERE id = ${await one('fs_hold_checks', 'check_date', before)}`
   await sql`UPDATE fs_cooking_checks SET is_within_range = false, corrective_action = 'Cooked longer' WHERE id = ${await one('fs_cooking_checks', 'check_date', day)}`
   const [delivery] = await sql`SELECT id, delivery_date::text AS date FROM fs_delivery_checks WHERE tenant_id = ${ids.a} AND venue_id = ${V} AND delivery_date BETWEEN ${HS.from} AND ${HS.to} ORDER BY delivery_date LIMIT 1`
   assert.ok(delivery, 'a delivery checked in the range')
@@ -366,7 +377,7 @@ test('readings out of range with nothing done, and checklists done, are the Over
   }
   // As known: the fridge and the hold reading on the Tuesday (an empty action
   // counts as none) and the delivery turned away; what was put right isn't.
-  assert.deepEqual([fridges[day], fridges[before] ?? 0, holds[day], cooking[day] ?? 0, deliveries[delivery.date]], [1, 0, 1, 0, 1])
+  assert.deepEqual([fridges[day], fridges[before] ?? 0, holds[day], holds[before] ?? 0, cooking[day] ?? 0, deliveries[delivery.date]], [1, 0, 1, 0, 0, 1])
   assert.equal(unresolved, 3)
   const out = await go({ subject: 'safety.fridge_checks', values: measures(['out_of_range', 'unresolved_count']), filters: [period(before, day), here()] })
   assert.deepEqual([rowsOf(out)[0].out_of_range, rowsOf(out)[0].unresolved_count], [2, 1], 'put right isn\'t unresolved')
@@ -395,12 +406,14 @@ test('readings out of range with nothing done, and checklists done, are the Over
 
 test('every starter runs for a role with only its own area, its rows and breakdowns too', async () => {
   // The starter list offers a starter to anyone with its subject's module
-  // (runsFor), so that is all a role may have here: a figure needing another
+  // (runsFor), at the level the subject asks for (Pepper's Activity is
+  // Manage), so that is all a role may have here: a figure needing another
   // module (purchasing money needs Purchasing setup) is left out with a note,
   // never a refusal.
   const given = s => (s.spec.params.some(x => x.type === 'period') ? { period: { from: '2025-11-01', to: '2026-12-31' } } : {})
   for (const s of STARTERS) {
-    const levels = { [CATALOGUE.subjects[s.spec.subject].module]: 'view' }
+    const sub = CATALOGUE.subjects[s.spec.subject]
+    const levels = sub.module ? { [sub.module]: sub.level } : {}
     const res = await run(s.spec, given(s), { levels })
     assert.equal(res.kind, s.spec.kind, s.key)
     if (s.spec.kind === 'list') continue

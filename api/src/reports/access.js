@@ -85,7 +85,10 @@ export function runsFor(subjectKey, levels) {
   const s = CATALOGUE.subjects[subjectKey]
   if (!s || s.hidden) return { runs: false, needs: null }
   if (canReportOn(s, levels)) return { runs: true, needs: null }
-  return { runs: false, needs: MODULE_LABELS[s.module] || null }
+  const label = MODULE_LABELS[s.module] || null
+  // "Manage on Pepper (AI assistant)": a subject that asks for more than View says so.
+  if (!label || s.level === 'view') return { runs: false, needs: label }
+  return { runs: false, needs: (s.level === 'manage' ? 'Manage' : 'Use') + ' on ' + label }
 }
 
 export function checkedSpec(raw, p, { strict = false } = {}) {

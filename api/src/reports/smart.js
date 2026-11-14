@@ -164,7 +164,11 @@ function subjectDocs(catalogue) {
     for (const m of Object.values(s.measures)) add(m.label, 2)
     for (const f of Object.values(s.fields)) {
       add(f.title || f.label, 2); add(f.about, 1)
-      if (f.labels) add(Object.values(f.labels).join(' '), 1)
+      // What a field's choices can be counts once a word: Pepper's changes
+      // name nearly a hundred kinds, several about bookings ("Made a booking",
+      // "Moved a booking", ...), and each "booking" counted made it the best fit
+      // for booking requests.
+      if (f.labels) for (const x of new Set(indexWords(Object.values(f.labels).join(' ')))) { tf.set(x, (tf.get(x) || 0) + 1); len += 1 }
     }
     for (const l of Object.values(s.links)) {
       add(l.label, 2)

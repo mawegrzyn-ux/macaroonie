@@ -8,7 +8,7 @@
 //   cash.income ... wages   what was typed, with figures that say what counts
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { as, ok, closeApp } from './support/app.mjs'
+import { as, ok, closeApp, sql } from './support/app.mjs'
 import { resetAndSeed, A, B } from './support/seed.mjs'
 import { fillCashWeek, CASH_MONDAY, addDays } from './support/cashWeek.mjs'
 import { runner, rowsOf, totalsRow, measures, refused } from './support/reports.mjs'
@@ -223,4 +223,26 @@ test('Cash Recon needs its own module, a file streams the worked rows, and anoth
   const theirs = await b.post('/api/reports/export', { format: 'csv', spec: { kind: 'list', subject: 'cash.days', rows: cols(['date', 'variance']) } })
   assert.equal(theirs.status, 200)
   assert.equal(theirs.body.slice(1).trim().split(/\r?\n/).length, 1, 'only the headings')
+})
+
+test('a wage paid on a day outside its own week counts in its week, never on that day', async () => {
+  // The wages page refuses such a day, but the column has no check: a row can hold one.
+  const dayOf = async date => rowsOf(await run({ kind: 'list', subject: 'cash.days', rows: cols(['date', 'wages_paid', 'variance']), filters: [inPeriod(date), atVenue(V)] }))[0]
+  const weekOf = async monday => rowsOf(await run({ kind: 'list', subject: 'cash.weeks', rows: cols(['date', 'cash_wages', 'wages_off_days']), filters: [inPeriod(monday, addDays(monday, 6)), atVenue(V)] }))[0]
+  const next = await dayOf(NEXT)
+  assert.equal(next.wages_paid, 0, 'the week after has no wages of its own')
+  const [list] = await sql`SELECT id, tenant_id FROM cash_wage_reports WHERE venue_id = ${V} AND week_start = ${CASH_MONDAY}::date`
+  const [entry] = await sql`
+    INSERT INTO cash_wage_entries (tenant_id, wage_report_id, name, entry_type, total, cash_amount, paid_date)
+    VALUES (${list.tenant_id}, ${list.id}, 'Zed', 'fixed', 25, 25, ${NEXT}::date) RETURNING id`
+  try {
+    // Paid on the Monday after, from this week's list: not that Monday's wages.
+    assert.deepEqual(await dayOf(NEXT), next)
+    const w = await weekOf(CASH_MONDAY)
+    assert.equal(w.cash_wages, week.week.cash_wages + 25)
+    assert.equal(w.wages_off_days, week.week.wages_off_days + 25, 'in its own week, off its days')
+    assert.equal((await weekOf(NEXT)).wages_off_days, 0)
+  } finally {
+    await sql`DELETE FROM cash_wage_entries WHERE id = ${entry.id}`
+  }
 })

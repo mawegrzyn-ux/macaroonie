@@ -12,6 +12,8 @@
 //     label:  'Checks',                 one: 'check',
 //     about:  'Every check a till or kiosk opened ...',
 //     module: 'pos_reports',            who may report on it (View)
+//     level:  'manage',                 the level on `module` it needs, when more than View
+//                                       (Pepper's Activity is Manage on its page too)
 //     from:   'pos_checks',             a table, or { sql: '(SELECT ...)', tables: [...] },
 //                                       or { work: 'cash_days', tables: [...] }: rows worked
 //                                       out in code for each run (reports/work/), for
@@ -152,6 +154,8 @@ export function subject(def) {
   if (from.work && !KEY.test(from.work)) fail('"' + from.work + '" isn\'t the name of rows worked out for a run')
   if (from.work && !from.tables.length) fail('rows worked out for a run need the tables they read (from.tables)')
   if (!from.table && !from.sql && !from.work) fail('needs a table, { sql } or { work }')
+  if (def.level != null && !['view', 'use', 'manage'].includes(def.level)) fail('level is view, use or manage')
+  if (def.level != null && def.level !== 'view' && !def.module) fail('a level needs a module')
 
   let id
   try { id = source(def.id === undefined ? 'id' : def.id) } catch (e) { fail('id: ' + e.message) }
@@ -163,6 +167,7 @@ export function subject(def) {
     about: def.about || '',
     area: def.area || def.key.split('.')[0],
     module: def.module ?? null,
+    level: def.level ?? 'view',
     hidden: !!def.hidden,
     from,
     where: def.where || null,

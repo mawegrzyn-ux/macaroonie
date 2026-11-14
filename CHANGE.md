@@ -6,6 +6,44 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-14 — Reports: a last round of checks on the new kinds of report]
+
+No migration. Nothing in the app changed but the in-app Help and Docs.
+
+**Notes**
+- Every kind of report added on 14 November (the kitchen, kiosks, loyalty, purchasing, food safety and H&S, Cash Recon, the rota, H&S days, orders sent late, figures from other subjects, menus, screens, the website, local info, Pepper and your group) went through a last round of checks: all the automatic tests, a run that breaks the report rules on purpose, one at a time, to see the tests notice, and the report pages again in a browser.
+- The automatic checks now cover seven report rules they couldn't tell right from wrong before: an H&S action whose corrective action is only spaces (it counts as put right, as on the Overview), a closed issue (not open), a cancelled supplier order and its lines (they count nothing), venues in time zones a day apart (each one's H&S days end at its own today), a wage paid on a day outside its own week (it counts in its week), a delivery booked in without an order (never judged as sent late, since it was never sent) and an order sent a second time (it keeps the judgement it got the first time). All seven were already right; the checks now keep them that way.
+- Help no longer lists rota pay and tips, Cash Recon, menus, reviews and reports about two things at once as still to come (they arrived on 14 November); what is still to come is PDFs and reports sent by email on a schedule, a list of past runs, reports on dashboards and the phone, and links other apps can read a report from. The kitchen screens section no longer says the venue hub comes later: with a hub linked and Hub first on (Store tech → Venue hub), the tills and kitchen screens keep working together with the internet down.
+
+## [2026-11-14 — Reports: Pepper's use, your team and group, and starter reports for every area]
+
+No migration.
+
+**Added**
+- Reports on **Pepper**: its use by month, counted as the Settings tab counts it (requests, units, web searches); each person's use by day; the changes it made, as the Activity tab lists them; and its chats (when, where, who, which model, closed and why). Only counts and dates: never what was asked or answered. Use by person, changes and chats need Manage on Pepper, as those tabs do.
+- Reports on **your group**: the team (role, active, last signed in, invited by), roles, new locations planned with Pepper or the New location page (how far each got, follow-ups left), the Issue log and feature requests (your own, with every group's votes).
+- Reports on dishes can show whether a dish has a price (its own or an option's) and which allergens it is tagged with.
+- 16 more starter reports, 88 in all: Dishes with no photo, price or allergens; Allergens by dish; Price list; Publishing history; Newsletter sign-ups by month; Reviews by rating, site and month; Local events and incidents coming up; Card machine payments by machine; Tickets printed by printer; Menu screens offline; Emails sent and failed; Pepper's use by month; Pepper's use by person; Pepper's changes; Team sign-ins; Issues by priority. The Reports page lists each under its area.
+- A starter report your role can't run says what it needs (for example Manage on Pepper).
+
+**Notes**
+- Pepper's months and days are UTC, as its allowance and daily shares are counted, so use just after midnight in summer time counts on the day before.
+- Each person's use reaches back 400 days. Chats idle past your group's chat retention are deleted and drop out of reports; Pepper's changes stay counted after their details are cleared a year on.
+- When Pepper builds a report from a request, each word of a field's choices now counts once: Pepper's changes name nearly a hundred kinds, several of them about bookings, and would otherwise have looked like the best fit for booking requests.
+- Every table in the database now has its place in the report catalogue, except the record of report runs, which comes with scheduled reports.
+
+## [2026-11-14 — Reports: two fixes to yes / no fields, and menus, screens, website and local info checked against their pages]
+
+No migration.
+
+**Fixed**
+- Reports on menu screens: a screen that has never connected now shows No for Online now. It showed nothing, so a filter on No left it out.
+- Reports on the H&S action log: an open action with no due date now shows No for Overdue. It showed nothing, so a filter on No left it out.
+
+**Notes**
+- Report figures on menus, menu screens, the website, reviews and local info are now checked automatically against the pages that show the same rows. These checks found the two problems above.
+- A new check reads every yes / no field in every kind of report, so a yes / no can't show nothing by mistake again. Two fields can still be blank, because blank there means not known: a card machine's Online when its provider didn't say, and a supplier order's Sent late until it has gone to the supplier.
+
 ## [2026-11-14 — Local info: the same event found more than once shown as one entry]
 
 Migration: `249_local_info_merge.sql`.
