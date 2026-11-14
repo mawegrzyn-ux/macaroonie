@@ -16,11 +16,13 @@ import { offApproval, flowNameOf } from '../lib/orderFlows.js'
 const VOID_REASONS = ['Wrong item', 'Guest changed mind', 'Quality', 'Took too long', 'Dropped / spilt']
 const COMP_REASONS = ['Quality', 'Took too long', 'Birthday', 'Regular', 'Staff', 'Manager decision']
 
-export default function LineModal({ check, line, config, onClose, onDiscount, onMove, onMakeCombo, initialMode = null }) {
+export default function LineModal({ check, line, config, onClose, onDiscount, onMove, onMakeCombo, initialMode = null, initialVoidQty = null }) {
   const approve = useApproval()
   const [mode, setMode] = useState(initialMode)   // 'void' | 'comp' | 'delete'
   const [reason, setReason] = useState('')
-  const [voidQty, setVoidQty] = useState(line.qty)
+  // How many to void: all of them, or what the window was opened for (a dish's
+  // Take one off on a line already sent: Check.jsx takeOneOff()).
+  const [voidQty, setVoidQty] = useState(Math.max(1, Math.min(line.qty, initialVoidQty || line.qty)))
   const [waste, setWaste] = useState(true)
   const [note, setNote] = useState(line.note || '')
   const isNew = line.status === 'new'

@@ -12,24 +12,27 @@
 // tiles in the order of their names instead of the plan (a plan scaled to a
 // phone's width leaves tables too small to tap). With the till's On a phone:
 // List (phoneTablesList), tables are rows instead, and the row of any check
-// can be swiped: left sends what is new to the kitchen (or fires the course
-// waiting), right pays.
+// can be swiped: left sends what is new to the kitchen or fires the course
+// waiting (the till's Swipe left says which comes first), always asking
+// first in the Send or Fire window, so a swipe made by mistake does nothing;
+// right pays.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Users, Hourglass, ReceiptText, Send, Flame, CreditCard } from 'lucide-react'
-import { useTill, useChecks, toast, serverName, dispatch } from '../lib/store.js'
+import { useTill, useChecks, toast, serverName } from '../lib/store.js'
 import {
   openCheck, defaultStreamId, typeOf, streamTypes, defaultTypeId, promptsFor, orderPromptOf, coversOf,
-  tablesOn, phoneTablesList, notFired, sendCheck, needsSendChoice, missingDetails, coversMissing,
+  tablesOn, phoneTablesList, swipeLeftAction, missingDetails, coversMissing,
 } from '../lib/checkOps.js'
 import { useNarrow } from '../lib/tillLayout.js'
+import { useRowSwipe } from '../lib/rowSwipe.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { checkLabel, heldCourses } from '@shared/pos/checks.js'
 import { Modal, Keypad, cx, money, elapsed, useTick } from '../components/ui.jsx'
 import OrderPrompt from '../components/OrderPrompt.jsx'
+import { SendModal, FireModal } from '../components/CheckActions.jsx'
 
 const LIST = '__list'
-const SWIPE_START = 12 // px sideways before a press counts as a swipe
 
 export default function Floor({ onOpen }) {
   const { config, staff } = useTill()
@@ -43,6 +46,7 @@ export default function Floor({ onOpen }) {
   const [ask, setAsk] = useState(null)       // { table } covers / new check
   const [choose, setChoose] = useState(null) // { table, checks }
   const [newTab, setNewTab] = useState(false)
+  const [confirm, setConfirm] = useState(null) // { kind: 'send' | 'fire', checkId }: a row swiped left asks first
   // A phone: one half at a time.
   const narrow = useNarrow()
   const [pane, setPane] = useState('tables')
@@ -81,26 +85,17 @@ export default function Floor({ onOpen }) {
     newOnTable(table)
   }
 
-  // A row swiped left: what is new goes to the kitchen, else the course
-  // waiting is fired. When the check needs something first (its details,
-  // its guests, which courses wait, several courses to choose from) it opens
-  // and does that, as its own Send or Fire button would.
+  // A row swiped left asks first, always (a swipe is easy to make by
+  // mistake): the Send window for what is new, the Fire window for a course
+  // waiting, even when there is only one. The till's Swipe left says which
+  // comes first when a check has both. When the check needs something before
+  // it can go (its details, its guests) it opens and does that, as its own
+  // Send button would.
   const swipeLeft = c => {
-    const nf = notFired(c)
-    if (nf.unsent) {
-      if (missingDetails(c, config).length || coversMissing(c, config) || needsSendChoice(c, config)) return onOpen(c.id, 'send')
-      const r = sendCheck(c, [])
-      if (!r.ok) return toast(r.error, 'bad')
-      return toast('Sent to the kitchen: ' + rowTitle(c, config), 'ok')
-    }
-    if (nf.held.length === 1) {
-      const r = dispatch('course.fired', { course_id: nf.held[0] }, { check_id: c.id })
-      if (!r.ok) return toast(r.error, 'bad')
-      const course = (config.courses || []).find(x => x.id === nf.held[0])
-      return toast('Fired ' + (course?.name || 'the course') + ': ' + rowTitle(c, config), 'ok')
-    }
-    if (nf.held.length > 1) return onOpen(c.id, 'fire')
-    toast('Nothing to send or fire', 'info')
+    const act = swipeLeftAction(c, config)
+    if (!act) return toast('Nothing to send or fire', 'info')
+    if (act === 'send' && (missingDetails(c, config).length || coversMissing(c, config))) return onOpen(c.id, 'send')
+    setConfirm({ kind: act, checkId: c.id })
   }
   // Swiped right: the check opens straight into Pay (with what Pay asks first).
   const swipeRight = c => onOpen(c.id, 'pay')
@@ -108,6 +103,11 @@ export default function Floor({ onOpen }) {
   const checkRow = (c, onClick) => (rows
     ? <SwipeCheckRow key={c.id} check={c} config={config} swipe={swipe} onClick={onClick} onLeft={() => swipeLeft(c)} onRight={() => swipeRight(c)} />
     : <CheckRow key={c.id} check={c} config={config} onClick={onClick} />)
+
+  // The swiped check as it is now (another till may change it while the
+  // window is up); closed or gone, the window goes.
+  const confirmCheck = confirm ? open.find(c => c.id === confirm.checkId) || null : null
+  useEffect(() => { if (confirm && !confirmCheck) setConfirm(null) }, [confirm, confirmCheck])
 
   const area = areas.find(a => a.id === areaId)
   const tabs = open.filter(c => !c.table_id).sort((a, b) => (a.opened_at || '').localeCompare(b.opened_at || ''))
@@ -142,7 +142,7 @@ export default function Floor({ onOpen }) {
         {!tables && !narrow && <div className="ml-auto text-sm text-muted shrink-0 pr-1">{open.length} open · {mine} yours</div>}
       </div>
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
-        {rows && open.length > 0 && <SwipeHint />}
+        {rows && open.length > 0 && <SwipeHint fireFirst={config.device?.settings?.swipe_left === 'fire'} />}
         <div className="label px-1">Tabs and orders</div>
         {!tabs.length && <div className="text-sm text-muted px-1">No open tabs.</div>}
         {tabs.map(c => checkRow(c, () => onOpen(c.id)))}
@@ -183,6 +183,15 @@ export default function Floor({ onOpen }) {
         </Modal>
       )}
       {newTab && <NewTabModal onClose={() => setNewTab(false)} onOpen={id => { setNewTab(false); onOpen(id) }} />}
+      {confirmCheck && confirm.kind === 'send' && (
+        <SendModal check={confirmCheck} config={config} cancel title={'Send to the kitchen: ' + rowTitle(confirmCheck, config)}
+          onClose={() => setConfirm(null)}
+          onSent={() => { setConfirm(null); toast('Sent to the kitchen: ' + rowTitle(confirmCheck, config), 'ok') }} />
+      )}
+      {confirmCheck && confirm.kind === 'fire' && (
+        <FireModal check={confirmCheck} config={config} cancel title={'Fire a course: ' + rowTitle(confirmCheck, config)}
+          where={rowTitle(confirmCheck, config)} onClose={() => setConfirm(null)} />
+      )}
     </div>
   )
 }
@@ -338,25 +347,25 @@ export function CheckRow({ check, config, onClick, active = false, buttonProps =
   )
 }
 
-/** One line above swipeable rows saying what a swipe does. */
-function SwipeHint() {
+/** One line above swipeable rows saying what a swipe does (fireFirst: the till's Swipe left fires first). */
+function SwipeHint({ fireFirst = false }) {
   return (
     <div className="text-xs text-muted px-1 flex items-center gap-3 flex-wrap" data-testid="swipe-hint">
       <span className="inline-flex items-center gap-1"><CreditCard size={13} /> Swipe right to pay</span>
-      <span className="inline-flex items-center gap-1"><Send size={13} /> Swipe left to send or fire</span>
+      <span className="inline-flex items-center gap-1">{fireFirst ? <Flame size={13} /> : <Send size={13} />} Swipe left to {fireFirst ? 'fire or send' : 'send or fire'}</span>
     </div>
   )
 }
 
 /**
  * A check's row that swipes (a phone set to rows): drag it right to pay,
- * left to send what is new (or fire the course waiting). What a swipe will do
- * shows behind the row as it moves; let go past the line to do it. A tap
- * still opens the check.
+ * left to send what is new or fire the course waiting (swipeLeftAction(),
+ * then the Send or Fire window asks). What a swipe will do shows behind the
+ * row as it moves; let go past the line to do it. A tap still opens the
+ * check.
  */
 function SwipeCheckRow({ check, config, swipe, onClick, onLeft, onRight }) {
-  const nf = notFired(check)
-  const left = nf.unsent ? 'send' : nf.held.length ? 'fire' : null
+  const left = swipeLeftAction(check, config)
   const dx = swipe.shiftOf(check.id)
   return (
     <div className="relative rounded-2xl overflow-hidden" data-row={check.id} data-testid="swipe-row" data-left={left || 'none'}>
@@ -379,76 +388,6 @@ function SwipeCheckRow({ check, config, swipe, onClick, onLeft, onRight }) {
         }} />
     </div>
   )
-}
-
-/**
- * Swiping rows both ways, one row at a time: let go past the line (35% of
- * the row, at most 160 px) and the side's action runs; short of it, the row
- * springs back. A side with no action only gives a little.
- */
-function useRowSwipe() {
-  const [moving, setMoving] = useState(null) // { key, dx } while a finger moves a row
-  const g = useRef(null)
-  const swallowed = useRef(null)
-  const end = useRef(null)
-  useEffect(() => () => end.current?.(), [])
-
-  const down = (e, key, act) => {
-    if (e.button > 0) return
-    const row = e.currentTarget.closest('[data-row]')
-    const s = { key, x: e.clientX, y: e.clientY, pid: e.pointerId, swiping: false, width: row?.offsetWidth || 360, target: e.currentTarget }
-    g.current = s
-    const clamp = dx => {
-      const lim = s.width * 0.9
-      let v = Math.max(-lim, Math.min(lim, dx))
-      if (v < 0 && !act.left) v = Math.max(v, -24)
-      if (v > 0 && !act.right) v = Math.min(v, 24)
-      return v
-    }
-    const move = ev => {
-      if (ev.pointerId !== s.pid || g.current !== s) return
-      const dx = ev.clientX - s.x
-      const dy = ev.clientY - s.y
-      if (!s.swiping) {
-        if (Math.abs(dy) > SWIPE_START && Math.abs(dy) >= Math.abs(dx)) return finish()
-        if (Math.abs(dx) < SWIPE_START || Math.abs(dx) < Math.abs(dy) * 1.2) return
-        s.swiping = true
-        try { s.target.setPointerCapture(s.pid) } catch { /* not every pointer can be captured */ }
-      }
-      setMoving({ key, dx: clamp(dx) })
-    }
-    const up = ev => {
-      if (ev.pointerId !== s.pid) return
-      if (s.swiping) {
-        // The click this swipe ends with isn't a tap on the row.
-        swallowed.current = key
-        const dx = clamp(ev.clientX - s.x)
-        const need = Math.min(s.width * 0.35, 160)
-        setMoving(null)
-        if (dx <= -need && act.left) act.left()
-        else if (dx >= need && act.right) act.right()
-      }
-      finish()
-    }
-    const cancel = ev => { if (ev.pointerId === s.pid) { setMoving(null); finish() } }
-    function finish() {
-      if (g.current === s) g.current = null
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      window.removeEventListener('pointercancel', cancel)
-      end.current = null
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-    window.addEventListener('pointercancel', cancel)
-    end.current = finish
-  }
-  return {
-    down,
-    shiftOf: key => (moving?.key === key ? moving.dx : 0),
-    isMoving: key => moving?.key === key,
-    swallow: key => { if (swallowed.current === key) { swallowed.current = null; return true } return false },
-  }
 }
 
 /**

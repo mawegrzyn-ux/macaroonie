@@ -3,7 +3,9 @@
 // settings for seats, Send on a counter till, items not sent at Pay, tables,
 // the phone list and dish counts; the location's layout for tills on
 // phones; typing a discount as a till role's permission; and the migration
-// on data written before it.
+// on data written before it. Also (the phone till improvements, the same
+// day): what a swipe left on a table's row does first, asking before leaving
+// an order with items not sent, and taking one off a counted dish.
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -100,6 +102,28 @@ test('a till\'s own settings: seats, Send on a counter till, items not sent at P
   // Back to a plain table-service till: none of them (the defaults).
   const plain = await ok(owner.patch('/api/pos/devices/' + till.id, { settings: { mode: 'table' } }))
   for (const k of ['seats', 'counter_send', 'unsent_at_pay', 'tables', 'phone_tables', 'item_counts']) assert.equal(plain.settings[k], undefined, k)
+})
+
+test('a till\'s own settings for a phone and for leaving an order: swipe left fires first, ask before leaving with items not sent, take one off a counted dish', async () => {
+  const s = { mode: 'table', phone_tables: 'list', swipe_left: 'fire', leave_unsent: 'ask', item_counts: true, count_take_off: true }
+  const saved = await ok(owner.patch('/api/pos/devices/' + till.id, { settings: s }))
+  for (const [k, v] of Object.entries(s)) assert.equal(saved.settings[k], v, k)
+  const cfg = await config()
+  for (const [k, v] of Object.entries(s)) assert.equal(cfg.device.settings[k], v, 'in the till\'s config: ' + k)
+  const [row] = await sql`SELECT settings FROM pos_devices WHERE id = ${till.id}`
+  assert.deepEqual([row.settings.swipe_left, row.settings.leave_unsent, row.settings.count_take_off], ['fire', 'ask', true])
+  // Values the settings don't take.
+  for (const bad of [{ swipe_left: 'pay' }, { swipe_left: true }, { leave_unsent: 'send' }, { leave_unsent: 1 }, { count_take_off: 'yes' }]) {
+    assert.equal((await owner.patch('/api/pos/devices/' + till.id, { settings: { mode: 'table', ...bad } })).status, 400, JSON.stringify(bad))
+  }
+  const other_way = await ok(owner.patch('/api/pos/devices/' + till.id, { settings: { mode: 'table', swipe_left: 'send', leave_unsent: 'leave', count_take_off: false } }))
+  assert.deepEqual([other_way.settings.swipe_left, other_way.settings.leave_unsent, other_way.settings.count_take_off], ['send', 'leave', false])
+  assert.equal((await viewer.patch('/api/pos/devices/' + till.id, { settings: { mode: 'table', leave_unsent: 'ask' } })).status, 403)
+  assert.equal((await other.patch('/api/pos/devices/' + till.id, { settings: { mode: 'table', leave_unsent: 'ask' } })).status, 404)
+  // Left out: none of them (the defaults: send first, just leave, no taking off).
+  const plain = await ok(owner.patch('/api/pos/devices/' + till.id, { settings: { mode: 'table' } }))
+  for (const k of ['swipe_left', 'leave_unsent', 'count_take_off']) assert.equal(plain.settings[k], undefined, k)
+  assert.equal((await config()).device.settings.leave_unsent, undefined)
 })
 
 test('the layout for tills on phones: only a layout made for a phone, in the till\'s config and the uses; gone when it stops being one', async () => {

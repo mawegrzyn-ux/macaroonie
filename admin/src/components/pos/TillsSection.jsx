@@ -270,7 +270,10 @@ function TillModal({ venueId, setup, device, onClose }) {
     unsent_at_pay: s.unsent_at_pay === 'send' ? 'send' : 'ask',
     tables: s.tables !== false,
     phone_tables: s.phone_tables === 'list' ? 'list' : 'tiles',
+    swipe_left: s.swipe_left === 'fire' ? 'fire' : 'send',
+    leave_unsent: s.leave_unsent === 'ask' ? 'ask' : 'leave',
     item_counts: s.item_counts === true,
+    count_take_off: s.count_take_off === true,
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const body = () => ({
@@ -291,7 +294,10 @@ function TillModal({ venueId, setup, device, onClose }) {
       unsent_at_pay: form.unsent_at_pay,
       tables: form.tables,
       phone_tables: form.phone_tables,
+      swipe_left: form.swipe_left,
+      leave_unsent: form.leave_unsent,
       item_counts: form.item_counts,
+      count_take_off: form.count_take_off,
       ...(device && orderRangeReady(form.order_numbers) ? { order_numbers: form.order_numbers } : {}),
     },
   })
@@ -400,19 +406,39 @@ function TillModal({ venueId, setup, device, onClose }) {
               <option value="send">Send and fire them as it is paid</option>
             </select>
           </Field>
+          <Field label="Leaving an order with items not sent" hint={form.leave_unsent === 'ask'
+            ? 'Back, the top bar\'s pages, the till menu and Sign out ask first: Send and leave, Leave without sending, or Stay on the order.'
+            : 'The till just leaves: the items wait on the order until someone sends them.'}>
+            <select className={inputCls} value={form.leave_unsent} onChange={e => set({ leave_unsent: e.target.value })} data-testid="till-leave-unsent">
+              <option value="leave">Just leave</option>
+              <option value="ask">Ask whether to send them</option>
+            </select>
+          </Field>
           <Field group label="On a phone" hint={form.phone_tables === 'list'
-            ? 'Tables and tabs as rows: swipe right to pay, left to send what is new (or fire the course waiting).'
+            ? 'Tables and tabs as rows: swipe right to pay, left to send what is new or fire the course waiting. A swipe left always asks first.'
             : 'Tables as tiles, tabs as a list.'}>
             <Segmented value={form.phone_tables} options={[{ value: 'tiles', label: 'Tiles' }, { value: 'list', label: 'Rows to swipe' }]}
               onChange={v => set({ phone_tables: v })} testid="till-phone-tables" />
           </Field>
+          {form.phone_tables === 'list' && (
+            <Field group label="Swipe left" hint="What a swipe left does first when a check has both items not sent and a course waiting. When it has only one of them, the swipe does that one.">
+              <Segmented value={form.swipe_left} options={[{ value: 'send', label: 'Send what is new' }, { value: 'fire', label: 'Fire the course waiting' }]}
+                onChange={v => set({ swipe_left: v })} testid="till-swipe-left" />
+            </Field>
+          )}
         </>}
         {form.mode === 'counter' && (
           <Toggle label="Show a Send button" checked={form.counter_send} onChange={v => set({ counter_send: v })}
             hint="Off: counter orders go to the kitchen as they are paid. On: staff can also send an order before it is paid." />
         )}
         <Toggle label="Show on dish buttons how many are on the order" checked={form.item_counts} onChange={v => set({ item_counts: v })}
-          hint="A small number on each dish's button: how many of it the order already has." />
+          hint="A small number on each dish's button: how many of it the order already has." testid="till-item-counts" />
+        {form.item_counts && (
+          <div className="pl-8">
+            <Toggle label="Take one off from the dish's button" checked={form.count_take_off} onChange={v => set({ count_take_off: v })} testid="till-count-take-off"
+              hint="A long press on a dish's button takes one off the order (a swipe left on a list's row, where a long press marks it sold out). One the kitchen already has opens the void window, asking why." />
+          </div>
+        )}
         <CardMachinePick venueId={venueId} value={form.card_reader} onChange={v => set({ card_reader: v })} />
         <OrderNumbersField setup={setup} device={device} value={form.order_numbers} onChange={v => set({ order_numbers: v })} />
       </>}

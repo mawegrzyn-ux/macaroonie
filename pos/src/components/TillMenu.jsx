@@ -7,7 +7,10 @@
 // panel, and behind a Buttons zone's Till menu button.
 //
 // TillNav (App.jsx Main) carries the navigation down: go(view), the view on
-// screen, counter mode, whether the top bar is hidden, openMenu().
+// screen, counter mode, whether the top bar is hidden, openMenu(), signOut(),
+// and guardLeave(fn): the check screen asks there before it is left with
+// items not sent to the kitchen (Store tech > Tills, Leaving an order: Ask),
+// so go() and signOut() pass through it; it returns the way to take it off.
 
 import { createContext, useContext } from 'react'
 import { LayoutGrid, ShoppingBag, Receipt, BarChart3, Settings, Lock, ListChecks } from 'lucide-react'
@@ -15,7 +18,10 @@ import { useTill, signOut } from '../lib/store.js'
 import { Modal, cx, useTick } from './ui.jsx'
 import StatusDot from './StatusDot.jsx'
 
-const TillNav = createContext({ go: () => {}, view: null, counterMode: false, tables: true, hideBar: false, openMenu: () => {} })
+const TillNav = createContext({
+  go: () => {}, view: null, counterMode: false, tables: true, hideBar: false, openMenu: () => {},
+  signOut, guardLeave: () => () => {},
+})
 export const TillNavProvider = TillNav.Provider
 export const useTillNav = () => useContext(TillNav)
 
@@ -58,7 +64,7 @@ export function TillMenuSection({ onDone = () => {} }) {
             <p.icon size={22} className="shrink-0 text-brand" /><span>{p.label}</span>
           </button>
         ))}
-        <button className="btn h-auto min-h-[64px] py-2 justify-start text-left" onClick={() => { onDone(); signOut() }} data-testid="till-sign-out">
+        <button className="btn h-auto min-h-[64px] py-2 justify-start text-left" onClick={() => { onDone(); nav.signOut() }} data-testid="till-sign-out">
           <Lock size={22} className="shrink-0 text-brand" /><span className="flex flex-col leading-tight min-w-0"><span>Sign out</span><span className="text-xs text-muted font-normal truncate">{staff?.name}</span></span>
         </button>
       </div>

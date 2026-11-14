@@ -6968,11 +6968,16 @@ export default function Help() {
               check you tap. A table-service till set to <strong>Rows to swipe</strong> (Store tech → Tills, On a
               phone) shows the tables and tabs as rows instead: a free table with its seats, or the check on it with its
               total. Swipe a check&apos;s row to the <strong>right to pay</strong> (the check opens in Pay) or to the <strong>left to send</strong> what is
-              new to the kitchen, or to fire the course waiting when nothing is new; what the swipe will do shows behind
-              the row as it moves, and it happens once the row has moved about a third of the way across (160 px at most). When the order needs
-              something first (its guests, its details, which courses wait, or which of two courses to fire) it opens
-              and asks, as its own Send or Fire would. A tap still opens the check, and a free table&apos;s row opens a
-              new check.
+              new to the kitchen, or to fire the course waiting when nothing is new (a till set to{' '}
+              <strong>Swipe left: Fire the course waiting</strong> fires first, and sends when no course waits); what
+              the swipe will do shows behind the row as it moves, and it happens once the row has moved about a third
+              of the way across (160 px at most). A swipe left <strong>always asks first</strong>, even with one
+              course, so a swipe made by mistake sends nothing: the <strong>Send</strong> window (named after the
+              table or tab: each course to cook now or to wait, then <strong>Send</strong> or{' '}
+              <strong>Cancel</strong>) or the <strong>Fire</strong> window (a big <strong>Fire</strong> button for each
+              course waiting, with what is on it, or <strong>Cancel</strong>). When the order needs something before
+              it can go (its guests or its details) the check opens and asks, as its own Send would. A tap still opens
+              the check, and a free table&apos;s row opens a new check.
             </P>
 
             <H3>A till&apos;s own settings</H3>
@@ -6990,9 +6995,12 @@ export default function Help() {
                 ['Tables (table service)', 'Tables and tabs: the floor with its tables, and tabs. Only tabs: no tables; the floor page is called Orders and lists the tabs and orders, with New tab.'],
                 ['Guests (covers), Seats, Courses (table service)', 'As the revenue stream, or the till\'s own way: see Guests, seats and courses.'],
                 ['Pay with items not sent to the kitchen (table service)', 'Warn first (the usual): Pay says what the kitchen hasn\'t been told yet, with Send and pay or Pay without sending. Send and fire them as it is paid: items not sent go to the kitchen and courses waiting are fired as the check closes, without asking.'],
-                ['On a phone (table service)', 'Tiles: the tables as tiles, the tabs as a list. Rows to swipe: tables and tabs as rows; swipe right to pay, left to send what is new or fire the course waiting (see Phone layouts).'],
+                ['Leaving an order with items not sent (table service)', 'Just leave (the usual): the items wait on the order until someone sends them. Ask whether to send them: going back to the floor with items the kitchen hasn\'t had (Back, the top bar\'s pages, the till menu, Sign out) asks first: Send and leave, Leave without sending, or Stay on the order (see Leaving an order with items not sent).'],
+                ['On a phone (table service)', 'Tiles: the tables as tiles, the tabs as a list. Rows to swipe: tables and tabs as rows; swipe right to pay, left to send what is new or fire the course waiting, always asking first (see Phone layouts).'],
+                ['Swipe left (table service, Rows to swipe)', 'Send what is new (the usual): a swipe left sends what the kitchen hasn\'t had, else fires the course waiting. Fire the course waiting: it fires first, else sends. Either way the Send or Fire window asks first.'],
                 ['Show a Send button (counter)', 'Off (the usual): counter orders go to the kitchen as they are paid. On: staff can also send an order before it is paid.'],
                 ['Show on dish buttons how many are on the order', 'A small number on a dish\'s button: how many of it the order already has.'],
+                ['Take one off from the dish\'s button (with the counts on)', 'A dish on the order comes off one at a time from its own button: hold the button down, or swipe its row to the left when the dishes are a list. One not sent yet comes off (Undo for a few seconds; a manager where taking items off needs one); one the kitchen has opens the void window for one. Held down, a dish not on the order, or a row of a list, still opens the sold out window.'],
                 ['Screen layout', 'As the venue, the standard screen, or a layout (see Till layouts). The till\'s Till page says which layout it draws on its screen.'],
               ]}
             />
@@ -7001,7 +7009,7 @@ export default function Help() {
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li>Sign in with your PIN (4 to 6 digits, a 0 at the start included). A PIN signs you in as soon as its last digit is typed; if a 4 or 5 digit PIN doesn&apos;t, press <strong>OK</strong>. The till signs you out after the time set in Receipts and payments. A PIN set or changed in Store tech works straight away; if the till is offline it needs to have been online once since.</li>
               <li><strong>Floor</strong>: tap a table, or <strong>New tab</strong> for a named tab (the till asks its name, and its order type and tent number when there is a choice or the type asks for one). Both ask how many guests unless the revenue stream or the till says not to (see Guests, seats and courses below). Colours show which tables are free, open, waiting for a held course, or billed. A check at a table never asks for a tent number (the table says where the food goes); a tab or counter order asks when its order type does.</li>
-              <li>Tap dishes. Pick a <strong>seat</strong> and <strong>course</strong> in the bar at the bottom of the menu first if you want them (its buttons are as big as Pay; a stream or till without seats has no seat buttons, one without courses no course buttons). A dish&apos;s button can say how many of it the order has already (a small number in its corner), when the till is set to (Store tech → Tills, <strong>Show on dish buttons how many are on the order</strong>). Dishes with choices and combos open a window to pick them, add a note or allergies.</li>
+              <li>Tap dishes. Pick a <strong>seat</strong> and <strong>course</strong> in the bar at the bottom of the menu first if you want them (its buttons are as big as Pay; a stream or till without seats has no seat buttons, one without courses no course buttons). A dish&apos;s button can say how many of it the order has already (a small number in its corner), when the till is set to (Store tech → Tills, <strong>Show on dish buttons how many are on the order</strong>). With <strong>Take one off from the dish&apos;s button</strong> on too, one comes off from there: <strong>hold the button down</strong>, or <strong>swipe its row to the left</strong> when the dishes are a list (what the swipe does shows behind the row: <strong>Take one off</strong> or <strong>Void one</strong>). One not sent yet comes off, with <strong>Undo</strong> for a few seconds (and a manager&apos;s PIN where taking items off needs one); one the kitchen already has opens the void window for one: pick a reason. Dishes with choices and combos open a window to pick them, add a note or allergies.</li>
               <li><strong>Send</strong> sends new items to the kitchen. When the order has more than one course, or a course that waits by default, Send asks first: each course is a big button, green with <strong>Cook now</strong> for what the kitchen starts on, plain with a purple <strong>Wait (hold)</strong> label for what waits. Tap a course to switch it, then <strong>Send</strong>. A held course goes on the ticket with HOLD; <strong>Fire</strong> sends it when it&apos;s time. <strong>Send or Fire?</strong> Send is for items the kitchen hasn&apos;t had yet: it sends them, each course to cook now or to wait. Fire is for a course the kitchen already has but was told to wait: it starts that course. Items added after a Send need another Send.</li>
               <li>Tap an item on the check to change it: before it's sent you can change or delete it; after, <strong>Void</strong> it with a reason (the kitchen gets a VOID ticket), or <strong>Comp</strong> it.</li>
               <li><strong>Swipe an item to the left</strong> for its button: <strong>Delete</strong> before it&apos;s sent (a message offers <strong>Undo</strong> for a few seconds), <strong>Void</strong> once the kitchen has it (the void window opens: pick a reason). A long swipe deletes straight away.</li>
@@ -7026,7 +7034,30 @@ export default function Help() {
             <P>
               A dish has run out: <strong>hold it down</strong> on the menu and pick <strong>Sold out for
               today</strong> or <strong>until I put it back</strong>. It shows as sold out on every till,
-              online ordering and the menu screens. Tap it to put it back on, or to add it anyway.
+              online ordering and the menu screens. Tap it to put it back on, or to add it anyway. On a till
+              that takes one off from the dish&apos;s button, holding down a dish that is on the order takes one off
+              instead; hold it down once it is off the order, or, when the dishes are a list, hold its row (a list&apos;s
+              rows take one off by a swipe).
+            </P>
+
+            <H3>Leaving an order with items not sent</H3>
+            <P>
+              A table-service till can ask before it leaves an order whose items the kitchen hasn&apos;t had (Store
+              tech → Tills, <strong>Leaving an order with items not sent</strong>: <strong>Ask whether to send
+              them</strong>). Going back to the floor then asks first: <strong>Back</strong>, the top bar&apos;s
+              pages, the till menu&apos;s pages and <strong>Sign out</strong>, and a till layout&apos;s Back and Sign
+              out buttons. The window lists what hasn&apos;t gone and offers:
+            </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Send and leave</strong>: it goes to the kitchen, then the till goes where you were going (the Send window first when the order has courses to choose, the order&apos;s details or guests first when it needs them).</li>
+              <li><strong>Leave without sending</strong>: the items stay on the order, not sent, until someone sends them.</li>
+              <li><strong>Stay on the order</strong>: nothing changes.</li>
+            </ul>
+            <P>
+              An order with nothing new leaves at once, and so does every order on a till set to <strong>Just
+              leave</strong> (the usual). A counter till never asks: its orders go to the kitchen as they are paid.
+              The till signing you out by itself after a quiet time doesn&apos;t ask either: the items wait on the
+              order.
             </P>
             <InfoBox type="tip">
               Something your role doesn't allow (a void, a big discount, a refund) asks for a manager: someone

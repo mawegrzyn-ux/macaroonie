@@ -749,6 +749,32 @@ changed, and the cloud and the hub decide events as before (typed discounts exce
 - **Send and Fire**: Send gives the kitchen items it hasn't had yet, each course to cook now or
   to wait (HOLD); Fire starts a course the kitchen already has but was told to wait.
 
+### 8.12 Swipe left asks first, leaving with items not sent, take one off (14 Nov 2026, no migration)
+
+Three more till settings from service, all device settings (`DeviceSettings` in
+`routes/posSetup.js`), all the till's own: no event changed.
+
+- **Swipe left on a table's row** (the phone floor's rows to swipe) does what the till's
+  `settings.swipe_left` says: send (the default: what is new first, else the course waiting) or
+  fire (the course waiting first, else what is new), worked out by `swipeLeftAction()`. It never
+  sends or fires straight away: the Send to the kitchen or Fire a course window opens over the
+  floor, named after the table, even with one course to fire (a swipe is too easy to make by
+  accident). An order that needs something first (guests, details) opens the check as before.
+- **Leaving an order with items not sent** (`settings.leave_unsent`, table-service tills;
+  counter tills never ask): leave (the default) goes back as before; ask opens a window first
+  (Send and leave, Leave without sending, Stay on the order). Every way off the check screen
+  goes through it: the check's Back, a layout's Back button, the till menu's pages and Sign out
+  (`nav.go()` / `nav.signOut()` pass through the guard the check screen sets, `guardLeave()`).
+  The idle sign-out doesn't ask: nobody is there to answer, and the items stay on the check.
+- **Take one off a dish showing a count** (`settings.count_take_off`, with the dish counts on):
+  a dish row in a list zone swipes left, a dish button is held, and one of that dish comes off
+  the order (`lineToTakeOff()`: the newest line not sent, the till's own before a flow's, else
+  the newest sent line). Not sent: the quantity drops or the line goes, with Undo, behind a
+  manager when the venue's switch for taking unsent items off says so (always for a dish an
+  order flow put on that staff may not take off). Sent: the void window opens on that line with
+  1 to void (a VOID ticket). Holding a dish with none on the order, or a row in a list, still
+  opens the sold out window.
+
 ---
 
 ## 9. Kitchen screens (KDS)

@@ -4300,11 +4300,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               picks it (<Mono>venue-phone-layout</Mono>); the till&apos;s Till page says what it draws (
               <Mono>till-layout-line</Mono>). A table-service till&apos;s <Mono>settings.phone_tables</Mono>{' '}
               <Mono>list</Mono> (<Mono>phoneTablesList()</Mono>) shows the floor as rows on a phone: <Mono>TableRows</Mono>,{' '}
-              <Mono>SwipeCheckRow</Mono> and <Mono>useRowSwipe()</Mono> in <Mono>Floor.jsx</Mono> (a swipe counts after 12 px
-              sideways and acts at 35% of the row&apos;s width, 160 px at most); left runs <Mono>swipeLeft()</Mono> (sends what
-              is new through <Mono>sendCheck()</Mono>, fires a single course waiting, else opens the check with{' '}
-              <Mono>then</Mono> <Mono>send</Mono> or <Mono>fire</Mono>), right opens it with <Mono>then</Mono>{' '}
-              <Mono>pay</Mono> (<Mono>CheckScreen</Mono>&apos;s <Mono>then</Mono> prop runs that action once).
+              <Mono>SwipeCheckRow</Mono> in <Mono>Floor.jsx</Mono> with <Mono>useRowSwipe()</Mono> (<Mono>pos/src/lib/rowSwipe.js</Mono>:
+              a swipe counts after 12 px sideways and acts at 35% of the row&apos;s width, 160 px at most); left runs{' '}
+              <Mono>swipeLeft()</Mono>, which always asks first (see the next part), right opens the check with{' '}
+              <Mono>then</Mono> <Mono>pay</Mono> (<Mono>CheckScreen</Mono>&apos;s <Mono>then</Mono> prop runs that action once).
             </P>
             <P>
               <strong>Items not sent at Pay</strong>: <Mono>unsentAtPay(config)</Mono> from <Mono>settings.unsent_at_pay</Mono>{' '}
@@ -4322,6 +4321,70 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>RevenueStreamsSection.jsx</Mono>, Type a discount in <Mono>RolesSection.jsx</Mono>. Tests:{' '}
               <Mono>api/test/till-fixes.test.mjs</Mono>, <Mono>shared/pos/test/charges.test.mjs</Mono>,{' '}
               <Mono>approvals.test.mjs</Mono>.
+            </P>
+            <H3>Swipe left asks first, leaving with items not sent, take one off (14 Nov 2026, no migration)</H3>
+            <P>
+              Three device settings in <Mono>DeviceSettings</Mono> (<Mono>routes/posSetup.js</Mono>; jsonb, left out = the
+              usual): <Mono>swipe_left</Mono> <Mono>send</Mono> | <Mono>fire</Mono>, <Mono>leave_unsent</Mono>{' '}
+              <Mono>leave</Mono> | <Mono>ask</Mono>, <Mono>count_take_off</Mono> boolean. The till window in{' '}
+              <Mono>TillsSection.jsx</Mono> shows <Mono>till-swipe-left</Mono> with Rows to swipe, <Mono>till-leave-unsent</Mono>{' '}
+              on table service and <Mono>till-count-take-off</Mono> with the counts on (<Mono>Toggle</Mono> in{' '}
+              <Mono>components/pos/shared.jsx</Mono> takes <Mono>testid</Mono>).
+            </P>
+            <P>
+              <strong>Swipe left.</strong> <Mono>swipeLeftAction(check, config)</Mono> (<Mono>pos/src/lib/checkOps.js</Mono>) says{' '}
+              <Mono>send</Mono>, <Mono>fire</Mono> or null from <Mono>notFired(check)</Mono>, in the order{' '}
+              <Mono>swipe_left</Mono> gives (each falls back to the other); <Mono>SwipeCheckRow</Mono> carries it as{' '}
+              <Mono>data-left</Mono> and <Mono>SwipeHint</Mono> words it. <Mono>swipeLeft()</Mono> in <Mono>Floor.jsx</Mono>{' '}
+              opens the check (<Mono>then</Mono> <Mono>send</Mono>) only when it needs its details or guests first
+              (<Mono>missingDetails()</Mono>, <Mono>coversMissing()</Mono>); otherwise it sets <Mono>confirm</Mono>{' '}
+              (<Mono>{'{ kind, checkId }'}</Mono>) and the floor draws <Mono>SendModal</Mono> or <Mono>FireModal</Mono>{' '}
+              (<Mono>CheckActions.jsx</Mono>) with <Mono>cancel</Mono> and a <Mono>title</Mono> naming the row, even for one
+              course: <Mono>send-course</Mono> per course with <Mono>send-course-items</Mono>, <Mono>send-cancel</Mono>,{' '}
+              <Mono>send-go</Mono>; <Mono>fire-course</Mono> (<Mono>data-course</Mono>, 64 px) with{' '}
+              <Mono>fire-course-items</Mono>, <Mono>fire-cancel</Mono>. The window reads the check as it is now and goes when
+              the check closes or leaves the till. <Mono>Modal</Mono>&apos;s <Mono>wrapTitle</Mono>{' '}
+              (<Mono>pos/src/components/ui.jsx</Mono>) lets those titles take two lines.
+            </P>
+            <P>
+              <strong>Leaving with items not sent.</strong> <Mono>leaveUnsent(config)</Mono> (counter tills always{' '}
+              <Mono>leave</Mono>). <Mono>Main</Mono> in <Mono>App.jsx</Mono> keeps a <Mono>guard</Mono> ref:{' '}
+              <Mono>go()</Mono> (the top bar&apos;s pages, <Mono>till-go-*</Mono> in the till menu) and{' '}
+              <Mono>signOutGuarded()</Mono> (<Mono>sign-out</Mono>, <Mono>till-sign-out</Mono>) pass through it, and{' '}
+              <Mono>TillNav</Mono> gives <Mono>guardLeave(fn)</Mono> (returns the function that takes it off) and{' '}
+              <Mono>signOut</Mono>. <Mono>CheckScreen</Mono> registers <Mono>leave(proceed)</Mono> there and uses it for{' '}
+              <Mono>check-back</Mono> and a layout&apos;s <Mono>back</Mono> / <Mono>sign_out</Mono> buttons (its own{' '}
+              <Mono>onBack</Mono> doesn&apos;t pass through the guard). With ask and items not sent it opens{' '}
+              <Mono>LeaveModal</Mono> (<Mono>leave-items</Mono>, <Mono>leave-stay</Mono>, <Mono>leave-go</Mono>,{' '}
+              <Mono>leave-send</Mono>); <Mono>sendAndLeave(proceed)</Mono> asks for details first (<Mono>needDetails()</Mono>),
+              opens the Send window with <Mono>then: proceed</Mono> when <Mono>needsSendChoice()</Mono>, else{' '}
+              <Mono>sendCheck()</Mono> and goes on. The idle sign-out (<Mono>idleTimer</Mono> in <Mono>store.js</Mono>) calls{' '}
+              <Mono>signOut()</Mono> directly and never asks.
+            </P>
+            <P>
+              <strong>Take one off.</strong> <Mono>takesOffCounted(config)</Mono> = <Mono>item_counts</Mono> and{' '}
+              <Mono>count_take_off</Mono>; <Mono>lineToTakeOff(check, itemId)</Mono> picks the dish&apos;s own line not sent
+              yet, then one an order flow put on, then one sent (the newest of each). <Mono>takeOneOff(item)</Mono> in{' '}
+              <Mono>Check.jsx</Mono>: a sent line opens <Mono>LineModal</Mono> with <Mono>initialMode</Mono> void and{' '}
+              <Mono>initialVoidQty</Mono> 1; a new one asks <Mono>useApproval()</Mono> with <Mono>offApproval()</Mono>{' '}
+              (<Mono>delete_unsent</Mono>; a fixed flow line always), then dispatches <Mono>line.changed</Mono> qty − 1 or{' '}
+              <Mono>line.deleted</Mono> with <Mono>approved_by</Mono>, and a toast with Undo (<Mono>line.changed</Mono> + 1,
+              or <Mono>line.added</Mono> of <Mono>copyOfLine()</Mono> once the line has gone; its button 48 px). The order
+              screen passes <Mono>{'takeOff = { run, label }'}</Mono> to <Mono>MenuPanel</Mono> and{' '}
+              <Mono>LayoutScreen</Mono> (<Mono>ItemsZone</Mono>, <Mono>CategoryZone</Mono>, <Mono>ButtonsZone</Mono>);{' '}
+              <Mono>useDishPress()</Mono> (<Mono>MenuPanel.jsx</Mono>, used by <Mono>DishButton</Mono> and{' '}
+              <Mono>LayoutButton</Mono>) decides per button: with a count on a button, a long press takes one off
+              (<Mono>data-hold</Mono> <Mono>take_off</Mono>, else <Mono>sold_out</Mono>); on a list&apos;s row,{' '}
+              <Mono>wrap()</Mono> puts it in a <Mono>dish-swipe</Mono> frame (<Mono>data-row</Mono>, <Mono>data-item</Mono>)
+              that swipes left through <Mono>useRowSwipe()</Mono>, showing <Mono>dish-swipe-off</Mono> (Take one off / Void
+              one), while its long press keeps the sold out window. <Mono>useHold()</Mono> returns{' '}
+              <Mono>{'{ cancel, handlers }'}</Mono> so a swipe that starts cancels the hold. <Mono>useRowSwipe()</Mono>&apos;s{' '}
+              <Mono>swallow(key)</Mono> drops the click a swipe ends with; a new press clears it (the swipe that takes the
+              last one off removes the row, so its click never comes).
+            </P>
+            <P>
+              Tests: <Mono>api/test/till-fixes.test.mjs</Mono> (the three settings saved, in the till&apos;s config, refused
+              when wrong, cleared when left out, viewer and another group).
             </P>
             <H3>Order flows (migrations 235, 236)</H3>
             <P>

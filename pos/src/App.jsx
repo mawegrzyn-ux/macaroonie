@@ -5,7 +5,7 @@
 // ?kiosk_share= a design's shared preview, ?kitchen_test= the kitchen test bench,
 // ?kitchen_live= the live kitchen view).
 
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Lock, RefreshCw, WifiOff } from 'lucide-react'
 import { useTill, boot, signOut, touch, loadConfig, getState, moveTill, stayHere } from './lib/store.js'
 import { belongsHere } from './lib/appHost.js'
@@ -163,7 +163,17 @@ function Main() {
   }, [counterMode]) // eslint-disable-line react-hooks/exhaustive-deps
   const [menuOpen, setMenuOpen] = useState(false)
   useTick(30000)
-  const go = name => setView({ name })
+  // Leaving a check with items not sent (Store tech > Tills, Leaving an
+  // order: Ask): the check screen sets a guard (guardLeave), and the top
+  // bar's pages and Sign out, and the till menu's, go through it.
+  const guard = useRef(null)
+  const leaving = proceed => (guard.current ? guard.current(proceed) : proceed())
+  const go = name => leaving(() => setView({ name }))
+  const signOutGuarded = () => leaving(signOut)
+  const guardLeave = fn => {
+    guard.current = fn
+    return () => { if (guard.current === fn) guard.current = null }
+  }
   const nav = tillPages(counterMode, tables)
   const active = view.name === 'check' ? (counterMode ? 'counter' : 'floor') : view.name
   // A till layout without the top bar (Store tech > Till layouts): the order
@@ -171,7 +181,9 @@ function Main() {
   // in More; the till's other pages keep the bar.
   const layout = useTillLayout(config)
   const hideBar = layout?.top_bar === false && (view.name === 'check' || view.name === 'counter')
-  const navValue = useMemo(() => ({ go, view: view.name, counterMode, tables, hideBar, openMenu: () => setMenuOpen(true) }), [view.name, counterMode, tables, hideBar]) // eslint-disable-line react-hooks/exhaustive-deps
+  const navValue = useMemo(() => ({
+    go, view: view.name, counterMode, tables, hideBar, openMenu: () => setMenuOpen(true), signOut: signOutGuarded, guardLeave,
+  }), [view.name, counterMode, tables, hideBar]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <TillNavProvider value={navValue}>
       <div className="h-full flex flex-col" data-top-bar={hideBar ? '0' : '1'}>
@@ -194,7 +206,7 @@ function Main() {
             <div className="text-white/80 font-semibold tabular-nums px-2 hidden sm:block">
               {new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
             </div>
-            <button className="h-12 min-w-[48px] px-3 rounded-xl bg-white/10 flex items-center justify-center gap-2 font-semibold touch-manipulation shrink-0" onClick={signOut}
+            <button className="h-12 min-w-[48px] px-3 rounded-xl bg-white/10 flex items-center justify-center gap-2 font-semibold touch-manipulation shrink-0" onClick={signOutGuarded}
               aria-label={'Sign out ' + staff.name} data-testid="sign-out">
               <Lock size={18} /><span className="max-w-[120px] truncate hidden sm:inline">{staff.name}</span>
             </button>
