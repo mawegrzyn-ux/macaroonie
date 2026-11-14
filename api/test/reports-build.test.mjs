@@ -32,6 +32,10 @@ import {
 let ids, run, t, view, d1, d2, d3
 const TODAY = { relative: 'today' }
 const cells = res => res.rows.map(r => r.cells)
+// The subjects a report can start from: not the ones only reached through a
+// link (hidden: a Cash Recon day's report), which the builder never offers.
+const buildable = () => Object.keys(view.subjects).filter(k => view.subjects[k].base)
+const startable = Object.values(CATALOGUE.subjects).filter(s => !s.hidden).length
 
 before(async () => {
   ids = await resetAndSeed()
@@ -87,7 +91,7 @@ function sample(def, bucket, op) {
 test('everything the Data panel offers runs, for every subject: each grouping, column, value and filter', async () => {
   const bad = []
   const counts = { subjects: 0, groupings: 0, columns: 0, values: 0, filters: 0 }
-  for (const key of Object.keys(view.subjects)) {
+  for (const key of buildable()) {
     const nodes = treeNodes(dataTree(view, key))
     assert.ok(nodes.length > 0, key + ' has something to pick')
     counts.subjects++
@@ -142,8 +146,8 @@ test('everything the Data panel offers runs, for every subject: each grouping, c
     bad.push(...await runParts(key + ' filter', filters.filter(bare), 12, withFilters))
   }
   assert.deepEqual(bad, [])
-  // Every subject in the catalogue, each one the role builds on.
-  assert.equal(counts.subjects, Object.keys(CATALOGUE.subjects).length)
+  // Every subject in the catalogue a report can start from, each one the role builds on.
+  assert.equal(counts.subjects, startable)
   assert.equal(Object.values(view.subjects).filter(s => s.base).length, counts.subjects)
   assert.ok(counts.groupings > 1500 && counts.columns > 900 && counts.values > 1500 && counts.filters > 4000, JSON.stringify(counts))
 })
@@ -153,7 +157,7 @@ test('every drill the builder offers is one the engine opens: each field a row c
   const counts = { subjects: 0, levels: 0, opened: 0, columns: 0, refused: 0 }
   const idOf = l => (l.bucket && l.bucket !== 'day' ? l.field + ':' + l.bucket : l.field)
   const chunks = (list, size) => Array.from({ length: Math.ceil(list.length / size) }, (_, i) => list.slice(i * size, (i + 1) * size))
-  for (const key of Object.keys(view.subjects)) {
+  for (const key of buildable()) {
     const nodes = treeNodes(dataTree(view, key))
     const groupable = nodes.filter(n => n.uses.group)
     assert.ok(groupable.length > 0, key + ' can be grouped by something')
@@ -242,7 +246,7 @@ test('every drill the builder offers is one the engine opens: each field a row c
     }
   }
   assert.deepEqual(bad, [])
-  assert.equal(counts.subjects, Object.keys(CATALOGUE.subjects).length)
+  assert.equal(counts.subjects, startable)
   assert.ok(counts.levels > 1500 && counts.columns > 900 && counts.opened > 1500 && counts.refused >= counts.subjects, JSON.stringify(counts))
 })
 
@@ -253,7 +257,7 @@ test('what the builder leaves out because the engine can\'t do it really is refu
     if (r.ran) kept.push(key + ': ' + what + ' ran')
   }
   const seen = { measureByLink: 0, leftOfMany: 0, groupOfMany: 0, sumByLink: 0 }
-  for (const [key, s] of Object.entries(view.subjects)) {
+  for (const [key, s] of Object.entries(view.subjects).filter(([, x]) => x.base)) {
     for (const [lk, link] of Object.entries(s.links)) {
       const to = view.subjects[link.to]
       if (!to) continue
@@ -298,7 +302,7 @@ test('what the builder leaves out because the engine can\'t do it really is refu
 })
 
 test('a new report about anything shows something straight away', async () => {
-  for (const [key, s] of Object.entries(view.subjects)) {
+  for (const [key, s] of Object.entries(view.subjects).filter(([, x]) => x.base)) {
     const spec = startReport(view, key)
     assert.deepEqual(reportProblems(spec), [], key)
     const first = Object.keys(s.measures)[0]
@@ -315,6 +319,11 @@ test('a new report about anything shows something straight away', async () => {
     const res = await run(spec, { period: TODAY })
     assert.equal(res.kind, spec.kind, key)
   }
+  // A subject only reached through a link (a Cash Recon day's report) is in the view, so its
+  // fields can be shown through the link, but no report starts from it.
+  const hidden = Object.values(CATALOGUE.subjects).filter(x => x.hidden)
+  assert.ok(hidden.length > 0)
+  for (const s of hidden) assert.equal(view.subjects[s.key].base, false, s.key)
   // The checks sold today: five closed ones, by day.
   const checks = await run(startReport(view, 'till.checks'), { period: TODAY })
   assert.deepEqual(cells(checks), [[t.date, 5]])

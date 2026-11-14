@@ -122,7 +122,8 @@ export const REQUESTS = [
   { area: 'till', request: 'VAT by rate for last quarter',
     expect: { subject: 'till.vat', values: ['vat_total'], rows: ['rate'], period: 'last_quarter' } },
   { area: 'till', request: 'Cash over or short by day last month',
-    expect: { subject: 'till.days', values: [['difference_total', 'cash_difference']], rows: ['date:day'], period: 'last_month' } },
+    expect: { subject: ['till.days', 'cash.days'], values: [['difference_total', 'cash_difference', 'variance_total', 'variance']], rows: ['date:day'], period: 'last_month' },
+    look: 'Either the till\'s cash count at the close of day (Till reports) or the Cash Recon variance will do.' },
 
   // ── Online ordering ──
   { area: 'online', request: 'Online orders by day last week',
@@ -172,6 +173,20 @@ export const REQUESTS = [
     expect: { subject: 'guests.customers', values: [['subscribers', 'customers']], rows: [['newsletter_since:month', 'created_at:month']] } },
   { area: 'other', request: 'Dishes on the menu without a photo',
     expect: { subject: 'menu.dishes', filters: [{ field: 'has_photo' }] } },
+
+  // ── Cash reconciliation ──
+  { area: 'cash', request: 'Cash variance by day last week',
+    expect: { subject: 'cash.days', values: [['variance_total', 'variance']], rows: ['date:day'], period: 'last_week' } },
+  { area: 'cash', request: 'Which days was the cash short last month',
+    expect: { subject: 'cash.days', period: 'last_month' },
+    look: 'The short days: a list filtered on the variance below 0 (or the balance Short), or the days short counted by date.' },
+  { area: 'cash', request: 'Petty cash spend by category this month',
+    expect: { subject: 'cash.expenses', values: [['cash_spend', 'spend']], rows: [['category_name', 'category']], period: ['this_month', 'month_to_date'] } },
+  { area: 'cash', request: 'Wages paid in cash and by bank by week this quarter',
+    expect: { subject: 'cash.wages', values: ['cash_total', 'bank_total'], rows: ['date:week'], period: ['this_quarter', 'quarter_to_date'] } },
+  { area: 'cash', request: 'Takings by payment channel last month',
+    expect: { subject: ['cash.takings', 'till.payments'], values: [['takings_counted', 'amount_total', 'takings']], rows: [['channel', 'tender']], period: 'last_month' },
+    look: 'Cash Recon\'s payment channels, or the till\'s tenders.' },
 
   // ── Kitchen and kiosks ──
   { area: 'kitchen', request: 'Average ticket time by station last week',

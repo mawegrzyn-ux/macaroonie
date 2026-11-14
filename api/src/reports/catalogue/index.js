@@ -20,6 +20,7 @@ import safety from './safety.js'
 import kitchen from './kitchen.js'
 import kiosks from './kiosks.js'
 import loyalty from './loyalty.js'
+import cash from './cash.js'
 import { templateRefs } from './define.js'
 import { MODULE_KEYS } from '../../config/modules.js'
 import { NUMERIC_TYPES } from '../../../../shared/reports/format.js'
@@ -30,6 +31,7 @@ export const AREAS = [
   { key: 'till', label: 'Till sales' },
   { key: 'online', label: 'Online orders' },
   { key: 'bookings', label: 'Bookings' },
+  { key: 'cash', label: 'Cash reconciliation' },
   { key: 'kitchen', label: 'Kitchen' },
   { key: 'kiosks', label: 'Self-order kiosks' },
   { key: 'loyalty', label: 'Loyalty' },
@@ -140,7 +142,7 @@ function build(lists) {
   return { subjects }
 }
 
-export const CATALOGUE = build([common, till, online, bookings, kitchen, kiosks, loyalty, purchasing, safety])
+export const CATALOGUE = build([common, till, online, bookings, cash, kitchen, kiosks, loyalty, purchasing, safety])
 
 /** Every module a subject, field, figure or link of the catalogue asks for. */
 export const CATALOGUE_MODULES = [...new Set(Object.values(CATALOGUE.subjects).flatMap(s => [

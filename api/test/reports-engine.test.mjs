@@ -644,10 +644,11 @@ test('the rows behind a figure are the ones that figure counts, so the list adds
   assert.deepEqual(await said(['checks', 'guests', 'net_sales']), ['Only the checks that count towards Checks, Guests and Net sales are listed'])
   assert.deepEqual(await said(['checks', 'guests', 'net_sales', 'discounts']), ['Only the checks that count towards the figures are listed'])
 
-  // A figure the person's role can't see takes no part in which rows they are shown. No figure of the
-  // catalogue is kept from a role today, so one is for the length of this check.
+  // A figure the person's role can't see takes no part in which rows they are shown. No figure of a
+  // till payment is kept from a role, so one is for the length of this check, behind a module no
+  // role here has (a real one would be in LEVELS, which every catalogue module is).
   const refunds = CATALOGUE.subjects['till.payments'].measures.refunds
-  refunds.needs = 'cash_recon'
+  refunds.needs = 'kept_for_this_check'
   try {
     const both = { subject: 'till.payments', rows: ['tender'], values: measures(['payments', 'refunds']) }
     const seen = await run(both)
@@ -658,7 +659,7 @@ test('the rows behind a figure are the ones that figure counts, so the list adds
     assert.deepEqual(theirs.notes, ['Only the till payments that count towards Payments are listed'])
     // With the area, both figures count again.
     const list = drillSpec(normaliseReport(both), { at: cash, to: 'rows' }, { listColumns: ['kind', 'amount'] }).spec
-    const withIt = await run(list, undefined, { levels: { ...LEVELS, cash_recon: 'view' } })
+    const withIt = await run(list, undefined, { levels: { ...LEVELS, kept_for_this_check: 'view' } })
     assert.deepEqual(cells(withIt).map(r => r[0]).sort(), ['payment', 'payment', 'payment', 'refund'])
     assert.deepEqual(withIt.meta.notes, ['Only the till payments that count towards Payments and Refunds are listed'])
   } finally {
