@@ -47,7 +47,7 @@ test('every table in the database has one decision, and every decision names a t
   assert.equal(d.counts.subject + d.counts.planned + d.counts.settings + d.counts.out, tables.length)
 
   // Where the catalogue stands today: a change here is a change to say in the docs.
-  assert.deepEqual(d.counts, { subject: 85, planned: 47, settings: 54, out: 47 })
+  assert.deepEqual(d.counts, { subject: 86, planned: 46, settings: 54, out: 47 })
   assert.equal(tables.length, 233)
 
   // Left-out tables carry a reason; planned ones an area with a phase.
@@ -90,7 +90,7 @@ test('a table nobody has decided on, one decided twice and a stale name are each
 
 test('every id column of a table a subject reads is linked, offered or left out on purpose', t => {
   const cover = tableCoverage(CATALOGUE, columns)
-  assert.deepEqual(cover.derived, ['till.takers', 'online.sales', 'cash.days', 'cash.weeks', 'rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.tip_moves', 'safety.days'])
+  assert.deepEqual(cover.derived, ['till.takers', 'online.sales', 'cash.days', 'cash.weeks', 'rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.tip_moves', 'safety.days', 'local.weather'])
   assert.equal(cover.tables.length, 74)
 
   const undecided = cover.tables.flatMap(x => x.idsUndecided.map(c => x.table + '.' + c))
@@ -164,7 +164,7 @@ test('nothing secret is read, every module asked for exists, and no SQL leaves t
 
   for (const m of CATALOGUE_MODULES) assert.ok(MODULE_KEYS.includes(m), m)
   assert.deepEqual([...CATALOGUE_MODULES].sort(), [
-    'bookings', 'cash_recon', 'checklists', 'customers', 'food_safety', 'hs_action_log', 'loyalty', 'loyalty_members',
+    'bookings', 'cash_recon', 'checklists', 'customers', 'food_safety', 'hs_action_log', 'local_info', 'loyalty', 'loyalty_members',
     'menus', 'pos_reports', 'pos_setup', 'purchasing', 'purchasing_setup', 'rota', 'rota_pay', 'rota_tips', 'staff',
     'web_orders',
   ])
