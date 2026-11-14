@@ -364,6 +364,9 @@ export default function Help() {
               capture doesn't add them again). An entry counts by the day it starts. Tap <strong>Delete N
               entries</strong>, then <strong>Yes, delete</strong>. Past days are never touched. The capture's next run
               can find some of the same things again: turn the capture off first if you want them to stay gone.
+              If another capture found the same event too (see The same event found more than once), deleting this
+              capture's entry leaves the other capture's report on the calendar in its place, and the count says how
+              many; this capture's reports that sit under another capture's entry are left as they are.
               You can also ask Pepper, for example "delete the traffic entries for Ware from next Monday" or
               "clear everything mentioning the marathon": it can pick a venue (or only the events saved for every
               venue), a capture, typed-in or captured entries, kinds, severities, words and days, and shows a card
@@ -397,6 +400,32 @@ export default function Help() {
               counts towards the group's Pepper allowance like the searches do (Learn now also towards your own
               daily share). If it couldn't learn before a run, the reason shows on the capture and the run goes
               ahead with what it learned before.
+            </P>
+            <H3>The same event found more than once</H3>
+            <P>
+              Different searches and websites often report the same thing in other words: "Ware Christmas lights
+              switch-on", "Christmas lights in Ware" and "Festive lights night" can all be one evening. After each
+              run of a <strong>Traffic</strong>, <strong>Events</strong> or <strong>Incidents</strong> capture (Run now
+              included), Pepper compares what was just found with what the venue's captures of that kind already
+              hold around the same days, and puts the reports of one event or incident together into one entry. The
+              entry shows once on the calendar, the list, the widget and the Today page, with <strong>2 other reports
+              of this</strong> under it: tap that to see each report as it was found, with its days, place and source
+              link. Things that are only alike stay apart (two different markets, a quiz night held every week, two
+              events at the same place), and so does anything more than a day apart.
+            </P>
+            <P>
+              The report kept on show is the loudest (a warning before a notice), then the one that runs longest, then
+              the first found. If someone hid one of the reports, the whole entry stays hidden. Flags on the reports
+              move to the entry (each person's latest flag counts), and every capture with a report in it learns from
+              them. A report shown under an entry can't be hidden, flagged or deleted on its own: change the entry
+              instead. If Pepper put two different things together, open the reports and tap <strong>Not the
+              same</strong> on the one that doesn't belong, then <strong>Yes, on its own</strong>: it becomes an entry
+              of its own again and is never put together with anything after that (people with Local info Manage can
+              do this). In <strong>Captures</strong>, each capture says how many of its findings sit under another
+              entry; if Pepper couldn't compare after a run, the reason shows there, the run itself still counts, and
+              whatever wasn't compared is looked at after the next run. Weather is never merged (each day's forecast
+              is one entry already), and neither are the events you type in. Comparing counts towards the group's
+              Pepper allowance like the searches do.
             </P>
             <H3>On dashboards</H3>
             <P>

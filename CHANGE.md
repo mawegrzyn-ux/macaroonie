@@ -6,6 +6,23 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-14 — Local info: the same event found more than once shown as one entry]
+
+Migration: `249_local_info_merge.sql`.
+
+**Added**
+- After each run of a traffic, events or incidents capture (Run now included), Pepper compares what was just found with what the venue's captures of that kind already hold around the same days, and puts reports of one event or incident into one entry. The entry shows once on the calendar, the list, the day window, the dashboard widget and the Today page, with **N other reports of this** under it: tap it to see each report as it was found, with its days, place and source link.
+- **Not the same** on a report, then **Yes, on its own**, makes it an entry of its own again; it is never put together with anything after that (Local info Manage).
+- The Captures window says how many of each capture's findings sit under another entry, and why Pepper couldn't compare them when that went wrong.
+- Pepper's `local_info` tool shows an entry's other reports; reports on local info count each entry once, with how many other reports it has.
+
+**Notes**
+- The report kept on show is the loudest, then the one that runs longest, then the first found. If someone hid one of the reports, the whole entry stays hidden.
+- Flags on the reports move to the entry (each person's latest flag counts), so Pepper keeps learning from them.
+- Things that are only alike, or more than a day apart, stay apart. The weather and the events you type in are never put together.
+- Delete future entries deletes a capture's own entries: when another capture also found one of them, that report stays on the calendar in its place.
+- If Pepper couldn't compare after a run, the run still counts and whatever wasn't compared is looked at after the next run. Comparing counts towards the group's Pepper allowance like the searches do; so far it has only run against a stand-in Claude, not the live model.
+
 ## [2026-11-14 — Local info: delete future entries in bulk]
 
 No migration.

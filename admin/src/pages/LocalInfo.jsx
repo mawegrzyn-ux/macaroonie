@@ -186,7 +186,7 @@ export default function LocalInfo() {
           <MonthCalendar grid={grid} items={items} onOpenDay={setDayOpen} />
         ) : (
           <div className="bg-background border rounded-xl p-3 sm:p-4">
-            <DayGroups items={items} from={from} to={to} venueNames={venueNames} renderActions={rowActions}
+            <DayGroups items={items} from={from} to={to} venueNames={venueNames} renderActions={rowActions} canSeparate={canManage}
               emptyText="Nothing held for this month yet. Captures and typed-in events show here." />
           </div>
         )}
@@ -195,7 +195,7 @@ export default function LocalInfo() {
           <Modal title={dayText(dayOpen) + ' — ' + format(new Date(dayOpen + 'T12:00:00'), 'd MMMM yyyy')} onClose={() => setDayOpen(null)}>
             <div className="space-y-1.5" data-testid="li-day-modal" data-date={dayOpen}>
               {sortDayItems(items.filter(it => itemOnDay(it, dayOpen))).map(it => (
-                <ItemRow key={it.id} item={it} venueNames={venueNames} actions={rowActions(it)} />
+                <ItemRow key={it.id} item={it} venueNames={venueNames} actions={rowActions(it)} canSeparate={canManage} />
               ))}
               {!items.some(it => itemOnDay(it, dayOpen)) && <p className="text-sm text-muted-foreground py-4 text-center">Nothing held for this day.</p>}
             </div>
@@ -481,6 +481,7 @@ function ClearFuturePart({ api, s, today, onDone, onClose }) {
     : n + (n === 1 ? ' entry starts ' : ' entries start ') + range + ': ' + r.deleted + ' will be deleted'
       + (r.hidden ? ', ' + r.hidden + ' that people flagged will be hidden instead, so Pepper keeps learning from the flags' : '') + '.'
       + (r.kept ? ' ' + stayHidden(r.kept) + '.' : '')
+      + (r.handed_over ? ' ' + r.handed_over + (r.handed_over === 1 ? ' of them was' : ' of them were') + ' also found by another capture: that report stays on the calendar.' : '')
   return (
     <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-2.5 space-y-2 text-xs" data-testid="li-cap-clear-panel">
       <p className="text-sm font-medium">Delete future entries this capture found</p>
@@ -503,7 +504,7 @@ function ClearFuturePart({ api, s, today, onDone, onClose }) {
           </button>
         )}
       </div>
-      <p data-testid="li-cap-clear-count" data-deleted={r?.deleted ?? ''} data-hidden={r?.hidden ?? ''} data-kept={r?.kept ?? ''}>{count}</p>
+      <p data-testid="li-cap-clear-count" data-deleted={r?.deleted ?? ''} data-hidden={r?.hidden ?? ''} data-kept={r?.kept ?? ''} data-handed-over={r?.handed_over ?? ''}>{count}</p>
       <p className="text-muted-foreground">
         {s.kind === 'weather'
           ? 'The next run fills the forecast in again.'
@@ -671,6 +672,12 @@ function CapturesModal({ api, venues, defaultVenueId, onClose }) {
                       {s.enabled && s.next_run_at && !s.running ? ' · next ' + format(new Date(s.next_run_at), 'EEE d MMM HH:mm') : ''}
                     </p>
                     {s.last_error && <p className="text-xs text-destructive" data-testid="li-cap-last-error">{s.last_error}</p>}
+                    {s.merged > 0 && (
+                      <p className="text-xs text-muted-foreground" data-testid="li-cap-merged" data-count={s.merged}>
+                        {s.merged === 1 ? '1 of its findings is' : s.merged + ' of its findings are'} the same event as another entry, and shown under it.
+                      </p>
+                    )}
+                    {s.merge_error && <p className="text-xs text-destructive" data-testid="li-cap-merge-error">Pepper couldn't put the same events together after the last run: {s.merge_error}</p>}
                     <LearnedPart s={s} learning={learn.isPending && learn.variables?.id === s.id} onLearn={x => learn.mutate(x)}
                       forgetting={forget.isPending} onForget={x => forget.mutate(x)} />
                     <div className="flex flex-wrap gap-1.5 pt-0.5">
