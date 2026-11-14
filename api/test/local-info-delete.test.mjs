@@ -58,7 +58,11 @@ before(async () => {
   // capture's kind changed) flagged too.
   S = (await ok(owner.post(SRC(V), { kind: 'events', place: 'Ware, Hertfordshire', query: 'markets', learn_auto: false }))).source.id
   claude.script.push(searchReply(FOUND))
+  // The market and the marathon are a day apart: the merge step after the
+  // run asks whether they are the same event (migration 249). They aren't.
+  claude.script.push(() => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"groups": []}' }] }))
   assert.equal((await runClaimed(await claimSource(ids.a, S))).error, null)
+  assert.equal(claude.script.length, 0, 'the search and the merge step each asked once')
   for (const it of (await ok(owner.get(`/api/local-info/items?venue_id=${V}&from=${day(-7)}&to=${day(60)}&kinds=events`))).items) items[it.title] = it.id
   assert.equal(Object.keys(items).length, FOUND.length, 'every finding stored')
   await ok(viewer.put(`/api/local-info/items/${items['Ware farmers market']}/feedback`, { relevant: true }))

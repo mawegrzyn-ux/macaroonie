@@ -11,11 +11,15 @@
 // each person's own, tapped again to take it off, with everyone's counts.
 // Pepper learns from them to tune that capture's search
 // (services/localInfoSvc.js); typed-in events take none.
+//
+// The same event found under other names is one entry (migration 249): the
+// other reports of it come with the item as `also`, shown under it, each
+// with its source; Not the same (Manage) makes one its own entry again.
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { CloudSun, TrafficCone, CalendarDays, AlertTriangle, EyeOff, ExternalLink, Loader2, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { CloudSun, TrafficCone, CalendarDays, AlertTriangle, EyeOff, ExternalLink, Loader2, ThumbsUp, ThumbsDown, ChevronDown, Layers } from 'lucide-react'
 import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -109,8 +113,94 @@ export function FlagButtons({ item, compact = false }) {
   )
 }
 
+/**
+ * Not the same (migration 249): a finding merged into an entry becomes its own
+ * entry again, and is never put together with another again.
+ */
+export function useSeparateItem() {
+  const api = useApi()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: id => api.post(`/local-info/items/${id}/separate`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['local-info-items'] })
+      qc.invalidateQueries({ queryKey: ['local-info-sources'] })
+    },
+  })
+}
+
+const otherReports = n => n + (n === 1 ? ' other report' : ' other reports')
+
+/**
+ * The same event found under other names, put into this entry: how many,
+ * and (opened) each report with its source. Someone who can manage Local
+ * info can say one isn't the same; the widget only says how many.
+ */
+function AlsoReported({ item, compact, canSeparate }) {
+  const [open, setOpen] = useState(false)
+  const [asking, setAsking] = useState(null)
+  const separate = useSeparateItem()
+  const also = item.also || []
+  if (!also.length) return null
+  if (compact) {
+    return (
+      <p className="text-xs text-muted-foreground mt-0.5 inline-flex items-center gap-1" data-testid="li-also-count" data-count={also.length}>
+        <Layers className="w-3 h-3" /> {otherReports(also.length)} of this
+      </p>
+    )
+  }
+  return (
+    <div className="mt-1" data-testid="li-also" data-count={also.length}>
+      <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open} data-testid="li-also-toggle"
+        className="inline-flex items-center gap-1.5 min-h-[48px] px-2.5 -ml-2.5 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted touch-manipulation">
+        <Layers className="w-3.5 h-3.5" /> {otherReports(also.length)} of this
+        <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="mt-1 space-y-1.5 border-l-2 border-muted pl-3" data-testid="li-also-list">
+          <p className="text-[11px] text-muted-foreground">Pepper found the same {item.kind === 'traffic' ? 'news' : item.kind === 'incidents' ? 'incident' : 'event'} under these names too.</p>
+          {also.map(a => (
+            <div key={a.id} className="text-xs" data-testid="li-also-item" data-id={a.id}>
+              <p className="font-medium">{a.title}</p>
+              {a.details && <p className="text-muted-foreground line-clamp-2">{a.details}</p>}
+              <p className="text-muted-foreground">
+                {[rangeText(a), a.time_text, a.place].filter(Boolean).join(' · ')}
+                {webLink(a.url) && (
+                  <a href={webLink(a.url)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-primary underline underline-offset-2 ml-2">
+                    Source <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </p>
+              {canSeparate && (asking === a.id ? (
+                <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                  <span className="font-medium" data-testid="li-also-sure">Show it as its own entry? It won't be put together with others again.</span>
+                  <button type="button" data-testid="li-also-separate-yes" disabled={separate.isPending}
+                    onClick={() => separate.mutate(a.id, { onSuccess: () => setAsking(null) })}
+                    className="inline-flex items-center gap-1.5 min-h-[48px] px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold touch-manipulation disabled:opacity-50">
+                    {separate.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Yes, on its own
+                  </button>
+                  <button type="button" data-testid="li-also-separate-no" onClick={() => setAsking(null)}
+                    className="inline-flex items-center min-h-[48px] px-3 rounded-lg border bg-background text-xs font-medium touch-manipulation hover:bg-muted">
+                    Keep together
+                  </button>
+                </div>
+              ) : (
+                <button type="button" data-testid="li-also-separate" onClick={() => { separate.reset(); setAsking(a.id) }}
+                  className="inline-flex items-center min-h-[48px] px-2.5 -ml-2.5 rounded-lg text-xs font-medium text-primary hover:bg-muted touch-manipulation">
+                  Not the same
+                </button>
+              ))}
+            </div>
+          ))}
+          {separate.error && <p className="text-xs text-destructive" role="alert" data-testid="li-also-error">{errText(separate.error)}</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** One item: kind icon, title, how loud, the details and where it came from. */
-export function ItemRow({ item, venueNames = {}, actions = null, compact = false }) {
+export function ItemRow({ item, venueNames = {}, actions = null, compact = false, canSeparate = false }) {
   const Icon = KIND_ICONS[item.kind] || CalendarDays
   const where = item.venue_id ? (venueNames[item.venue_id] || null) : 'Every venue'
   return (
@@ -139,6 +229,7 @@ export function ItemRow({ item, venueNames = {}, actions = null, compact = false
             </a>
           )}
         </p>
+        <AlsoReported item={item} compact={compact} canSeparate={canSeparate} />
         <FlagButtons item={item} compact={compact} />
       </div>
       {actions && <div className="shrink-0 flex flex-col sm:flex-row gap-1">{actions}</div>}
@@ -147,7 +238,7 @@ export function ItemRow({ item, venueNames = {}, actions = null, compact = false
 }
 
 /** Items grouped under their days, in reading order (shared sortDayItems). */
-export function DayGroups({ items, from, to, venueNames, renderActions, emptyText = 'Nothing held for these days.', compact = false }) {
+export function DayGroups({ items, from, to, venueNames, renderActions, emptyText = 'Nothing held for these days.', compact = false, canSeparate = false }) {
   const days = useMemo(() => {
     const out = []
     // Each item once, under its first visible day (a multi-day one says "to <day>").
@@ -165,7 +256,7 @@ export function DayGroups({ items, from, to, venueNames, renderActions, emptyTex
         <div key={day.date} data-testid="li-day" data-date={day.date}>
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">{dayText(day.date)}</h3>
           <div className="space-y-1.5">
-            {day.items.map(it => <ItemRow key={it.id} item={it} venueNames={venueNames} compact={compact} actions={renderActions?.(it)} />)}
+            {day.items.map(it => <ItemRow key={it.id} item={it} venueNames={venueNames} compact={compact} canSeparate={canSeparate} actions={renderActions?.(it)} />)}
           </div>
         </div>
       ))}

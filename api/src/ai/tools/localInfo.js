@@ -35,6 +35,12 @@ function itemView(it, venueNames) {
     // Staff's own flags on what a capture found (migration 248).
     ...(it.feedback && (it.feedback.relevant || it.feedback.not_relevant)
       ? { staff_flags: { relevant: it.feedback.relevant, not_relevant: it.feedback.not_relevant } } : {}),
+    // The same event found under other names, put into this entry (migration 249).
+    ...(it.also?.length ? {
+      also_reported_as: it.also.slice(0, 5).map(a => ({
+        title: a.title, day: a.starts_on + (a.ends_on ? ' to ' + a.ends_on : ''), ...(a.url ? { url: a.url } : {}),
+      })),
+    } : {}),
   }
 }
 
@@ -47,6 +53,7 @@ function captureView(s) {
     ].filter(Boolean).join(', ')
     : ''
   return KIND_LABELS[s.kind] + ' (' + frequencyText(s).toLowerCase() + (s.enabled ? '' : ', off') + ')' + learned
+    + (s.merge_error ? ' · couldn\'t put the same events together after its last run: ' + s.merge_error : '')
 }
 
 /** A capture in words, as the Captures list shows it (for picking one by name). */
@@ -307,6 +314,9 @@ export const localInfoTools = [
           ...(out.deleted ? [plural(out.deleted, 'entry', 'entries') + ' will be deleted.'] : []),
           ...(out.hidden ? [plural(out.hidden, 'finding') + ' people flagged will be hidden instead, so Pepper keeps learning from the flags.'] : []),
           ...(out.kept ? [plural(out.kept, 'finding') + ' someone hid ' + (out.kept === 1 ? 'stays as it is.' : 'stay as they are.')] : []),
+          ...(out.handed_over ? [plural(out.handed_over, 'entry', 'entries') + (out.handed_over === 1 ? ' was' : ' were')
+            + ' also found by another capture: ' + (out.handed_over === 1 ? 'that report stays' : 'those reports stay')
+            + ' on the calendar instead.'] : []),
           (n > out.examples.length ? 'The first ' + out.examples.length + ': ' : '') + out.examples.map(example).join('; ') + '.',
           ...(out.examples.some(it => it.captured) ? ['A later run of a capture can find some of them again.'] : []),
         ],

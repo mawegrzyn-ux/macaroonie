@@ -24,12 +24,18 @@
 //                                          (today on, never the past) until an optional day, by
 //                                          venue or the whole group, capture, typed or captured,
 //                                          kinds, severities and words; dry_run says what would go
+//   POST   /items/:id/separate             Not the same (migration 249): a finding merged into
+//                                          another entry becomes its own entry again, never merged
+//
+// One entry per real event (migration 249): a finding merged into another
+// (merged_into) isn't listed, flagged, hidden or deleted on its own; it is
+// shown under its entry as Also reported as (listItems' `also`).
 
 import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
-import { claimSource, runClaimed, listItems, itemFeedback, learnNow } from '../services/localInfoSvc.js'
+import { claimSource, runClaimed, listItems, itemFeedback, learnNow, lockMerges } from '../services/localInfoSvc.js'
 import { pepperOn } from '../services/aiJson.js'
 import { KINDS, SEVERITIES, FREQUENCIES, addDays, localDateTime } from '../../../shared/localInfo.js'
 import { webLink } from '../../../shared/links.js'
@@ -153,8 +159,10 @@ async function ownVenue(tx, tenantId, venueId) {
   return v
 }
 
+const MERGED_COPY = 'This finding is part of another entry: change that one, or say it isn\'t the same'
+
 const SOURCE_COLS = `id, venue_id, kind, enabled, frequency, every_hours, place, site, query,
-  next_run_at, last_run_at, last_error, learn_auto, learned, learned_at, learn_error,
+  next_run_at, last_run_at, last_error, learn_auto, learned, learned_at, learn_error, merge_error,
   (running_until IS NOT NULL AND running_until > now()) AS running,
   (flags_at IS NOT NULL AND (learned_at IS NULL OR flags_at > learned_at)) AS flags_changed,
   created_at, updated_at`
@@ -168,11 +176,14 @@ async function loadSource(tx, tenantId, id) {
 
 // Each capture with the flags on what it found (of its own kind): how many
 // relevant and not relevant, and (flags_changed) whether one was added,
-// changed or taken off since Pepper last learned from them.
+// changed or taken off since Pepper last learned from them. A finding merged
+// into another entry counts with that entry's flags (migration 249);
+// `merged` is how many of its findings are in another entry.
 async function sourcesOf(tx, tenantId, venueId) {
   return tx`
     SELECT s.id, s.venue_id, s.kind, s.enabled, s.frequency, s.every_hours, s.place, s.site, s.query,
            s.next_run_at, s.last_run_at, s.last_error, s.learn_auto, s.learned, s.learned_at, s.learn_error,
+           s.merge_error,
            (s.running_until IS NOT NULL AND s.running_until > now()) AS running,
            (s.flags_at IS NOT NULL AND (s.learned_at IS NULL OR s.flags_at > s.learned_at)) AS flags_changed,
            s.created_at, s.updated_at,
@@ -180,8 +191,11 @@ async function sourcesOf(tx, tenantId, venueId) {
                      'relevant', count(*) FILTER (WHERE f.relevant),
                      'not_relevant', count(*) FILTER (WHERE NOT f.relevant))
               FROM local_info_feedback f
-              JOIN local_info_items i ON i.id = f.item_id AND i.tenant_id = f.tenant_id
-             WHERE f.tenant_id = s.tenant_id AND i.source_id = s.id AND i.kind = s.kind) AS flags
+             WHERE f.tenant_id = s.tenant_id
+               AND f.item_id IN (SELECT COALESCE(i.merged_into, i.id) FROM local_info_items i
+                                  WHERE i.tenant_id = s.tenant_id AND i.source_id = s.id AND i.kind = s.kind)) AS flags,
+           (SELECT count(*)::int FROM local_info_items i
+             WHERE i.tenant_id = s.tenant_id AND i.source_id = s.id AND i.merged_into IS NOT NULL) AS merged
       FROM local_info_sources s
      WHERE s.tenant_id = ${tenantId} AND s.venue_id = ${venueId}
      ORDER BY s.kind, s.created_at`
@@ -325,6 +339,7 @@ export default async function localInfoRoutes(app) {
       if (!UUID.safeParse(req.params.id).success) throw httpError(404, 'Item not found')
       const [before] = await tx`SELECT * FROM local_info_items WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
       if (!before) throw httpError(404, 'Item not found')
+      if (before.merged_into) throw httpError(422, MERGED_COPY)
       const edits = Object.keys(b).filter(k => k !== 'hidden')
       if (before.source_id && edits.length) {
         throw httpError(422, 'A captured item can\'t be edited — hide it, or change the capture')
@@ -355,17 +370,19 @@ export default async function localInfoRoutes(app) {
 
   // The person's own flag on a captured item: relevant, not relevant, or none
   // (null). A flag added, changed or taken off stamps the item's capture
-  // (flags_at) so its next run learns again first; the same flag again
-  // changes nothing and stamps nothing.
+  // (flags_at) so its next run learns again first, and the captures of the
+  // findings merged into it; the same flag again changes nothing and stamps
+  // nothing.
   app.put('/items/:id/feedback', { preHandler: canView }, async req => {
     const b = Feedback.parse(req.body)
     const sub = req.user?.sub
     if (!sub) throw httpError(403, 'Sign in to flag what a capture found')
     return withTenant(req.tenantId, async tx => {
       if (!UUID.safeParse(req.params.id).success) throw httpError(404, 'Item not found')
-      const [item] = await tx`SELECT id, source_id, kind FROM local_info_items WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
+      const [item] = await tx`SELECT id, source_id, kind, merged_into FROM local_info_items WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
       if (!item) throw httpError(404, 'Item not found')
       if (!item.source_id) throw httpError(422, 'Only what a capture found takes a flag: a typed-in event is the group\'s own')
+      if (item.merged_into) throw httpError(422, MERGED_COPY)
       const changed = b.relevant === null
         ? await tx`DELETE FROM local_info_feedback WHERE tenant_id = ${req.tenantId} AND item_id = ${item.id} AND user_sub = ${sub} RETURNING item_id`
         : await tx`
@@ -377,7 +394,10 @@ export default async function localInfoRoutes(app) {
       // Only a finding of the capture's own kind is something it learns from.
       if (changed.length) {
         await tx`UPDATE local_info_sources SET flags_at = ${new Date()}
-                  WHERE id = ${item.source_id} AND tenant_id = ${req.tenantId} AND kind = ${item.kind}`
+                  WHERE tenant_id = ${req.tenantId} AND kind = ${item.kind}
+                    AND id IN (SELECT source_id FROM local_info_items
+                                WHERE tenant_id = ${req.tenantId} AND (id = ${item.id} OR merged_into = ${item.id})
+                                  AND source_id IS NOT NULL)`
       }
       return { feedback: await itemFeedback(tx, req.tenantId, item.id, sub) }
     })
@@ -389,6 +409,27 @@ export default async function localInfoRoutes(app) {
     if (!before) throw httpError(404, 'Item not found')
     if (before.source_id) throw httpError(422, 'A captured item can\'t be deleted — hide it instead')
     await tx`DELETE FROM local_info_items WHERE id = ${before.id} AND tenant_id = ${req.tenantId}`
+    return { ok: true }
+  }))
+
+  // Not the same (migration 249): a finding merged into another entry becomes
+  // its own entry again, and is never merged again. Flags stay on the entry;
+  // its capture learns again when they were what it learned from.
+  app.post('/items/:id/separate', { preHandler: canManage }, async req => withTenant(req.tenantId, async tx => {
+    if (!UUID.safeParse(req.params.id).success) throw httpError(404, 'Item not found')
+    const [first] = await tx`SELECT venue_id, kind FROM local_info_items WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
+    if (!first) throw httpError(404, 'Item not found')
+    if (first.venue_id) await lockMerges(tx, first.venue_id, first.kind)
+    const [item] = await tx`SELECT id, source_id, kind, merged_into FROM local_info_items WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
+    if (!item?.merged_into) throw httpError(422, 'This entry isn\'t part of another')
+    await tx`UPDATE local_info_items SET merged_into = NULL, keep_separate = true, merge_checked_at = now(), updated_at = now()
+              WHERE id = ${item.id} AND tenant_id = ${req.tenantId}`
+    const [{ flagged }] = await tx`
+      SELECT EXISTS (SELECT 1 FROM local_info_feedback WHERE tenant_id = ${req.tenantId} AND item_id = ${item.merged_into}) AS flagged`
+    if (flagged) {
+      await tx`UPDATE local_info_sources SET flags_at = ${new Date()}
+                WHERE id = ${item.source_id} AND tenant_id = ${req.tenantId} AND kind = ${item.kind}`
+    }
     return { ok: true }
   }))
 
@@ -414,7 +455,7 @@ export default async function localInfoRoutes(app) {
                         WHERE f.item_id = i.id AND f.tenant_id = i.tenant_id) AS flagged
           FROM local_info_items i
           LEFT JOIN local_info_sources s ON s.id = i.source_id AND s.tenant_id = i.tenant_id
-         WHERE i.tenant_id = ${req.tenantId}
+         WHERE i.tenant_id = ${req.tenantId} AND i.merged_into IS NULL
            AND i.starts_on >= ${from}
            ${until ? tx`AND i.starts_on <= ${until}` : tx``}
            ${b.venue_id ? tx`AND i.venue_id = ${b.venue_id}` : tx``}
@@ -427,6 +468,24 @@ export default async function localInfoRoutes(app) {
          ORDER BY i.starts_on, i.kind, i.title, i.id`
       const del = rows.filter(r => deleteAction(r) === 'delete').map(r => r.id)
       const hide = rows.filter(r => deleteAction(r) === 'hide').map(r => r.id)
+      // Deleting one capture's entries leaves what other captures found of
+      // the same events: the first of those becomes the entry instead.
+      const others = source && del.length ? await tx`
+        SELECT id, merged_into FROM local_info_items
+         WHERE tenant_id = ${req.tenantId} AND merged_into = ANY(${del}::uuid[]) AND source_id <> ${source.id}
+         ORDER BY merged_into, captured_at, id` : []
+      const handedOver = new Set(others.map(r => r.merged_into))
+      if (!b.dry_run && others.length) {
+        await lockMerges(tx, source.venue_id, source.kind)
+        const first = new Map()
+        for (const r of others) if (!first.has(r.merged_into)) first.set(r.merged_into, r.id)
+        for (const [old, next] of first) {
+          await tx`UPDATE local_info_items SET merged_into = NULL, updated_at = now()
+                    WHERE tenant_id = ${req.tenantId} AND id = ${next}`
+          await tx`UPDATE local_info_items SET merged_into = ${next}, updated_at = now()
+                    WHERE tenant_id = ${req.tenantId} AND merged_into = ${old} AND source_id <> ${source.id} AND id <> ${next}`
+        }
+      }
       if (!b.dry_run && del.length) {
         await tx`DELETE FROM local_info_items WHERE tenant_id = ${req.tenantId} AND id = ANY(${del}::uuid[])`
       }
@@ -437,6 +496,7 @@ export default async function localInfoRoutes(app) {
       return {
         dry_run: b.dry_run, today, from, until,
         deleted: del.length, hidden: hide.length, kept: rows.length - del.length - hide.length,
+        handed_over: handedOver.size,
         examples: rows.filter(r => deleteAction(r) !== 'keep').slice(0, DELETE_EXAMPLES).map(r => ({
           id: r.id, title: r.title, kind: r.kind, starts_on: r.starts_on, ends_on: r.ends_on,
           venue_id: r.venue_id, captured: !!r.source_id, action: deleteAction(r),

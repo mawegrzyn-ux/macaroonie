@@ -14,7 +14,9 @@
 // are left out of both, as on that page and on Today; an item for the whole
 // group (no venue) shows only with every venue picked. Each item says how
 // many staff flagged it relevant or not, and each capture what Pepper
-// learned from those flags (migration 248).
+// learned from those flags (migration 248). A finding merged into another
+// entry (migration 249) is left out like a hidden one: the entry counts it
+// once, and says how many other reports it holds.
 
 import { subject, text, choice, number, yesno, date, moment, count, avg, min, max, ratio, one, many } from './define.js'
 import { weatherCodes, WEATHER_GROUPS, WET_DAY_MM, KIND_LABELS } from '../../../../shared/localInfo.js'
@@ -47,7 +49,7 @@ const WEATHER_DAYS = `(
          ${num('temp_min')} AS temp_min, ${num('temp_max')} AS temp_max,
          COALESCE(${num('precip_mm')}, 0) AS precip_mm, COALESCE(${num('wind_kph')}, 0) AS wind_kph
     FROM local_info_items i
-   WHERE i.kind = 'weather' AND i.venue_id IS NOT NULL AND NOT i.hidden
+   WHERE i.kind = 'weather' AND i.venue_id IS NOT NULL AND NOT i.hidden AND i.merged_into IS NULL
      AND jsonb_typeof(i.data->'weather_code') = 'number'
    ORDER BY i.venue_id, i.starts_on, i.updated_at DESC, i.id
 )`
@@ -72,6 +74,8 @@ const FAILING = "(COALESCE({t}.last_error, '') <> '')"
 // (migration 248): one flag a person, a flag taken off is no row. Only what
 // a capture found takes flags, so a typed-in event's counts are 0.
 const FLAGS = cond => '(SELECT count(*) FROM local_info_feedback f WHERE f.item_id = {t}.id AND f.tenant_id = {t}.tenant_id AND ' + cond + ')'
+// How many other findings were put into an entry as the same event.
+const ALSO = '(SELECT count(*) FROM local_info_items c WHERE c.merged_into = {t}.id AND c.tenant_id = {t}.tenant_id)'
 const LEARNS = "({t}.learn_auto AND {t}.kind <> 'weather')"
 
 export default [
@@ -121,9 +125,9 @@ export default [
     one: 'local item',
     area: 'local',
     module: 'local_info',
-    about: 'Traffic, events and incidents around each venue on the Local info page: what the captures found and what staff typed in. Weather forecasts are in Weather. Items someone hid are left out; an item for the whole group shows only with every venue picked.',
+    about: 'Traffic, events and incidents around each venue on the Local info page: what the captures found and what staff typed in. Weather forecasts are in Weather. Items someone hid are left out; an item for the whole group shows only with every venue picked. The same event found under other names is one item, as on the page.',
     from: 'local_info_items',
-    where: 'NOT {t}.hidden AND NOT ' + FORECAST,
+    where: 'NOT {t}.hidden AND {t}.merged_into IS NULL AND NOT ' + FORECAST,
     name: 'title',
     venue: 'venue_id',
     date: { sql: '{t}.starts_on', label: 'Day it starts' },
@@ -142,6 +146,8 @@ export default [
       found_at: moment('captured_at', { label: 'Found' }),
       flagged_relevant: number({ sql: FLAGS('f.relevant') }, { label: 'Flagged relevant', decimals: 0, adds: true, about: 'How many staff flagged it relevant on the Local info page. Only what a capture found takes flags.' }),
       flagged_not_relevant: number({ sql: FLAGS('NOT f.relevant') }, { label: 'Flagged not relevant', decimals: 0, adds: true, about: 'How many staff flagged it not relevant on the Local info page. Only what a capture found takes flags.' }),
+      other_reports: number({ sql: ALSO }, { label: 'Other reports of it', decimals: 0, adds: true, about: 'How many other findings Pepper put into it as the same event or incident, shown under it as Also reported as.' }),
+      kept_apart: yesno('keep_separate', { label: 'Kept apart', about: 'Someone said it isn\'t the same as the entry it was put into, so it is never put into another.' }),
     },
     measures: {
       items: count({ label: 'Items' }),
@@ -157,8 +163,11 @@ export default [
     },
     list: ['date', 'venue.name', 'kind', 'title', 'place', 'severity'],
     sort: [{ by: 'date', dir: 'desc' }],
-    // The capture's own copy of what it found and its duplicate check.
-    skip: ['external_key', 'updated_at'],
+    // The capture's own copy of what it found and its duplicate check, and
+    // when a merge pass last looked at a finding. merged_into is read by the
+    // subject's rule (findings put into another entry aren't rows here) and
+    // by Other reports of it.
+    skip: ['external_key', 'updated_at', 'merge_checked_at'],
   }),
 
   subject({
@@ -189,6 +198,7 @@ export default [
       learned: text({ sql: "({t}.learned->>'summary')" }, { label: 'What Pepper learned', empty: 'Nothing yet', about: 'Pepper\'s sentence on what the staff flags say to look for and to leave out. The search uses it while the capture learns from staff flags.' }),
       learned_at: moment('learned_at', { label: 'Last learned from flags' }),
       learn_problem: text('learn_error', { label: 'Problem learning from flags', about: 'Why Pepper couldn\'t learn from the flags before its last run; the run went ahead with what it had learned before.' }),
+      merge_problem: text('merge_error', { label: 'Problem merging duplicates', about: 'Why Pepper couldn\'t put the same events together after its last run; what it found is looked at again after the next run.' }),
     },
     measures: {
       captures: count({ label: 'Captures' }),

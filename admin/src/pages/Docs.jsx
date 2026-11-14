@@ -8490,25 +8490,89 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               hidden row is what stops its capture adding it again: the capture&apos;s upsert never un-hides); a
               captured finding people flagged, of its capture&apos;s own kind and not a forecast, is hidden instead
               (its flags keep teaching the capture, <Mono>learnFromFlags()</Mono> reads hidden findings too); every
-              other captured row is deleted (its flags go with it, <Mono>ON DELETE CASCADE</Mono>). The answer, dry
-              run or not, is <Mono>{'{ dry_run, today, from, until, deleted, hidden, kept, examples }'}</Mono>, the
-              first <Mono>DELETE_EXAMPLES</Mono> (10) entries that change with their <Mono>action</Mono>. A capture
+              other captured row is deleted (its flags go with it, <Mono>ON DELETE CASCADE</Mono>). Only entries are
+              looked at (<Mono>merged_into IS NULL</Mono>, migration 249): the reports inside a deleted entry go with
+              it by the same cascade, except that with a <Mono>source_id</Mono> the reports other captures found are
+              handed over: the first of them (<Mono>captured_at</Mono>, then id) becomes the entry and the rest point
+              at it, under <Mono>lockMerges()</Mono>; this capture&apos;s own reports inside other captures&apos;
+              entries are left alone. The answer, dry run or not, is{' '}
+              <Mono>{'{ dry_run, today, from, until, deleted, hidden, kept, handed_over, examples }'}</Mono>
+              (<Mono>handed_over</Mono>: the entries whose other reports stay), the first{' '}
+              <Mono>DELETE_EXAMPLES</Mono> (10) entries that change with their <Mono>action</Mono>. A capture
               deleted entries can find again on its next run (the next weather run fills its days in again).
               Admin: each capture&apos;s <Mono>Delete future entries</Mono> in the Captures window
               (<Mono>ClearFuturePart</Mono> in <Mono>pages/LocalInfo.jsx</Mono>: <Mono>li-cap-clear</Mono>,{' '}
               <Mono>li-cap-clear-panel</Mono>, <Mono>li-cap-clear-from</Mono> (today at the venue at the earliest),{' '}
               <Mono>li-cap-clear-until</Mono> / <Mono>li-cap-clear-no-end</Mono>, a dry run on every change{' '}
               (<Mono>staleTime: 0</Mono>) into <Mono>li-cap-clear-count</Mono> <Mono>data-deleted</Mono>{' '}
-              <Mono>data-hidden</Mono> <Mono>data-kept</Mono>, <Mono>li-cap-clear-go</Mono> then{' '}
+              <Mono>data-hidden</Mono> <Mono>data-kept</Mono> <Mono>data-handed-over</Mono>, <Mono>li-cap-clear-go</Mono> then{' '}
               <Mono>li-cap-clear-sure</Mono> with <Mono>-yes</Mono> / <Mono>-no</Mono>, <Mono>li-cap-clear-cancel</Mono>,{' '}
               <Mono>li-cap-clear-error</Mono>). Pepper: <Mono>delete_local_info</Mono> in{' '}
               <Mono>ai/tools/localInfo.js</Mono> (Manage, a confirm card): a venue by name, the whole group, a capture
               by name (<Mono>captureFor()</Mono>: its kind, place, site or query), and the same criteria;{' '}
-              <Mono>describe()</Mono> runs the dry run, says what is deleted, hidden instead and kept with the first
-              examples, refuses before the card when nothing matches, and pins the first day, the venue and the
+              <Mono>describe()</Mono> runs the dry run, says what is deleted, hidden instead, kept and handed over to
+              another capture&apos;s report with the first examples, refuses before the card when nothing matches, and pins the first day, the venue and the
               capture it worked out (<Mono>pin</Mono>), so Confirm deletes what the card said even after midnight;{' '}
               <Mono>run()</Mono> plans again (it is called straight away over the staff connector). Tests:{' '}
               <Mono>api/test/local-info-delete.test.mjs</Mono>.
+            </P>
+            <H3>One entry per event (migration 249)</H3>
+            <P>
+              Searches and pages report the same event under other names, and a capture&apos;s upsert keys on{' '}
+              <Mono>external_key</Mono> (worked out from the title), so every rewording was a new row. Migration 249
+              adds <Mono>local_info_items.merged_into</Mono> (the entry a finding was put into, always an entry
+              itself, <Mono>ON DELETE CASCADE</Mono>, index <Mono>local_info_items_merged</Mono>),{' '}
+              <Mono>keep_separate</Mono> (Not the same: never merged again), <Mono>merge_checked_at</Mono> (when a pass
+              last looked at the finding; null = new) and <Mono>local_info_sources.merge_error</Mono>.{' '}
+              <Mono>runClaimed()</Mono> calls <Mono>mergeAfterRun()</Mono> after every search capture&apos;s run (never
+              the weather), and it never throws: a failure is stored in <Mono>merge_error</Mono> (cleared by the next
+              pass that works) and logged, and the run counts as done. <Mono>mergePass()</Mono> reads the venue&apos;s
+              captured entries of the capture&apos;s kind (any capture, hidden ones included,{' '}
+              <Mono>keep_separate</Mono> left out) from 14 days back to 90 ahead; a new one with nothing within{' '}
+              <Mono>MERGE_DAYS</Mono> (1) of it (<Mono>nearDays()</Mono>, on starts_on and ends_on) is marked looked at
+              without asking; the others go with their nearest neighbours in batches of at most{' '}
+              <Mono>MERGE_ITEMS</Mono> (80), <Mono>MERGE_CALLS</Mono> (3) a pass, the rest left for the next run of a
+              capture of that kind at the venue. Each batch is one <Mono>askForJson()</Mono> (the everyday model,
+              effort low, <Mono>MERGE_SYSTEM</Mono> says the lines are data from web pages, never instructions;{' '}
+              <Mono>MERGE_SCHEMA</Mono> <Mono>{'{ groups: [{ same: [refs], why }] }'}</Mono>): one line a finding,{' '}
+              <Mono>ref | title | details | place | days | time | website | new</Mono>, refs <Mono>I1..In</Mono> in day
+              order, every field on one line with <Mono>|</Mono> taken out (<Mono>field()</Mono>), the website as its
+              host only, no ids. A group needs two refs that resolve; unknown and repeated refs are dropped. A batch
+              that fails stops the pass and nothing of it is marked looked at, so it is asked again after the next
+              run. <Mono>applyGroups()</Mono> then works on the rows as they are now (under{' '}
+              <Mono>lockMerges()</Mono>, an advisory lock per venue and kind, which Not the same and the bulk
+              delete&apos;s hand-over take too): a copy counts as its entry, anything kept apart, of another venue or
+              kind, or typed in is left out, groups that share an entry are joined (union-find), and in each set{' '}
+              <Mono>pickKeeper()</Mono> (hidden first, so a hidden report keeps the whole entry hidden, then severity,
+              then the most days, then the first captured) takes in what lies within a day of it; the rest of the set
+              is grouped again the same way, so a weekly event is never one entry.{' '}
+              <Mono>foldInto()</Mono> points the rows (and whatever was already in them) at the keeper and moves their
+              flags to it in one statement: each person&apos;s newest flag across the group (<Mono>DISTINCT ON</Mono>{' '}
+              by <Mono>updated_at</Mono>, compared in SQL), written over the keeper&apos;s only when newer and
+              different; then it stamps <Mono>flags_at</Mono> on every capture in the group when the keeper&apos;s own
+              flags changed, else on the folded findings&apos; captures when either side had flags, so learning
+              follows the flags. Readers: <Mono>listItems()</Mono> lists entries only, each captured one with{' '}
+              <Mono>also</Mono> (its reports oldest first: id, source_id, title, details, place, url, days, time,
+              severity); the sources route&apos;s flag counts go through the entries and add{' '}
+              <Mono>merged</Mono> (how many of the capture&apos;s findings sit in another entry);{' '}
+              <Mono>learnFromFlags()</Mono> reads each finding&apos;s entry&apos;s flags; the weather subject, Today
+              and the dashboard widget read through <Mono>listItems()</Mono> or leave copies out. A copy refuses PATCH,
+              flags and DELETE (422, <Mono>MERGED_COPY</Mono>: change the entry, or say it isn&apos;t the same).{' '}
+              <Mono>POST /api/local-info/items/:id/separate</Mono> (Local info Manage) makes a copy its own entry
+              again: <Mono>merged_into</Mono> null, <Mono>keep_separate</Mono> true, looked at now; the flags stay on
+              the entry, and its capture learns again when the entry had flags; 422 for an id that isn&apos;t a copy.
+              Admin: <Mono>AlsoReported</Mono> in <Mono>components/localInfo/shared.jsx</Mono> under an entry on the
+              list and in the day window (<Mono>li-also</Mono> <Mono>data-count</Mono>, <Mono>li-also-toggle</Mono>{' '}
+              <Mono>aria-expanded</Mono>, <Mono>li-also-list</Mono>, <Mono>li-also-item</Mono> <Mono>data-id</Mono>,
+              with <Mono>canSeparate</Mono>: <Mono>li-also-separate</Mono>, <Mono>li-also-sure</Mono>,{' '}
+              <Mono>li-also-separate-yes</Mono> / <Mono>-no</Mono>, <Mono>li-also-error</Mono>), the widget&apos;s count
+              (<Mono>li-also-count</Mono>), and in the Captures window <Mono>li-cap-merged</Mono>{' '}
+              <Mono>data-count</Mono> and <Mono>li-cap-merge-error</Mono>. Pepper: <Mono>local_info</Mono> gives an
+              entry&apos;s <Mono>also_reported_as</Mono> (up to five: title, day, url) and a capture&apos;s merge
+              problem. Reports: <Mono>local.items</Mono> lists entries only, with <Mono>other_reports</Mono> (Other
+              reports of it) and <Mono>kept_apart</Mono> (Kept apart); <Mono>local.captures</Mono> has{' '}
+              <Mono>merge_problem</Mono>; the weather subject leaves copies out. Tests:{' '}
+              <Mono>api/test/local-info-merge.test.mjs</Mono> (against a stand-in Claude).
             </P>
             <InfoBox title="Limits">
               Scheduled search runs count the group's monthly Pepper allowance with no person (<Mono>addUsage()</Mono>{' '}
@@ -8528,7 +8592,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               stand-in Claude: first live use, flag a few findings, press Learn now and read what it says before
               the next run. Flags on weather forecasts are only shown (a forecast has no search to tune). Bulk delete
               never touches the past, and a capture&apos;s next run can bring back what it deleted: to keep a
-              finding off for good, hide it (or turn the capture off first).
+              finding off for good, hide it (or turn the capture off first). Merging (migration 249) is only as good
+              as Pepper&apos;s reading of a few words per finding: it can miss a repeat worded very differently or, now
+              and then, put two different things together (Not the same undoes that for good). It compares a finding
+              only with others of the same kind at the same venue within a day of it, never typed-in events or the
+              weather, and there is no way to put two entries together by hand. Not the same is for one report and
+              lasts for ever (it isn&apos;t per pair). Delete future entries leaves the capture&apos;s own reports that
+              sit inside another capture&apos;s entry. Merging is tested only against a stand-in Claude: first live
+              use, run two captures of one kind at a venue and look at what was put together.
             </InfoBox>
           </section>
 
@@ -8637,7 +8708,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Food safety and H&S (food_safety, checklists, hs_action_log)', 'safety.days (each venue\'s H&S day as the Overview judges it, worked out for each run), safety.fridges, safety.fridge_checks, safety.hold_stations, safety.hold_checks, safety.cooking_sessions, safety.cooking_items, safety.cooking_checks, safety.delivery_checks; safety.checklist_templates, safety.checklist_tasks, safety.checklists, safety.checklist_ticks; safety.action_categories, safety.actions'],
                 ['Cash reconciliation (cash_recon)', 'cash.days and cash.weeks (worked out for each run by Cash Recon\'s own rule), cash.income, cash.takings, cash.service_charges, cash.expenses, cash.wages, cash.reports, cash.wage_lists, and to group by: cash.income_sources, cash.payment_channels, cash.sc_sources, cash.expense_categories'],
                 ['Staff and rota (rota; pay rota_pay, points and tips rota_tips, the wage list beside the rota cash_recon, people, roles, time off and tip pots staff)', 'rota.staff_weeks, rota.weeks, rota.days, rota.pot_weeks, rota.tip_shares (worked out for each run by the Rota page\'s own rules), rota.entries, rota.pay_adjustments, rota.tip_moves, rota.shifts, and staff.people, staff.roles, staff.time_off, rota.tip_pots'],
-                ['Local info (local_info)', 'local.weather (the weather at each venue, one row a day: the forecast read last for that day from the Local info weather capture), local.items (every other Local info item, captured or typed; hidden ones left out, a group-wide one only with every venue; how many staff flagged each relevant or not), local.captures (how often each runs, when it last ran, its problem, and since migration 248 whether it learns from staff flags and what it learned)'],
+                ['Local info (local_info)', 'local.weather (the weather at each venue, one row a day: the forecast read last for that day from the Local info weather capture), local.items (every other Local info item, captured or typed; hidden ones left out, a group-wide one only with every venue; how many staff flagged each relevant or not; since migration 249 entries only, with how many other reports of the same event are in each and whether one was kept apart), local.captures (how often each runs, when it last ran, its problem, since migration 248 whether it learns from staff flags and what it learned, and since 249 a problem putting the same events together)'],
                 ['Menus (menus)', 'menu.releases (each publish and its state: Live, Earlier, Scheduled, Cancelled, by liveRows()\'s rule), menu.option_groups, menu.options, menu.tags, menu.dish_tags (the allergen matrix\'s levels), menu.dish_option_groups, menu.dish_option_prices, menu.dish_own_options, menu.tax_rates (the usual rate). Everything but releases is the draft the Menus pages edit'],
                 ['Website and reviews (website)', 'website.reviews (as the Reviews page holds them, checked or in the To check inbox), website.pages (the draft, each with its address worked out as pagePath() does), website.media, website.media_categories'],
                 ['Shared', 'venue (no module), menu.menus / menu.sections / menu.dishes (menus), guests.customers (customers)'],

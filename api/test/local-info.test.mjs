@@ -121,6 +121,7 @@ test('captures: add, edit, the site cleaned to a bare host, who may, whose venue
 
 test('weather capture: claimed once, geocoded once, seven days, dedupe, hidden stays hidden', async () => {
   weatherS = (await ok(owner.post(SRC(V), { kind: 'weather', place: 'Ware, Hertfordshire' }))).source.id
+  const calls0 = claude.requests.length
 
   const due = await claimDue()
   assert.equal(due.length, 1, 'the new capture is due')
@@ -169,6 +170,8 @@ test('weather capture: claimed once, geocoded once, seven days, dedupe, hidden s
   assert.equal(src.last_error, null)
   assert.equal(src.running, false)
   assert.ok(new Date(src.next_run_at) > new Date(), 'the next run is ahead')
+  // Seven forecast days in a row, never put together as one (migration 249).
+  assert.equal(claude.requests.length, calls0, 'a weather capture never asks Pepper to merge its days')
 })
 
 test('a place the map does not know: the error kept on the capture, the schedule carries on', async () => {
@@ -208,8 +211,13 @@ test('search capture: the web search through Claude, only dated findings kept, d
   claude.script.push(() => ({ stop_reason: 'end_turn', content: [
     { type: 'text', text: 'Here is what I found: ' + JSON.stringify({ items: FOUND }) },
   ] }))
+  // The fireworks and the roadworks fall within a day of each other, so the
+  // merge step after the run asks whether they are the same (migration 249,
+  // tested in local-info-merge.test.mjs): they aren't.
+  claude.script.push(() => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"groups": []}' }] }))
   const run = await runClaimed(await claimSource(ids.a, eventsS))
   assert.equal(run.error, null)
+  assert.equal(claude.requests.length, base + 3, 'the search took two calls and the merge step one')
 
   // What reached Claude: the web search tool held to the site, the schema in
   // the system prompt, the place and today's date in the ask.
@@ -244,11 +252,14 @@ test('search capture: the web search through Claude, only dated findings kept, d
   const midweek = await items(owner, `?venue_id=${V}&kinds=events&from=${day(4)}&to=${day(4)}`)
   assert.deepEqual(midweek.map(i => i.title), ['A414 roadworks'])
 
-  // The same search again: the rows freshen, nothing repeats.
+  // The same search again: the rows freshen, nothing repeats, and nothing new
+  // means nothing to compare.
   claude.script.push(() => ({ stop_reason: 'end_turn', content: [
     { type: 'text', text: JSON.stringify({ items: FOUND.map(f => f.title === 'A414 roadworks' ? { ...f, details: 'Lane closures both ways' } : f) }) },
   ] }))
+  const before2 = claude.requests.length
   await runClaimed(await claimSource(ids.a, eventsS))
+  assert.equal(claude.requests.length, before2 + 1, 'no merge call when nothing new was found')
   events = await items(owner, '?venue_id=' + V + '&kinds=events')
   assert.equal(events.length, 3)
   assert.equal(events.find(i => i.title === 'A414 roadworks').details, 'Lane closures both ways')

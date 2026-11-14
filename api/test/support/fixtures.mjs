@@ -330,6 +330,24 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
   if (liSource?.source) {
     await step('local info bulk delete check', () => post('/api/local-info/items/delete', { source_id: liSource.source.id, venue_id: V, dry_run: true }))
   }
+  // The same event found three times and put into one entry (migration 249:
+  // written here, merging only happens after a run), then one report taken
+  // out again (Not the same), so the sweep tries that as the other tenant.
+  const liEvents = await step('local info events capture', () => post(`/api/local-info/venues/${V}/sources`, { kind: 'events', place: mark + ' Ware', enabled: false, learn_auto: false }))
+  const merged = liEvents?.source && await step('local info merged findings', async () => {
+    const S = liEvents.source.id
+    const [e] = await sql`
+      INSERT INTO local_info_items (tenant_id, venue_id, source_id, kind, title, starts_on, severity, external_key, merge_checked_at)
+      VALUES (${tenantId}, ${V}, ${S}, 'events', ${mark + ' carnival'}, '2027-01-17', 'notice', 'events:carnival', now())
+      RETURNING id`
+    const copies = await sql`
+      INSERT INTO local_info_items (tenant_id, venue_id, source_id, kind, title, starts_on, severity, external_key, merge_checked_at, merged_into)
+      VALUES (${tenantId}, ${V}, ${S}, 'events', ${mark + ' carnival parade'}, '2027-01-17', 'info', 'events:parade', now(), ${e.id}),
+             (${tenantId}, ${V}, ${S}, 'events', ${mark + ' carnival day'}, '2027-01-17', 'info', 'events:day', now(), ${e.id})
+      RETURNING id`
+    return copies.map(r => r.id)
+  })
+  if (merged) await step('local info not the same', () => post('/api/local-info/items/' + merged[1] + '/separate'))
   await step('promotion', () => post('/api/promotions', { name: mark + ' 10% off', kind: 'basket', discount_type: 'percent', discount_value: 10, apply_mode: 'auto' }))
   await step('issue', () => post('/api/issues', { title: mark + ' Printer jam', description: mark + ' jammed', category: 'incident', impact: 'low', urgency: 'low' }))
   await step('feature request', () => post('/api/feature-requests', { title: mark + ' Dark mode', description: mark + ' please' }))
