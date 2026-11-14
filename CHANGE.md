@@ -6,6 +6,19 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-14 — Local info: delete future entries in bulk]
+
+No migration.
+
+**Added**
+- Local info → Captures: each capture has **Delete future entries**. Pick the first day (today at the earliest) and, if you like, the last day; the window counts what will be deleted before you press Delete, then asks once more.
+- Pepper can delete Local info entries in bulk: by venue or the whole group, by capture, typed in or found by captures, by kind, how serious, or words in the title, details or place, from a day on, with an optional last day. It shows a card first with how many entries go and the first few of them.
+
+**Notes**
+- Nothing that started before today is touched.
+- A finding someone hid stays hidden (that is what keeps it off the calendar), and a finding people flagged as relevant or not is hidden instead of deleted, so Pepper keeps learning from the flags.
+- A capture's next run can find deleted findings again: hide them, or turn the capture off first, to keep them off.
+
 ## [2026-11-14 — Local info: Relevant or not relevant, and Pepper learning from the flags]
 
 Migration: `248_local_info_feedback.sql`.

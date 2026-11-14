@@ -20,6 +20,10 @@
 //   DELETE /items/:id                      typed-in items only (hide captured ones instead)
 //   PUT    /items/:id/feedback             the person's flag on a captured item: relevant
 //                                          true / false, or null to take it off (Local info view)
+//   POST   /items/delete                   bulk delete (14 Nov 2026): entries starting from a day
+//                                          (today on, never the past) until an optional day, by
+//                                          venue or the whole group, capture, typed or captured,
+//                                          kinds, severities and words; dry_run says what would go
 
 import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
@@ -27,7 +31,7 @@ import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 import { claimSource, runClaimed, listItems, itemFeedback, learnNow } from '../services/localInfoSvc.js'
 import { pepperOn } from '../services/aiJson.js'
-import { KINDS, SEVERITIES, FREQUENCIES, addDays } from '../../../shared/localInfo.js'
+import { KINDS, SEVERITIES, FREQUENCIES, addDays, localDateTime } from '../../../shared/localInfo.js'
 import { webLink } from '../../../shared/links.js'
 
 const UUID = z.string().uuid()
@@ -84,6 +88,24 @@ const EditItem = z.object({
 })
 const Feedback = z.object({ relevant: z.boolean().nullable() })
 
+// Bulk delete (14 Nov 2026). Every criterion given must hold; an entry is in
+// the days when it starts in them. venue_id = that venue's own entries (the
+// whole group's aren't touched), group_wide = only the whole group's, neither
+// = all of them.
+const BulkDelete = z.object({
+  from:       DAY.optional(),
+  until:      DAY.nullable().optional(),
+  venue_id:   UUID.nullable().optional(),
+  group_wide: z.boolean().optional(),
+  source_id:  UUID.nullable().optional(),
+  origin:     z.enum(['any', 'typed', 'captured']).default('any'),
+  kinds:      z.array(z.enum(KINDS)).max(KINDS.length).optional(),
+  severities: z.array(z.enum(SEVERITIES)).max(SEVERITIES.length).optional(),
+  words:      z.string().trim().max(100).optional(),
+  dry_run:    z.boolean().default(false),
+})
+const DELETE_EXAMPLES = 10
+
 const by = req => req.user?.email || req.user?.sub || null
 
 /** A site is kept as a bare host ("bbc.co.uk"), whatever was pasted. */
@@ -100,6 +122,29 @@ function checkDates(starts, ends) {
 
 // A date column comes back as a JS Date (the date-column trap): 'YYYY-MM-DD' or null.
 const dayOf = v => v == null ? null : (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10)
+
+// "Today" for a bulk delete: the venue's own day, else the earliest day at
+// any of the group's venues (a day that is still today somewhere counts).
+async function earliestToday(tx, tenantId, venueId) {
+  const rows = venueId
+    ? await tx`SELECT timezone FROM venues WHERE id = ${venueId} AND tenant_id = ${tenantId}`
+    : await tx`SELECT DISTINCT timezone FROM venues WHERE tenant_id = ${tenantId}`
+  const now = new Date()
+  const days = rows.map(r => localDateTime(now, r.timezone || 'Europe/London').date).sort()
+  return days[0] || now.toISOString().slice(0, 10)
+}
+
+// What a bulk delete does to an entry it matched. A typed-in event goes. A
+// captured one goes too, except: one someone hid is kept (hidden, it stops
+// its capture adding it again), and a finding people flagged is hidden
+// instead, so Pepper keeps learning from the flags (only a finding of its
+// capture's own kind teaches; a forecast teaches nothing, so it goes).
+function deleteAction(it) {
+  if (!it.source_id) return 'delete'
+  if (it.hidden) return 'keep'
+  if (it.flagged && it.kind !== 'weather' && it.kind === it.source_kind) return 'hide'
+  return 'delete'
+}
 
 async function ownVenue(tx, tenantId, venueId) {
   if (!UUID.safeParse(venueId).success) throw httpError(404, 'Venue not found')
@@ -346,4 +391,57 @@ export default async function localInfoRoutes(app) {
     await tx`DELETE FROM local_info_items WHERE id = ${before.id} AND tenant_id = ${req.tenantId}`
     return { ok: true }
   }))
+
+  // Bulk delete, from today on (the Captures window's Delete future entries,
+  // and Pepper's delete_local_info). A later run of a capture can find some
+  // of what it deletes again: hiding is what keeps one off for good.
+  app.post('/items/delete', { preHandler: canManage }, async req => {
+    const b = BulkDelete.parse(req.body)
+    if (b.venue_id && b.group_wide) throw httpError(422, 'Pick one venue or the whole group, not both')
+    return withTenant(req.tenantId, async tx => {
+      if (b.venue_id) await ownVenue(tx, req.tenantId, b.venue_id)
+      const source = b.source_id ? await loadSource(tx, req.tenantId, b.source_id) : null
+      const today = await earliestToday(tx, req.tenantId, b.venue_id || source?.venue_id || null)
+      const from = b.from || today
+      if (from < today) throw httpError(422, 'Only entries from today on can be deleted in bulk: today is ' + today)
+      const until = b.until || null
+      if (until && until < from) throw httpError(422, 'The last day must be on or after the first')
+      const pattern = b.words ? '%' + b.words.replace(/[\\%_]/g, m => '\\' + m) + '%' : null
+      const rows = await tx`
+        SELECT i.id, i.venue_id, i.source_id, i.kind, i.title, i.hidden,
+               i.starts_on::text AS starts_on, i.ends_on::text AS ends_on, s.kind AS source_kind,
+               EXISTS (SELECT 1 FROM local_info_feedback f
+                        WHERE f.item_id = i.id AND f.tenant_id = i.tenant_id) AS flagged
+          FROM local_info_items i
+          LEFT JOIN local_info_sources s ON s.id = i.source_id AND s.tenant_id = i.tenant_id
+         WHERE i.tenant_id = ${req.tenantId}
+           AND i.starts_on >= ${from}
+           ${until ? tx`AND i.starts_on <= ${until}` : tx``}
+           ${b.venue_id ? tx`AND i.venue_id = ${b.venue_id}` : tx``}
+           ${b.group_wide ? tx`AND i.venue_id IS NULL` : tx``}
+           ${source ? tx`AND i.source_id = ${source.id}` : tx``}
+           ${b.origin === 'typed' ? tx`AND i.source_id IS NULL` : b.origin === 'captured' ? tx`AND i.source_id IS NOT NULL` : tx``}
+           ${b.kinds?.length ? tx`AND i.kind = ANY(${b.kinds}::text[])` : tx``}
+           ${b.severities?.length ? tx`AND i.severity = ANY(${b.severities}::text[])` : tx``}
+           ${pattern ? tx`AND (i.title ILIKE ${pattern} OR i.details ILIKE ${pattern} OR i.place ILIKE ${pattern})` : tx``}
+         ORDER BY i.starts_on, i.kind, i.title, i.id`
+      const del = rows.filter(r => deleteAction(r) === 'delete').map(r => r.id)
+      const hide = rows.filter(r => deleteAction(r) === 'hide').map(r => r.id)
+      if (!b.dry_run && del.length) {
+        await tx`DELETE FROM local_info_items WHERE tenant_id = ${req.tenantId} AND id = ANY(${del}::uuid[])`
+      }
+      if (!b.dry_run && hide.length) {
+        await tx`UPDATE local_info_items SET hidden = true, updated_at = now()
+                  WHERE tenant_id = ${req.tenantId} AND id = ANY(${hide}::uuid[])`
+      }
+      return {
+        dry_run: b.dry_run, today, from, until,
+        deleted: del.length, hidden: hide.length, kept: rows.length - del.length - hide.length,
+        examples: rows.filter(r => deleteAction(r) !== 'keep').slice(0, DELETE_EXAMPLES).map(r => ({
+          id: r.id, title: r.title, kind: r.kind, starts_on: r.starts_on, ends_on: r.ends_on,
+          venue_id: r.venue_id, captured: !!r.source_id, action: deleteAction(r),
+        })),
+      }
+    })
+  })
 }

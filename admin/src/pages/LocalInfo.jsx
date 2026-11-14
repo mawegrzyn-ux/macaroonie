@@ -13,12 +13,18 @@
 // (FlagButtons on each row, migration 248); the Captures window shows the
 // flags for each capture, what Pepper learned from them for its search, Learn
 // now and Forget, and the edit form's Learn from staff flags switch.
+//
+// Each capture's Delete future entries (ClearFuturePart, 14 Nov 2026) deletes
+// what it found from a day on (today at the earliest), until a day or with no
+// end, through POST /api/local-info/items/delete (the route Pepper's
+// delete_local_info uses too): hidden findings stay hidden, flagged ones are
+// hidden instead so Pepper keeps learning from the flags.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   CloudSun, Plus, Settings2, ChevronLeft, ChevronRight, Play, Loader2,
-  Eye, EyeOff, Pencil, AlertTriangle, Sparkles, ThumbsUp, ThumbsDown,
+  Eye, EyeOff, Pencil, AlertTriangle, Sparkles, ThumbsUp, ThumbsDown, CalendarX,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
@@ -29,7 +35,7 @@ import { Modal, Segmented, ConfirmDelete, Field, DateButton } from '@/components
 import {
   KIND_ICONS, SEV_CHIP, SEV_DOT, dayText, useLocalInfoItems, ItemRow, DayGroups,
 } from '@/components/localInfo/shared'
-import { KINDS, KIND_LABELS, FREQUENCIES, frequencyText, itemOnDay, sortDayItems, monthGrid } from '@shared/localInfo.js'
+import { KINDS, KIND_LABELS, FREQUENCIES, frequencyText, itemOnDay, sortDayItems, monthGrid, localDateTime } from '@shared/localInfo.js'
 import { webLink } from '@shared/links.js'
 
 const VENUE_KEY = 'maca_local_info_venue'
@@ -440,6 +446,94 @@ function LearnedPart({ s, learning, onLearn, onForget, forgetting }) {
 }
 
 /** The venue's captures: what is searched, where, how often; Run now. */
+const shortDay = d => format(new Date(d + 'T12:00:00'), 'EEE d MMM')
+const stayHidden = n => n + ' that someone hid ' + (n === 1 ? 'stays' : 'stay') + ' hidden'
+
+/**
+ * Delete what a capture found from a day on (never before today at the
+ * venue), until a day or with no end. The count is the route's dry run, asked
+ * again whenever the days change; deleting takes two taps (Delete N, then Yes).
+ */
+function ClearFuturePart({ api, s, today, onDone, onClose }) {
+  const [from, setFrom] = useState(today)
+  const [until, setUntil] = useState(null)
+  const [asking, setAsking] = useState(false)
+  const [error, setError] = useState(null)
+  const body = { source_id: s.id, from, until }
+  const q = useQuery({
+    queryKey: ['local-info-clear', s.id, from, until],
+    queryFn: () => api.post('/local-info/items/delete', { ...body, dry_run: true }),
+    staleTime: 0, gcTime: 0, retry: false,
+  })
+  const go = useMutation({
+    mutationFn: () => api.post('/local-info/items/delete', { ...body, dry_run: false }),
+    onSuccess: res => onDone(res),
+    onError: e => { setAsking(false); setError(errText(e)) },
+  })
+  const pickFrom = v => { setFrom(v); setUntil(u => (u && u < v ? v : u)); setAsking(false) }
+  const pickUntil = v => { setUntil(v); setAsking(false) }
+  const r = q.data
+  const n = r ? r.deleted + r.hidden : 0
+  const range = until ? 'between ' + shortDay(from) + ' and ' + shortDay(until) : 'from ' + shortDay(from) + ' on'
+  const count = q.isLoading ? 'Counting…'
+    : !r ? null
+    : !n ? 'Nothing this capture found starts ' + range + (r.kept ? ' (' + stayHidden(r.kept) + ')' : '') + '.'
+    : n + (n === 1 ? ' entry starts ' : ' entries start ') + range + ': ' + r.deleted + ' will be deleted'
+      + (r.hidden ? ', ' + r.hidden + ' that people flagged will be hidden instead, so Pepper keeps learning from the flags' : '') + '.'
+      + (r.kept ? ' ' + stayHidden(r.kept) + '.' : '')
+  return (
+    <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-2.5 space-y-2 text-xs" data-testid="li-cap-clear-panel">
+      <p className="text-sm font-medium">Delete future entries this capture found</p>
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="space-y-1">
+          <span className="block text-muted-foreground">From</span>
+          <span data-testid="li-cap-clear-from" data-value={from}>
+            <DateButton value={from} min={today} onChange={pickFrom} label="From" className="h-12" />
+          </span>
+        </div>
+        <div className="space-y-1">
+          <span className="block text-muted-foreground">Until (optional)</span>
+          <span data-testid="li-cap-clear-until" data-value={until || ''}>
+            <DateButton value={until} min={from} onChange={pickUntil} label="Until" placeholder="No end" className="h-12" />
+          </span>
+        </div>
+        {until && (
+          <button type="button" className={cn(btn, 'min-h-[48px] text-xs')} data-testid="li-cap-clear-no-end" onClick={() => pickUntil(null)}>
+            No end
+          </button>
+        )}
+      </div>
+      <p data-testid="li-cap-clear-count" data-deleted={r?.deleted ?? ''} data-hidden={r?.hidden ?? ''} data-kept={r?.kept ?? ''}>{count}</p>
+      <p className="text-muted-foreground">
+        {s.kind === 'weather'
+          ? 'The next run fills the forecast in again.'
+          : 'Its next run can find some of them again: turn the capture off first to stop that.'}
+      </p>
+      {(error || q.error) && <p className="text-destructive" data-testid="li-cap-clear-error">{error || errText(q.error)}</p>}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {asking ? (
+          <>
+            <span className="font-medium" data-testid="li-cap-clear-sure">Delete {n === 1 ? 'it' : 'all ' + n} for good?</span>
+            <button type="button" data-testid="li-cap-clear-yes" disabled={go.isPending} onClick={() => go.mutate()}
+              className="inline-flex items-center gap-1.5 min-h-[48px] px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-semibold touch-manipulation disabled:opacity-50">
+              {go.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Yes, delete
+            </button>
+            <button type="button" className={cn(btn, 'min-h-[48px] text-xs')} data-testid="li-cap-clear-no" onClick={() => setAsking(false)}>Keep them</button>
+          </>
+        ) : (
+          <>
+            <button type="button" data-testid="li-cap-clear-go" disabled={!n || q.isFetching} onClick={() => { setError(null); setAsking(true) }}
+              className="inline-flex items-center gap-1.5 min-h-[48px] px-3 rounded-lg border border-destructive/40 text-destructive text-xs font-semibold touch-manipulation hover:bg-destructive/10 disabled:opacity-50">
+              <CalendarX className="w-3.5 h-3.5" /> {n ? 'Delete ' + n + (n === 1 ? ' entry' : ' entries') : 'Delete'}
+            </button>
+            <button type="button" className={cn(btn, 'min-h-[48px] text-xs')} data-testid="li-cap-clear-cancel" onClick={onClose}>Cancel</button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function CapturesModal({ api, venues, defaultVenueId, onClose }) {
   const qc = useQueryClient()
   const [venueId, setVenueId] = useState(defaultVenueId)
@@ -447,6 +541,7 @@ function CapturesModal({ api, venues, defaultVenueId, onClose }) {
   const [draft, setDraft] = useState(null)             // { id? , ...CAP_BLANK }
   const [notice, setNotice] = useState(null)
   const [error, setError] = useState(null)
+  const [clearing, setClearing] = useState(null)       // the capture whose Delete future entries is open
 
   const q = useQuery({
     queryKey: ['local-info-sources', venueId],
@@ -455,6 +550,14 @@ function CapturesModal({ api, venues, defaultVenueId, onClose }) {
     refetchInterval: 4000,
   })
   const sources = q.data?.sources || []
+  const venueToday = localDateTime(new Date(), q.data?.venue?.timezone || 'Europe/London').date
+  const cleared = res => {
+    setClearing(null); setError(null)
+    setNotice(res.deleted + (res.deleted === 1 ? ' entry' : ' entries') + ' deleted'
+      + (res.hidden ? ', ' + res.hidden + ' flagged ' + (res.hidden === 1 ? 'finding' : 'findings') + ' hidden instead' : '') + '.')
+    qc.invalidateQueries({ queryKey: ['local-info-items'] })
+    qc.invalidateQueries({ queryKey: ['local-info-sources'] })
+  }
 
   // When a running capture finishes, its findings are on the page: refetch them.
   const runningRef = useRef(0)
@@ -571,19 +674,26 @@ function CapturesModal({ api, venues, defaultVenueId, onClose }) {
                     <LearnedPart s={s} learning={learn.isPending && learn.variables?.id === s.id} onLearn={x => learn.mutate(x)}
                       forgetting={forget.isPending} onForget={x => forget.mutate(x)} />
                     <div className="flex flex-wrap gap-1.5 pt-0.5">
-                      <button type="button" className={cn(btn, 'min-h-[40px] px-2.5 text-xs')} data-testid="li-cap-run"
+                      <button type="button" className={cn(btn, 'min-h-[48px] px-2.5 text-xs')} data-testid="li-cap-run"
                         disabled={runNow.isPending || s.running} onClick={() => runNow.mutate(s.id)}>
                         <Play className="w-3.5 h-3.5" /> Run now
                       </button>
-                      <button type="button" className={cn(btn, 'min-h-[40px] px-2.5 text-xs')} data-testid="li-cap-edit"
-                        onClick={() => { setDraft({ id: s.id, kind: s.kind, place: s.place, site: s.site || '', query: s.query || '', frequency: s.frequency, every_hours: s.every_hours || 4, enabled: s.enabled, learn_auto: s.learn_auto !== false }); setMode('edit'); setError(null); setNotice(null) }}>
+                      <button type="button" className={cn(btn, 'min-h-[48px] px-2.5 text-xs')} data-testid="li-cap-edit"
+                        onClick={() => { setDraft({ id: s.id, kind: s.kind, place: s.place, site: s.site || '', query: s.query || '', frequency: s.frequency, every_hours: s.every_hours || 4, enabled: s.enabled, learn_auto: s.learn_auto !== false }); setMode('edit'); setError(null); setNotice(null); setClearing(null) }}>
                         <Pencil className="w-3.5 h-3.5" /> Edit
                       </button>
-                      <button type="button" className={cn(btn, 'min-h-[40px] px-2.5 text-xs')} data-testid="li-cap-toggle" onClick={() => toggle.mutate(s)}>
+                      <button type="button" className={cn(btn, 'min-h-[48px] px-2.5 text-xs')} data-testid="li-cap-toggle" onClick={() => toggle.mutate(s)}>
                         {s.enabled ? 'Turn off' : 'Turn on'}
+                      </button>
+                      <button type="button" className={cn(btn, 'min-h-[48px] px-2.5 text-xs', clearing === s.id && 'bg-muted')} data-testid="li-cap-clear"
+                        aria-expanded={clearing === s.id} onClick={() => { setClearing(c => (c === s.id ? null : s.id)); setNotice(null) }}>
+                        <CalendarX className="w-3.5 h-3.5" /> Delete future entries
                       </button>
                       <ConfirmDelete label="Delete" confirmLabel="Yes — it and what it captured" onConfirm={() => remove.mutate(s.id)} />
                     </div>
+                    {clearing === s.id && (
+                      <ClearFuturePart key={s.id} api={api} s={s} today={venueToday} onDone={cleared} onClose={() => setClearing(null)} />
+                    )}
                   </div>
                 )
               })}
