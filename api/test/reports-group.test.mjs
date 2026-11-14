@@ -19,7 +19,7 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { as, sql, ok, closeApp } from './support/app.mjs'
-import { resetAndSeed, A, B } from './support/seed.mjs'
+import { resetAndSeed, A, B, PLATFORM } from './support/seed.mjs'
 import { fillTenant } from './support/fixtures.mjs'
 import { runner, rowsOf, measures, refused, LEVELS } from './support/reports.mjs'
 import { usageMonth, usageDay } from '../src/ai/context.js'
@@ -303,8 +303,12 @@ test('Issues: the Issue log, its priority and how long resolving took', async ()
   await sql`
     UPDATE issue_log SET status = 'resolved', resolved_at = created_at + interval '2 days 3 hours', resolution_notes = 'Zqx router swapped'
      WHERE id = ${wifi.id} AND tenant_id = ${ids.a}`
+  // Closed on the Issue log by Macaroonie: closed is done, as resolved is.
+  const jam = await ok(owner.post('/api/issues', { title: 'Zqx Printer jam', category: 'incident', impact: 'low', urgency: 'low' }), 'third issue')
+  await ok(as(PLATFORM, ids.a).patch(`/api/issues/${jam.id}`, { status: 'closed' }), 'close the third issue')
   const issues = await ok(owner.get('/api/issues'), 'issues')
   assert.ok(issues.some(i => i.id === till.id))
+  assert.ok(issues.some(i => i.id === jam.id && i.status === 'closed' && i.resolved_at), 'a closed issue is in the data')
 
   const list = listRows(await go({ subject: 'group.issues', kind: 'list',
     rows: ['title', 'description', 'kind', 'impact', 'urgency', 'priority', 'status', 'still_open', 'resolution', 'time_to_resolve'] }))
@@ -324,6 +328,8 @@ test('Issues: the Issue log, its priority and how long resolving took', async ()
     else assert.equal(r.time_to_resolve, null)
   }
   near(rowOf(list, wifi.id).time_to_resolve, (2 * 24 + 3) * 3600, 'two days and three hours', 1)
+  assert.equal(rowOf(list, jam.id).still_open, false, 'a closed issue isn\'t open')
+  assert.equal(rowOf(list, till.id).still_open, true, 'a new issue is open')
 
   const resolved = issues.filter(i => i.resolved_at)
   const f = await figures('group.issues', ['issues', 'open_count', 'resolved_count', 'urgent', 'average_to_resolve'])
