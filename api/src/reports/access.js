@@ -18,7 +18,7 @@
 //   openTo(tx, person)       the same "open" rule as a SQL condition on `r`
 //   runsFor(subject, levels) { runs, needs }: whether the person may report
 //                            on the subject, else the area they would need
-//   checkedSpec(raw, person) a definition tidied and checked as the person
+//   checkedSpec(raw, person, { strict }) a definition tidied and checked as the person
 //                            (nothing is read); throws ReportError
 //   refuseOtherVenues(person, spec, params)
 //                            404 when a definition or a run names another
@@ -88,19 +88,21 @@ export function runsFor(subjectKey, levels) {
   return { runs: false, needs: MODULE_LABELS[s.module] || null }
 }
 
-export function checkedSpec(raw, p) {
+export function checkedSpec(raw, p, { strict = false } = {}) {
   const spec = normaliseReport(raw)
   const problems = reportProblems(spec)
   if (problems.length) throw new ReportError(problems)
   // What the catalogue says about it, as the person saving it. The day and
-  // time zone only decide which dates a period means: any will do.
+  // time zone only decide which dates a period means: any will do. `strict`
+  // (saving a definition) refuses figures from another subject that would
+  // be left out, instead of leaving them out with a note as a run does.
   const plan = compileReport(spec, {
     tenantId: p.tenantId,
     levels: p.levels,
     params: resolveParams(spec, {}),
     today: todayIn('Europe/London'),
     tz: 'Europe/London',
-  })
+  }, { strictParts: strict })
   return { spec, notes: plan.notes }
 }
 
@@ -125,6 +127,7 @@ function namedVenues(spec, params) {
     }
   }
   walk(spec?.filters)
+  for (const a of spec?.also || []) walk(a.filters)
   return [...ids]
 }
 

@@ -21,8 +21,8 @@
 import crypto from 'node:crypto'
 import { withReport } from '../config/db.js'
 import { env } from '../config/env.js'
-import { normaliseReport, reportProblems, resolveParams, rowId, LIMITS } from '../../../shared/reports/spec.js'
-import { todayIn } from '../../../shared/reports/period.js'
+import { normaliseReport, reportProblems, resolveParams, rowId, valueSubject, LIMITS } from '../../../shared/reports/spec.js'
+import { todayIn, addDays } from '../../../shared/reports/period.js'
 import { drillSpec, countedBy } from '../../../shared/reports/drill.js'
 import { CATALOGUE, CATALOGUE_MODULES, listColumns } from './catalogue/index.js'
 import { compileReport, countedKey, ReportError, SCREEN_ROWS } from './compile.js'
@@ -88,16 +88,21 @@ async function scopeOf(tx, tenantId, spec, params) {
 }
 
 // The statements a plan runs straight away (the rows for "everything else"
-// are made later from the same report, so they read the same rows).
+// are made later from the same report, so they read the same rows), the
+// other subjects' too.
 const statementsOf = plan => (plan.kind === 'list'
   ? [plan.rows, plan.totals]
-  : [plan.main, plan.compare?.run]).filter(Boolean)
+  : [plan.main, plan.compare?.run, ...(plan.parts || []).flatMap(p => [p.run, p.compare?.run])]).filter(Boolean)
 
 // The days the run's rows sit on: the period and the one it is compared
-// with. Null when the report covers every day.
-const rangesOf = plan => (plan.period
-  ? [plan.period.range, ...(plan.compare ? [{ from: plan.compare.from, to: plan.compare.to }] : [])]
-  : null)
+// with. Null when the report covers every day. A daily subject beside a
+// weekly report reads every day of the weeks the period picks: up to six
+// days past the period's last.
+function rangesOf(plan) {
+  if (!plan.period) return null
+  const ranges = [plan.period.range, ...(plan.compare ? [{ from: plan.compare.from, to: plan.compare.to }] : [])]
+  return (plan.parts || []).some(p => p.widen) ? ranges.map(r => ({ from: r.from, to: addDays(r.to, 6) })) : ranges
+}
 
 const hasMoney = plan => (plan.kind === 'list'
   ? plan.columns.some(c => c.type === 'money')
@@ -200,7 +205,7 @@ export function drillOffers(spec, envc) {
   const down = []
   for (const level of spec.drill?.down || []) {
     if (taken.has(rowId(level))) continue
-    const next = drillSpec(spec, { at: [], to: level })
+    const next = drillSpec(spec, { at: [], to: level }, { catalogue: CATALOGUE })
     if (next.problem) continue
     try {
       const plan = compileReport(next.spec, envc)
@@ -208,15 +213,19 @@ export function drillOffers(spec, envc) {
     } catch { /* not for this person, or no longer in the catalogue */ }
   }
   let rows = false
-  const list = drillSpec(spec, { at: [], to: 'rows' }, { listColumns: listColumns(spec.subject, envc.levels) })
+  const list = drillSpec(spec, { at: [], to: 'rows' }, { catalogue: CATALOGUE, listColumns: subject => listColumns(subject, envc.levels) })
   if (!list.problem) {
     try { rows = compileReport(list.spec, envc, { listLimit: 1 }).columns.length > 0 } catch { /* none of its columns are for this person */ }
   }
   if (!down.length && !rows) return null
   // Do the report's figures count different rows (sales on closed checks
-  // beside cancelled orders)? Then which figure was tapped decides which rows
-  // are listed; when they all count the same ones, a tap means the row.
-  const counts = new Set(spec.values.filter(v => !v.hidden).map(v => countedKey(spec.subject, countedBy(spec, v.key), envc.levels)))
+  // beside cancelled orders, or another subject's rows)? Then which figure
+  // was tapped decides which rows are listed; when they all count the same
+  // ones, a tap means the row.
+  const counts = new Set(spec.values.filter(v => !v.hidden).map(v => {
+    const subject = valueSubject(spec, v)
+    return subject + '|' + countedKey(subject, countedBy(spec, v.key, { from: v.from || null }), envc.levels)
+  }))
   return { down, rows, of: CATALOGUE.subjects[spec.subject]?.label || '', ...(rows && counts.size > 1 ? { per_figure: true } : {}) }
 }
 
@@ -284,17 +293,25 @@ export async function runReport(ctx, rawSpec, given = {}, opts = {}) {
       } else {
         const main = await exec(plan.main)
         const before = plan.compare ? await exec(plan.compare.run) : null
-        const shaper = plan.kind === 'matrix' ? matrixShaper(plan, main) : summaryShaper(plan, main, before)
-        let rest = null, compareRest = null
-        if (shaper.restKeys && plan.rest) {
-          const st = plan.rest(shaper.restKeys)
-          rest = { names: st.names, rows: await exec(st) }
-          if (plan.compare?.rest) {
-            const st2 = plan.compare.rest(shaper.restKeys)
-            compareRest = { names: st2.names, rows: await exec(st2) }
-          }
+        // Each other subject's rows, grouped the same way in a statement of its own.
+        const partRows = []
+        for (const part of plan.parts || []) {
+          partRows.push({ rows: await exec(part.run), compare: part.compare ? await exec(part.compare.run) : null })
         }
-        shaped = shaper.finish({ rest, compareRest, cap })
+        const shaper = plan.kind === 'matrix' ? matrixShaper(plan, main) : summaryShaper(plan, main, before, partRows)
+        const restOf = async make => {
+          if (!make) return null
+          const st = make(shaper.restKeys)
+          return { names: st.names, rows: await exec(st) }
+        }
+        let rest = null, compareRest = null
+        const parts = []
+        if (shaper.restKeys && plan.rest) {
+          rest = await restOf(plan.rest)
+          compareRest = await restOf(plan.compare?.rest)
+          for (const part of plan.parts || []) parts.push({ rest: await restOf(part.rest), compareRest: await restOf(part.compare?.rest) })
+        }
+        shaped = shaper.finish({ rest, compareRest, parts, cap })
       }
       return {
         kind: plan.kind,

@@ -128,33 +128,85 @@ export function matchRows(catalogue, spec, otherKey) {
 const onDay = f => f && typeof f.field === 'string' && f.field === 'date'
 const onVenue = f => f && typeof f.field === 'string' && (f.field === 'venue' || f.field.startsWith('venue.'))
 
+/** Whether a filter of the report is one another subject can take: on the report's day or its venue. */
+export const isShared = f => onDay(f) || onVenue(f)
+
+/**
+ * A filter of the report on its day or its venue, as another subject takes
+ * it: { ok: true, filter } or { ok: false, why }. Between a daily and a
+ * weekly subject a filter is translated, not copied:
+ *
+ *   weekly report, daily other   the days of the weeks it picks (grouped
+ *                                by week: "week starting 5 Oct" is every
+ *                                day of that week)
+ *   daily report, weekly other   a period or whole weeks, months, quarters
+ *                                and years only: a weekly row is the week
+ *                                starting in the period; "Fridays" or one
+ *                                day have no weekly row
+ */
+export function translateFilter(catalogue, mainKey, otherKey, f) {
+  const main = catalogue?.subjects?.[mainKey]
+  const other = catalogue?.subjects?.[otherKey]
+  if (!main || !other || !isShared(f)) return no('That filter stays with the report\'s own subject')
+  const what = lowerFirst(pathLabel(catalogue, mainKey, f.field, f.bucket))
+  if (onVenue(f)) {
+    return other.links?.venue && other.links.venue.to === main.links?.venue?.to
+      ? { ok: true, filter: f }
+      : no(other.label + ' has no venue, so the filter on ' + what + ' doesn\'t apply to it.')
+  }
+  if (!other.fields?.date) return no(other.label + ' has no day of its own, so the filter on ' + what + ' doesn\'t apply to it.')
+  const mainWeekly = grainOf(main) === 'week'
+  const otherWeekly = grainOf(other) === 'week'
+  if (mainWeekly === otherWeekly) return { ok: true, filter: f }
+  if (otherWeekly) {
+    if (WEEKLY_BUCKETS.includes(f.bucket) || (!f.bucket && f.op === 'in_period')) return { ok: true, filter: f }
+    return no(other.label + ' has a row for each week, so the filter on ' + what + ' doesn\'t apply to it.')
+  }
+  // A weekly report's day is its week's Monday: the other subject's days by week.
+  if (!f.bucket || f.bucket === 'week') return { ok: true, filter: { ...f, bucket: 'week' } }
+  if (WEEKLY_BUCKETS.includes(f.bucket)) return { ok: true, filter: f }
+  return no(main.label + ' has a row for each week, so the filter on ' + what + ' doesn\'t apply to ' + lowerFirst(other.label) + '.')
+}
+
 /**
  * The report's filters that apply to another subject too: those on the
- * report's day (the period) and on its venue (the venues). A filter in a
- * group of filters (any, all, has) stays with the report's own subject.
- * { filters, left }: `left` are the ones the other subject can't take (it
- * has no day or no venue, or one subject is weekly and the filter picks
- * days rather than a period or whole weeks), so the engine can say so when
- * they narrow anything.
+ * report's day (the period) and on its venue (the venues), as that subject
+ * takes them (translateFilter()). A filter in a group of filters (any, all,
+ * has) stays with the report's own subject. { filters, left }: `left` are
+ * [{ filter, why }] for the ones the other subject can't take (it has no day
+ * or no venue, or one subject is weekly and the filter picks days rather
+ * than a period or whole weeks), so the engine can say so when they narrow
+ * anything.
  */
 export function sharedFilters(catalogue, spec, otherKey) {
-  const main = catalogue?.subjects?.[spec.subject]
-  const other = catalogue?.subjects?.[otherKey]
   const filters = []
   const left = []
-  if (!main || !other) return { filters, left }
+  if (!catalogue?.subjects?.[spec.subject] || !catalogue?.subjects?.[otherKey]) return { filters, left }
   for (const f of spec.filters || []) {
-    if (onDay(f)) {
-      // Days and weeks agree on a period and on weeks or longer; "Fridays"
-      // or "the 5th" mean different rows in each, so those stay put.
-      const sameGrain = grainOf(main) === grainOf(other)
-      const fits = !!other.fields?.date
-        && (sameGrain || (f.op === 'in_period' && !f.bucket) || WEEKLY_BUCKETS.includes(f.bucket))
-      ;(fits ? filters : left).push(f)
-    } else if (onVenue(f)) {
-      const fits = !!other.links?.venue && other.links.venue.to === main.links?.venue?.to
-      ;(fits ? filters : left).push(f)
-    }
+    if (!isShared(f)) continue
+    const t = translateFilter(catalogue, spec.subject, otherKey, f)
+    if (t.ok) filters.push(t.filter)
+    else left.push({ filter: f, why: t.why })
   }
   return { filters, left }
+}
+
+/**
+ * A drilled row's groupings (each held to its value) as another subject
+ * finds them: { ok: true, filters } or { ok: false, why }. Filters on the
+ * report's day or venue are left to sharedFilters() (they are the report's
+ * filters by then); every other one is moved onto the field the other
+ * subject lines that grouping up by (matchRow()). One the other subject
+ * can't line up by means its figures can't be shown for this row.
+ */
+export function heldFilters(catalogue, mainKey, otherKey, held) {
+  const filters = []
+  for (const f of held || []) {
+    if (isShared(f)) continue
+    const m = matchRow(catalogue, mainKey, { field: f.field, ...(f.bucket ? { bucket: f.bucket } : {}) }, otherKey)
+    if (!m.ok) return m
+    const { bucket: _b, ...rest } = f
+    filters.push({ ...rest, field: m.field, ...(m.bucket ? { bucket: m.bucket } : {}) })
+  }
+  return { ok: true, filters }
 }

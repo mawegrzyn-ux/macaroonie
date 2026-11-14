@@ -252,7 +252,7 @@ const drillSteps = raw => (raw || []).map(step => {
 function drilled(spec, steps, levels) {
   let cur = spec
   for (const step of steps) {
-    const next = drillSpec(cur, step, { listColumns: listColumns(cur.subject, levels), also: [currencyPath(cur.subject)] })
+    const next = drillSpec(cur, step, { catalogue: CATALOGUE, listColumns: subject => listColumns(subject, levels), extra: [currencyPath(cur.subject)] })
     if (next.problem) throw new ReportError(next.problem)
     cur = next.spec
   }
@@ -460,7 +460,7 @@ export default async function reportRoutes(app) {
   app.post('/', use, async (req, reply) => {
     const body = NewReport.parse(req.body)
     const p = await reportPerson(req)
-    const { spec } = checkedSpec(body.spec, p)
+    const { spec } = checkedSpec(body.spec, p, { strict: true })
     await refuseOtherVenues(p, spec)
     const starterKey = body.starter_key && starterByKey(body.starter_key) ? body.starter_key : null
     const row = await withTenant(p.tenantId, async tx => {
@@ -542,7 +542,7 @@ export default async function reportRoutes(app) {
     const p = await reportPerson(req)
     const before = await loadSaved(req.params.id, p)
     if (!rightsOn(before, p).edit) throw httpError(403, 'Only the person who made this report, or someone with Manage on Reports, can change it')
-    const spec = body.spec ? checkedSpec(body.spec, p).spec : null
+    const spec = body.spec ? checkedSpec(body.spec, p, { strict: true }).spec : null
     if (spec) await refuseOtherVenues(p, spec)
     const out = await withTenant(p.tenantId, async tx => {
       const [row] = await tx`

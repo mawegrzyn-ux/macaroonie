@@ -459,9 +459,18 @@ export function reportProblems(spec) {
   }
   if (spec.limit && !spec.values.some(v => !v.hidden)) out.push('A top or bottom N needs a value to rank by')
   for (const a of spec.also || []) {
-    if (!spec.values.some(v => v.from === a.key)) out.push((a.label || 'Another subject of the report') + ': add a figure from it, or take it out')
+    const name = a.label || 'Another subject of the report'
+    if (!spec.values.some(v => v.from === a.key)) out.push(name + ': add a figure from it, or take it out')
+    // Its days are the report's period: a day filter of its own would line
+    // up one stretch of days beside another.
+    if (onItsDay(a.filters)) out.push(name + ': its days follow the report\'s period. Take its own filter on the day out')
   }
   return out
+}
+
+// Whether a list of filters (and the groups in it) has one on the day itself.
+function onItsDay(list) {
+  return (list || []).some(f => (f.any ? onItsDay(f.any) : f.all ? onItsDay(f.all) : f.field === 'date'))
 }
 
 /** The subject a value's figure comes from: one of the report's other subjects, else its own. */

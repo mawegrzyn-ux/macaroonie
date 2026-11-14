@@ -8,7 +8,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { normaliseReport, reportProblems, valueSubject, LIMITS } from '../reports/spec.js'
-import { matchRow, matchRows, sharedFilters, routesTo, grainOf, WEEKLY_BUCKETS } from '../reports/also.js'
+import { matchRow, matchRows, sharedFilters, translateFilter, heldFilters, routesTo, grainOf, WEEKLY_BUCKETS } from '../reports/also.js'
+import { drillSpec, countedBy } from '../reports/drill.js'
 
 const f = (key, label, type, more = {}) => [key, { key, label, type, ...more }]
 const fields = list => Object.fromEntries(list)
@@ -182,19 +183,70 @@ test('the period and the venues apply to the other subject too; other filters st
   const town = spec.filters[2]
   const weekdays = spec.filters[5]
   const month = spec.filters[6]
+  const left = (filter, why) => ({ filter, why })
   // A daily subject with a venue takes every filter on the day or the venue.
   assert.deepEqual(sharedFilters(CAT, spec, 'weather'), { filters: [period, venues, town, weekdays, month], left: [] })
   // A weekly one: the period and whole months, not "Fridays and Saturdays".
-  assert.deepEqual(sharedFilters(CAT, spec, 'hours'), { filters: [period, venues, town, month], left: [weekdays] })
+  assert.deepEqual(sharedFilters(CAT, spec, 'hours'), {
+    filters: [period, venues, town, month],
+    left: [left(weekdays, 'Hours on the rota has a row for each week, so the filter on day of the week doesn\'t apply to it.')],
+  })
   // No venue: the venue filters can't apply. No day either: nothing does.
-  assert.deepEqual(sharedFilters(CAT, spec, 'company'), { filters: [period, weekdays, month], left: [venues, town] })
-  assert.deepEqual(sharedFilters(CAT, spec, 'menus'), { filters: [], left: [period, venues, town, weekdays, month] })
+  assert.deepEqual(sharedFilters(CAT, spec, 'company'), {
+    filters: [period, weekdays, month],
+    left: [
+      left(venues, 'Company costs has no venue, so the filter on venue doesn\'t apply to it.'),
+      left(town, 'Company costs has no venue, so the filter on venue town doesn\'t apply to it.'),
+    ],
+  })
+  const menus = sharedFilters(CAT, spec, 'menus')
+  assert.deepEqual(menus.filters, [])
+  assert.deepEqual(menus.left.map(l => l.filter), [period, venues, town, weekdays, month])
+  assert.equal(menus.left[0].why, 'Menus has no day of its own, so the filter on trading day doesn\'t apply to it.')
+  assert.equal(menus.left[1].why, 'Menus has no venue, so the filter on venue doesn\'t apply to it.')
   // The same subject is no different: lunch beside dinner keeps its own section.
   assert.deepEqual(sharedFilters(CAT, spec, 'lines').filters, [period, venues, town, weekdays, month])
   assert.deepEqual(sharedFilters(CAT, spec, 'nowhere'), { filters: [], left: [] })
-  // From a weekly report to a daily subject, a day that isn't a period stays put.
-  const weekly = normaliseReport({ subject: 'hours', rows: ['date'], values: [{ agg: 'sum', field: 'hours' }], filters: [{ field: 'date', op: 'is', value: '2026-10-05' }] })
-  assert.deepEqual(sharedFilters(CAT, weekly, 'lines'), { filters: [], left: [weekly.filters[0]] })
+  // From a weekly report to a daily subject, the report's day is a week: the
+  // daily rows of the weeks it picks, whatever the filter says of the day.
+  const weekly = normaliseReport({
+    subject: 'hours', rows: ['date'], values: [{ agg: 'sum', field: 'hours' }],
+    params: [{ key: 'period', type: 'period' }],
+    filters: [
+      { field: 'date', op: 'in_period', param: 'period' },
+      { field: 'date', op: 'is', value: '2026-10-05' },
+      { field: 'date', bucket: 'month', op: 'is', value: '2026-10-01' },
+      { field: 'date', bucket: 'weekday', op: 'is', value: 1 },
+    ],
+  })
+  const [wp, wd, wm, ww] = weekly.filters
+  assert.deepEqual(sharedFilters(CAT, weekly, 'lines'), {
+    filters: [{ ...wp, bucket: 'week' }, { ...wd, bucket: 'week' }, wm],
+    left: [left(ww, 'Hours on the rota has a row for each week, so the filter on day of the week doesn\'t apply to dishes sold.')],
+  })
+  // Weekly to weekly takes them as they are.
+  assert.deepEqual(sharedFilters(CAT, weekly, 'pay').filters, weekly.filters)
+})
+
+test('one filter at a time, as another subject takes it', () => {
+  const t = (main, other, filter) => translateFilter(CAT, main, other, filter)
+  // Not on the day or the venue: it stays with the report's own subject.
+  assert.equal(t('lines', 'weather', { field: 'name', op: 'is', value: 'Pad Thai' }).ok, false)
+  assert.equal(t('lines', 'weather', { any: [{ field: 'date', op: 'is', value: '2026-10-01' }] }).ok, false)
+  // A period with no grouping goes as it is, either way round.
+  const period = { field: 'date', op: 'in_period', param: 'period' }
+  assert.deepEqual(t('lines', 'hours', period), { ok: true, filter: period })
+  assert.deepEqual(t('hours', 'lines', period), { ok: true, filter: { ...period, bucket: 'week' } })
+  // A day by itself has no weekly row.
+  const one = { field: 'date', op: 'is', value: '2026-10-07' }
+  assert.deepEqual(t('lines', 'hours', one), { ok: false, why: 'Hours on the rota has a row for each week, so the filter on trading day doesn\'t apply to it.' })
+  // By week from a weekly report stays by week.
+  const wk = { field: 'date', bucket: 'week', op: 'in', value: ['2026-10-05'] }
+  assert.deepEqual(t('hours', 'lines', wk), { ok: true, filter: wk })
+  // A venue goes to anything with the same venue.
+  assert.deepEqual(t('lines', 'staff', { field: 'venue', op: 'in', param: 'venues' }).ok, true)
+  // Unknown subjects take nothing.
+  assert.equal(t('lines', 'nowhere', period).ok, false)
 })
 
 test('a definition keeps its other subjects, keys and their own filters', () => {
@@ -234,8 +286,17 @@ test('a definition keeps its other subjects, keys and their own filters', () => 
   // Doing it again changes nothing.
   assert.deepEqual(normaliseReport(s), s)
   assert.deepEqual(normaliseReport(JSON.parse(JSON.stringify(s))), s)
-  // The third has no figure.
-  assert.deepEqual(reportProblems(s), ['Another subject of the report: add a figure from it, or take it out'])
+  // The rota has a day filter of its own (its days follow the report's
+  // period); the third has no figure.
+  assert.deepEqual(reportProblems(s), [
+    'Rota: its days follow the report\'s period. Take its own filter on the day out',
+    'Another subject of the report: add a figure from it, or take it out',
+  ])
+  // A day filter inside a group of filters counts too; one on another field doesn't.
+  const grouped = { ...s, also: [{ ...s.also[0], filters: [{ any: [{ field: 'role.name', op: 'is', value: 'Bar' }, { field: 'date', op: 'is', value: '2026-10-05' }] }] }, s.also[1]] }
+  assert.deepEqual(reportProblems(grouped), ['Rota: its days follow the report\'s period. Take its own filter on the day out'])
+  const fine = { ...s, also: [{ ...s.also[0], filters: [{ field: 'role.name', op: 'is', value: 'Bar' }] }, s.also[1]] }
+  assert.deepEqual(reportProblems(fine), [])
 })
 
 test('keys given are kept; the rest are numbered around them', () => {
@@ -271,4 +332,113 @@ test('a definition without other subjects comes out with none', () => {
   const s = normaliseReport({ subject: 'x', values: [{ measure: 'a' }] })
   assert.deepEqual(s.also, [])
   for (const junk of [null, 'x', 7, { subject: 7 }, [{ subject: '' }]]) assert.deepEqual(normaliseReport({ subject: 'x', values: [{ measure: 'a' }], also: junk }).also, [])
+})
+
+test('a drilled row\'s groupings, as another subject finds them', () => {
+  const held = [
+    { field: 'check.server.name', op: 'is', value: 'Ali' },
+    { field: 'date', bucket: 'week', op: 'is', value: '2026-10-05' },
+    { field: 'venue.name', op: 'is', value: 'Ware' },
+  ]
+  // The day and the venue stay with the report's filters (sharedFilters()
+  // takes them over); the server is the payment's check's server.
+  assert.deepEqual(heldFilters(CAT, 'lines', 'payments', held), { ok: true, filters: [{ field: 'check.server.name', op: 'is', value: 'Ali' }] })
+  // An empty grouping stays empty; a bucket the other subject doesn't need goes.
+  assert.deepEqual(heldFilters(CAT, 'lines', 'checks', [{ field: 'check.server.name', op: 'empty' }]), { ok: true, filters: [{ field: 'server.name', op: 'empty' }] })
+  assert.deepEqual(heldFilters(CAT, 'lines', 'lines', [{ field: 'date', bucket: 'weekday', op: 'is', value: 5 }]), { ok: true, filters: [] })
+  assert.deepEqual(heldFilters(CAT, 'lines', 'lines', [{ field: 'name', op: 'is', value: 'Pad Thai' }]), { ok: true, filters: [{ field: 'name', op: 'is', value: 'Pad Thai' }] })
+  // A grouping the other subject can't line up by: its figures can't be shown for the row.
+  const no = heldFilters(CAT, 'lines', 'weather', held)
+  assert.equal(no.ok, false)
+  assert.match(no.why, /Weather isn't linked to till staff/)
+  assert.deepEqual(heldFilters(CAT, 'lines', 'weather', []), { ok: true, filters: [] })
+})
+
+// Dishes sold beside the rota's hours and the weather, by venue, opening
+// up by server, then section.
+const MIXED = normaliseReport({
+  subject: 'lines',
+  params: [{ key: 'period', type: 'period' }, { key: 'venues', type: 'venues' }],
+  rows: [{ field: 'venue.name' }],
+  values: [
+    { key: 'sales', measure: 'net_sales' },
+    { key: 'hours', measure: 'hours_total', from: 's2' },
+    { key: 'hot', measure: 'max_temp', from: 'sky' },
+    { key: 'per_hour', calc: 'sales / hours' },
+    { key: 'double', calc: 'hours * 2' },
+  ],
+  filters: [{ field: 'date', op: 'in_period', param: 'period' }, { field: 'venue', op: 'in', param: 'venues' }],
+  also: [
+    { key: 's2', subject: 'hours', label: 'Rota', filters: [{ field: 'person.name', op: 'is_not', value: 'Agency' }] },
+    { key: 'sky', subject: 'weather' },
+  ],
+  drill: { down: [{ field: 'check.server.name' }, { field: 'section.name' }] },
+})
+const COLUMNS = { lines: ['name', 'qty'], hours: ['person.name', 'hours'], weather: ['date', 'max'] }
+const opts = { catalogue: CAT, listColumns: subject => COLUMNS[subject] || [] }
+
+test('breaking a row down keeps the other subjects held to it, and drops one that can\'t be lined up', () => {
+  // By venue to by server: the venue is the report's own filter, which the
+  // other subjects take too; both stay with their own filters.
+  const one = drillSpec(MIXED, { at: [{ field: 'venue.name', value: 'Ware' }], to: { field: 'check.server.name' } }, opts)
+  assert.ok(one.spec, one.problem)
+  assert.deepEqual(one.spec.also, MIXED.also)
+  assert.deepEqual(one.spec.values.map(v => v.key), ['sales', 'hours', 'hot', 'per_hour', 'double'])
+  assert.deepEqual(one.spec.filters.at(-1), { field: 'venue.name', op: 'is', value: 'Ware' })
+  assert.deepEqual(one.spec.drill.down, [{ field: 'section.name' }])
+
+  // Then Ali, by section: neither the rota nor the weather knows a till
+  // server, so they go, with their figures and the calculations reading them.
+  const two = drillSpec(one.spec, { at: [{ field: 'check.server.name', value: 'Ali' }], to: { field: 'section.name' } }, opts)
+  assert.ok(two.spec, two.problem)
+  assert.deepEqual(two.spec.also, [])
+  assert.deepEqual(two.spec.values.map(v => v.key), ['sales'])
+  assert.deepEqual(reportProblems(two.spec), [])
+
+  // A row held to something the rota can line up by: its own filter grows.
+  const sameSubject = normaliseReport({ ...MIXED, also: [{ key: 's2', subject: 'lines', label: 'Last orders', filters: [{ field: 'qty', op: 'gt', value: 1 }] }], values: [{ key: 'sales', measure: 'net_sales' }, { key: 'more', measure: 'net_sales', from: 's2' }] })
+  const held = drillSpec(sameSubject, { at: [{ field: 'venue.name', value: 'Ware' }, { field: 'check.server.name', value: 'Ali' }], to: { field: 'section.name' } }, opts)
+  assert.ok(held.spec, held.problem)
+  assert.deepEqual(held.spec.also[0].filters, [{ field: 'qty', op: 'gt', value: 1 }, { field: 'check.server.name', op: 'is', value: 'Ali' }])
+
+  // Without the catalogue the subjects can't be held to a row: they go.
+  const blind = drillSpec(MIXED, { at: [{ field: 'venue.name', value: 'Ware' }], to: { field: 'check.server.name' } })
+  assert.deepEqual(blind.spec.also, [])
+  assert.deepEqual(blind.spec.values.map(v => v.key), ['sales'])
+  // With nothing held they stay as they are.
+  assert.deepEqual(drillSpec(MIXED, { at: [], to: { field: 'check.server.name' } }).spec.also, MIXED.also)
+})
+
+test('the rows behind another subject\'s figure are that subject\'s rows', () => {
+  const at = [{ field: 'venue.name', value: 'Ware' }]
+  const hours = drillSpec(MIXED, { at, to: 'rows', value: 'hours' }, opts)
+  assert.ok(hours.spec, hours.problem)
+  assert.equal(hours.spec.kind, 'list')
+  assert.equal(hours.spec.subject, 'hours')
+  assert.deepEqual(hours.spec.rows, [{ field: 'person.name' }, { field: 'hours' }])
+  // The report's period and venues (the rota is weekly: the period as whole
+  // weeks starting in it), the row's venue, the rota's own filter, and only
+  // the rows its figure counts.
+  assert.deepEqual(hours.spec.filters, [
+    { field: 'date', op: 'in_period', param: 'period' },
+    { field: 'venue', op: 'in', param: 'venues' },
+    { field: 'venue.name', op: 'is', value: 'Ware' },
+    { field: 'person.name', op: 'is_not', value: 'Agency' },
+    { counted: ['hours_total'] },
+  ])
+  // A calculation reading only the rota's figures lists the rota's rows.
+  assert.equal(drillSpec(MIXED, { at, to: 'rows', value: 'double' }, opts).spec.subject, 'hours')
+  // One reading the report's own figures and the rota's lists the report's
+  // own rows, counted by its own figures only; so does a tap on the row.
+  for (const value of ['per_hour', undefined]) {
+    const own = drillSpec(MIXED, { at, to: 'rows', ...(value ? { value } : {}) }, opts)
+    assert.equal(own.spec.subject, 'lines')
+    assert.deepEqual(own.spec.filters.at(-1), { counted: ['net_sales'] })
+  }
+  // Every row of a subject whose figure has no rule of its own.
+  assert.equal(countedBy(MIXED, 'hot', { from: 'sky' }).join(), 'max_temp')
+  assert.equal(countedBy({ ...MIXED, values: [{ key: 'n', agg: 'count', from: 'sky' }] }, 'n', { from: 'sky' }), null)
+  // The weather can't be held to a server: its rows can't be listed for one.
+  const ali = drillSpec(normaliseReport({ ...MIXED, rows: [{ field: 'check.server.name' }] }), { at: [{ field: 'check.server.name', value: 'Ali' }], to: 'rows', value: 'hot' }, opts)
+  assert.match(ali.problem, /can't be listed for this row/)
 })

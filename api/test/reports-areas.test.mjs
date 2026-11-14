@@ -406,7 +406,7 @@ test('every starter runs for a role with only its own area, its rows and breakdo
     if (s.spec.kind === 'list') continue
     const steps = [{ at: [], to: 'rows' }, ...(s.spec.drill?.down || []).map(d => ({ at: [], to: d }))]
     for (const step of steps) {
-      const next = drillSpec(s.spec, step, { listColumns: listColumns(s.spec.subject, levels), also: [currencyPath(s.spec.subject)] })
+      const next = drillSpec(s.spec, step, { catalogue: CATALOGUE, listColumns: subject => listColumns(subject, levels), extra: [currencyPath(s.spec.subject)] })
       assert.equal(next.problem, undefined, s.key + ' ' + JSON.stringify(step.to) + ': ' + next.problem)
       await run(next.spec, given(s), { levels })
     }

@@ -208,13 +208,23 @@ function valueColumns(plan, compare) {
  * A summary in two steps, since "Everything else" can only be asked for
  * once the rows shown are known:
  *
- *   const s = summaryShaper(plan, rows, compareRows)
+ *   const s = summaryShaper(plan, rows, compareRows, partRows)
  *   s.restKeys        the rows shown, when the rest are wanted (else null)
- *   s.finish({ rest, compareRest, cap })     rest: { names, rows } of the
- *                                            statement plan.rest(keys) made
+ *   s.finish({ rest, compareRest, parts, cap })   rest: { names, rows } of
+ *                                            the statement plan.rest(keys)
+ *                                            made; parts: [{ rest,
+ *                                            compareRest }] for each of
+ *                                            plan.parts
+ *
+ * With figures from other subjects (plan.parts, compile.js), `partRows`
+ * holds each one's rows ({ rows, compare }), grouped by the same keys: a
+ * row is every key any statement has, each statement's figures beside the
+ * others' (its figures over no rows where it has none).
  */
-export function summaryShaper(plan, mainRows, compareRows = null) {
-  if (mainRows.length > GROUP_CAP) {
+export function summaryShaper(plan, mainRows, compareRows = null, partRows = []) {
+  const parts = plan.parts || []
+  const sources = [{ rows: mainRows, figures: plan.main.figures }, ...parts.map((p, i) => ({ rows: partRows[i]?.rows || [], figures: p.figures }))]
+  if (sources.some(src => src.rows.length > GROUP_CAP)) {
     throw new ReportError('This report would have more than ' + GROUP_CAP.toLocaleString('en-GB') + ' rows. Group by less, or add a filter')
   }
   const n = plan.rows.length
@@ -222,20 +232,36 @@ export function summaryShaper(plan, mainRows, compareRows = null) {
   const empty = emptyFigures(plan)
   const comparing = !!plan.compare
 
-  // Every level's rows by their keys: [0] the grand total, [n] the rows themselves.
-  const read = rows => {
-    const levels = Array.from({ length: n + 1 }, () => new Map())
-    for (const r of rows || []) {
-      const kept = keptKeys(names, r)
-      let depth = 0
-      while (depth < n && kept[depth]) depth++
-      const keys = names.slice(0, depth).map(name => r[name] ?? null)
-      levels[depth].set(tupleKey(keys), { keys, figs: figuresOf(plan, r) })
+  // Every level's rows by their keys: [0] the grand total, [n] the rows
+  // themselves. Each statement on its own, then every key any of them has.
+  const read = list => {
+    const sets = list.map(src => {
+      const levels = Array.from({ length: n + 1 }, () => new Map())
+      for (const r of src.rows || []) {
+        const kept = keptKeys(names, r)
+        let depth = 0
+        while (depth < n && kept[depth]) depth++
+        const keys = names.slice(0, depth).map(name => r[name] ?? null)
+        levels[depth].set(tupleKey(keys), { keys, figs: figuresOf(src, r) })
+      }
+      return levels
+    })
+    if (sets.length === 1) return sets[0]
+    const out = Array.from({ length: n + 1 }, () => new Map())
+    for (let d = 0; d <= n; d++) {
+      for (const levels of sets) {
+        for (const [key, e] of levels[d]) if (!out[d].has(key)) out[d].set(key, { keys: e.keys, figs: {} })
+      }
+      for (const [key, e] of out[d]) {
+        sets.forEach((levels, i) => Object.assign(e.figs, levels[d].get(key)?.figs || emptyFigures(list[i])))
+      }
     }
-    return levels
+    return out
   }
-  const now = read(mainRows)
-  const then = comparing ? read(compareRows) : null
+  const now = read(sources)
+  const then = comparing
+    ? read([{ rows: compareRows, figures: plan.main.figures }, ...parts.map((p, i) => ({ rows: partRows[i]?.compare || [], figures: p.figures }))])
+    : null
 
   const nodes = Array.from({ length: n + 1 }, () => new Map())
   for (let d = 0; d <= n; d++) {
@@ -350,7 +376,7 @@ export function summaryShaper(plan, mainRows, compareRows = null) {
     }
   }
 
-  const finish = ({ rest = null, compareRest = null, cap = null } = {}) => {
+  const finish = ({ rest = null, compareRest = null, parts: partRests = [], cap = null } = {}) => {
     const notes = [...plan.notes]
     const columns = [...plan.rows.map(r => r.col), ...valueColumns(plan, comparing)]
     const shown = plan.values.filter(v => !v.hidden)
@@ -407,11 +433,13 @@ export function summaryShaper(plan, mainRows, compareRows = null) {
       const which = plan.limit.top ? 'top' : 'bottom'
       notes.push('The ' + which + ' ' + rows.length.toLocaleString('en-GB') + ' of ' + all.toLocaleString('en-GB') + ' are shown')
       if (plan.rest && rest) {
-        const figs = rest.rows?.[0] ? figuresOf(plan, rest.rows[0]) : empty
+        // Each statement's one row of everything else, side by side.
+        const one = (src, figures) => (src?.rows?.[0] ? figuresOf({ figures }, src.rows[0]) : emptyFigures({ figures }))
+        const figsOf = (mine, theirs) => Object.assign(one(mine, plan.main.figures), ...parts.map((p, i) => one(theirs(partRests[i]), p.figures)))
         const node = {
           keys: [], k: [],
-          vals: plainValues(plan, figs),
-          before: comparing ? plainValues(plan, compareRest?.rows?.[0] ? figuresOf(plan, compareRest.rows[0]) : empty) : null,
+          vals: plainValues(plan, figsOf(rest, x => x?.rest)),
+          before: comparing ? plainValues(plan, figsOf(compareRest, x => x?.compareRest)) : null,
         }
         calc(node)
         const cells = cellsOf(node, 0)

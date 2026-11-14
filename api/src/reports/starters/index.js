@@ -34,7 +34,7 @@ const NOBODY = '00000000-0000-0000-0000-000000000000'
 // A definition as someone who may see everything, on a fixed day: the
 // catalogue's own answer to "can this run", with nothing read.
 function compiles(spec) {
-  const plan = compileReport(spec, { tenantId: NOBODY, levels: EVERYTHING, params: resolveParams(spec, {}), today: '2026-01-15', tz: 'Europe/London' })
+  const plan = compileReport(spec, { tenantId: NOBODY, levels: EVERYTHING, params: resolveParams(spec, {}), today: '2026-01-15', tz: 'Europe/London' }, { strictParts: true })
   if (plan.notes.length) throw new Error(plan.notes.join('; '))
 }
 
@@ -78,11 +78,11 @@ function build(lists) {
       compiles(spec)
       // Its drill-downs, each as the definition a tap would run.
       if (spec.kind !== 'list') {
-        const rows = drillSpec(spec, { at: [], to: 'rows' }, { listColumns: listColumns(spec.subject, EVERYTHING) })
+        const rows = drillSpec(spec, { at: [], to: 'rows' }, { catalogue: CATALOGUE, listColumns: subject => listColumns(subject, EVERYTHING) })
         if (rows.problem) throw new Error('its rows: ' + rows.problem)
         compiles(rows.spec)
         for (const d of spec.drill?.down || []) {
-          const next = drillSpec(spec, { at: [], to: d })
+          const next = drillSpec(spec, { at: [], to: d }, { catalogue: CATALOGUE })
           if (next.problem) throw new Error('drill to ' + rowId(d) + ': ' + next.problem)
           compiles(next.spec)
         }

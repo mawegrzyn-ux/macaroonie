@@ -981,7 +981,7 @@ export async function runBuilt(p, catalogue, built, { venues = [], assumed = [],
   let spec = built.spec
   let problems = spec ? reportProblems(spec) : ['Nothing could be built from this']
   if (!problems.length) {
-    try { spec = checkedSpec(spec, p).spec } catch (e) { if (e instanceof ReportError) problems = e.problems; else throw e }
+    try { spec = checkedSpec(spec, p, { strict: true }).spec } catch (e) { if (e instanceof ReportError) problems = e.problems; else throw e }
   }
   const words = { assumed: notes(assumed), couldnt: notes(couldnt) }
   const failed = problem => ({ spec, about: spec ? describeReport(catalogue, spec, { venues }) : '', ...words, problem })
