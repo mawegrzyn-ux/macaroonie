@@ -11,8 +11,10 @@
 //               order, else all): tapping one changes what the till shows, as More >
 //               Menus does (switchMenus() in shared/menuTimes.js); a Menu times button
 //               goes back to following the menu times
-//   items       the dishes of the section picked, or every dish when the layout has no
-//               categories; a search box on top if the zone has one
+//   items       the dishes of the section picked in the Categories zone it follows
+//               (categoriesZoneOf(): its own pick, else the first), or every dish
+//               when the layout has no categories; a search box on top if the zone
+//               has one. Several Categories zones each keep their own open category.
 //   category    the dishes of the one section the designer picked (from the menus on
 //               now, else any of the till's menus), whatever the categories show
 // The dishes and category zones leave out the dishes the designer took out of
@@ -52,6 +54,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Search, X, ChevronRight } from 'lucide-react'
 import {
   choiceZones, overlaps, buttonLabel, actionOf, buttonTextStyle, menuZoneMenus, shownDishIds, floats, isPopup, isList, popupTitle,
+  categoriesZoneOf,
 } from '@shared/pos/tillLayout.js'
 import { switchMenus } from '@shared/menuTimes.js'
 import { discountList } from '@shared/pos/discounts.js'
@@ -360,23 +363,32 @@ export default function LayoutScreen({
   const layoutId = layout.id || 'layout'
   const soldOut = useMemo(() => soldOutMap(config), [config])
   const comboRefs = useMemo(() => ({ itemsById: config.items || {}, sectionItems: config.section_items || {} }), [config])
-  const [sectionPick, setSectionId] = useRemembered(layoutId + ':section', null)
-  const cats = layout.zones.find(z => z.type === 'categories')
-  // The categories the zone shows: { s, i (its place in its menu, for the colour) }.
-  const sections = useMemo(() => {
+  // The category open in each Categories zone ({ [zone id]: section id }).
+  const [sectionPicks, setSectionPicks] = useRemembered(layoutId + ':sections', {})
+  const setSectionId = (zoneId, id) => setSectionPicks({ ...sectionPicks, [zoneId]: id })
+  // The categories each Categories zone shows: { [zone id]: [{ s, i (its
+  // place in its menu, for the colour) }] }.
+  const catSections = useMemo(() => {
     const list = ms => {
       const out = []
       ms.forEach(m => m.sections.forEach((s, i) => out.push({ s, i })))
       return out
     }
     const shown = list(menus)
-    if (!cats?.sections) return shown
-    const pick = from => cats.sections.map(id => from.find(x => x.s.id === id)).filter(Boolean)
-    const on = pick(shown)
-    return on.length ? on : pick(list(tillMenus))
-  }, [menus, tillMenus, cats])
-  // The category open: the one picked, else the first the categories zone shows.
-  const open = sections.find(x => x.s.id === sectionPick) || sections[0] || null
+    const all = list(tillMenus)
+    return Object.fromEntries(layout.zones.filter(z => z.type === 'categories').map(c => {
+      if (!c.sections) return [c.id, shown]
+      const pick = from => c.sections.map(id => from.find(x => x.s.id === id)).filter(Boolean)
+      const on = pick(shown)
+      return [c.id, on.length ? on : pick(all)]
+    }))
+  }, [menus, tillMenus, layout])
+  // The category open in a Categories zone: the one picked, else the first it shows.
+  const openIn = c => {
+    if (!c) return null
+    const list = catSections[c.id] || []
+    return list.find(x => x.s.id === sectionPicks[c.id]) || list[0] || null
+  }
   const shownKey = menus.map(m => m.id).join(',')
 
   const zones = choiceZones(layout)
@@ -435,7 +447,7 @@ export default function LayoutScreen({
   }, [check, noOrderNote])
   const noteOf = z => {
     if (z.type === 'check') return orderNote
-    if (z.type === 'categories') return open?.s.title || null
+    if (z.type === 'categories') return openIn(z)?.s.title || null
     if (z.type === 'seats') {
       const parts = seatParts(z)
       const bits = [parts !== 'courses' && parts !== 'none' && seat ? 'Seat ' + seat : null,
@@ -454,22 +466,25 @@ export default function LayoutScreen({
     return null
   }
   const titleOf = z => z.title
-    || (z.type === 'items' && cats && open ? open.s.title : null)
+    || (z.type === 'items' ? openIn(categoriesZoneOf(layout, z))?.s.title || null : null)
     || (z.type === 'category' && z.section_id ? sectionTitle(z.section_id) : null)
     || popupTitle(z)
 
   const zoneBody = z => {
     if (z.type === 'check') return checkZone
     if (z.type === 'categories') {
-      return <CategoriesZone zone={z} layoutId={layoutId} sections={sections} sectionId={open?.s.id || null} resetKey={shownKey}
-        setSectionId={id => { setSectionId(id); used(z) }} />
+      return <CategoriesZone zone={z} layoutId={layoutId} sections={catSections[z.id] || []} sectionId={openIn(z)?.s.id || null} resetKey={shownKey}
+        setSectionId={id => { setSectionId(z.id, id); used(z) }} />
     }
     if (z.type === 'menus') {
       return shownMenus ? <MenusZone zone={z} layoutId={layoutId} shown={shownMenus} onUsed={() => used(z)} /> : null
     }
     if (z.type === 'items') {
+      // The Categories zone it follows, and the category open there.
+      const c = categoriesZoneOf(layout, z)
+      const open = openIn(c)
       return <ItemsZone zone={z} layoutId={layoutId} config={config} menus={menus} section={open?.s || null} sectionIndex={open?.i || 0}
-        hasCategories={!!cats} soldOut={soldOut} comboRefs={comboRefs} onDish={dishFrom(z)} onHold={onHold} counts={counts} takeOff={takeOff} />
+        hasCategories={!!c} soldOut={soldOut} comboRefs={comboRefs} onDish={dishFrom(z)} onHold={onHold} counts={counts} takeOff={takeOff} />
     }
     if (z.type === 'category') {
       return <CategoryZone zone={z} layoutId={layoutId} config={config} menus={menus} tillMenus={tillMenus} soldOut={soldOut}

@@ -78,6 +78,7 @@ import {
   ALIGNS, VALIGNS, SEAT_PARTS, LAYOUT_COLS, LAYOUT_ROWS, ZONE_GRID, FONT, MAX_ZONES, MAX_BUTTONS, LABEL_MAX,
   MENU_TAPS, MAX_MENUS, popupCloseProblem, shownDishIds, MAX_HIDDEN,
   floats, isPopup, isList, popupTitle, popupOpeners, POPUP_ZONES, gridDefaults, SHOWS, VIEWS,
+  categoriesZoneOf, dishesZonesOf,
 } from '@shared/pos/tillLayout.js'
 import { chargeValueText } from '@shared/pos/charges.js'
 import { timesLabel } from '@shared/menuTimes.js'
@@ -249,6 +250,11 @@ export default function TillLayoutDesigner() {
     if (type === 'modifiers') {
       const kinds = layout.zones.filter(z => z.type === 'modifiers').map(z => z.kind)
       base.kind = kinds.includes('required') ? 'optional' : kinds.includes('optional') ? 'required' : kinds.includes('all') ? 'optional' : 'all'
+    }
+    // A new Dishes zone follows the first Categories zone no Dishes zone follows yet.
+    if (type === 'items') {
+      const free = layout.zones.find(z => z.type === 'categories' && !dishesZonesOf(layout, z).length)
+      if (free) base.follows = free.id
     }
     if (type === 'popup') {
       const titles = new Set(layout.zones.filter(z => z.type === 'popup').map(z => z.title))
@@ -507,10 +513,16 @@ function Canvas({ layout, screen, selId, onSelect, showChoices, canEdit, onMove,
   // A pop-up's tab: its name (the dashed purple outline says it is a pop-up);
   // a zone shown as a pop-up says which zone it is too.
   const whole = z => (z.cover === 'screen' ? ' · whole screen' : '')
+  // Zones of a kind the layout has several of are numbered as in the zone list
+  // and the warnings (Categories 2, Dishes 1).
+  const nth = z => {
+    const same = layout.zones.filter(x => x.type === z.type)
+    return zoneLabel(z.type) + (same.length > 1 ? ' ' + (same.indexOf(z) + 1) : '')
+  }
   const label = z => (z.type === 'popup' ? z.title + whole(z)
     : z.type === 'modifiers' ? zoneLabel(z.type) + ' · ' + CHOICE_KINDS.find(k => k.key === z.kind)?.label + whole(z)
-      : isPopup(z) ? zoneLabel(z.type) + (z.title ? ': ' + z.title : '') + ' · pop-up' + whole(z)
-        : zoneLabel(z.type))
+      : isPopup(z) ? nth(z) + (z.title ? ': ' + z.title : '') + ' · pop-up' + whole(z)
+        : zoneName(z, layout, ctx.names))
   // Name tabs that would sit on the same corner stack, so each can be tapped:
   // pop-ups from the bottom left up, Dish choices from the top right down (a
   // phone layout's Order and Categories pop-ups often share their space).
@@ -718,7 +730,8 @@ function previewCells(zone, { setup, names, discounts, tenders, charges, layout 
     return ids.map(sid => names.sections.get(sid)).filter(Boolean).map(s => ({ key: s.id, label: s.title }))
   }
   if (zone.type === 'items' || zone.type === 'category') {
-    const cats = layout.zones.find(z => z.type === 'categories')
+    // A Dishes zone shows the first category of the Categories zone it follows.
+    const cats = zone.type === 'items' ? categoriesZoneOf(layout, zone) : null
     const first = cats?.sections?.[0] || (setup?.sections || [])[0]?.id
     const all = setup?.items || []
     const list = zone.type === 'category' ? all.filter(i => i.section_id === zone.section_id)
@@ -983,9 +996,11 @@ function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, onPatchZo
             </>
           )}
           {zone.type === 'categories' && <CategoriesPicker zone={zone} ctx={ctx} onChange={onChange} />}
+          {zone.type === 'categories' && <FollowedBy zone={zone} ctx={ctx} canManage={canManage} onPick={onPick} onPatchZone={onPatchZone} />}
           {zone.type === 'menus' && <MenusZoneOptions zone={zone} ctx={ctx} onChange={onChange} />}
           {zone.type === 'items' && (
             <>
+              <FollowsPicker zone={zone} ctx={ctx} onChange={onChange} />
               <div className="space-y-1">
                 <Toggle label="Search box on top" checked={zone.search} onChange={v => onChange({ search: v })} />
                 <Toggle label="Prices on the buttons" checked={zone.price} onChange={v => onChange({ price: v })} />
@@ -1304,6 +1319,86 @@ function CategoriesPicker({ zone, ctx, onChange }) {
             </label>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+/** What a Categories zone lists, in a few words: Every category, or the first ones picked. */
+function catsSummary(zone, names) {
+  if (!zone.sections) return 'Every category'
+  const titles = zone.sections.map(id => names.sections.get(id)?.title).filter(Boolean)
+  if (!titles.length) return 'No categories picked'
+  return titles.slice(0, 2).join(', ') + (titles.length > 2 ? ' and ' + (titles.length - 2) + ' more' : '')
+}
+
+/**
+ * Which Categories zone a Dishes zone follows: it shows the dishes of the
+ * category open there. Offered when the layout has more than one.
+ */
+function FollowsPicker({ zone, ctx, onChange }) {
+  const { layout, names } = ctx
+  const cats = layout.zones.filter(z => z.type === 'categories')
+  if (!cats.length) {
+    return <p className="text-xs text-muted-foreground" data-testid="tl-follows-hint">No Categories zone on this layout: it shows every dish, in menu order.</p>
+  }
+  if (cats.length === 1) return null
+  const on = categoriesZoneOf(layout, zone)
+  return (
+    <>
+      <Field group label="Follows">
+        <div className="grid grid-cols-2 gap-2" data-testid="tl-follows">
+          {cats.map(c => (
+            <button key={c.id} type="button" aria-pressed={on?.id === c.id} data-zone-id={c.id} onClick={() => on?.id !== c.id && onChange({ follows: c.id })}
+              className={cn('min-h-[48px] px-2 py-1 rounded-lg border text-sm text-left touch-manipulation', on?.id === c.id ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted')}>
+              <span className="block font-medium truncate">{zoneName(c, layout, names)}</span>
+              <span className={cn('block text-xs truncate', on?.id === c.id ? 'opacity-80' : 'text-muted-foreground')}>{catsSummary(c, names)}</span>
+            </button>
+          ))}
+        </div>
+      </Field>
+      <p className="text-xs text-muted-foreground -mt-2" data-testid="tl-follows-hint">It shows the dishes of the category open in that zone. Each Categories zone keeps its own category open on the till.</p>
+    </>
+  )
+}
+
+/**
+ * The Dishes zones that follow a Categories zone (tap one to go to it), and
+ * a way to make another one follow it.
+ */
+function FollowedBy({ zone, ctx, canManage, onPick, onPatchZone }) {
+  const { layout, names } = ctx
+  const dishes = layout.zones.filter(z => z.type === 'items')
+  if (!dishes.length) return null
+  const mine = dishesZonesOf(layout, zone)
+  const others = dishes.filter(z => !mine.includes(z))
+  return (
+    <div className="space-y-2" data-testid="tl-followed-by">
+      <p className="text-xs font-medium text-muted-foreground">Its dishes show in</p>
+      {mine.length
+        ? mine.map(z => (
+          // Not a <button>: View users (a disabled fieldset) can still go to it.
+          <div key={z.id} role="button" tabIndex={0} onClick={() => onPick(z.id)}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(z.id) } }}
+            data-testid="tl-follower" data-zone-id={z.id}
+            className="w-full min-h-[48px] flex items-center gap-2 px-3 rounded-lg border bg-background hover:bg-muted text-left text-sm cursor-pointer touch-manipulation">
+            <span className="flex-1 min-w-0 truncate">{zoneName(z, layout, names)}</span>
+            <span className="text-xs text-muted-foreground shrink-0">Open</span>
+          </div>
+        ))
+        : <p className="text-xs rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2" data-testid="tl-no-follower">No Dishes zone follows it, so its categories show no dishes on the till.</p>}
+      {mine.length > 1 && (
+        <p className="text-xs text-muted-foreground" data-testid="tl-followers-same">They show the dishes of the same category. To show two categories at once, add another Categories zone for one of them to follow.</p>
+      )}
+      {canManage && others.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {others.map(z => (
+            <button key={z.id} type="button" onClick={() => onPatchZone(z.id, { follows: zone.id })} data-testid="tl-make-follow" data-zone-id={z.id}
+              className="min-h-[48px] px-3 rounded-lg border bg-background hover:bg-muted text-sm inline-flex items-center gap-1.5 touch-manipulation">
+              <Plus className="w-4 h-4 shrink-0" /> Make {zoneName(z, layout, names)} follow it
+            </button>
+          ))}
+        </div>
       )}
     </div>
   )

@@ -12,7 +12,8 @@
 //   menus       the till's menus as buttons, to switch the menu shown (as More >
 //               Menus does): all of the till's menus, or the ones picked, in that
 //               order; with a Menu times button to follow the menu times again
-//   items       the dishes of the section picked (with a search box on top if set)
+//   items       the dishes of the section picked in the Categories zone it
+//               follows (with a search box on top if set)
 //   category    the dishes of one section picked in the designer (section_id),
 //               always there whatever the Categories zone shows: a Drinks zone,
 //               a Sides zone (up to 8 on a layout)
@@ -57,6 +58,14 @@
 // The Dishes zone and a category's dishes zone can leave dishes out
 // (hide_item_ids): they never show in that zone, its search included, but
 // stay on the menu everywhere else (shownDishIds()).
+//
+// Several Dishes zones (14 Nov 2026): a layout can have up to four Dishes
+// zones and four Categories zones (food and drinks side by side). Each
+// Dishes zone follows one Categories zone (follows: its id; null, or a zone
+// the layout doesn't have, means the first): it shows the dishes of the
+// category open there (categoriesZoneOf()). Each Categories zone keeps its
+// own open category on the till. A Categories zone no Dishes zone follows,
+// and two Dishes zones following the same one, are warnings.
 //
 // A Pop-up zone (popup) holds buttons as a Buttons zone does, but shows only
 // when a button opens it (action open_popup, its popup_id), over the cells it
@@ -104,7 +113,7 @@ export const LAYOUT_COLS = { min: 4, max: 24, default: 12 }
 export const LAYOUT_ROWS = { min: 3, max: 16, default: 8 }
 export const ZONE_GRID = { min: 1, max: 12 }
 export const FONT = { min: 12, max: 36, default: 16 }
-export const MAX_ZONES = 32
+export const MAX_ZONES = 40
 export const MAX_BUTTONS = 80
 export const MAX_SECTIONS = 100
 export const MAX_MENUS = 30
@@ -113,9 +122,9 @@ export const LABEL_MAX = 40
 
 export const ZONE_TYPES = [
   { key: 'check', label: 'Order', hint: 'The order: its dishes, totals and More, Send, Bill and Pay.', max: 1 },
-  { key: 'categories', label: 'Categories', hint: 'The menu sections as buttons. Pick which ones show, in your order.', max: 1 },
+  { key: 'categories', label: 'Categories', hint: 'The menu sections as buttons. Pick which ones show, in your order. With several (food, drinks), each shows its dishes in the Dishes zones that follow it.', max: 4 },
   { key: 'menus', label: 'Menus', hint: 'The till\'s menus as buttons: tap one to show it. Pick which ones show, in your order.', max: 1 },
-  { key: 'items', label: 'Dishes', hint: 'The dishes of the category picked, with a search box if you want one.', max: 1 },
+  { key: 'items', label: 'Dishes', hint: 'The dishes of the category picked in the Categories zone it follows, with a search box if you want one.', max: 4 },
   { key: 'category', label: 'A category\'s dishes', hint: 'The dishes of one category you pick, always on screen (a Drinks zone, a Sides zone). Leave out any you don\'t want in it.', max: 8 },
   { key: 'buttons', label: 'Buttons', hint: 'Your own buttons: a dish, or a function such as Exact cash or Last receipt.', max: 8 },
   { key: 'modifiers', label: 'Dish choices', hint: 'A dish\'s choices while it is being added: the must-pick ones, the optional ones, or both.', max: 2 },
@@ -374,6 +383,8 @@ function normaliseZone(z, layout, i) {
   if (z.type === 'items') {
     zone.search = bool(z.search, true)
     zone.price = bool(z.price, true)
+    // The Categories zone it follows (checked in normaliseTillLayout(); null: the first).
+    zone.follows = ID.test(String(z.follows || '')) ? String(z.follows) : null
   }
   if (z.type === 'category') {
     zone.section_id = UUID.test(String(z.section_id || '')) ? String(z.section_id).toLowerCase() : null
@@ -465,7 +476,38 @@ export function normaliseTillLayout(raw) {
   for (const z of layout.zones) {
     if (z.buttons) z.buttons = z.buttons.filter(b => b.action !== 'open_popup' || (popups.has(b.popup_id) && b.popup_id !== z.id))
   }
+  // A Dishes zone follows a Categories zone of this layout, or the first one.
+  const cats = new Set(layout.zones.filter(z => z.type === 'categories').map(z => z.id))
+  for (const z of layout.zones) if (z.type === 'items' && z.follows && !cats.has(z.follows)) z.follows = null
   return layout
+}
+
+/**
+ * The Categories zone a Dishes zone follows: the one it names (follows),
+ * else the layout's first; null when the layout has none (the Dishes zone
+ * then shows every dish of the menus on now). The one rule for the till,
+ * the designer and the warnings.
+ */
+export function categoriesZoneOf(layout, zone) {
+  const cats = (layout?.zones || []).filter(z => z.type === 'categories')
+  return cats.find(z => z.id === zone?.follows) || cats[0] || null
+}
+
+/** The Dishes zones that follow a Categories zone (categoriesZoneOf()), in the layout's order. */
+export function dishesZonesOf(layout, cats) {
+  if (!cats) return []
+  return (layout?.zones || []).filter(z => z.type === 'items' && categoriesZoneOf(layout, z)?.id === cats.id)
+}
+
+// A zone as messages name it: Dishes, or Dishes 2 when the layout has several.
+function nthName(layout, z) {
+  const same = (layout?.zones || []).filter(x => x.type === z.type)
+  return zoneLabel(z.type) + (same.length > 1 ? ' ' + (same.indexOf(z) + 1) : '')
+}
+
+// Names in a sentence: A, A and B, A, B and C.
+function andList(names) {
+  return names.length < 2 ? names.join('') : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]
 }
 
 /**
@@ -647,8 +689,28 @@ export function layoutWarnings(layout) {
   const has = type => zones.some(z => z.type === type)
   const withButtons = zones.filter(z => z.type === 'buttons' || z.type === 'popup')
   const dishButtons = withButtons.some(z => z.buttons.some(b => b.action === 'item'))
-  if (has('categories') && !has('items')) out.push({ code: 'categories_alone', message: 'Categories pick what the Dishes zone shows: add a Dishes zone.', zones: [] })
-  if (has('items') && !has('categories')) out.push({ code: 'items_alone', message: 'No Categories zone: the Dishes zone shows every dish, in menu order.', zones: [] })
+  const cats = zones.filter(z => z.type === 'categories')
+  const dishes = zones.filter(z => z.type === 'items')
+  if (cats.length && !dishes.length) out.push({ code: 'categories_alone', message: 'Categories pick what the Dishes zone shows: add a Dishes zone.', zones: [] })
+  if (dishes.length && !cats.length) {
+    out.push({ code: 'items_alone', message: dishes.length > 1 ? 'No Categories zone: the Dishes zones show every dish, in menu order.' : 'No Categories zone: the Dishes zone shows every dish, in menu order.', zones: [] })
+  }
+  if (dishes.length) {
+    for (const c of cats) {
+      const followers = dishesZonesOf(layout, c)
+      if (!followers.length) {
+        out.push({ code: 'categories_alone', message: 'No Dishes zone follows ' + nthName(layout, c) + ', so its categories show no dishes: set a Dishes zone to follow it.', zones: [c.id] })
+      } else if (followers.length > 1) {
+        out.push({
+          code: 'same_dishes',
+          message: andList(followers.map(z => nthName(layout, z))) + (cats.length > 1
+            ? ' follow the same Categories zone (' + nthName(layout, c) + '), so they show the dishes of the same category: set one to follow another.'
+            : ' follow the one Categories zone, so they show the dishes of the same category: add another Categories zone for one of them to follow.'),
+          zones: followers.map(z => z.id),
+        })
+      }
+    }
+  }
   if (!has('items') && !has('category') && !dishButtons) out.push({ code: 'no_dishes', message: 'No Dishes zone and no dish buttons: dishes can only be found by name in the search.', zones: [] })
   if (!has('modifiers')) out.push({ code: 'choices_window', message: 'No Dish choices zone: a dish\'s choices open in a window, as on the standard screen.', zones: [] })
   for (const z of zones) {
