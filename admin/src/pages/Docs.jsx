@@ -4376,7 +4376,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>LayoutButton</Mono>) decides per button: with a count on a button, a long press takes one off
               (<Mono>data-hold</Mono> <Mono>take_off</Mono>, else <Mono>sold_out</Mono>); on a list&apos;s row,{' '}
               <Mono>wrap()</Mono> puts it in a <Mono>dish-swipe</Mono> frame (<Mono>data-row</Mono>, <Mono>data-item</Mono>)
-              that swipes left through <Mono>useRowSwipe()</Mono>, showing <Mono>dish-swipe-off</Mono> (Take one off / Void
+              that swipes left through <Mono>useRowSwipe()</Mono> (<Mono>pos/src/lib/rowSwipe.js</Mono>, shared with the
+              floor&apos;s rows), showing <Mono>dish-swipe-off</Mono> (Take one off / Void
               one), while its long press keeps the sold out window. <Mono>useHold()</Mono> returns{' '}
               <Mono>{'{ cancel, handlers }'}</Mono> so a swipe that starts cancels the hold. <Mono>useRowSwipe()</Mono>&apos;s{' '}
               <Mono>swallow(key)</Mono> drops the click a swipe ends with; a new press clears it (the swipe that takes the
