@@ -35,13 +35,20 @@
 // In a plan a figure is named by its place: v1, v2 and so on, in the order
 // of `figures`. Calculations, sorting, a top N and a chart name figures that
 // way; `count` is how many rows there are (with a `count: true` figure).
+//
+// A summary can show figures from other subjects beside its own (`also`,
+// docs/REPORTS.md 7.1): sales beside the hours on the rota, covers beside
+// the weather. A figure says which with `from`: an entry's name in `also`,
+// or a subject key (one not in `also` is added there as it is). Each other
+// subject is counted on its own and lined up by the report's rows, with the
+// report's period and venues and its own filters.
 
 import { z } from 'zod'
 import { catalogueView } from './catalogue/index.js'
 import { pathSlice, toSpec, answerOf, runBuilt } from './smart.js'
 import { dataTree, treeNodes, searchTree, setTotals, setView, filterWords, valueName } from '../../../shared/reports/build.js'
 import {
-  normaliseReport, rowId, VIEW_KINDS, COMPARE_WITH, FILTER_OPS, VALUE_FORMATS, LIMITS,
+  normaliseReport, rowId, valueSubject, VIEW_KINDS, COMPARE_WITH, FILTER_OPS, VALUE_FORMATS, LIMITS,
 } from '../../../shared/reports/spec.js'
 import { RELATIVE_PERIODS } from '../../../shared/reports/period.js'
 import { MOMENT_BUCKETS } from '../../../shared/reports/format.js'
@@ -64,7 +71,10 @@ const Grouping = z.object({
   label: Label.optional().describe('A heading of its own'),
 })
 
+const SubjectKey = z.string().trim().min(1).max(80)
+
 const Figure = z.object({
+  from: SubjectKey.optional().describe('Another subject the figure is from: its name in also, or its subject key; left out for the report\'s own subject. Its figure or field is that subject\'s path'),
   figure: Path.optional().describe('A figure\'s path (prefer these: they carry the app\'s rules, e.g. net sales leaves out voided dishes)'),
   field: Path.optional().describe('A number field added up with agg, when no figure says it'),
   agg: z.enum(['sum', 'avg', 'min', 'max', 'count_distinct']).optional(),
@@ -87,11 +97,21 @@ const Filter = z.object({
   label: Label.optional().describe('What they pick, when ask is true'),
 })
 
+const OtherSubject = z.object({
+  subject: SubjectKey.describe('Another subject key, as find_fields gives it'),
+  name: z.string().trim().min(1).max(21).optional().describe('A short name (lower case, no spaces) its figures say in from; needed only when two are the same subject'),
+  label: Label.optional().describe('What its figures are called on the page ("Card takings"); left out for its own name'),
+  filters: z.array(Filter.omit({ ask: true, label: true })).max(LIMITS.filters).optional()
+    .describe('Only its rows that match, by its own fields (paths of that subject); never its day or venue: the report\'s period and venues apply to it'),
+})
+
 export const PLAN = z.object({
-  subject: z.string().trim().min(1).max(80).describe('What the report is about: one subject key, as find_fields gives it (till.lines for anything per dish, till.checks per check or server, till.payments for tenders and tips)'),
+  subject: SubjectKey.describe('What the report is about: one subject key, as find_fields gives it (till.lines for anything per dish, till.checks per check or server, till.payments for tenders and tips)'),
   list: z.boolean().optional().describe('true: the rows themselves, one line each; else figures added up'),
   by: z.array(Grouping).max(LIMITS.list_columns).optional().describe('A summary\'s groupings, outer first; a list\'s columns, in order'),
   across: z.array(Grouping).max(LIMITS.columns).optional().describe('Groupings across the top (a table across); not for a list'),
+  also: z.array(OtherSubject).max(LIMITS.also).optional()
+    .describe('Other subjects whose figures go beside the report\'s own, each counted on its own and lined up by the report\'s rows (by: the day or its week and month, the venue, or a thing both lead to such as a dish or a server): sales beside the hours on the rota, covers beside the weather. A summary only, with no across'),
   figures: z.array(Figure).max(LIMITS.values).optional().describe('What a summary adds up; named v1, v2 and so on in this order'),
   filters: z.array(Filter).max(LIMITS.filters).optional(),
   period: z.object({
@@ -142,8 +162,15 @@ export function planAnswer(plan) {
     kind: plan.list ? 'list' : 'summary',
     rows: arr(plan.by).map(grouping),
     columns: arr(plan.across).map(grouping),
+    also: arr(plan.also).map(a => ({
+      name: a.name || '', subject: a.subject, label: a.label || '',
+      filters: arr(a.filters).map(fl => ({
+        ref: fl.field, bucket: fl.bucket || '', op: fl.op, values: arr(fl.values).map(words), ask: false, label: '',
+      })),
+    })),
     values: arr(plan.figures).map((f, i) => ({
       name: 'v' + (i + 1),
+      from: f.calc ? '' : (f.from || ''),
       ref: f.calc ? '' : f.count ? 'COUNT' : (f.figure || f.field || ''),
       agg: f.calc || f.figure ? '' : f.count ? 'count' : (f.agg || ''),
       calc: f.calc || '',
@@ -201,6 +228,14 @@ export function planOf(catalogue, spec, venues = [], name = '') {
   const g = r => ({ field: r.ref, ...(r.bucket ? { bucket: r.bucket } : {}), ...(r.label ? { label: r.label } : {}) })
   if (a.rows.length) plan.by = a.rows.map(g)
   if (a.columns.length) plan.across = a.columns.map(g)
+  const fl = f => ({ field: f.ref, ...(f.bucket ? { bucket: f.bucket } : {}), op: f.op, values: f.values })
+  if (a.also.length) {
+    // By their keys: a plan sent back keeps them, and the figures that name them.
+    plan.also = a.also.map(x => ({
+      subject: x.subject, name: x.name, ...(x.label ? { label: x.label } : {}),
+      ...(x.filters.length ? { filters: x.filters.map(fl) } : {}),
+    }))
+  }
   if (a.values.length) {
     plan.figures = a.values.map(v => {
       const extra = {
@@ -208,15 +243,15 @@ export function planOf(catalogue, spec, venues = [], name = '') {
         ...(v.decimals != null ? { decimals: v.decimals } : {}), ...(v.hidden ? { hidden: true } : {}),
       }
       if (v.calc) return { calc: re(v.calc), ...extra }
-      if (v.ref === 'COUNT') return { count: true, ...extra }
-      if (v.agg) return { field: v.ref, agg: v.agg, ...extra }
-      return { figure: v.ref, ...extra }
+      const from = v.from ? { from: v.from } : {}
+      if (v.ref === 'COUNT') return { ...from, count: true, ...extra }
+      if (v.agg) return { ...from, field: v.ref, agg: v.agg, ...extra }
+      return { ...from, figure: v.ref, ...extra }
     })
   }
   if (a.filters.length) {
     plan.filters = a.filters.map(f => ({
-      field: f.ref, ...(f.bucket ? { bucket: f.bucket } : {}), op: f.op, values: f.values,
-      ...(f.ask ? { ask: true } : {}), ...(f.label ? { label: f.label } : {}),
+      ...fl(f), ...(f.ask ? { ask: true } : {}), ...(f.label ? { label: f.label } : {}),
     }))
   }
   const pd = a.period
@@ -250,10 +285,17 @@ export function planOf(catalogue, spec, venues = [], name = '') {
   if (a.name) plan.name = a.name
 
   const kept = []
+  const isGroup = f => f.any || f.all || f.has || f.counted
   for (const f of s.filters) {
-    if (f.any || f.all || f.has || f.counted) kept.push('Filter: ' + filterWords(catalogue, s.subject, f, { venues }))
+    if (isGroup(f)) kept.push('Filter: ' + filterWords(catalogue, s.subject, f, { venues }))
   }
-  for (const v of s.values) if (v.of) kept.push('Value: ' + (v.label || valueName(catalogue, s.subject, v)) + ' (' + v.key + ')')
+  for (const x of s.also) {
+    const label = x.label || catalogue.subjects[x.subject]?.label || x.subject
+    for (const f of x.filters) {
+      if (isGroup(f)) kept.push('Filter on ' + label + ' (' + x.key + '): ' + filterWords(catalogue, x.subject, f, { venues }))
+    }
+  }
+  for (const v of s.values) if (v.of) kept.push('Value: ' + (v.label || valueName(catalogue, s, v)) + ' (' + v.key + ')')
   if (s.drill) kept.push('Its drill-down settings and what a row opens')
   return { plan, kept }
 }
@@ -283,33 +325,72 @@ function nearSubjects(catalogue, key) {
 }
 
 /**
- * What in a plan names nothing the person's role can build with: a subject,
- * paths (with the near ones), figure names. Null when everything is there.
- *   -> { problem, unknown: { subject?, subjects?, paths?: [{ path, near }], names? } }
+ * What in a plan names nothing the person's role can build with: a subject
+ * (its own or another in `also`), paths (with the near ones; `subject` on
+ * the ones of another subject), figure names, and what a figure's `from`
+ * names. Null when everything is there.
+ *   -> { problem, unknown: { subject?, subjects?, paths?: [{ path, near, subject? }], names?, froms? } }
  */
 export function planProblems(catalogue, plan) {
   const sub = catalogue.subjects[text(plan.subject).toLowerCase()]
-  if (!sub?.base) {
+  const notBase = k => !catalogue.subjects[text(k).toLowerCase()]?.base
+  const others = arr(plan.also)
+  const wrong = notBase(plan.subject) ? plan.subject : others.find(a => notBase(a.subject))?.subject
+  if (wrong !== undefined) {
     return {
-      problem: '"' + text(plan.subject) + '" isn\'t a subject this role can build reports on',
-      unknown: { subject: text(plan.subject), subjects: nearSubjects(catalogue, plan.subject) },
+      problem: '"' + text(wrong) + '" isn\'t a subject this role can build reports on'
+        + (sub?.base ? ' (it is one of the plan\'s other subjects)' : ''),
+      unknown: { subject: text(wrong), subjects: nearSubjects(catalogue, wrong) },
     }
   }
-  const tree = dataTree(catalogue, sub.key, { depth: 2 })
-  const nodes = treeNodes(tree)
-  const known = new Set(nodes.map(n => n.path))
+  const trees = new Map()
+  const treeOf = k => {
+    if (!trees.has(k)) {
+      const tree = dataTree(catalogue, k, { depth: 2 })
+      const nodes = treeNodes(tree)
+      trees.set(k, { tree, nodes, known: new Set(nodes.map(n => n.path)) })
+    }
+    return trees.get(k)
+  }
+
+  // The keys the other subjects get, in order, as addAlso() gives them: a
+  // name that can be a key and isn't taken, else s2, s3 and so on.
+  const keys = []
+  for (const a of others) {
+    const name = text(a.name).toLowerCase()
+    if (/^[a-z][a-z0-9_]{0,20}$/.test(name) && !keys.includes(name)) { keys.push(name); continue }
+    let n = 2
+    while (keys.includes('s' + n)) n++
+    keys.push('s' + n)
+  }
+  // Which subject a figure is from: an other subject's name or key, or a
+  // subject key (toSpec() adds one that isn't in also yet); null for none.
+  const fromOf = f => {
+    const t = text(f.from).toLowerCase()
+    if (!t || f.calc) return sub.key
+    const i = others.findIndex((a, j) => text(a.name).toLowerCase() === t || keys[j] === t)
+    if (i !== -1) return text(others[i].subject).toLowerCase()
+    return notBase(t) ? null : t
+  }
 
   const paths = []
-  const see = p => { if (p && !paths.includes(p)) paths.push(p) }
+  const see = (p, k = sub.key) => { if (p && !paths.some(x => x.path === p && x.subject === k)) paths.push({ path: p, subject: k }) }
   for (const r of [...arr(plan.by), ...arr(plan.across)]) see(r.field)
-  for (const f of arr(plan.figures)) { see(f.figure); see(f.field) }
+  const figures = arr(plan.figures)
+  const froms = []
+  for (const f of figures) {
+    const k = fromOf(f)
+    if (!k) { if (!froms.includes(text(f.from))) froms.push(text(f.from)); continue }
+    see(f.figure, k)
+    see(f.field, k)
+  }
   for (const f of arr(plan.filters)) see(f.field)
+  for (const a of others) for (const fl of arr(a.filters)) see(fl.field, text(a.subject).toLowerCase())
   for (const s of arr(plan.sort)) if (!/^(v\d+|count)$/i.test(text(s.by))) see(s.by)
   see(plan.chart?.x)
   for (const p of arr(plan.totals?.subtotals)) see(p)
-  const missing = paths.filter(p => !known.has(text(p).toLowerCase()))
+  const missing = paths.filter(x => !treeOf(x.subject).known.has(text(x.path).toLowerCase()))
 
-  const figures = arr(plan.figures)
   const names = []
   const seeName = n => { const t = text(n).toLowerCase(); if (/^v\d+$/.test(t) && Number(t.slice(1)) > figures.length && !names.includes(t)) names.push(t) }
   for (const f of figures) for (const m of text(f.calc).match(/\bv\d+\b/gi) || []) seeName(m)
@@ -319,16 +400,30 @@ export function planProblems(catalogue, plan) {
   seeName(plan.chart?.line)
   const empty = figures.map((f, i) => (f.figure || f.field || f.count || f.calc ? null : 'v' + (i + 1))).filter(Boolean)
 
-  if (!missing.length && !names.length && !empty.length) return null
+  if (!missing.length && !names.length && !empty.length && !froms.length) return null
   const parts = []
-  if (missing.length) parts.push(sub.label + ' have nothing called ' + missing.map(p => '"' + p + '"').join(', '))
+  for (const k of [...new Set(missing.map(x => x.subject))]) {
+    parts.push('nothing called ' + missing.filter(x => x.subject === k).map(x => '"' + x.path + '"').join(', ')
+      + ' in ' + catalogue.subjects[k].label)
+  }
+  if (froms.length) {
+    parts.push('a figure\'s from names ' + froms.map(t => '"' + t + '"').join(', ')
+      + ': give the name of one of the plan\'s other subjects (also), or a subject key')
+  }
   if (names.length) parts.push('the plan has no figure ' + names.join(', ') + ' (figures are v1 to v' + figures.length + ' in their order)')
   if (empty.length) parts.push('figure ' + empty.join(', ') + ' says nothing: give it a figure, a field with agg, count or a calc')
+  const problem = parts.join('; ')
   return {
-    problem: parts.join('; '),
+    problem: problem[0].toUpperCase() + problem.slice(1),
     unknown: {
-      ...(missing.length ? { paths: missing.map(p => ({ path: p, near: nearPaths(tree, nodes, p) })) } : {}),
+      ...(missing.length ? {
+        paths: missing.map(x => ({
+          path: x.path, near: nearPaths(treeOf(x.subject).tree, treeOf(x.subject).nodes, x.path),
+          ...(x.subject !== sub.key ? { subject: x.subject } : {}),
+        })),
+      } : {}),
       ...(names.length ? { names } : {}),
+      ...(froms.length ? { froms } : {}),
     },
   }
 }
@@ -336,7 +431,8 @@ export function planProblems(catalogue, plan) {
 // ── Building and running ─────────────────────────────────────
 
 const sameFigure = (a, b) => (a.measure || '') === (b.measure || '') && (a.agg || '') === (b.agg || '')
-  && (a.field || '') === (b.field || '') && (a.of || '') === (b.of || '') && !a.calc && !b.calc
+  && (a.field || '') === (b.field || '') && (a.of || '') === (b.of || '') && (a.from || '') === (b.from || '')
+  && !a.calc && !b.calc
 const squash = t => text(t).replace(/\s+/g, '')
 
 // A plan applied to a report keeps the keys of the values it still has (a

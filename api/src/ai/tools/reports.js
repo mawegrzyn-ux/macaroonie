@@ -222,8 +222,11 @@ async function runPlan(ctx, plan, { report = null, rows = SHOWN_ROWS } = {}) {
     const near = []
     const u = out.unknown || {}
     if (u.subjects?.length) near.push('Subjects there are: ' + u.subjects.map(s => s.subject + ' (' + s.label + ')').join(', '))
-    for (const p of u.paths || []) near.push('"' + p.path + '" isn\'t there' + (p.near?.length ? '; near: ' + p.near.join(', ') : ''))
+    for (const p of u.paths || []) {
+      near.push('"' + p.path + '" isn\'t there' + (p.subject ? ' in ' + p.subject : '') + (p.near?.length ? '; near: ' + p.near.join(', ') : ''))
+    }
     if (u.names?.length) near.push('Not a figure of the plan: ' + u.names.join(', '))
+    if (u.froms?.length) near.push('Not another subject of the plan: ' + u.froms.join(', '))
     throw new ToolError((out.problem || 'That plan can\'t be built') + (near.length ? '. ' + near.join('. ') : '')
       + '. find_fields lists what each subject has.', 422)
   }
@@ -556,7 +559,9 @@ export const reportTools = [
       'bookings, no-shows, deposits...) by building a report from a plan and running it as the person: nothing is saved. Find the ' +
       'subject and paths with find_fields first. A plan: subject; by (groupings, outer first; a day with a bucket: day, week, ' +
       'month, weekday, hour); figures (figure paths, or count: true; a calc over them as v1, v2); filters; period (left out: last ' +
-      'week); venues by name; sort, top, compare, chart. Answer from the rows, say what was assumed, and offer build_report to keep it.',
+      'week); venues by name; sort, top, compare, chart; also (other subjects whose figures go beside, lined up by the rows: sales ' +
+      'against the hours on the rota or the weather; such a figure names its subject in from). Answer from the rows, say what was ' +
+      'assumed, and offer build_report to keep it.',
     input: z.object({ plan: PLAN, rows: Rows }),
     readOnly: true,
     needs: 'use',

@@ -17,6 +17,9 @@ import { STARTERS } from '../src/reports/starters/index.js'
 import { cleanUpReportRuns } from '../src/reports/access.js'
 import { forgetReportResults } from '../src/reports/run.js'
 import { rowId } from '../../shared/reports/spec.js'
+import { grainOf } from '../../shared/reports/also.js'
+import { mondayOf, addDays } from '../../shared/reports/period.js'
+import { CATALOGUE } from '../src/reports/catalogue/index.js'
 
 const BUILDER = 'a-builder', BUILDER2 = 'a-builder2', FLOOR = 'a-floor'
 let ids, t, owner, operator, viewer, builder, builder2, floor, ownerB, builderRole, floorRole, today
@@ -683,8 +686,14 @@ test('stars and copies', async () => {
 })
 
 test('every starter report runs on real data, with its rows and each of its breakdowns', async () => {
+  // A weekly subject beside a daily report lines up whole weeks (a single day
+  // gets a note saying the weeks at its ends don't line up): those starters
+  // run for the week holding today.
+  const week = { from: mondayOf(t.date), to: addDays(mondayOf(t.date), 6) }
+  const weekly = s => grainOf(CATALOGUE.subjects[s.spec.subject]) !== 'week'
+    && (s.spec.also || []).some(a => grainOf(CATALOGUE.subjects[a.subject]) === 'week')
   for (const s of STARTERS) {
-    const params = s.spec.params.some(p => p.type === 'period') ? { period: today } : {}
+    const params = s.spec.params.some(p => p.type === 'period') ? { period: weekly(s) ? week : today } : {}
     const res = await owner.post(`/api/reports/${s.ref}/run`, { params })
     assert.equal(res.status, 200, s.key + ': ' + res.body)
     assert.equal(res.json.kind, s.spec.kind, s.key)

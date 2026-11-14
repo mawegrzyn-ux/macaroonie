@@ -52,12 +52,13 @@ import { askForJson, fileBlocks, obj, str, bool, arr, oneOf, clip } from '../ser
 import {
   dataTree, treeNodes, pathUses, addRow, addColumn, addValue, addFilter, removeFilter, setParamDefault,
   setSort, setLimit, setCompare, compareProblem, setView, filterOps, filterValueKind, filterShape,
-  filterValueOk, storedNumber, shownNumber, valueName, usedParams,
+  filterValueOk, storedNumber, shownNumber, valueName, usedParams, roomLeft, addAlso, removeAlso, updateAlso,
 } from '../../../shared/reports/build.js'
 import {
-  normaliseReport, newReport, reportProblems, rowId, AGGS, AGG_LABELS, VALUE_FORMATS, VIEW_KINDS,
+  normaliseReport, newReport, reportProblems, rowId, valueSubject, AGGS, AGG_LABELS, VALUE_FORMATS, VIEW_KINDS,
   VIEW_LABELS, COMPARE_WITH, FILTER_OPS, LIMITS,
 } from '../../../shared/reports/spec.js'
+import { matchRows } from '../../../shared/reports/also.js'
 import { RELATIVE_PERIODS, normalisePeriod, isYmd, dayText } from '../../../shared/reports/period.js'
 import { resolvePath, pathLabel } from '../../../shared/reports/paths.js'
 import { MOMENT_BUCKETS, WEEKDAYS_LONG } from '../../../shared/reports/format.js'
@@ -183,12 +184,16 @@ function subjectDocs(catalogue) {
  * The subjects a person can report on, the best fit for the request first
  * ([{ key, score }]): BM25 over each subject's words, a word and the other
  * words people use for it counting once (another word for less, see
- * SYNONYM_WEIGHT). `pinned` (a subject's key) comes first whatever the words
- * say. Ties, a request with no words that say what it is about among them
- * ("make this report" beside a photo), go by the catalogue's order of areas
- * (sales first), then to the subject with more figures.
+ * SYNONYM_WEIGHT). `pinned` (a subject's key, or several in order: a report
+ * to change and the other subjects whose figures it shows) comes first
+ * whatever the words say. Ties, a request with no words that say what it is
+ * about among them ("make this report" beside a photo), go by the
+ * catalogue's order of areas (sales first), then to the subject with more
+ * figures.
  */
 export function rankSubjects(catalogue, request, pinned = null) {
+  const pins = [].concat(pinned || [])
+  const pinAt = key => { const at = pins.indexOf(key); return at < 0 ? pins.length : at }
   const docs = subjectDocs(catalogue)
   const n = docs.length || 1
   const avg = docs.reduce((sum, d) => sum + d.len, 0) / n || 1
@@ -211,8 +216,8 @@ export function rankSubjects(catalogue, request, pinned = null) {
       }
       score += best
     }
-    return { key: d.key, score: d.key === pinned ? Infinity : score, area: areaRank(d.key), figures: d.figures, i }
-  }).sort((a, b) => b.score - a.score || a.area - b.area || b.figures - a.figures || a.i - b.i)
+    return { key: d.key, score: pins.includes(d.key) ? Infinity : score, pin: pinAt(d.key), area: areaRank(d.key), figures: d.figures, i }
+  }).sort((a, b) => b.score - a.score || a.pin - b.pin || a.area - b.area || b.figures - a.figures || a.i - b.i)
     .map(({ key, score }) => ({ key, score }))
 }
 
@@ -247,7 +252,9 @@ export function typeText(catalogue, subjectKey, n) {
  * full (their figures, fields and what each row belongs to), the rest in a
  * line each. Returns { text, detailed: [key], s: Map(ref -> key),
  * sRefOf: Map(key -> ref), f: Map(ref -> { subject, path, node }),
- * fRefOf: Map('key|path' -> ref) }.
+ * fIn(key, ref), refIn(key, path) }: fIn() finds a ref among one subject's
+ * own (null when it is another's, or none), refIn() a subject's path as a
+ * ref ('' when it has none).
  */
 export function buildSlice(catalogue, request, pinned = null) {
   const ranked = rankSubjects(catalogue, request, pinned)
@@ -313,47 +320,63 @@ export function buildSlice(catalogue, request, pinned = null) {
       lines.push(sRefOf.get(k) + ' ' + sub.label + ': ' + clip(sub.about || '', 120))
     }
   }
-  return { text: lines.join('\n'), detailed, s, sRefOf, f, fRefOf }
+  const fIn = (k, r) => { const x = f.get(ref(r)); return x && x.subject === k ? x : null }
+  const refIn = (k, path) => fRefOf.get(k + '|' + path) || ''
+  return { text: lines.join('\n'), detailed, s, sRefOf, f, fIn, refIn }
 }
 
 /**
  * A slice whose refs are the catalogue's own paths: every subject the
  * person can build on (by its key), and everything the builder offers for
- * `subjectKey`, two links deep (by its path). Plans written with paths
+ * each of them, two links deep (by its path). Plans written with paths
  * (Pepper's chat tools, src/reports/plan.js) go through toSpec() and
  * answerOf() with it, the way the smart builder's answers do with refs.
+ * A path is a ref only within its own subject (net_sales is a figure of
+ * checks and of dishes sold), so `f` holds `subjectKey`'s and fIn() looks
+ * in the subject asked for.
  */
 export function pathSlice(catalogue, subjectKey) {
-  const s = new Map(), sRefOf = new Map(), f = new Map(), fRefOf = new Map()
+  const s = new Map(), sRefOf = new Map()
   for (const sub of Object.values(catalogue.subjects)) {
     if (!sub.base) continue
     s.set(ref(sub.key), sub.key)
     sRefOf.set(sub.key, sub.key)
   }
-  const tree = catalogue.subjects[subjectKey]?.base ? dataTree(catalogue, subjectKey, { depth: 2 }) : null
-  for (const n of treeNodes(tree)) {
-    f.set(ref(n.path), { subject: subjectKey, path: n.path, node: n })
-    fRefOf.set(subjectKey + '|' + n.path, n.path)
+  const trees = new Map()
+  const nodesOf = k => {
+    if (!trees.has(k)) {
+      const m = new Map()
+      if (catalogue.subjects[k]?.base) {
+        for (const n of treeNodes(dataTree(catalogue, k, { depth: 2 }))) m.set(ref(n.path), { subject: k, path: n.path, node: n })
+      }
+      trees.set(k, m)
+    }
+    return trees.get(k)
   }
-  return { text: '', detailed: tree ? [subjectKey] : [], s, sRefOf, f, fRefOf }
+  const f = nodesOf(subjectKey)
+  const fIn = (k, r) => nodesOf(k).get(ref(r)) || null
+  const refIn = (k, path) => (nodesOf(k).has(ref(path)) ? path : '')
+  return { text: '', detailed: f.size ? [subjectKey] : [], s, sRefOf, f, fIn, refIn }
 }
 
 // ── What the model answers ───────────────────────────────────
 
 const int = { type: 'integer' }
 const ROW = obj({ ref: str, bucket: oneOf(['', ...MOMENT_BUCKETS]), label: str })
+const FILTER = obj({
+  ref: str, bucket: oneOf(['', ...MOMENT_BUCKETS]), op: oneOf(FILTER_OPS), values: arr(str), ask: bool, label: str,
+})
 
 export const ANSWER_SCHEMA = obj({
   subject: str,
   kind: oneOf(['summary', 'list']),
   rows: arr(ROW),
   columns: arr(ROW),
+  also: arr(obj({ name: str, subject: str, label: str, filters: arr(FILTER) })),
   values: arr(obj({
-    name: str, ref: str, agg: oneOf(['', ...AGGS]), calc: str, label: str, format: oneOf(['', ...VALUE_FORMATS]),
+    name: str, from: str, ref: str, agg: oneOf(['', ...AGGS]), calc: str, label: str, format: oneOf(['', ...VALUE_FORMATS]),
   })),
-  filters: arr(obj({
-    ref: str, bucket: oneOf(['', ...MOMENT_BUCKETS]), op: oneOf(FILTER_OPS), values: arr(str), ask: bool, label: str,
-  })),
+  filters: arr(FILTER),
   period: obj({ relative: oneOf(['', ...RELATIVE_PERIODS]), n: int, from: str, to: str, any: bool }),
   venues: arr(str),
   sort: arr(obj({ by: str, dir: oneOf(['asc', 'desc']) })),
@@ -371,11 +394,12 @@ export const SYSTEM = `You turn a request for a report into a report definition 
 What can be reported on is listed after these instructions: subjects (S refs), and for the ones listed in full their figures, fields and what each row belongs to (F refs). Use only refs that are listed. Never make one up, and never write a table or column name.
 
 How to answer:
-- subject: one S ref, the kind of row being counted (dishes sold for anything per dish or per section, checks for anything per check, per server or per table, payments for tenders and tips, trading days for a day's totals as the Z report has them). Empty when nothing listed fits: then say why in couldnt. Picking a subject listed in a line only is fine: you will be shown it in full and asked again.
+- subject: one S ref, the kind of row being counted (dishes sold for anything per dish or per section, checks for anything per check, per server or per table, payments for tenders and tips, trading days for a day's totals as the Z report has them). Empty when nothing listed fits: then say why in couldnt. Picking a subject listed in a line only is fine, for subject or in also: you will be shown it in full and asked again.
 - kind: summary (figures added up, grouped by something) or list (the rows themselves, one line each, as they are).
 - rows: a summary's groupings, outer first; a list's columns, in order. A day or a moment can be grouped by a bucket (day, week, month, quarter, year, weekday, hour) where the field says so; empty bucket means as it is (a day by day). label renames it, else empty.
 - columns: a grouping across the top (a table across), only when asked for one ("days across the top"). At most 2. Empty for a list.
-- values: what a summary adds up, named v1, v2 and so on in order. Prefer a figure (marked figure): figures carry the app's rules (net sales leaves out voided dishes and cancelled orders). Use a field with an agg (sum, avg, min, max, count_distinct) only when no figure says it. ref COUNT with agg count is how many rows there are. A calc works out a value from others by their names: v1 / v2, round(v1 / v2 * 100, 1), v1 - v2; it may use round, abs, min, max, if, total (the column's total), running, rank, change, previous; it can't use another calc. For a calc leave ref and agg empty; for anything else leave calc empty. format only for a calc (money, number, percent with 0.25 meaning 25%, duration in seconds). Empty for a list.
+- also: other subjects whose figures go beside the report's own, each counted on its own and lined up by the report's rows: sales beside the hours on the rota, covers beside the weather, card takings beside cash. Only for a summary with no columns across, at most 3; empty when the report is about one subject (most are). The rows must be things both subjects have: the day (or its week, month and so on), the venue, or a thing both lead to (a dish, a server); a field only the report's own subject has can't line up. Each: name (a short word, its figures say it in from), subject (an S ref; the report's own subject too, for lunch beside dinner with filters), label (what its figures are called on the page, empty for its own name), filters (only its rows that match, on its own fields as filters say below; never its day or venue: the report's period and venues apply to it by themselves).
+- values: what a summary adds up, named v1, v2 and so on in order. from: the name of the other subject (in also) a figure is from, its ref then one of that subject's F refs; empty for the report's own subject and for a calc. A calc may read values from every subject (labour as a share of sales: v2 / v1). Prefer a figure (marked figure): figures carry the app's rules (net sales leaves out voided dishes and cancelled orders). Use a field with an agg (sum, avg, min, max, count_distinct) only when no figure says it. ref COUNT with agg count is how many rows there are. A calc works out a value from others by their names: v1 / v2, round(v1 / v2 * 100, 1), v1 - v2; it may use round, abs, min, max, if, total (the column's total), running, rank, change, previous; it can't use another calc. For a calc leave ref and agg empty; for anything else leave calc empty. format only for a calc (money, number, percent with 0.25 meaning 25%, duration in seconds). Empty for a list.
 - filters: only the rows that match. ref a field marked filter, or a thing marked venues. op by the field's type: text is, is_not, in, not_in, contains, starts_with; choice is, is_not, in, not_in; numbers is, gt, gte, lt, lte, between; a day before, after, between, is; yes/no is; any field empty, not_empty. values as text: a choice by its label as listed; a number as people say it (money in pounds like 12.50, a percentage as per cent like 20, a duration in minutes); a day as YYYY-MM-DD; yes or no; a weekday by name; an hour like 18 or 6pm; names in the data (a dish, a server, a section) as the request says them. ask true when the person should be able to choose it each time the report is opened, with label naming what they choose.
 - period and venues are set apart from filters. period: relative from the list (n with last_n_days and next_n_days), or from and to as YYYY-MM-DD; leave it all empty (n 0) when the request names no period (the app then shows last week). any true, the rest empty, only when the report is about what is so now whatever the day a row is dated: actions still open, what members hold now; never with a period named. venues: the venue names asked for as the request says them; empty for every venue.
 - sort: by a value's name (v1) or the F ref of a grouping or list column; dir asc or desc. Empty to keep the usual order.
@@ -396,6 +420,8 @@ Write in plain British English. No emojis, no markdown.`
 // ── From answer to definition ────────────────────────────────
 
 const ref = v => text(v).toUpperCase()
+// A filter made of several parts: answers and plans can't say these.
+const isGroup = f => !!(f.any || f.all || f.has || f.counted)
 const WEEKDAYS = WEEKDAYS_LONG.map(d => d.toLowerCase())
 
 function asWeekday(v) {
@@ -491,7 +517,9 @@ function filterValue(def, type, bucket, op, words) {
  * The model's answer as a definition, made only through the builder's own
  * edits. `slice` is the one the answer was given against; `venues` the
  * group's ([{ id, name }]); `prev` the report it changes (its filters made
- * of several parts and its drill-downs are kept). Returns
+ * of several parts and its drill-downs are kept). Figures from other
+ * subjects (the answer's `also`, a value's `from`) go beside the report's
+ * own when its rows line up with them (shared/reports/also.js). Returns
  *
  *   { spec, name, assumed, couldnt, slips,
  *     questions  [{ question, choices: [{ label, change }] }]: each
@@ -511,21 +539,52 @@ export function toSpec(catalogue, slice, answer, { venues = [], prev = null } = 
   const isList = kind === 'list'
   const couldnt = s => out.couldnt.push(s)
 
-  const nodeOf = r => {
-    const x = slice.f.get(ref(r))
-    if (!x || x.subject !== subjectKey) { if (text(r)) out.slips++; return null }
+  // A ref among one subject's own: the report's, or another subject's of it.
+  const nodeIn = (k, r) => {
+    const x = slice.fIn(k, r)
+    if (!x) { if (text(r)) out.slips++; return null }
     return x
   }
+  const nodeOf = r => nodeIn(subjectKey, r)
   // A thing (a link) grouped, listed or filtered is its name.
-  const named = x => {
-    const r = resolvePath(catalogue, subjectKey, x.path)
+  const namedIn = (k, x) => {
+    const r = resolvePath(catalogue, k, x.path)
     if (r.ok && r.kind === 'link' && !r.def.many) {
       const to = catalogue.subjects[r.def.to]
       if (to?.name) return x.path + '.' + to.name
     }
     return x.path
   }
+  const named = x => namedIn(subjectKey, x)
   const labelOf = path => pathLabel(catalogue, subjectKey, path)
+
+  // A filter of the answer as a condition on `k`'s rows: { cond, type,
+  // bucket, op, value }, or null with the reason said.
+  const condFrom = (k, x, fl) => {
+    let path = x.path
+    let uses = pathUses(catalogue, k, path)
+    if (uses.what === 'link') { path = namedIn(k, x); uses = pathUses(catalogue, k, path) }
+    const what = lowerFirst(uses.label || x.node.full)
+    if (uses.filter !== 'value') { couldnt('It can\'t be filtered by ' + what); return null }
+    const bucket = uses.buckets.includes(fl.bucket) && fl.bucket !== 'day' ? fl.bucket : null
+    const ops = filterOps(uses.type, bucket)
+    const words = list(fl.values).map(text).filter(Boolean)
+    let op = fl.op
+    if ((op === 'is' || op === 'is_not') && words.length > 1) op = op === 'is' ? 'in' : 'not_in'
+    if (!ops.includes(op)) {
+      const swap = { in: 'is', is: 'in', not_in: 'is_not', is_not: 'not_in' }[op]
+      if (swap && ops.includes(swap) && (swap === 'in' || swap === 'not_in' || words.length === 1)) op = swap
+      else { couldnt('It can\'t be filtered that way by ' + what); return null }
+    }
+    const r = resolvePath(catalogue, k, path)
+    const value = filterValue(r.ok ? r.def : null, uses.type, bucket, op, words)
+    const shape = filterShape(op)
+    if (shape !== 'none' && (value === undefined || !filterValueOk(uses.type, bucket, op, value))) {
+      couldnt('"' + words.join(', ') + '" isn\'t something ' + what + ' can be')
+      return null
+    }
+    return { cond: { field: path, ...(bucket ? { bucket } : {}), op, ...(shape === 'none' ? {} : { value }) }, type: uses.type, bucket, op, value }
+  }
 
   let spec = newReport(subjectKey, { dated: !!sub.dated, venue: !!sub.venue })
   if (isList) spec = normaliseReport({ ...spec, kind: 'list' })
@@ -559,21 +618,82 @@ export function toSpec(catalogue, slice, answer, { venues = [], prev = null } = 
     spec = addColumn(spec, { field: path, ...(bucket ? { bucket } : {}), ...(label ? { label } : {}) })
   }
 
+  // Other subjects whose figures go beside the report's own, each counted
+  // on its own and lined up by the report's rows: [{ name, key, subject }].
+  const MAIN = { name: '', key: null, subject: subjectKey }
+  const others = []
+  let noOthers = false
+  const addOther = (k, { name = '', label = '' } = {}) => {
+    const what = lowerFirst(label || catalogue.subjects[k].label)
+    if (isList || spec.columns.length) {
+      if (!noOthers) couldnt((isList ? 'A list shows its own rows as they are' : 'A table across shows its own subject only') + ', so figures from ' + what + ' were left out')
+      noOthers = true
+      return null
+    }
+    if (roomLeft(spec).also <= 0) { couldnt('A report shows figures from ' + LIMITS.also + ' other subjects at most, so ' + what + ' was left out'); return null }
+    const m = matchRows(catalogue, spec, k)
+    if (!m.ok) { couldnt('Figures from ' + what + ' were left out: ' + lowerFirst(m.missing[0].why)); return null }
+    const before = spec.also.length
+    spec = addAlso(spec, k, { key: text(name).toLowerCase(), ...(label ? { label } : {}) })
+    if (spec.also.length === before) return null
+    const entry = { name: text(name).toLowerCase(), key: spec.also[spec.also.length - 1].key, subject: k }
+    others.push(entry)
+    return entry
+  }
+  for (const a of list(answer.also)) {
+    const k = slice.s.get(ref(a.subject))
+    if (!catalogue.subjects[k]?.base) { if (text(a.subject)) out.slips++; continue }
+    const label = clip(a.label, LIMITS.label)
+    const entry = addOther(k, { name: a.name, label })
+    if (!entry) continue
+    // Its own filters, on its own fields. Its days and venues are the report's.
+    const what = lowerFirst(label || catalogue.subjects[k].label)
+    const conds = []
+    for (const fl of list(a.filters)) {
+      const x = nodeIn(k, fl.ref)
+      if (!x) continue
+      if (x.path === 'date') { couldnt('The report\'s period applies to ' + what + ', so its own filter on the day was left out'); continue }
+      if (pathUses(catalogue, k, x.path).filter === 'venues') { couldnt('The report\'s venues apply to ' + what + ', so its own filter on the venue was left out'); continue }
+      const c = condFrom(k, x, fl)
+      if (c) conds.push(c.cond)
+    }
+    if (conds.length) spec = updateAlso(spec, entry.key, { filters: conds.slice(0, LIMITS.filters) })
+  }
+  // Where a value's figure is: the report's own subject, or one of the others
+  // (named in `from`, or met through a ref of another subject's). Null: left out.
+  const placeOf = v => {
+    const said = text(v.from)
+    if (said) {
+      const t = said.toLowerCase()
+      const hit = others.find(o => o.name === t || o.key === t)
+      if (hit) return hit
+      const k = slice.s.get(ref(said))
+      if (!catalogue.subjects[k]?.base) { out.slips++; return null }
+      return others.find(o => o.subject === k) || (k === subjectKey ? MAIN : addOther(k))
+    }
+    // The smart builder's refs name their subject: one of another's means it.
+    const x = slice.f.get(ref(v.ref))
+    if (x && x.subject !== subjectKey) return others.find(o => o.subject === x.subject) || addOther(x.subject)
+    return MAIN
+  }
+
   // Values, the plain ones first: a calculation reads them by name.
   const keyOf = new Map()
   const keyOfRef = r => {
-    if (/^count$/i.test(text(r))) return spec.values.find(v => v.agg === 'count' && !v.field)?.key || null
+    if (/^count$/i.test(text(r))) return spec.values.find(v => v.agg === 'count' && !v.field && !v.from)?.key || null
     const x = slice.f.get(ref(r))
-    if (!x || x.subject !== subjectKey) return null
-    return spec.values.find(v => v.measure === x.path)?.key || null
-  }
-  const valueFor = v => {
-    if (/^count$/i.test(text(v.ref))) return { agg: 'count' }
-    const x = nodeOf(v.ref)
     if (!x) return null
-    const uses = pathUses(catalogue, subjectKey, x.path)
+    return spec.values.find(v => v.measure === x.path && valueSubject(spec, v) === x.subject)?.key || null
+  }
+  const valueFor = (v, place = MAIN) => {
+    const k = place.subject
+    const from = place.key ? { from: place.key } : {}
+    if (/^count$/i.test(text(v.ref))) return { agg: 'count', ...from }
+    const x = nodeIn(k, v.ref)
+    if (!x) return null
+    const uses = pathUses(catalogue, k, x.path)
     if (uses.what === 'measure') {
-      if (uses.values.some(w => w.measure)) return { measure: x.path }
+      if (uses.values.some(w => w.measure)) return { measure: x.path, ...from }
       couldnt(x.node.full + ' can\'t be added up in this report')
       return null
     }
@@ -582,12 +702,12 @@ export function toSpec(catalogue, slice, answer, { venues = [], prev = null } = 
     const agg = AGGS.includes(v.agg) ? v.agg : ''
     const wanted = agg === 'count' ? 'count_distinct' : agg
     const hit = offers.find(w => w.agg === wanted) || (!agg ? offers.find(w => w.agg === 'sum') : null)
-    if (hit) return { agg: hit.agg, field: hit.field }
-    if (agg === 'count') return { agg: 'count' }
+    if (hit) return { agg: hit.agg, field: hit.field, ...from }
+    if (agg === 'count') return { agg: 'count', ...from }
     const picked = { agg: offers[0].agg, field: offers[0].field }
-    out.assumed.push('Showed ' + lowerFirst(valueName(catalogue, subjectKey, picked)) + ': '
+    out.assumed.push('Showed ' + lowerFirst(valueName(catalogue, k, picked)) + ': '
       + lowerFirst(x.node.full) + ' can\'t be ' + (agg === 'avg' ? 'averaged' : agg === 'sum' ? 'totalled' : 'added up that way') + ' here')
-    return picked
+    return { ...picked, ...from }
   }
   const nameOf = v => text(v.name).toLowerCase()
   // decimals and hidden come only from plans (src/reports/plan.js): the model's answers have neither.
@@ -600,11 +720,14 @@ export function toSpec(catalogue, slice, answer, { venues = [], prev = null } = 
       ...(v.hidden === true ? { hidden: true } : {}),
     }
   }
-  const sameValue = (a, b) => (a.measure || '') === (b.measure || '') && (a.agg || '') === (b.agg || '') && (a.field || '') === (b.field || '')
+  const sameValue = (a, b) => (a.measure || '') === (b.measure || '') && (a.agg || '') === (b.agg || '')
+    && (a.field || '') === (b.field || '') && (a.from || '') === (b.from || '')
   if (!isList) {
     const all = list(answer.values)
     for (const v of all.filter(x => !text(x.calc))) {
-      const value = valueFor(v)
+      const place = placeOf(v)
+      if (!place) continue
+      const value = valueFor(v, place)
       if (!value) continue
       const before = spec.values.length
       spec = addValue(spec, { ...value, ...extras(v) })
@@ -626,6 +749,8 @@ export function toSpec(catalogue, slice, answer, { venues = [], prev = null } = 
   } else if (list(answer.values).length) {
     out.assumed.push('A list shows its rows as they are, so nothing is added up')
   }
+  // Another subject none of whose figures could be shown goes (said above why).
+  for (const o of others) if (!spec.values.some(v => v.from === o.key)) spec = removeAlso(spec, o.key)
 
   // Filters; the venues and the report's own period are set apart.
   const venueNames = list(answer.venues).map(text).filter(Boolean)
@@ -633,42 +758,22 @@ export function toSpec(catalogue, slice, answer, { venues = [], prev = null } = 
   for (const fl of list(answer.filters)) {
     const x = nodeOf(fl.ref)
     if (!x) continue
-    let uses = pathUses(catalogue, subjectKey, x.path)
+    const uses = pathUses(catalogue, subjectKey, x.path)
     if (uses.filter === 'venues') { venueNames.push(...list(fl.values).map(text).filter(Boolean)); continue }
     if (x.path === 'date' && !text(fl.bucket) && fl.op === 'in_period') {
       period = periodFrom(list(fl.values)) || period
       continue
     }
-    let path = x.path
-    if (uses.what === 'link') { path = named(x); uses = pathUses(catalogue, subjectKey, path) }
-    const what = lowerFirst(uses.label || x.node.full)
-    if (uses.filter !== 'value') { couldnt('It can\'t be filtered by ' + what); continue }
-    const bucket = uses.buckets.includes(fl.bucket) && fl.bucket !== 'day' ? fl.bucket : null
-    const ops = filterOps(uses.type, bucket)
-    const words = list(fl.values).map(text).filter(Boolean)
-    let op = fl.op
-    if ((op === 'is' || op === 'is_not') && words.length > 1) op = op === 'is' ? 'in' : 'not_in'
-    if (!ops.includes(op)) {
-      const swap = { in: 'is', is: 'in', not_in: 'is_not', is_not: 'not_in' }[op]
-      if (swap && ops.includes(swap) && (swap === 'in' || swap === 'not_in' || words.length === 1)) op = swap
-      else { couldnt('It can\'t be filtered that way by ' + what); continue }
-    }
-    const r = resolvePath(catalogue, subjectKey, path)
-    const value = filterValue(r.ok ? r.def : null, uses.type, bucket, op, words)
-    const shape = filterShape(op)
-    if (shape !== 'none' && (value === undefined || !filterValueOk(uses.type, bucket, op, value))) {
-      couldnt('"' + words.join(', ') + '" isn\'t something ' + what + ' can be')
-      continue
-    }
-    const cond = { field: path, ...(bucket ? { bucket } : {}), op, ...(shape === 'none' ? {} : { value }) }
+    const c = condFrom(subjectKey, x, fl)
+    if (!c) continue
     const label = clip(fl.label, LIMITS.label)
     const index = spec.filters.length
-    const next = addFilter(spec, cond, { ask: fl.ask === true, label })
+    const next = addFilter(spec, c.cond, { ask: fl.ask === true, label })
     if (next === spec) { couldnt('The report has as many filters as it can take'); continue }
     spec = next
     // Names in the data are found in the report's own rows once it is built.
-    if (filterValueKind(uses.type, bucket, op) === 'text' && ['is', 'is_not', 'in', 'not_in'].includes(op)) {
-      out.lookups.push({ index, cond, ask: fl.ask === true, label, typed: [].concat(value) })
+    if (filterValueKind(c.type, c.bucket, c.op) === 'text' && ['is', 'is_not', 'in', 'not_in'].includes(c.op)) {
+      out.lookups.push({ index, cond: c.cond, ask: fl.ask === true, label, typed: [].concat(c.value) })
     }
   }
 
@@ -758,13 +863,24 @@ export function toSpec(catalogue, slice, answer, { venues = [], prev = null } = 
   }
 
   // What the report changed from had that answers can't say: filters made of
-  // several parts and its drill-downs, kept while it stays about the same rows.
+  // several parts (its own, and those of another subject it still shows
+  // under the same key) and its drill-downs, kept while it stays about the
+  // same rows.
   if (prev && prev.subject === subjectKey) {
-    const kept = prev.filters.filter(f => f.any || f.all || f.has || f.counted)
-    if (kept.length) {
-      const want = usedParams({ filters: kept })
+    const kept = prev.filters.filter(isGroup)
+    const keptOn = new Map()
+    for (const a of spec.also) {
+      const was = (prev.also || []).find(p => p.key === a.key && p.subject === a.subject)
+      const groups = was ? was.filters.filter(isGroup) : []
+      if (groups.length) keptOn.set(a.key, groups)
+    }
+    if (kept.length || keptOn.size) {
+      const want = usedParams({ filters: [...kept, ...[...keptOn.values()].flat()] })
       const params = [...spec.params, ...prev.params.filter(p => want.has(p.key) && !spec.params.some(x => x.key === p.key))]
-      spec = normaliseReport({ ...spec, params, filters: [...spec.filters, ...kept] })
+      spec = normaliseReport({
+        ...spec, params, filters: [...spec.filters, ...kept],
+        also: spec.also.map(a => (keptOn.has(a.key) ? { ...a, filters: [...a.filters, ...keptOn.get(a.key)] } : a)),
+      })
     }
     if (prev.drill) spec = normaliseReport({ ...spec, drill: prev.drill })
   }
@@ -856,34 +972,53 @@ function wordsOf(def, type, bucket, op, v) {
  */
 export function answerOf(catalogue, slice, spec, venues = [], name = '', { full = false } = {}) {
   const k = spec.subject
-  const fref = path => slice.fRefOf.get(k + '|' + path) || ''
   // A thing's name is listed as the thing.
-  const refFor = path => fref(path) || (path.includes('.') ? fref(path.slice(0, path.lastIndexOf('.'))) : '')
+  const refIn = (sk, path) => slice.refIn(sk, path) || (path.includes('.') ? slice.refIn(sk, path.slice(0, path.lastIndexOf('.'))) : '')
+  const refFor = path => refIn(k, path)
   const names = new Map(spec.values.map((v, i) => [v.key, 'v' + (i + 1)]))
   const asName = key => names.get(key) || ''
   const row = r => ({ ref: refFor(r.field), bucket: r.bucket || '', label: r.label || '' })
   const values = spec.values.filter(v => !v.of).map(v => {
+    const vk = valueSubject(spec, v)
     const base = {
-      name: asName(v.key), ref: '', agg: '', calc: '', label: v.label || '', format: v.format || '',
+      name: asName(v.key), from: v.from || '', ref: '', agg: '', calc: '', label: v.label || '', format: v.format || '',
       // A plan says these too (`full`); the model's answers don't.
       ...(full && v.decimals != null ? { decimals: v.decimals } : {}), ...(full && v.hidden ? { hidden: true } : {}),
     }
-    if (v.measure) return { ...base, ref: fref(v.measure) }
+    if (v.measure) return { ...base, ref: slice.refIn(vk, v.measure) }
     if (v.calc) return { ...base, calc: v.calc.replace(/[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*/gi, t => names.get(t) || t) }
     if (v.agg === 'count' && !v.field) return { ...base, ref: 'COUNT', agg: 'count' }
-    return { ...base, ref: refFor(v.field), agg: v.agg }
+    return { ...base, ref: refIn(vk, v.field), agg: v.agg }
   }).filter(v => v.ref || v.calc)
+
+  // A plain filter on `sk`'s rows, the way answers write one ({ ref: '' } when it has no ref).
+  const filterOf = (sk, f) => {
+    const param = f.param ? spec.params.find(x => x.key === f.param) : null
+    const r = resolvePath(catalogue, sk, f.field)
+    if (!r.ok) return { ref: '' }
+    const value = param ? param.default : f.value
+    return {
+      ref: refIn(sk, f.field), bucket: f.bucket || '', op: f.op,
+      values: f.op === 'in_period' ? [value?.relative || value?.from || '', String(value?.n || value?.to || '')] : wordsOf(r.def, r.def.type, f.bucket, f.op, value),
+      ask: !!param, label: param?.label || '',
+    }
+  }
 
   const out = {
     subject: slice.sRefOf.get(k) || '', kind: spec.kind === 'list' ? 'list' : 'summary',
     rows: spec.rows.map(row).filter(r => r.ref), columns: spec.columns.map(row).filter(r => r.ref),
+    // Its other subjects, by their keys (their figures name them in `from`).
+    also: (spec.also || []).map(a => ({
+      name: a.key, subject: slice.sRefOf.get(a.subject) || '', label: a.label || '',
+      filters: a.filters.filter(f => !isGroup(f)).map(f => ({ ...filterOf(a.subject, f), ask: false, label: '' })).filter(f => f.ref),
+    })).filter(a => a.subject),
     values, filters: [], period: { relative: '', n: 0, from: '', to: '', any: false }, venues: [],
     sort: [], limit: { which: 'none', n: 0, by: '', rest: '' }, compare: spec.compare?.with || 'none',
     chart: { kind: spec.view?.kind || 'table', x: '', y: [], line: '', stacked: !!spec.view?.stacked, sideways: !!spec.view?.sideways },
     name: clip(name, 60), assumed: [], couldnt: [], questions: [],
   }
   for (const f of spec.filters) {
-    if (f.any || f.all || f.has || f.counted) continue
+    if (isGroup(f)) continue
     const param = f.param ? spec.params.find(x => x.key === f.param) : null
     if (param?.type === 'period') {
       const pd = param.default || {}
@@ -894,14 +1029,7 @@ export function answerOf(catalogue, slice, spec, venues = [], name = '', { full 
       out.venues = Array.isArray(param.default) ? param.default.map(id => venues.find(v => v.id === id)?.name).filter(Boolean) : []
       continue
     }
-    const r = resolvePath(catalogue, k, f.field)
-    if (!r.ok) continue
-    const value = param ? param.default : f.value
-    out.filters.push({
-      ref: refFor(f.field), bucket: f.bucket || '', op: f.op,
-      values: f.op === 'in_period' ? [value?.relative || value?.from || '', String(value?.n || value?.to || '')] : wordsOf(r.def, r.def.type, f.bucket, f.op, value),
-      ask: !!param, label: param?.label || '',
-    })
+    out.filters.push(filterOf(k, f))
   }
   out.filters = out.filters.filter(f => f.ref)
   // A dated subject with no period on its day is about every day.
@@ -1011,7 +1139,10 @@ export async function runBuilt(p, catalogue, built, { venues = [], assumed = [],
 export async function smartBuild(p, { request, previous = null, files = [], venues = [], today = null } = {}) {
   const catalogue = catalogueView(p.levels)
   const prev = previous?.spec ? normaliseReport(previous.spec) : null
-  const pinned = prev && catalogue.subjects[prev.subject]?.base ? prev.subject : null
+  // The report to change, and the other subjects it shows, listed in full.
+  const pinned = prev && catalogue.subjects[prev.subject]?.base
+    ? [...new Set([prev.subject, ...prev.also.map(a => a.subject).filter(k => catalogue.subjects[k]?.base)])]
+    : null
   let slice = buildSlice(catalogue, request + ' ' + list(previous?.requests).join(' '), pinned)
   let current = prev && pinned ? answerOf(catalogue, slice, prev, venues, previous?.name) : null
   let feedback = null
@@ -1036,11 +1167,15 @@ export async function smartBuild(p, { request, previous = null, files = [], venu
         questions: modelQuestions, result: null, problem: null,
       }
     }
-    // A subject listed in a line only: ask again with it in full.
-    if (!slice.detailed.includes(subjectKey) && call === 1) {
-      slice = buildSlice(catalogue, request, subjectKey)
+    // A subject listed in a line only (the report's, or another whose
+    // figures it shows): ask again with them in full.
+    const others = [...new Set(list(answer.also).map(a => slice.s.get(ref(a.subject)))
+      .filter(k => k && k !== subjectKey && catalogue.subjects[k]?.base))]
+    if ([subjectKey, ...others].some(k => !slice.detailed.includes(k)) && call === 1) {
+      slice = buildSlice(catalogue, request, [subjectKey, ...others])
       current = prev && prev.subject === subjectKey ? answerOf(catalogue, slice, prev, venues, previous?.name) : current && null
-      feedback = 'Build it from ' + slice.sRefOf.get(subjectKey) + ' (' + catalogue.subjects[subjectKey].label + '), now listed in full.'
+      const said = k => slice.sRefOf.get(k) + ' (' + catalogue.subjects[k].label + ')'
+      feedback = 'Build it from ' + said(subjectKey) + (others.length ? ', with figures from ' + others.map(said).join(' and ') : '') + ', now listed in full.'
       continue
     }
 

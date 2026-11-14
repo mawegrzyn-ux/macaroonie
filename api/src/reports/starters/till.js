@@ -225,4 +225,52 @@ export default [
       sort: [{ by: 'date', dir: 'desc' }],
     },
   }),
+
+  // Figures from other subjects beside the till's own (phase 3c): each is
+  // counted on its own and lined up by the report's rows.
+  starter({
+    key: 'till_sales_and_weather',
+    name: 'Sales against the weather',
+    about: 'Each trading day\'s net sales and checks beside the weather that day, from the weather capture on the Local info page: the highest temperature and the rain. A day with no forecast shows no weather.',
+    period: { relative: 'last_n_days', n: 28 },
+    spec: {
+      subject: 'till.checks',
+      rows: ['date'],
+      also: [{ key: 'weather', subject: 'local.weather' }],
+      values: [
+        ...m('net_sales', 'checks'),
+        { key: 'highest', measure: 'average_high', from: 'weather' },
+        { key: 'rain', measure: 'average_rain', from: 'weather' },
+      ],
+      filters: [CLOSED],
+      sort: [{ by: 'date', dir: 'asc' }],
+      drill: { down: ['venue.name'], rows: CHECK_ROWS },
+      view: { kind: 'line', x: 'date', y: ['net_sales', 'highest'] },
+    },
+  }),
+
+  starter({
+    key: 'till_week_by_venue',
+    name: 'Sales, labour and bookings by venue',
+    about: 'Each venue\'s net sales and guests on the till beside the guests booked and the hours and pay on the rota, with pay as a share of net sales. Rota weeks run Monday to Sunday, so pick whole weeks.',
+    period: 'last_week',
+    spec: {
+      subject: 'till.checks',
+      rows: ['venue.name'],
+      also: [
+        { key: 'booked', subject: 'bookings.bookings', label: 'Bookings' },
+        { key: 'rota', subject: 'rota.weeks', label: 'Rota' },
+      ],
+      values: [
+        ...m('net_sales', 'guests'),
+        { key: 'booked_guests', measure: 'guests', from: 'booked', label: 'Guests booked' },
+        { key: 'hours', measure: 'hours_total', from: 'rota' },
+        { key: 'pay', measure: 'pay_total', from: 'rota' },
+        { key: 'pay_share', calc: 'pay / net_sales', label: 'Pay as a share of net sales', format: 'percent', decimals: 1 },
+      ],
+      filters: [CLOSED],
+      sort: [{ by: 'net_sales', dir: 'desc' }],
+      drill: { down: [{ field: 'date', bucket: 'week' }] },
+    },
+  }),
 ]
