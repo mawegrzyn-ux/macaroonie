@@ -59,12 +59,13 @@ export async function loadOrderTypes(tx, tenantId) {
  * A venue's revenue streams with their order type settings:
  *   { id, name, menu_ids, colour, sort_order, is_active, default_order_type_id,
  *     covers ('off' | 'ask' | 'must'), courses (bool) (migration 231),
+ *     seats (bool) (migration 246),
  *     order_types: [{ order_type_id, enabled, ask_name, ask_tent }] }
  * A type with no row is off for the stream.
  */
 export async function loadStreams(tx, tenantId, venueId, { activeOnly = false } = {}) {
   const [streams, settings] = await Promise.all([
-    tx`SELECT id, name, menu_ids, colour, sort_order, is_active, default_order_type_id, covers, courses
+    tx`SELECT id, name, menu_ids, colour, sort_order, is_active, default_order_type_id, covers, courses, seats
          FROM pos_revenue_streams
         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ${activeOnly ? tx`AND is_active` : tx``}
         ORDER BY sort_order, name`,

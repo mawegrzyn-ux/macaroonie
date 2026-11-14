@@ -176,6 +176,8 @@ const SettingsBody = z.object({
   order_prompt:              z.enum(['one', 'two']).optional(),
   // Migration 228: the till layout this venue's tills use (null = the standard screen).
   till_layout_id:            UUID.nullable().optional(),
+  // Migration 246: the layout (made for a phone) tills draw on a phone-sized screen.
+  phone_layout_id:           UUID.nullable().optional(),
   approvals:                 z.object(Object.fromEntries(MANAGER_ACTION_KEYS.map(k => [k, z.boolean().optional()]))).strict().optional(),
 })
 
@@ -239,6 +241,8 @@ const StreamBody = z.object({
   // be skipped, must), and whether the stream's checks use courses.
   covers:                    z.enum(['off', 'ask', 'must']).default('ask'),
   courses:                   z.boolean().default(true),
+  // Migration 246: seat numbers on its checks, a switch of their own.
+  seats:                     z.boolean().default(true),
 })
 
 const PrinterBody = z.object({
@@ -296,6 +300,22 @@ const DeviceSettings = z.object({
   // the check's revenue stream's setting.
   covers:             z.enum(['stream', 'off', 'ask', 'must']).optional(),
   courses:            z.enum(['stream', 'on', 'off']).optional(),
+  // Till fixes (14 Nov 2026, device settings are jsonb): its own seats
+  // ('stream' or absent = the check's revenue stream's, migration 246); a
+  // counter till's Send button (absent = none: counter orders go to the
+  // kitchen as they are paid); what Pay does on a table-service till with
+  // items not sent yet ('ask' or absent = asks first, 'send' = sends them
+  // and fires waiting courses); a table-service till's tables (absent = yes,
+  // false = only tabs and orders); its tables and tabs on a phone ('tiles'
+  // or absent, 'list' = rows to swipe: left sends or fires, right pays);
+  // and on its dish buttons how many of the dish are on the order (absent =
+  // no). pos/src/lib/checkOps.js reads them.
+  seats:              z.enum(['stream', 'on', 'off']).optional(),
+  counter_send:       z.boolean().optional(),
+  unsent_at_pay:      z.enum(['ask', 'send']).optional(),
+  tables:             z.boolean().optional(),
+  phone_tables:       z.enum(['tiles', 'list']).optional(),
+  item_counts:        z.boolean().optional(),
   // A till's or kiosk's own counter order numbers (migration 217,
   // shared/pos/numbers.js): no two at a location may overlap.
   order_numbers:      z.object({
@@ -886,6 +906,11 @@ export default async function posSetupRoutes(app) {
         const [l] = await tx`SELECT id FROM pos_till_layouts WHERE id = ${body.till_layout_id} AND tenant_id = ${req.tenantId}`
         if (!l) throw httpError(422, 'Till layout not found')
       }
+      if (body.phone_layout_id) {
+        const [l] = await tx`SELECT id, layout FROM pos_till_layouts WHERE id = ${body.phone_layout_id} AND tenant_id = ${req.tenantId}`
+        if (!l) throw httpError(422, 'Till layout not found')
+        if (!l.layout?.phone) throw httpError(422, 'Pick a layout made for a phone (its Made for setting in the designer).', { code: 'phone_layout' })
+      }
       if (body.approvals) set.approvals = tx.json(normaliseApprovals(body.approvals))
       delete set.pull
       if (body.pull) Object.assign(set, pullColumns(body.pull))
@@ -972,8 +997,8 @@ export default async function posSetupRoutes(app) {
       await checkMenus(tx, req.tenantId, venueId, body.menu_ids)
       const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM pos_revenue_streams WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
       const [rs] = await tx`
-        INSERT INTO pos_revenue_streams (tenant_id, venue_id, name, menu_ids, colour, sort_order, is_active, covers, courses)
-        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.menu_ids}, ${body.colour ?? null}, ${n}, ${body.is_active}, ${body.covers}, ${body.courses})
+        INSERT INTO pos_revenue_streams (tenant_id, venue_id, name, menu_ids, colour, sort_order, is_active, covers, courses, seats)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.menu_ids}, ${body.colour ?? null}, ${n}, ${body.is_active}, ${body.covers}, ${body.courses}, ${body.seats})
         RETURNING id`
       await writeStreamTypes(tx, req.tenantId, rs.id, body, true)
       return streamOut(tx, req.tenantId, venueId, rs.id)
@@ -992,7 +1017,7 @@ export default async function posSetupRoutes(app) {
         UPDATE pos_revenue_streams
            SET name = ${body.name}, menu_ids = ${body.menu_ids},
                colour = ${body.colour ?? null}, is_active = ${body.is_active},
-               covers = ${body.covers}, courses = ${body.courses}
+               covers = ${body.covers}, courses = ${body.courses}, seats = ${body.seats}
          WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       await writeStreamTypes(tx, req.tenantId, id, body, false)
       return { ...(await streamOut(tx, req.tenantId, rs.venue_id, id)), venue_id: rs.venue_id }

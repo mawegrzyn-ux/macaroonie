@@ -28,7 +28,7 @@ export function useTillLayouts() {
 /** Where a layout is used, in words. */
 export function usedByText(used, venues) {
   const parts = [
-    ...(used?.venues || []).map(v => (venues.find(x => x.id === v.id)?.name || v.name) + ' (the location)'),
+    ...(used?.venues || []).map(v => (venues.find(x => x.id === v.id)?.name || v.name) + (v.phone ? ' (the location, on phones)' : ' (the location)')),
     ...(used?.tills || []).map(t => t.name + ' at ' + t.venue_name),
   ]
   return parts.length ? 'Used by ' + parts.join(', ') : 'Not used yet'
@@ -49,6 +49,12 @@ export default function TillLayoutsSection({ venueId, setup, canManage = true })
   }
   const setVenue = useMutation({
     mutationFn: id => api.patch(`/pos/venues/${venueId}/settings`, { till_layout_id: id || null }),
+    onSuccess: () => { setErr(null); refresh() },
+    onError: e => setErr(e),
+  })
+  // The layout this venue's tills draw on a phone-sized screen (migration 246).
+  const setPhone = useMutation({
+    mutationFn: id => api.patch(`/pos/venues/${venueId}/settings`, { phone_layout_id: id || null }),
     onSuccess: () => { setErr(null); refresh() },
     onError: e => setErr(e),
   })
@@ -79,8 +85,15 @@ export default function TillLayoutsSection({ venueId, setup, canManage = true })
             {layouts.map(l => <option key={l.id} value={l.id}>{l.name}{l.phone ? ' (phone)' : ''}</option>)}
           </select>
         </Field>
+        <Field label="On phones">
+          <select className={inputCls} value={setup.settings.phone_layout_id || ''} disabled={!canManage || setPhone.isPending}
+            onChange={e => setPhone.mutate(e.target.value)} data-testid="venue-phone-layout">
+            <option value="">The built-in phone screen</option>
+            {layouts.filter(l => l.phone).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+        </Field>
         <p className="text-xs text-muted-foreground" data-testid="venue-layout-phone-note">
-          A till on a phone-sized screen draws a layout made for a phone when that is the one picked for it; with any other layout (or none) it shows the built-in phone screen.
+          A till on a phone-sized screen draws a layout made for a phone: the one picked for it when that is one, else the one picked here for phones. The built-in phone screen can't be changed (its dishes show their prices): for your own prices, buttons or dishes on phones, make a layout from a phone starting point and pick it here.
         </p>
         {ownChoice.length > 0 && (
           <p className="text-xs text-muted-foreground" data-testid="venue-layout-own">
@@ -164,7 +177,7 @@ export default function TillLayoutsSection({ venueId, setup, canManage = true })
             </Field>
             {LAYOUT_TEMPLATES.find(t => t.key === starting.from)?.phone && (
               <p className="text-xs text-muted-foreground" data-testid="new-layout-phone-hint">
-                For a phone held upright: the dishes as a list, the order behind a button that shows its items and total, no top bar. Pick it for the tills that run on phones.
+                For a phone held upright: the dishes as a list, the order behind a button that shows its items and total, no top bar. Pick it for the tills that run on phones, or as a location's layout On phones.
               </p>
             )}
             <ErrorNote error={create.error} />

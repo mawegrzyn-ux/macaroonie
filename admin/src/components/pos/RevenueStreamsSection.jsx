@@ -5,8 +5,9 @@
 // stream doesn't decide tax. Each one picks its menus, which order types it
 // offers and, per type, whether to ask for a customer name and a tent number
 // (off, ask, must have), and the type new checks start as; whether its tills
-// ask how many guests (covers: off, ask, must) and use courses (migration
-// 231; a till can choose its own). The charges its checks get are on
+// ask how many guests (covers: off, ask, must), use courses (migration 231)
+// and number seats (migration 246); a till can choose its own, and counter
+// tills use none of them. The charges its checks get are on
 // Store tech > Charges (the location's matrix of streams by order types).
 
 import { useState } from 'react'
@@ -51,6 +52,7 @@ function StreamModal({ venueId, setup, stream, onClose }) {
     order_types: typeRows(stream, types),
     covers: stream?.covers || 'ask',
     courses: stream ? stream.courses !== false : true,
+    seats: stream ? stream.seats !== false : true,
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const setType = (id, patch) => set({ order_types: form.order_types.map(x => (x.order_type_id === id ? { ...x, ...patch } : x)) })
@@ -60,7 +62,7 @@ function StreamModal({ venueId, setup, stream, onClose }) {
   const body = () => ({
     name: form.name.trim(), menu_ids: form.menu_ids, colour: form.colour, is_active: form.is_active,
     default_order_type_id: def, order_types: form.order_types,
-    covers: form.covers, courses: form.courses,
+    covers: form.covers, courses: form.courses, seats: form.seats,
   })
   const save = useMutation({
     mutationFn: () => stream ? api.patch(`/pos/revenue-streams/${stream.id}`, body()) : api.post(`/pos/venues/${venueId}/revenue-streams`, body()),
@@ -113,10 +115,11 @@ function StreamModal({ venueId, setup, stream, onClose }) {
           </select>
         </Field>
       )}
-      <Field group label="Guests (covers)" hint="When a table's check opens. Ask: the till asks, and it can be skipped. Must have: no skipping, and a table's check without them asks again before Send and Pay. Don't ask: no covers and no seat numbers.">
-        <Segmented value={form.covers} options={COVERS_RULES} onChange={v => set({ covers: v })} className="flex-wrap" />
+      <Field group label="Guests (covers)" hint="When a table's check or a tab opens on a table-service till. Ask: the till asks, and it can be skipped. Must have: no skipping, and a check without them asks again before Send and Pay. Don't ask: no covers. Counter tills never ask.">
+        <Segmented value={form.covers} options={COVERS_RULES} onChange={v => set({ covers: v })} className="flex-wrap" testid="stream-covers" />
       </Field>
-      <Toggle label="Use courses" hint="Off: dishes go to the kitchen together, with no course chips on the till." checked={form.courses} onChange={v => set({ courses: v })} />
+      <Toggle label="Use seats" hint="Off: no seat numbers on items and no By seat on the check. Counter tills never use seats." checked={form.seats} onChange={v => set({ seats: v })} />
+      <Toggle label="Use courses" hint="Off: dishes go to the kitchen together, with no course chips on the till. Counter tills never use courses." checked={form.courses} onChange={v => set({ courses: v })} />
       <Field group label="Menus on the till" hint="None picked: every published menu.">
         <div className="flex flex-wrap gap-2">
           {setup.menus.map(m => {
@@ -168,7 +171,7 @@ export default function RevenueStreamsSection({ venueId, setup }) {
                     {typesText(rs) || 'No order types'}
                     {rs.default_order_type_id && typeName(rs.default_order_type_id) && ' · starts as ' + typeName(rs.default_order_type_id)}
                     {' · '}{menuNames(rs.menu_ids).join(', ') || 'all menus'}
-                    {' · covers: '}{coversWord(rs.covers)}{rs.courses === false ? ' · no courses' : ''}
+                    {' · covers: '}{coversWord(rs.covers)}{rs.seats === false ? ' · no seats' : ''}{rs.courses === false ? ' · no courses' : ''}
                   </p>
                 </div>
                 <Btn onClick={() => setEditing(rs)} title={'Edit ' + rs.name}><Pencil className="w-4 h-4" /></Btn>

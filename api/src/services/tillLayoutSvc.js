@@ -12,12 +12,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const ownLayoutId = s => (typeof s?.till_layout === 'string' && UUID.test(s.till_layout) ? s.till_layout : null)
 
 /**
- * The layouts a venue's tills use, by id: the venue's (pos_settings.till_layout_id)
- * and each till's own (settings.till_layout). Each is { id, name, cols, rows, zones }.
+ * The layouts a venue's tills use, by id: the venue's (pos_settings.till_layout_id),
+ * its layout for phones (phone_layout_id, migration 246) and each till's own
+ * (settings.till_layout). Each is { id, name, cols, rows, zones }.
  */
 export async function venueTillLayouts(tx, tenantId, settings, devices = []) {
   const ids = new Set()
   if (settings?.till_layout_id) ids.add(settings.till_layout_id)
+  if (settings?.phone_layout_id) ids.add(settings.phone_layout_id)
   for (const d of devices) {
     const own = ownLayoutId(d.settings)
     if (own) ids.add(own)
@@ -48,12 +50,18 @@ export async function ownTillLayout(tx, tenantId, raw) {
   })
 }
 
-/** Where each layout is used: { [id]: { venues: [{ id, name }], tills: [{ id, name, venue_id, venue_name }] } }. */
+/**
+ * Where each layout is used: { [id]: { venues: [{ id, name, phone }], tills: [{ id, name, venue_id, venue_name }] } }.
+ * A venue's phone: true is its layout for phones (phone_layout_id).
+ */
 export async function layoutUses(tx, tenantId) {
   const [venues, tills] = await Promise.all([
-    tx`SELECT s.till_layout_id AS layout_id, v.id, v.name
-         FROM pos_settings s JOIN venues v ON v.id = s.venue_id AND v.tenant_id = s.tenant_id
-        WHERE s.tenant_id = ${tenantId} AND s.till_layout_id IS NOT NULL ORDER BY v.name`,
+    tx`SELECT u.layout_id, u.phone, v.id, v.name
+         FROM (SELECT tenant_id, venue_id, till_layout_id AS layout_id, false AS phone FROM pos_settings WHERE tenant_id = ${tenantId} AND till_layout_id IS NOT NULL
+               UNION ALL
+               SELECT tenant_id, venue_id, phone_layout_id, true FROM pos_settings WHERE tenant_id = ${tenantId} AND phone_layout_id IS NOT NULL) u
+         JOIN venues v ON v.id = u.venue_id AND v.tenant_id = u.tenant_id
+        ORDER BY v.name, u.phone`,
     tx`SELECT d.settings->>'till_layout' AS layout_id, d.id, d.name, d.venue_id, v.name AS venue_name
          FROM pos_devices d JOIN venues v ON v.id = d.venue_id AND v.tenant_id = d.tenant_id
         WHERE d.tenant_id = ${tenantId} AND d.kind = 'terminal' AND d.revoked_at IS NULL
@@ -62,7 +70,7 @@ export async function layoutUses(tx, tenantId) {
   ])
   const out = {}
   const at = id => (out[id] ||= { venues: [], tills: [] })
-  for (const v of venues) at(v.layout_id).venues.push({ id: v.id, name: v.name })
+  for (const v of venues) at(v.layout_id).venues.push({ id: v.id, name: v.name, phone: v.phone })
   for (const t of tills) at(t.layout_id).tills.push({ id: t.id, name: t.name, venue_id: t.venue_id, venue_name: t.venue_name })
   return out
 }

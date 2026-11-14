@@ -7,8 +7,14 @@
 // Order flows (Store tech > Order flows, lib/orderFlows.js): a prompt when a
 // dish is added or before Pay opens (FlowPrompt, on top of everything), and
 // the dishes and charges add flows put on, kept in line as the check changes.
+// Counter orders (counter tills) have no guests, table, seats or courses, and
+// no Send unless the till shows it (counter_send): they go to the kitchen as
+// they are paid. Table service asks at Pay about what the kitchen hasn't been
+// told yet, or sends it as the check closes (the till's unsent_at_pay).
+// then: 'pay' | 'send' | 'fire' opens the check straight into that (the
+// floor's list on a phone: swipe right to pay, left to send or fire).
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Send, Printer, CreditCard, MoreHorizontal, Flame, Users, Eye, Flag, Star, Ban } from 'lucide-react'
 import { checkLabel, heldCourses } from '@shared/pos/checks.js'
 import { checkTotals } from '@shared/pos/pricing.js'
@@ -18,8 +24,8 @@ import { discountList, fitsScope } from '@shared/pos/discounts.js'
 import { useTillLayout, lastReceiptCheck } from '../lib/tillLayout.js'
 import LayoutScreen from '../components/LayoutScreen.jsx'
 import {
-  addItem, addChosen, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck, comboStartFrom, copyOfLine,
-  coversMissing, seatCourseParts, addListCharge,
+  addItem, addChosen, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck, needsSendChoice, comboStartFrom, copyOfLine,
+  coversMissing, seatCourseParts, addListCharge, counterSends, unsentAtPay, notFired, tablesOn, itemCounts, showsItemCounts,
 } from '../lib/checkOps.js'
 import { cx, money, elapsed, useApproval, fillStyle } from '../components/ui.jsx'
 import { useTillNav } from '../components/TillMenu.jsx'
@@ -37,12 +43,12 @@ import {
   useFlowPrompts, queueFlowPrompts, answerFlowPrompt, dropFlowPrompts, syncFlows, addedOf, offApproval, shownItemIds,
 } from '../lib/orderFlows.js'
 import {
-  ActionsMenu, SendModal, needsSendChoice, FireModal, DiscountModal, ChargesModal, OffersModal, MoveModal,
+  ActionsMenu, SendModal, FireModal, DiscountModal, ChargesModal, OffersModal, MoveModal,
   MergeModal, TableModal, NameModal, ServerModal, StreamModal, OrderTypeModal, GuestsModal, OpenItemModal, NoSale, SoldOutModal,
-  CancelOrderModal, applyDiscountPreset,
+  CancelOrderModal, applyDiscountPreset, UnsentModal,
 } from '../components/CheckActions.jsx'
 
-export default function CheckScreen({ checkId, onBack, onOpen, counter = false }) {
+export default function CheckScreen({ checkId, onBack, onOpen, counter = false, then = null }) {
   const { config } = useTill()
   const checks = useChecks()
   const check = checks[checkId]
@@ -102,6 +108,16 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
     if (check && !check.lines.length && missingDetails(check, config).length) setModal({ kind: 'type', start: 'details' })
   }, [checkId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Opened straight into Pay, Send or Fire (then): once, when the check is
+  // here. The actions are set as the screen draws (below the early return).
+  const actions = useRef({})
+  const thenDone = useRef(false)
+  useEffect(() => {
+    if (!then || thenDone.current || !check) return
+    thenDone.current = true
+    actions.current[then]?.()
+  }, [check?.id, then]) // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!check) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-4 text-muted">
@@ -111,6 +127,8 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
     )
   }
 
+  // A counter order: no guests, table, seats or courses; paid first, sent as it is paid.
+  const isCounter = counter || check.mode === 'counter'
   const table = check.table_id ? (config.tables || []).find(t => t.id === check.table_id) : null
   const stream = streamOf(config, check.revenue_stream_id)
   const type = typeOf(config, check.order_type_id)
@@ -235,9 +253,23 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
   const pay = (opts = {}) => {
     if (needDetails()) return
     if (!opts.flowsAsked && queueFlowPrompts(check.id, 'checkout', { then: { kind: 'pay', opts }, shownIds })) return
+    // What the kitchen hasn't been told yet (items not sent, courses
+    // waiting): a table-service till that asks says so first; one set to
+    // send does it as the check is paid (PayModal sendOnClose), as counter
+    // tills always do.
+    if (!opts.unsentAsked && !isCounter && unsentAtPay(config) === 'ask') {
+      const nf = notFired(currentChecks()[check.id] || check)
+      if (nf.unsent || nf.held.length) return setModal({ kind: 'unsent', opts: { ...opts, flowsAsked: true } })
+    }
     refreshPromotions(check.id)
     setModal({ kind: 'pay', ...opts })
   }
+  const fire = () => (held.length ? setModal({ kind: 'fire' }) : toast('No course is waiting to fire', 'bad'))
+  actions.current = { pay, send, fire }
+  // Send on a counter till only when its setting shows it (Store tech > Tills).
+  const showSend = !isCounter || counterSends(config)
+  // How many of each dish are on the order (the till's Item counts on buttons).
+  const counts = showsItemCounts(config) ? itemCounts(check) : null
   const action = key => {
     if (key === 'bill') { close(); return bill() }
     if (key === 'void_check') {
@@ -284,7 +316,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
         <MoreHorizontal size={20} /><span className="text-xs">More</span>
       </button>
     ),
-    !hidden.has('send') && (held.length > 0 && !unsent
+    !hidden.has('send') && showSend && (held.length > 0 && !unsent
       ? <button key="send" className="btn h-16 flex-col gap-0 bg-held text-white border-held" onClick={() => setModal({ kind: 'fire' })} data-testid="check-fire"><Flame size={20} /><span className="text-xs">Fire</span></button>
       : <button key="send" className={cx('btn h-16 flex-col gap-0', !colourOf('send') && 'btn-primary')} style={fillStyle(colourOf('send'))} disabled={!unsent} onClick={send} data-testid="check-send">
           <Send size={20} /><span className="text-xs">Send{unsent ? ' ' + unsent : ''}</span>
@@ -343,14 +375,15 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       }
       case 'discount': return setModal({ kind: 'discount' })
       case 'send': return send()
-      case 'fire': return held.length ? setModal({ kind: 'fire' }) : toast('No course is waiting to fire', 'bad')
+      case 'fire': return fire()
       case 'more': return setModal({ kind: 'actions' })
-      case 'guests': return setModal({ kind: 'covers' })
+      case 'guests': return isCounter ? toast('Counter orders have no guests', 'bad') : setModal({ kind: 'covers' })
       case 'order_type': return setModal({ kind: 'type' })
       case 'name': return setModal({ kind: 'name' })
       case 'tent': return setModal({ kind: 'tent' })
       case 'allergy': return setModal({ kind: 'allergy' })
-      case 'table': return setModal({ kind: 'table' })
+      case 'table': return isCounter ? toast('Counter orders don\'t go on a table', 'bad')
+        : tablesOn(config) || check.table_id ? setModal({ kind: 'table' }) : toast('This till doesn\'t use tables', 'bad')
       case 'move': return setModal({ kind: 'move' })
       case 'merge': return setModal({ kind: 'merge' })
       case 'charges': return setModal({ kind: 'sc' })
@@ -378,7 +411,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
     <div className="h-full flex">
       {layout ? (
         <div className="flex-1 min-w-0">
-          <LayoutScreen layout={layout} config={config} check={check} checkZone={panel} menus={shownMenus.shown} tillMenus={shownMenus.menus} shownMenus={shownMenus} covers={check.covers}
+          <LayoutScreen layout={layout} config={config} check={check} checkZone={panel} menus={shownMenus.shown} tillMenus={shownMenus.menus} shownMenus={shownMenus} covers={check.covers} counts={counts}
             seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
             onDish={pick} onHold={item => setModal({ kind: 'sold_out', item })} onButton={runButton}
             choosing={choosing} onChosen={o => added(choosing.item, { ...o, seat, course })} onCancelChoosing={() => setChoosing(null)}
@@ -389,7 +422,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
           <div className="w-[42%] max-w-[480px] min-w-[320px] shrink-0">{panel}</div>
           <div className="flex-1 min-w-0">
             <MenuPanel config={config} menus={shownMenus.shown} onPick={pick} onHold={item => setModal({ kind: 'sold_out', item })} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse} parts={barParts}
-              covers={check.covers} onOpenItem={() => setModal({ kind: 'open_item' })} />
+              covers={check.covers} counts={counts} onOpenItem={() => setModal({ kind: 'open_item' })} />
           </div>
         </>
       )}
@@ -427,7 +460,8 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       {modal?.kind === 'open_item' && <OpenItemModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'nosale' && <NoSale onClose={close} />}
       {modal?.kind === 'sold_out' && <SoldOutModal item={modal.item} config={config} onClose={close} onAdd={pick} />}
-      {modal?.kind === 'pay' && <PayModal check={check} counter={counter || check.mode === 'counter'} autoExact={modal.autoExact || null} initialTender={modal.tender || null}
+      {modal?.kind === 'unsent' && <UnsentModal check={check} config={config} onClose={close} onPay={() => pay({ ...modal.opts, unsentAsked: true })} />}
+      {modal?.kind === 'pay' && <PayModal check={check} sendOnClose={isCounter || unsentAtPay(config) === 'send'} autoExact={modal.autoExact || null} initialTender={modal.tender || null}
         onClose={close} onClosed={() => { close(); onBack() }} />}
       {/* An order flow's prompt, on top of everything; it steps aside while a
           dish it offers has its choices window open. */}

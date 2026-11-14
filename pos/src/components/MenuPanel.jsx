@@ -43,7 +43,12 @@ export function useHold(onTap, onHold) {
 // where the words sit (place: the zone's buttonTextStyle()).
 // list: a row in a till layout zone shown as a list (the name on the left,
 // the price on the right; place puts them in a row).
-export function DishButton({ item, colour, priceText, soldOut, onPick, onHold, fill = false, showPrice = true, place = null, list = false }) {
+/**
+ * A dish's button. count: how many of it are on the order already (the
+ * till's Item counts on buttons setting, lib/checkOps.js itemCounts()),
+ * shown as a badge: in the corner, or beside the price on a list's row.
+ */
+export function DishButton({ item, colour, priceText, soldOut, onPick, onHold, fill = false, showPrice = true, place = null, list = false, count = 0 }) {
   const hold = useHold(() => (soldOut && onHold ? onHold(item) : onPick(item)), onHold ? () => onHold(item) : null)
   return (
     <button {...hold} data-testid="dish" data-item={item.id}
@@ -53,8 +58,12 @@ export function DishButton({ item, colour, priceText, soldOut, onPick, onHold, f
         soldOut ? 'bg-page border-line text-muted' : 'bg-white border-line')}
       style={place || undefined}>
       <span className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: colour, opacity: soldOut ? 0.35 : 1 }} />
-      <span className={cx('leading-tight pl-1', list ? 'line-clamp-2 flex-1 min-w-0' : 'line-clamp-3', !fill && 'font-semibold text-[15px]', soldOut && 'line-through')}
+      <span className={cx('leading-tight pl-1', list ? 'line-clamp-2 flex-1 min-w-0' : 'line-clamp-3', !fill && 'font-semibold text-[15px]', soldOut && 'line-through', count > 0 && !list && 'pr-7')}
         data-testid="button-words">{item.name}</span>
+      {count > 0 && (
+        <span className={cx('min-w-[26px] h-[26px] px-1.5 rounded-full bg-brand text-white text-sm font-bold tabular-nums flex items-center justify-center',
+          list ? 'shrink-0 mx-2' : 'absolute top-1.5 right-1.5')} data-testid="dish-count" aria-label={count + ' on the order'}>{count}</span>
+      )}
       {(showPrice || soldOut) && (
         <span className={cx('text-muted pl-1 tabular-nums', list ? 'shrink-0' : 'mt-1', fill ? 'text-[0.8em] font-medium' : 'text-sm')} data-testid="dish-price">
           {soldOut ? <span className="font-bold text-bad uppercase text-xs tracking-wide">Sold out</span> : priceText}
@@ -133,7 +142,7 @@ export function SeatCourseBar({ config, seat, setSeat, course, setCourse, covers
 
 /** menus: the menus to show now (useShownMenus().shown), their sections one after another. */
 /** parts: what the seat and course bar shows (seatCourseParts()); 'none' leaves the bar out. */
-export default function MenuPanel({ config, menus, onPick, onHold, seat, setSeat, course, setCourse, covers, onOpenItem, parts = 'both' }) {
+export default function MenuPanel({ config, menus, onPick, onHold, seat, setSeat, course, setCourse, covers, onOpenItem, parts = 'both', counts = null }) {
   const soldOut = useMemo(() => soldOutMap(config), [config])
   // Combos' dishes, for their "from" price (shared/combos.js).
   const comboRefs = useMemo(() => ({ itemsById: config.items || {}, sectionItems: config.section_items || {} }), [config])
@@ -190,7 +199,7 @@ export default function MenuPanel({ config, menus, onPick, onHold, seat, setSeat
         <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))' }}>
           {items.map(it => {
             const colour = it.colour || (!q ? colourOf(section, sectionIndex) : '#64708a')
-            return <DishButton key={it.id} item={it} colour={colour} priceText={dishPriceText(config, it.id, comboRefs)} soldOut={soldOut.has(it.id)} onPick={onPick} onHold={onHold} />
+            return <DishButton key={it.id} item={it} colour={colour} priceText={dishPriceText(config, it.id, comboRefs)} soldOut={soldOut.has(it.id)} onPick={onPick} onHold={onHold} count={counts?.[it.id] || 0} />
           })}
           {!items.length && <div className="text-muted p-4 col-span-full">{q ? 'No dish matches.' : sections.length ? 'This section has no dishes.' : 'No menu on this till.'}</div>}
         </div>

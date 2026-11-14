@@ -20,8 +20,8 @@ const VENUE = uuid()
 const SERVER = uuid(), SUPER = uuid(), MANAGER = uuid()
 const staffById = {
   [SERVER]:  { id: SERVER,  name: 'Anna', permissions: { discount_max_pct: 0, transfer: true } },
-  [SUPER]:   { id: SUPER,   name: 'Ben',  permissions: { void: true, comp: true, discount_max_pct: 25, manager: true, transfer: true, reopen: true, take_over: true } },
-  [MANAGER]: { id: MANAGER, name: 'Cara', permissions: { void: true, refund: true, comp: true, discount_max_pct: 100, manager: true, close_day: true, reopen: true, open_drawer: true, transfer: true } },
+  [SUPER]:   { id: SUPER,   name: 'Ben',  permissions: { void: true, comp: true, open_discount: true, discount_max_pct: 25, manager: true, transfer: true, reopen: true, take_over: true } },
+  [MANAGER]: { id: MANAGER, name: 'Cara', permissions: { void: true, refund: true, comp: true, open_discount: true, discount_max_pct: 100, manager: true, close_day: true, reopen: true, open_drawer: true, transfer: true } },
 }
 const STARTERS = uuid(), MAINS = uuid(), DRINKS_SECTION = uuid(), FOOD_SECTION = uuid()
 const KITCHEN = uuid(), BAR = uuid(), RECEIPT = uuid()

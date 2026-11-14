@@ -8,6 +8,7 @@ import { printTickets } from '../lib/print.js'
 import { cx, useApproval } from '../components/ui.jsx'
 import StatusDot from '../components/StatusDot.jsx'
 import { pullTimes, pullText } from '@shared/pos/pullTimes.js'
+import { useTillLayout } from '../lib/tillLayout.js'
 
 export default function TillSettings() {
   const s = useTill()
@@ -16,6 +17,8 @@ export default function TillSettings() {
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const loadJobs = async () => { try { setJobs(await server.printJobs('queued')) } catch { setJobs([]) } }
   useEffect(() => { loadJobs() }, [])
+  // The layout the order screen draws on this screen (a phone draws its own, lib/tillLayout.js).
+  const layout = useTillLayout(s.config)
   const printers = Object.fromEntries((s.config.printers || []).map(p => [p.id, p]))
   const ownPrinters = (s.config.printers || []).filter(p => p.connection === 'device' && p.device_id === s.device?.id)
   const doDisconnect = async () => {
@@ -36,6 +39,7 @@ export default function TillSettings() {
           <div className="grid sm:grid-cols-2 gap-2 text-[15px]">
             <div>Venue: <b>{s.config.venue?.name}</b></div>
             <div>Mode: <b>{s.config.device?.settings?.mode === 'counter' ? 'Counter service' : 'Table service'}</b></div>
+            <div data-testid="till-layout-line">Screen layout: <b>{!layout ? 'The standard screen' : layout.builtin ? 'The built-in phone screen' : layout.name || 'A layout'}</b></div>
             <div>Waiting to send: <b>{s.outbox.length}</b></div>
             <div>Last sync: <b>{s.lastSync ? new Date(s.lastSync).toLocaleTimeString('en-GB') : 'not yet'}</b></div>
             <div>Event number: <b>{s.seq}</b></div>

@@ -26,7 +26,7 @@ import { dispatch, dispatchMany, toast, useChecks, getState, can, soldOutMap, se
 import {
   defaultHeld, sendCheck, streamOf, byId, addOpenItem, promotionsFor, refreshPromotions,
   streamTypes, typeOf, checkPrompts, rerateLines, defaultTypeId, chargesFor, orderPromptOf,
-  listCharges, listCharge, chargeNames, coversOf, coursesOn,
+  listCharges, listCharge, chargeNames, coversOf, coursesOn, tablesOn, notFired, sendAllSpecs,
 } from '../lib/checkOps.js'
 import { CoversModal, CheckRow } from '../screens/Floor.jsx'
 import { flowNameOf } from '../lib/orderFlows.js'
@@ -49,11 +49,14 @@ function chargesHint(check) {
 
 export function ActionsMenu({ check, config, menus = null, onPick, onClose }) {
   const held = heldCourses(check)
+  const counter = check.mode === 'counter'
   const items = [
     menus && menus.menus.length > 1 && { key: 'menus', label: 'Menus', icon: BookOpen, hint: menusHint(menus) },
-    // The revenue stream may take no covers (Store tech > Revenue streams).
-    (coversOf(config, check.revenue_stream_id) !== 'off' || check.covers) && { key: 'covers', label: 'Guests', icon: Users, hint: check.covers ? check.covers + ' covers' : 'not set' },
-    { key: 'table', label: check.table_id ? 'Move table' : 'Put on a table', icon: Table2 },
+    // The revenue stream may take no covers (Store tech > Revenue streams);
+    // counter orders never have guests or a table, and a till that doesn't
+    // use tables puts nothing on one (lib/checkOps.js).
+    !counter && (coversOf(config, check.revenue_stream_id) !== 'off' || check.covers) && { key: 'covers', label: 'Guests', icon: Users, hint: check.covers ? check.covers + ' covers' : 'not set' },
+    !counter && (tablesOn(config) || check.table_id) && { key: 'table', label: check.table_id ? 'Move table' : 'Put on a table', icon: Table2 },
     { key: 'name', label: 'Name', icon: StickyNote, hint: check.tab_name || '' },
     { key: 'type', label: 'Order type', icon: ShoppingBag, hint: [typeOf(config, check.order_type_id)?.name, check.tent ? 'Tent ' + check.tent : null].filter(Boolean).join(' · ') },
     (checkPrompts(config, check).ask_tent !== 'off' || check.tent) && { key: 'tent', label: 'Tent number', icon: Flag, hint: check.tent || 'not set' },
@@ -145,10 +148,44 @@ export function SendModal({ check, config, onClose, onSent }) {
   )
 }
 
-export function needsSendChoice(check, config) {
-  const ids = new Set(check.lines.filter(l => l.status === 'new' && l.course_id).map(l => l.course_id))
+/**
+ * Counter orders and table service don't mix: items move and checks merge
+ * only between checks of the same kind (a counter till's orders, or a
+ * table-service till's tables and tabs).
+ */
+export const sameKind = (a, b) => (a?.mode === 'counter') === (b?.mode === 'counter')
+
+/**
+ * Pay on a check the kitchen hasn't been told all of (items not sent, courses
+ * waiting to be fired), on a table-service till that asks (Store tech > Tills,
+ * Items not sent at Pay): Send and pay tells the kitchen to make everything now
+ * (items not sent go, courses waiting are fired), then Pay opens; Pay without
+ * sending leaves them unsent (the bar made them, the guest left).
+ */
+export function UnsentModal({ check, config, onClose, onPay }) {
   const courses = byId(config.courses)
-  return ids.size > 1 || [...ids].some(id => courses[id]?.hold_by_default) || defaultHeld(check, config).length > 0
+  const { unsent, held } = notFired(check)
+  const sendAndPay = () => {
+    const r = dispatchMany(sendAllSpecs(check))
+    if (!r.ok) return toast(r.error, 'bad')
+    toast('Sent to the kitchen', 'ok')
+    onPay()
+  }
+  return (
+    <Modal title="Not sent to the kitchen" onClose={onClose}
+      footer={<div className="flex gap-2 flex-wrap justify-end">
+        <button className="btn h-14" onClick={onPay} data-testid="unsent-pay">Pay without sending</button>
+        <button className="btn btn-primary h-14 min-w-[200px]" onClick={sendAndPay} data-testid="unsent-send"><Send size={20} /> Send and pay</button>
+      </div>}>
+      <div className="space-y-2 text-[15px]" data-testid="unsent">
+        {unsent > 0 && <div className="flex items-center gap-2"><Send size={18} className="text-brand shrink-0" />{unsent} item{unsent > 1 ? 's haven\'t' : ' hasn\'t'} gone to the kitchen yet.</div>}
+        {held.map(id => (
+          <div key={id} className="flex items-center gap-2"><Flame size={18} className="text-held shrink-0" />{courses[id]?.name || 'A course'} is waiting to be fired.</div>
+        ))}
+        <div className="text-sm text-muted">Send and pay tells the kitchen to make it all now. Pay without sending leaves it as it is: nothing goes to the kitchen once the check is paid.</div>
+      </div>
+    </Modal>
+  )
 }
 
 export function FireModal({ check, config, onClose }) {
@@ -283,8 +320,9 @@ export function DiscountModal({ check, config, lineIds = null, onClose }) {
     onClose()
   }
   const apply = async () => {
-    const msg = can('discount', Math.min(100, pct)) ? 'Discounts typed in on the till need a manager here.' : 'This discount is more than your role allows.'
-    const approver = await approve('discount', Math.min(100, pct), msg, ['custom_discount'])
+    // The role's Type a discount, up to its limit (Store tech > Till roles); else a manager's PIN.
+    const msg = getState().staff?.permissions?.open_discount ? 'This discount is more than your role allows.' : 'Typing a discount needs a manager.'
+    const approver = await approve('open_discount', Math.min(100, pct), msg)
     if (approver === false) return
     put({
       type, value: type === 'percent' ? Math.min(100, v) : v,
@@ -324,7 +362,7 @@ export function DiscountModal({ check, config, lineIds = null, onClose }) {
             </div>
           )}
           <div className="text-3xl font-bold tabular-nums">{type === 'amount' ? '£' : ''}{value || '0'}{type === 'percent' ? '%' : ''}</div>
-          <div className="text-sm text-muted">On {money(base)}{can('discount', pct, ['custom_discount']) ? '' : can('discount', pct) ? ' · needs a manager' : ' · needs a manager above your limit'}</div>
+          <div className="text-sm text-muted" data-testid="discount-typed-note">On {money(base)}{can('open_discount', pct) ? '' : getState().staff?.permissions?.open_discount ? ' · needs a manager above your limit' : ' · needs a manager'}</div>
           <ReasonPicker options={DISCOUNT_REASONS} value={reason} onChange={setReason} />
           {existing.length > 0 && !lineIds && (
             <div className="space-y-2">
@@ -533,7 +571,7 @@ export function MoveModal({ check, config, preselect = [], onClose, onOpen }) {
   const checks = useChecks()
   const [picked, setPicked] = useState(preselect)
   const [target, setTarget] = useState('new')
-  const others = Object.values(checks).filter(c => c.status === 'open' && c.id !== check.id)
+  const others = Object.values(checks).filter(c => c.status === 'open' && c.id !== check.id && sameKind(c, check))
   const lines = check.lines.filter(l => l.status !== 'voided')
   const move = async () => {
     const approver = await approve('transfer', null, 'Moving items between checks needs a manager.')
@@ -596,7 +634,7 @@ export function MoveModal({ check, config, preselect = [], onClose, onOpen }) {
 export function MergeModal({ check, config, onClose }) {
   const approve = useApproval()
   const checks = useChecks()
-  const others = Object.values(checks).filter(c => c.status === 'open' && c.id !== check.id)
+  const others = Object.values(checks).filter(c => c.status === 'open' && c.id !== check.id && sameKind(c, check))
   const merge = async other => {
     const approver = await approve('transfer', null, 'Merging checks needs a manager.')
     if (approver === false) return

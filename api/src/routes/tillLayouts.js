@@ -3,8 +3,9 @@
 // Till layouts, /api/pos (migration 228; shared/pos/tillLayout.js,
 // services/tillLayoutSvc.js): how a till's order screen is arranged,
 // company wide. Which layout a venue's tills use is a venue setting
-// (PATCH /api/pos/venues/:id/settings till_layout_id) and a till's own
-// (PATCH /api/pos/devices/:id settings.till_layout). Store tech view to
+// (PATCH /api/pos/venues/:id/settings till_layout_id, and phone_layout_id
+// for tills on phones, migration 246) and a till's own (PATCH
+// /api/pos/devices/:id settings.till_layout). Store tech view to
 // read, manage to change.
 //
 //   GET    /till-layouts             the company's layouts (phone: made for a phone), where each is used, the templates
@@ -107,6 +108,11 @@ export default async function tillLayoutRoutes(app) {
       const [l] = await tx`
         UPDATE pos_till_layouts SET name = ${b.name}, layout = ${tx.json(layout)}, updated_at = now()
          WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING *`
+      // No longer made for a phone: locations that drew it on phones go back
+      // to the built-in phone screen (migration 246).
+      if (!layout.phone) {
+        await tx`UPDATE pos_settings SET phone_layout_id = NULL WHERE tenant_id = ${req.tenantId} AND phone_layout_id = ${id}`
+      }
       tell = await companyChanged(tx, req.tenantId)
       return view(l, await layoutUses(tx, req.tenantId))
     })

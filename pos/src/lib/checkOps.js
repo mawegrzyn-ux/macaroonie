@@ -6,6 +6,7 @@ import { priceItem, posTax, isActiveLine, lineGross, picksWithin } from '@shared
 import { combosWithItem, stepWithItem, comboOf } from '@shared/combos.js'
 import { configItem, dealItem, comboCtx, autoCombosFor, checkOffers } from '@shared/pos/offers.js'
 import { chargesWhere, chargeList, chargeFromList } from '@shared/pos/charges.js'
+import { heldCourses } from '@shared/pos/checks.js'
 import { dispatch, dispatchMany, getState, currentChecks, soldOutMap } from './store.js'
 
 // Offers, item choices and combo lookups live in shared/pos/offers.js (the
@@ -57,25 +58,50 @@ export function promptsFor(config, streamId, typeId) {
 }
 
 /**
- * Whether the till asks how many guests a check has (Store tech > Revenue
- * streams, or the till's own choice in Store tech > Tills; migration 231):
- * 'off' (never, and no seat numbers), 'ask' (when a table opens, and it can
- * be skipped) or 'must' (when a table opens, no skipping; a table's check
- * still without them asks again before Send and Pay).
+ * A counter till (Store tech > Tills, Counter service): counter orders only.
+ * It has no floor, tables, guests, seats or courses (coversOf, coursesOn and
+ * seatsOn say so), and it sends an order to the kitchen as it is paid; its
+ * Send button shows only when the till's own setting asks for it
+ * (counterSends). A table-service till has no Counter page.
+ */
+export const counterTill = config => config?.device?.settings?.mode === 'counter'
+
+/**
+ * Whether the till asks how many guests a check has when it opens (Store
+ * tech > Revenue streams, or the till's own choice in Store tech > Tills;
+ * migration 231): 'off' (never), 'ask' (when a table or a tab opens, and it
+ * can be skipped) or 'must' (no skipping; a check still without them asks
+ * again before Send and Pay). Counter tills never ask.
  */
 export function coversOf(config, streamId) {
+  if (counterTill(config)) return 'off'
   const own = config?.device?.settings?.covers
   if (own === 'off' || own === 'ask' || own === 'must') return own
   const v = streamOf(config, streamId)?.covers
   return v === 'off' || v === 'must' ? v : 'ask'
 }
 
-/** Whether the till uses courses for a stream's checks (the till's own choice first; migration 231). */
+/** Whether the till uses courses for a stream's checks (the till's own choice first; migration 231). Never on a counter till. */
 export function coursesOn(config, streamId) {
+  if (counterTill(config)) return false
   const own = config?.device?.settings?.courses
   if (own === 'on') return true
   if (own === 'off') return false
   return streamOf(config, streamId)?.courses !== false
+}
+
+/**
+ * Whether the till numbers seats on a stream's checks (the seat bar, By seat
+ * on the check): the till's own choice first, else the stream's (migration
+ * 246: on unless switched off; until then seats followed the guests setting).
+ * Never on a counter till.
+ */
+export function seatsOn(config, streamId) {
+  if (counterTill(config)) return false
+  const own = config?.device?.settings?.seats
+  if (own === 'on') return true
+  if (own === 'off') return false
+  return streamOf(config, streamId)?.seats !== false
 }
 
 /**
@@ -84,9 +110,50 @@ export function coursesOn(config, streamId) {
  * shared/pos/tillLayout.js SEAT_PARTS).
  */
 export function seatCourseParts(config, streamId, want = 'both') {
-  const seats = want !== 'courses' && coversOf(config, streamId) !== 'off'
+  const seats = want !== 'courses' && seatsOn(config, streamId)
   const courses = want !== 'seats' && coursesOn(config, streamId) && (config?.courses || []).length > 0
   return seats && courses ? 'both' : seats ? 'seats' : courses ? 'courses' : 'none'
+}
+
+/** A counter till's Send button (Store tech > Tills; absent = none: the order goes to the kitchen as it is paid). */
+export const counterSends = config => config?.device?.settings?.counter_send === true
+
+/**
+ * What Pay does on a table-service till when the check has items not sent to
+ * the kitchen yet, or courses waiting to fire: 'ask' (the default: says so
+ * first, Send and pay or Pay without sending) or 'send' (sends them and fires
+ * the waiting courses as the check closes). Counter tills always send.
+ */
+export function unsentAtPay(config) {
+  if (counterTill(config)) return 'send'
+  return config?.device?.settings?.unsent_at_pay === 'send' ? 'send' : 'ask'
+}
+
+/** Whether a table-service till shows its tables (Store tech > Tills; off = only tabs and orders). Counter tills have none. */
+export const tablesOn = config => !counterTill(config) && config?.device?.settings?.tables !== false
+
+/**
+ * On a phone, a table-service till's tables and tabs as rows to swipe (left
+ * sends what is new or fires the course waiting, right pays) instead of
+ * tiles (Store tech > Tills, On a phone). Counter tills have none.
+ */
+export const phoneTablesList = config => !counterTill(config) && config?.device?.settings?.phone_tables === 'list'
+
+/** Whether dish buttons show how many of the dish are on the order already (Store tech > Tills). */
+export const showsItemCounts = config => config?.device?.settings?.item_counts === true
+
+/**
+ * How many of each dish an open check has, for the dish buttons' badges:
+ * { [itemId]: qty } over its active lines (taken off and voided ones don't
+ * count; a meal deal counts as its own dish).
+ */
+export function itemCounts(check) {
+  const out = {}
+  for (const l of check?.lines || []) {
+    if (!l.item_id || !isActiveLine(l)) continue
+    out[l.item_id] = (out[l.item_id] || 0) + (Number(l.qty) || 0)
+  }
+  return out
 }
 
 /** Is the check at a table (table service)? Nobody there takes a tent number. */
@@ -101,9 +168,13 @@ export function checkPrompts(config, check, typeId = check?.order_type_id) {
   return atTable(check) ? { ...p, ask_tent: 'off' } : p
 }
 
-/** A table's check whose stream must have covers (coversOf 'must') and hasn't them yet: asked before Send and Pay. */
+/**
+ * A check whose stream must have covers (coversOf 'must') and hasn't them
+ * yet: asked before Send and Pay. Tables and tabs alike; never a counter
+ * order (counter tills don't ask).
+ */
 export function coversMissing(check, config) {
-  return atTable(check) && coversOf(config, check?.revenue_stream_id) === 'must' && !(Number(check?.covers) > 0)
+  return check?.mode !== 'counter' && coversOf(config, check?.revenue_stream_id) === 'must' && !(Number(check?.covers) > 0)
 }
 
 /** Required details a check is still missing: ['name', 'tent']. */
@@ -344,10 +415,43 @@ export function defaultHeld(check, config) {
   })
 }
 
+/**
+ * Whether sending a check's new items needs the Send window (which courses
+ * cook now and which wait): new items in more than one course, or a course
+ * that waits by default.
+ */
+export function needsSendChoice(check, config) {
+  const ids = new Set(check.lines.filter(l => l.status === 'new' && l.course_id).map(l => l.course_id))
+  const courses = byId(config.courses)
+  return ids.size > 1 || [...ids].some(id => courses[id]?.hold_by_default) || defaultHeld(check, config).length > 0
+}
+
 export function sendCheck(check, heldCourseIds = []) {
   const lineIds = check.lines.filter(l => l.status === 'new').map(l => l.id)
   if (!lineIds.length) return { ok: false, error: 'Nothing new to send' }
   return dispatch('lines.sent', { send_id: ulid(), line_ids: lineIds, held_course_ids: heldCourseIds }, { check_id: check.id })
+}
+
+/**
+ * What the kitchen hasn't been told to make yet: { unsent, held } (items not
+ * sent, courses sent but waiting to be fired).
+ */
+export function notFired(check) {
+  return { unsent: (check?.lines || []).filter(l => l.status === 'new').length, held: heldCourses(check) }
+}
+
+/**
+ * The events that tell the kitchen to make everything on a check now: its
+ * items not sent yet go (none held back), then each course waiting is fired.
+ * Used as a check is paid (Pay, unsent_at_pay; counter tills always) and by
+ * Send and pay. [] when there is nothing to send or fire.
+ */
+export function sendAllSpecs(check) {
+  const specs = []
+  const ids = (check?.lines || []).filter(l => l.status === 'new').map(l => l.id)
+  if (ids.length) specs.push(['lines.sent', { send_id: ulid(), line_ids: ids, held_course_ids: [] }, { check_id: check.id }])
+  for (const id of heldCourses(check)) specs.push(['course.fired', { course_id: id }, { check_id: check.id }])
+  return specs
 }
 
 // ── Promotions on the till (shared/promotions.js, channel 'pos') ──

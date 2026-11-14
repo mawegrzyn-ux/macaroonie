@@ -10,20 +10,25 @@
 // screen, counter mode, whether the top bar is hidden, openMenu().
 
 import { createContext, useContext } from 'react'
-import { LayoutGrid, ShoppingBag, Receipt, BarChart3, Settings, Lock } from 'lucide-react'
+import { LayoutGrid, ShoppingBag, Receipt, BarChart3, Settings, Lock, ListChecks } from 'lucide-react'
 import { useTill, signOut } from '../lib/store.js'
 import { Modal, cx, useTick } from './ui.jsx'
 import StatusDot from './StatusDot.jsx'
 
-const TillNav = createContext({ go: () => {}, view: null, counterMode: false, hideBar: false, openMenu: () => {} })
+const TillNav = createContext({ go: () => {}, view: null, counterMode: false, tables: true, hideBar: false, openMenu: () => {} })
 export const TillNavProvider = TillNav.Provider
 export const useTillNav = () => useContext(TillNav)
 
-/** The till's pages, as the top bar lists them. */
-export function tillPages(counterMode) {
+/**
+ * The till's pages, as the top bar lists them. A counter till has the
+ * Counter page and no floor; a table-service till the Floor (Orders when it
+ * doesn't use tables: only tabs and orders) and no Counter page (Store tech >
+ * Tills, mode).
+ */
+export function tillPages(counterMode, tables = true) {
   return [
-    !counterMode && { key: 'floor', label: 'Floor', icon: LayoutGrid },
-    { key: 'counter', label: 'Counter', icon: ShoppingBag },
+    !counterMode && { key: 'floor', label: tables ? 'Floor' : 'Orders', icon: tables ? LayoutGrid : ListChecks },
+    counterMode && { key: 'counter', label: 'Counter', icon: ShoppingBag },
     { key: 'closed', label: 'Closed', icon: Receipt },
     { key: 'reports', label: 'Reports', icon: BarChart3 },
     { key: 'settings', label: 'Till', icon: Settings },
@@ -47,7 +52,7 @@ export function TillMenuSection({ onDone = () => {} }) {
         <div className="font-semibold tabular-nums text-lg">{new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-        {tillPages(nav.counterMode).map(p => (
+        {tillPages(nav.counterMode, nav.tables).map(p => (
           <button key={p.key} className={cx('btn h-auto min-h-[64px] py-2 justify-start text-left', active === p.key && 'border-brand bg-brand-soft')}
             onClick={() => { onDone(); nav.go(p.key) }} data-testid={'till-go-' + p.key} aria-current={active === p.key ? 'page' : undefined}>
             <p.icon size={22} className="shrink-0 text-brand" /><span>{p.label}</span>

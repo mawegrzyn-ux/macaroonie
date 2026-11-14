@@ -7,8 +7,11 @@
 //
 // A phone-sized screen (PHONE_MAX_WIDTH wide or less) draws phone layouts
 // only: the one picked when it is made for a phone (layout.phone), else the
-// phone template for the till's service (counter or tables) stands in, since
-// neither the standard screen nor a tablet layout fits a phone. A phone on
+// location's layout for phones (settings.phone_layout_id, migration 246),
+// else the phone template for the till's service (counter or tables) stands
+// in, since neither the standard screen nor a tablet layout fits a phone. The
+// built-in one can't be changed: a location that wants its own prices,
+// buttons or dishes on phones picks a phone layout of its own. A phone on
 // its side (wider than that, but SIDEWAYS_MAX_HEIGHT high or less) draws the
 // layout picked unless that one is made for a phone: a phone layout's rows
 // get too small to tap there, so the standard screen shows instead.
@@ -52,7 +55,11 @@ export function phoneStandIn(counter) {
  */
 export function tillLayoutOf(config, { narrow = false, sideways = false, counter = config?.device?.settings?.mode === 'counter' } = {}) {
   const picked = pickedLayout(config)
-  if (narrow) return picked?.phone ? picked : phoneStandIn(counter)
+  if (narrow) {
+    if (picked?.phone) return picked
+    const forPhones = usable(config?.till_layouts?.[config?.settings?.phone_layout_id])
+    return forPhones?.phone ? forPhones : phoneStandIn(counter)
+  }
   if (sideways && picked?.phone) return null
   return picked
 }
