@@ -16,8 +16,9 @@ import { subject, text, number, yesno, choice, moment, count, one, many } from '
 const ROTATIONS = { 0: 'Upright', 90: 'Turned right', 180: 'Upside down', 270: 'Turned left' }
 const FITS = { contain: 'Fit (bars if the shape differs)', cover: 'Fill (crop the edges)', stretch: 'Stretch' }
 
-// Seconds since a screen last talked to us that still count as online.
-const ONLINE = "({t}.last_seen_at > now() - interval '150 seconds')"
+// Seconds since a screen last talked to us that still count as online. A
+// screen that has never talked to us isn't online (no, not unknown).
+const ONLINE = "COALESCE({t}.last_seen_at > now() - interval '150 seconds', false)"
 
 // What a row (a screen or a wall) shows of its own: a playlist before a board.
 const showsKind = (p, d) => `(CASE WHEN ${p} IS NOT NULL THEN 'playlist' WHEN ${d} IS NOT NULL THEN 'board' END)`

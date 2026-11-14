@@ -12,7 +12,7 @@
 // reports-engine.test.mjs for the checks and dishes).
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { as, closeApp } from './support/app.mjs'
+import { as, sql, closeApp } from './support/app.mjs'
 import { resetAndSeed, A } from './support/seed.mjs'
 import { fillTenant } from './support/fixtures.mjs'
 import { sellTwoDays } from './support/tillDays.mjs'
@@ -150,6 +150,47 @@ test('everything the Data panel offers runs, for every subject: each grouping, c
   assert.equal(counts.subjects, startable)
   assert.equal(Object.values(view.subjects).filter(s => s.base).length, counts.subjects)
   assert.ok(counts.groupings > 1500 && counts.columns > 900 && counts.values > 1500 && counts.filters > 4000, JSON.stringify(counts))
+})
+
+// Yes / no fields that are empty on purpose, and why.
+const MAY_BE_EMPTY = {
+  'till.card_readers.online': 'not known: the card machine\'s provider didn\'t say when it was last asked',
+  'purchasing.orders.sent_late': 'not judged yet: an order is judged when it first goes to its supplier',
+}
+
+test('a yes or no on a row is never empty: every subject\'s own yes / no fields read yes or no on each row', async ctx => {
+  for (const path of Object.keys(MAY_BE_EMPTY)) {
+    const [subject, field] = [path.split('.').slice(0, 2).join('.'), path.split('.').slice(2).join('.')]
+    assert.equal(CATALOGUE.subjects[subject]?.fields[field]?.type, 'yesno', path + ' is still a yes / no field')
+  }
+  // A menu screen comes only from pairing a device, which the fixtures don't
+  // do: one that has never connected, whose Online now read empty.
+  const [venue] = await sql`SELECT id FROM venues WHERE tenant_id = ${ids.a} ORDER BY created_at LIMIT 1`
+  await sql`INSERT INTO screens (tenant_id, venue_id, name, short_code) VALUES (${ids.a}, ${venue.id}, 'Zqx Never connected', 'S99')`
+  const bad = new Set()
+  const unread = []
+  let checked = 0
+  for (const key of buildable()) {
+    // Through a link a yes / no is empty where the row has nothing linked
+    // (a review with no venue): only the subject's own fields.
+    const own = treeNodes(dataTree(view, key)).filter(n => n.uses.column && n.type === 'yesno' && !n.path.includes('.')).map(n => n.path)
+    for (let i = 0; i < own.length; i += LIMITS.list_columns) {
+      const chunk = own.slice(i, i + LIMITS.list_columns)
+      const res = await run(chunk.reduce((s, p) => addRow(s, p), normaliseReport({ subject: key, kind: 'list' })))
+      if (i === 0 && !res.rows.some(row => row.kind === 'row')) unread.push(key)
+      for (const r of res.rows.filter(row => row.kind === 'row')) {
+        r.cells.forEach((c, j) => {
+          checked++
+          const path = key + '.' + res.columns[j].key
+          if (typeof c !== 'boolean' && !MAY_BE_EMPTY[path]) bad.add(path + ' read ' + JSON.stringify(c))
+        })
+      }
+    }
+  }
+  assert.deepEqual([...bad], [])
+  assert.ok(checked > 200, 'yes / no cells checked: ' + checked)
+  assert.ok(!unread.includes('screens.screens'), 'the screen added above was read')
+  ctx.diagnostic('subjects with yes / no fields and no rows to read here: ' + (unread.join(', ') || 'none'))
 })
 
 test('every drill the builder offers is one the engine opens: each field a row can be broken down by, and each column of its rows', async () => {

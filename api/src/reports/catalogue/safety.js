@@ -434,7 +434,7 @@ export default [
       due: date('due_date', { label: 'Due' }),
       priority: choice('priority', { low: 'Low', medium: 'Medium', high: 'High', critical: 'Critical' }),
       done: yesno('is_completed', { label: 'Done' }),
-      overdue: yesno({ sql: '(NOT {t}.is_completed AND {t}.due_date < ' + TODAY + ')' }, { label: 'Overdue' }),
+      overdue: yesno({ sql: 'COALESCE(NOT {t}.is_completed AND {t}.due_date < ' + TODAY + ', false)' }, { label: 'Overdue' }),
       days_open: number({ sql: DAYS_OPEN }, { label: 'Days open', decimals: 0 }),
       age: choice({ sql: "(CASE WHEN " + DAYS_OPEN + " <= 7 THEN 'week' WHEN " + DAYS_OPEN + " <= 30 THEN 'month' WHEN " + DAYS_OPEN + " <= 90 THEN 'quarter' ELSE 'older' END)" },
         { week: 'A week or less', month: '8 to 30 days', quarter: '31 to 90 days', older: 'Over 90 days' }, { label: 'How long open' }),

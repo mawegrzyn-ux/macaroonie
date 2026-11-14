@@ -8745,7 +8745,22 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               phase 3d subjects against their pages&apos; own routes: a check&apos;s history, Till reports&apos;
               Conflicts, Store tech&apos;s card machine payments and printer tickets, an online order&apos;s
               history, what the tills are told is sold out, the Promotions page&apos;s uses, the Sent emails list,
-              and Store tech&apos;s own lists.
+              and Store tech&apos;s own lists. <Mono>api/test/reports-content.test.mjs</Mono> does the same for the
+              menus, screens, website and local info subjects: each menu&apos;s Publishing window, Variant groups,
+              Allergens & dietary and the allergen matrix, a dish&apos;s options in the menu editor, Tax rates, the
+              Menu screens pages, the Reviews page and its figures, Pages & modals, the Media page, the Local info
+              calendar and each venue&apos;s Captures window (rows only a device, a review site, an upload or a
+              capture&apos;s run makes are written by SQL there).
+            </P>
+            <P>
+              A yes / no worked out by comparing a column that can be empty says No for empty, through{' '}
+              <Mono>COALESCE(..., false)</Mono>: a menu screen that has never connected isn&apos;t online, an open
+              H&S action with no due day isn&apos;t overdue. Left as plain SQL such a cell is empty, shows blank
+              instead of No, and a filter on No misses the row. A test in <Mono>reports-build.test.mjs</Mono> reads
+              every subject&apos;s own yes / no fields on every row and fails on an empty one, except the fields in{' '}
+              <Mono>MAY_BE_EMPTY</Mono>, where empty means not known (a card machine&apos;s Online when its provider
+              didn&apos;t say, an order&apos;s Sent late until it is judged). It reads only subjects with rows in
+              its data and lists the others, so a new subject with a worked-out yes / no needs a row there.
             </P>
 
             <H3>Figures with rules in code</H3>

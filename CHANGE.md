@@ -6,6 +6,18 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-14 — Reports: two fixes to yes / no fields, and menus, screens, website and local info checked against their pages]
+
+No migration.
+
+**Fixed**
+- Reports on menu screens: a screen that has never connected now shows No for Online now. It showed nothing, so a filter on No left it out.
+- Reports on the H&S action log: an open action with no due date now shows No for Overdue. It showed nothing, so a filter on No left it out.
+
+**Notes**
+- Report figures on menus, menu screens, the website, reviews and local info are now checked automatically against the pages that show the same rows. These checks found the two problems above.
+- A new check reads every yes / no field in every kind of report, so a yes / no can't show nothing by mistake again. Two fields can still be blank, because blank there means not known: a card machine's Online when its provider didn't say, and a supplier order's Sent late until it has gone to the supplier.
+
 ## [2026-11-14 — Local info: the same event found more than once shown as one entry]
 
 Migration: `249_local_info_merge.sql`.
