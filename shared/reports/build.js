@@ -13,6 +13,8 @@
 //                 a whole definition, checked
 //   viewOptions() what the Chart part offers for a report as it stands
 //   openChoices() what a report's rows can open in the app, and setOpen()
+//   alsoChoices() the subjects whose figures can sit beside a summary's
+//                 own, and addAlso(), removeAlso(), updateAlso()
 //   the words     rowName(), valueName(), filterWords(), filterParts(),
 //                 paramWords(): what a shelf or a choice says
 //   paramInputs() what a report asks for when it is opened
@@ -26,9 +28,10 @@ import { NUMERIC_TYPES, BUCKET_LABELS, WEEKDAYS_LONG, formatValue, formatDate } 
 import { resolvePath, pathLabel, bucketsFor } from './paths.js'
 import { periodName, isYmd } from './period.js'
 import {
-  normaliseReport, newReport, rowId, rankKey, OPS_BY_TYPE, BUCKET_OPS, OP_LABELS, AGG_LABELS, LIMITS,
+  normaliseReport, newReport, rowId, rankKey, valueSubject, OPS_BY_TYPE, BUCKET_OPS, OP_LABELS, AGG_LABELS, LIMITS,
 } from './spec.js'
 import { chartChoices, chartValues } from './chart.js'
+import { matchRows } from './also.js'
 
 const lowerFirst = s => (s && /^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s)
 const arr = v => (Array.isArray(v) ? v : [])
@@ -228,9 +231,11 @@ export function linkTrail(catalogue, subjectKey, path) {
   return links.length ? [catalogue.subjects[subjectKey].label, ...links] : []
 }
 
-/** What a value is headed when it has no name of its own (as the engine names it). */
-export function valueName(catalogue, subjectKey, v) {
+/** What a value is headed when it has no name of its own (as the engine names it). Pass the report itself (or a subject key) as the second argument. */
+export function valueName(catalogue, subjectOrSpec, v) {
   if (!v) return ''
+  // Given the report itself, a figure of another of its subjects is named from that subject.
+  const subjectKey = subjectOrSpec && typeof subjectOrSpec === 'object' ? valueSubject(subjectOrSpec, v) : subjectOrSpec
   if (v.label) return v.label
   if (v.measure) return pathLabel(catalogue, subjectKey, v.measure)
   if (v.calc) return 'Calculation'
@@ -438,6 +443,7 @@ const walkFilters = (filters, fn, catalogue = null, subjectKey = null) => {
 export function usedParams(spec) {
   const out = new Set()
   walkFilters(spec?.filters, f => { if (f.param) out.add(f.param) })
+  for (const a of arr(spec?.also)) walkFilters(a.filters, f => { if (f.param) out.add(f.param) })
   return out
 }
 
@@ -456,6 +462,10 @@ export function paramInputs(catalogue, spec) {
   for (const p of arr(spec?.params)) {
     let cond = null, from = spec.subject
     walkFilters(spec.filters, (f, subject) => { if (!cond && f.param === p.key) { cond = f; from = subject } }, catalogue, spec.subject)
+    // One only another subject's own filter asks for: a path from that subject.
+    for (const a of arr(spec.also)) {
+      if (!cond) walkFilters(a.filters, (f, subject) => { if (!cond && f.param === p.key) { cond = f; from = subject } }, catalogue, a.subject)
+    }
     if (!cond) continue
     const r = from ? resolvePath(catalogue, from, cond.field) : { ok: false }
     const def = r.ok && r.kind === 'field' ? r.def : null
@@ -516,6 +526,7 @@ export function roomLeft(spec) {
     values: LIMITS.values - spec.values.length,
     filters: LIMITS.filters - spec.filters.length,
     params: LIMITS.params - spec.params.length,
+    also: spec.kind === 'summary' ? LIMITS.also - arr(spec.also).length : 0,
   }
 }
 
@@ -533,7 +544,9 @@ export function addRow(spec, ref) {
 
 /** A grouping across the top: the report becomes a table across (a matrix). */
 export function addColumn(spec, ref) {
-  if (spec.kind === 'list') return spec
+  // A table across has no other subjects (normaliseReport() would drop them
+  // and their figures): take them out first.
+  if (spec.kind === 'list' || arr(spec.also).length) return spec
   const r = refOf(ref)
   const id = rowId(r)
   if (spec.columns.some(x => rowId(x) === id) || roomLeft(spec).columns <= 0) return spec
@@ -575,6 +588,7 @@ export function updateRow(spec, where, id, patch) {
 
 const sameValue = (a, b) => (a.measure || '') === (b.measure || '') && (a.agg || '') === (b.agg || '')
   && (a.field || '') === (b.field || '') && (a.calc || '') === (b.calc || '') && (a.of || '') === (b.of || '')
+  && (a.from || '') === (b.from || '')
 
 /** A value added to a summary. The same figure twice is only added once. */
 export function addValue(spec, value) {
@@ -685,6 +699,95 @@ export function compareProblem(catalogue, spec) {
   return 'Comparing needs the report\'s period: add the filter "' + label + ' is in ..."'
 }
 
+// ── Figures from other subjects ──────────────────────────────
+// docs/REPORTS.md 7.1. A summary can put another subject's figures beside
+// its own (sales beside the hours on the rota, or beside the weather): the
+// definition's `also` names the subject and a value's `from` says it is one
+// of its figures. How their rows line up with the report's is
+// shared/reports/also.js; the engine runs each in a query of its own.
+
+/** The key another subject added to a report gets: s2, s3 or s4. */
+export function alsoKeyFor(spec) {
+  const used = new Set(arr(spec?.also).map(a => a.key))
+  let n = 2
+  while (used.has('s' + n)) n++
+  return 's' + n
+}
+
+/**
+ * The subjects whose figures can sit beside a summary's own, for the role
+ * the catalogue is made for (the ones it can build on), in the catalogue's
+ * order: [{ key, label, area, ok, why }]. `why` says why one can't be lined
+ * up with the report's rows as they are (they decide: by day, by venue,
+ * by a dish). Nothing for a list or a table across.
+ */
+export function alsoChoices(catalogue, spec) {
+  if (spec?.kind !== 'summary') return []
+  return Object.values(catalogue?.subjects || {}).filter(s => s.base).map(s => {
+    const m = matchRows(catalogue, spec, s.key)
+    return { key: s.key, label: s.label, area: s.area, ok: m.ok, why: m.ok ? null : m.missing[0].why }
+  })
+}
+
+/**
+ * The report's other subjects that can't be lined up with its rows as they
+ * are now (a grouping changed since they were added), as sentences: the
+ * engine leaves their figures out with a note, and refuses the report when
+ * it is saved.
+ */
+export function alsoProblems(catalogue, spec) {
+  const out = []
+  for (const a of arr(spec?.also)) {
+    const m = matchRows(catalogue, spec, a.subject)
+    if (m.ok) continue
+    // The reason names the subject; a name of the report's own goes in front.
+    out.push(a.label ? a.label + ': ' + lowerFirst(m.missing[0].why) : m.missing[0].why)
+  }
+  return out
+}
+
+/**
+ * Another subject added to a summary, to put its figures beside the
+ * report's own. It needs a figure (addValue() with `from` its key) before
+ * the report can run; reportProblems() says so. `key` is used when it is
+ * free (else alsoKeyFor()), `label` names it on the page, `filters` are its
+ * own (fixed values: the report's period and venues apply to it anyway).
+ * The same object comes back when nothing is added (not a summary, no room).
+ */
+export function addAlso(spec, subjectKey, { key = '', label = '', filters = [] } = {}) {
+  if (spec.kind !== 'summary' || !subjectKey || roomLeft(spec).also <= 0) return spec
+  const taken = new Set(arr(spec.also).map(a => a.key))
+  const k = /^[a-z][a-z0-9_]{0,20}$/.test(key) && !taken.has(key) ? key : alsoKeyFor(spec)
+  return normaliseReport({
+    ...spec,
+    also: [...arr(spec.also), { key: k, subject: subjectKey, ...(label ? { label } : {}), filters: arr(filters) }],
+  })
+}
+
+/**
+ * Another subject taken out, with its figures. Calculations that read them
+ * stay and stop working (reportProblems() names them; valueReaders() finds
+ * them first, as for any value taken off).
+ */
+export function removeAlso(spec, key) {
+  if (!arr(spec.also).some(a => a.key === key)) return spec
+  return normaliseReport({
+    ...spec,
+    also: spec.also.filter(a => a.key !== key),
+    values: spec.values.filter(v => v.from !== key),
+  })
+}
+
+/** Another subject changed in place: its name (`label`, empty for its own) or its own `filters`. */
+export function updateAlso(spec, key, patch) {
+  const i = arr(spec.also).findIndex(a => a.key === key)
+  if (i === -1) return spec
+  const next = { ...spec.also[i] }
+  if ('label' in patch) { if (patch.label) next.label = patch.label; else delete next.label }
+  if ('filters' in patch) next.filters = arr(patch.filters)
+  return normaliseReport({ ...spec, also: spec.also.map((a, n) => (n === i ? next : a)) })
+}
+
 // ── How it is shown: a chart above the table ─────────────────
 // docs/REPORTS.md 12. The definition's `view` says which kind of chart
 // (shared/reports/chart.js draws it) and what of the report it draws:
@@ -737,7 +840,7 @@ export function viewOptions(catalogue, spec) {
   const view = spec.view || { kind: 'table' }
   const kinds = chartChoices(spec)
   const shown = arr(spec.values).filter(v => !v.hidden)
-  const values = shown.map(v => ({ key: v.key, label: valueName(catalogue, spec.subject, v) }))
+  const values = shown.map(v => ({ key: v.key, label: valueName(catalogue, spec, v) }))
   const out = {
     kind: view.kind, kinds, why: null, values, pick: 'none', ys: [], line: null, xs: [], x: null, xLabel: '',
     stack: false, sideways: false, stacked: !!view.stacked, sidewaysOn: !!view.sideways, tableBelow: view.table_below !== false,
@@ -968,7 +1071,7 @@ export function sortChoices(catalogue, spec) {
   if (spec.kind === 'list') return spec.rows.map(r => ({ by: r.field, label: rowName(catalogue, spec.subject, r) }))
   return [
     ...spec.rows.map(r => ({ by: rowId(r), label: rowName(catalogue, spec.subject, r) })),
-    ...spec.values.map(v => ({ by: v.key, label: valueName(catalogue, spec.subject, v) })),
+    ...spec.values.map(v => ({ by: v.key, label: valueName(catalogue, spec, v) })),
   ]
 }
 
