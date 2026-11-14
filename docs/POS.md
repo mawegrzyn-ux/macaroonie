@@ -716,6 +716,39 @@ check's stream's.
   their course ids as before, and the cloud never refuses a check for missing covers (the till
   asks; a check opened elsewhere, a kiosk or an online order, has none).
 
+### 8.11 Table service or counter, seats, typed discounts, phones (migration 246, 14 Nov 2026)
+
+A round of till fixes from service. All of it is the till's own rules and settings: no event
+changed, and the cloud and the hub decide events as before (typed discounts excepted, below).
+
+- **One kind per till.** `pos_devices.settings.mode` (table | counter) is the whole of what a
+  till does (`counterTill()`): a table-service till has the floor (tables and tabs) and no
+  Counter page and never lists counter checks; a counter till has the Counter page and no floor,
+  tables, guests, seats, courses or Fire, and its orders go to the kitchen as they are paid (a
+  Send button only with its own `counter_send`). Move and Merge offer only checks of the same kind.
+- **Seats** are their own switch: `pos_revenue_streams.seats` (default on) and a till's own
+  `settings.seats` stream | on | off (`seatsOn()`). Until migration 246 they followed covers, so a
+  stream with covers off had no seat numbers. Migration 246 also turned covers off into ask:
+  table-service tills ask for guests when a table or a tab opens, with Skip under ask.
+- **Typed discounts** are a till role permission, `open_discount` (Type a discount), up to the
+  role's `discount_max_pct`, checked by the shared rules (`has(staff, 'open_discount', pct)` in
+  `applyEvent()`), so the till, the cloud and the hub agree. The venue switch
+  `approvals.custom_discount` is gone; migration 246 gave roles with a limit the permission,
+  except in groups where a location had the switch on.
+- **Phones**: a location picks the layout made for a phone that its tills draw on a phone-sized
+  screen (`pos_settings.phone_layout_id`), before the built-in phone screen (which always shows
+  prices; a layout's price setting only reaches a phone through a phone layout). A table-service
+  till can show its floor on a phone as rows to swipe (`settings.phone_tables` list): left sends
+  what is new or fires the course waiting, right opens the check in Pay; anything the order needs
+  first (guests, details, which courses wait) opens the check and asks, as Send or Fire would.
+- **Items not sent at Pay** (`settings.unsent_at_pay`): ask (the default) warns first, Send and
+  pay or Pay without sending; send puts a `lines.sent` and a `course.fired` per course waiting
+  before `check.closed` in the same batch. Counter tills always send. Other till settings:
+  `tables` (off: only tabs and orders) and `item_counts` (a badge with how many of a dish the
+  order has).
+- **Send and Fire**: Send gives the kitchen items it hasn't had yet, each course to cook now or
+  to wait (HOLD); Fire starts a course the kitchen already has but was told to wait.
+
 ---
 
 ## 9. Kitchen screens (KDS)

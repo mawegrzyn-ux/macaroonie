@@ -4222,13 +4222,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <P>
               <strong>Covers and courses</strong> (migration 231): <Mono>pos_revenue_streams.covers</Mono> off | ask | must
-              and <Mono>courses</Mono>, and a till&apos;s own <Mono>settings.covers</Mono> / <Mono>settings.courses</Mono>{' '}
+              and <Mono>courses</Mono> (and since migration 246 <Mono>seats</Mono>), and a till&apos;s own{' '}
+              <Mono>settings.covers</Mono> / <Mono>settings.courses</Mono> / <Mono>settings.seats</Mono>{' '}
               (<Mono>stream</Mono> = follow it). <Mono>coversOf(config, streamId)</Mono> and{' '}
               <Mono>coursesOn(config, streamId)</Mono> in <Mono>checkOps.js</Mono> decide (the till&apos;s own first);{' '}
               <Mono>seatCourseParts()</Mono> gives the seat and course bar&apos;s parts (also for a till layout&apos;s Seat
-              and course zone: <Mono>none</Mono> when neither); <Mono>coversMissing(check, config)</Mono> makes Send and Pay
-              ask a table&apos;s check for its guests under <Mono>must</Mono>. Floor: off opens the table at once, ask shows
-              Skip, must doesn&apos;t. Courses off: <Mono>addItem()</Mono> / <Mono>addOpenItem()</Mono> give no{' '}
+              and course zone: <Mono>none</Mono> when neither; seats from <Mono>seatsOn()</Mono> since migration 246);{' '}
+              <Mono>coversMissing(check, config)</Mono> makes Send and Pay ask a check that isn&apos;t a counter order for its
+              guests under <Mono>must</Mono>. Floor and New tab: off opens at once, ask shows Skip, must doesn&apos;t. Courses off: <Mono>addItem()</Mono> / <Mono>addOpenItem()</Mono> give no{' '}
               <Mono>course_id</Mono> and no course chips show. The till app reads the stream from its config&apos;s{' '}
               <Mono>revenue_streams</Mono> (<Mono>loadStreams()</Mono> selects both).
             </P>
@@ -4241,19 +4242,86 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>discount.applied</Mono> with <Mono>preset_id</Mono>: the rules find it in <Mono>ctx.settings</Mono>{' '}
               (<Mono>discountList()</Mono>), refuse a changed type, value or scope (<Mono>presetMismatch()</Mono>, code{' '}
               <Mono>preset</Mono>), need no discount permission, and need a manager every time when{' '}
-              <Mono>needs_manager</Mono>. A discount typed in follows the role&apos;s <Mono>discount_max_pct</Mono> and the
-              venue&apos;s <Mono>custom_discount</Mono> switch. The checks keep the discount as it was (name, value). Admin:{' '}
+              <Mono>needs_manager</Mono>. A discount typed in needs the role&apos;s <Mono>open_discount</Mono> (Type a
+              discount) and its <Mono>discount_max_pct</Mono> (migration 246; see below). The checks keep the discount as it
+              was (name, value). Admin:{' '}
               <Mono>components/pos/DiscountsSection.jsx</Mono> (Store tech → Discounts, <Mono>/pos/discounts</Mono>); till:
               the presets on top of <Mono>DiscountModal</Mono> (<Mono>fitsScope()</Mono> for check or items).
             </P>
             <P>
-              <Mono>MANAGER_ACTIONS</Mono> gained <Mono>remove_charge</Mono> and <Mono>custom_discount</Mono>;{' '}
+              <Mono>MANAGER_ACTIONS</Mono> gained <Mono>remove_charge</Mono> and <Mono>custom_discount</Mono> (taken out
+              again by migration 246);{' '}
               <Mono>MANAGER_ALWAYS</Mono> (<Mono>'always'</Mono>) in an <Mono>actions</Mono> list asks a manager whatever the
               switches say (<Mono>approverProblem()</Mono>). Migration 225 moved a stream service charge to its tenant&apos;s
               Eat in type when every active stream charged the same, dropped{' '}
               <Mono>pos_revenue_streams.service_charge_percent</Mono> / <Mono>_min_covers</Mono> and{' '}
               <Mono>pos_settings.service_charge_label</Mono>, and added the Discounts menu link after Order types. Tests:{' '}
               <Mono>shared/pos/test/charges.test.mjs</Mono>, <Mono>api/test/till-charges.test.mjs</Mono>.
+            </P>
+            <H3>Table service or counter, seats, typed discounts, phones (migration 246)</H3>
+            <P>
+              <strong>Mode lock.</strong> A till&apos;s <Mono>settings.mode</Mono> (<Mono>table</Mono> |{' '}
+              <Mono>counter</Mono>) is the whole of what it does: <Mono>counterTill(config)</Mono> in{' '}
+              <Mono>pos/src/lib/checkOps.js</Mono>. <Mono>tillPages(counterMode, tables)</Mono> (<Mono>TillMenu.jsx</Mono>)
+              gives a counter till Counter and no Floor, a table-service till Floor (called Orders without tables) and no
+              Counter; <Mono>Main</Mono> in <Mono>App.jsx</Mono> moves a till that changes kind to its own page. The floor
+              lists no counter checks (<Mono>c.mode !== &apos;counter&apos;</Mono>); Move and Merge offer only checks of
+              the same kind (<Mono>sameKind()</Mono> in <Mono>CheckActions.jsx</Mono>); on a counter order More has no
+              guests, table, seats or courses, <Mono>runButton()</Mono> refuses Guests and Table, and{' '}
+              <Mono>coversOf()</Mono> / <Mono>coursesOn()</Mono> / <Mono>seatsOn()</Mono> answer off / false for a counter
+              till whatever its stream says. Counter tills show Send only with <Mono>settings.counter_send</Mono>{' '}
+              (<Mono>counterSends()</Mono>); their orders go to the kitchen as they are paid.
+            </P>
+            <P>
+              <strong>Seats</strong>: <Mono>pos_revenue_streams.seats</Mono> (boolean, default true; <Mono>StreamBody</Mono>,{' '}
+              <Mono>loadStreams()</Mono>) and a till&apos;s <Mono>settings.seats</Mono> <Mono>stream</Mono> | <Mono>on</Mono> |{' '}
+              <Mono>off</Mono>, decided by <Mono>seatsOn(config, streamId)</Mono>; <Mono>seatCourseParts()</Mono> uses it
+              (it used <Mono>coversOf() !== &apos;off&apos;</Mono>, so a stream without guests had no seats).{' '}
+              <strong>Guests</strong>: migration 246 turned streams&apos; covers <Mono>off</Mono> into <Mono>ask</Mono>; new
+              tables and new tabs (<Mono>NewTabModal</Mono> in <Mono>Floor.jsx</Mono>: the order prompt, then the covers
+              window) ask under ask (Skip) and must (no Skip); <Mono>coversMissing()</Mono> applies to any check that
+              isn&apos;t a counter order.
+            </P>
+            <P>
+              <strong>Typed discounts</strong>: the till role permission <Mono>open_discount</Mono> (Type a discount;{' '}
+              <Mono>POS_PERMISSIONS</Mono>, <Mono>has(staff, &apos;open_discount&apos;, pct)</Mono> = the permission and{' '}
+              <Mono>discount_max_pct</Mono> at least pct) replaces the venue switch <Mono>approvals.custom_discount</Mono>,
+              gone from <Mono>MANAGER_ACTIONS</Mono> and refused by the settings route (400). <Mono>applyEvent()</Mono>{' '}
+              checks <Mono>need(&apos;open_discount&apos;, pct)</Mono> for a <Mono>discount.applied</Mono> without{' '}
+              <Mono>preset_id</Mono> (a manager&apos;s <Mono>approved_by</Mono> otherwise). Migration 246 wrote{' '}
+              <Mono>open_discount</Mono> on every role with a limit over 0: true, or false in groups where a location had the
+              switch on; the default Supervisor and Manager roles have it.
+            </P>
+            <P>
+              <strong>Phones</strong>: <Mono>pos_settings.phone_layout_id</Mono> (a layout made for a phone; the settings
+              PATCH answers 422 <Mono>phone_layout</Mono> for any other) is in <Mono>venueTillLayouts()</Mono>&apos; ids and{' '}
+              <Mono>layoutUses()</Mono> (<Mono>phone: true</Mono>); <Mono>{'tillLayoutOf(config, { narrow })'}</Mono>{' '}
+              draws the till&apos;s own phone layout, else this one, else <Mono>phoneStandIn()</Mono>. Store tech → Till layouts
+              picks it (<Mono>venue-phone-layout</Mono>); the till&apos;s Till page says what it draws (
+              <Mono>till-layout-line</Mono>). A table-service till&apos;s <Mono>settings.phone_tables</Mono>{' '}
+              <Mono>list</Mono> (<Mono>phoneTablesList()</Mono>) shows the floor as rows on a phone: <Mono>TableRows</Mono>,{' '}
+              <Mono>SwipeCheckRow</Mono> and <Mono>useRowSwipe()</Mono> in <Mono>Floor.jsx</Mono> (a swipe counts after 12 px
+              sideways and acts at 35% of the row&apos;s width, 160 px at most); left runs <Mono>swipeLeft()</Mono> (sends what
+              is new through <Mono>sendCheck()</Mono>, fires a single course waiting, else opens the check with{' '}
+              <Mono>then</Mono> <Mono>send</Mono> or <Mono>fire</Mono>), right opens it with <Mono>then</Mono>{' '}
+              <Mono>pay</Mono> (<Mono>CheckScreen</Mono>&apos;s <Mono>then</Mono> prop runs that action once).
+            </P>
+            <P>
+              <strong>Items not sent at Pay</strong>: <Mono>unsentAtPay(config)</Mono> from <Mono>settings.unsent_at_pay</Mono>{' '}
+              (<Mono>ask</Mono> default, <Mono>send</Mono>; counter tills always send). With ask, <Mono>pay()</Mono> in{' '}
+              <Mono>Check.jsx</Mono> opens <Mono>UnsentModal</Mono> when <Mono>notFired(check)</Mono> finds items not sent or
+              courses waiting (<Mono>unsent-send</Mono> Send and pay dispatches <Mono>sendAllSpecs()</Mono>,{' '}
+              <Mono>unsent-pay</Mono> pays as it is); <Mono>PayModal</Mono>&apos;s <Mono>sendOnClose</Mono> puts{' '}
+              <Mono>sendAllSpecs()</Mono> (a <Mono>lines.sent</Mono> with no held courses, then a <Mono>course.fired</Mono>{' '}
+              per course waiting) before <Mono>check.closed</Mono>. <Mono>settings.tables</Mono> false (<Mono>tablesOn()</Mono>)
+              leaves only tabs and orders; <Mono>settings.item_counts</Mono> (<Mono>showsItemCounts()</Mono>,{' '}
+              <Mono>itemCounts(check)</Mono>: active lines by dish) puts <Mono>dish-count</Mono> on dish buttons in{' '}
+              <Mono>MenuPanel.jsx</Mono> and <Mono>LayoutScreen.jsx</Mono>. Admin: the till window in{' '}
+              <Mono>TillsSection.jsx</Mono> (<Mono>till-mode</Mono>, <Mono>till-tables</Mono>, <Mono>till-seats</Mono>,{' '}
+              <Mono>till-unsent-at-pay</Mono>, <Mono>till-phone-tables</Mono>), Use seats in{' '}
+              <Mono>RevenueStreamsSection.jsx</Mono>, Type a discount in <Mono>RolesSection.jsx</Mono>. Tests:{' '}
+              <Mono>api/test/till-fixes.test.mjs</Mono>, <Mono>shared/pos/test/charges.test.mjs</Mono>,{' '}
+              <Mono>approvals.test.mjs</Mono>.
             </P>
             <H3>Order flows (migrations 235, 236)</H3>
             <P>

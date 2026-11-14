@@ -324,7 +324,7 @@ function TillModal({ venueId, setup, device, onClose }) {
         <Field group label="Opens in" hint={form.mode === 'counter'
           ? 'Counter service only: no floor, tables, tabs, guests, seats or courses. Orders go to the kitchen as they are paid.'
           : 'Table service only: tables and tabs, no counter orders.'}>
-          <Segmented value={form.mode} options={MODES} onChange={v => set({ mode: v })} />
+          <Segmented value={form.mode} options={MODES} onChange={v => set({ mode: v })} testid="till-mode" />
         </Field>
         <Field label="Revenue stream" hint="Where its sales are counted unless staff pick another on the check. It also decides the order types the till offers.">
           <select className={inputCls} value={form.revenue_stream_id} onChange={e => set({ revenue_stream_id: e.target.value })}>

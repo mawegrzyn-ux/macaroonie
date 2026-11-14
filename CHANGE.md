@@ -6,6 +6,35 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-14 — Till fixes: table service or counter, seats, guests, typed discounts, phones]
+
+Migration 246 (`pos_revenue_streams.seats`, `pos_settings.phone_layout_id`; streams' Don't ask for guests becomes Ask; till roles get Type a discount).
+
+**Added**
+- **Table service or counter, never both** (Store tech → Tills, Edit, Opens in): a table-service till has the floor and no Counter page, and never lists counter orders; a counter till has the Counter page and no floor, tables, tabs, guests, seats, courses or Fire. Split / move items and Merge checks only offer checks of the same kind. A till whose kind you change moves to its own page as soon as it hears of it.
+- **Seats on or off** for each revenue stream (Store tech → Revenue streams, **Use seats**, on to start with) and for each till (As the revenue stream, On, Off). Until now seats followed Guests: a stream that didn't ask for guests had no seat numbers, which is why some table-service tills showed none.
+- **A till's own settings** (Store tech → Tills, Edit):
+  - **Tables**: tables and tabs, or **only tabs**: the floor page is then called Orders and lists the tabs and orders, with New tab.
+  - **Pay with items not sent to the kitchen**: **Warn first** (the usual: Pay says what the kitchen hasn't been told yet, with **Send and pay** or **Pay without sending**) or **Send and fire them as it is paid** (without asking).
+  - **On a phone**: tiles as before, or **Rows to swipe**: tables and tabs as rows; swipe a check's row right to pay, left to send what is new to the kitchen (or fire the course waiting when nothing is new). When the order needs something first (its guests, its details, which courses wait) it opens and asks.
+  - **Show a Send button** (counter tills): off to start with, so counter orders go to the kitchen as they are paid.
+  - **Show on dish buttons how many are on the order**: a small number on a dish's button.
+- **On phones** (Store tech → Till layouts): pick the layout made for a phone that the location's tills draw on a phone-sized screen. The till's **Till** page says which layout it draws (Screen layout).
+
+**Changed**
+- Revenue streams that didn't ask for guests now ask, with Skip (a table-service till asks when a table or a tab opens). Pick **Don't ask** again on a stream that shouldn't ask. Counter tills never ask.
+- **Typing a discount** on the till is now a till role permission (Store tech → Till roles, **Type a discount**, up to the role's **Discounts up to (%)**); anyone else, or a bigger discount, needs a manager's PIN. It replaces the switch "Discounts typed in on the till need a manager" (Receipts and payments): roles that could give a discount keep doing so, except in groups where a location had that switch on, where a manager is still needed until you tick Type a discount on a role.
+
+**Fixed**
+- A phone ignored a layout's price setting (prices showed on dishes set to hide them): when the layout picked for a till isn't made for a phone, a phone draws the built-in phone screen, which shows prices. Pick your own phone layout On phones to have your own prices, buttons and dishes there.
+
+**Notes**
+- Help now says what decides whether seats show (Guests, seats and courses) and the difference between **Send** (items the kitchen hasn't had yet, each course to cook now or to wait) and **Fire** (starts a course the kitchen already has but was told to wait).
+- One On phones layout per location, for counter and table phones alike; a till's own Screen layout can pick a phone layout for that till alone.
+- **Pay without sending** leaves those items unmade: nothing sends them after the check is paid.
+- The settings to start with (Ask for guests, seats on, Warn first, tiles on a phone, no dish counts, no Send on counter tills) are a first choice: say if you want different ones.
+- Next: local event headlines and the week's weather on the Today page, then the report builder carries on (the other modules come in).
+
 ## [2026-11-13 — Reports: ask Pepper about your figures]
 
 No migration.
