@@ -6,11 +6,16 @@
 // around the dashboard's selected day, ahead or looking back, with kinds the
 // widget's options hide). The rules (which items sit on a day, their order)
 // are shared/localInfo.js, the same the API uses.
+//
+// What a capture found carries Relevant / Not relevant flags (migration 248):
+// each person's own, tapped again to take it off, with everyone's counts.
+// Pepper learns from them to tune that capture's search
+// (services/localInfoSvc.js); typed-in events take none.
 
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { CloudSun, TrafficCone, CalendarDays, AlertTriangle, EyeOff, ExternalLink, Loader2 } from 'lucide-react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { CloudSun, TrafficCone, CalendarDays, AlertTriangle, EyeOff, ExternalLink, Loader2, ThumbsUp, ThumbsDown } from 'lucide-react'
 import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -49,6 +54,61 @@ export function useLocalInfoItems({ venueId, from, to, includeHidden = false, en
   })
 }
 
+const errText = e => e?.body?.error || e?.message || 'Something went wrong'
+
+/**
+ * The person's own flag on a captured item: { id, relevant: true | false |
+ * null }. The reply is the item's flags as they are now, put straight into
+ * every list holding the item; the captures' counts are read again.
+ */
+export function useItemFlag() {
+  const api = useApi()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, relevant }) => api.put(`/local-info/items/${id}/feedback`, { relevant }),
+    onSuccess: (res, { id }) => {
+      qc.setQueriesData({ queryKey: ['local-info-items'] }, old => old?.items
+        ? { ...old, items: old.items.map(it => it.id === id ? { ...it, feedback: res.feedback } : it) }
+        : old)
+      qc.invalidateQueries({ queryKey: ['local-info-sources'] })
+    },
+  })
+}
+
+/**
+ * Relevant / Not relevant on what a capture found: the person's own flag lit
+ * (tap it again to take it off) and how many people flagged each way. Open to
+ * anyone who can see Local info: a flag says what was useful, it changes
+ * nothing on the calendar. Typed-in events have none.
+ */
+export function FlagButtons({ item, compact = false }) {
+  const flag = useItemFlag()
+  const fb = item.feedback
+  if (!item.source_id || !fb) return null
+  const mine = fb.mine === true ? 'yes' : fb.mine === false ? 'no' : ''
+  const tap = want => flag.mutate({ id: item.id, relevant: fb.mine === want ? null : want })
+  const button = (want, Icon, label, count, on) => (
+    <button type="button" onClick={() => tap(want)} disabled={flag.isPending}
+      aria-pressed={fb.mine === want} title={label}
+      aria-label={label + (count ? ' (' + count + ' so far)' : '')}
+      data-testid={want ? 'li-flag-yes' : 'li-flag-no'} data-count={count || 0}
+      className={cn('inline-flex items-center justify-center gap-1 min-h-[48px] min-w-[48px] px-2.5 rounded-lg border text-xs font-medium touch-manipulation disabled:opacity-60',
+        fb.mine === want ? on : 'bg-background text-muted-foreground hover:bg-muted')}>
+      <Icon className="w-4 h-4 shrink-0" />
+      {!compact && <span className="hidden sm:inline">{label}</span>}
+      {count > 0 && <span className="tabular-nums">{count}</span>}
+    </button>
+  )
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 mt-1.5" data-testid="li-flags" data-mine={mine}>
+      {button(true, ThumbsUp, 'Relevant', fb.relevant, 'bg-emerald-50 border-emerald-300 text-emerald-800')}
+      {button(false, ThumbsDown, 'Not relevant', fb.not_relevant, 'bg-rose-50 border-rose-300 text-rose-800')}
+      {flag.isPending && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+      {flag.error && <span className="text-xs text-destructive" role="alert" data-testid="li-flag-error">{errText(flag.error)}</span>}
+    </div>
+  )
+}
+
 /** One item: kind icon, title, how loud, the details and where it came from. */
 export function ItemRow({ item, venueNames = {}, actions = null, compact = false }) {
   const Icon = KIND_ICONS[item.kind] || CalendarDays
@@ -79,6 +139,7 @@ export function ItemRow({ item, venueNames = {}, actions = null, compact = false
             </a>
           )}
         </p>
+        <FlagButtons item={item} compact={compact} />
       </div>
       {actions && <div className="shrink-0 flex flex-col sm:flex-row gap-1">{actions}</div>}
     </div>

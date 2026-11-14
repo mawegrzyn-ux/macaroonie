@@ -10,17 +10,23 @@
 //   PATCH  /sources/:id                    change one (schedule changes run it again soon)
 //   DELETE /sources/:id                    remove it and everything it captured
 //   POST   /sources/:id/run                run it now (409 while a run holds it)
+//   POST   /sources/:id/learn              Pepper learns from its items' flags now (search kinds)
+//   DELETE /sources/:id/learned            forget what Pepper learned
 //   GET    /items?venue_id=&from=&to=      the items on those days (venue's own +
-//                                          whole-group; no venue_id = the whole group)
+//                                          whole-group; no venue_id = the whole group),
+//                                          a captured one with its flags (feedback)
 //   POST   /items                          an event typed in (venue_id null = every venue)
 //   PATCH  /items/:id                      hide/show a captured item; edit a typed-in one
 //   DELETE /items/:id                      typed-in items only (hide captured ones instead)
+//   PUT    /items/:id/feedback             the person's flag on a captured item: relevant
+//                                          true / false, or null to take it off (Local info view)
 
 import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
-import { claimSource, runClaimed, listItems } from '../services/localInfoSvc.js'
+import { claimSource, runClaimed, listItems, itemFeedback, learnNow } from '../services/localInfoSvc.js'
+import { pepperOn } from '../services/aiJson.js'
 import { KINDS, SEVERITIES, FREQUENCIES, addDays } from '../../../shared/localInfo.js'
 import { webLink } from '../../../shared/links.js'
 
@@ -37,6 +43,7 @@ const SourceFields = {
   site:        z.string().trim().max(100).nullable(),
   query:       z.string().trim().max(300).nullable(),
   enabled:     z.boolean(),
+  learn_auto:  z.boolean(),
 }
 const NewSource = z.object({
   ...SourceFields,
@@ -45,6 +52,7 @@ const NewSource = z.object({
   site:        SourceFields.site.optional(),
   query:       SourceFields.query.optional(),
   enabled:     SourceFields.enabled.optional(),
+  learn_auto:  SourceFields.learn_auto.optional(),
 })
 const EditSource = z.object(Object.fromEntries(Object.entries(SourceFields).map(([k, v]) => [k, v.optional()])))
 
@@ -74,6 +82,7 @@ const EditItem = z.object({
   hidden: z.boolean().optional(),
   ...Object.fromEntries(Object.entries(ItemFields).map(([k, v]) => [k, v.optional()])),
 })
+const Feedback = z.object({ relevant: z.boolean().nullable() })
 
 const by = req => req.user?.email || req.user?.sub || null
 
@@ -100,8 +109,10 @@ async function ownVenue(tx, tenantId, venueId) {
 }
 
 const SOURCE_COLS = `id, venue_id, kind, enabled, frequency, every_hours, place, site, query,
-  next_run_at, last_run_at, last_error,
-  (running_until IS NOT NULL AND running_until > now()) AS running, created_at, updated_at`
+  next_run_at, last_run_at, last_error, learn_auto, learned, learned_at, learn_error,
+  (running_until IS NOT NULL AND running_until > now()) AS running,
+  (flags_at IS NOT NULL AND (learned_at IS NULL OR flags_at > learned_at)) AS flags_changed,
+  created_at, updated_at`
 
 async function loadSource(tx, tenantId, id) {
   if (!UUID.safeParse(id).success) throw httpError(404, 'Capture not found')
@@ -110,11 +121,25 @@ async function loadSource(tx, tenantId, id) {
   return row
 }
 
+// Each capture with the flags on what it found (of its own kind): how many
+// relevant and not relevant, and (flags_changed) whether one was added,
+// changed or taken off since Pepper last learned from them.
 async function sourcesOf(tx, tenantId, venueId) {
   return tx`
-    SELECT ${tx.unsafe(SOURCE_COLS)} FROM local_info_sources
-     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
-     ORDER BY kind, created_at`
+    SELECT s.id, s.venue_id, s.kind, s.enabled, s.frequency, s.every_hours, s.place, s.site, s.query,
+           s.next_run_at, s.last_run_at, s.last_error, s.learn_auto, s.learned, s.learned_at, s.learn_error,
+           (s.running_until IS NOT NULL AND s.running_until > now()) AS running,
+           (s.flags_at IS NOT NULL AND (s.learned_at IS NULL OR s.flags_at > s.learned_at)) AS flags_changed,
+           s.created_at, s.updated_at,
+           (SELECT json_build_object(
+                     'relevant', count(*) FILTER (WHERE f.relevant),
+                     'not_relevant', count(*) FILTER (WHERE NOT f.relevant))
+              FROM local_info_feedback f
+              JOIN local_info_items i ON i.id = f.item_id AND i.tenant_id = f.tenant_id
+             WHERE f.tenant_id = s.tenant_id AND i.source_id = s.id AND i.kind = s.kind) AS flags
+      FROM local_info_sources s
+     WHERE s.tenant_id = ${tenantId} AND s.venue_id = ${venueId}
+     ORDER BY s.kind, s.created_at`
 }
 
 export default async function localInfoRoutes(app) {
@@ -135,9 +160,10 @@ export default async function localInfoRoutes(app) {
       const [{ n }] = await tx`SELECT count(*)::int AS n FROM local_info_sources WHERE tenant_id = ${req.tenantId} AND venue_id = ${venue.id}`
       if (n >= MAX_SOURCES) throw httpError(422, `A venue can have at most ${MAX_SOURCES} captures`)
       const [row] = await tx`
-        INSERT INTO local_info_sources (tenant_id, venue_id, kind, enabled, frequency, every_hours, place, site, query, next_run_at)
+        INSERT INTO local_info_sources (tenant_id, venue_id, kind, enabled, frequency, every_hours, place, site, query, learn_auto, next_run_at)
         VALUES (${req.tenantId}, ${venue.id}, ${b.kind}, ${b.enabled ?? true}, ${b.frequency},
-                ${b.frequency === 'hours' ? (b.every_hours ?? 4) : null}, ${b.place}, ${site}, ${b.query ?? null}, now())
+                ${b.frequency === 'hours' ? (b.every_hours ?? 4) : null}, ${b.place}, ${site}, ${b.query ?? null},
+                ${b.learn_auto ?? true}, now())
         RETURNING ${tx.unsafe(SOURCE_COLS)}`
       return { source: row }
     })
@@ -154,6 +180,7 @@ export default async function localInfoRoutes(app) {
         place: 'place' in b && b.place != null ? b.place : before.place,
         site: 'site' in b ? cleanSite(b.site) : before.site,
         query: 'query' in b ? (b.query || null) : before.query,
+        learn_auto: b.learn_auto ?? before.learn_auto,
       }
       next.every_hours = next.frequency === 'hours'
         ? (b.every_hours ?? before.every_hours ?? 4)
@@ -162,11 +189,16 @@ export default async function localInfoRoutes(app) {
       // re-geocodes itself when the place no longer matches the cached one.
       const changed = ['kind', 'frequency', 'every_hours', 'place', 'site', 'query'].some(k => String(next[k] ?? '') !== String(before[k] ?? ''))
         || (next.enabled && !before.enabled)
+      // What Pepper learned is about the kind of thing searched for: another
+      // kind starts afresh (flags on the old kind's findings stay, unused).
+      const newKind = next.kind !== before.kind
       const [row] = await tx`
         UPDATE local_info_sources
            SET kind = ${next.kind}, enabled = ${next.enabled}, frequency = ${next.frequency},
                every_hours = ${next.every_hours}, place = ${next.place}, site = ${next.site},
-               query = ${next.query},
+               query = ${next.query}, learn_auto = ${next.learn_auto},
+               learned = ${newKind ? null : tx`learned`}, learned_at = ${newKind ? null : tx`learned_at`},
+               learn_error = ${newKind ? null : tx`learn_error`}, flags_at = ${newKind ? null : tx`flags_at`},
                next_run_at = ${changed && next.enabled ? tx`now()` : tx`next_run_at`},
                updated_at = now()
          WHERE id = ${before.id} AND tenant_id = ${req.tenantId}
@@ -189,6 +221,28 @@ export default async function localInfoRoutes(app) {
     return { started: true }
   })
 
+  // Pepper works out from the flags what this capture's search should look
+  // for and leave out (one model call, counted for the person).
+  app.post('/sources/:id/learn', { preHandler: canManage }, async req => {
+    const row = await withTenant(req.tenantId, tx => loadSource(tx, req.tenantId, req.params.id))
+    if (row.kind === 'weather') throw httpError(422, 'A weather forecast has no search to tune: flags on it are only shown.')
+    if (row.learn_auto === false) throw httpError(422, 'Learning from flags is off for this capture: switch it on in Edit first.')
+    await pepperOn(req.tenantId)
+    const out = await learnNow(req.tenantId, row.id, { sub: req.user?.sub, email: req.user?.email })
+    return out
+  })
+
+  app.delete('/sources/:id/learned', { preHandler: canManage }, async req => withTenant(req.tenantId, async tx => {
+    const row = await loadSource(tx, req.tenantId, req.params.id)
+    // Learned again only once flags change after this (flags_at and
+    // learned_at both come from the API's clock).
+    const [after] = await tx`
+      UPDATE local_info_sources SET learned = NULL, learned_at = ${new Date()}, learn_error = NULL
+       WHERE id = ${row.id} AND tenant_id = ${req.tenantId}
+       RETURNING ${tx.unsafe(SOURCE_COLS)}`
+    return { source: after }
+  }))
+
   app.get('/items', { preHandler: canView }, async req => withTenant(req.tenantId, async tx => {
     const q = req.query || {}
     const venueId = q.venue_id ? UUID.parse(q.venue_id) : null
@@ -199,7 +253,7 @@ export default async function localInfoRoutes(app) {
     const kinds = String(q.kinds || '').split(',').filter(k => KINDS.includes(k))
     const items = await listItems(tx, req.tenantId, {
       venueId, from, to, kinds: kinds.length ? kinds : null,
-      includeHidden: q.include_hidden === '1',
+      includeHidden: q.include_hidden === '1', userSub: req.user?.sub,
     })
     return { from, to, items }
   }))
@@ -251,6 +305,36 @@ export default async function localInfoRoutes(app) {
                hidden = ${next.hidden}, updated_at = now()
          WHERE id = ${before.id} AND tenant_id = ${req.tenantId}`
       return { ok: true }
+    })
+  })
+
+  // The person's own flag on a captured item: relevant, not relevant, or none
+  // (null). A flag added, changed or taken off stamps the item's capture
+  // (flags_at) so its next run learns again first; the same flag again
+  // changes nothing and stamps nothing.
+  app.put('/items/:id/feedback', { preHandler: canView }, async req => {
+    const b = Feedback.parse(req.body)
+    const sub = req.user?.sub
+    if (!sub) throw httpError(403, 'Sign in to flag what a capture found')
+    return withTenant(req.tenantId, async tx => {
+      if (!UUID.safeParse(req.params.id).success) throw httpError(404, 'Item not found')
+      const [item] = await tx`SELECT id, source_id, kind FROM local_info_items WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
+      if (!item) throw httpError(404, 'Item not found')
+      if (!item.source_id) throw httpError(422, 'Only what a capture found takes a flag: a typed-in event is the group\'s own')
+      const changed = b.relevant === null
+        ? await tx`DELETE FROM local_info_feedback WHERE tenant_id = ${req.tenantId} AND item_id = ${item.id} AND user_sub = ${sub} RETURNING item_id`
+        : await tx`
+            INSERT INTO local_info_feedback (tenant_id, item_id, user_sub, relevant)
+            VALUES (${req.tenantId}, ${item.id}, ${sub}, ${b.relevant})
+            ON CONFLICT (item_id, user_sub) DO UPDATE SET relevant = EXCLUDED.relevant, updated_at = now()
+             WHERE local_info_feedback.relevant IS DISTINCT FROM EXCLUDED.relevant
+            RETURNING item_id`
+      // Only a finding of the capture's own kind is something it learns from.
+      if (changed.length) {
+        await tx`UPDATE local_info_sources SET flags_at = ${new Date()}
+                  WHERE id = ${item.source_id} AND tenant_id = ${req.tenantId} AND kind = ${item.kind}`
+      }
+      return { feedback: await itemFeedback(tx, req.tenantId, item.id, sub) }
     })
   })
 

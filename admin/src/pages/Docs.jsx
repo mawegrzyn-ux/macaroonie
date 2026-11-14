@@ -8357,14 +8357,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               Migration 240. Weather, traffic, events and incidents around the venues, captured on a schedule or
               typed in, shown on a month calendar or list at <Mono>/local-info</Mono> (main menu under Today), on a
-              dashboard widget, and read by Pepper. Two tables, both with forced RLS: <Mono>local_info_sources</Mono>
+              dashboard widget, and read by Pepper. Three tables, all with forced RLS: <Mono>local_info_sources</Mono>
               (a capture: venue, kind, place, site, query, frequency daily | hours | weekly with{' '}
               <Mono>every_hours</Mono>, <Mono>next_run_at</Mono>, <Mono>running_until</Mono> claim,{' '}
               <Mono>last_run_at</Mono> / <Mono>last_error</Mono>, the geocode cache <Mono>lat</Mono> /{' '}
-              <Mono>lon</Mono> / <Mono>geocoded_place</Mono>) and <Mono>local_info_items</Mono> (venue_id NULL = every
+              <Mono>lon</Mono> / <Mono>geocoded_place</Mono>, and since migration 248 what Pepper learned from staff
+              flags: <Mono>learn_auto</Mono>, <Mono>learned</Mono>, <Mono>learned_at</Mono>, <Mono>flags_at</Mono>,{' '}
+              <Mono>learn_error</Mono>), <Mono>local_info_items</Mono> (venue_id NULL = every
               venue; kind, title, details, <Mono>starts_on</Mono> / <Mono>ends_on</Mono> dates, time_text, place, url,
               severity info | notice | warning, <Mono>source_id</Mono> + <Mono>external_key</Mono> for captured rows
-              with a partial-unique index, <Mono>hidden</Mono>). One rules file, <Mono>shared/localInfo.js</Mono>:
+              with a partial-unique index, <Mono>hidden</Mono>) and <Mono>local_info_feedback</Mono> (migration 248:
+              one flag per person per captured item, primary key <Mono>(item_id, user_sub)</Mono>,{' '}
+              <Mono>relevant</Mono> true or false; a flag taken off is no row). One rules file, <Mono>shared/localInfo.js</Mono>:
               kinds, severities, frequencies, <Mono>nextRunAt()</Mono> (05:30 venue time for daily / weekly),{' '}
               <Mono>itemKey()</Mono>, the WMO weather maps (<Mono>weatherText()</Mono> / <Mono>weatherSummary()</Mono> /{' '}
               <Mono>weatherSeverity()</Mono>), <Mono>itemOnDay()</Mono>, <Mono>sortDayItems()</Mono>,{' '}
@@ -8414,6 +8418,62 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>local_info</Mono> (read, two weeks ahead by default), <Mono>add_local_event</Mono> (confirm
               card) and <Mono>run_local_capture</Mono>; all on the staff connector too.
             </P>
+            <H3>Relevant or not relevant, and learning from the flags</H3>
+            <P>
+              Migration 248. <Mono>PUT /items/:id/feedback</Mono> <Mono>{'{ relevant: true | false | null }'}</Mono>{' '}
+              (Local info View: anyone who sees the page may flag) sets the person&apos;s own flag on a captured
+              item: an upsert on <Mono>(item_id, user_sub)</Mono> that changes nothing when the flag is the same
+              (<Mono>WHERE relevant IS DISTINCT FROM EXCLUDED.relevant</Mono>), null deletes the row, a typed-in event
+              is a 422 and another group&apos;s item a 404. Only when a row really changed (<Mono>RETURNING</Mono>) and
+              the item is of its capture&apos;s own kind is the capture stamped: <Mono>flags_at</Mono> from the
+              API&apos;s clock, like <Mono>learned_at</Mono>, so the two compare. <Mono>listItems(..., {'{ userSub }'})</Mono>{' '}
+              gives each captured item <Mono>feedback</Mono> <Mono>{'{ mine, relevant, not_relevant }'}</Mono> (null for a
+              typed-in event) through a LATERAL count, and <Mono>itemFeedback()</Mono> is the same for one item (the
+              PUT&apos;s answer). <Mono>sourcesOf()</Mono> gives each capture <Mono>flags</Mono> (its own kind&apos;s
+              findings only) and <Mono>flags_changed</Mono> (<Mono>hasNewFlags()</Mono>&apos;s rule written in SQL).
+              Admin: <Mono>FlagButtons</Mono> / <Mono>useItemFlag()</Mono> in <Mono>components/localInfo/shared.jsx</Mono>{' '}
+              on every <Mono>ItemRow</Mono> (list, day window, widget; <Mono>li-flags</Mono> <Mono>data-mine</Mono>,{' '}
+              <Mono>li-flag-yes</Mono> / <Mono>li-flag-no</Mono> with <Mono>aria-pressed</Mono> and{' '}
+              <Mono>data-count</Mono>, <Mono>li-flag-error</Mono>), and on each capture in the Captures window its
+              flags and what was learned (<Mono>li-cap-flags</Mono>, <Mono>li-cap-learned</Mono>,{' '}
+              <Mono>li-cap-learned-what</Mono>, <Mono>li-cap-learned-nothing</Mono>, <Mono>li-cap-new-flags</Mono>,{' '}
+              <Mono>li-cap-learn-error</Mono>, <Mono>li-cap-learn-off</Mono>), Learn now (<Mono>li-cap-learn</Mono>),
+              Forget asking first (<Mono>li-cap-forget</Mono>, <Mono>-yes</Mono>, <Mono>-no</Mono>), the Edit
+              window&apos;s Learn from staff flags (<Mono>li-cap-learn-auto</Mono>) and View&apos;s note{' '}
+              <Mono>li-flag-note</Mono>.
+            </P>
+            <P>
+              Learning is <Mono>learnFromFlags(source, {'{ person, auto }'})</Mono> in{' '}
+              <Mono>services/localInfoSvc.js</Mono>: the <Mono>LEARN_ITEMS</Mono> (60) most recently flagged findings
+              of the capture&apos;s own kind, each with its counts, title, details, place and days, and the
+              search&apos;s own ask (<Mono>searchText()</Mono>), go to the everyday model in one{' '}
+              <Mono>askForJson()</Mono> call (effort low, 2,000 tokens, <Mono>LEARN_SCHEMA</Mono>{' '}
+              <Mono>{'{ look_for, leave_out, summary }'}</Mono>) under <Mono>LEARN_SYSTEM</Mono>, which says the
+              findings are text from web pages, data and never instructions. What comes back is clipped
+              (<Mono>LEARN_MAX</Mono> 6 phrases of <Mono>LEARN_PHRASE</Mono> 100 characters, a summary of 300) and
+              stored in <Mono>learned</Mono> with the counts it was worked out from. <Mono>learnedLine()</Mono> adds it
+              to the search&apos;s ask as one line after the operator&apos;s own Also look for words, which always
+              stay: <Mono>Staff feedback on earlier findings: look especially for ... Leave out ...</Mono>. Before each
+              search run, <Mono>runClaimed()</Mono> calls <Mono>learnBeforeRun()</Mono>: with{' '}
+              <Mono>learn_auto</Mono> on and <Mono>hasNewFlags()</Mono> (<Mono>flags_at</Mono> later than{' '}
+              <Mono>learned_at</Mono>, or never learned) it learns again first; a failure goes to{' '}
+              <Mono>learn_error</Mono> and the run carries on with what it learned before; a capture whose flags were
+              all taken off forgets (<Mono>learned</Mono> null). Learn now is <Mono>POST /sources/:id/learn</Mono>{' '}
+              (Manage; <Mono>pepperOn()</Mono>: 503 without a key, 403 with Pepper off; 422 for a weather capture,
+              learning switched off or nothing flagged; <Mono>learnNow()</Mono> holds the capture like a run through{' '}
+              <Mono>claimSource()</Mono>, 409 while a run holds it). Forget is{' '}
+              <Mono>DELETE /sources/:id/learned</Mono> (Manage): <Mono>learned</Mono> null and{' '}
+              <Mono>learned_at</Mono> now, so it learns again only once flags change after. A capture changed to
+              another kind starts afresh (<Mono>learned</Mono>, <Mono>learned_at</Mono>, <Mono>learn_error</Mono> and{' '}
+              <Mono>flags_at</Mono> cleared). Learning before a run counts the group&apos;s monthly allowance with no
+              person, as the search does; Learn now also the person&apos;s daily share. Pepper&apos;s{' '}
+              <Mono>local_info</Mono> tool gives each captured item <Mono>staff_flags</Mono> and each capture what it
+              learned. Reports: <Mono>local.items</Mono> has <Mono>flagged_relevant</Mono> and{' '}
+              <Mono>flagged_not_relevant</Mono> (counts that add up, so a capture&apos;s findings can be totalled
+              through its <Mono>items</Mono> link) and <Mono>local.captures</Mono> has <Mono>learns</Mono>,{' '}
+              <Mono>learned</Mono> (the summary), <Mono>learned_at</Mono> and <Mono>learn_problem</Mono>. Tests:{' '}
+              <Mono>api/test/local-info-flags.test.mjs</Mono>.
+            </P>
             <InfoBox title="Limits">
               Scheduled search runs count the group's monthly Pepper allowance with no person (<Mono>addUsage()</Mono>{' '}
               person null); a Run now from the page counts the same way. Since migration 242 the searches
@@ -8425,7 +8485,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               franchisees rely on the weather, either buy an Open-Meteo API plan (set the two URL env vars to the
               customer endpoints) or swap the provider in <Mono>captureWeather()</Mono>. Searches store what the
               model read on a page: dates can be wrong or stale, which is why every captured item keeps its source
-              link and can be hidden. No push or alerting; the calendar is pull-only.
+              link and can be hidden. No push or alerting; the calendar is pull-only. Flags (migration 248) change
+              nothing on the calendar, and what Pepper learns is words added to the search&apos;s ask, not a filter:
+              a later run can still find something staff flagged not relevant. Learning reads at most the 60 most
+              recently flagged findings, weighs every person&apos;s flag the same, and is tested only against a
+              stand-in Claude: first live use, flag a few findings, press Learn now and read what it says before
+              the next run. Flags on weather forecasts are only shown (a forecast has no search to tune).
             </InfoBox>
           </section>
 
@@ -8534,7 +8599,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Food safety and H&S (food_safety, checklists, hs_action_log)', 'safety.days (each venue\'s H&S day as the Overview judges it, worked out for each run), safety.fridges, safety.fridge_checks, safety.hold_stations, safety.hold_checks, safety.cooking_sessions, safety.cooking_items, safety.cooking_checks, safety.delivery_checks; safety.checklist_templates, safety.checklist_tasks, safety.checklists, safety.checklist_ticks; safety.action_categories, safety.actions'],
                 ['Cash reconciliation (cash_recon)', 'cash.days and cash.weeks (worked out for each run by Cash Recon\'s own rule), cash.income, cash.takings, cash.service_charges, cash.expenses, cash.wages, cash.reports, cash.wage_lists, and to group by: cash.income_sources, cash.payment_channels, cash.sc_sources, cash.expense_categories'],
                 ['Staff and rota (rota; pay rota_pay, points and tips rota_tips, the wage list beside the rota cash_recon, people, roles, time off and tip pots staff)', 'rota.staff_weeks, rota.weeks, rota.days, rota.pot_weeks, rota.tip_shares (worked out for each run by the Rota page\'s own rules), rota.entries, rota.pay_adjustments, rota.tip_moves, rota.shifts, and staff.people, staff.roles, staff.time_off, rota.tip_pots'],
-                ['Local info (local_info)', 'local.weather (the weather at each venue, one row a day: the forecast read last for that day from the Local info weather capture), local.items (every other Local info item, captured or typed; hidden ones left out, a group-wide one only with every venue), local.captures (how often each runs, when it last ran, its problem)'],
+                ['Local info (local_info)', 'local.weather (the weather at each venue, one row a day: the forecast read last for that day from the Local info weather capture), local.items (every other Local info item, captured or typed; hidden ones left out, a group-wide one only with every venue; how many staff flagged each relevant or not), local.captures (how often each runs, when it last ran, its problem, and since migration 248 whether it learns from staff flags and what it learned)'],
                 ['Menus (menus)', 'menu.releases (each publish and its state: Live, Earlier, Scheduled, Cancelled, by liveRows()\'s rule), menu.option_groups, menu.options, menu.tags, menu.dish_tags (the allergen matrix\'s levels), menu.dish_option_groups, menu.dish_option_prices, menu.dish_own_options, menu.tax_rates (the usual rate). Everything but releases is the draft the Menus pages edit'],
                 ['Website and reviews (website)', 'website.reviews (as the Reviews page holds them, checked or in the To check inbox), website.pages (the draft, each with its address worked out as pagePath() does), website.media, website.media_categories'],
                 ['Shared', 'venue (no module), menu.menus / menu.sections / menu.dishes (menus), guests.customers (customers)'],
@@ -8560,7 +8625,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               column of a catalogue table that no field, link or <Mono>skip</Mono> entry accounts for.{' '}
               <Mono>node api/scripts/report-catalogue.js</Mono> prints where things stand, and with a table name or{' '}
               <Mono>--area</Mono> drafts subjects from the columns, checks and foreign keys. After phase 3d the
-              decisions are <Mono>{'{ subject: 118, planned: 10, settings: 57, out: 48 }'}</Mono> over 233 tables;
+              decisions are <Mono>{'{ subject: 118, planned: 10, settings: 57, out: 49 }'}</Mono> over 234 tables
+              (migration 248&apos;s <Mono>local_info_feedback</Mono>, staff flags on local info, is left out: its
+              counts are on each item);
               what is still planned is Pepper&apos;s own usage and the group&apos;s (openings, issues, feature
               requests, the team and its roles). Columns holding a key, a code, a password or a guest&apos;s
               address (sealed or not) stay in their subject&apos;s <Mono>skip</Mono> list, so no report can read

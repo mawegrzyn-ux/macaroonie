@@ -12,7 +12,9 @@
 // WEATHER_GROUPS), never the row's title, which a capture never rewrites.
 // local.items is every other item. Items someone hid on the Local info page
 // are left out of both, as on that page and on Today; an item for the whole
-// group (no venue) shows only with every venue picked.
+// group (no venue) shows only with every venue picked. Each item says how
+// many staff flagged it relevant or not, and each capture what Pepper
+// learned from those flags (migration 248).
 
 import { subject, text, choice, number, yesno, date, moment, count, avg, min, max, ratio, one, many } from './define.js'
 import { weatherCodes, WEATHER_GROUPS, WET_DAY_MM, KIND_LABELS } from '../../../../shared/localInfo.js'
@@ -65,6 +67,12 @@ const HOW_OFTEN = `(CASE {t}.frequency
    WHEN 'weekly' THEN 'Once a week (Monday morning)'
    ELSE 'Once a day (early morning)' END)`
 const FAILING = "(COALESCE({t}.last_error, '') <> '')"
+
+// How many staff flagged an item relevant or not on the Local info page
+// (migration 248): one flag a person, a flag taken off is no row. Only what
+// a capture found takes flags, so a typed-in event's counts are 0.
+const FLAGS = cond => '(SELECT count(*) FROM local_info_feedback f WHERE f.item_id = {t}.id AND f.tenant_id = {t}.tenant_id AND ' + cond + ')'
+const LEARNS = "({t}.learn_auto AND {t}.kind <> 'weather')"
 
 export default [
   subject({
@@ -132,6 +140,8 @@ export default [
       came_from: choice({ sql: "(CASE WHEN {t}.source_id IS NULL THEN 'typed' ELSE 'captured' END)" }, { typed: 'Typed in', captured: 'Found by a capture' }, { label: 'How it came in' }),
       typed_by: text('created_by', { label: 'Typed in by', pii: true }),
       found_at: moment('captured_at', { label: 'Found' }),
+      flagged_relevant: number({ sql: FLAGS('f.relevant') }, { label: 'Flagged relevant', decimals: 0, adds: true, about: 'How many staff flagged it relevant on the Local info page. Only what a capture found takes flags.' }),
+      flagged_not_relevant: number({ sql: FLAGS('NOT f.relevant') }, { label: 'Flagged not relevant', decimals: 0, adds: true, about: 'How many staff flagged it not relevant on the Local info page. Only what a capture found takes flags.' }),
     },
     measures: {
       items: count({ label: 'Items' }),
@@ -175,6 +185,10 @@ export default [
       failing: yesno({ sql: FAILING }, { label: 'Ran into a problem', about: 'Its last run ended with a problem, shown on its row on the Local info page.' }),
       problem: text('last_error', { label: 'The problem' }),
       made_at: moment('created_at', { label: 'Added' }),
+      learns: yesno({ sql: LEARNS }, { label: 'Learns from staff flags', about: 'Before it runs, Pepper reads the staff flags on what it found and adds what it learned to its search. A weather capture has no search, so never learns.' }),
+      learned: text({ sql: "({t}.learned->>'summary')" }, { label: 'What Pepper learned', empty: 'Nothing yet', about: 'Pepper\'s sentence on what the staff flags say to look for and to leave out. The search uses it while the capture learns from staff flags.' }),
+      learned_at: moment('learned_at', { label: 'Last learned from flags' }),
+      learn_problem: text('learn_error', { label: 'Problem learning from flags', about: 'Why Pepper couldn\'t learn from the flags before its last run; the run went ahead with what it had learned before.' }),
     },
     measures: {
       captures: count({ label: 'Captures' }),
@@ -187,7 +201,9 @@ export default [
     list: ['venue.name', 'kind', 'how_often', 'enabled', 'last_ran', 'failing'],
     sort: [{ by: 'kind', dir: 'asc' }],
     // Where a weather capture found the place, as numbers (found_as says it
-    // in words).
-    skip: ['lat', 'lon', 'updated_at'],
+    // in words); when the flags on its findings last changed, kept only to
+    // decide when to learn again (Last learned from flags says when they
+    // were read).
+    skip: ['lat', 'lon', 'updated_at', 'flags_at'],
   }),
 ]

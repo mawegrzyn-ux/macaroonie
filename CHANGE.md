@@ -6,6 +6,20 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-14 — Local info: Relevant or not relevant, and Pepper learning from the flags]
+
+Migration: `248_local_info_feedback.sql`.
+
+**Added**
+- Each item a capture found on the Local info page (the list and the day window) and on the Local info dashboard widget has **Relevant** and **Not relevant** buttons: one flag per person, tap again to take it off, with how many people flagged it each way. Events typed in by hand have none.
+- **Pepper learns from the flags**: for an events, traffic or incidents capture, Pepper reads the flags on what it found and writes what its web search should look for and leave out, and the search uses that beside the capture's own words. It learns again by itself before the capture's next run whenever a flag changed, or at once with **Learn now** in the Captures window, which also shows the flags' counts, what Pepper learned and **Forget what Pepper learned**. Each capture has a **Learn from flags** switch (on unless switched off).
+- Pepper's `local_info` tool shows the flags and what each capture learned; reports can count an item's flags and show what each capture learned.
+
+**Notes**
+- Weather flags are shown and counted only: a forecast has no search to tune.
+- Flags don't hide anything (hide a finding as before): what Pepper learned shapes the next searches, it isn't a filter.
+- Learning is a short Pepper call counted in the group's allowance; so far it has only run against a stand-in Claude, not the live model.
+
 ## [2026-11-14 — Till: the dish being added in the Order zone, Change options, Label zones and zone looks; reports on menus, the website, Store tech and more]
 
 No migration.
