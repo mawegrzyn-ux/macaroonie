@@ -27,6 +27,7 @@ import { drillSpec, countedBy } from '../../../shared/reports/drill.js'
 import { CATALOGUE, CATALOGUE_MODULES, listColumns } from './catalogue/index.js'
 import { compileReport, countedKey, ReportError, SCREEN_ROWS } from './compile.js'
 import { shapeList, summaryShaper, matrixShaper } from './shape.js'
+import { fillWorks } from './work/index.js'
 
 const SCREEN_MS = 20000
 const EXPORT_MS = 120000
@@ -79,8 +80,24 @@ async function scopeOf(tx, tenantId, spec, params) {
   let tz = scope[0]?.timezone || 'Europe/London'
   let today
   try { today = todayIn(tz) } catch { tz = 'Europe/London'; today = todayIn(tz) }
-  return { tz, today, currencies: [...new Set(scope.map(v => v.currency))] }
+  return {
+    tz, today, currencies: [...new Set(scope.map(v => v.currency))],
+    // The venues asked for, for rows worked out in code (null = every venue).
+    venueIds: ids ? chosen.map(v => v.id) : null,
+  }
 }
+
+// The statements a plan runs straight away (the rows for "everything else"
+// are made later from the same report, so they read the same rows).
+const statementsOf = plan => (plan.kind === 'list'
+  ? [plan.rows, plan.totals]
+  : [plan.main, plan.compare?.run]).filter(Boolean)
+
+// The days the run's rows sit on: the period and the one it is compared
+// with. Null when the report covers every day.
+const rangesOf = plan => (plan.period
+  ? [plan.period.range, ...(plan.compare ? [{ from: plan.compare.from, to: plan.compare.to }] : [])]
+  : null)
 
 const hasMoney = plan => (plan.kind === 'list'
   ? plan.columns.some(c => c.type === 'money')
@@ -127,8 +144,9 @@ const HEAVY = 'This report would read too much at once. Narrow the period or add
 
 /**
  * Everything a run needs once it has its place in the queue: the plan (for
- * the venues' currencies too) and a way to run a statement with the cost
- * check.
+ * the venues' currencies too), the rows worked out in code that it reads,
+ * and a way to run a statement with the cost check. Runs in withReport()'s
+ * `before` step: the statements run once the transaction is read only.
  */
 async function prepare(tx, ctx, spec0, params, { listLimit, costFactor = 1, open = true }) {
   await takeSlot(tx, ctx.tenantId)
@@ -146,11 +164,25 @@ async function prepare(tx, ctx, spec0, params, { listLimit, costFactor = 1, open
       plan.notes.push('Your venues use more than one currency, so money is shown for each currency on its own')
     }
   }
+  const filled = await fillWorks(tx, statementsOf(plan).flatMap(st => st.works || []), {
+    tenantId: ctx.tenantId, venueIds: scope.venueIds, ranges: rangesOf(plan), levels: ctx.levels,
+  })
   const max = env.REPORT_MAX_COST * costFactor
-  const check = async stmt => { if (await costOf(tx, stmt) > max) throw new ReportError(HEAVY) }
+  const check = async stmt => {
+    const missing = (stmt.works || []).filter(w => !filled.has(w))
+    if (missing.length) throw new Error('A report statement reads rows nobody filled for this run: ' + missing.join(', '))
+    if (await costOf(tx, stmt) > max) throw new ReportError(HEAVY)
+  }
   const exec = async stmt => { await check(stmt); return tx.unsafe(stmt.text, stmt.params) }
   return { scope, spec, base: spec0, envc, plan, currencyColumn, check, exec }
 }
+
+// withReport()'s options for a run: the time limit, and prepare() in the
+// read-write moment before the transaction is made read only.
+const runOptions = (ctx, spec0, params, timeoutMs, prep) => ({
+  timeoutMs,
+  before: tx => prepare(tx, ctx, spec0, params, prep),
+})
 
 /**
  * What a row of this result can be opened into, for the person asking
@@ -241,12 +273,8 @@ export async function runReport(ctx, rawSpec, given = {}, opts = {}) {
 
   let result
   try {
-    result = await withReport(ctx.tenantId, { timeoutMs: mode === 'export' ? EXPORT_MS : SCREEN_MS }, async tx => {
-      const p = await prepare(tx, ctx, spec0, params, {
-        listLimit: (cap ?? EXPORT_ROWS) + 1,
-        costFactor: mode === 'export' ? 10 : 1,
-        open: mode !== 'export',
-      })
+    const prep = { listLimit: (cap ?? EXPORT_ROWS) + 1, costFactor: mode === 'export' ? 10 : 1, open: mode !== 'export' }
+    result = await withReport(ctx.tenantId, runOptions(ctx, spec0, params, mode === 'export' ? EXPORT_MS : SCREEN_MS, prep), async (tx, p) => {
       const { plan, exec } = p
       let shaped
       if (plan.kind === 'list') {
@@ -303,8 +331,8 @@ export async function streamList(ctx, rawSpec, given = {}, on = {}) {
   if (spec0.kind !== 'list') throw new ReportError('Only a list can be sent row by row')
   const params = resolveParams(spec0, given)
   try {
-    return await withReport(ctx.tenantId, { timeoutMs: EXPORT_MS }, async tx => {
-      const p = await prepare(tx, ctx, spec0, params, { listLimit: EXPORT_ROWS + 1, costFactor: 10, open: false })
+    const prep = { listLimit: EXPORT_ROWS + 1, costFactor: 10, open: false }
+    return await withReport(ctx.tenantId, runOptions(ctx, spec0, params, EXPORT_MS, prep), async (tx, p) => {
       const { plan } = p
       await p.check(plan.rows)
       const numeric = plan.columns.map(c => c.type === 'number' || c.type === 'money' || c.type === 'percent' || c.type === 'duration')

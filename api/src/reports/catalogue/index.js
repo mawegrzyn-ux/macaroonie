@@ -93,6 +93,9 @@ function build(lists) {
       const to = subjects[l.to]
       if (!to) fail(s, 'link ' + l.key + ' leads to "' + l.to + '", which isn\'t a subject')
       if (l.needs && !MODULE_KEYS.includes(l.needs)) fail(s, 'link ' + l.key + ' needs an unknown module')
+      // Rows worked out in code are filled for the run's own subject, its
+      // venues and period: nothing can reach them through a link.
+      if (to.from.work) fail(s, 'link ' + l.key + ' leads to ' + to.key + ', whose rows are worked out for each run')
       if (l.many) {
         // Their column, read on their row.
         const theirs = new Set(Object.values(to.links).filter(x => !x.many).map(x => x.key))

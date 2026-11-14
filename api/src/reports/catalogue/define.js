@@ -12,7 +12,11 @@
 //     label:  'Checks',                 one: 'check',
 //     about:  'Every check a till or kiosk opened ...',
 //     module: 'pos_reports',            who may report on it (View)
-//     from:   'pos_checks',             a table, or { sql: '(SELECT ...)', tables: [...] }
+//     from:   'pos_checks',             a table, or { sql: '(SELECT ...)', tables: [...] },
+//                                       or { work: 'cash_days', tables: [...] }: rows worked
+//                                       out in code for each run (reports/work/), for
+//                                       figures whose rules live in code; nothing may
+//                                       link to such a subject
 //     where:  "{t}.status <> 'x'",      rows that count as this subject
 //     id:     'id',  idType: 'text',    its key (a column or { sql })
 //     name:   'number',                 the field that names a row
@@ -139,10 +143,14 @@ export function subject(def) {
   if (!def.from) fail('needs a table (from)')
 
   const from = typeof def.from === 'string'
-    ? { table: def.from, sql: null, tables: [def.from] }
-    : { table: null, sql: String(def.from.sql || '').trim(), tables: def.from.tables || [] }
+    ? { table: def.from, sql: null, work: null, tables: [def.from] }
+    : def.from.work
+      ? { table: null, sql: null, work: String(def.from.work), tables: def.from.tables || [] }
+      : { table: null, sql: String(def.from.sql || '').trim(), work: null, tables: def.from.tables || [] }
   if (from.table && !COLUMN.test(from.table)) fail('"' + from.table + '" isn\'t a table name')
-  if (!from.table && !from.sql) fail('needs a table or { sql }')
+  if (from.work && !KEY.test(from.work)) fail('"' + from.work + '" isn\'t the name of rows worked out for a run')
+  if (from.work && !from.tables.length) fail('rows worked out for a run need the tables they read (from.tables)')
+  if (!from.table && !from.sql && !from.work) fail('needs a table, { sql } or { work }')
 
   let id
   try { id = source(def.id === undefined ? 'id' : def.id) } catch (e) { fail('id: ' + e.message) }
@@ -221,6 +229,12 @@ export function subject(def) {
   }
   return s
 }
+
+/**
+ * Where a run keeps the rows of a subject worked out in code (`from.work`):
+ * a temporary table of the run's own transaction (reports/work/).
+ */
+export const workTable = name => 'pg_temp.rpt_' + name
 
 /** The names a template reads: 't', 'tz' and the links it goes through. */
 export function templateRefs(sql) {
