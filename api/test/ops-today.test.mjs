@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import { as, ok, closeApp, sql } from './support/app.mjs'
 import { resetAndSeed, A, B } from './support/seed.mjs'
 import { fillTenant } from './support/fixtures.mjs'
-import { groupFor, sortTasks, GROUPS } from '../src/services/opsToday.js'
+import { groupFor, sortTasks, GROUPS, closingTime } from '../src/services/opsToday.js'
 import { addDays, weatherText } from '../../shared/localInfo.js'
 
 let ids, owner, V, V2, today
@@ -66,7 +66,9 @@ test('the day\'s tasks from the fixtures, each with one action', async () => {
   assert.ok(byKind(d, 'checklist').length, 'a checklist not done yet')
   assert.ok(byKind(d, 'po_to_send').length, 'a purchase order to send')
   assert.ok(byKind(d, 'orders_to_approve').length, 'an order waiting for approval')
-  assert.equal(byKind(d, 'cash_up')[0]?.group, 'late', 'yesterday not submitted')
+  const yesterdayCash = byKind(d, 'cash_up').find(t => t.key === 'cash_up:' + addDays(today, -1))
+  assert.equal(yesterdayCash?.group, 'late', 'yesterday not submitted')
+  assert.deepEqual(yesterdayCash.action, { form: 'cash_up', label: 'Do the cash-up', ref: { date: addDays(today, -1) } })
   // A day ahead nothing is due yet; a day gone is all late.
   const tomorrow = new Date(Date.parse(today + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10)
   const ahead = await feed(owner, '&date=' + tomorrow)
@@ -100,11 +102,125 @@ test('each part keeps its own permission (U1)', async () => {
   try {
     await ok(owner.patch('/api/access/roles/' + op.id, { permissions: { ...op.permissions, cash_recon: 'none', purchasing: 'none' } }))
     const d = await feed(as(A.operator, ids.a), '&time=10:00')
-    assert.ok(d.not_included.includes('cash') && d.not_included.includes('purchasing'), 'named, not worked round')
-    assert.equal(d.tasks.filter(t => t.area === 'cash' || t.area === 'purchasing').length, 0)
+    for (const area of ['cash', 'wages', 'purchasing']) assert.ok(d.not_included.includes(area), area + ' named, not worked round')
+    assert.equal(d.tasks.filter(t => ['cash', 'wages', 'purchasing'].includes(t.area)).length, 0)
   } finally {
     await ok(owner.patch('/api/access/roles/' + op.id, { permissions: op.permissions }))
   }
+})
+
+test('a day\'s closing time: the last sitting\'s doors close, else its last orders', () => {
+  assert.equal(closingTime([]), null)
+  assert.equal(closingTime(null), null)
+  assert.equal(closingTime([
+    { opens_at: '12:00:00', closes_at: '15:00:00' },
+    { opens_at: '17:00:00', closes_at: '22:00:00', doors_close_time: '23:00:00' },
+  ]), '23:00')
+  assert.equal(closingTime([
+    { opens_at: '17:00:00', closes_at: '22:00:00' },
+    { opens_at: '12:00:00', closes_at: '15:00:00' },
+  ]), '22:00', 'in any order')
+  assert.equal(closingTime([{ opens_at: '18:00:00', closes_at: '01:00:00' }]), '23:59', 'past midnight: by the end of the day')
+})
+
+// Cash Recon on Today: the day's cash-up (due when the venue closes), the
+// days before it not submitted (yesterday always, earlier days of the last
+// week once the venue uses Cash Recon), each opening in place; and last
+// week's cash wages still to pay (cash due = total less bank, less paid).
+test('the cash-up: today\'s at closing time, earlier days once in use, gone once submitted', async () => {
+  const C = `/api/venues/${V}/cash-recon`
+  const day = n => addDays(today, n)
+  const cash = d => byKind(d, 'cash_up')
+  const keys = d => cash(d).map(t => t.key).sort()
+  const task = (d, date) => cash(d).find(t => t.key === 'cash_up:' + date)
+
+  let d = await feed(owner, '&time=10:00')
+  assert.deepEqual(keys(d), ['cash_up:' + day(-1), 'cash_up:' + today].sort(),
+    'today and yesterday only, while no day of these two weeks has a cash-up')
+  const own = task(d, today)
+  assert.equal(own.title, 'Today\'s cash-up')
+  assert.equal(own.due, '21:30', 'when the fixtures\' sitting closes')
+  assert.equal(own.group, 'later')
+  assert.equal(own.detail, 'Not started')
+  assert.deepEqual(own.action, { form: 'cash_up', label: 'Do the cash-up', ref: { date: today } })
+  assert.equal(own.area, 'cash')
+  assert.match(task(d, day(-1)).title, /^Cash-up for \w+day not submitted$/)
+  assert.equal(task(await feed(owner, '&time=21:15'), today).group, 'now')
+  assert.equal(task(await feed(owner, '&time=22:30'), today).group, 'late', 'an hour after closing')
+
+  // A day three back started: the venue uses Cash Recon, so the week's
+  // other days not submitted show too.
+  await ok(owner.put(`${C}/daily/${day(-3)}`, { notes: 'Started on Today\'s test' }))
+  d = await feed(owner, '&time=10:00')
+  assert.deepEqual(keys(d), [0, -1, -2, -3, -4, -5, -6, -7].map(n => 'cash_up:' + day(n)).sort())
+  const started = task(d, day(-3))
+  assert.equal(started.detail, 'Started, not submitted')
+  assert.equal(started.action.label, 'Carry on')
+  assert.equal(started.group, 'late')
+  assert.ok(!task(d, day(-8)), 'only the last seven days')
+
+  // Submitted: gone (R2). A closed day needs none (R4).
+  await ok(owner.post(`${C}/daily/${day(-3)}/submit`, {}))
+  const shut = await ok(owner.post(`/api/venues/${V}/schedule/exceptions`, { name: 'Today test closed', date_from: day(-2), date_to: day(-2), is_closed: true }))
+  try {
+    d = await feed(owner, '&time=10:00')
+    assert.ok(!task(d, day(-3)), 'submitted')
+    assert.ok(!task(d, day(-2)), 'closed that day')
+    assert.ok(task(d, day(-4)), 'the others stay')
+  } finally {
+    await ok(owner.delete(`/api/venues/${V}/schedule/exceptions/${shut.id}`))
+  }
+
+  // A feed for tomorrow has its own cash-up and never counts today as missed.
+  const ahead = await feed(owner, '&date=' + day(1))
+  assert.ok(task(ahead, day(1)), 'tomorrow\'s own')
+  assert.equal(task(ahead, day(1)).group, 'later')
+  assert.ok(!task(ahead, today), 'today hasn\'t passed yet')
+  // A day gone: its own cash-up is late.
+  assert.equal(task(await feed(owner, '&date=' + day(-1)), day(-1)).group, 'late')
+
+  // View on Cash Recon: seen, not done (submitting a day needs Manage).
+  const roles = await ok(owner.get('/api/access/roles'))
+  const op = roles.find(r => r.key === 'operator')
+  try {
+    await ok(owner.patch('/api/access/roles/' + op.id, { permissions: { ...op.permissions, cash_recon: 'view' } }))
+    const seen = await feed(as(A.operator, ids.a), '&time=10:00')
+    assert.equal(task(seen, today)?.can_act, false)
+  } finally {
+    await ok(owner.patch('/api/access/roles/' + op.id, { permissions: op.permissions }))
+  }
+})
+
+test('last week\'s cash wages still to pay, until they are paid', async () => {
+  const C = `/api/venues/${V}/cash-recon`
+  const dow = new Date(today + 'T12:00:00Z').getUTCDay()
+  const monday = addDays(today, -((dow + 6) % 7))
+  const last = addDays(monday, -7)
+  const wages = d => byKind(d, 'wages_to_pay')
+  assert.equal(wages(await feed(owner, '&time=10:00')).length, 0, 'nothing on last week\'s wages yet')
+
+  const entries = [
+    { name: 'Today Jo', entry_type: 'fixed', total: 100, cash_amount: 40 },
+    { name: 'Today Sam', entry_type: 'fixed', total: 200, bank_amount: 150 },
+    { name: 'Today Lee', entry_type: 'fixed', total: 80, bank_amount: 80 },
+  ]
+  await ok(owner.put(`${C}/wages/${last}`, { entries }))
+  // This week's wages aren't due yet.
+  await ok(owner.put(`${C}/wages/${monday}`, { entries: [{ name: 'Today Jo', entry_type: 'fixed', total: 90 }] }))
+  let d = await feed(owner, '&time=10:00')
+  assert.equal(wages(d).length, 1)
+  const [w] = wages(d)
+  assert.equal(w.key, 'wages:' + last)
+  assert.equal(w.area, 'wages')
+  assert.equal(w.group, 'late')
+  assert.equal(w.detail, '£110.00 cash still to pay · 2 people', 'Jo 60 and Sam 50; Lee is paid by bank')
+  assert.deepEqual(w.action, { form: 'wages', label: 'Pay wages', ref: { week: last } })
+  assert.equal(w.can_act, true)
+
+  // Paid in cash: gone.
+  await ok(owner.put(`${C}/wages/${last}`, { entries: entries.map((e, i) => ({ ...e, cash_amount: [100, 50, 0][i] })) }))
+  d = await feed(owner, '&time=10:00')
+  assert.equal(wages(d).length, 0)
 })
 
 test('another group\'s venue is refused; bad input is a 400', async () => {

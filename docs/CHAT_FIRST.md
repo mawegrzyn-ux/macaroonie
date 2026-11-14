@@ -12,7 +12,11 @@ feed); F1 (as a sheet on the page, not inside the conversation), F2, F3, F5,
 F8; N2, N6; U1; Q1. Since 14 Nov 2026 the page also shows the week ahead
 under the greeting (the forecast for each day and up to five local news items
 from Local info: `summary.local`, `weekAhead()` in `shared/localInfo.js`), part
-of H2's alerts. Everything else below is still to do.
+of H2's alerts. Also since 14 Nov 2026: cash-ups not submitted (today's, due
+at closing, and the last week's once the venue uses Cash Recon) and last
+week's cash wages still to pay (more of C1 and C2), each done in the sheet
+with Cash Recon's own day and wages forms (F1, F3), the wages asking before
+it closes with changes not saved. Everything else below is still to do.
 
 ## What we're making
 
