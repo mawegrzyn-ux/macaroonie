@@ -16,7 +16,7 @@ const VENUE = uuid()
 const ANNA = uuid(), CARA = uuid(), KIOSK = uuid()
 const staffById = {
   [ANNA]: { id: ANNA, name: 'Anna', permissions: { discount_max_pct: 0 } },
-  [CARA]: { id: CARA, name: 'Cara', permissions: { void: true, refund: true, manager: true, discount_max_pct: 100 } },
+  [CARA]: { id: CARA, name: 'Cara', permissions: { void: true, refund: true, manager: true, open_discount: true, discount_max_pct: 100 } },
   [KIOSK]: { id: KIOSK, name: 'Kiosk', kiosk: true, permissions: {} },
 }
 const ev = (type, payload, extra = {}) => ({ id: ulid(), venue_id: VENUE, type, payload, staff_id: ANNA, client_at: new Date().toISOString(), ...extra })

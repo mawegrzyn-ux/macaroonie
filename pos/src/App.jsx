@@ -15,6 +15,7 @@ import { ApprovalProvider, Toasts, cx, useTick } from './components/ui.jsx'
 import StatusDot from './components/StatusDot.jsx'
 import { TillNavProvider, TillMenuModal, tillPages } from './components/TillMenu.jsx'
 import { useTillLayout } from './lib/tillLayout.js'
+import { counterTill, tablesOn } from './lib/checkOps.js'
 import Pair from './screens/Pair.jsx'
 import Login from './screens/Login.jsx'
 import Floor from './screens/Floor.jsx'
@@ -150,19 +151,27 @@ function NoConfig() {
 
 function Main() {
   const { config, staff, device } = useTill()
-  const counterMode = config.device?.settings?.mode === 'counter'
-  const [view, setView] = useState(counterMode ? { name: 'counter' } : { name: 'floor' })
+  // A counter till has the Counter page, a table-service till the floor;
+  // never both (Store tech > Tills, mode). A change of mode while the till
+  // is open moves it to its own page.
+  const counterMode = counterTill(config)
+  const tables = tablesOn(config)
+  const home = counterMode ? 'counter' : 'floor'
+  const [view, setView] = useState({ name: home })
+  useEffect(() => {
+    if ((view.name === 'counter' && !counterMode) || (view.name === 'floor' && counterMode)) setView({ name: home })
+  }, [counterMode]) // eslint-disable-line react-hooks/exhaustive-deps
   const [menuOpen, setMenuOpen] = useState(false)
   useTick(30000)
   const go = name => setView({ name })
-  const nav = tillPages(counterMode)
+  const nav = tillPages(counterMode, tables)
   const active = view.name === 'check' ? (counterMode ? 'counter' : 'floor') : view.name
   // A till layout without the top bar (Store tech > Till layouts): the order
   // screens (a check, the counter) take the whole screen and the till menu is
   // in More; the till's other pages keep the bar.
   const layout = useTillLayout(config)
   const hideBar = layout?.top_bar === false && (view.name === 'check' || view.name === 'counter')
-  const navValue = useMemo(() => ({ go, view: view.name, counterMode, hideBar, openMenu: () => setMenuOpen(true) }), [view.name, counterMode, hideBar]) // eslint-disable-line react-hooks/exhaustive-deps
+  const navValue = useMemo(() => ({ go, view: view.name, counterMode, tables, hideBar, openMenu: () => setMenuOpen(true) }), [view.name, counterMode, tables, hideBar]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <TillNavProvider value={navValue}>
       <div className="h-full flex flex-col" data-top-bar={hideBar ? '0' : '1'}>
@@ -192,8 +201,8 @@ function Main() {
           </header>
         )}
         <main className="flex-1 min-h-0">
-          {view.name === 'floor' && <Floor onOpen={id => setView({ name: 'check', id })} />}
-          {view.name === 'check' && <CheckScreen checkId={view.id} onBack={() => setView(counterMode ? { name: 'counter' } : { name: 'floor' })} onOpen={id => setView({ name: 'check', id })} />}
+          {view.name === 'floor' && <Floor onOpen={(id, then = null) => setView({ name: 'check', id, then })} />}
+          {view.name === 'check' && <CheckScreen key={view.id} checkId={view.id} then={view.then || null} onBack={() => setView({ name: home })} onOpen={id => setView({ name: 'check', id })} />}
           {view.name === 'counter' && <Counter onOpenCheck={id => setView({ name: 'check', id })} />}
           {view.name === 'closed' && <Closed />}
           {view.name === 'reports' && <Reports />}

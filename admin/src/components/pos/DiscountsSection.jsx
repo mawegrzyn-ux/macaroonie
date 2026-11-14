@@ -5,8 +5,8 @@
 // in the order set here. Each is a percent or an amount, on the whole check,
 // on items or either, and says whether it needs a manager every time. One
 // without that flag can be used by anyone signed in on a till; discounts
-// typed in on the till follow the till role's limit and the venue's
-// "Discounts typed in" switch (Receipts and payments).
+// typed in on the till need the till role's Type a discount, up to its limit
+// (Store tech > Till roles, migration 246); else a manager's PIN.
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -118,9 +118,8 @@ export default function DiscountsSection({ canManage = true }) {
       )}
       {list.length >= DISCOUNTS_MAX && <p className="text-xs text-muted-foreground">The list has as many discounts as it can take ({DISCOUNTS_MAX}).</p>}
       <p className="text-xs text-muted-foreground">
-        Discounts typed in on the till follow each till role's discount limit (
-        <Link to="/pos/roles" className="font-medium text-foreground underline">Till roles</Link>), and can be made to need a manager
-        every time under <Link to="/pos/receipts" className="font-medium text-foreground underline">Receipts and payments</Link>.
+        Typing a discount in on the till needs a till role with Type a discount, up to its discount limit (
+        <Link to="/pos/roles" className="font-medium text-foreground underline">Till roles</Link>); anyone else needs a manager's PIN.
       </p>
       <ErrorNote error={reorder.error} />
       {editing && <DiscountModal discount={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={refresh} />}

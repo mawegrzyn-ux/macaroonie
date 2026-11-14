@@ -143,11 +143,11 @@ export function VenuePicker({ venues, venueId, onChange }) {
   )
 }
 
-export function Segmented({ value, options, onChange, disabled, className }) {
+export function Segmented({ value, options, onChange, disabled, className, testid }) {
   return (
-    <div className={cn('inline-flex rounded-lg border overflow-hidden', className)}>
+    <div className={cn('inline-flex rounded-lg border overflow-hidden', className)} data-testid={testid}>
       {options.map(o => (
-        <button key={o.value} type="button" disabled={disabled} aria-pressed={value === o.value}
+        <button key={o.value} type="button" disabled={disabled} aria-pressed={value === o.value} data-value={o.value}
           onClick={() => onChange(o.value)}
           className={cn(
             'h-11 px-3 text-sm font-medium touch-manipulation transition-colors disabled:opacity-50',

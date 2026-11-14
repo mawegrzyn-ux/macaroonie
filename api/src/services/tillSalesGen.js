@@ -573,7 +573,7 @@ export function generateDay({ config: given, date, dayId, staff, count, seed = '
           } else if (!preset) {
             const pct = pick([10, 10, 15, 20, 25, 50], rng)
             run('discount.applied', { discount: { id: ulid(tNow), scope: 'check', type: 'percent', value: pct, name: 'Discount', reason: pick(DISCOUNT_REASONS, rng) } },
-              tNow, { approved_by: approval({ key: 'discount', amount: pct, action: 'custom_discount' }) })
+              tNow, { approved_by: approval({ key: 'open_discount', amount: pct }) })
           }
         }
         // An optional charge taken off.

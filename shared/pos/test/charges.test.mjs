@@ -26,9 +26,9 @@ const staffById = {
   // No discounts of their own, can't approve.
   [SERVER]: { id: SERVER, name: 'Anna', permissions: { discount_max_pct: 0 } },
   // Up to 25% off, can't approve.
-  [LEAD]:   { id: LEAD, name: 'Dev', permissions: { discount_max_pct: 25 } },
+  [LEAD]:   { id: LEAD, name: 'Dev', permissions: { open_discount: true, discount_max_pct: 25 } },
   // Approves, up to 25% off.
-  [SUPER]:  { id: SUPER, name: 'Ben', permissions: { discount_max_pct: 25, manager: true, comp: true } },
+  [SUPER]:  { id: SUPER, name: 'Ben', permissions: { open_discount: true, discount_max_pct: 25, manager: true, comp: true } },
 }
 
 const VAT20 = { id: uuid(), name: 'Standard', rate: 20, values: { [OTHER_VENUE]: 5 }, is_default: true, is_active: true }
@@ -388,18 +388,27 @@ test('discounts from the list: as set up, a manager only when they say so', () =
   assert.equal(presetMismatch(normaliseDiscount(STAFF_MEAL), { scope: 'check', type: 'percent', value: 50 }), null)
 })
 
-test('discounts typed in: the role\'s limit, and the venue\'s switch for a manager every time', () => {
+test('discounts typed in: the role\'s Type a discount, up to its limit', () => {
   const { id, checks } = setup()
-  const typed = (value, opts = {}, settings = null) => apply(checks, ev('discount.applied', { discount: { id: ulid(), scope: 'check', type: 'percent', value, name: 'Regular' } }, { check_id: id, ...opts }), settings)
-  // Off: Dev may give up to 25%.
+  const typed = (value, opts = {}, people = staffById) => applyEvent(checks, ev('discount.applied', { discount: { id: ulid(), scope: 'check', type: 'percent', value, name: 'Regular' } }, { check_id: id, ...opts }), { staffById: people })
+  // Dev's role types discounts up to 25%; above, a manager within their own limit.
   ok(typed(10, { staff_id: LEAD }))
+  ok(typed(25, { staff_id: LEAD }))
   assert.equal(typed(30, { staff_id: LEAD }).code, 'permission')
-  // On: a manager every time, within the approver's own limit.
-  const sw = { approvals: { custom_discount: true } }
-  assert.equal(typed(10, { staff_id: LEAD }, sw).code, 'manager')
-  ok(typed(10, { staff_id: LEAD, approved_by: SUPER }, sw))
-  ok(typed(10, { staff_id: SUPER }, sw))
-  assert.equal(typed(30, { staff_id: LEAD, approved_by: SUPER }, sw).code, 'permission')
+  assert.equal(typed(30, { staff_id: LEAD, approved_by: SUPER }).code, 'permission')
+  // Anna's role can't type one: a manager's PIN does it.
+  assert.equal(typed(10, { staff_id: SERVER }).code, 'permission')
+  ok(typed(10, { staff_id: SERVER, approved_by: SUPER }))
+  // A limit without Type a discount gives nothing (migration 246): it is the switch that allows typing.
+  const noSwitch = { ...staffById, [LEAD]: { ...staffById[LEAD], permissions: { discount_max_pct: 25 } } }
+  assert.equal(typed(10, { staff_id: LEAD }, noSwitch).code, 'permission')
+  // An approver needs it too.
+  const noApprove = { ...staffById, [SUPER]: { ...staffById[SUPER], permissions: { discount_max_pct: 25, manager: true } } }
+  assert.equal(typed(10, { staff_id: SERVER, approved_by: SUPER }, noApprove).code, 'permission')
+  // An amount counts as its share of what it takes off.
+  const amount = (value, opts) => applyEvent(checks, ev('discount.applied', { discount: { id: ulid(), scope: 'check', type: 'amount', value, name: 'Regular' } }, { check_id: id, ...opts }), { staffById })
+  ok(amount(100, { staff_id: LEAD }))
+  assert.equal(amount(5000, { staff_id: LEAD }).code, 'permission')
   // Comps and loyalty rewards aren't typed-in discounts.
-  ok(apply(checks, ev('discount.applied', { discount: { id: ulid(), scope: 'check', comp: true, reason: 'Birthday' } }, { check_id: id, staff_id: SUPER }), sw))
+  ok(apply(checks, ev('discount.applied', { discount: { id: ulid(), scope: 'check', comp: true, reason: 'Birthday' } }, { check_id: id, staff_id: SUPER })))
 })

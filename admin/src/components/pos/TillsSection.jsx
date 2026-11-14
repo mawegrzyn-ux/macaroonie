@@ -14,7 +14,7 @@ import { Plus, Loader2, Pencil, MonitorSmartphone, Link2, Smartphone, RotateCcw 
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { installerHref } from '@/lib/hosts'
-import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, ago, NumberBox } from './shared'
+import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, ago, NumberBox, Toggle } from './shared'
 import { CardMachinePick, useCardReaders } from './CardMachinesSection'
 
 const MODES = [
@@ -265,6 +265,12 @@ function TillModal({ venueId, setup, device, onClose }) {
     till_layout: s.till_layout || 'venue',
     covers: s.covers || 'stream',
     courses: s.courses || 'stream',
+    seats: s.seats || 'stream',
+    counter_send: s.counter_send === true,
+    unsent_at_pay: s.unsent_at_pay === 'send' ? 'send' : 'ask',
+    tables: s.tables !== false,
+    phone_tables: s.phone_tables === 'list' ? 'list' : 'tiles',
+    item_counts: s.item_counts === true,
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const body = () => ({
@@ -280,6 +286,12 @@ function TillModal({ venueId, setup, device, onClose }) {
       till_layout: form.till_layout,
       covers: form.covers,
       courses: form.courses,
+      seats: form.seats,
+      counter_send: form.counter_send,
+      unsent_at_pay: form.unsent_at_pay,
+      tables: form.tables,
+      phone_tables: form.phone_tables,
+      item_counts: form.item_counts,
       ...(device && orderRangeReady(form.order_numbers) ? { order_numbers: form.order_numbers } : {}),
     },
   })
@@ -309,8 +321,10 @@ function TillModal({ venueId, setup, device, onClose }) {
         <Field label="Name" hint="Shown on the till and in reports, e.g. Front till, Bar.">
           <input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Front till" />
         </Field>
-        <Field group label="Opens in">
-          <Segmented value={form.mode} options={MODES} onChange={v => set({ mode: v })} />
+        <Field group label="Opens in" hint={form.mode === 'counter'
+          ? 'Counter service only: no floor, tables, tabs, guests, seats or courses. Orders go to the kitchen as they are paid.'
+          : 'Table service only: tables and tabs, no counter orders.'}>
+          <Segmented value={form.mode} options={MODES} onChange={v => set({ mode: v })} testid="till-mode" />
         </Field>
         <Field label="Revenue stream" hint="Where its sales are counted unless staff pick another on the check. It also decides the order types the till offers.">
           <select className={inputCls} value={form.revenue_stream_id} onChange={e => set({ revenue_stream_id: e.target.value })}>
@@ -319,6 +333,12 @@ function TillModal({ venueId, setup, device, onClose }) {
           </select>
         </Field>
         {form.mode === 'table' && (
+          <Field group label="Tables" hint={form.tables ? 'The floor with its tables, and tabs.' : 'Only tabs and orders: the page is called Orders.'}>
+            <Segmented value={form.tables ? 'on' : 'off'} options={[{ value: 'on', label: 'Tables and tabs' }, { value: 'off', label: 'Only tabs' }]}
+              onChange={v => set({ tables: v === 'on' })} testid="till-tables" />
+          </Field>
+        )}
+        {form.mode === 'table' && form.tables && (
           <Field label="Floor area" hint="The part of the floor plan it opens on.">
             <select className={inputCls} value={form.floor_area_id} onChange={e => set({ floor_area_id: e.target.value })}>
               <option value="">First area</option>
@@ -351,19 +371,48 @@ function TillModal({ venueId, setup, device, onClose }) {
             {(setup.till_layouts || []).map(l => <option key={l.id} value={l.id}>{l.name}{l.phone ? ' (phone)' : ''}</option>)}
           </select>
         </Field>
-        <Field label="Guests (covers)" hint={'As the stream: ' + coversWord(streamFor(setup, form.revenue_stream_id)?.covers) + ' (Revenue streams). Off also leaves out seat numbers.'}>
-          <select className={inputCls} value={form.covers} onChange={e => set({ covers: e.target.value })} data-testid="till-covers">
-            <option value="stream">As the revenue stream</option>
-            {COVERS_RULES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-          </select>
-        </Field>
-        <Field label="Courses" hint={'As the stream: ' + (streamFor(setup, form.revenue_stream_id)?.courses === false ? 'no courses' : 'courses') + ' (Revenue streams).'}>
-          <select className={inputCls} value={form.courses} onChange={e => set({ courses: e.target.value })} data-testid="till-courses">
-            <option value="stream">As the revenue stream</option>
-            <option value="on">Use courses</option>
-            <option value="off">No courses</option>
-          </select>
-        </Field>
+        {form.mode === 'table' && <>
+          <Field label="Guests (covers)" hint={'As the stream: ' + coversWord(streamFor(setup, form.revenue_stream_id)?.covers) + ' (Revenue streams). Asked when a table or a tab opens.'}>
+            <select className={inputCls} value={form.covers} onChange={e => set({ covers: e.target.value })} data-testid="till-covers">
+              <option value="stream">As the revenue stream</option>
+              {COVERS_RULES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Seats" hint={'As the stream: ' + (streamFor(setup, form.revenue_stream_id)?.seats === false ? 'no seats' : 'seats') + ' (Revenue streams). Seat numbers on items, and By seat on the check.'}>
+            <select className={inputCls} value={form.seats} onChange={e => set({ seats: e.target.value })} data-testid="till-seats">
+              <option value="stream">As the revenue stream</option>
+              <option value="on">Use seats</option>
+              <option value="off">No seats</option>
+            </select>
+          </Field>
+          <Field label="Courses" hint={'As the stream: ' + (streamFor(setup, form.revenue_stream_id)?.courses === false ? 'no courses' : 'courses') + ' (Revenue streams).'}>
+            <select className={inputCls} value={form.courses} onChange={e => set({ courses: e.target.value })} data-testid="till-courses">
+              <option value="stream">As the revenue stream</option>
+              <option value="on">Use courses</option>
+              <option value="off">No courses</option>
+            </select>
+          </Field>
+          <Field label="Pay with items not sent to the kitchen" hint={form.unsent_at_pay === 'send'
+            ? 'Paying sends what is not sent yet and fires the courses waiting.'
+            : 'Pay says what the kitchen has not been told yet: Send and pay, or Pay without sending.'}>
+            <select className={inputCls} value={form.unsent_at_pay} onChange={e => set({ unsent_at_pay: e.target.value })} data-testid="till-unsent-at-pay">
+              <option value="ask">Warn first</option>
+              <option value="send">Send and fire them as it is paid</option>
+            </select>
+          </Field>
+          <Field group label="On a phone" hint={form.phone_tables === 'list'
+            ? 'Tables and tabs as rows: swipe right to pay, left to send what is new (or fire the course waiting).'
+            : 'Tables as tiles, tabs as a list.'}>
+            <Segmented value={form.phone_tables} options={[{ value: 'tiles', label: 'Tiles' }, { value: 'list', label: 'Rows to swipe' }]}
+              onChange={v => set({ phone_tables: v })} testid="till-phone-tables" />
+          </Field>
+        </>}
+        {form.mode === 'counter' && (
+          <Toggle label="Show a Send button" checked={form.counter_send} onChange={v => set({ counter_send: v })}
+            hint="Off: counter orders go to the kitchen as they are paid. On: staff can also send an order before it is paid." />
+        )}
+        <Toggle label="Show on dish buttons how many are on the order" checked={form.item_counts} onChange={v => set({ item_counts: v })}
+          hint="A small number on each dish's button: how many of it the order already has." />
         <CardMachinePick venueId={venueId} value={form.card_reader} onChange={v => set({ card_reader: v })} />
         <OrderNumbersField setup={setup} device={device} value={form.order_numbers} onChange={v => set({ order_numbers: v })} />
       </>}

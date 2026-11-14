@@ -15,7 +15,7 @@ import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } fr
 import {
   dispatch, dispatchMany, toast, useTill, setPrefs, cardStart, cardCheck, cardCancel, cardSignature, cardTest, cardPayments, cardRefund,
 } from '../lib/store.js'
-import { receiptModeOf } from '../lib/checkOps.js'
+import { receiptModeOf, sendAllSpecs } from '../lib/checkOps.js'
 
 const ICONS = { cash: Banknote, card_external: CreditCard, card_integrated: Nfc, voucher: Ticket, account: Wallet, other: CircleDot }
 const CARD_FINAL = ['approved', 'declined', 'cancelled', 'failed']
@@ -24,12 +24,15 @@ const WITH_TIP = ['card_external', 'card_integrated', 'other']
 const p2s = p => (p / 100).toFixed(2)
 
 /**
- * onClosed() after the check closes. counter: send unsent items to the kitchen
- * as the check closes (counter service pays first). From a till layout's
- * buttons: autoExact 'cash' | 'card' pays the amount left straight away (as
- * Exact cash / Exact card), initialTender opens with that tender picked.
+ * onClosed() after the check closes. sendOnClose: the kitchen is told to make
+ * everything not made yet as the check closes (items not sent go, courses
+ * waiting are fired): counter tills always (counter service pays first),
+ * table-service tills when their Items not sent at Pay setting says so
+ * (lib/checkOps.js unsentAtPay). From a till layout's buttons: autoExact
+ * 'cash' | 'card' pays the amount left straight away (as Exact cash / Exact
+ * card), initialTender opens with that tender picked.
  */
-export default function PayModal({ check, onClose, onClosed, counter = false, autoExact = null, initialTender = null }) {
+export default function PayModal({ check, onClose, onClosed, sendOnClose = false, autoExact = null, initialTender = null }) {
   const { config, online } = useTill()
   const approve = useApproval()
   const t = checkTotals(check)
@@ -179,10 +182,7 @@ export default function PayModal({ check, onClose, onClosed, counter = false, au
   }
 
   const close = printReceipt => {
-    const specs = []
-    if (counter && check.lines.some(l => l.status === 'new')) {
-      specs.push(['lines.sent', { send_id: ulid(), line_ids: check.lines.filter(l => l.status === 'new').map(l => l.id), held_course_ids: [] }, { check_id: check.id }])
-    }
+    const specs = sendOnClose ? sendAllSpecs(check) : []
     specs.push(['check.closed', { print_receipt: !!printReceipt }, { check_id: check.id }])
     const r = dispatchMany(specs)
     if (!r.ok) return toast(r.error, 'bad')

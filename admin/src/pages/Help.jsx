@@ -4616,8 +4616,8 @@ export default function Help() {
               tills offer and, for each one, <strong>Name</strong> and <strong>Tent</strong>: No, Ask
               (can be skipped) or Must (the check can&apos;t go to the kitchen or be paid without it).
               <strong> New checks start as</strong> picks the type a new check starts with. Each stream
-              also picks its menus and a colour, and whether its tables ask for guests and use courses (see Till
-              (POS) → Guests and courses). A till belongs to one (Tills
+              also picks its menus and a colour, and whether its checks ask for guests, number seats and use
+              courses (see Till (POS) → Guests, seats and courses). A till belongs to one (Tills
               tab) and a floor area can name one; staff can move a check to another on the till (More →
               Revenue stream). Till reports show sales by stream and by order type.
             </P>
@@ -6478,9 +6478,9 @@ export default function Help() {
               <li><strong>Discounts</strong> (shared by every venue): the discounts the till offers by name, e.g. Staff meal 50% or NHS 10%, and whether each needs a manager every time (see Charges and discounts below).</li>
               <li><strong>Charges</strong>: the list of charges a till check can have (shared by every venue: a service charge, a packaging fee, a cup deposit on hot drinks), and for this venue which checks get which by themselves, by revenue stream and order type (see Charges and discounts below).</li>
               <li><strong>Order flows</strong> (shared by every venue): prompts that suggest dishes (Add a drink? when a burger goes on, Any dessert? at checkout), and dishes or charges that go on orders by themselves (a bag on take out orders), each on tills, self-order kiosks or online ordering, at the locations you pick (see Order flows below).</li>
-              <li><strong>Revenue streams</strong>: groups of tills for reporting sales by place or device, e.g. Restaurant, Bar, Kiosk. Each picks the order types its tills offer (and for each, whether to ask for a customer name and a tent number: No, Ask or Must), which type new checks start as, its menus, whether its tables ask for <strong>guests (covers)</strong> and whether it uses <strong>courses</strong> (see Guests and courses below). A stream doesn't decide tax. Drag them into order. See Tax, Order Types &amp; Streams.</li>
+              <li><strong>Revenue streams</strong>: groups of tills for reporting sales by place or device, e.g. Restaurant, Bar, Kiosk. Each picks the order types its tills offer (and for each, whether to ask for a customer name and a tent number: No, Ask or Must), which type new checks start as, its menus, whether its tables and tabs ask for <strong>guests (covers)</strong>, whether it numbers <strong>seats</strong> and whether it uses <strong>courses</strong> (see Guests, seats and courses below). A stream doesn't decide tax. Drag them into order. See Tax, Order Types &amp; Streams.</li>
               <li><strong>Courses</strong> (shared by every venue): Starters, Mains, Desserts, in the order they go to the kitchen. A course <strong>held by default</strong> waits to be fired when it goes with an earlier course.</li>
-              <li><strong>Till roles</strong> (shared by every venue): what Server, Supervisor and Manager may do: void sent items, refund, comp, discounts up to a %, open the drawer, reopen checks, take over other people's checks, change prices, move items between checks, see reports, close the day, approve for others.</li>
+              <li><strong>Till roles</strong> (shared by every venue): what Server, Supervisor and Manager may do: void sent items, refund, comp, <strong>type a discount</strong> in (up to a %), open the drawer, reopen checks, take over other people's checks, change prices, move items between checks, see reports, close the day, approve for others.</li>
               <li><strong>Staff and PINs</strong>: give each person a till role and a 4 to 6 digit PIN. A PIN can start with 0. It can't be an easy one (1111, 1234), someone else&apos;s at the venue, or start the same way as someone else&apos;s (1234 beside 123456): the till signs in as soon as the digits typed match someone, so it couldn&apos;t tell those two apart. People come from the Staff page.</li>
               <li><strong>Venue hub</strong>: the small computer on the venue&apos;s network that prints the network and USB printers and, with <strong>Hub first</strong> on, keeps the tills, kiosks, kitchen screens and order ready boards trading with the internet down. Link it, see its state and updates, the USB printers plugged into it, and how to install one (see Set up the venue hub on a mini PC and Hub first below).</li>
               <li><strong>Printers</strong>: each printer, on the network, USB on the venue hub, or plugged into a till, kitchen screen or kiosk (see Printers and the venue hub below). Kitchen tickets print where the kitchen flow sends dishes: a <strong>Kitchen printer</strong> box in Kitchen screens.</li>
@@ -6489,7 +6489,7 @@ export default function Help() {
               <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, the ways to pay, tips, when staff are signed out, whether a receipt prints when a check is paid (<strong>Ask each time</strong>, <strong>Always print</strong> or <strong>Don&apos;t print</strong>; a till can have its own in its window), how the till asks for a new order&apos;s order type, name and tent number (<strong>One screen</strong> or <strong>Two steps</strong>; a till can have its own too, see Asking for the order type, name and tent number below), and what <strong>needs a manager every time</strong> (see Manager approvals below). Tax rates are set on Menus → Tax rates.</li>
               <li><strong>Cash Recon link</strong>: which till figures go into which Cash Recon fields when the day is closed (see End of day).</li>
               <li><strong>Floor plan</strong> (Store tech → Floor plan): add an area (e.g. Restaurant), tap tables to put them on it, drag them where they stand, drag the round corner to resize, Turn, Square / Round, and add walls, the bar, plants and labels. Save the area. Tables themselves are added on the Tables page.</li>
-              <li><strong>Tills</strong>: open the till address on the tablet: it shows a six-letter code and a QR code. Tap <strong>Add a till</strong>, type the code, give it a name, table service or counter, and <strong>Add the till</strong>: the tablet sets itself up. Or scan the QR code with your phone and do the same in the installer app. <strong>New device</strong> on a till's row puts it on another tablet (type the code that tablet shows; the old one stops), and so does choosing <strong>One already here</strong> in Add a till. Removing a till signs it out; <strong>Bring back</strong> on the Removed line links it again with its settings. A till can ask for guests and use courses its own way (<strong>Guests (covers)</strong> and <strong>Courses</strong> in its window; As the revenue stream to start with). Each till and kiosk gets its own block of counter <strong>order numbers</strong> when it is added (the first 1-99, the next 100-199, and so on), shown on its row; change it in the till's window (<strong>Order numbers</strong>, from and to). Two tills or kiosks at a location can't share numbers: the window says which one already uses them.</li>
+              <li><strong>Tills</strong>: open the till address on the tablet: it shows a six-letter code and a QR code. Tap <strong>Add a till</strong>, type the code, give it a name, table service or counter, and <strong>Add the till</strong>: the tablet sets itself up. Or scan the QR code with your phone and do the same in the installer app. <strong>New device</strong> on a till's row puts it on another tablet (type the code that tablet shows; the old one stops), and so does choosing <strong>One already here</strong> in Add a till. Removing a till signs it out; <strong>Bring back</strong> on the Removed line links it again with its settings. A till is <strong>table service</strong> or <strong>counter</strong>, never both, and has settings of its own: guests, seats and courses, no tables (only tabs), what Pay does with items not sent, rows to swipe on a phone, a Send button on a counter till, dish counts on its buttons (see A till&apos;s own settings below). Each till and kiosk gets its own block of counter <strong>order numbers</strong> when it is added (the first 1-99, the next 100-199, and so on), shown on its row; change it in the till's window (<strong>Order numbers</strong>, from and to). Two tills or kiosks at a location can't share numbers: the window says which one already uses them.</li>
               <li><strong>Till layouts</strong>: arrange the till&apos;s order screen yourself (where the order, the categories, the dishes and your own buttons go, and how big they are), pick the layout this venue&apos;s tills use, and give a till its own in its window (see Till layouts: arrange the order screen below).</li>
             </ol>
 
@@ -6763,7 +6763,7 @@ export default function Help() {
               Store tech → <strong>Till layouts</strong> lets you arrange the till&apos;s order screen yourself: where the
               order, the categories, the dishes and your own buttons go, how big their buttons are, and where a
               dish&apos;s choices show while it is being added. Layouts are shared by every venue. Each venue picks the
-              one its tills use (at the top of the page), and a till can have its own in its window on Tills
+              one its tills use (at the top of the page) and the one they use on a phone (<strong>On phones</strong>, a layout made for a phone), and a till can have its own in its window on Tills
               (<strong>Screen layout</strong>: As the venue, The standard screen, or a layout). Tills with no layout keep
               the standard screen.
             </P>
@@ -6847,30 +6847,67 @@ export default function Help() {
             </P>
             <P>
               <strong>What a phone-sized till shows.</strong> When the layout picked for it (its own, else its
-              venue&apos;s) is made for a phone, that layout. With any other layout, or none, the built-in phone
-              screen: the counter one on a counter till, the table service one otherwise. A phone turned on its
-              side shows the layout picked as a tablet would, unless that layout is made for a phone (its rows
-              would be too small to tap there): then the standard screen. Tablets are not affected. The
-              till&apos;s other screens fit a phone as well: the floor shows <strong>Tables</strong> and{' '}
-              <strong>Tabs and orders</strong> as two tabs with the tables as tiles, and Closed checks shows the
-              list, then the check you tap.
+              venue&apos;s) is made for a phone, that layout. Otherwise the venue&apos;s layout for phones (Store tech →
+              Till layouts, <strong>On phones</strong>), and with none picked there the built-in phone screen: the
+              counter one on a counter till, the table service one otherwise. The built-in phone screen can&apos;t be
+              changed (its dishes show their prices): for your own prices, buttons or dishes on phones, make a layout
+              from a phone starting point and pick it On phones. The till&apos;s <strong>Till</strong> page says which
+              layout it draws (<strong>Screen layout</strong>). A phone turned on its side shows the layout picked as
+              a tablet would, unless that layout is made for a phone (its rows would be too small to tap there): then
+              the standard screen. Tablets are not affected.
             </P>
+            <P>
+              The till&apos;s other screens fit a phone as well. The floor shows <strong>Tables</strong> and{' '}
+              <strong>Tabs and orders</strong> as two tabs, the tables as tiles; Closed checks shows the list, then the
+              check you tap. A table-service till set to <strong>Rows to swipe</strong> (Store tech → Tills, On a
+              phone) shows the tables and tabs as rows instead: a free table with its seats, or the check on it with its
+              total. Swipe a check&apos;s row to the <strong>right to pay</strong> (the check opens in Pay) or to the <strong>left to send</strong> what is
+              new to the kitchen, or to fire the course waiting when nothing is new; what the swipe will do shows behind
+              the row as it moves, and it happens once the row has moved about a third of the way across (160 px at most). When the order needs
+              something first (its guests, its details, which courses wait, or which of two courses to fire) it opens
+              and asks, as its own Send or Fire would. A tap still opens the check, and a free table&apos;s row opens a
+              new check.
+            </P>
+
+            <H3>A till&apos;s own settings</H3>
+            <P>
+              Each till is <strong>table service</strong> or <strong>counter</strong> (Store tech → Tills, Edit,{' '}
+              <strong>Opens in</strong>), never both. A table-service till has the floor (tables and tabs) and no
+              Counter page, and never lists counter orders. A counter till has the Counter page and no floor,
+              tables, tabs, guests, seats, courses or Fire, and sends each order to the kitchen as it is paid. Split
+              / move items and Merge checks only offer checks of the same kind. A till whose kind is changed in Store
+              tech moves to its own page as soon as it hears of the change.
+            </P>
+            <DataTable
+              head={['Setting (Store tech → Tills, Edit)', 'What it does']}
+              rows={[
+                ['Tables (table service)', 'Tables and tabs: the floor with its tables, and tabs. Only tabs: no tables; the floor page is called Orders and lists the tabs and orders, with New tab.'],
+                ['Guests (covers), Seats, Courses (table service)', 'As the revenue stream, or the till\'s own way: see Guests, seats and courses.'],
+                ['Pay with items not sent to the kitchen (table service)', 'Warn first (the usual): Pay says what the kitchen hasn\'t been told yet, with Send and pay or Pay without sending. Send and fire them as it is paid: items not sent go to the kitchen and courses waiting are fired as the check closes, without asking.'],
+                ['On a phone (table service)', 'Tiles: the tables as tiles, the tabs as a list. Rows to swipe: tables and tabs as rows; swipe right to pay, left to send what is new or fire the course waiting (see Phone layouts).'],
+                ['Show a Send button (counter)', 'Off (the usual): counter orders go to the kitchen as they are paid. On: staff can also send an order before it is paid.'],
+                ['Show on dish buttons how many are on the order', 'A small number on a dish\'s button: how many of it the order already has.'],
+                ['Screen layout', 'As the venue, the standard screen, or a layout (see Till layouts). The till\'s Till page says which layout it draws on its screen.'],
+              ]}
+            />
 
             <H3>Taking an order</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li>Sign in with your PIN (4 to 6 digits, a 0 at the start included). A PIN signs you in as soon as its last digit is typed; if a 4 or 5 digit PIN doesn&apos;t, press <strong>OK</strong>. The till signs you out after the time set in Receipts and payments. A PIN set or changed in Store tech works straight away; if the till is offline it needs to have been online once since.</li>
-              <li><strong>Floor</strong>: tap a table (it asks how many guests when its revenue stream or the till says to, see Guests and courses below), or <strong>New tab</strong> for a named tab (the till asks its name, and its order type and tent number when there is a choice or the type asks for one). Colours show which tables are free, open, waiting for a held course, or billed. A check at a table never asks for a tent number (the table says where the food goes); a tab or counter order asks when its order type does.</li>
-              <li>Tap dishes. Pick a <strong>seat</strong> and <strong>course</strong> in the bar at the bottom of the menu first if you want them (its buttons are as big as Pay; a stream without guests has no seats, one without courses no course buttons). Dishes with choices and combos open a window to pick them, add a note or allergies.</li>
-              <li><strong>Send</strong> sends new items to the kitchen. When the order has more than one course, or a course that waits by default, Send asks first: each course is a big button, green with <strong>Cook now</strong> for what the kitchen starts on, plain with a purple <strong>Wait (hold)</strong> label for what waits. Tap a course to switch it, then <strong>Send</strong>. A held course goes on the ticket with HOLD; <strong>Fire</strong> sends it when it&apos;s time.</li>
+              <li><strong>Floor</strong>: tap a table, or <strong>New tab</strong> for a named tab (the till asks its name, and its order type and tent number when there is a choice or the type asks for one). Both ask how many guests unless the revenue stream or the till says not to (see Guests, seats and courses below). Colours show which tables are free, open, waiting for a held course, or billed. A check at a table never asks for a tent number (the table says where the food goes); a tab or counter order asks when its order type does.</li>
+              <li>Tap dishes. Pick a <strong>seat</strong> and <strong>course</strong> in the bar at the bottom of the menu first if you want them (its buttons are as big as Pay; a stream or till without seats has no seat buttons, one without courses no course buttons). A dish&apos;s button can say how many of it the order has already (a small number in its corner), when the till is set to (Store tech → Tills, <strong>Show on dish buttons how many are on the order</strong>). Dishes with choices and combos open a window to pick them, add a note or allergies.</li>
+              <li><strong>Send</strong> sends new items to the kitchen. When the order has more than one course, or a course that waits by default, Send asks first: each course is a big button, green with <strong>Cook now</strong> for what the kitchen starts on, plain with a purple <strong>Wait (hold)</strong> label for what waits. Tap a course to switch it, then <strong>Send</strong>. A held course goes on the ticket with HOLD; <strong>Fire</strong> sends it when it&apos;s time. <strong>Send or Fire?</strong> Send is for items the kitchen hasn&apos;t had yet: it sends them, each course to cook now or to wait. Fire is for a course the kitchen already has but was told to wait: it starts that course. Items added after a Send need another Send.</li>
               <li>Tap an item on the check to change it: before it's sent you can change or delete it; after, <strong>Void</strong> it with a reason (the kitchen gets a VOID ticket), or <strong>Comp</strong> it.</li>
               <li><strong>Swipe an item to the left</strong> for its button: <strong>Delete</strong> before it&apos;s sent (a message offers <strong>Undo</strong> for a few seconds), <strong>Void</strong> once the kitchen has it (the void window opens: pick a reason). A long swipe deletes straight away.</li>
               <li><strong>Drag an item by its grip</strong> (the dots on its left) to another course: every course shows while you drag, so you can drop it into an empty one too. Only items not sent yet move between courses. Grouped <strong>By seat</strong>, drag an item to another seat (sent items too).</li>
               <li><strong>More</strong>: <strong>Menus</strong> (which menus show, when the stream has more than one; see The menu on the till), guests, move table, name, order type, tent number, <strong>Allergy</strong> (see Allergies on an order), server, revenue stream, discount, charges, offers, split or move items to another check, merge checks, an item not on the menu, print bill, no sale, close an empty check, <strong>Cancel order</strong>. On a till whose layout leaves out the top bar, More starts with the till menu (the till&apos;s pages, Sign out and its details).</li>
-              <li><strong>Pay</strong>: <strong>Exact cash</strong> and <strong>Exact card</strong> take the amount shown in one tap (Exact card goes to the till&apos;s card machine when it has one, otherwise it records a card payment taken on your own machine). Or pick a way to pay: cash (with change), card, card machine (see Card machines), voucher and so on, a tip if switched on, and as many payments as needed to split the bill. When it&apos;s all paid the till closes the check with or without a receipt, as set in Receipts and payments (or the till&apos;s own window): <strong>Ask each time</strong> shows the two buttons, <strong>Always print</strong> and <strong>Don&apos;t print</strong> close it straight away.</li>
+              <li><strong>Pay</strong>: <strong>Exact cash</strong> and <strong>Exact card</strong> take the amount shown in one tap (Exact card goes to the till&apos;s card machine when it has one, otherwise it records a card payment taken on your own machine). Or pick a way to pay: cash (with change), card, card machine (see Card machines), voucher and so on, a tip if switched on, and as many payments as needed to split the bill. When it&apos;s all paid the till closes the check with or without a receipt, as set in Receipts and payments (or the till&apos;s own window): <strong>Ask each time</strong> shows the two buttons, <strong>Always print</strong> and <strong>Don&apos;t print</strong> close it straight away. When the check has items not sent to the kitchen, or a course waiting to be fired, Pay says so first: <strong>Send and pay</strong> tells the kitchen to make it all now, <strong>Pay without sending</strong> leaves it (nothing goes to the kitchen after the check is paid). A till set to <strong>Send and fire them as it is paid</strong> does that by itself without asking (see A till&apos;s own settings below).</li>
             </ol>
             <P>
-              <strong>Counter</strong> takes an order with a number (from the till&apos;s own range of order
-              numbers, see Check and order numbers), pays it, and sends it to the kitchen when it's closed. Tap{' '}
+              <strong>Counter</strong> (on a counter till) takes an order with a number (from the till&apos;s own range of order
+              numbers, see Check and order numbers), pays it, and sends it to the kitchen when it's paid: a counter till
+              has no Send button unless it is set to show one (Store tech → Tills, <strong>Show a Send button</strong>),
+              and no guests, seats or courses. Tap{' '}
               <strong>New order</strong>, or just tap the first dish: the till takes over the screen to ask the
               order type (Eat in, Take out...: the ones the till's revenue stream offers) and the customer name
               or tent number that type asks for (see Asking for the order type, name and tent number below); one
@@ -6974,9 +7011,10 @@ export default function Help() {
               only, or either, and whether it <strong>needs a manager every time</strong>. On the till, More →{' '}
               <strong>Discount</strong> (or an item&apos;s Discount) shows the ones that fit at the top: anyone signed
               in can use one that isn&apos;t marked, even without a discount allowance of their own; a marked one asks
-              for a manager&apos;s PIN. Below them, a discount can still be typed in: that follows the person&apos;s
-              till role (discounts up to a %) and the switch below. Checks that had a discount keep it if you change
-              or delete it.
+              for a manager&apos;s PIN. Below them, a discount can still be typed in: only by people whose till role
+              has <strong>Type a discount</strong> (Store tech → Till roles), up to the role&apos;s{' '}
+              <strong>Discounts up to (%)</strong>; anyone else, or a bigger discount, needs a manager&apos;s PIN.
+              Checks that had a discount keep it if you change or delete it.
             </P>
             <InfoBox type="tip">
               Cash Recon: Store tech → Cash Recon link can send a charge by name to a service charge source (say the
@@ -7075,33 +7113,41 @@ export default function Help() {
               Store tech → Receipts and payments → <strong>Needs a manager every time</strong> makes a manager
               type their PIN for these, whatever the person&apos;s own till role allows: <strong>Taking off items
               not sent yet</strong> (deleting, a swipe, or lowering the quantity), <strong>Voiding items the
-              kitchen has</strong>, <strong>Cancelling a whole order</strong>, <strong>Refunds</strong>,{' '}
-              <strong>Taking an optional charge off</strong> and <strong>Discounts typed in</strong> on the till
-              (discounts from the list follow their own setting). The manager needs <strong>Approve for
+              kitchen has</strong>, <strong>Cancelling a whole order</strong>, <strong>Refunds</strong>{' '}
+              and <strong>Taking an optional charge off</strong> on the till
+              (discounts from the list follow their own setting; typing a discount in is the till role&apos;s{' '}
+              <strong>Type a discount</strong>, see Charges and discounts). The manager needs <strong>Approve for
               others</strong>, and for voids and refunds that permission too. A manager doing it themselves
               isn&apos;t asked. Switched off, the person&apos;s role decides (Till roles). Turning a dish into a
               combo (Make it a combo) never asks: nothing comes off the order. Charges that aren&apos;t optional
               always need a manager to come off.
             </P>
 
-            <H3>Guests and courses</H3>
+            <H3>Guests, seats and courses</H3>
             <P>
-              Each revenue stream decides two things for its tables (Store tech → <strong>Revenue streams</strong>,
-              Edit): <strong>Guests (covers)</strong> and <strong>Use courses</strong>. A till can do it its own way
-              in its window (Store tech → Tills); <strong>As the revenue stream</strong> follows the stream.
+              Each revenue stream decides three things for its tables and tabs (Store tech →{' '}
+              <strong>Revenue streams</strong>, Edit): <strong>Guests (covers)</strong>, <strong>Use seats</strong> and{' '}
+              <strong>Use courses</strong>. A till can do each its own way in its window (Store tech → Tills);{' '}
+              <strong>As the revenue stream</strong> follows the stream. Counter tills never ask for guests and use no
+              seats or courses, whatever the stream says.
             </P>
             <DataTable
               head={['Guests (covers)', 'What the till does']}
               rows={[
-                ['Ask, can be skipped', 'Opening a table asks how many guests, with Skip. The usual for new streams.'],
-                ['Must have', 'Opening a table asks, with no Skip. A table\'s check without guests (opened while the till skipped them) asks again before Send and Pay.'],
-                ['Don\'t ask', 'A table opens straight away, with no guests and no seat numbers (More has no Guests).'],
+                ['Ask, can be skipped', 'Opening a table or a tab asks how many guests, with Skip. The usual for new streams.'],
+                ['Must have', 'Opening a table or a tab asks, with no Skip. A check without guests (opened while the till skipped them) asks again before Send and Pay.'],
+                ['Don\'t ask', 'A table or a tab opens straight away with no guests (More has no Guests).'],
               ]}
             />
             <P>
+              <strong>Use seats</strong> (on unless switched off): seat numbers on items (the seat buttons in the bar at
+              the bottom of the menu) and <strong>By seat</strong> on the check. Off: no seat buttons; dishes go to the
+              whole table. Seats used to follow Guests (Don&apos;t ask meant no seats too); since 14 Nov 2026 they are a
+              switch of their own, so a stream can ask for guests without seats, or use seats without asking.
+            </P>
+            <P>
               <strong>Use courses</strong> off: dishes go to the kitchen together, the till shows no course buttons
-              and Send doesn&apos;t ask about courses. Tabs and counter orders never ask for guests. A charge from 6
-              guests only counts on checks that have them.
+              and Send doesn&apos;t ask about courses. A charge from 6 guests only counts on checks that have them.
             </P>
 
             <H3>Without the internet</H3>

@@ -65,10 +65,10 @@ export async function sellTwoDays({ owner, tenantId, filled, mark = 'Zrp' }) {
   const [d1, d2, d3] = byName
 
   // A server whose role gives discounts only, and a manager who approves the rest.
-  const server = await ok(owner.post('/api/pos/roles', { name: mark + ' Server', permissions: { discount_max_pct: 100 } }))
+  const server = await ok(owner.post('/api/pos/roles', { name: mark + ' Server', permissions: { open_discount: true, discount_max_pct: 100 } }))
   const boss = await ok(owner.post('/api/pos/roles', {
     name: mark + ' Manager',
-    permissions: { void: true, refund: true, comp: true, discount_max_pct: 100, reopen: true, close_day: true, manager: true },
+    permissions: { void: true, refund: true, comp: true, open_discount: true, discount_max_pct: 100, reopen: true, close_day: true, manager: true },
   }))
   await ok(owner.put(`/api/pos/venues/${V}/staff/${leadId}/pos`, { pos_role_id: server.id, pin: '2591' }))
   await ok(owner.put(`/api/pos/venues/${V}/staff/${bossId}/pos`, { pos_role_id: boss.id, pin: '1386' }))

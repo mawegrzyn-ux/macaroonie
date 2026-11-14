@@ -34,7 +34,7 @@ function RoleModal({ venueId, role, onClose }) {
         {role && <ConfirmDelete label="Delete role" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
       </>}>
       <Field label="Name"><input className={inputCls} value={name} maxLength={60} onChange={e => setName(e.target.value)} placeholder="e.g. Supervisor" /></Field>
-      <Field label="Discounts up to (%)" hint="The biggest discount they can give without a manager. 0: none; 100: any.">
+      <Field label="Discounts up to (%)" hint="The biggest discount they can type in (Type a discount, below) without a manager. 0: none; 100: any. Discounts from the Discounts list say themselves whether they need a manager.">
         <NumberBox value={perms.discount_max_pct ?? 0} max={100} onChange={v => setPerms(p => ({ ...p, discount_max_pct: v ?? 0 }))} ariaLabel="Discounts up to percent" />
       </Field>
       <div className="divide-y rounded-xl border px-3">
@@ -54,8 +54,9 @@ export default function RolesSection({ venueId, setup }) {
   const defaults = useMutation({ mutationFn: () => api.post('/pos/roles/defaults', {}), onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-setup'] }) })
   const summary = r => {
     const on = POS_PERMISSIONS.filter(p => r.permissions[p.key]).map(p => p.label.toLowerCase())
-    const disc = r.permissions.discount_max_pct ? 'discounts up to ' + r.permissions.discount_max_pct + '%' : null
-    return [disc, ...on].filter(Boolean).join(', ') || 'Orders and payments only'
+    // A typed discount's limit belongs with Type a discount.
+    const on2 = on.map(w => (w === 'type a discount' && r.permissions.discount_max_pct ? 'type a discount up to ' + r.permissions.discount_max_pct + '%' : w))
+    return on2.join(', ') || 'Orders and payments only'
   }
   return (
     <Section title="Till roles" hint="Shared by every venue. Something a role doesn't allow can still be done when a person allowed to approve types their PIN."

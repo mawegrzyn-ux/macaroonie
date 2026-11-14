@@ -176,6 +176,8 @@ export function settingsView(s) {
     order_prompt: s.order_prompt === 'two' ? 'two' : 'one',
     // Migration 228: the till layout the venue's tills use (null = the standard screen).
     till_layout_id: s.till_layout_id || null,
+    // Migration 246: the layout tills draw on a phone-sized screen (null = the built-in phone screen).
+    phone_layout_id: s.phone_layout_id || null,
     recon_map: s.recon_map || {}, recon_auto_fill: s.recon_auto_fill,
     kds_online_orders: s.kds_online_orders ?? true, kds_online_ready: s.kds_online_ready ?? true,
     kds_gloriafood: !!s.kds_gloriafood, kds_gloriafood_types: s.kds_gloriafood_types || {},

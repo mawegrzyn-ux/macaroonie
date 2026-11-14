@@ -17,8 +17,8 @@
 // flag anyone signed in may use it (the business set it up; the role's
 // discount limit is for discounts typed in). With one, a person who may
 // approve does it, or types their PIN for whoever does. A discount typed in
-// follows the role's limit, and the venue's "Discounts typed in" switch
-// (permissions.js MANAGER_ACTIONS custom_discount).
+// needs the role's Type a discount and its limit (permissions.js
+// open_discount, migration 246); else a manager's PIN.
 //
 // Pure: no I/O.
 

@@ -5,9 +5,13 @@
 // the same things), the till's buttons and the admin role editor.
 //
 // A role (pos_roles.permissions):
-//   { void: bool, refund: bool, discount_max_pct: 0-100, comp: bool,
-//     open_drawer: bool, reopen: bool, take_over: bool, price_override: bool,
-//     transfer: bool, sold_out: bool, reports: bool, close_day: bool, manager: bool }
+//   { void: bool, refund: bool, comp: bool, open_discount: bool,
+//     discount_max_pct: 0-100, open_drawer: bool, reopen: bool, take_over: bool,
+//     price_override: bool, transfer: bool, sold_out: bool, reports: bool,
+//     close_day: bool, manager: bool }
+// open_discount (migration 246): may type a discount on the till (one that
+// isn't on Store tech > Discounts), up to discount_max_pct. Discounts from
+// the list say themselves whether they need a manager.
 //
 // Something a person's role doesn't allow can still be done with a manager's
 // approval: a person whose role allows it types their PIN, and the event
@@ -17,6 +21,7 @@ export const POS_PERMISSIONS = [
   { key: 'void',           label: 'Void sent items',         hint: 'Take back an item the kitchen already has.' },
   { key: 'refund',         label: 'Refund',                  hint: 'Give money back on a closed check.' },
   { key: 'comp',           label: 'Comp items',              hint: 'Give an item free (100% off), with a reason.' },
+  { key: 'open_discount',  label: 'Type a discount',         hint: 'A discount that isn\'t on the Discounts list (Store tech), up to the limit above. Without it a manager types their PIN.' },
   { key: 'open_drawer',    label: 'Open the drawer',         hint: 'No sale: open the cash drawer without a payment.' },
   { key: 'reopen',         label: 'Reopen checks',           hint: 'Open a closed check again.' },
   { key: 'take_over',      label: 'Take over checks',        hint: 'Work on and transfer other people\'s checks.' },
@@ -36,14 +41,14 @@ export const DEFAULT_POS_ROLES = [
   {
     name: 'Supervisor',
     permissions: {
-      void: true, comp: true, discount_max_pct: 25, open_drawer: true, reopen: true,
+      void: true, comp: true, open_discount: true, discount_max_pct: 25, open_drawer: true, reopen: true,
       take_over: true, transfer: true, sold_out: true, reports: true, manager: true,
     },
   },
   {
     name: 'Manager',
     permissions: {
-      void: true, refund: true, comp: true, discount_max_pct: 100, open_drawer: true, reopen: true,
+      void: true, refund: true, comp: true, open_discount: true, discount_max_pct: 100, open_drawer: true, reopen: true,
       take_over: true, price_override: true, transfer: true, sold_out: true, reports: true, close_day: true, manager: true,
     },
   },
@@ -60,12 +65,13 @@ export function normalisePermissions(p = {}) {
 
 /**
  * Does `staff` (a { id, permissions } from the config) have `key`?
- * For 'discount' pass the percent as `amount`.
+ * For 'open_discount' pass the percent as `amount`: the role must allow
+ * typing discounts and one that big.
  */
 export function has(staff, key, amount = null) {
   if (!staff || staff.is_active === false) return false
   const p = staff.permissions || {}
-  if (key === 'discount') return (Number(p.discount_max_pct) || 0) >= (Number(amount) || 0)
+  if (key === 'open_discount') return !!p.open_discount && (Number(p.discount_max_pct) || 0) >= (Number(amount) || 0)
   return !!p[key]
 }
 
@@ -81,7 +87,7 @@ export const MANAGER_ACTIONS = [
   { key: 'refund',        permission: 'refund', label: 'Refunds',                       hint: 'Giving money back on a closed check.' },
   // Migration 225 (shared/pos/charges.js, discounts.js).
   { key: 'remove_charge', permission: null,     label: 'Taking an optional charge off', hint: 'Like the service charge. Charges that aren\'t optional always need a manager.' },
-  { key: 'custom_discount', permission: null,   label: 'Discounts typed in on the till', hint: 'A discount that isn\'t one of the Discounts set up in Store tech (those say themselves whether they need a manager).' },
+  // Discounts typed in on the till are the role's Type a discount (migration 246).
 ]
 export const MANAGER_ACTION_KEYS = MANAGER_ACTIONS.map(a => a.key)
 // Not a switch: something that needs a manager every time whatever the venue

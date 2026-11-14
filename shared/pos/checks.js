@@ -755,9 +755,9 @@ export function applyEvent(checks, e, ctx = {}) {
           if (base <= 0) return fail('Nothing left to discount', 'nothing')
           pct = Math.min(100, Math.ceil(d.value * 100 / base))
         }
-        const no = need('discount', pct); if (no) return no
-        // The venue's switch: a discount typed in needs a manager every time.
-        const sw = needManager('custom_discount'); if (sw) return sw
+        // Typed in on the till: the role's Type a discount, up to its limit
+        // (shared/pos/permissions.js, migration 246); else a manager's PIN.
+        const no = need('open_discount', pct); if (no) return no
       }
       c.discounts.push({
         id: d.id, scope: d.scope, line_ids: d.scope === 'line' ? d.line_ids : [],
