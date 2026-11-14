@@ -129,6 +129,27 @@ test('totals, figures worked out but not shown, decimals and the table under a c
   assert.equal(res.json.problem, null)
 })
 
+test('a period of every day: a dated report with no period, said back as every day; a period named wins', async () => {
+  const res = await owner.post(PLAN_URL, { plan: { subject: 'till.checks', figures: [{ figure: 'checks' }], period: { any: true } } })
+  assert.equal(res.status, 200, res.body)
+  const { spec } = res.json
+  assert.ok(!spec.params.some(p => p.type === 'period'), 'no period choice')
+  assert.ok(!spec.filters.some(f => f.op === 'in_period'), 'no period filter')
+  assert.ok(!res.json.assumed.some(a => /last week/.test(a)), 'not taken as last week')
+  assert.equal(res.json.problem, null)
+  assert.ok(res.json.result, 'it runs')
+  assert.deepEqual(planOf(everything, spec, [], 'Checks').plan.period, { any: true })
+
+  const named = await owner.post(PLAN_URL, { plan: { subject: 'till.checks', figures: [{ figure: 'checks' }], period: { relative: 'today', any: true } } })
+  assert.equal(named.status, 200, named.body)
+  assert.deepEqual(named.json.spec.params.find(p => p.key === 'period').default, { relative: 'today' })
+
+  // Left out, the period is last week, as before.
+  const plain = await owner.post(PLAN_URL, { plan: { subject: 'till.checks', figures: [{ figure: 'checks' }] } })
+  assert.deepEqual(plain.json.spec.params.find(p => p.key === 'period').default, { relative: 'last_week' })
+  assert.deepEqual(planOf(everything, plain.json.spec, [], 'Checks').plan.period, { relative: 'last_week' })
+})
+
 test('what a plan names that isn\'t there comes back with the near ones, and nothing runs', async () => {
   const bad = await owner.post(PLAN_URL, { plan: { subject: 'dishes sold', figures: [{ count: true }] } })
   assert.equal(bad.status, 200, bad.body)

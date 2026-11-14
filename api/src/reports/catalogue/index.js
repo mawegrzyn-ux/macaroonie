@@ -15,6 +15,11 @@ import common from './common.js'
 import till from './till.js'
 import online from './online.js'
 import bookings from './bookings.js'
+import purchasing from './purchasing.js'
+import safety from './safety.js'
+import kitchen from './kitchen.js'
+import kiosks from './kiosks.js'
+import loyalty from './loyalty.js'
 import { templateRefs } from './define.js'
 import { MODULE_KEYS } from '../../config/modules.js'
 import { NUMERIC_TYPES } from '../../../../shared/reports/format.js'
@@ -25,6 +30,11 @@ export const AREAS = [
   { key: 'till', label: 'Till sales' },
   { key: 'online', label: 'Online orders' },
   { key: 'bookings', label: 'Bookings' },
+  { key: 'kitchen', label: 'Kitchen' },
+  { key: 'kiosks', label: 'Self-order kiosks' },
+  { key: 'loyalty', label: 'Loyalty' },
+  { key: 'purchasing', label: 'Purchasing' },
+  { key: 'safety', label: 'Food safety and H&S' },
   { key: 'guests', label: 'Customers' },
   { key: 'menus', label: 'Menus' },
   { key: 'shared', label: 'Your group' },
@@ -65,6 +75,7 @@ function build(lists) {
       if (f.needs && !MODULE_KEYS.includes(f.needs)) fail(s, 'field ' + f.key + ' needs an unknown module')
     }
     for (const m of Object.values(s.measures)) {
+      if (m.needs && !MODULE_KEYS.includes(m.needs)) fail(s, 'measure ' + m.key + ' needs an unknown module')
       if (m.ratio) {
         for (const part of m.ratio) {
           const p = s.measures[part]
@@ -126,12 +137,13 @@ function build(lists) {
   return { subjects }
 }
 
-export const CATALOGUE = build([common, till, online, bookings])
+export const CATALOGUE = build([common, till, online, bookings, kitchen, kiosks, loyalty, purchasing, safety])
 
-/** Every module a subject, field or link of the catalogue asks for. */
+/** Every module a subject, field, figure or link of the catalogue asks for. */
 export const CATALOGUE_MODULES = [...new Set(Object.values(CATALOGUE.subjects).flatMap(s => [
   s.module,
   ...Object.values(s.fields).map(f => f.needs),
+  ...Object.values(s.measures).map(m => m.needs),
   ...Object.values(s.links).map(l => l.needs),
 ]).filter(Boolean))]
 

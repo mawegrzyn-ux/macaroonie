@@ -47,7 +47,7 @@ test('every table in the database has one decision, and every decision names a t
   assert.equal(d.counts.subject + d.counts.planned + d.counts.settings + d.counts.out, tables.length)
 
   // Where the catalogue stands today: a change here is a change to say in the docs.
-  assert.deepEqual(d.counts, { subject: 27, planned: 115, settings: 45, out: 46 })
+  assert.deepEqual(d.counts, { subject: 61, planned: 71, settings: 54, out: 47 })
   assert.equal(tables.length, 233)
 
   // Left-out tables carry a reason; planned ones an area with a phase.
@@ -67,7 +67,9 @@ test('every table in the database has one decision, and every decision names a t
   assert.deepEqual(read.get('pos_check_lines'), ['till.lines', 'till.voids'])
   assert.deepEqual(read.get('cash_staff'), ['till.takers'])
   assert.deepEqual(read.get('gloriafood_orders'), ['online.sales'])
-  assert.equal(tableDecisions(CATALOGUE).find(x => x.table === 'purchase_orders').area, 'purchasing')
+  assert.deepEqual(read.get('kds_log'), ['kitchen.tickets', 'kitchen.remakes'])
+  assert.equal(tableDecisions(CATALOGUE).find(x => x.table === 'cash_daily_reports').area, 'cash')
+  assert.equal(tableDecisions(CATALOGUE).find(x => x.table === 'supply_order_lines').reason, 'Filled in until placed, then copied onto the purchase order lines reports read')
   assert.equal(tableDecisions(CATALOGUE).find(x => x.table === 'report_runs').phase, 4)
   assert.equal(tableDecisions(CATALOGUE).find(x => x.table === 'platform_secrets').reason, 'Secrets and keys')
 })
@@ -84,7 +86,7 @@ test('a table nobody has decided on, one decided twice and a stale name are each
 test('every id column of a table a subject reads is linked, offered or left out on purpose', t => {
   const cover = tableCoverage(CATALOGUE, columns)
   assert.deepEqual(cover.derived, ['till.takers', 'online.sales'])
-  assert.equal(cover.tables.length, 22)
+  assert.equal(cover.tables.length, 56)
 
   const undecided = cover.tables.flatMap(x => x.idsUndecided.map(c => x.table + '.' + c))
   assert.deepEqual(undecided, [], 'id columns with no link: add one(...) to the subject, or the column to its skip list')
@@ -156,7 +158,10 @@ test('nothing secret is read, every module asked for exists, and no SQL leaves t
   }
 
   for (const m of CATALOGUE_MODULES) assert.ok(MODULE_KEYS.includes(m), m)
-  assert.deepEqual([...CATALOGUE_MODULES].sort(), ['bookings', 'customers', 'menus', 'pos_reports', 'web_orders'])
+  assert.deepEqual([...CATALOGUE_MODULES].sort(), [
+    'bookings', 'checklists', 'customers', 'food_safety', 'hs_action_log', 'loyalty', 'loyalty_members',
+    'menus', 'pos_reports', 'pos_setup', 'purchasing', 'purchasing_setup', 'web_orders',
+  ])
   for (const s of Object.values(CATALOGUE.subjects)) {
     assert.ok(AREAS.some(a => a.key === s.area), s.key + ' area')
     // Only the venue list is open to everyone who can use reports.

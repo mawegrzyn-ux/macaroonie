@@ -13,6 +13,11 @@
 import till from './till.js'
 import online from './online.js'
 import bookings from './bookings.js'
+import purchasing from './purchasing.js'
+import safety from './safety.js'
+import loyalty from './loyalty.js'
+import kitchen from './kitchen.js'
+import kiosks from './kiosks.js'
 import { CATALOGUE, CATALOGUE_MODULES, listColumns } from '../catalogue/index.js'
 import { compileReport } from '../compile.js'
 import { normaliseReport, reportProblems, resolveParams, rowId } from '../../../../shared/reports/spec.js'
@@ -96,7 +101,7 @@ function build(lists) {
   return out
 }
 
-export const STARTERS = build([till, online, bookings])
+export const STARTERS = build([till, online, bookings, purchasing, safety, loyalty, kitchen, kiosks])
 
 const BY_KEY = new Map(STARTERS.map(s => [s.key, s]))
 export const starterByKey = key => BY_KEY.get(key) || null

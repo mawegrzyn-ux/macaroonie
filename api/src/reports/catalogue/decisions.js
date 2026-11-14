@@ -29,15 +29,6 @@ export const PLANNED = {
     ],
     group: ['pos_roles', 'pos_discounts', 'pos_charges', 'pos_printers', 'pos_card_readers', 'floor_areas', 'tax_rates', 'tax_rate_values'],
   },
-  kitchen: {
-    happen: ['kds_log', 'kds_orders'],
-    group: ['kds_stations', 'kds_flows'],
-  },
-  kiosks: {
-    // The summary columns of a visit; its recorded touches stay out.
-    happen: ['kiosk_sessions'],
-    group: ['kiosk_designs'],
-  },
   online: {
     happen: ['order_events', 'ordering_item_availability'],
     group: ['promotions'],
@@ -61,18 +52,6 @@ export const PLANNED = {
   staff: {
     happen: ['rota_entries', 'rota_pay_adjustments', 'rota_tip_moves', 'rota_tip_move_lines', 'rota_week_staff', 'rota_week_pot_lines', 'rota_week_pot_manual', 'staff_rota_off'],
     group: ['staff_roles', 'rota_shifts', 'tip_pots', 'tip_pot_lines', 'staff_shift_rates'],
-  },
-  purchasing: {
-    happen: ['purchase_orders', 'purchase_order_lines', 'purchase_invoices', 'supply_orders', 'supply_order_lines', 'inv_price_history'],
-    group: ['suppliers', 'supplier_venues', 'inv_items', 'inv_categories', 'inv_quotes', 'inv_quote_venue_prices', 'inv_preferred', 'order_lists', 'order_list_items', 'order_list_pars', 'order_list_venues'],
-  },
-  safety: {
-    happen: ['fs_temp_logs', 'fs_hold_checks', 'fs_cooking_checks', 'fs_delivery_checks', 'checklist_instances', 'checklist_instance_items', 'hs_action_log'],
-    group: ['fs_equipment', 'fs_hold_stations', 'fs_cooking_sessions', 'fs_cooking_items', 'checklist_templates', 'checklist_template_items', 'hs_action_categories'],
-  },
-  loyalty: {
-    happen: ['loyalty_ledger', 'loyalty_redemptions', 'loyalty_member_rewards'],
-    group: ['loyalty_members', 'loyalty_programmes', 'loyalty_rewards', 'loyalty_stamp_cards'],
   },
   screens: {
     happen: [],
@@ -121,8 +100,13 @@ export const SETTINGS = [
   'menu_times', 'menu_translations',
   // Cash and rota
   'cash_venue_settings', 'cash_wage_defaults', 'rota_settings', 'rota_week_pot_payees',
-  // Purchasing, food safety
-  'purchasing_settings', 'fs_capture_times', 'fs_hold_capture_times', 'fs_cooking_settings',
+  // Purchasing: what each venue orders and how; a price at one venue
+  'purchasing_settings', 'supplier_venues', 'inv_quote_venue_prices', 'inv_preferred',
+  'order_lists', 'order_list_items', 'order_list_pars', 'order_list_venues',
+  // Food safety
+  'fs_capture_times', 'fs_hold_capture_times', 'fs_cooking_settings',
+  // Kitchen flows, the loyalty programme
+  'kds_flows', 'loyalty_programmes',
   // Website
   'tenant_site', 'website_config', 'website_opening_hours', 'website_menu_documents', 'website_allergen_info', 'website_gallery_images',
   // Pepper, the group
@@ -150,6 +134,9 @@ export const LEFT_OUT = {
   ],
   'Working state that changes from minute to minute': [
     'pos_venue_state', 'kds_flow_edges', 'kds_balance_turns', 'booking_holds', 'table_occupancy', 'review_scrape_jobs',
+  ],
+  'Filled in until placed, then copied onto the purchase order lines reports read': [
+    'supply_order_lines',
   ],
   'Reached only through the row they belong to': [
     'table_combination_members', 'feature_request_upvotes',

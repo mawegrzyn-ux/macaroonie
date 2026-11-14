@@ -82,7 +82,7 @@ export default [
     measures: { streams: count({ label: 'Revenue streams' }) },
     list: ['name', 'venue.name', 'active'],
     sort: [{ by: 'name', dir: 'asc' }],
-    skip: ['default_order_type_id', 'menu_ids', 'colour', 'sort_order', 'created_at', 'covers', 'courses'],
+    skip: ['default_order_type_id', 'menu_ids', 'colour', 'sort_order', 'created_at', 'covers', 'courses', 'seats'],
   }),
 
   subject({

@@ -50,7 +50,7 @@ import { ReportError } from './compile.js'
 import { checkedSpec } from './access.js'
 import { askForJson, fileBlocks, obj, str, bool, arr, oneOf, clip } from '../services/aiJson.js'
 import {
-  dataTree, treeNodes, pathUses, addRow, addColumn, addValue, addFilter, setParamDefault,
+  dataTree, treeNodes, pathUses, addRow, addColumn, addValue, addFilter, removeFilter, setParamDefault,
   setSort, setLimit, setCompare, compareProblem, setView, filterOps, filterValueKind, filterShape,
   filterValueOk, storedNumber, shownNumber, valueName, usedParams,
 } from '../../../shared/reports/build.js'
@@ -86,7 +86,16 @@ const STOP = new Set((
   + 'is are was were be been being do does did can could would should will shall may might must '
   + 'what which who whom how when where why show shows showing give gives list make see want need needs please like '
   + 'report reports it its this that these those than then also just about into out over up down there here '
-  + 'today yesterday tomorrow last next ago since so far get got let lets us one ones'
+  + 'today yesterday tomorrow last next ago since so far get got let lets us one ones '
+  // "How many" and "how much" ask for a count or a sum, not what of.
+  + 'many much '
+  // When, not what: every subject with a day can be grouped by any of these,
+  // and the ones whose fields happen to say them ("Every week" on a checklist)
+  // would otherwise take the place of the subject the request is about.
+  + 'day days daily week weeks weekly weekday weekdays weekend weekends month months monthly '
+  + 'quarter quarters quarterly year years yearly annual hour hours hourly '
+  // Comparing is something any report can do ("the same week last year").
+  + 'same versus vs against compare compared comparing comparison between'
 ).split(' '))
 
 /** A word's root for the index: plurals and "-es" endings off. */
@@ -125,6 +134,10 @@ const SYNONYMS = {
 // because it has more fields).
 const K1 = 1.2
 const B = 0.3
+// Another word for what was said counts for less than the word itself, and
+// never for more because it is rarer: "dishes" is about Dishes sold first,
+// not the stock items a synonym ("item") finds in fewer subjects.
+const SYNONYM_WEIGHT = 0.7
 
 const docCache = new WeakMap()
 
@@ -169,8 +182,11 @@ function subjectDocs(catalogue) {
 /**
  * The subjects a person can report on, the best fit for the request first
  * ([{ key, score }]): BM25 over each subject's words, a word and the other
- * words people use for it counting once. `pinned` (a subject's key) comes
- * first whatever the words say. Ties go to the subject with more figures.
+ * words people use for it counting once (another word for less, see
+ * SYNONYM_WEIGHT). `pinned` (a subject's key) comes first whatever the words
+ * say. Ties, a request with no words that say what it is about among them
+ * ("make this report" beside a photo), go by the catalogue's order of areas
+ * (sales first), then to the subject with more figures.
  */
 export function rankSubjects(catalogue, request, pinned = null) {
   const docs = subjectDocs(catalogue)
@@ -180,18 +196,23 @@ export function rankSubjects(catalogue, request, pinned = null) {
   for (const d of docs) for (const t of d.tf.keys()) df.set(t, (df.get(t) || 0) + 1)
   const idf = t => Math.log(1 + (n - (df.get(t) || 0) + 0.5) / ((df.get(t) || 0) + 0.5))
   const groups = [...new Set(indexWords(request))].map(t => [t, ...(SYNONYMS[t] || [])])
+  const areas = list(catalogue.areas).map(a => a.key)
+  const areaRank = key => { const at = areas.indexOf(catalogue.subjects[key]?.area); return at < 0 ? areas.length : at }
   return docs.map((d, i) => {
     let score = 0
-    for (const g of groups) {
+    for (const [word, ...others] of groups) {
       let best = 0
-      for (const t of g) {
+      const said = idf(word)
+      for (const t of [word, ...others]) {
         const f = d.tf.get(t)
-        if (f) best = Math.max(best, idf(t) * (f * (K1 + 1)) / (f + K1 * (1 - B + B * d.len / avg)))
+        if (!f) continue
+        const weight = t === word ? idf(t) : SYNONYM_WEIGHT * Math.min(idf(t), said)
+        best = Math.max(best, weight * (f * (K1 + 1)) / (f + K1 * (1 - B + B * d.len / avg)))
       }
       score += best
     }
-    return { key: d.key, score: d.key === pinned ? Infinity : score, figures: d.figures, i }
-  }).sort((a, b) => b.score - a.score || b.figures - a.figures || a.i - b.i)
+    return { key: d.key, score: d.key === pinned ? Infinity : score, area: areaRank(d.key), figures: d.figures, i }
+  }).sort((a, b) => b.score - a.score || a.area - b.area || b.figures - a.figures || a.i - b.i)
     .map(({ key, score }) => ({ key, score }))
 }
 
@@ -333,7 +354,7 @@ export const ANSWER_SCHEMA = obj({
   filters: arr(obj({
     ref: str, bucket: oneOf(['', ...MOMENT_BUCKETS]), op: oneOf(FILTER_OPS), values: arr(str), ask: bool, label: str,
   })),
-  period: obj({ relative: oneOf(['', ...RELATIVE_PERIODS]), n: int, from: str, to: str }),
+  period: obj({ relative: oneOf(['', ...RELATIVE_PERIODS]), n: int, from: str, to: str, any: bool }),
   venues: arr(str),
   sort: arr(obj({ by: str, dir: oneOf(['asc', 'desc']) })),
   limit: obj({ which: oneOf(['none', 'top', 'bottom']), n: int, by: str, rest: str }),
@@ -356,7 +377,7 @@ How to answer:
 - columns: a grouping across the top (a table across), only when asked for one ("days across the top"). At most 2. Empty for a list.
 - values: what a summary adds up, named v1, v2 and so on in order. Prefer a figure (marked figure): figures carry the app's rules (net sales leaves out voided dishes and cancelled orders). Use a field with an agg (sum, avg, min, max, count_distinct) only when no figure says it. ref COUNT with agg count is how many rows there are. A calc works out a value from others by their names: v1 / v2, round(v1 / v2 * 100, 1), v1 - v2; it may use round, abs, min, max, if, total (the column's total), running, rank, change, previous; it can't use another calc. For a calc leave ref and agg empty; for anything else leave calc empty. format only for a calc (money, number, percent with 0.25 meaning 25%, duration in seconds). Empty for a list.
 - filters: only the rows that match. ref a field marked filter, or a thing marked venues. op by the field's type: text is, is_not, in, not_in, contains, starts_with; choice is, is_not, in, not_in; numbers is, gt, gte, lt, lte, between; a day before, after, between, is; yes/no is; any field empty, not_empty. values as text: a choice by its label as listed; a number as people say it (money in pounds like 12.50, a percentage as per cent like 20, a duration in minutes); a day as YYYY-MM-DD; yes or no; a weekday by name; an hour like 18 or 6pm; names in the data (a dish, a server, a section) as the request says them. ask true when the person should be able to choose it each time the report is opened, with label naming what they choose.
-- period and venues are set apart from filters. period: relative from the list (n with last_n_days and next_n_days), or from and to as YYYY-MM-DD; leave it all empty (n 0) when the request says no period. venues: the venue names asked for as the request says them; empty for every venue.
+- period and venues are set apart from filters. period: relative from the list (n with last_n_days and next_n_days), or from and to as YYYY-MM-DD; leave it all empty (n 0) when the request names no period (the app then shows last week). any true, the rest empty, only when the report is about what is so now whatever the day a row is dated: actions still open, what members hold now; never with a period named. venues: the venue names asked for as the request says them; empty for every venue.
 - sort: by a value's name (v1) or the F ref of a grouping or list column; dir asc or desc. Empty to keep the usual order.
 - limit: the top or bottom n of a summary's rows by a value's name, with rest naming the other rows put together ("Every other dish") or empty to leave them out. which none for every row.
 - compare: previous_period or last_year when the request compares, else none.
@@ -651,10 +672,13 @@ export function toSpec(catalogue, slice, answer, { venues = [], prev = null } = 
     }
   }
 
-  // The period.
+  // The period: one named, every day (any), or last week.
   if (sub.dated) {
     if (period) spec = setParamDefault(spec, 'period', period)
-    else out.assumed.push('No period was asked for, so it shows last week')
+    else if (answer.period?.any === true) {
+      const at = spec.filters.findIndex(f => f.field === 'date' && f.op === 'in_period' && !f.bucket)
+      if (at >= 0) spec = removeFilter(spec, at)
+    } else out.assumed.push('No period was asked for, so it shows last week')
   } else if (period) {
     couldnt(sub.label + ' have no day of their own, so the period was left out')
   }
@@ -853,7 +877,7 @@ export function answerOf(catalogue, slice, spec, venues = [], name = '', { full 
   const out = {
     subject: slice.sRefOf.get(k) || '', kind: spec.kind === 'list' ? 'list' : 'summary',
     rows: spec.rows.map(row).filter(r => r.ref), columns: spec.columns.map(row).filter(r => r.ref),
-    values, filters: [], period: { relative: '', n: 0, from: '', to: '' }, venues: [],
+    values, filters: [], period: { relative: '', n: 0, from: '', to: '', any: false }, venues: [],
     sort: [], limit: { which: 'none', n: 0, by: '', rest: '' }, compare: spec.compare?.with || 'none',
     chart: { kind: spec.view?.kind || 'table', x: '', y: [], line: '', stacked: !!spec.view?.stacked, sideways: !!spec.view?.sideways },
     name: clip(name, 60), assumed: [], couldnt: [], questions: [],
@@ -863,7 +887,7 @@ export function answerOf(catalogue, slice, spec, venues = [], name = '', { full 
     const param = f.param ? spec.params.find(x => x.key === f.param) : null
     if (param?.type === 'period') {
       const pd = param.default || {}
-      out.period = { relative: pd.relative || '', n: pd.n || 0, from: pd.from || '', to: pd.to || '' }
+      out.period = { relative: pd.relative || '', n: pd.n || 0, from: pd.from || '', to: pd.to || '', any: false }
       continue
     }
     if (param?.type === 'venues') {
@@ -880,6 +904,10 @@ export function answerOf(catalogue, slice, spec, venues = [], name = '', { full 
     })
   }
   out.filters = out.filters.filter(f => f.ref)
+  // A dated subject with no period on its day is about every day.
+  if (catalogue.subjects[k]?.dated && !spec.filters.some(f => f.field === 'date' && f.op === 'in_period' && !f.bucket)) {
+    out.period.any = true
+  }
   const sortRef = by => names.get(by) || refFor(String(by).split(':')[0])
   out.sort = spec.sort.map(s => ({ by: sortRef(s.by), dir: s.dir })).filter(s => s.by)
   if (spec.limit) {

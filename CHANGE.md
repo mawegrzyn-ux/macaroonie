@@ -6,6 +6,20 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-14 — Reports: kitchen, kiosks, loyalty, purchasing, food safety and H&S]
+
+No migration.
+
+**Added**
+- **Reports about five more areas** (Reports → New report, and Pepper): **Kitchen** (stations; tickets each station bumped, with how long they took and whether they were on time or late; remakes and why; the kitchen's copy of each order), **Self-order kiosks** (every guest's visit: ordered or not, sales, what was left in baskets, where guests gave up; kiosk designs), **Loyalty** (members, every change to points and stamps, rewards used, rewards given, the rewards and stamp cards), **Purchasing** (supplier orders and their lines, invoices read when booking in, restaurant orders, suppliers, inventory items, supplier prices and price changes) and **Food safety and H&S** (fridge and freezer, hold, cooking and delivery checks with the fridges, stations, sessions and dishes they belong to; checklists done and their tasks; the H&S action log). Each area needs the same permission as its own pages; supplier prices and spend need Purchasing setup, as on the purchasing pages.
+- The figures follow the pages' own rules, and tests hold them to the pages: a kitchen ticket's time is from reaching the station to the bump, on time within the station's target (8 minutes unless set); kiosk figures are Kiosk analytics'; a member's points are what their history adds up to; spend leaves out cancelled orders and counts deliveries booked in without an order, on the delivery day; a reading is put right once a corrective action is written, as the Overview's H&S tiles count it, and a checklist sits on the first day of its period.
+- **22 more starter reports** (50 in all): Spend by supplier, Spend by month, Spend by category, Delivery problems by supplier, Invoices above the price ordered, Price changes, Products out of stock; Fridge and freezer readings out of range, Hot and cold hold readings out of range, Cooking checks out of range, Delivery checks failed, Checklists done, Open H&S actions by age; Ticket times by station, Ticket times by hour, Remakes and why; Kiosk visits and orders by day, Where kiosk guests gave up; Members joined by week, Points given and spent, Rewards used, Stamp cards: stamps and cards filled.
+- **Every day, not a period**: a report about what is so now (H&S actions still open, the points members hold) can cover every day. Pepper builds such reports when asked ("which actions are still open?"), and its plans can say so.
+
+**Changed**
+- A figure your role can't see is left out of a report with a note, and now so is anything worked out from it (a share of spend for someone who can't see prices), instead of the report refusing to run. A summary sorted by such a figure keeps its own order.
+- Pepper's smart builder picks the kind of thing a request is about more carefully now that there are 61: words about time, comparisons and counting ("this week", "compare", "how many") no longer pull in subjects whose names happen to share them.
+
 ## [2026-11-14 — Today: this week's weather and local news; only web links are links]
 
 No migration.
