@@ -2051,11 +2051,12 @@ export default function Help() {
             <H2>Reports</H2>
             <P>
               <strong>Reports</strong> (main menu, under Dashboards) answers questions about your own
-              figures: till sales, online orders, table bookings, the kitchen screens, self-order kiosk
-              visits, loyalty, purchasing, and food safety, checklists and the H&S action log, with
-              rota pay, cash reconciliation and the rest to follow. It comes with 50 starter reports,
-              such as Sales by day, Payments by tender, No-shows and cancellations, Ticket times by
-              station and Spend by supplier, and you can build your own. A report can be
+              figures: till sales, online orders, table bookings, cash reconciliation, staff, the rota
+              with its pay and tips, the kitchen screens, self-order kiosk visits, loyalty, purchasing,
+              and food safety, checklists and the H&S action log, with the rest to follow. It comes
+              with 69 starter reports, such as Sales by day, Payments by tender, No-shows and
+              cancellations, Cash variance by day, Hours and pay by person, Ticket times by station and
+              Spend by supplier, and you can build your own. A report can be
               drawn as a chart above its table, opened up row by row down to the check, order or
               booking itself, downloaded and printed. A report
               always runs as the person looking at it, so it only ever shows what your role is allowed
@@ -2065,8 +2066,9 @@ export default function Help() {
             <P>
               The page lists <strong>Starred</strong> reports first, then <strong>Your reports</strong> and{' '}
               <strong>From your team</strong> (once there are any), then the <strong>Starter reports</strong>{' '}
-              an area at a time: Till sales, Online orders, Bookings, Kitchen, Self-order kiosks, Loyalty,
-              Purchasing, Food safety and H&amp;S. Type in <strong>Find a report</strong>{' '}
+              an area at a time: Till sales, Online orders, Bookings, Cash reconciliation, Staff and rota,
+              Kitchen, Self-order kiosks, Loyalty, Purchasing, Food safety and H&amp;S. Type in{' '}
+              <strong>Find a report</strong>{' '}
               to search names and descriptions, or tap an area button to see just that area. The star on a
               report keeps it at the top for you only. A starter shown faded with <strong>Needs Online
               orders</strong> (or another area) is one your role can't run; an owner or admin can give
@@ -2278,20 +2280,36 @@ export default function Help() {
                 ['Till sales', 'Sales by day; Sales by hour and weekday; Sales by dish; Sales by section; Sales by server; Sales by order type and revenue stream; Payments by tender; Discounts and comps, by whom and why; Voids, by whom and why; Cancelled orders, by whom and why; Charges added and taken off; Tips, by who took the payment; Average spend per check and per guest; VAT by rate; Trading days: cash counted against expected.'],
                 ['Online orders', 'Online orders and sales by day and channel; Top dishes online; Promotions used online; Online orders: time to accept and to get ready; Online refunds; GloriaFood beside your own ordering.'],
                 ['Bookings', 'Guests by day and time; Bookings by source; No-shows and cancellations; How far ahead people book; Party sizes; Deposits taken and refunded; New and returning guests.'],
+                ['Cash reconciliation', 'Cash variance by day; Cash variance by week; Cash variance by venue; Days the cash was short; Income against takings; Takings by payment channel; Expenses by category; Wages by week.'],
+                ['Staff and rota', 'Hours and pay by person; Rota pay by week; Hours on the rota by day; Time off by person; Tips by person and pot; Tip pots by week; Rota pay against the wage list.'],
                 ['Kitchen', 'Ticket times by station; Ticket times by hour; Remakes and why.'],
                 ['Self-order kiosks', 'Kiosk visits and orders by day; Where kiosk guests gave up.'],
                 ['Loyalty', 'Members joined by week; Points given and spent; Rewards used; Stamp cards: stamps and cards filled.'],
-                ['Purchasing', 'Spend by supplier; Spend by month; Spend by category; Delivery problems by supplier; Invoices above the price ordered; Price changes; Products out of stock.'],
-                ['Food safety and H&S', 'Fridge and freezer readings out of range; Hot and cold hold readings out of range; Cooking checks out of range; Delivery checks failed; Checklists done; Open H&S actions by age.'],
+                ['Purchasing', 'Spend by supplier; Spend by month; Spend by category; Delivery problems by supplier; Orders sent late; Invoices above the price ordered; Price changes; Products out of stock.'],
+                ['Food safety and H&S', 'Fridge and freezer readings out of range; Hot and cold hold readings out of range; Cooking checks out of range; Delivery checks failed; Checklists done; Open H&S actions by age; H&S status by day; Food safety checks missed by venue; Food safety days needing action.'],
               ]}
             />
             <P>
               Starter reports come with Macaroonie and stay as they are; <strong>Customise</strong> on
               one makes a report of your own that starts the same way. Each needs access to its own
               area as well as to Reports: Till reports for till sales, the kitchen and kiosk visits,
-              Online orders for online orders, Bookings for bookings, Loyalty members for loyalty,
-              Purchasing for supplier orders (and Purchasing setup for prices, price changes and what
-              is out of stock), and Food safety logs, Checklists or the H&amp;S Action Log for theirs.
+              Online orders for online orders, Bookings for bookings, Cash reconciliation for cash
+              days, weeks, expenses and wages, Rota for hours on the rota and time off (Rota pay to see
+              pay, Rota tips for tips and tip pots, and Cash reconciliation for the wage list beside
+              the rota), Loyalty members for loyalty, Purchasing for supplier orders (and Purchasing
+              setup for prices, price changes and what is out of stock), and Food safety logs,
+              Checklists or the H&amp;S Action Log for theirs (H&amp;S days need Food safety logs, and
+              Checklists as well for their colour and anything that counts checklists). A figure
+              your role can't see is left out of the report with a note saying so.
+            </P>
+            <P>
+              Cash variance, rota pay and tips and each venue's H&amp;S day are worked out each time a
+              report runs, by the same rules as the Cash Recon page, the Rota page and the Overview's
+              H&amp;S tiles, so a report always shows what those pages show. Pay belongs to the week
+              (Hours on the rota by day shows hours only), and changing a rate, a role's tip points or
+              a shift's hours changes past weeks in reports as it does on the Rota page. An order sent
+              late is one that went to its supplier after the order deadline for its delivery day,
+              judged when it first went.
             </P>
             <H3>Asking Pepper to build a report</H3>
             <P>
