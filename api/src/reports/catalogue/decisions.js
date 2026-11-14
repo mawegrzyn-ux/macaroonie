@@ -18,16 +18,6 @@
 
 /** Reported on later. { area: { happen: [...], group: [...] } }, all in phase 3 unless `phase` says otherwise. */
 export const PLANNED = {
-  pepper: {
-    // Counts and dates only: never what was said.
-    happen: ['ai_usage', 'ai_usage_people', 'ai_actions', 'ai_conversations'],
-    group: [],
-  },
-  group: {
-    // The group's own openings, issues and requests.
-    happen: ['store_openings', 'issue_log', 'feature_requests'],
-    group: ['users', 'tenant_roles'],
-  },
   reports: {
     // Who ran which report, and when (with schedules and past runs).
     phase: 4,

@@ -2348,8 +2348,8 @@ export default function Help() {
             </P>
             <H3>Reports on menus, the website and Store tech</H3>
             <P>
-              These areas have no starter reports yet: build one with <strong>New report</strong> (or ask
-              Pepper). Each needs its own page&apos;s access as well as Reports.
+              Each needs its own page&apos;s access as well as Reports. A few starter reports cover them
+              (in the list below); build anything else with <strong>New report</strong> (or ask Pepper).
             </P>
             <DataTable
               head={['What a report can be about', 'Needs', 'As it is counted']}
@@ -2364,6 +2364,32 @@ export default function Help() {
                 ['Table combinations, emails sent', 'Bookings (Booking emails for emails)', 'The combinations set up for bigger parties; every email sent for bookings and online orders, sent or failed, test emails included.'],
               ]}
             />
+            <H3>Reports on Pepper and your group</H3>
+            <P>
+              How much Pepper is used, the changes it made and its chats, and your group itself: the
+              team, its roles, new locations, the issues you logged and the features you asked for.
+              Pepper&apos;s reports hold counts and dates only, never what anyone asked or what Pepper
+              answered. Its months and days run on UTC, as its monthly allowance and each
+              person&apos;s daily share do.
+            </P>
+            <DataTable
+              head={['What a report can be about', 'Needs', 'As it is counted']}
+              rows={[
+                ['Pepper\'s use by month: requests, units, tokens and web searches, by where (its chat, AI apps on the staff connector, the website chat, guest AI apps)', 'Pepper (AI assistant)', 'As the month\'s figures on the Pepper page\'s Settings tab.'],
+                ['Pepper\'s use by person and day', 'Manage on Pepper (AI assistant)', 'As the people on the Settings tab, by email: requests and the units each person\'s daily share counts. Their name and role come from the team, with Team access; someone no longer on the team has none.'],
+                ['Pepper\'s changes', 'Manage on Pepper (AI assistant)', 'As the Activity tab: what each change was, where it was made, who asked (A guest for the website chat), whether it went through, and the booking it was about. What was asked and the answer aren\'t reported.'],
+                ['Pepper\'s chats', 'Manage on Pepper (AI assistant)', 'Every chat on the day it started: who started it, which model it ran on, whether it was closed and why, and how many changes it made. Titles and what was said aren\'t reported; chats idle past your retention are deleted, so older days hold fewer.'],
+                ['Team', 'Team', 'As the Team page lists everyone with a sign-in: their role, whether they are active, when they last signed in and who invited them.'],
+                ['Roles', 'Reports only', 'The four built-in roles and your own, as the Access page lists them, with who has each. What a role may do isn\'t reported.'],
+                ['New locations', 'Venues', 'Every new location planned on the New location page or with Pepper, on the day it was started: how far it got, when the location was made and how many follow-ups are left. What was typed and Pepper\'s plan aren\'t reported.'],
+                ['Issues', 'Issue log', 'Every issue your group logged, on the day it was logged, with its priority, status and how long resolving it took.'],
+                ['Feature requests', 'Feature requests', 'The features your group asked for, with every group\'s votes and where each got to. Other groups\' requests aren\'t counted.'],
+              ]}
+            />
+            <P>
+              A starter report your role can&apos;t run says what it needs: Pepper&apos;s use by person
+              says <strong>Manage on Pepper (AI assistant)</strong> to someone with View.
+            </P>
             <H3>Downloading a file</H3>
             <P>
               <strong>CSV</strong> and <strong>Excel</strong> (top right, with Use or Manage on Reports)
@@ -2398,7 +2424,7 @@ export default function Help() {
               rows={[
                 ['Till sales', 'Sales by day; Sales by hour and weekday; Sales by dish; Sales by section; Sales by server; Sales by order type and revenue stream; Payments by tender; Discounts and comps, by whom and why; Voids, by whom and why; Cancelled orders, by whom and why; Charges added and taken off; Tips, by who took the payment; Average spend per check and per guest; VAT by rate; Trading days: cash counted against expected; Sales against the weather; Sales, labour and bookings by venue.'],
                 ['Online orders', 'Online orders and sales by day and channel; Top dishes online; Promotions used online; Online orders: time to accept and to get ready; Online refunds; GloriaFood beside your own ordering.'],
-                ['Bookings', 'Guests by day and time; Bookings by source; No-shows and cancellations; How far ahead people book; Party sizes; Deposits taken and refunded; New and returning guests.'],
+                ['Bookings', 'Guests by day and time; Bookings by source; No-shows and cancellations; How far ahead people book; Party sizes; Deposits taken and refunded; New and returning guests; Emails sent and failed.'],
                 ['Cash reconciliation', 'Cash variance by day; Cash variance by week; Cash variance by venue; Days the cash was short; Income against takings; Takings by payment channel; Expenses by category; Wages by week.'],
                 ['Staff and rota', 'Hours and pay by person; Rota pay by week; Hours on the rota by day; Time off by person; Tips by person and pot; Tip pots by week; Rota pay against the wage list; Labour against sales by week.'],
                 ['Kitchen', 'Ticket times by station; Ticket times by hour; Remakes and why.'],
@@ -2406,6 +2432,13 @@ export default function Help() {
                 ['Loyalty', 'Members joined by week; Points given and spent; Rewards used; Stamp cards: stamps and cards filled.'],
                 ['Purchasing', 'Spend by supplier; Spend by month; Spend by category; Delivery problems by supplier; Orders sent late; Invoices above the price ordered; Price changes; Products out of stock.'],
                 ['Food safety and H&S', 'Fridge and freezer readings out of range; Hot and cold hold readings out of range; Cooking checks out of range; Delivery checks failed; Checklists done; Open H&S actions by age; H&S status by day; Food safety checks missed by venue; Food safety days needing action.'],
+                ['Customers', 'Newsletter sign-ups by month.'],
+                ['Menus', 'Dishes with no photo, price or allergens; Allergens by dish; Price list; Publishing history.'],
+                ['Website and reviews', 'Reviews by rating, site and month.'],
+                ['Local info', 'Local events and incidents coming up.'],
+                ['Store tech', 'Card machine payments by machine; Tickets printed by printer; Menu screens offline.'],
+                ['Pepper', 'Pepper\'s use by month; Pepper\'s use by person; Pepper\'s changes.'],
+                ['Your group', 'Team sign-ins; Issues by priority.'],
               ]}
             />
             <P>
@@ -2418,7 +2451,12 @@ export default function Help() {
               the rota), Loyalty members for loyalty, Purchasing for supplier orders (and Purchasing
               setup for prices, price changes and what is out of stock), and Food safety logs,
               Checklists or the H&amp;S Action Log for theirs (H&amp;S days need Food safety logs, and
-              Checklists as well for their colour and anything that counts checklists). A figure
+              Checklists as well for their colour and anything that counts checklists). The newer
+              ones need Customers for newsletter sign-ups, Booking emails for emails, Menus for the
+              menus, Website CMS for reviews, Local info, Till reports for card machine payments,
+              Store tech for printed tickets, Menu screens for screens offline, Team for team
+              sign-ins, Issue log for issues, and Pepper (AI assistant) for Pepper&apos;s use by month
+              (Manage on it for use by person and for Pepper&apos;s changes). A figure
               your role can't see is left out of the report with a note saying so, and so are the
               figures a starter takes from another area (the weather, bookings, the rota) when your
               role can't see that area.

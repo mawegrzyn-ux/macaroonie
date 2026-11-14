@@ -20,6 +20,11 @@ import kitchen from './kitchen.js'
 import kiosks from './kiosks.js'
 import cash from './cash.js'
 import staff from './staff.js'
+import menus from './menus.js'
+import guests from './guests.js'
+import tech from './tech.js'
+import local from './local.js'
+import app from './app.js'
 import { CATALOGUE, CATALOGUE_MODULES, listColumns } from '../catalogue/index.js'
 import { compileReport } from '../compile.js'
 import { normaliseReport, reportProblems, resolveParams, rowId } from '../../../../shared/reports/spec.js'
@@ -28,7 +33,7 @@ import { drillSpec } from '../../../../shared/reports/drill.js'
 export const STARTER_PREFIX = 'starter:'
 export const starterRef = key => STARTER_PREFIX + key
 
-const EVERYTHING = Object.fromEntries(CATALOGUE_MODULES.map(k => [k, 'view']))
+const EVERYTHING = Object.fromEntries(CATALOGUE_MODULES.map(k => [k, 'manage']))
 const NOBODY = '00000000-0000-0000-0000-000000000000'
 
 // A definition as someone who may see everything, on a fixed day: the
@@ -105,7 +110,7 @@ function build(lists) {
   return out
 }
 
-export const STARTERS = build([till, online, bookings, cash, staff, purchasing, safety, loyalty, kitchen, kiosks])
+export const STARTERS = build([till, online, bookings, cash, staff, purchasing, safety, loyalty, kitchen, kiosks, menus, guests, tech, local, app])
 
 const BY_KEY = new Map(STARTERS.map(s => [s.key, s]))
 export const starterByKey = key => BY_KEY.get(key) || null

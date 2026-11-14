@@ -8711,14 +8711,23 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Local info (local_info)', 'local.weather (the weather at each venue, one row a day: the forecast read last for that day from the Local info weather capture), local.items (every other Local info item, captured or typed; hidden ones left out, a group-wide one only with every venue; how many staff flagged each relevant or not; since migration 249 entries only, with how many other reports of the same event are in each and whether one was kept apart), local.captures (how often each runs, when it last ran, its problem, since migration 248 whether it learns from staff flags and what it learned, and since 249 a problem putting the same events together)'],
                 ['Menus (menus)', 'menu.releases (each publish and its state: Live, Earlier, Scheduled, Cancelled, by liveRows()\'s rule), menu.option_groups, menu.options, menu.tags, menu.dish_tags (the allergen matrix\'s levels), menu.dish_option_groups, menu.dish_option_prices, menu.dish_own_options, menu.tax_rates (the usual rate). Everything but releases is the draft the Menus pages edit'],
                 ['Website and reviews (website)', 'website.reviews (as the Reviews page holds them, checked or in the To check inbox), website.pages (the draft, each with its address worked out as pagePath() does), website.media, website.media_categories'],
-                ['Shared', 'venue (no module), menu.menus / menu.sections / menu.dishes (menus), guests.customers (customers)'],
+                ['Pepper (ai_assistant; use by person, changes and chats Manage on it)', 'pepper.usage (ai_usage, a row a UTC month and channel: requests, units, tokens, web searches; the Settings tab\'s figures), pepper.people (ai_usage_people, each person\'s UTC day: the units their daily share counts; Person links to group.team with team), pepper.actions (ai_actions: what each change was in ACTION_LABELS\' words, where, who asked, whether it went through, cleared; input and result never read), pepper.chats (ai_conversations: where, who started it, model, closed and why, its changes; title, system_prompt and guest_key never read)'],
+                ['Your group (team, venues, issue_log, feature_requests; roles none)', 'group.team (users: name, email, built-in role, Has a custom role as the Team page counts one, active, last signed in, days since; its role by effectiveRoleId()\'s rule in SQL, who invited them), group.roles (tenant_roles, the Access page\'s list; the stored permissions never read), group.openings (store_openings: where it got to, who started it, when the location was made, rounds, follow-ups left; what was typed and Pepper\'s plan never read), group.issues (issue_log), group.requests (feature_requests: the group\'s own, with every group\'s votes)'],
+                ['Shared', 'venue (no module), menu.menus / menu.sections / menu.dishes (menus; a dish\'s Has a price counts options that price it, Allergens tagged counts every level), guests.customers (customers)'],
               ]}
             />
             <P>
-              123 subjects (phase 3d added 34: the till, online and bookings extras, menus, reviews and the
-              website, menu screens, Store tech&apos;s devices and printers, and local info), in the areas of{' '}
-              <Mono>AREAS</Mono>: Store tech (<Mono>tech</Mono>) and Website and reviews (<Mono>website</Mono>) are
-              new. A subject whose rows each sit on their week&apos;s Monday says so on its day,{' '}
+              132 subjects (phase 3d added 43: the till, online and bookings extras, menus, reviews and the
+              website, menu screens, Store tech&apos;s devices and printers, local info, Pepper&apos;s use,
+              changes and chats, and the group&apos;s team, roles, new locations, issues and feature requests),
+              in the areas of <Mono>AREAS</Mono>: Store tech (<Mono>tech</Mono>), Website and reviews (
+              <Mono>website</Mono>) and Pepper (<Mono>pepper</Mono>) are new. A subject can ask for more than View
+              on its module (<Mono>{"level: 'use' | 'manage'"}</Mono>, checked at start: a level needs a module):
+              Pepper&apos;s use by person, changes and chats ask for Manage on Pepper, as the Settings tab&apos;s
+              people and the Activity tab do. <Mono>canReportOn()</Mono> compares with{' '}
+              <Mono>permissionAtLeast()</Mono>, compiling a report on such a subject without it is a 403 (Your
+              role can&apos;t report on ...), and <Mono>runsFor()</Mono> says what a starter needs as Manage on
+              Pepper (AI assistant). A subject whose rows each sit on their week&apos;s Monday says so on its day,{' '}
               <Mono>{"date: { sql, label, grain: 'week' }"}</Mono> (the rota and Cash Recon weeks), and{' '}
               <Mono>catalogueView()</Mono> passes <Mono>grain</Mono> on: such a subject lines up with another
               subject&apos;s days only by week or longer. A field, figure or link can name a module of its own (<Mono>needs</Mono>): a role without
@@ -8734,11 +8743,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               column of a catalogue table that no field, link or <Mono>skip</Mono> entry accounts for.{' '}
               <Mono>node api/scripts/report-catalogue.js</Mono> prints where things stand, and with a table name or{' '}
               <Mono>--area</Mono> drafts subjects from the columns, checks and foreign keys. After phase 3d the
-              decisions are <Mono>{'{ subject: 118, planned: 10, settings: 57, out: 49 }'}</Mono> over 234 tables
+              decisions are <Mono>{'{ subject: 127, planned: 1, settings: 57, out: 49 }'}</Mono> over 234 tables
               (migration 248&apos;s <Mono>local_info_feedback</Mono>, staff flags on local info, is left out: its
-              counts are on each item);
-              what is still planned is Pepper&apos;s own usage and the group&apos;s (openings, issues, feature
-              requests, the team and its roles). Columns holding a key, a code, a password or a guest&apos;s
+              counts are on each item); the one table still planned is <Mono>report_runs</Mono> (phase 4: who ran
+              which report). What was said to Pepper (<Mono>ai_actions</Mono> input and result,{' '}
+              <Mono>ai_conversations</Mono> title, system_prompt and guest_key) and a new location&apos;s words
+              and Pepper&apos;s plan (<Mono>store_openings</Mono> input, steps, ai, overrides, plan, results) stay
+              in their subjects&apos; <Mono>skip</Mono> lists: a test in <Mono>reports-catalogue.test.mjs</Mono>{' '}
+              fails if a template reads one, or if any subject&apos;s SQL names those tables. Columns holding a key, a code, a password or a guest&apos;s
               address (sealed or not) stay in their subject&apos;s <Mono>skip</Mono> list, so no report can read
               them (a screen&apos;s link to its device is its key, so whether one is linked now can&apos;t be
               reported; when a code last linked one can). <Mono>api/test/reports-extras.test.mjs</Mono> holds the
@@ -8750,7 +8762,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Allergens & dietary and the allergen matrix, a dish&apos;s options in the menu editor, Tax rates, the
               Menu screens pages, the Reviews page and its figures, Pages & modals, the Media page, the Local info
               calendar and each venue&apos;s Captures window (rows only a device, a review site, an upload or a
-              capture&apos;s run makes are written by SQL there).
+              capture&apos;s run makes are written by SQL there). <Mono>api/test/reports-group.test.mjs</Mono> (9)
+              holds Pepper&apos;s and the group&apos;s subjects to theirs: the Settings tab&apos;s month figures
+              and people, the Activity tab, each chat, the New location page&apos;s openings, the Issue log and
+              Feature requests lists, the Team page (people, Has a custom role counted only when the role
+              isn&apos;t built in) and the Access page&apos;s roles; the levels each needs (View on Pepper can
+              report on its use by month and nothing more), the words of each kind of change, and the other
+              group&apos;s rows never shown.
             </P>
             <P>
               A yes / no worked out by comparing a column that can be empty says No for empty, through{' '}
@@ -9064,19 +9082,24 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
 
             <H3>Starter reports</H3>
             <P>
-              <Mono>api/src/reports/starters/</Mono>: 72 definitions in code (<Mono>till.js</Mono> 17,{' '}
+              <Mono>api/src/reports/starters/</Mono>: 88 definitions in code (<Mono>till.js</Mono> 17,{' '}
               <Mono>online.js</Mono> 6, <Mono>bookings.js</Mono> 7, <Mono>cash.js</Mono> 8, <Mono>staff.js</Mono> 8,{' '}
               <Mono>purchasing.js</Mono> 8, <Mono>safety.js</Mono> 9, <Mono>loyalty.js</Mono> 4,{' '}
-              <Mono>kitchen.js</Mono> 3, <Mono>kiosks.js</Mono> 2), each made with <Mono>starter()</Mono>{' '}
+              <Mono>kitchen.js</Mono> 3, <Mono>kiosks.js</Mono> 2, <Mono>menus.js</Mono> 4, <Mono>guests.js</Mono> 2
+              (newsletter sign-ups, reviews), <Mono>tech.js</Mono> 3, <Mono>local.js</Mono> 1 and{' '}
+              <Mono>app.js</Mono> 6: booking emails, Pepper&apos;s use by month and by person, Pepper&apos;s
+              changes, team sign-ins, issues; the Reports page lists each under its subject&apos;s area), each made with <Mono>starter()</Mono>{' '}
               (<Mono>define.js</Mono>: adds the <Mono>period</Mono> and <Mono>venues</Mono> parameters and their
               filters) and checked when the API starts: one that <Mono>normaliseReport()</Mono> would change, that
               has a problem, or whose other subjects can&apos;t line up with its rows (compiled with{' '}
               <Mono>strictParts</Mono>), stops the start. They are never rows in <Mono>reports</Mono>; a copy is. A starter
               on an area the role can&apos;t see is still listed, with <Mono>runs: false</Mono> and what it needs.
-              Whether a starter runs is decided by its subject&apos;s module only, so every starter must run for a
-              role with just that module: a figure needing another one drops out with a note (Spend by supplier for
+              Whether a starter runs is decided by its subject&apos;s module only, at the level the subject asks for
+              (View, or Manage on Pepper for use by person and changes), so every starter must run for a
+              role with just that: a figure needing another module drops out with a note (Spend by supplier for
               a role without Purchasing setup shows how many orders). <Mono>reports-areas.test.mjs</Mono> runs every
-              starter, its rows and each of its breakdowns that way.
+              starter, its rows and each of its breakdowns that way; the start-up check compiles every starter as
+              someone with Manage on every module (<Mono>EVERYTHING</Mono>), as the tests&apos; <Mono>LEVELS</Mono> do.
             </P>
 
             <H3>The builder</H3>
@@ -9530,7 +9553,10 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
               <Mono>base</Mono>) by BM25 over their words (the names of the subject and its figures, fields and
               links, and what its fields are about; not what its figures are about, words most till subjects
               share, which pushed the subject a request is about out of the few listed in full;{' '}
-              <Mono>stem()</Mono> and a few <Mono>SYNONYMS</Mono>). Words that say when, compare or count
+              <Mono>stem()</Mono> and a few <Mono>SYNONYMS</Mono>). A linked subject&apos;s words count once per
+              link, and the words of a field&apos;s choices once each: Pepper&apos;s changes name nearly a hundred
+              kinds, several about bookings (Made a booking, Moved a booking...), and every &quot;booking&quot; among them made it the best
+              fit for requests about bookings. Words that say when, compare or count
               (week, monthly, last year, versus, how many) are left out (<Mono>STOP</Mono>): any report can do
               those, and their echoes in labels (Week, Day) pulled the wrong subjects in. Another word for one
               typed counts for less than the word itself (<Mono>SYNONYM_WEIGHT</Mono> 0.7), never for more because

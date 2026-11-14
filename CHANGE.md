@@ -6,6 +6,23 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-14 — Reports: Pepper's use, your team and group, and starter reports for every area]
+
+No migration.
+
+**Added**
+- Reports on **Pepper**: its use by month, counted as the Settings tab counts it (requests, units, web searches); each person's use by day; the changes it made, as the Activity tab lists them; and its chats (when, where, who, which model, closed and why). Only counts and dates: never what was asked or answered. Use by person, changes and chats need Manage on Pepper, as those tabs do.
+- Reports on **your group**: the team (role, active, last signed in, invited by), roles, new locations planned with Pepper or the New location page (how far each got, follow-ups left), the Issue log and feature requests (your own, with every group's votes).
+- Reports on dishes can show whether a dish has a price (its own or an option's) and which allergens it is tagged with.
+- 16 more starter reports, 88 in all: Dishes with no photo, price or allergens; Allergens by dish; Price list; Publishing history; Newsletter sign-ups by month; Reviews by rating, site and month; Local events and incidents coming up; Card machine payments by machine; Tickets printed by printer; Menu screens offline; Emails sent and failed; Pepper's use by month; Pepper's use by person; Pepper's changes; Team sign-ins; Issues by priority. The Reports page lists each under its area.
+- A starter report your role can't run says what it needs (for example Manage on Pepper).
+
+**Notes**
+- Pepper's months and days are UTC, as its allowance and daily shares are counted, so use just after midnight in summer time counts on the day before.
+- Each person's use reaches back 400 days. Chats idle past your group's chat retention are deleted and drop out of reports; Pepper's changes stay counted after their details are cleared a year on.
+- When Pepper builds a report from a request, each word of a field's choices now counts once: Pepper's changes name nearly a hundred kinds, several of them about bookings, and would otherwise have looked like the best fit for booking requests.
+- Every table in the database now has its place in the report catalogue, except the record of report runs, which comes with scheduled reports.
+
 ## [2026-11-14 — Reports: two fixes to yes / no fields, and menus, screens, website and local info checked against their pages]
 
 No migration.

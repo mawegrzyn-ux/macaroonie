@@ -395,12 +395,14 @@ test('readings out of range with nothing done, and checklists done, are the Over
 
 test('every starter runs for a role with only its own area, its rows and breakdowns too', async () => {
   // The starter list offers a starter to anyone with its subject's module
-  // (runsFor), so that is all a role may have here: a figure needing another
+  // (runsFor), at the level the subject asks for (Pepper's Activity is
+  // Manage), so that is all a role may have here: a figure needing another
   // module (purchasing money needs Purchasing setup) is left out with a note,
   // never a refusal.
   const given = s => (s.spec.params.some(x => x.type === 'period') ? { period: { from: '2025-11-01', to: '2026-12-31' } } : {})
   for (const s of STARTERS) {
-    const levels = { [CATALOGUE.subjects[s.spec.subject].module]: 'view' }
+    const sub = CATALOGUE.subjects[s.spec.subject]
+    const levels = sub.module ? { [sub.module]: sub.level } : {}
     const res = await run(s.spec, given(s), { levels })
     assert.equal(res.kind, s.spec.kind, s.key)
     if (s.spec.kind === 'list') continue
