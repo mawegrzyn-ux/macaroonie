@@ -202,6 +202,7 @@ export function catalogueView(levels) {
         ...(f.pii ? { pii: true } : {}),
         ...(f.adds ? { adds: true } : {}),
         ...(f.decimals != null ? { decimals: f.decimals } : {}),
+        ...(f.grain === 'week' ? { grain: 'week' } : {}),
         ...(bucketsFor(f.type).length ? { buckets: bucketsFor(f.type) } : {}),
       }
     }

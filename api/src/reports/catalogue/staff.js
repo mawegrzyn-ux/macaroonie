@@ -57,7 +57,7 @@ export default [
     idType: 'text',
     name: 'name',
     venue: 'venue_id',
-    date: { sql: '{t}.date', label: 'Week starting' },
+    date: { sql: '{t}.date', label: 'Week starting', grain: 'week' },
     fields: {
       name: text('name', { label: 'Name' }),
       role: text('role_name', { label: 'Role' }),
@@ -156,7 +156,7 @@ export default [
     from: { work: 'rota_weeks', tables: WEEK_TABLES },
     idType: 'text',
     venue: 'venue_id',
-    date: { sql: '{t}.date', label: 'Week starting' },
+    date: { sql: '{t}.date', label: 'Week starting', grain: 'week' },
     fields: {
       people: number('people', { label: 'People on the rota', adds: true }),
       entry_count: number('entry_count', { label: 'Entries on the rota', adds: true }),
@@ -269,7 +269,7 @@ export default [
     idType: 'text',
     name: 'name',
     venue: 'venue_id',
-    date: { sql: '{t}.date', label: 'Week starting' },
+    date: { sql: '{t}.date', label: 'Week starting', grain: 'week' },
     fields: {
       name: text('name', { label: 'Pot' }),
       distribution: choice('distribution', DISTRIBUTIONS, { label: 'Shared' }),
@@ -314,7 +314,7 @@ export default [
     from: { work: 'rota_tip_shares', tables: WEEK_TABLES },
     idType: 'text',
     venue: 'venue_id',
-    date: { sql: '{t}.date', label: 'Week starting' },
+    date: { sql: '{t}.date', label: 'Week starting', grain: 'week' },
     fields: {
       share: pounds('share', { label: 'Share' }),
     },
@@ -372,7 +372,7 @@ export default [
     about: 'Each extra pay, deduction, cash advance and advance repaid added on the Rota page, on the week it belongs to.',
     from: 'rota_pay_adjustments',
     venue: 'venue_id',
-    date: { sql: '{t}.week_start', label: 'Week starting' },
+    date: { sql: '{t}.week_start', label: 'Week starting', grain: 'week' },
     fields: {
       kind: choice('kind', KINDS, { label: 'Kind' }),
       amount: pounds('amount', { label: 'Amount', adds: false, about: 'Extra pay and advances add to pay, deductions and repayments take off it: amounts of different kinds don\'t add up.' }),
@@ -415,7 +415,7 @@ export default [
     },
     idType: 'text',
     venue: 'venue_id',
-    date: { sql: '{t}.week_start', label: 'Week starting' },
+    date: { sql: '{t}.week_start', label: 'Week starting', grain: 'week' },
     fields: {
       kind: choice('kind', { points: 'Points', money: 'Tips' }, { label: 'Points or tips' }),
       action: choice('action', { move: 'Moved', add: 'Added', remove: 'Taken out' }, { label: 'What was done' }),

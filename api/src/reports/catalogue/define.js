@@ -22,6 +22,7 @@
 //     name:   'number',                 the field that names a row
 //     venue:  'venue_id',               gives the built-in `venue` link
 //     date:   { sql: '{day}.business_date', label: 'Trading day' },   the built-in `date` field
+//                                       (grain: 'week' when each row's day is its week's Monday)
 //     fields:   { ... },  measures: { ... },  links: { ... },
 //     list:   ['number', 'date', ...],  the columns a list of it starts with
 //     open:   { page: '/pos/reports?check=:id&venue=:venue', module: 'pos_reports',
@@ -211,12 +212,16 @@ export function subject(def) {
   try {
     // The report date comes first in the field list.
     if (def.date) {
+      if (typeof def.date === 'object' && def.date.grain && !['day', 'week'].includes(def.date.grain)) fail('date grain is day or week')
       const d = typeof def.date === 'string' ? source(def.date) : { sql: String(def.date.sql).trim(), col: null }
       put(s.fields, 'field', 'date', {
         type: 'date', sql: d.sql, col: d.col,
         bound: (typeof def.date === 'object' && def.date.bound) || null,
         label: (typeof def.date === 'object' && def.date.label) || 'Date',
         about: (typeof def.date === 'object' && def.date.about) || '',
+        // A weekly subject's day is each week's Monday: it lines up with
+        // another subject's days only by week or longer (shared/reports/also.js).
+        grain: (typeof def.date === 'object' && def.date.grain) || 'day',
       })
     }
     for (const [k, f] of Object.entries(def.fields || {})) put(s.fields, 'field', k, f)

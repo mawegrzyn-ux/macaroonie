@@ -67,6 +67,8 @@ function build(lists) {
       ['drill.rows', count(raw.drill?.rows), count(spec.drill?.rows)],
       ['limit', raw.limit ? 1 : 0, spec.limit ? 1 : 0],
       ['compare', raw.compare ? 1 : 0, spec.compare ? 1 : 0],
+      ['also', count(raw.also), spec.also.length],
+      ['also filters', (raw.also || []).reduce((n, a) => n + count(a.filters), 0), spec.also.reduce((n, a) => n + a.filters.length, 0)],
       ['kind', raw.kind || spec.kind, spec.kind],
       ['view', raw.view?.kind || 'table', spec.view.kind],
     ]
