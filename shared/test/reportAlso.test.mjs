@@ -135,6 +135,10 @@ test('rows that can\'t be lined up say why', () => {
   assert.equal(own.why, 'Weather can\'t be lined up by dish: it belongs to dishes sold only.')
   const unlinked = matchRow(CAT, 'lines', row('section.name'), 'weather')
   assert.equal(unlinked.why, 'Weather isn\'t linked to menu sections, so it can\'t be lined up by section name.')
+  // Named as the report names it, with a capital to start the sentence.
+  assert.equal(matchRow(CAT, 'lines', row('name'), 'weather', 'the sky').why, 'The sky can\'t be lined up by dish: it belongs to dishes sold only.')
+  assert.equal(matchRow(CAT, 'hours', row('date', 'weekday'), 'lines', 'Sold').why,
+    matchRow(CAT, 'hours', row('date', 'weekday'), 'lines').why.replace(/dishes sold/i, m => (m[0] === 'D' ? 'Sold' : 'sold')))
   // Rota people aren't till staff.
   assert.equal(matchRow(CAT, 'lines', row('check.server.name'), 'hours').ok, false)
   // A list of rows is never walked (menus have sections, but several).

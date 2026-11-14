@@ -287,6 +287,9 @@ test('opening a row up: the other subject held to the row, and the rows behind e
   }
   const base = await run(spec)
   assert.equal(base.meta.drill.per_figure, true, 'pay and the days\' figures count different rows')
+  // The rows behind the days' figures are the days', and the page is told so.
+  assert.deepEqual(Object.keys(base.meta.drill.of_values || {}).sort(), ['hours', 'worked'], 'the days\' figures name their rows')
+  assert.ok(base.meta.drill.of_values.hours && base.meta.drill.of_values.hours !== base.meta.drill.of, 'named after their own subject')
   const preview = async drill => ok(owner.post('/api/reports/preview', { spec, drill, fresh: true }), 'preview')
   const ana = [{ field: 'person.name', value: 'Ana' }]
 

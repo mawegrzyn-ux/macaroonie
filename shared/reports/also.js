@@ -29,6 +29,7 @@ export const ALSO_HOPS = 2
 export const WEEKLY_BUCKETS = ['week', 'month', 'quarter', 'year']
 
 const lowerFirst = s => (s && /^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s)
+const upperFirst = s => (s ? s[0].toUpperCase() + s.slice(1) : s)
 const no = why => ({ ok: false, why })
 const yes = (field, bucket) => ({ ok: true, field, ...(bucket ? { bucket } : {}) })
 
@@ -63,12 +64,15 @@ export function routesTo(catalogue, fromKey, toKey, maxHops = ALSO_HOPS) {
  * { ok: true, field, bucket? } (a row for the other subject's own query),
  * or { ok: false, why } with a sentence saying why they can't be lined up.
  * `row` is { field, bucket? }, a path from the report's own subject.
+ * `name` is what the report calls the other subject (its `also` label), used
+ * in the sentence in place of the subject's own name when given.
  */
-export function matchRow(catalogue, mainKey, row, otherKey) {
+export function matchRow(catalogue, mainKey, row, otherKey, name = '') {
   const main = catalogue?.subjects?.[mainKey]
-  const other = catalogue?.subjects?.[otherKey]
+  const found = catalogue?.subjects?.[otherKey]
   if (!main) return no('There is nothing to report on called "' + mainKey + '"')
-  if (!other) return no('There is nothing to report on called "' + otherKey + '"')
+  if (!found) return no('There is nothing to report on called "' + otherKey + '"')
+  const other = name ? { ...found, label: upperFirst(name) } : found
   const r = resolvePath(catalogue, mainKey, row?.field)
   if (!r.ok) return no(r.why)
   if (r.kind !== 'field') return no('"' + row.field + '" isn\'t something to group by')
@@ -112,13 +116,13 @@ export function matchRow(catalogue, mainKey, row, otherKey) {
 /**
  * Every row of a report found in another subject, in the report's order:
  * { ok: true, rows: [{ field, bucket? }] }, or { ok: false, missing: [{ row, why }] }
- * listing each row that can't be lined up.
+ * listing each row that can't be lined up. `name` as for matchRow().
  */
-export function matchRows(catalogue, spec, otherKey) {
+export function matchRows(catalogue, spec, otherKey, name = '') {
   const rows = []
   const missing = []
   for (const row of spec.rows || []) {
-    const m = matchRow(catalogue, spec.subject, row, otherKey)
+    const m = matchRow(catalogue, spec.subject, row, otherKey, name)
     if (m.ok) rows.push({ field: m.field, ...(m.bucket ? { bucket: m.bucket } : {}) })
     else missing.push({ row, why: m.why })
   }

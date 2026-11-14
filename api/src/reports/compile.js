@@ -1011,7 +1011,7 @@ function compileParts(spec, env, period, { strict = false } = {}) {
     }
     if (!subject || subject.hidden) return leave('There is nothing to report on called "' + a.subject + '"')
     if (!canReportOn(subject, env.levels)) return leave('Figures from ' + lowerFirst(label) + ' are left out: your role can\'t see them', true)
-    const m = matchRows(CATALOGUE, spec, a.subject)
+    const m = matchRows(CATALOGUE, spec, a.subject, a.label)
     if (!m.ok) return leave(m.missing[0].why + ' Its figures are left out.')
     const values = spec.values.filter(v => v.from === a.key).map(({ from: _f, ...v }) => v)
     const specFor = base => ({

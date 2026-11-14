@@ -5,7 +5,9 @@
 // sorted, cut to a top few, totalled and compared, the chart drawn above its
 // table (docs/REPORTS.md 12), and what a tapped row opens into
 // (docs/REPORTS.md 8): the fields it can be broken down by, and the columns
-// of the rows behind it.
+// of the rows behind it. A summary can put figures from other subjects
+// beside its own (docs/REPORTS.md 7.1): each is a card under Figures from
+// other subjects, with its name, its figures and its own filters.
 //
 // Every change goes through an edit in shared/reports/build.js and comes
 // back as a whole definition (onChange). The shelves are drop targets of the
@@ -13,11 +15,14 @@
 // a shelf's own entries drag into order by their grips.
 //
 //   onOpen   ({ what: 'row', where, id } | { what: 'value', key } |
-//             { what: 'calc' } | { what: 'filter', index }) opens a window
-//   onAdd    (shelf) opens the Data panel for that shelf ('rows', 'columns',
-//            'values', 'filters', 'drill', 'drillrows')
+//             { what: 'calc' } | { what: 'filter', index, also? } |
+//             { what: 'also' }) opens a window
+//   onAdd    (shelf, also?) opens the Data panel for that shelf ('rows',
+//            'columns', 'values', 'filters', 'drill', 'drillrows'); with
+//            `also` (another subject's key) its figures or its own filters
 //   onKind   ('summary' | 'list')
 //   dragNode the Data panel field being dragged (shelves that can't take it dim)
+//   dragAlso the other subject it is a field of, when it is one ({ key, label })
 //   overShelf the shelf the drag is over
 
 import { useEffect, useRef, useState } from 'react'
@@ -29,21 +34,29 @@ import {
   rowName, valueName, valueKindText, filterParts, sortChoices, limitOf, setLimit, setSort, setTotals, setCompare,
   compareProblem, removeRow, removeColumn, removeValue, removeFilter, roomLeft, BUCKET_LABELS,
   pathUses, drillRoom, removeDrillLevel, updateDrillLevel, setDrillRows, viewOptions, setView, openChoices, setOpen,
+  updateAlso, removeAlso, valueReaders, usedParams,
 } from '@shared/reports/build.js'
-import { rowId, COMPARE_WITH, COMPARE_LABELS, LIMITS } from '@shared/reports/spec.js'
+import { normaliseReport, rowId, COMPARE_WITH, COMPARE_LABELS, LIMITS } from '@shared/reports/spec.js'
 import { resolvePath, pathLabel } from '@shared/reports/paths.js'
+import { matchRows } from '@shared/reports/also.js'
 import { Segmented, inputCls } from '@/components/staff/shared'
 import { cn } from '@/lib/utils'
 
 const lowerFirst = s => (s && /^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s)
 const SORT_LEVELS = 3
 
-/** Whether a Data panel field can be dropped on a shelf of this report. */
-export function accepts(node, shelf, spec) {
+/**
+ * Whether a Data panel field can be dropped on a shelf of this report. A
+ * field of another subject of the report (`also`) only goes on Values: its
+ * own filters are set on its card, and the report's rows decide its rows.
+ */
+export function accepts(node, shelf, spec, also = null) {
   if (!node) return false
+  if (also) return shelf === 'values' && spec.kind === 'summary' && node.uses.values.length > 0
   const list = spec.kind === 'list'
   if (shelf === 'rows') return list ? !!node.uses.column : !!node.uses.group
-  if (shelf === 'columns') return !list && !!node.uses.group
+  // A table across can't have figures from other subjects.
+  if (shelf === 'columns') return !list && !!node.uses.group && !(spec.also || []).length
   if (shelf === 'values') return !list && node.uses.values.length > 0
   if (shelf === 'filters') return !!node.uses.filter
   // What a tapped row opens into: a field to break it down by, a column of the rows behind it.
@@ -297,6 +310,122 @@ function DrillEntry({ id, label, sub, kind, buckets = [], bucket = 'day', onBuck
   )
 }
 
+// The name another subject of the report goes by: its own, else its subject's.
+export const alsoName = (catalogue, a) => (a ? a.label || catalogue.subjects[a.subject]?.label || a.subject : '')
+
+// One of the report's other subjects: its name, its figures, its own
+// filters, and why it can't be lined up when the report's rows don't suit it.
+function AlsoCard({ catalogue, spec, a, onChange, onOpen, onAdd, venues, currency }) {
+  const subject = catalogue.subjects[a.subject]
+  const name = alsoName(catalogue, a)
+  const room = roomLeft(spec)
+  const values = spec.values.filter(v => v.from === a.key)
+  const lined = matchRows(catalogue, spec, a.subject, a.label)
+  // Calculations reading its figures stop working when it goes.
+  const readers = [...new Map(values.flatMap(v => valueReaders(spec, v.key)).map(r => [r.key, r])).values()]
+  // A filter taken off; a choice only it asked for goes with it.
+  const dropFilter = i => {
+    const next = updateAlso(spec, a.key, { filters: a.filters.filter((_, n) => n !== i) })
+    const used = usedParams(next)
+    onChange(normaliseReport({ ...next, params: next.params.filter(p => used.has(p.key)) }))
+  }
+  return (
+    <div className="rounded-lg border bg-background p-2 space-y-2" data-testid="also-card" data-key={a.key} data-subject={a.subject}>
+      <WordsBox value={a.label || ''} label={'What ' + (subject?.label || a.subject) + ' is called in the report'} placeholder={subject?.label || a.subject}
+        maxLength={LIMITS.label} testId="also-name" onChange={text => onChange(updateAlso(spec, a.key, { label: text }))} />
+      {a.label && subject && <p className="text-[11px] text-muted-foreground leading-snug">From {lowerFirst(subject.label)}</p>}
+      {!subject?.base && (
+        <p className="text-[11px] text-amber-800 leading-snug" role="status" data-testid="also-hidden">
+          Your role can&apos;t see {lowerFirst(subject?.label || a.subject)}, so its figures are left out.
+        </p>
+      )}
+      {values.length > 0
+        ? <p className="text-[11px] text-muted-foreground leading-snug" data-testid="also-values">On Values: {values.map(v => valueName(catalogue, spec, v)).join(', ')}</p>
+        : <p className="text-[11px] text-amber-800 leading-snug" data-testid="also-no-values">Add a figure from it, or take it out.</p>}
+      {!lined.ok && (
+        <p className="text-[11px] text-amber-800 leading-snug" role="status" data-testid="also-unlined">
+          {lined.missing[0].why} Its figures are left out, and the report can&apos;t be saved like this: change the rows, or take it out.
+        </p>
+      )}
+      {a.filters.length > 0 && (
+        <ul className="space-y-1.5" aria-label={'Which of ' + lowerFirst(name) + '\'s rows count'}>
+          {a.filters.map((f, i) => {
+            const p = filterParts(catalogue, a.subject, f, { params: spec.params, venues, currency })
+            const found = f.field ? resolvePath(catalogue, a.subject, f.field) : null
+            // A plain filter on a field with a value set here opens its window.
+            const opens = !!found?.ok && found.kind === 'field' && !f.param
+            const words = (
+              <span className="block text-sm leading-tight break-words">
+                {p.label && <span className="font-medium">{p.label}</span>}{p.label ? p.sep : ''}{p.rest}
+              </span>
+            )
+            return (
+              <li key={i} className="flex items-stretch rounded-lg border bg-background" data-testid="also-filter" data-index={i}>
+                {opens ? (
+                  <button type="button" onClick={() => onOpen({ what: 'filter', index: i, also: a.key })} data-testid="also-filter-open"
+                    className="flex-1 min-w-0 min-h-[48px] px-3 py-1.5 text-left rounded-l-lg touch-manipulation hover:bg-muted">{words}</button>
+                ) : <div className="flex-1 min-w-0 min-h-[48px] px-3 py-1.5 flex flex-col justify-center">{words}</div>}
+                <button type="button" onClick={() => dropFilter(i)} aria-label={'Take the filter off: ' + p.label + p.sep + p.rest} data-testid="also-filter-remove"
+                  className="w-12 min-h-[48px] shrink-0 flex items-center justify-center text-muted-foreground rounded-r-lg touch-manipulation hover:bg-muted hover:text-foreground">
+                  <X className="w-4 h-4" />
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {readers.length > 0 && (
+        <p className="text-[11px] text-muted-foreground leading-snug" data-testid="also-readers">
+          Used by {readers.map(v => valueName(catalogue, spec, v)).join(', ')}: taking it out stops {readers.length === 1 ? 'that calculation' : 'those calculations'} working.
+        </p>
+      )}
+      <div className="flex flex-wrap gap-1.5">
+        <button type="button" onClick={() => onAdd('values', a.key)} disabled={room.values <= 0 || !subject?.base} data-testid="also-add-value" className={addBtn}>
+          <Plus className="w-3.5 h-3.5" /> Figure
+        </button>
+        <button type="button" onClick={() => onAdd('filters', a.key)} disabled={a.filters.length >= LIMITS.filters || !subject?.base} data-testid="also-add-filter" className={addBtn}>
+          <Plus className="w-3.5 h-3.5" /> Filter
+        </button>
+        <button type="button" onClick={() => onChange(removeAlso(spec, a.key))} data-testid="also-remove" className={cn(addBtn, 'text-red-700')}>
+          <X className="w-3.5 h-3.5" /> Take it out
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Figures from other subjects beside the report's own (docs/REPORTS.md 7.1).
+function AlsoPart({ catalogue, spec, onChange, onOpen, onAdd, venues, currency }) {
+  if (spec.kind === 'matrix') {
+    return (
+      <section className="rounded-xl border bg-muted/40 p-2 space-y-1" data-testid="setup-also">
+        <Heading>Figures from other subjects</Heading>
+        <p className="text-[11px] text-muted-foreground leading-snug" data-testid="also-matrix">
+          A table across can&apos;t have figures from other subjects. Move what is across the top down to the rows to add some.
+        </p>
+      </section>
+    )
+  }
+  const also = spec.also || []
+  return (
+    <section className="rounded-xl border bg-muted/40 p-2 space-y-2" data-testid="setup-also">
+      <Heading extra={(
+        <button type="button" onClick={() => onOpen({ what: 'also' })} disabled={roomLeft(spec).also <= 0} data-testid="also-add" className={addBtn}>
+          <Plus className="w-3.5 h-3.5" /> Add
+        </button>
+      )}>Figures from other subjects</Heading>
+      <p className="text-[11px] text-muted-foreground leading-snug">
+        {also.length
+          ? 'Lined up by the report\'s rows. The report\'s period and venues apply to them too.'
+          : 'Put another subject\'s figures beside these: the hours on the rota beside sales, or the weather. Up to ' + LIMITS.also + '.'}
+      </p>
+      {also.map(a => (
+        <AlsoCard key={a.key} catalogue={catalogue} spec={spec} a={a} onChange={onChange} onOpen={onOpen} onAdd={onAdd} venues={venues} currency={currency} />
+      ))}
+    </section>
+  )
+}
+
 // A shelf: a drop target with its entries and an Add button.
 function Shelf({ shelf, title, hint, empty, ids, children, onAdd, addLabel = 'Add', full, extra, foot, over, dimmed }) {
   const { setNodeRef } = useDroppable({ id: 'shelf:' + shelf })
@@ -323,12 +452,12 @@ function Shelf({ shelf, title, hint, empty, ids, children, onAdd, addLabel = 'Ad
   )
 }
 
-export default function SetUp({ catalogue, spec, onChange, onOpen, onAdd, onKind, venues = [], currency, dragNode = null, overShelf = null, className }) {
+export default function SetUp({ catalogue, spec, onChange, onOpen, onAdd, onKind, venues = [], currency, dragNode = null, dragAlso = null, overShelf = null, className }) {
   const subject = catalogue.subjects[spec.subject]
   const list = spec.kind === 'list'
   const room = roomLeft(spec)
   const one = subject?.one || 'row'
-  const dim = shelf => !!dragNode && !accepts(dragNode, shelf, spec)
+  const dim = shelf => !!dragNode && !accepts(dragNode, shelf, spec, dragAlso)
 
   // The line under a grouping: what it is when its heading doesn't say (a
   // heading of its own, a day grouped by week), and whether it has a subtotal.
@@ -344,7 +473,11 @@ export default function SetUp({ catalogue, spec, onChange, onOpen, onAdd, onKind
     if (spec.totals.subtotals.includes(rowId(r))) parts.push('Subtotal after each')
     return parts.join(' · ')
   }
-  const valueSub = v => [v.calc ? v.calc : valueKindText(v), v.hidden ? 'Not shown' : ''].filter(Boolean).join(' · ')
+  // A figure of another subject of the report says whose it is.
+  const valueSub = v => [
+    v.from ? 'From ' + lowerFirst(alsoName(catalogue, (spec.also || []).find(a => a.key === v.from))) : '',
+    v.calc ? v.calc : valueKindText(v), v.hidden ? 'Not shown' : '',
+  ].filter(Boolean).join(' · ')
 
   // ── Sort ──
   const choices = sortChoices(catalogue, spec)
@@ -395,9 +528,11 @@ export default function SetUp({ catalogue, spec, onChange, onOpen, onAdd, onKind
       </Shelf>
 
       {!list && (
-        <Shelf shelf="columns" title="Across the top" onAdd={() => onAdd('columns')} full={room.columns <= 0}
+        <Shelf shelf="columns" title="Across the top" onAdd={() => onAdd('columns')} full={room.columns <= 0 || (spec.also || []).length > 0}
           hint={spec.columns.length ? 'Each one becomes a set of columns.' : null}
-          empty={!spec.columns.length ? 'Nothing across the top. Put a grouping here to compare side by side (two at most).' : null}
+          empty={spec.columns.length ? null : (spec.also || []).length
+            ? 'Nothing across the top: a report with figures from other subjects can\'t have anything there.'
+            : 'Nothing across the top. Put a grouping here to compare side by side (two at most).'}
           ids={spec.columns.map(r => 'col:' + rowId(r))} over={overShelf === 'columns'} dimmed={dim('columns')}>
           {spec.columns.map(r => (
             <Entry key={rowId(r)} id={'col:' + rowId(r)} kind="column" label={rowName(catalogue, spec.subject, r)} sub={rowSub(r)}
@@ -418,7 +553,7 @@ export default function SetUp({ catalogue, spec, onChange, onOpen, onAdd, onKind
             </button>
           )}>
           {spec.values.map(v => (
-            <Entry key={v.key} id={'val:' + v.key} kind={v.calc ? 'calc' : 'value'} label={valueName(catalogue, spec.subject, v)} sub={valueSub(v)}
+            <Entry key={v.key} id={'val:' + v.key} kind={v.calc ? 'calc' : 'value'} label={valueName(catalogue, spec, v)} sub={valueSub(v)}
               onOpen={() => onOpen({ what: 'value', key: v.key })} onRemove={() => onChange(removeValue(spec, v.key))} />
           ))}
         </Shelf>
@@ -456,6 +591,8 @@ export default function SetUp({ catalogue, spec, onChange, onOpen, onAdd, onKind
           )
         })}
       </Shelf>
+
+      {!list && <AlsoPart catalogue={catalogue} spec={spec} onChange={onChange} onOpen={onOpen} onAdd={onAdd} venues={venues} currency={currency} />}
 
       <section className="rounded-xl border bg-muted/40 p-2 space-y-2" data-testid="setup-sort">
         <Heading extra={sort.length < SORT_LEVELS && sort.length < choices.length && (
@@ -495,7 +632,7 @@ export default function SetUp({ catalogue, spec, onChange, onOpen, onAdd, onKind
                 <span className="text-xs text-muted-foreground shrink-0">by</span>
                 <select value={limit.by || ''} onChange={e => onChange(setLimit(spec, { ...limit, by: e.target.value }))} aria-label="Ranked by" data-testid="limit-by"
                   className={cn(inputCls, 'h-12 flex-1 min-w-0 px-2')}>
-                  {shown.map(v => <option key={v.key} value={v.key}>{valueName(catalogue, spec.subject, v)}</option>)}
+                  {shown.map(v => <option key={v.key} value={v.key}>{valueName(catalogue, spec, v)}</option>)}
                 </select>
               </div>
               <label className="flex items-center gap-3 min-h-[48px] cursor-pointer touch-manipulation">

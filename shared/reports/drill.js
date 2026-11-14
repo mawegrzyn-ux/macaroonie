@@ -82,10 +82,12 @@ export function countedBy(spec, valueKey = null, { from = null } = {}) {
   return out.size ? [...out] : null
 }
 
-// The subject a value's rows come from: one of the report's other subjects
-// (its key), else null. A calculation's are those of the values it reads,
-// when they are all one subject's.
-function readsFrom(spec, key) {
+/**
+ * The subject a value's rows come from: one of the report's other subjects
+ * (its key), else null. A calculation's are those of the values it reads,
+ * when they are all one subject's.
+ */
+export function readsFrom(spec, key) {
   const byKey = new Map(spec.values.map(v => [v.key, v]))
   const v = byKey.get(key)
   if (!v) return null

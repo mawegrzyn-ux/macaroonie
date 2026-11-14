@@ -23,7 +23,7 @@ import { withReport } from '../config/db.js'
 import { env } from '../config/env.js'
 import { normaliseReport, reportProblems, resolveParams, rowId, valueSubject, LIMITS } from '../../../shared/reports/spec.js'
 import { todayIn, addDays } from '../../../shared/reports/period.js'
-import { drillSpec, countedBy } from '../../../shared/reports/drill.js'
+import { drillSpec, countedBy, readsFrom } from '../../../shared/reports/drill.js'
 import { CATALOGUE, CATALOGUE_MODULES, listColumns } from './catalogue/index.js'
 import { compileReport, countedKey, ReportError, SCREEN_ROWS } from './compile.js'
 import { shapeList, summaryShaper, matrixShaper } from './shape.js'
@@ -226,7 +226,20 @@ export function drillOffers(spec, envc) {
     const subject = valueSubject(spec, v)
     return subject + '|' + countedKey(subject, countedBy(spec, v.key, { from: v.from || null }), envc.levels)
   }))
-  return { down, rows, of: CATALOGUE.subjects[spec.subject]?.label || '', ...(rows && counts.size > 1 ? { per_figure: true } : {}) }
+  // The rows behind a figure of another subject are that subject's: what
+  // each such figure's rows are called, for the page's words.
+  const ofValues = {}
+  for (const v of spec.values) {
+    const from = readsFrom(spec, v.key)
+    const other = from && (spec.also || []).find(a => a.key === from)
+    const label = other && CATALOGUE.subjects[other.subject]?.label
+    if (label) ofValues[v.key] = label
+  }
+  return {
+    down, rows, of: CATALOGUE.subjects[spec.subject]?.label || '',
+    ...(rows && counts.size > 1 ? { per_figure: true } : {}),
+    ...(rows && Object.keys(ofValues).length ? { of_values: ofValues } : {}),
+  }
 }
 
 function metaOf(p, shaped, started) {

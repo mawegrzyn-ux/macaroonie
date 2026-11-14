@@ -631,7 +631,7 @@ export function toSpec(catalogue, slice, answer, { venues = [], prev = null } = 
       return null
     }
     if (roomLeft(spec).also <= 0) { couldnt('A report shows figures from ' + LIMITS.also + ' other subjects at most, so ' + what + ' was left out'); return null }
-    const m = matchRows(catalogue, spec, k)
+    const m = matchRows(catalogue, spec, k, label)
     if (!m.ok) { couldnt('Figures from ' + what + ' were left out: ' + lowerFirst(m.missing[0].why)); return null }
     const before = spec.also.length
     spec = addAlso(spec, k, { key: text(name).toLowerCase(), ...(label ? { label } : {}) })

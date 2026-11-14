@@ -20,6 +20,11 @@
 //             'drillrow', node, ref?, value? }) => { ok, text }: what
 //             happened, said for a moment over the foot of the panel
 //   drag      show the grips (inside the builder's drag context only)
+//   also      { key, label }: the tree is one of the report's other subjects
+//             (docs/REPORTS.md 7.1). Its fields can only be values beside
+//             the report's own (`from` its key) or its own filters; never a
+//             grouping (the report's rows decide those), nor a filter on its
+//             day or venue (the report's period and venues apply to it)
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
@@ -29,6 +34,7 @@ import {
 } from 'lucide-react'
 import { searchTree } from '@shared/reports/build.js'
 import { AGG_LABELS } from '@shared/reports/spec.js'
+import { isShared } from '@shared/reports/also.js'
 import { inputCls } from '@/components/staff/shared'
 import { cn } from '@/lib/utils'
 
@@ -41,9 +47,23 @@ const lowerFirst = s => (s && /^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.sli
 /**
  * What tapping a field offers, for the report's kind and the shelf asked
  * for: [{ key, label, act }]. A list takes columns and filters; a summary
- * groupings, values and filters.
+ * groupings, values and filters. A field of another subject of the report
+ * (`also`): a value from it, or one of its own filters.
  */
-export function actionsFor(node, spec, mode = null) {
+export function actionsFor(node, spec, mode = null, also = null) {
+  if (also) {
+    if (spec.kind !== 'summary' || (mode && mode !== 'values' && mode !== 'filters')) return []
+    const out = []
+    if (!mode || mode === 'values') {
+      for (const v of node.uses.values) {
+        out.push({ key: 'value:' + (v.measure ? 'figure' : v.agg), label: v.measure ? 'Add as a value' : AGG_LABELS[v.agg], act: { type: 'value', node, value: { ...v, from: also.key } } })
+      }
+    }
+    if ((!mode || mode === 'filters') && node.uses.filter && node.uses.filter !== 'venues' && !isShared({ field: node.path })) {
+      out.push({ key: 'filter', label: 'Filter', act: { type: 'filter', node, also: also.key } })
+    }
+    return out
+  }
   // What a tapped row opens into (a summary's): asked for by its own shelves only.
   if (mode === 'drill') {
     return spec.kind !== 'list' && node.uses.group ? [{ key: 'drill', label: 'Break down by', act: { type: 'drill', node, ref: { field: node.path } } }] : []
@@ -57,7 +77,8 @@ export function actionsFor(node, spec, mode = null) {
     if (node.uses.column && want('rows')) out.push({ key: 'row', label: 'Add as a column', act: { type: 'row', node, ref: { field: node.path } } })
   } else {
     if (node.uses.group && want('rows')) out.push({ key: 'row', label: 'Group by', act: { type: 'row', node, ref: { field: node.path } } })
-    if (node.uses.group && want('columns')) out.push({ key: 'column', label: 'Across the top', act: { type: 'column', node, ref: { field: node.path } } })
+    // A table across can't have figures from other subjects.
+    if (node.uses.group && want('columns') && !(spec.also || []).length) out.push({ key: 'column', label: 'Across the top', act: { type: 'column', node, ref: { field: node.path } } })
     if (want('values')) {
       for (const v of node.uses.values) {
         out.push({ key: 'value:' + (v.measure ? 'figure' : v.agg), label: v.measure ? 'Add as a value' : AGG_LABELS[v.agg], act: { type: 'value', node, value: v } })
@@ -68,25 +89,34 @@ export function actionsFor(node, spec, mode = null) {
   return out
 }
 
-/** The paths a report already uses, for the ticks: on the shelf asked for, when it is one of the drill-down ones. */
-export function usedPaths(spec, mode = null) {
-  if (mode === 'drill') return new Set((spec.drill?.down || []).map(x => x.field))
-  if (mode === 'drillrows') return new Set(spec.drill?.rows || [])
+/**
+ * The paths a report already uses, for the ticks: on the shelf asked for,
+ * when it is one of the drill-down ones. With `also`, the paths of that
+ * other subject's values and its own filters (its paths are its own).
+ */
+export function usedPaths(spec, mode = null, also = null) {
+  if (!also && mode === 'drill') return new Set((spec.drill?.down || []).map(x => x.field))
+  if (!also && mode === 'drillrows') return new Set(spec.drill?.rows || [])
   const out = new Set()
-  for (const r of [...spec.rows, ...spec.columns]) out.add(r.field)
-  for (const v of spec.values) { if (v.measure) out.add(v.measure); if (v.field) out.add(v.field) }
+  if (!also) for (const r of [...spec.rows, ...spec.columns]) out.add(r.field)
+  const from = also ? also.key : null
+  for (const v of spec.values) {
+    if ((v.from || null) !== from) continue
+    if (v.measure) out.add(v.measure)
+    if (v.field) out.add(v.field)
+  }
   const walk = list => {
     for (const f of list || []) {
       if (f.any || f.all) walk(f.any || f.all)
       else if (f.field) out.add(f.field)
     }
   }
-  walk(spec.filters)
+  walk(also ? (spec.also || []).find(a => a.key === also.key)?.filters : spec.filters)
   return out
 }
 
-function Grip({ node }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: 'node:' + node.path, data: { node } })
+function Grip({ node, also }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: 'node:' + (also ? also.key + ':' : '') + node.path, data: { node, also } })
   return (
     <button type="button" ref={setNodeRef} {...attributes} {...listeners} aria-label={'Drag ' + node.full + ' onto a shelf'} data-testid="data-grip"
       className={cn('w-12 min-h-[48px] shrink-0 flex items-center justify-center text-muted-foreground/60 cursor-grab active:cursor-grabbing touch-none', isDragging && 'opacity-40')}>
@@ -95,15 +125,15 @@ function Grip({ node }) {
   )
 }
 
-function NodeRow({ node, spec, mode, used, open, onToggle, onAct, drag, sub, name, from }) {
-  const actions = actionsFor(node, spec, mode)
+function NodeRow({ node, spec, mode, also, used, open, onToggle, onAct, drag, sub, name, from }) {
+  const actions = actionsFor(node, spec, mode, also)
   if (!actions.length) return null
   const Icon = node.what === 'measure' ? Sigma : ICONS[node.type] || Type
   const tap = () => (actions.length === 1 ? onAct(actions[0].act) : onToggle(node.path))
   return (
     <div data-testid="data-node" data-path={node.path} data-open={open ? '1' : '0'}>
       <div className="flex items-stretch">
-        {drag && <Grip node={node} />}
+        {drag && <Grip node={node} also={also} />}
         <button type="button" onClick={tap} aria-expanded={actions.length > 1 ? open : undefined} data-testid="data-node-button"
           className={cn('flex-1 min-w-0 flex items-center gap-2 min-h-[48px] py-1.5 pr-2 text-left rounded-lg touch-manipulation hover:bg-muted', !drag && 'pl-2', open && 'bg-muted')}>
           <Icon className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -138,7 +168,7 @@ function NodeRow({ node, spec, mode, used, open, onToggle, onAct, drag, sub, nam
   )
 }
 
-export default function DataPanel({ tree, spec, mode = null, onAct, drag = false, className, autoFocus = false }) {
+export default function DataPanel({ tree, spec, mode = null, also = null, onAct, drag = false, className, autoFocus = false }) {
   const [q, setQ] = useState('')
   const [openFolders, setOpenFolders] = useState(() => new Set())
   const [openNode, setOpenNode] = useState(null)
@@ -146,7 +176,8 @@ export default function DataPanel({ tree, spec, mode = null, onAct, drag = false
   const timer = useRef(null)
   useEffect(() => () => clearTimeout(timer.current), [])
 
-  const used = useMemo(() => usedPaths(spec, mode), [spec, mode])
+  const alsoKey = also?.key || null
+  const used = useMemo(() => usedPaths(spec, mode, alsoKey ? { key: alsoKey } : null), [spec, mode, alsoKey])
   const found = useMemo(() => (q.trim() ? searchTree(tree, q) : null), [tree, q])
   const list = spec.kind === 'list'
 
@@ -160,10 +191,10 @@ export default function DataPanel({ tree, spec, mode = null, onAct, drag = false
   const toggleNode = path => setOpenNode(p => (p === path ? null : path))
   const toggleFolder = path => setOpenFolders(s => { const n = new Set(s); if (n.has(path)) n.delete(path); else n.add(path); return n })
   const row = (node, more = {}) => (
-    <NodeRow key={node.path} node={node} spec={spec} mode={mode} used={used} open={openNode === node.path} onToggle={toggleNode}
+    <NodeRow key={node.path} node={node} spec={spec} mode={mode} also={also} used={used} open={openNode === node.path} onToggle={toggleNode}
       onAct={act} drag={drag} from={tree.subject.label} {...more} />
   )
-  const shows = node => actionsFor(node, spec, mode).length > 0
+  const shows = node => actionsFor(node, spec, mode, also).length > 0
   // A folder is worth showing when something in it can be used.
   const any = part => part.figures.some(shows) || part.fields.some(shows) || (part.node && shows(part.node)) || part.folders.some(any)
 
@@ -227,6 +258,11 @@ export default function DataPanel({ tree, spec, mode = null, onAct, drag = false
             {list && !mode && tree.figures.length > 0 && (
               <p className="px-2 pb-2 text-[11px] text-muted-foreground leading-snug" data-testid="data-list-hint">
                 A list shows one row for each {tree.subject.one || 'row'}. To add figures up, make it a summary in Set up.
+              </p>
+            )}
+            {also && !mode && (
+              <p className="px-2 pb-2 text-[11px] text-muted-foreground leading-snug" data-testid="data-also-hint">
+                Figures from {lowerFirst(also.label)} sit beside the report&apos;s own, lined up by its rows. The report&apos;s period and venues apply to them; filters here pick which of its rows count.
               </p>
             )}
             {figures.length > 0 && (

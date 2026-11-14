@@ -9,7 +9,9 @@
 // what a row of it can open into (result.meta.drill):
 //
 //   { down: [{ field, bucket?, label }], rows: true | false, of: 'Checks',
-//     per_figure: true }   (only when its figures count different rows)
+//     per_figure: true,    (only when its figures count different rows)
+//     of_values: { hours: 'Rota days' } }   (figures of another subject of
+//                          the report: whose rows are behind them)
 //
 // The page keeps where it is as steps, each one tap made on the result of
 // the steps before it:
@@ -53,10 +55,12 @@ export function drillChoices(result, target = null) {
     by: level.label,
   }))
   if (offers.rows) {
+    // A figure of another subject of the report lists that subject's rows.
+    const of = (target?.value && offers.of_values?.[target.value.key]) || offers.of
     out.push({
       key: 'rows', to: 'rows', label: 'Show the rows',
-      sub: 'The ' + (offers.of ? lowerFirst(offers.of) : 'rows') + ' behind ' + (target?.value ? target.value.label : 'these figures'),
-      by: offers.of || 'Rows',
+      sub: 'The ' + (of ? lowerFirst(of) : 'rows') + ' behind ' + (target?.value ? target.value.label : 'these figures'),
+      by: of || 'Rows',
     })
   }
   return out

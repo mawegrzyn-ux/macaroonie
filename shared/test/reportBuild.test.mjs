@@ -1013,7 +1013,7 @@ test('figures from other subjects: added, named, lined up, changed and taken out
   assert.deepEqual(alsoProblems(CAT, s), [])
   const byNumber = addRow(s, 'number')
   assert.deepEqual(alsoProblems(CAT, byNumber), [
-    'Card takings: payments can\'t be lined up by check: it belongs to checks only.',
+    'Card takings can\'t be lined up by check: it belongs to checks only.',
     'Dishes sold can\'t be lined up by check: it belongs to checks only.',
   ])
   // By the server both lead to: lined up through each one's own links (a

@@ -738,10 +738,9 @@ export function alsoChoices(catalogue, spec) {
 export function alsoProblems(catalogue, spec) {
   const out = []
   for (const a of arr(spec?.also)) {
-    const m = matchRows(catalogue, spec, a.subject)
-    if (m.ok) continue
-    // The reason names the subject; a name of the report's own goes in front.
-    out.push(a.label ? a.label + ': ' + lowerFirst(m.missing[0].why) : m.missing[0].why)
+    // The reason names the subject as the report does (its label, if it has one).
+    const m = matchRows(catalogue, spec, a.subject, a.label)
+    if (!m.ok) out.push(m.missing[0].why)
   }
   return out
 }
