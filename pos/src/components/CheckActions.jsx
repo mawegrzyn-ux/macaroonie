@@ -26,7 +26,7 @@ import { dispatch, dispatchMany, toast, useChecks, getState, can, soldOutMap, se
 import {
   defaultHeld, sendCheck, streamOf, byId, addOpenItem, promotionsFor, refreshPromotions,
   streamTypes, typeOf, checkPrompts, rerateLines, defaultTypeId, chargesFor, orderPromptOf,
-  listCharges, listCharge, chargeNames, coversOf, coursesOn, tablesOn, notFired, sendAllSpecs,
+  listCharges, listCharge, chargeNames, coversOf, coursesOn, tablesOn, notFired, sendAllSpecs, isActiveLine,
 } from '../lib/checkOps.js'
 import { CoversModal, CheckRow } from '../screens/Floor.jsx'
 import { flowNameOf } from '../lib/orderFlows.js'
@@ -107,15 +107,23 @@ export function menusHint(m) {
 
 // ── Send ─────────────────────────────────────────────────────────
 
+/** "2 x Pad Thai, Coke": what a list of lines is, for the Send and Fire windows. */
+export const lineList = lines => lines.map(l => (Number(l.qty) > 1 ? l.qty + ' x ' : '') + l.name).join(', ')
+
 /**
  * Send new items; asks which later courses should wait when there are any.
  * Each course is one big button that switches it between Cook now (green
  * outline and background: what the kitchen starts on) and Wait (a plain
- * row with a bold Wait (hold) label).
+ * row with a bold Wait (hold) label), with the items it takes listed under
+ * its name; items on no course go now. cancel: a Cancel button beside Send
+ * (a phone's row swiped left asks with this window, and a swipe made by
+ * mistake is cancelled here).
  */
-export function SendModal({ check, config, onClose, onSent }) {
+export function SendModal({ check, config, onClose, onSent, title = 'Send to the kitchen', cancel = false }) {
   const courses = byId(config.courses)
-  const fresh = [...new Set(check.lines.filter(l => l.status === 'new' && l.course_id).map(l => l.course_id))]
+  const freshLines = check.lines.filter(l => l.status === 'new')
+  const fresh = [...new Set(freshLines.filter(l => l.course_id).map(l => l.course_id))]
+  const loose = freshLines.filter(l => !l.course_id)
   const [held, setHeld] = useState(defaultHeld(check, config))
   const go = () => {
     const r = sendCheck(check, held)
@@ -123,12 +131,18 @@ export function SendModal({ check, config, onClose, onSent }) {
     onSent()
   }
   return (
-    <Modal title="Send to the kitchen" onClose={onClose} footer={<button className="btn btn-primary h-14 min-w-[200px]" onClick={go} data-testid="send-go"><Send size={20} /> Send</button>}>
+    <Modal title={title} onClose={onClose} wrapTitle
+      footer={<div className="flex gap-2 flex-wrap justify-end">
+        {cancel && <button className="btn h-14 min-w-[120px]" onClick={onClose} data-testid="send-cancel">Cancel</button>}
+        <button className="btn btn-primary h-14 min-w-[200px]" onClick={go} data-testid="send-go"><Send size={20} /> Send</button>
+      </div>}>
       <div className="space-y-3">
-        <div className="text-[15px]">
-          Tap a course to switch it between <span className="font-semibold text-ok">Cook now</span> and <span className="font-semibold text-held">Wait</span>.
-          Courses that wait go on the ticket with HOLD; fire them when the table is ready.
-        </div>
+        {fresh.length > 0 && (
+          <div className="text-[15px]">
+            Tap a course to switch it between <span className="font-semibold text-ok">Cook now</span> and <span className="font-semibold text-held">Wait</span>.
+            Courses that wait go on the ticket with HOLD; fire them when the table is ready.
+          </div>
+        )}
         {fresh.sort((a, b) => (courses[a]?.sort_order ?? 0) - (courses[b]?.sort_order ?? 0)).map(id => {
           const on = held.includes(id)
           return (
@@ -136,13 +150,22 @@ export function SendModal({ check, config, onClose, onSent }) {
               className={cx('w-full min-h-[64px] rounded-2xl border-2 px-4 py-3 flex items-center gap-3 text-left touch-manipulation active:scale-[0.99] transition-transform',
                 on ? 'bg-white border-line' : 'bg-ok-soft border-ok')}
               onClick={() => setHeld(on ? held.filter(x => x !== id) : [...held, id])}>
-              <span className="flex-1 min-w-0 font-semibold text-lg truncate">{courses[id]?.name || 'Course'}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block font-semibold text-lg truncate">{courses[id]?.name || 'Course'}</span>
+                <span className="text-sm text-muted break-words line-clamp-2" data-testid="send-course-items">{lineList(freshLines.filter(l => l.course_id === id))}</span>
+              </span>
               {on
                 ? <span className="shrink-0 inline-flex items-center gap-2 rounded-full bg-held text-white px-4 h-11 text-base font-bold" data-testid="send-wait"><Hourglass size={18} /> Wait (hold)</span>
                 : <span className="shrink-0 inline-flex items-center gap-2 text-ok text-base font-bold px-1" data-testid="send-now"><Flame size={18} /> Cook now</span>}
             </button>
           )
         })}
+        {loose.length > 0 && (
+          <div className="rounded-2xl border-2 border-ok bg-ok-soft px-4 py-3" data-testid="send-loose">
+            <div className="font-semibold">{fresh.length ? 'No course: these go now' : 'These go to the kitchen'}</div>
+            <div className="text-sm text-muted break-words">{lineList(loose)}</div>
+          </div>
+        )}
       </div>
     </Modal>
   )
@@ -188,20 +211,60 @@ export function UnsentModal({ check, config, onClose, onPay }) {
   )
 }
 
-export function FireModal({ check, config, onClose }) {
+/**
+ * Leaving an order with items not sent to the kitchen, on a table-service
+ * till that asks (Store tech > Tills, Leaving an order: Ask): Send and leave
+ * (they go, then the till goes where it was going), Leave without sending
+ * (they stay on the order, not sent) or Stay on the order.
+ */
+export function LeaveModal({ check, onClose, onLeave, onSend }) {
+  const fresh = check.lines.filter(l => l.status === 'new')
+  return (
+    <Modal title="Not sent to the kitchen" onClose={onClose}
+      footer={<div className="flex gap-2 flex-wrap justify-end">
+        <button className="btn h-14 max-sm:flex-1" onClick={onClose} data-testid="leave-stay">Stay on the order</button>
+        <button className="btn h-14 max-sm:flex-1" onClick={onLeave} data-testid="leave-go">Leave without sending</button>
+        <button className="btn btn-primary h-14 min-w-[200px] max-sm:w-full" onClick={onSend} data-testid="leave-send"><Send size={20} /> Send and leave</button>
+      </div>}>
+      <div className="space-y-2 text-[15px]" data-testid="leave">
+        <div className="flex items-center gap-2"><Send size={18} className="text-brand shrink-0" />
+          {fresh.length} item{fresh.length === 1 ? ' hasn\'t' : 's haven\'t'} gone to the kitchen yet:
+        </div>
+        <div className="text-sm text-muted break-words" data-testid="leave-items">{lineList(fresh)}</div>
+      </div>
+    </Modal>
+  )
+}
+
+/**
+ * Fire a course the kitchen has but was told to wait with: a big button per
+ * course, its items listed. where: who it is for, in the toast ("Fired
+ * Mains: Table 5"); cancel: a Cancel button (a phone's row swiped left asks
+ * with this window, even for one course, so a swipe made by mistake fires
+ * nothing).
+ */
+export function FireModal({ check, config, onClose, title = 'Fire a course', where = null, cancel = false }) {
   const courses = byId(config.courses)
   const held = heldCourses(check).sort((a, b) => (courses[a]?.sort_order ?? 0) - (courses[b]?.sort_order ?? 0))
+  const lines = id => check.lines.filter(l => l.course_id === id && l.held && isActiveLine(l))
   return (
-    <Modal title="Fire a course" onClose={onClose}>
+    <Modal title={title} onClose={onClose} wrapTitle
+      footer={cancel ? <button className="btn h-14 min-w-[120px]" onClick={onClose} data-testid="fire-cancel">Cancel</button> : null}>
       <div className="space-y-2">
-        {held.map(id => (
-          <button key={id} className="btn btn-primary w-full h-16 text-lg" onClick={() => {
-            const r = dispatch('course.fired', { course_id: id }, { check_id: check.id })
-            if (!r.ok) return toast(r.error, 'bad')
-            toast('Fired ' + (courses[id]?.name || 'course'), 'ok')
-            onClose()
-          }}><Flame size={22} /> Fire {courses[id]?.name || 'course'} ({check.lines.filter(l => l.course_id === id && l.held).length})</button>
-        ))}
+        {held.map(id => {
+          const name = courses[id]?.name || 'course'
+          return (
+            <button key={id} className="btn btn-primary w-full min-h-[64px] py-3 text-lg flex-col gap-0.5" data-testid="fire-course" data-course={id} onClick={() => {
+              const r = dispatch('course.fired', { course_id: id }, { check_id: check.id })
+              if (!r.ok) return toast(r.error, 'bad')
+              toast('Fired ' + name + (where ? ': ' + where : ''), 'ok')
+              onClose()
+            }}>
+              <span className="inline-flex items-center gap-2"><Flame size={22} /> Fire {name} ({lines(id).length})</span>
+              <span className="text-sm font-normal opacity-90 break-words line-clamp-2" data-testid="fire-course-items">{lineList(lines(id))}</span>
+            </button>
+          )
+        })}
         {!held.length && <div className="text-muted">Nothing is waiting.</div>}
       </div>
     </Modal>

@@ -12,7 +12,11 @@
 // they are paid. Table service asks at Pay about what the kitchen hasn't been
 // told yet, or sends it as the check closes (the till's unsent_at_pay).
 // then: 'pay' | 'send' | 'fire' opens the check straight into that (the
-// floor's list on a phone: swipe right to pay, left to send or fire).
+// floor's list on a phone: swipe right to pay; left asks there, or opens the
+// check when it needs its details or guests first).
+// Leaving a table-service order with items not sent can ask first (the
+// till's Leaving an order: leave()), and with the dish counts on, a dish
+// comes off from its own button (the till's take-one-off: takeOneOff()).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Send, Printer, CreditCard, MoreHorizontal, Flame, Users, Eye, Flag, Star, Ban } from 'lucide-react'
@@ -26,6 +30,7 @@ import LayoutScreen from '../components/LayoutScreen.jsx'
 import {
   addItem, addChosen, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck, needsSendChoice, comboStartFrom, copyOfLine,
   coversMissing, seatCourseParts, addListCharge, counterSends, unsentAtPay, notFired, tablesOn, itemCounts, showsItemCounts,
+  leaveUnsent, takesOffCounted, lineToTakeOff,
 } from '../lib/checkOps.js'
 import { cx, money, elapsed, useApproval, fillStyle } from '../components/ui.jsx'
 import { useTillNav } from '../components/TillMenu.jsx'
@@ -45,7 +50,7 @@ import {
 import {
   ActionsMenu, SendModal, FireModal, DiscountModal, ChargesModal, OffersModal, MoveModal,
   MergeModal, TableModal, NameModal, ServerModal, StreamModal, OrderTypeModal, GuestsModal, OpenItemModal, NoSale, SoldOutModal,
-  CancelOrderModal, applyDiscountPreset, UnsentModal,
+  CancelOrderModal, applyDiscountPreset, UnsentModal, LeaveModal,
 } from '../components/CheckActions.jsx'
 
 export default function CheckScreen({ checkId, onBack, onOpen, counter = false, then = null }) {
@@ -118,7 +123,13 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
     actions.current[then]?.()
   }, [check?.id, then]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The till's nav (the top bar's pages and Sign out, the till menu) asks
+  // here before leaving the check (leave(), set below as the screen draws).
+  const leaveRef = useRef(null)
+  useEffect(() => nav.guardLeave(p => (leaveRef.current ? leaveRef.current(p) : p())), []) // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!check) {
+    leaveRef.current = null
     return (
       <div className="h-full flex flex-col items-center justify-center gap-4 text-muted">
         <div>This check isn't open on this till.</div>
@@ -156,6 +167,60 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
   const held = heldCourses(check)
   const others = othersOn(check.id)
   const close = () => setModal(null)
+
+  // Leaving the order with items not sent to the kitchen, on a table-service
+  // till that asks (Store tech > Tills, Leaving an order: Ask): Stay, Leave
+  // without sending, or Send and leave. Every way out comes through here:
+  // Back, a layout's Back and Sign out buttons, and (through the till's nav)
+  // the top bar's pages and Sign out and the till menu. proceed: where the
+  // till was going.
+  const leave = (proceed = onBack) => {
+    if (isCounter || leaveUnsent(config) !== 'ask' || !unsent) return proceed()
+    setModal({ kind: 'leave', proceed })
+  }
+  leaveRef.current = leave
+  // Send and leave: what is new goes (the Send window first when courses
+  // need choosing; the order's details or guests first when it needs them),
+  // then the till goes where it was going.
+  const sendAndLeave = proceed => {
+    if (needDetails()) return
+    if (needsSendChoice(check, config)) return setModal({ kind: 'send', then: proceed })
+    const r = sendCheck(check, [])
+    if (!r.ok) return toast(r.error, 'bad')
+    close()
+    toast('Sent to the kitchen', 'ok')
+    proceed()
+  }
+
+  // One of a dish taken off from its own button (Store tech > Tills, with the
+  // counts on): a swipe left on its row in a list, a long press on a button.
+  // One not sent comes off (its line goes down by one, or goes; Undo puts it
+  // back), asking a manager where taking items off needs one; one the kitchen
+  // has opens the void window for one (a reason is needed).
+  const takeOneOff = async item => {
+    const now = currentChecks()[check.id] || check
+    const line = lineToTakeOff(now, item.id)
+    if (!line) return toast(item.name + ' isn\'t on the order', 'info')
+    if (line.status !== 'new') return setModal({ kind: 'line', line, initialMode: 'void', voidQty: 1 })
+    const [label, actions] = offApproval(line, 'Taking items off needs a manager here.', ['delete_unsent'])
+    const approver = await approve(null, null, label, actions)
+    if (approver === false) return
+    const qty = Number(line.qty) || 1
+    const r = qty > 1
+      ? dispatch('line.changed', { line_id: line.id, qty: qty - 1 }, { check_id: check.id, approved_by: approver })
+      : dispatch('line.deleted', { line_id: line.id }, { check_id: check.id, approved_by: approver })
+    if (!r.ok) return toast(r.error, 'bad')
+    toast('Took off 1 x ' + line.name, 'ok', 5000, {
+      label: 'Undo',
+      run: () => {
+        const cur = currentChecks()[check.id]?.lines.find(l => l.id === line.id)
+        const back = cur && cur.status === 'new'
+          ? dispatch('line.changed', { line_id: line.id, qty: (Number(cur.qty) || 0) + 1 }, { check_id: check.id })
+          : dispatch('line.added', { line: copyOfLine({ ...line, qty: 1 }) }, { check_id: check.id })
+        if (!back.ok) toast(back.error, 'bad')
+      },
+    })
+  }
 
   const pick = item => {
     if (needsChoices(config, item)) {
@@ -270,6 +335,10 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
   const showSend = !isCounter || counterSends(config)
   // How many of each dish are on the order (the till's Item counts on buttons).
   const counts = showsItemCounts(config) ? itemCounts(check) : null
+  // With the counts on, a dish on the order can come off from its own button.
+  const takeOff = counts && takesOffCounted(config)
+    ? { run: takeOneOff, label: item => (lineToTakeOff(check, item.id)?.status === 'new' ? 'Take one off' : 'Void one') }
+    : null
   const action = key => {
     if (key === 'bill') { close(); return bill() }
     if (key === 'void_check') {
@@ -283,7 +352,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
 
   const header = (
     <div className={cx('flex items-center gap-2 py-2 border-b border-line', hidden.has('back') ? 'px-3' : 'px-2')}>
-      {!hidden.has('back') && <button className="btn btn-ghost w-12 px-0" onClick={onBack} aria-label="Back" data-testid="check-back"><ArrowLeft size={22} /></button>}
+      {!hidden.has('back') && <button className="btn btn-ghost w-12 px-0" onClick={() => leave()} aria-label="Back" data-testid="check-back"><ArrowLeft size={22} /></button>}
       <button className="flex-1 min-w-0 text-left" onClick={() => setModal({ kind: 'actions' })}>
         <div className="font-bold text-lg truncate">
           {table ? 'Table ' + table.label : check.order_no != null ? 'Order #' + check.order_no : check.tab_name || 'Tab'}
@@ -399,10 +468,10 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
       case 'open_item': return setModal({ kind: 'open_item' })
       case 'cancel_order': return check.lines.length ? setModal({ kind: 'cancel' }) : toast('Nothing on the order to cancel', 'bad')
       case 'no_sale': return setModal({ kind: 'nosale' })
-      case 'back': return onBack()
+      case 'back': return leave()
       case 'menus': return setModal({ kind: 'menus' })
       case 'till_menu': return nav.openMenu()
-      case 'sign_out': return signOut()
+      case 'sign_out': return leave(signOut)
       default: return null
     }
   }
@@ -413,7 +482,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
         <div className="flex-1 min-w-0">
           <LayoutScreen layout={layout} config={config} check={check} checkZone={panel} menus={shownMenus.shown} tillMenus={shownMenus.menus} shownMenus={shownMenus} covers={check.covers} counts={counts}
             seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
-            onDish={pick} onHold={item => setModal({ kind: 'sold_out', item })} onButton={runButton}
+            onDish={pick} onHold={item => setModal({ kind: 'sold_out', item })} takeOff={takeOff} onButton={runButton}
             choosing={choosing} onChosen={o => added(choosing.item, { ...o, seat, course })} onCancelChoosing={() => setChoosing(null)}
             onMoreChoices={initial => setModal({ kind: 'item', item: choosing.item, initial })} />
         </div>
@@ -422,7 +491,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
           <div className="w-[42%] max-w-[480px] min-w-[320px] shrink-0">{panel}</div>
           <div className="flex-1 min-w-0">
             <MenuPanel config={config} menus={shownMenus.shown} onPick={pick} onHold={item => setModal({ kind: 'sold_out', item })} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse} parts={barParts}
-              covers={check.covers} counts={counts} onOpenItem={() => setModal({ kind: 'open_item' })} />
+              covers={check.covers} counts={counts} takeOff={takeOff} onOpenItem={() => setModal({ kind: 'open_item' })} />
           </div>
         </>
       )}
@@ -431,7 +500,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
         initial={modal.initial || null} title={modal.title || null} onClose={() => { modal.flowDone?.(false); close() }}
         onAdd={o => (modal.flowDone ? flowChosen(modal, o) : added(modal.item, o, modal.replace || null))} />}
       {modal?.kind === 'line' && (
-        <LineModal check={check} line={check.lines.find(l => l.id === modal.line.id) || modal.line} config={config} onClose={close} initialMode={modal.initialMode || null}
+        <LineModal check={check} line={check.lines.find(l => l.id === modal.line.id) || modal.line} config={config} onClose={close} initialMode={modal.initialMode || null} initialVoidQty={modal.voidQty || null}
           onDiscount={ids => setModal({ kind: 'discount', lineIds: ids })} onMove={ids => setModal({ kind: 'move', lineIds: ids })}
           onMakeCombo={(line, combo, start) => setModal({
             kind: 'item', item: combo, title: line.name + ' as ' + combo.name, replace: line.id, seat: line.seat ?? null, course: line.course_id ?? null,
@@ -440,7 +509,8 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
       )}
       {modal?.kind === 'actions' && <ActionsMenu check={check} config={config} menus={shownMenus} onClose={close} onPick={action} />}
       {modal?.kind === 'menus' && <MenusModal shown={shownMenus} onClose={close} />}
-      {modal?.kind === 'send' && <SendModal check={check} config={config} onClose={close} onSent={() => { close(); toast('Sent to the kitchen', 'ok'); if (!counter) onBack() }} />}
+      {modal?.kind === 'send' && <SendModal check={check} config={config} onClose={close} onSent={() => { close(); toast('Sent to the kitchen', 'ok'); if (modal.then) return modal.then(); if (!counter) onBack() }} />}
+      {modal?.kind === 'leave' && <LeaveModal check={check} onClose={close} onLeave={() => { close(); modal.proceed() }} onSend={() => sendAndLeave(modal.proceed)} />}
       {modal?.kind === 'fire' && <FireModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'cancel' && <CancelOrderModal check={check} onClose={close} onCancelled={close} />}
       {modal?.kind === 'discount' && <DiscountModal check={check} config={config} lineIds={modal.lineIds || null} onClose={close} />}

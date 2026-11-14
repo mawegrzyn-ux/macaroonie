@@ -6,18 +6,26 @@
 // instead, from the same pieces (DishButton, SeatCourseBar, dishPriceText).
 //
 // Holding a dish down (or tapping one that is sold out) calls onHold: the
-// sold out window (CheckActions.jsx SoldOutModal).
+// sold out window (CheckActions.jsx SoldOutModal). With the till's Take one
+// off (the dish counts on), a dish already on the order comes off one at a
+// time from its own button: a long press on a button, a swipe left on a
+// list's row (useDishPress()).
 
 import { useMemo, useRef, useState } from 'react'
-import { Search, X, PenLine } from 'lucide-react'
+import { Search, X, PenLine, Minus } from 'lucide-react'
 import { fromPrice, priceVaries } from '@shared/orderPricing.js'
 import { cx, money } from './ui.jsx'
 import { tillItem } from '../lib/checkOps.js'
 import { soldOutMap } from '../lib/store.js'
+import { useRowSwipe } from '../lib/rowSwipe.js'
 
 const HOLD_MS = 550
 
-/** Tap does one thing, holding the button down another (the sold out window). */
+/**
+ * Tap does one thing, holding the button down another (the sold out window).
+ * Gives the button's handlers, and cancel(): stops a hold on its way (a swipe
+ * that starts under the same finger).
+ */
 export function useHold(onTap, onHold) {
   const timer = useRef(null)
   const held = useRef(false)
@@ -28,12 +36,68 @@ export function useHold(onTap, onHold) {
   }
   const cancel = () => clearTimeout(timer.current)
   return {
-    onPointerDown: start, onPointerUp: cancel, onPointerLeave: cancel, onPointerCancel: cancel,
-    onContextMenu: e => e.preventDefault(),
-    onClick: () => {
-      if (held.current) { held.current = false; return }
-      onTap()
+    cancel,
+    handlers: {
+      onPointerDown: start, onPointerUp: cancel, onPointerLeave: cancel, onPointerCancel: cancel,
+      onContextMenu: e => e.preventDefault(),
+      onClick: () => {
+        if (held.current) { held.current = false; return }
+        onTap()
+      },
     },
+  }
+}
+
+/**
+ * How a dish's button answers a finger: the standard screen's dishes, a till
+ * layout's dishes and a category's dishes, and the dish buttons of a Buttons
+ * zone. A tap picks the dish (onTap), holding it down opens the sold out
+ * window (onHold).
+ *
+ * With the till's Take one off (takesOffCounted() in lib/checkOps.js: the dish
+ * counts on, and the setting) and the dish on the order (count > 0), it comes
+ * off one at a time from here: a long press on a button takes one off instead
+ * of the sold out window (a dish not on the order still opens it), and a row
+ * of a list swipes left for it (its long press keeps the sold out window).
+ * takeOff: { run(item), label(item) } from the order screen (Check.jsx
+ * takeOneOff()).
+ *
+ * Gives the button's handlers and style, wrap(node): the row in its swipe
+ * frame with what the swipe does behind it, and hold: what a long press does
+ * ('take_off' | 'sold_out' | null).
+ */
+export function useDishPress({ item, onTap, onHold, count = 0, takeOff = null, list = false }) {
+  const off = item && count > 0 && takeOff ? takeOff : null
+  const swipes = !!(off && list)
+  const holdTakesOff = !!(off && !list)
+  const press = useHold(onTap, holdTakesOff ? () => off.run(item) : onHold)
+  const swipe = useRowSwipe()
+  const hold = holdTakesOff ? 'take_off' : onHold ? 'sold_out' : null
+  if (!swipes) return { handlers: press.handlers, style: null, wrap: node => node, hold }
+  const key = item.id
+  const dx = swipe.shiftOf(key)
+  return {
+    hold,
+    handlers: {
+      ...press.handlers,
+      onPointerDown: e => {
+        press.handlers.onPointerDown(e)
+        swipe.down(e, key, { left: () => off.run(item), start: press.cancel })
+      },
+      // The click a swipe ends with isn't a tap on the dish.
+      onClick: e => { if (swipe.swallow(key)) return; press.handlers.onClick(e) },
+    },
+    style: { transform: dx ? `translateX(${dx}px)` : undefined, transition: swipe.isMoving(key) ? 'none' : 'transform 160ms ease-out', touchAction: 'pan-y' },
+    wrap: node => (
+      <div className="relative w-full h-full rounded-xl overflow-hidden" data-row data-testid="dish-swipe" data-item={key}>
+        {dx < 0 && (
+          <div className="absolute inset-0 rounded-xl bg-bad text-white font-bold flex items-center justify-end gap-2 pr-4" aria-hidden data-testid="dish-swipe-off">
+            <Minus size={18} /> {off.label(item)}
+          </div>
+        )}
+        {node}
+      </div>
+    ),
   }
 }
 
@@ -47,16 +111,22 @@ export function useHold(onTap, onHold) {
  * A dish's button. count: how many of it are on the order already (the
  * till's Item counts on buttons setting, lib/checkOps.js itemCounts()),
  * shown as a badge: in the corner, or beside the price on a list's row.
+ * takeOff: the order screen's Take one off (useDishPress()).
  */
-export function DishButton({ item, colour, priceText, soldOut, onPick, onHold, fill = false, showPrice = true, place = null, list = false, count = 0 }) {
-  const hold = useHold(() => (soldOut && onHold ? onHold(item) : onPick(item)), onHold ? () => onHold(item) : null)
-  return (
-    <button {...hold} data-testid="dish" data-item={item.id}
+export function DishButton({ item, colour, priceText, soldOut, onPick, onHold, fill = false, showPrice = true, place = null, list = false, count = 0, takeOff = null }) {
+  const press = useDishPress({
+    item, count, takeOff, list,
+    onTap: () => (soldOut && onHold ? onHold(item) : onPick(item)),
+    onHold: onHold ? () => onHold(item) : null,
+  })
+  const style = place || press.style ? { ...place, ...press.style } : undefined
+  return press.wrap(
+    <button {...press.handlers} data-testid="dish" data-item={item.id} data-hold={press.hold || undefined}
       className={cx('relative rounded-xl border p-3 flex flex-col touch-manipulation active:scale-[0.97] transition-transform overflow-hidden select-none',
         !place && 'text-left justify-between',
         fill ? 'w-full h-full py-2' : 'min-h-[84px]',
         soldOut ? 'bg-page border-line text-muted' : 'bg-white border-line')}
-      style={place || undefined}>
+      style={style}>
       <span className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: colour, opacity: soldOut ? 0.35 : 1 }} />
       <span className={cx('leading-tight pl-1', list ? 'line-clamp-2 flex-1 min-w-0' : 'line-clamp-3', !fill && 'font-semibold text-[15px]', soldOut && 'line-through', count > 0 && !list && 'pr-7')}
         data-testid="button-words">{item.name}</span>
@@ -142,7 +212,7 @@ export function SeatCourseBar({ config, seat, setSeat, course, setCourse, covers
 
 /** menus: the menus to show now (useShownMenus().shown), their sections one after another. */
 /** parts: what the seat and course bar shows (seatCourseParts()); 'none' leaves the bar out. */
-export default function MenuPanel({ config, menus, onPick, onHold, seat, setSeat, course, setCourse, covers, onOpenItem, parts = 'both', counts = null }) {
+export default function MenuPanel({ config, menus, onPick, onHold, seat, setSeat, course, setCourse, covers, onOpenItem, parts = 'both', counts = null, takeOff = null }) {
   const soldOut = useMemo(() => soldOutMap(config), [config])
   // Combos' dishes, for their "from" price (shared/combos.js).
   const comboRefs = useMemo(() => ({ itemsById: config.items || {}, sectionItems: config.section_items || {} }), [config])
@@ -199,7 +269,7 @@ export default function MenuPanel({ config, menus, onPick, onHold, seat, setSeat
         <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))' }}>
           {items.map(it => {
             const colour = it.colour || (!q ? colourOf(section, sectionIndex) : '#64708a')
-            return <DishButton key={it.id} item={it} colour={colour} priceText={dishPriceText(config, it.id, comboRefs)} soldOut={soldOut.has(it.id)} onPick={onPick} onHold={onHold} count={counts?.[it.id] || 0} />
+            return <DishButton key={it.id} item={it} colour={colour} priceText={dishPriceText(config, it.id, comboRefs)} soldOut={soldOut.has(it.id)} onPick={onPick} onHold={onHold} count={counts?.[it.id] || 0} takeOff={takeOff} />
           })}
           {!items.length && <div className="text-muted p-4 col-span-full">{q ? 'No dish matches.' : sections.length ? 'This section has no dishes.' : 'No menu on this till.'}</div>}
         </div>

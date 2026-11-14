@@ -22,7 +22,9 @@ export const fillStyle = hex => (hex ? { background: hex, borderColor: hex, colo
 // bare: the body without its padding (the content brings its own, e.g. a
 // band of colour edge to edge); panelStyle: the window's own background
 // (an order flow prompt's look).
-export function Modal({ title, onClose, children, footer, wide = false, full = false, bare = false, panelStyle = null }) {
+// wrapTitle: a title that may run long (it names a table or a tab) takes two
+// lines instead of being cut short.
+export function Modal({ title, onClose, children, footer, wide = false, full = false, bare = false, panelStyle = null, wrapTitle = false }) {
   useEffect(() => {
     const onKey = e => { if (e.key === 'Escape' && onClose) onClose() }
     window.addEventListener('keydown', onKey)
@@ -33,8 +35,8 @@ export function Modal({ title, onClose, children, footer, wide = false, full = f
       <div className={cx('bg-white rounded-2xl shadow-xl flex flex-col max-h-[92vh] w-full', bare && 'overflow-hidden',
         full ? 'max-w-[1200px] h-[92vh]' : wide ? 'max-w-3xl' : 'max-w-md')} style={panelStyle || undefined}>
         {title !== undefined && (
-          <div className="flex items-center gap-3 px-5 h-16 border-b border-line shrink-0">
-            <div className="text-lg font-bold flex-1 min-w-0 truncate">{title}</div>
+          <div className={cx('flex items-center gap-3 px-5 border-b border-line shrink-0', wrapTitle ? 'min-h-[64px] py-2' : 'h-16')}>
+            <div className={cx('text-lg font-bold flex-1 min-w-0', wrapTitle ? 'line-clamp-2 break-words leading-snug' : 'truncate')}>{title}</div>
             {onClose && (
               <button className="btn btn-ghost w-12 px-0" onClick={onClose} aria-label="Close"><X size={22} /></button>
             )}
@@ -205,7 +207,7 @@ export function Toasts() {
           t.kind === 'bad' ? 'bg-bad text-white' : t.kind === 'ok' ? 'bg-ok text-white' : 'bg-ink text-white')}>
           <span>{t.text}</span>
           {t.action && (
-            <button className="pointer-events-auto rounded-lg border border-white/60 px-3 min-h-[40px] font-bold touch-manipulation" data-testid="toast-action" onClick={t.action.run}>{t.action.label}</button>
+            <button className="pointer-events-auto rounded-lg border border-white/60 px-3 min-h-[48px] min-w-[64px] font-bold touch-manipulation" data-testid="toast-action" onClick={t.action.run}>{t.action.label}</button>
           )}
         </div>
       ))}

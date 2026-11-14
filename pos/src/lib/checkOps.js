@@ -134,8 +134,8 @@ export const tablesOn = config => !counterTill(config) && config?.device?.settin
 
 /**
  * On a phone, a table-service till's tables and tabs as rows to swipe (left
- * sends what is new or fires the course waiting, right pays) instead of
- * tiles (Store tech > Tills, On a phone). Counter tills have none.
+ * sends what is new or fires the course waiting, asking first; right pays)
+ * instead of tiles (Store tech > Tills, On a phone). Counter tills have none.
  */
 export const phoneTablesList = config => !counterTill(config) && config?.device?.settings?.phone_tables === 'list'
 
@@ -154,6 +154,54 @@ export function itemCounts(check) {
     out[l.item_id] = (out[l.item_id] || 0) + (Number(l.qty) || 0)
   }
   return out
+}
+
+/**
+ * What a swipe left on a check's row in a phone's list of tables does
+ * (Store tech > Tills, Swipe left): 'send' (items not sent yet go to the
+ * kitchen), 'fire' (a course sent but waiting starts) or null (nothing to
+ * send or fire). The till's setting says which comes first when a check has
+ * both; each falls back to the other. A swipe always asks first.
+ */
+export function swipeLeftAction(check, config) {
+  const nf = notFired(check)
+  const can = { send: nf.unsent > 0, fire: nf.held.length > 0 }
+  const order = config?.device?.settings?.swipe_left === 'fire' ? ['fire', 'send'] : ['send', 'fire']
+  return order.find(k => can[k]) || null
+}
+
+/**
+ * What leaving a table-service order with items not sent to the kitchen does
+ * (Store tech > Tills): 'leave' (the default) or 'ask' (Stay on the order,
+ * Leave without sending, Send and leave). Counter tills always leave: their
+ * orders go to the kitchen as they are paid.
+ */
+export function leaveUnsent(config) {
+  if (counterTill(config)) return 'leave'
+  return config?.device?.settings?.leave_unsent === 'ask' ? 'ask' : 'leave'
+}
+
+/**
+ * Whether a dish on the order can be taken off from its own button (Store
+ * tech > Tills, with the counts on): a swipe left on its row in a list, a
+ * long press on a button. One not sent yet comes off; one sent opens the
+ * void window for one.
+ */
+export const takesOffCounted = config => showsItemCounts(config) && config?.device?.settings?.count_take_off === true
+
+/**
+ * The line taking one of a dish off works on: the dish's own line not sent
+ * yet first, then one an order flow put on, then one already sent; the
+ * newest of each. null when the dish isn't on the order.
+ */
+export function lineToTakeOff(check, itemId) {
+  const rank = l => (l.status === 'new' ? (l.flow ? 1 : 0) : 2)
+  let best = null
+  for (const l of check?.lines || []) {
+    if (!itemId || l.item_id !== itemId || !isActiveLine(l)) continue
+    if (!best || rank(l) < rank(best) || (rank(l) === rank(best) && String(l.id) > String(best.id))) best = l
+  }
+  return best
 }
 
 /** Is the check at a table (table service)? Nobody there takes a tent number. */

@@ -89,10 +89,10 @@ export function PageLink({ to, icon: Icon, title, children, label, testId }) {
   )
 }
 
-export function Toggle({ label, hint, checked, onChange, disabled }) {
+export function Toggle({ label, hint, checked, onChange, disabled, testid }) {
   return (
     <label className={cn('flex items-start gap-3 min-h-[44px] py-1 cursor-pointer touch-manipulation', disabled && 'opacity-50')}>
-      <input type="checkbox" checked={!!checked} disabled={disabled} onChange={e => onChange(e.target.checked)} className="w-5 h-5 mt-0.5 shrink-0" />
+      <input type="checkbox" checked={!!checked} disabled={disabled} onChange={e => onChange(e.target.checked)} className="w-5 h-5 mt-0.5 shrink-0" data-testid={testid} />
       <span className="text-sm">
         <span className="font-medium">{label}</span>
         {hint && <span className="block text-xs text-muted-foreground">{hint}</span>}

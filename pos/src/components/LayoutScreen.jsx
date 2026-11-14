@@ -42,6 +42,11 @@
 // pop-up closes by itself when its order leaves the screen (paid, cancelled,
 // another one opened). A zone with buttons can be a list (view: 'list'): one
 // column of rows, the words on the left and the second line on the right.
+//
+// Take one off (a till's setting, with the dish counts on): a dish already on
+// the order comes off one at a time from its own button, by a long press on a
+// button or a swipe left on a list's row (useDishPress() in MenuPanel.jsx;
+// takeOff from Check.jsx).
 
 import { useEffect, useMemo, useState } from 'react'
 import { Search, X, ChevronRight } from 'lucide-react'
@@ -53,7 +58,7 @@ import { discountList } from '@shared/pos/discounts.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { cx, inkOn, money } from './ui.jsx'
 import ZoneGrid from './ZoneGrid.jsx'
-import { DishButton, SeatCourseBar, SECTION_COLOURS, dishPriceText, useHold } from './MenuPanel.jsx'
+import { DishButton, SeatCourseBar, SECTION_COLOURS, dishPriceText, useDishPress } from './MenuPanel.jsx'
 import { useChoiceBuilder, ChoiceZone } from './LayoutChoices.jsx'
 import { soldOutMap } from '../lib/store.js'
 import { menuTimesText } from '../lib/tillMenus.js'
@@ -97,16 +102,18 @@ function SectionButton({ label, colour, on, onTap, testid, place, list = false }
  * A button from the designer: its colour (or white), its words (where the
  * zone puts them: place), greyed while it can't be used. sub: a second line
  * (Sold out); note: what the pop-up it opens holds (the order's items and
- * total, the category open, the seat picked). list: a row in a list.
+ * total, the category open, the seat picked). list: a row in a list. item: the
+ * dish a dish button adds (its count and Take one off: useDishPress()).
  */
-function LayoutButton({ b, label, disabled, sub = null, note = null, onTap, onHold, place, list = false, count = 0 }) {
-  const hold = useHold(onTap, onHold)
+function LayoutButton({ b, label, disabled, sub = null, note = null, onTap, onHold, place, list = false, count = 0, item = null, takeOff = null }) {
+  const press = useDishPress({ item, count, takeOff, list, onTap, onHold })
   const fill = b.colour ? { background: b.colour, borderColor: b.colour, color: inkOn(b.colour) } : null
-  return (
-    <button {...hold} disabled={disabled} data-testid="layout-button" data-action={b.action} data-button={b.id} data-popup={b.popup_id || undefined}
+  return press.wrap(
+    <button {...press.handlers} disabled={disabled} data-testid="layout-button" data-action={b.action} data-button={b.id} data-popup={b.popup_id || undefined}
+      data-hold={item ? press.hold || undefined : undefined}
       className={cx('relative w-full h-full rounded-xl border-2 py-1 flex flex-col leading-tight touch-manipulation active:scale-[0.97] transition-transform select-none',
         list ? 'px-3' : 'px-2', !fill && 'bg-white border-line', disabled && 'opacity-40')}
-      style={{ ...place, ...fill }}>
+      style={{ ...place, ...fill, ...press.style }}>
       <span className={cx('break-words', list ? 'line-clamp-2 ' + WORDS : 'line-clamp-3', count > 0 && !list && 'pr-7')} data-testid="button-words">{label}</span>
       {count > 0 && (
         <span className={cx('min-w-[26px] h-[26px] px-1.5 rounded-full bg-brand text-white text-sm font-bold tabular-nums flex items-center justify-center',
@@ -179,7 +186,7 @@ function MenusZone({ zone, layoutId, shown, onUsed = null }) {
   return <ZoneGrid zone={zone} cells={cells} memoKey={'menus:' + layoutId + ':' + zone.id} moreTitle="Menus" empty="The till has no menus." testid="zone-menus" />
 }
 
-function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCategories, soldOut, comboRefs, onDish, onHold, counts = null }) {
+function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCategories, soldOut, comboRefs, onDish, onHold, counts = null, takeOff = null }) {
   const [q, setQ] = useState('')
   const items = useMemo(() => {
     const seen = new Set()
@@ -225,7 +232,7 @@ function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCa
           cells={items.map(it => ({
             key: it.id,
             node: <DishButton fill place={place} list={isList(zone)} item={it} colour={it.colour || colour} priceText={dishPriceText(config, it.id, comboRefs)}
-              showPrice={zone.price} soldOut={soldOut.has(it.id)} onPick={onDish} onHold={onHold} count={counts?.[it.id] || 0} />,
+              showPrice={zone.price} soldOut={soldOut.has(it.id)} onPick={onDish} onHold={onHold} count={counts?.[it.id] || 0} takeOff={takeOff} />,
           }))} />
       </div>
     </div>
@@ -237,7 +244,7 @@ function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCa
  * found on the menus on now, else on any of the till's menus, less the ones
  * left out of it.
  */
-function CategoryZone({ zone, layoutId, config, menus, tillMenus, soldOut, comboRefs, onDish, onHold, counts = null }) {
+function CategoryZone({ zone, layoutId, config, menus, tillMenus, soldOut, comboRefs, onDish, onHold, counts = null, takeOff = null }) {
   const found = useMemo(() => {
     for (const list of [menus, tillMenus]) {
       for (const m of list || []) {
@@ -257,7 +264,7 @@ function CategoryZone({ zone, layoutId, config, menus, tillMenus, soldOut, combo
       cells={items.map(it => ({
         key: it.id,
         node: <DishButton fill place={place} list={isList(zone)} item={it} colour={it.colour || colour} priceText={dishPriceText(config, it.id, comboRefs)}
-          showPrice={zone.price} soldOut={soldOut.has(it.id)} onPick={onDish} onHold={onHold} count={counts?.[it.id] || 0} />,
+          showPrice={zone.price} soldOut={soldOut.has(it.id)} onPick={onDish} onHold={onHold} count={counts?.[it.id] || 0} takeOff={takeOff} />,
       }))} />
   )
 }
@@ -269,7 +276,7 @@ function CategoryZone({ zone, layoutId, config, menus, tillMenus, soldOut, combo
  * id]: 'words' }); idle: the pop-ups with nothing to show now (their buttons
  * are greyed).
  */
-function ButtonsZone({ zone, layoutId, config, check, soldOut, onDish, onHold, onButton, canBack, popups = [], notes = {}, idle = null, counts = null }) {
+function ButtonsZone({ zone, layoutId, config, check, soldOut, onDish, onHold, onButton, canBack, popups = [], notes = {}, idle = null, counts = null, takeOff = null }) {
   const presets = discountList(config.settings)
   const tenders = config.settings?.tenders || []
   const charges = listCharges(config)
@@ -288,6 +295,7 @@ function ButtonsZone({ zone, layoutId, config, check, soldOut, onDish, onHold, o
       key: b.id, w: b.w, h: b.h,
       node: <LayoutButton b={b} disabled={disabled} place={place} list={list} label={buttonLabel(b, { items: config.items || {}, presets, tenders, charges, popups })}
         sub={sold ? 'Sold out' : null} note={b.action === 'open_popup' ? notes[b.popup_id] || null : null} count={item ? counts?.[item.id] || 0 : 0}
+        item={item} takeOff={takeOff}
         onTap={() => (item ? (sold ? onHold(item) : onDish(item)) : onButton(b))}
         onHold={item ? () => onHold(item) : null} />,
     }
@@ -340,9 +348,11 @@ function Popup({ zone, title, flush = false, onClose, children }) {
  * choices zones (the host starts it); onChosen(result), onCancelChoosing(),
  * onMoreChoices({ selection, qty }). noOrderNote: what the button that opens
  * the order says with no order on screen (the counter: "2 waiting").
+ * takeOff: the order screen's Take one off ({ run(item), label(item) }, or
+ * null), for the dishes on the order.
  */
 export default function LayoutScreen({
-  layout, config, check = null, checkZone, menus, tillMenus = menus, shownMenus = null, covers = null, counts = null,
+  layout, config, check = null, checkZone, menus, tillMenus = menus, shownMenus = null, covers = null, counts = null, takeOff = null,
   seat, setSeat, course, setCourse,
   onDish, onHold, onButton, canBack = true, noOrderNote = null,
   choosing = null, onChosen, onCancelChoosing, onMoreChoices,
@@ -459,16 +469,16 @@ export default function LayoutScreen({
     }
     if (z.type === 'items') {
       return <ItemsZone zone={z} layoutId={layoutId} config={config} menus={menus} section={open?.s || null} sectionIndex={open?.i || 0}
-        hasCategories={!!cats} soldOut={soldOut} comboRefs={comboRefs} onDish={dishFrom(z)} onHold={onHold} counts={counts} />
+        hasCategories={!!cats} soldOut={soldOut} comboRefs={comboRefs} onDish={dishFrom(z)} onHold={onHold} counts={counts} takeOff={takeOff} />
     }
     if (z.type === 'category') {
       return <CategoryZone zone={z} layoutId={layoutId} config={config} menus={menus} tillMenus={tillMenus} soldOut={soldOut}
-        comboRefs={comboRefs} onDish={dishFrom(z)} onHold={onHold} counts={counts} />
+        comboRefs={comboRefs} onDish={dishFrom(z)} onHold={onHold} counts={counts} takeOff={takeOff} />
     }
     if (z.type === 'buttons' || z.type === 'popup') {
       const from = z.type === 'popup' ? z : null
       return <ButtonsZone zone={z} layoutId={layoutId} config={config} check={check} soldOut={soldOut} onDish={dishFrom(from)} onHold={onHold}
-        onButton={b => press(b, from)} canBack={canBack} popups={popups} notes={notes} idle={idle} counts={counts} />
+        onButton={b => press(b, from)} canBack={canBack} popups={popups} notes={notes} idle={idle} counts={counts} takeOff={takeOff} />
     }
     if (z.type === 'seats') {
       // What the zone shows, as far as the check's revenue stream uses seats and courses.

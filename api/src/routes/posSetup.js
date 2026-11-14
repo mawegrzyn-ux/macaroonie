@@ -316,6 +316,17 @@ const DeviceSettings = z.object({
   tables:             z.boolean().optional(),
   phone_tables:       z.enum(['tiles', 'list']).optional(),
   item_counts:        z.boolean().optional(),
+  // Till phone improvements (14 Nov 2026, jsonb, read by
+  // pos/src/lib/checkOps.js): what a swipe left on a table's row does first
+  // when the check has both ('send' or absent = sends what is new, 'fire' =
+  // fires the course waiting; each falls back to the other, and a swipe
+  // always asks first); leaving a table-service order with items not sent
+  // ('leave' or absent = leaves, 'ask' = asks whether to send them first);
+  // and, with item counts on, taking one off a counted dish (a swipe left
+  // on its row in a list, a long press on a button; absent = no).
+  swipe_left:         z.enum(['send', 'fire']).optional(),
+  leave_unsent:       z.enum(['leave', 'ask']).optional(),
+  count_take_off:     z.boolean().optional(),
   // A till's or kiosk's own counter order numbers (migration 217,
   // shared/pos/numbers.js): no two at a location may overlap.
   order_numbers:      z.object({

@@ -6,6 +6,22 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-14 — Till on phones: swipe left asks first, leaving with items not sent, take one off]
+
+No migration.
+
+**Added**
+- **Swipe left: Send what is new or Fire the course waiting** (Store tech → Tills → a till → On a phone, with Rows to swipe): a table-service phone's swipe left on a table's row can fire the course waiting first instead of sending first.
+- **Leaving an order with items not sent** (Store tech → Tills → a till, table service): Just leave (the usual) or Ask whether to send them. With Ask, going back to the floor with items the kitchen hasn't had (Back, the till menu's pages, Sign out) offers Send and leave, Leave without sending or Stay on the order. Counter tills never ask; the till signing itself out when left alone doesn't ask either.
+- **Take one off from the dish's button** (Store tech → Tills → a till, with Show on dish buttons how many are on the order): one of a dish on the order comes off from its own button: hold the button down, or swipe its row to the left when the dishes are a list. One not sent comes off (Undo for a few seconds; a manager's PIN where taking items off needs one); one the kitchen has opens the void window for one.
+
+**Changed**
+- **A swipe left on a table's row always asks first**: the Send to the kitchen or Fire a course window opens over the floor, named after the table, even when there is one course to fire (it used to fire at once). Cancel sends nothing.
+- The toast's Undo button and similar are 48 px tall.
+
+**Notes**
+- Tried in Chromium's phone emulation and at tablet size with a mouse, not yet on a real phone.
+
 ## [2026-11-14 — Reports: figures from other subjects (sales against labour, the weather, bookings)]
 
 No migration.
