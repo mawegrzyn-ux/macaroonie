@@ -54,6 +54,18 @@
 // pop-up's name, a button's words) go through WordsInput, which keeps a space
 // typed at the end while the box has the focus (the layout is tidied, and so
 // trimmed, on every change).
+//
+// The look (14 Nov 2026). Each zone's panel ends with Look: the zone's
+// background (not the Order's), its border (none, thin, bold or dotted, in a
+// colour) and the border of its buttons (standard: each button's own). The
+// layout's Behind the zones colour fills the gaps and any cells no zone
+// takes. A Label zone is words on the screen (WordsArea keeps a new line or a
+// space typed at the end while it has the focus), in a size, colour and place.
+// A category's dishes zone can colour its dish buttons and show the
+// category's name above them. Zones a layout can have several of have
+// Duplicate (copyZone(): the copy goes in the first free space of its size).
+// The canvas draws all of it through the same zoneBoxStyle(),
+// buttonBorderStyle() and categoryButtonStyle() the till uses.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -61,7 +73,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Loader2, Save, PanelsTopLeft, Plus, Minus, Eye, EyeOff, AlertTriangle, Info, X,
   AlignLeft, AlignCenter, AlignRight, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd,
-  LayoutGrid, List, Smartphone, Tablet,
+  LayoutGrid, List, Smartphone, Tablet, Copy,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -79,6 +91,8 @@ import {
   MENU_TAPS, MAX_MENUS, popupCloseProblem, shownDishIds, MAX_HIDDEN,
   floats, isPopup, isList, popupTitle, popupOpeners, POPUP_ZONES, gridDefaults, SHOWS, VIEWS,
   categoriesZoneOf, dishesZonesOf,
+  BUTTON_ZONES, BORDER_STYLES, BUTTON_BORDERS, LABEL_TEXT_MAX, LABEL_FONT, NAME_FONT,
+  copyZone, zoneBoxStyle, zoneInk, buttonBorderStyle, categoryButtonStyle,
 } from '@shared/pos/tillLayout.js'
 import { chargeValueText } from '@shared/pos/charges.js'
 import { timesLabel } from '@shared/menuTimes.js'
@@ -100,7 +114,9 @@ const screensFor = phone => SCREENS.filter(s => !!s.phone === !!phone)
 const screenStore = phone => (phone ? 'maca_layout_screen_phone' : 'maca_layout_screen')
 const storedScreen = phone => { try { return localStorage.getItem(screenStore(phone)) } catch { return null } }
 const TOP_BAR = 64
-const TINTS = { check: '#e0e7ff', categories: '#dcfce7', menus: '#ffedd5', items: '#fef3c7', category: '#ecfccb', buttons: '#fce7f3', modifiers: '#e0f2fe', seats: '#ede9fe', popup: '#fae8ff' }
+const TINTS = { check: '#e0e7ff', categories: '#dcfce7', menus: '#ffedd5', items: '#fef3c7', category: '#ecfccb', buttons: '#fce7f3', modifiers: '#e0f2fe', seats: '#ede9fe', popup: '#fae8ff', label: '#f1f5f9' }
+// Backgrounds to pick from (and a colour of your own): light ones, then dark.
+const BACKGROUNDS = ['#f1f5f9', '#e2e8f0', '#fef3c7', '#dcfce7', '#e0f2fe', '#fce7f3', '#1f2a44', '#0f172a']
 const NEEDS_TARGET = { item: 'item_id', discount_preset: 'preset_id', tender: 'tender', charge: 'charge_id', open_popup: 'popup_id' }
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
@@ -108,7 +124,7 @@ function freshId(taken, base) {
   if (!taken.has(base)) return base
   for (let n = 2; ; n++) if (!taken.has(base + n)) return base + n
 }
-const ZONE_BASE = { check: 'order', categories: 'cats', menus: 'menus', items: 'dishes', category: 'category', buttons: 'buttons', modifiers: 'choices', seats: 'seats', popup: 'popup' }
+const ZONE_BASE = { check: 'order', categories: 'cats', menus: 'menus', items: 'dishes', category: 'category', buttons: 'buttons', modifiers: 'choices', seats: 'seats', popup: 'popup', label: 'label' }
 
 /** How a zone is named in lists and notes: Pop-up: Drinks, Dish choices: Must pick, Buttons 2, Order (pop-up). */
 function zoneName(z, layout, names = null) {
@@ -117,6 +133,8 @@ function zoneName(z, layout, names = null) {
   const pop = isPopup(z) ? ' (pop-up' + (z.title ? ': ' + z.title : '') + ')' : ''
   if (z.type === 'category' && z.section_id && names?.sections.get(z.section_id)) return 'Dishes: ' + names.sections.get(z.section_id).title + pop
   if (z.type === 'modifiers') return zoneLabel(z.type) + ': ' + (CHOICE_KINDS.find(k => k.key === z.kind)?.label || '')
+  // A Label zone by its words (the first line).
+  if (z.type === 'label' && z.text) return 'Label: ' + z.text.split('\n')[0]
   const same = (layout?.zones || []).filter(x => x.type === z.type)
   return zoneLabel(z.type) + (same.length > 1 ? ' ' + (same.indexOf(z) + 1) : '') + pop
 }
@@ -157,6 +175,7 @@ function placeZone(layout, type) {
     buttons: { w: Math.round(cols / 2), h: 2 },
     modifiers: { w: Math.round(cols / 2), h: Math.round(rows / 2) },
     seats: { w: Math.round(cols / 2), h: 1 },
+    label: { w: Math.round(cols / 3), h: 1 },
   }[type]
   const free = r => type === 'modifiers' || !solid.some(z => overlaps(z, r))
   for (let h = Math.min(rows, want.h); h >= 1; h--) {
@@ -267,6 +286,13 @@ export default function TillLayoutDesigner() {
   }
   // A pop-up taken out takes the buttons that open it with it (normaliseTillLayout drops them).
   const removeZone = zid => { setLayout(l => ({ ...l, zones: l.zones.filter(z => z.id !== zid) })); setSelId(null) }
+  // A copy of a zone the layout can have several of, in the first free space of its size.
+  const duplicate = zid => {
+    const r = copyZone(layout, zid)
+    if (!r) return
+    setDraft(d => ({ ...d, layout: r.layout }))
+    setSelId(r.id)
+  }
   const screens = screensFor(layout.phone)
   const screen = screens.find(s => s.key === screenKeys[!!layout.phone]) || screens[0]
   const pickScreen = k => {
@@ -331,7 +357,8 @@ export default function TillLayoutDesigner() {
           <div className="space-y-4 min-w-0 lg:sticky lg:top-0" data-testid="tl-panel">
             {sel
               ? <ZonePanel zone={sel} ctx={ctx} canManage={canManage} onBack={() => setSelId(null)} selB={selB} setSelB={setSelB}
-                  onChange={patch => patchZone(sel.id, patch)} onRemove={() => removeZone(sel.id)} onPatchZone={patchZone} onPick={setSelId} />
+                  onChange={patch => patchZone(sel.id, patch)} onRemove={() => removeZone(sel.id)} onDuplicate={() => duplicate(sel.id)}
+                  onPatchZone={patchZone} onPick={setSelId} />
               : (
                 <>
                   <ReadOnlyFieldset disabled={!canManage}>
@@ -369,6 +396,12 @@ export default function TillLayoutDesigner() {
                           ? 'The bar with Floor, Counter, Closed, Reports, Till and sign out stays across the top.'
                           : 'Off: the layout takes the whole screen. The till\'s pages, sign out and its details are in More (and on the counter\'s New order panel); the other pages keep the bar.'}
                       </p>
+                      <Field group label="Behind the zones">
+                        <ColourPick custom swatches={BACKGROUNDS} value={layout.background} onChange={v => setLayout(l => ({ ...l, background: v }))} testid="tl-background" />
+                      </Field>
+                      <p className="text-xs text-muted-foreground -mt-1">
+                        The colour of the lines between the zones and of any cells no zone takes. None: the till's own grey lines.
+                      </p>
                     </Section>
                   </ReadOnlyFieldset>
                   <Section title="Zones" hint="Tap one to change it.">
@@ -376,7 +409,7 @@ export default function TillLayoutDesigner() {
                       {layout.zones.map(z => (
                         <button key={z.id} type="button" onClick={() => setSelId(z.id)} data-testid="tl-zone-row" data-zone-id={z.id}
                           className="w-full min-h-[44px] flex items-center gap-2 px-3 rounded-lg border bg-background hover:bg-muted text-left touch-manipulation">
-                          <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: TINTS[z.type] }} />
+                          <span className="w-3 h-3 rounded-sm shrink-0 border" style={{ background: z.background || TINTS[z.type] }} />
                           <span className="text-sm font-medium flex-1 min-w-0 truncate">{zoneName(z, layout, names)}</span>
                           <span className="text-xs text-muted-foreground tabular-nums">{z.w} x {z.h}</span>
                         </button>
@@ -545,7 +578,9 @@ function Canvas({ layout, screen, selId, onSelect, showChoices, canEdit, onMove,
           <div style={{ height: barH }} className="bg-slate-800 text-white/70 flex items-center px-2 overflow-hidden" data-testid="tl-top-bar"
             aria-hidden="true"><span style={{ fontSize: Math.max(8, 14 * scale) }}>The till's top bar</span></div>
         )}
-        <div className="relative" style={{ height }}>
+        {/* Behind the zones: the layout's own colour, when it has one. */}
+        <div className="relative" style={{ height, ...(layout.background ? { background: layout.background } : {}) }} data-testid="tl-behind"
+          data-background={layout.background || ''}>
           {/* The cells. */}
           <div className="absolute inset-0 grid" aria-hidden="true"
             style={{ gridTemplateColumns: `repeat(${layout.cols}, 1fr)`, gridTemplateRows: `repeat(${layout.rows}, 1fr)` }}>
@@ -565,6 +600,9 @@ function Canvas({ layout, screen, selId, onSelect, showChoices, canEdit, onMove,
             // anywhere else go through it).
             const outline = floating && !isSel && !(isMod && showChoices)
             const clash = ghost?.id === z.id && !floating && solid.some(o => o.id !== z.id && overlaps(o, z))
+            // The zone's own look: its background (else the designer's tint for its
+            // kind) and its border, drawn inside the zone's outline.
+            const box = zoneBoxStyle(z)
             return (
               <div key={z.id} data-testid="tl-zone" data-zone-id={z.id} data-type={z.type} data-selected={isSel ? '1' : '0'} data-outline={outline ? '1' : undefined}
                 data-popup={isPop ? '1' : undefined} data-cover={floating ? z.cover : undefined}
@@ -575,9 +613,11 @@ function Canvas({ layout, screen, selId, onSelect, showChoices, canEdit, onMove,
                   (bad.has(z.id) || clash) && 'ring-4 ring-red-500')}
                 style={{
                   left: z.x * cw + 2, top: z.y * rh + 2, width: z.w * cw - 4, height: z.h * rh - 4,
-                  background: outline ? 'transparent' : isMod ? 'rgba(224, 242, 254, 0.94)' : isPop ? 'rgba(250, 232, 255, 0.96)' : TINTS[z.type],
+                  background: outline ? 'transparent' : z.background ? z.background : isMod ? 'rgba(224, 242, 254, 0.94)' : isPop ? 'rgba(250, 232, 255, 0.96)' : TINTS[z.type],
                   border: isMod ? '2px dashed #0284c7' : isPop ? '2px dashed #c026d3' : '1px solid rgba(15, 23, 42, 0.15)',
-                }}>
+                  ...(box.color && !outline ? { color: box.color } : {}),
+                }} data-background={z.background || undefined}>
+                {box.border && !outline && <div className="absolute inset-0 rounded-md pointer-events-none" style={{ border: box.border }} data-testid="tl-zone-border" />}
                 {floating ? (
                   // The name tab (Dish choices top right, pop-ups bottom left: clear of the
                   // zone under it and of each other): tap or drag it. A drag that starts on
@@ -620,8 +660,10 @@ function ZonePreview({ zone, scale, ctx, hasBar, focus = null }) {
   const body = <ZoneBodyPreview zone={zone} scale={scale} ctx={ctx} hasBar={hasBar} focus={focus} />
   if (!isPopup(zone)) return body
   const framed = zone.frame && zone.cover !== 'screen'
+  const ink = zoneInk(zone)
   return (
     <div className={cn('h-full flex flex-col min-h-0 bg-white', framed && 'rounded-lg ring-2 ring-primary shadow-lg')}
+      style={ink ? { background: zone.background, color: ink.ink } : undefined}
       data-testid="tl-popup-preview" data-frame={framed ? '1' : '0'} data-controls={zone.controls ? '1' : '0'} data-cover={zone.cover}>
       {zone.controls && (
         <div className="shrink-0 flex items-center gap-1 px-1 border-b font-bold" style={{ fontSize: Math.max(7, 15 * scale) }} data-testid="tl-popup-bar">
@@ -636,11 +678,14 @@ function ZonePreview({ zone, scale, ctx, hasBar, focus = null }) {
 function ZoneBodyPreview({ zone, scale, ctx, hasBar, focus = null }) {
   const font = Math.max(7, (zone.font || FONT.default) * scale)
   if (zone.type === 'check') return <CheckPreview scale={scale} zone={zone} />
+  if (zone.type === 'label') return <LabelPreview zone={zone} scale={scale} />
   if (zone.type === 'popup') return <GridPreview zone={zone} cells={previewCells(zone, ctx)} font={font} focus={focus} />
   if (zone.type === 'seats') {
     const seats = zone.parts !== 'courses'
     const courses = zone.parts !== 'seats'
-    const chips = (list, on = 0) => list.map((s, i) => <span key={s} className={cn('rounded border px-1.5 bg-white', i === on && 'bg-slate-800 text-white')}>{s}</span>)
+    const chips = (list, on = 0) => list.map((s, i) => (
+      <span key={s} className={cn('rounded border px-1.5', i === on ? 'bg-slate-800 text-white' : 'bg-white text-slate-900')} style={buttonBorderStyle(zone)}>{s}</span>
+    ))
     // As a pop-up: the seats, then the courses, each under its heading.
     if (isPopup(zone)) {
       return (
@@ -666,6 +711,10 @@ function ZoneBodyPreview({ zone, scale, ctx, hasBar, focus = null }) {
   const cells = previewCells(zone, ctx)
   return (
     <div className="h-full flex flex-col min-h-0">
+      {zone.type === 'category' && zone.show_name && (
+        <div className="shrink-0 font-bold truncate leading-tight" style={{ fontSize: Math.max(7, zone.name_font * scale), color: zone.name_colour || undefined }}
+          data-testid="tl-category-name">{ctx.names.sections.get(zone.section_id)?.title || 'The category\'s name'}</div>
+      )}
       {zone.type === 'items' && zone.search && <div className="shrink-0 rounded border bg-white px-1 mb-0.5 text-slate-400" style={{ fontSize: Math.max(7, 12 * scale) }}>Find a dish</div>}
       {zone.type === 'modifiers' && hasBar && zone.show_name !== false && <div className="shrink-0 font-bold truncate" style={{ fontSize: Math.max(7, 16 * scale) }}>A dish's name</div>}
       <div className="flex-1 min-h-0"><GridPreview zone={zone} cells={cells} font={font} focus={focus} /></div>
@@ -686,7 +735,7 @@ function CheckPreview({ scale, zone }) {
   const words = { more: 'More', send: 'Send', bill: 'Bill', pay: 'Pay' }
   const colour = k => zone.colours?.[k] || (k === 'pay' ? '#16a34a' : k === 'send' ? '#334155' : null)
   return (
-    <div className="h-full flex flex-col bg-white rounded" style={{ fontSize: f }} data-testid="tl-check-preview">
+    <div className="h-full flex flex-col bg-white text-slate-900 rounded" style={{ fontSize: f }} data-testid="tl-check-preview">
       <div className="border-b px-1 font-bold flex items-center gap-1">
         {!zone.hide?.includes('back') && <span>‹</span>}
         <span className="flex-1">Order #101</span>
@@ -699,10 +748,25 @@ function CheckPreview({ scale, zone }) {
         <div className="grid gap-0.5 p-0.5" style={{ gridTemplateColumns: `repeat(${shown.length}, minmax(0, 1fr))` }}>
           {shown.map(k => {
             const c = colour(k)
-            return <span key={k} data-k={k} className="rounded border text-center" style={c ? { background: c, color: inkOn(c), borderColor: c } : undefined}>{words[k]}</span>
+            return <span key={k} data-k={k} className="rounded border text-center" style={{ ...(c ? { background: c, color: inkOn(c), borderColor: c } : {}), ...buttonBorderStyle(zone) }}>{words[k]}</span>
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+/** A Label zone's words, drawn small: their size, colour, weight and place, as on the till. */
+function LabelPreview({ zone, scale }) {
+  const across = { left: 'flex-start', center: 'center', right: 'flex-end' }[zone.align]
+  const down = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[zone.valign]
+  return (
+    <div className="h-full w-full flex flex-col overflow-hidden" style={{ justifyContent: down, alignItems: across, textAlign: zone.align }}
+      data-testid="tl-label-preview" data-align={zone.align} data-valign={zone.valign}>
+      <div className={cn('max-w-full whitespace-pre-line break-words leading-tight', zone.bold ? 'font-bold' : 'font-medium', !zone.text && 'opacity-50')}
+        style={{ fontSize: Math.max(6, zone.font * scale), color: zone.colour || undefined }} data-testid="tl-label-words">
+        {zone.text || 'Your words'}
+      </div>
     </div>
   )
 }
@@ -780,7 +844,10 @@ function GridPreview({ zone, cells, font, focus = null }) {
   // the words on the left and the second line on the right).
   const place = buttonTextStyle(zone)
   const list = isList(zone)
-  if (!cells.length) return <div className="h-full flex items-center justify-center text-center text-slate-500 text-[10px]">Nothing here yet</div>
+  // The zone's buttons' border, and a category's dishes zone's own button colours.
+  const border = buttonBorderStyle(zone)
+  const look = categoryButtonStyle(zone)
+  if (!cells.length) return <div className="h-full flex items-center justify-center text-center opacity-60 text-[10px]">Nothing here yet</div>
   return (
     <div className="h-full flex flex-col min-h-0" style={{ fontSize: font, fontWeight: zone.bold === false ? 500 : 700 }} data-testid="tl-grid" data-view={list ? 'list' : 'grid'}
       data-pages={packed.pages.length} data-rest={packed.rest.length} data-hidden={packed.hidden} data-scrolls={scrolls ? '1' : '0'}>
@@ -788,11 +855,13 @@ function GridPreview({ zone, cells, font, focus = null }) {
         {page.map(p => {
           const c = cells[p.i]
           return (
-            <div key={c.key} className={cn('min-w-0 min-h-0 rounded-sm overflow-hidden leading-tight', list ? 'px-1' : 'px-0.5', c.head ? 'text-slate-600' : 'border bg-white flex flex-col')}
+            <div key={c.key} className={cn('min-w-0 min-h-0 rounded-sm overflow-hidden leading-tight', list ? 'px-1' : 'px-0.5', c.head ? 'opacity-80' : 'border bg-white text-slate-900 flex flex-col')}
               style={{
                 gridColumn: `${p.x + 1} / span ${Math.min(p.w, zone.cols - p.x)}`, gridRow: `${p.y + 1} / span ${Math.min(p.h, zone.rows - p.y)}`,
                 ...(c.head ? {} : place),
+                ...(c.head ? {} : look),
                 ...(c.colour ? { background: c.colour, color: inkOn(c.colour), borderColor: c.colour } : {}),
+                ...(c.head ? {} : border),
                 ...(p.i === fi ? { outline: '2px solid #0284c7', outlineOffset: '-2px' } : {}),
               }}
               data-testid="tl-cell" data-focus={p.i === fi ? '1' : undefined}>
@@ -809,7 +878,7 @@ function GridPreview({ zone, cells, font, focus = null }) {
         )}
       </div>
       {(packed.pages.length > 1 || scrolls || packed.hidden > 0) && (
-        <div className="shrink-0 text-center text-[9px] font-semibold text-slate-600 leading-tight">
+        <div className="shrink-0 text-center text-[9px] font-semibold opacity-75 leading-tight">
           {packed.pages.length > 1 ? '‹ ' + (at + 1) + ' / ' + packed.pages.length + ' ›' : scrolls ? (packed.cols > zone.cols ? 'scrolls across' : 'scrolls down') : packed.hidden + ' left out'}
         </div>
       )}
@@ -881,9 +950,13 @@ function PlaceRow({ label, value, options, icons, onChange, testid }) {
   )
 }
 
-function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, onPatchZone = () => {}, onPick = () => {}, selB = null, setSelB = () => {} }) {
+function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, onDuplicate = () => {}, onPatchZone = () => {}, onPick = () => {}, selB = null, setSelB = () => {} }) {
   const t = ZONE_TYPES.find(x => x.key === zone.type)
   const { layout } = ctx
+  // Zones a layout can have several of can be copied, while it has room for another.
+  const many = t.max > 1
+  const ofKind = layout.zones.filter(z => z.type === zone.type).length
+  const full = many && (ofKind >= t.max || layout.zones.length >= MAX_ZONES)
   // A pop-up's openers go with it when it is taken out (or shown always again).
   const pop = isPopup(zone)
   const openers = pop ? popupOpeners(layout, zone.id) : []
@@ -900,7 +973,23 @@ function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, onPatchZo
     : { view, cols: zone.cols > 1 ? zone.cols : gridDefaults(zone.type).cols })
   return (
     <Section title={t.label} hint={t.hint}
-      actions={<Btn onClick={onBack} data-testid="tl-zone-back"><ArrowLeft className="w-4 h-4" /> Layout</Btn>}>
+      actions={(
+        <div className="flex flex-wrap gap-2">
+          {canManage && many && (
+            <Btn onClick={onDuplicate} disabled={full} data-testid="tl-duplicate" title="A copy of this zone, placed where it fits">
+              <Copy className="w-4 h-4" /> Duplicate
+            </Btn>
+          )}
+          <Btn onClick={onBack} data-testid="tl-zone-back"><ArrowLeft className="w-4 h-4" /> Layout</Btn>
+        </div>
+      )}>
+      {canManage && full && (
+        <p className="text-xs text-muted-foreground" data-testid="tl-duplicate-full">
+          {layout.zones.length >= MAX_ZONES
+            ? 'The layout has ' + MAX_ZONES + ' zones, the most it can take, so this one can\'t be copied.'
+            : 'The layout has ' + ofKind + ' ' + t.label + ' zones, the most it can take, so this one can\'t be copied.'}
+        </p>
+      )}
       <ReadOnlyFieldset disabled={!canManage}>
         <div className="space-y-4" data-testid="tl-zone-panel" data-zone-id={zone.id} data-type={zone.type}>
           <div className="grid grid-cols-2 gap-3">
@@ -909,6 +998,7 @@ function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, onPatchZo
             <Stepper label="Wide" value={zone.w} min={1} max={layout.cols - zone.x} onChange={v => onChange({ w: v })} testid="tl-w" />
             <Stepper label="High" value={zone.h} min={1} max={layout.rows - zone.y} onChange={v => onChange({ h: v })} testid="tl-h" />
           </div>
+          {zone.type === 'label' && <LabelZoneOptions zone={zone} onChange={onChange} />}
           {pop && zone.cover === 'screen' && (
             <p className="text-xs text-muted-foreground -mt-2" data-testid="tl-whole-screen-note">
               On the till it takes the whole screen while it is open. Its place here is only where its outline sits in the designer.
@@ -1049,6 +1139,7 @@ function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, onPatchZo
               <Stepper label="Text size" value={zone.font} min={FONT.min} max={FONT.max} onChange={v => onChange({ font: v })} testid="tl-font" />
             </>
           )}
+          <LookOptions zone={zone} onChange={onChange} />
         </div>
       </ReadOnlyFieldset>
       {canManage && (
@@ -1059,6 +1150,120 @@ function ZonePanel({ zone, ctx, canManage, onBack, onChange, onRemove, onPatchZo
         </div>
       )}
     </Section>
+  )
+}
+
+/** A row of choices for a border's style (a zone's, or its buttons'). */
+function BorderChoice({ value, options, onChange, testid }) {
+  return (
+    // Four to a row at most where the panel is narrow, so no word is cut ("Standard").
+    <div className="grid gap-1.5" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))' }} data-testid={testid} data-value={value}>
+      {options.map(o => (
+        <button key={o.key} type="button" aria-pressed={value === o.key} data-k={o.key} onClick={() => onChange(o.key)}
+          className={cn('min-h-[48px] px-1 rounded-lg border text-sm touch-manipulation min-w-0 truncate',
+            value === o.key ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted')}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * A zone's look: its background (not the Order's: it keeps its white
+ * panel), its border, and the border of its buttons (zones with buttons).
+ */
+function LookOptions({ zone, onChange }) {
+  const border = zone.border || { style: 'none', colour: null }
+  const buttons = BUTTON_ZONES.includes(zone.type)
+  const bb = zone.button_border || { style: 'standard', colour: null }
+  const lined = s => s !== 'none' && s !== 'standard'
+  return (
+    <div className="space-y-3 pt-3 border-t" data-testid="tl-look">
+      <h3 className="text-sm font-semibold">Look</h3>
+      {zone.type !== 'check' && (
+        <>
+          <Field group label="Background">
+            <ColourPick custom swatches={BACKGROUNDS} value={zone.background || null} onChange={v => onChange({ background: v })} testid="tl-zone-background" />
+          </Field>
+          <p className="text-xs text-muted-foreground -mt-2">
+            None: white. Words on a colour turn black or white so they read; buttons keep their own colours.
+          </p>
+        </>
+      )}
+      <Field group label="Border">
+        <BorderChoice value={border.style} options={BORDER_STYLES} onChange={v => onChange({ border: { ...border, style: v } })} testid="tl-border" />
+      </Field>
+      {border.style !== 'none' && (
+        <>
+          <Field group label="Border colour">
+            <ColourPick custom value={border.colour} onChange={v => onChange({ border: { ...border, colour: v } })} testid="tl-border-colour" />
+          </Field>
+          <p className="text-xs text-muted-foreground -mt-2">None: the till's dark ink.</p>
+        </>
+      )}
+      {buttons && (
+        <>
+          <Field group label="Buttons' border">
+            <BorderChoice value={bb.style} options={BUTTON_BORDERS} onChange={v => onChange({ button_border: { ...bb, style: v } })} testid="tl-button-border" />
+          </Field>
+          <p className="text-xs text-muted-foreground -mt-2" data-testid="tl-button-border-hint">
+            {bb.style === 'standard' ? 'Each button keeps its own border.'
+              : bb.style === 'none' ? 'The buttons have no border.'
+                : 'Every button here gets this border.'}
+          </p>
+          {lined(bb.style) && (
+            <>
+              <Field group label="Buttons' border colour">
+                <ColourPick custom value={bb.colour} onChange={v => onChange({ button_border: { ...bb, colour: v } })} testid="tl-button-border-colour" />
+              </Field>
+              <p className="text-xs text-muted-foreground -mt-2">None: each button keeps its own border colour.</p>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * A box for a Label zone's words. The layout is tidied (and so trimmed) on
+ * every change, so the box keeps what was typed while it has the focus: a
+ * new line or a space typed at the end would otherwise go as it is typed.
+ */
+function WordsArea({ value, onChange, ...rest }) {
+  const [typed, setTyped] = useState(null)
+  return (
+    <textarea className={cn(inputCls, 'h-auto min-h-[96px] py-2 leading-snug')} rows={3} maxLength={LABEL_TEXT_MAX} {...rest} value={typed ?? value ?? ''}
+      onChange={e => { setTyped(e.target.value); onChange(e.target.value) }} onBlur={() => setTyped(null)} />
+  )
+}
+
+/** A Label zone: its words, their size, weight, colour and where they sit. */
+function LabelZoneOptions({ zone, onChange }) {
+  return (
+    <div className="space-y-3" data-testid="tl-label-options">
+      <Field label="Words">
+        <WordsArea key={zone.id} value={zone.text} onChange={v => onChange({ text: v })} placeholder="A heading, an offer, a note for staff" data-testid="tl-label-text" />
+      </Field>
+      <p className="text-xs text-muted-foreground -mt-2">
+        As typed on the till: a new line starts a new line. {zone.text.length} of {LABEL_TEXT_MAX} letters.
+      </p>
+      <div className="grid grid-cols-2 gap-3 items-end">
+        <Stepper label="Text size" value={zone.font} min={LABEL_FONT.min} max={LABEL_FONT.max} step={2} onChange={v => onChange({ font: v })} testid="tl-label-font" />
+        <Toggle label="Bold" checked={zone.bold} onChange={v => onChange({ bold: v })} testid="tl-label-bold" />
+      </div>
+      <Field group label="Colour">
+        <ColourPick custom value={zone.colour} onChange={v => onChange({ colour: v })} testid="tl-label-colour" />
+      </Field>
+      <p className="text-xs text-muted-foreground -mt-2">None: black, or white on a dark background.</p>
+      <Field group label="Where the words sit">
+        <div className="space-y-2">
+          <PlaceRow label="Across" value={zone.align} options={ALIGNS} icons={ALIGN_ICONS} onChange={v => onChange({ align: v })} testid="tl-label-align" />
+          <PlaceRow label="Up and down" value={zone.valign} options={VALIGNS} icons={VALIGN_ICONS} onChange={v => onChange({ valign: v })} testid="tl-label-valign" />
+        </div>
+      </Field>
+    </div>
   )
 }
 
@@ -1436,6 +1641,25 @@ function CategoryZoneOptions({ zone, ctx, onChange }) {
         Its dishes are always on screen here, whatever the Categories zone shows. A till whose menus don't have this category shows the zone empty.
       </p>
       <Toggle label="Prices on the buttons" checked={zone.price} onChange={v => onChange({ price: v })} />
+      <Field group label="Dish buttons' colour">
+        <ColourPick custom value={zone.button_colour} onChange={v => onChange({ button_colour: v })} testid="tl-category-button-colour" />
+      </Field>
+      <Field group label="Words on the dish buttons">
+        <ColourPick custom swatches={['#ffffff', '#111827']} noneLabel="Auto" value={zone.button_text} onChange={v => onChange({ button_text: v })} testid="tl-category-button-text" />
+      </Field>
+      <p className="text-xs text-muted-foreground -mt-2">
+        None: the till's own look for these dishes. Auto words turn black or white so they read on the colour.
+      </p>
+      <Toggle label="The category's name above the dishes" checked={zone.show_name} onChange={v => onChange({ show_name: v })} testid="tl-category-show-name" />
+      {zone.show_name && (
+        <div className="space-y-3 pl-3 border-l-2" data-testid="tl-category-name-options">
+          <Stepper label="Its text size" value={zone.name_font} min={NAME_FONT.min} max={NAME_FONT.max} step={2} onChange={v => onChange({ name_font: v })} testid="tl-category-name-font" />
+          <Field group label="Its colour">
+            <ColourPick custom value={zone.name_colour} onChange={v => onChange({ name_colour: v })} testid="tl-category-name-colour" />
+          </Field>
+          <p className="text-xs text-muted-foreground -mt-2">None: black, or white on a dark background.</p>
+        </div>
+      )}
       {zone.section_id && known && (
         <Field group label={`Dishes in it (${shown} of ${dishes.length} shown)`}>
           {dishes.length ? (

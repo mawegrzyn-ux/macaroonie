@@ -4166,6 +4166,25 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>table_id</Mono> or mode table) <Mono>checkPrompts()</Mono> never asks for a tent number;{' '}
               <Mono>missingDetails()</Mono> and the order type window use it.
             </P>
+            <P>
+              <strong>Change options</strong> (14 Nov 2026). A dish not sent yet swipes right too (<Mono>onEdit</Mono>,{' '}
+              <Mono>line-swipe-edit</Mono> Options; a long swipe opens it at once) when{' '}
+              <Mono>canChangeOptions(config, line)</Mono> (<Mono>lib/checkOps.js</Mono>: status new, an{' '}
+              <Mono>item_id</Mono>, not an open item or an order flow&apos;s dish, the dish on the till&apos;s menus with
+              choices to pick); <Mono>LineModal</Mono>&apos;s <Mono>line-change-options</Mono> does the same.{' '}
+              <Mono>Check.jsx</Mono> opens the dish&apos;s own picking screen (a layout&apos;s Dish choices zones, else{' '}
+              <Mono>ItemModal</Mono>) titled Change and the dish&apos;s name, with Update as its main button, from the
+              line&apos;s picks (<Mono>selectionFromLine()</Mono>) and its own seat, course, note, allergies and typed price
+              (<Mono>lineFields()</Mono>). <Mono>changeLine(check, line, item, o)</Mono> sends one{' '}
+              <Mono>line.changed</Mono> with <Mono>modifiers</Mono>, <Mono>combo</Mono>, <Mono>unit_price</Mono>,{' '}
+              <Mono>qty</Mono>, <Mono>seat</Mono>, <Mono>course_id</Mono> (none when courses are off), <Mono>note</Mono> and{' '}
+              <Mono>allergies</Mono>; <Mono>price_override</Mono> true for a new typed price, false for Use menu price after
+              a typed one (<Mono>applyEvent()</Mono> clears the mark only together with <Mono>modifiers</Mono>). Fewer than
+              before needs <Mono>delete_unsent</Mono> where the venue asks for a manager, and fewer of a flow&apos;s dish
+              staff may not take off <Mono>MANAGER_ALWAYS</Mono>. The item window and <Mono>LineModal</Mono> offer a seat
+              and a course only where <Mono>seatCourseParts()</Mono> gives them (never on a counter order;{' '}
+              <Mono>line-seat</Mono>, <Mono>line-course</Mono>).
+            </P>
             <H3>Charges and discounts (migrations 225, 231)</H3>
             <P>
               <strong>Charges</strong> (<Mono>shared/pos/charges.js</Mono>, one implementation for the till, the cloud&apos;s
@@ -4725,7 +4744,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <P>
               Several Dishes zones (14 Nov 2026, no migration): a layout takes up to four Categories zones and four Dishes
-              zones (<Mono>ZONE_TYPES</Mono> max 4 each; <Mono>MAX_ZONES</Mono> 40 so every type at its most still fits). A
+              zones (<Mono>ZONE_TYPES</Mono> max 4 each; <Mono>MAX_ZONES</Mono> went to 40 so every type at its most still fits,
+              and to 50 with Label zones). A
               Dishes zone carries <Mono>follows</Mono>, the id of the Categories zone whose open category it shows;
               null, or an id the layout doesn&apos;t have (cleared by <Mono>normaliseTillLayout()</Mono>), means the first.{' '}
               <Mono>categoriesZoneOf(layout, zone)</Mono> is the one rule (the till, the designer&apos;s previews, the
@@ -4744,6 +4764,69 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               through <Mono>onPatchZone</Mono>), <Mono>addZone()</Mono> giving a new Dishes zone the first Categories zone
               nothing follows, <Mono>previewCells()</Mono> through <Mono>categoriesZoneOf()</Mono>, and the canvas naming
               zones as the zone list does (<Mono>zoneName()</Mono>, Categories 2).
+            </P>
+            <P>
+              The look (14 Nov 2026, no migration; layouts are jsonb and ones saved before keep their look). A{' '}
+              <strong>Label</strong> zone (type <Mono>label</Mono>, up to 12) is words on the screen: <Mono>text</Mono> (up
+              to <Mono>LABEL_TEXT_MAX</Mono> 200 characters, its lines kept), <Mono>font</Mono> (<Mono>LABEL_FONT</Mono> 10 to
+              72, 24), <Mono>colour</Mono>, <Mono>bold</Mono> (default true), <Mono>align</Mono> and <Mono>valign</Mono>{' '}
+              (centre and middle); one without words is the warning <Mono>empty_label</Mono>. Every zone but the Order takes{' '}
+              <Mono>background</Mono> (a colour; the Order keeps its white panel), every zone <Mono>border</Mono>{' '}
+              (<Mono>&#123; style: none | thin | bold | dotted, colour &#125;</Mono>, <Mono>BORDER_STYLES</Mono>; 1, 3 and 2 px; the
+              till&apos;s dark ink when no colour is set) and every zone with buttons (<Mono>BUTTON_ZONES</Mono>: the grid
+              zones, the Order and Seat and course) <Mono>button_border</Mono> (<Mono>BUTTON_BORDERS</Mono>: standard keeps
+              each button&apos;s own, none takes it away). The layout&apos;s own <Mono>background</Mono> is behind the zones
+              (the gaps and the cells no zone takes). A category&apos;s dishes zone adds <Mono>button_colour</Mono> and{' '}
+              <Mono>button_text</Mono> (null = words made readable on the colour) and the category&apos;s name above its
+              dishes (<Mono>show_name</Mono>, default false; <Mono>name_font</Mono> <Mono>NAME_FONT</Mono> 12 to 48, 18;{' '}
+              <Mono>name_colour</Mono>). The till and the designer draw all of it through the same helpers in{' '}
+              <Mono>shared/pos/tillLayout.js</Mono>: <Mono>zoneBoxStyle(zone)</Mono> (background, its words by{' '}
+              <Mono>inkOnColour()</Mono>, notes and counts through <Mono>--zone-muted</Mono> and the till&apos;s{' '}
+              <Mono>zone-muted</Mono> class, <Mono>zoneInk()</Mono>; the border), <Mono>buttonBorderStyle(zone)</Mono>{' '}
+              (laid over each button&apos;s own style) and <Mono>categoryButtonStyle(zone)</Mono>. On the till:{' '}
+              <Mono>LabelZone</Mono> (<Mono>zone-label</Mono> with <Mono>data-align</Mono> / <Mono>data-valign</Mono>,{' '}
+              <Mono>label-text</Mono>), <Mono>category-name</Mono> above a category&apos;s dishes, the layout&apos;s
+              background on <Mono>layout-screen</Mono>. The designer: the zone&apos;s <Mono>tl-look</Mono> part
+              (<Mono>tl-zone-background</Mono>, <Mono>tl-border</Mono>, <Mono>tl-border-colour</Mono>,{' '}
+              <Mono>tl-button-border</Mono>, <Mono>tl-button-border-colour</Mono>, <Mono>tl-button-border-hint</Mono>),{' '}
+              <Mono>tl-label-options</Mono> (<Mono>tl-label-text</Mono> through <Mono>WordsArea</Mono>, which keeps the
+              words as typed while focused; <Mono>tl-label-font</Mono>, <Mono>tl-label-bold</Mono>,{' '}
+              <Mono>tl-label-colour</Mono>, <Mono>tl-label-align</Mono>, <Mono>tl-label-valign</Mono>,{' '}
+              <Mono>tl-label-preview</Mono>), a category&apos;s <Mono>tl-category-button-colour</Mono>,{' '}
+              <Mono>tl-category-button-text</Mono>, <Mono>tl-category-show-name</Mono> and{' '}
+              <Mono>tl-category-name-options</Mono>, and Behind the zones (<Mono>tl-background</Mono>) with the
+              layout&apos;s own settings, drawn by the canvas on <Mono>tl-behind</Mono>. Colours are picked with <Mono>ColourPick</Mono>{' '}
+              (<Mono>components/pos/shared.jsx</Mono>: 48 px swatches, <Mono>noneLabel</Mono>, an own colour as{' '}
+              <Mono>&lt;testid&gt;-own</Mono>).
+            </P>
+            <P>
+              <strong>Duplicate</strong> (<Mono>tl-duplicate</Mono>; <Mono>tl-duplicate-full</Mono> says why when the
+              layout can&apos;t take another) is <Mono>copyZone(layout, id)</Mono> → <Mono>&#123; layout, id &#125;</Mono>, or
+              null for a kind a layout has one of, at its type&apos;s most or at <Mono>MAX_ZONES</Mono>. The copy goes last
+              with a fresh id (the id without its number, then 2, 3 ...) and every setting and button; a name gets (copy).
+              A zone that floats goes a cell down and to the right when that fits, else where it is; any other goes in the
+              first free space of its size, else a smaller one (<Mono>freeSpace()</Mono>, row by row), else on the zone it
+              copies (an <Mono>overlap</Mono> problem until it is moved). A Dishes zone&apos;s copy follows a Categories
+              zone nothing follows yet (else the same one); a Dish choices zone&apos;s copy takes the other kind, and a
+              source showing all the choices becomes Must pick, so the two split them.
+            </P>
+            <P>
+              <strong>The dish being added</strong> (14 Nov 2026). While a till layout&apos;s Dish choices zones are
+              building a dish, <Mono>useChoiceBuilder()</Mono> (<Mono>LayoutChoices.jsx</Mono>) also returns{' '}
+              <Mono>draftOf(it, cells, &#123; qty, count, ok, total &#125;)</Mono>: the dish&apos;s groups (or a meal deal&apos;s
+              steps) with their picks so far and how many a must-pick one still needs (<Mono>missing</Mono>;{' '}
+              <Mono>open</Mono> for a step behind a button nobody has opened). <Mono>LayoutScreen</Mono> provides{' '}
+              <Mono>&#123; draft, focus(key) &#125;</Mono> through <Mono>DraftContext</Mono> (<Mono>DraftLine.jsx</Mono>,{' '}
+              <Mono>useDraft()</Mono>); <Mono>CheckPanel</Mono> draws it with <Mono>DraftRow</Mono> at the end of the order
+              (under the line being changed, which is dimmed, for Change options) and the counter&apos;s panel before an
+              order starts with <Mono>PendingDraft</Mono>: <Mono>line-draft</Mono> (<Mono>data-ok</Mono>,{' '}
+              <Mono>data-edit</Mono>), <Mono>draft-qty</Mono>, <Mono>draft-name</Mono>, <Mono>draft-picks</Mono>, a{' '}
+              <Mono>draft-missing</Mono> button per choice still to pick (<Mono>missingText()</Mono>: Size to be picked;
+              Sauces: 2 more to be picked), <Mono>draft-state</Mono> and <Mono>draft-price</Mono> (the total once it is
+              ready). <Mono>focus(key)</Mono> turns the choices zone (<Mono>ZoneGrid</Mono>) to the page, scroll place or
+              More sheet holding that choice and lights it for a moment (<Mono>data-lit</Mono>). Nothing goes on the check
+              until Add (or Update); the draft is device state and never sent. Not drawn when the Order zone is a pop-up, or
+              on the standard screen (the choices window shows the dish itself).
             </P>
             <P>
               Pop-ups (type <Mono>popup</Mono>, up to 8 per layout, 1 Nov 2026; <Mono>MAX_ZONES</Mono> went to 24 so every
@@ -4836,7 +4919,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               check and counter views (<Mono>hideBar</Mono>), and <Mono>TillNav</Mono> (<Mono>components/TillMenu.jsx</Mono>:
               <Mono>go</Mono>, <Mono>view</Mono>, <Mono>counterMode</Mono>, <Mono>hideBar</Mono>, <Mono>openMenu</Mono>)
               carries the till menu down: <Mono>TillMenuSection</Mono> (details, <Mono>tillPages()</Mono>, Sign out) in
-              More under the order&apos;s own actions (<Mono>ActionsMenu</Mono>), <Mono>TillMenuModal</Mono> from the counter&apos;s Till menu button
+              More under the order&apos;s own actions (<Mono>ActionsMenu</Mono>: <Mono>actions-order</Mono> first, headed This
+              order (<Mono>actions-order-label</Mono>) when the bar is off, then <Mono>actions-till</Mono>), <Mono>TillMenuModal</Mono> from the counter&apos;s Till menu button
               and the <Mono>till_menu</Mono> button. <Mono>Check.jsx</Mono> leaves the Order zone&apos;s hidden buttons out
               (the footer grid takes as many columns as buttons left), colours them with <Mono>fillStyle()</Mono>{' '}
               (<Mono>ui.jsx</Mono>, black or white words by <Mono>inkOn()</Mono>) and passes <Mono>font</Mono> to{' '}
@@ -8439,22 +8523,28 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Area (module)', 'Subjects']}
               rows={[
-                ['Till sales (pos_reports)', 'till.days (trading days), till.checks, till.lines (dishes sold), till.voids, till.cancelled, till.payments, till.discounts, till.charges, till.vat, and to group by: till.takers (staff and kiosks), till.streams, till.order_types, till.courses'],
-                ['Online orders (web_orders)', 'online.orders, online.items, online.promotions, online.sales (own orders and GloriaFood in one list, each with its tender: the rules of onlineTransactions())'],
-                ['Bookings (bookings)', 'bookings.bookings, bookings.deposits, bookings.tables, bookings.sections'],
+                ['Till sales (pos_reports; roles and floor areas pos_setup)', 'till.days (trading days), till.checks, till.lines (dishes sold), till.voids, till.cancelled, till.payments, till.discounts, till.charges, till.vat, till.activity (every till or kiosk change, from pos_events: when made, when it reached the cloud, Sent later = over two minutes; its words from EVENT_LABELS in till.js, which the catalogue test holds to every event type in shared/pos/checks.js), and to group by: till.takers (staff and kiosks), till.streams, till.order_types, till.courses, till.roles, till.floor_areas'],
+                ['Store tech (pos_setup; changes refused and card machine payments pos_reports; menu screens screens)', 'till.devices (removed ones kept, so sales keep a name), till.card_readers, till.printers, till.print_jobs (printed, failed, waiting, how long each waited), till.refusals (Till reports\' Conflicts: changes the cloud refused, sorted out or not; kitchen taps left out), till.card_payments (every card machine sale and refund, declines included; Approved, not on a bill = money no check shows), screens.screens (what each shows: its wall\'s board or playlist when in a wall, as screenView() works it out; online = talked to us in the last 150 s), screens.boards, screens.playlists, screens.walls'],
+                ['Online orders (web_orders; promotions promotions)', 'online.orders, online.items, online.promotions, online.sales (own orders and GloriaFood in one list, each with its tender: the rules of onlineTransactions()), online.order_events (each order\'s history, status by status, by staff, the guest or the system), online.sold_out (the dishes sold out now, as the tills are told: one whose time has ended is never listed), online.promotion_list (the Promotions page\'s list)'],
+                ['Bookings (bookings; emails email_templates)', 'bookings.bookings, bookings.deposits, bookings.tables, bookings.sections, bookings.combinations, bookings.emails (the Sent emails list: bookings, online orders and test emails, sent or failed)'],
                 ['Kitchen screens (pos_reports)', 'kitchen.stations, kitchen.tickets (every bump in kds_log), kitchen.remakes, kitchen.orders (the kitchen\'s copy of each order)'],
-                ['Self-order kiosks (pos_reports; designs pos_setup)', 'kiosks.visits (every guest visit, kiosk_sessions), kiosks.designs'],
+                ['Self-order kiosks (pos_reports; designs pos_setup)', 'kiosks.visits (every guest visit, kiosk_sessions), kiosks.designs, till.receipts (receipts by QR code or email: opened, emailed, waiting for payment; addresses never read)'],
                 ['Loyalty (loyalty_members; rewards and stamp cards loyalty)', 'loyalty.members, loyalty.ledger (every points or stamps change), loyalty.redemptions, loyalty.member_rewards, loyalty.rewards, loyalty.stamp_cards'],
                 ['Purchasing (purchasing; the catalogue purchasing_setup)', 'purchasing.orders (purchase orders, with when each first went, its order deadline and whether it went after it), purchasing.order_lines, purchasing.invoices, purchasing.restaurant_orders, and purchasing.suppliers, purchasing.items, purchasing.categories, purchasing.prices, purchasing.price_changes. Money (prices, goods, spend, VAT, the average order, lines invoiced above their price) needs purchasing_setup on every subject'],
                 ['Food safety and H&S (food_safety, checklists, hs_action_log)', 'safety.days (each venue\'s H&S day as the Overview judges it, worked out for each run), safety.fridges, safety.fridge_checks, safety.hold_stations, safety.hold_checks, safety.cooking_sessions, safety.cooking_items, safety.cooking_checks, safety.delivery_checks; safety.checklist_templates, safety.checklist_tasks, safety.checklists, safety.checklist_ticks; safety.action_categories, safety.actions'],
                 ['Cash reconciliation (cash_recon)', 'cash.days and cash.weeks (worked out for each run by Cash Recon\'s own rule), cash.income, cash.takings, cash.service_charges, cash.expenses, cash.wages, cash.reports, cash.wage_lists, and to group by: cash.income_sources, cash.payment_channels, cash.sc_sources, cash.expense_categories'],
                 ['Staff and rota (rota; pay rota_pay, points and tips rota_tips, the wage list beside the rota cash_recon, people, roles, time off and tip pots staff)', 'rota.staff_weeks, rota.weeks, rota.days, rota.pot_weeks, rota.tip_shares (worked out for each run by the Rota page\'s own rules), rota.entries, rota.pay_adjustments, rota.tip_moves, rota.shifts, and staff.people, staff.roles, staff.time_off, rota.tip_pots'],
-                ['Local info (local_info)', 'local.weather (the weather at each venue, one row a day: the forecast read last for that day from the Local info weather capture)'],
+                ['Local info (local_info)', 'local.weather (the weather at each venue, one row a day: the forecast read last for that day from the Local info weather capture), local.items (every other Local info item, captured or typed; hidden ones left out, a group-wide one only with every venue), local.captures (how often each runs, when it last ran, its problem)'],
+                ['Menus (menus)', 'menu.releases (each publish and its state: Live, Earlier, Scheduled, Cancelled, by liveRows()\'s rule), menu.option_groups, menu.options, menu.tags, menu.dish_tags (the allergen matrix\'s levels), menu.dish_option_groups, menu.dish_option_prices, menu.dish_own_options, menu.tax_rates (the usual rate). Everything but releases is the draft the Menus pages edit'],
+                ['Website and reviews (website)', 'website.reviews (as the Reviews page holds them, checked or in the To check inbox), website.pages (the draft, each with its address worked out as pagePath() does), website.media, website.media_categories'],
                 ['Shared', 'venue (no module), menu.menus / menu.sections / menu.dishes (menus), guests.customers (customers)'],
               ]}
             />
             <P>
-              89 subjects. A subject whose rows each sit on their week&apos;s Monday says so on its day,{' '}
+              123 subjects (phase 3d added 34: the till, online and bookings extras, menus, reviews and the
+              website, menu screens, Store tech&apos;s devices and printers, and local info), in the areas of{' '}
+              <Mono>AREAS</Mono>: Store tech (<Mono>tech</Mono>) and Website and reviews (<Mono>website</Mono>) are
+              new. A subject whose rows each sit on their week&apos;s Monday says so on its day,{' '}
               <Mono>{"date: { sql, label, grain: 'week' }"}</Mono> (the rota and Cash Recon weeks), and{' '}
               <Mono>catalogueView()</Mono> passes <Mono>grain</Mono> on: such a subject lines up with another
               subject&apos;s days only by week or longer. A field, figure or link can name a module of its own (<Mono>needs</Mono>): a role without
@@ -8469,7 +8559,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               compares both with <Mono>information_schema</Mono> and fails on a table with no decision and on an id
               column of a catalogue table that no field, link or <Mono>skip</Mono> entry accounts for.{' '}
               <Mono>node api/scripts/report-catalogue.js</Mono> prints where things stand, and with a table name or{' '}
-              <Mono>--area</Mono> drafts subjects from the columns, checks and foreign keys.
+              <Mono>--area</Mono> drafts subjects from the columns, checks and foreign keys. After phase 3d the
+              decisions are <Mono>{'{ subject: 118, planned: 10, settings: 57, out: 48 }'}</Mono> over 233 tables;
+              what is still planned is Pepper&apos;s own usage and the group&apos;s (openings, issues, feature
+              requests, the team and its roles). Columns holding a key, a code, a password or a guest&apos;s
+              address (sealed or not) stay in their subject&apos;s <Mono>skip</Mono> list, so no report can read
+              them (a screen&apos;s link to its device is its key, so whether one is linked now can&apos;t be
+              reported; when a code last linked one can). <Mono>api/test/reports-extras.test.mjs</Mono> holds the
+              phase 3d subjects against their pages&apos; own routes: a check&apos;s history, Till reports&apos;
+              Conflicts, Store tech&apos;s card machine payments and printer tickets, an online order&apos;s
+              history, what the tills are told is sold out, the Promotions page&apos;s uses, the Sent emails list,
+              and Store tech&apos;s own lists.
             </P>
 
             <H3>Figures with rules in code</H3>

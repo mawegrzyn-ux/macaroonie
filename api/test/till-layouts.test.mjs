@@ -211,6 +211,75 @@ test('several Dishes zones, each following a Categories zone: saved, checked, in
   await ok(owner.delete('/api/pos/till-layouts/' + l.id))
 })
 
+test('the look: Label zones, backgrounds, borders and a category\'s colours saved, cleaned and in the till\'s config; up to 50 zones', async () => {
+  const l = await ok(owner.post('/api/pos/till-layouts', { name: 'Zql The look' }))
+  const put = body => owner.put('/api/pos/till-layouts/' + l.id, { name: 'Zql The look', layout: body })
+  const layout = {
+    cols: 12, rows: 8, background: '#0F172A',
+    zones: [
+      { id: 'check', type: 'check', x: 0, y: 0, w: 4, h: 8, background: '#000000', border: { style: 'bold', colour: '#FF0000' } },
+      { id: 'hello', type: 'label', x: 4, y: 0, w: 8, h: 1, text: '  Welcome\r\nto Zql  ', font: 30, colour: '#FFFFFF', background: '#1F2A44', border: { style: 'dotted' } },
+      { id: 'drinks', type: 'category', x: 4, y: 1, w: 8, h: 4, section_id: mine.section, button_colour: '#FEF3C7', button_text: 'nope', show_name: true, name_font: 22, name_colour: '#1F2A44', button_border: { style: 'thin', colour: '#00FF00' } },
+      { id: 'pay', type: 'buttons', x: 4, y: 5, w: 8, h: 3, background: 'not a colour', button_border: { style: 'none' }, buttons: [{ id: 'b1', action: 'exact_cash' }] },
+    ],
+  }
+  const saved = await ok(put(layout))
+  const z = id => saved.layout.zones.find(x => x.id === id)
+  assert.equal(saved.layout.background, '#0f172a')
+  assert.equal('background' in z('check'), false, 'the Order zone keeps its white panel')
+  assert.deepEqual(z('check').border, { style: 'bold', colour: '#ff0000' })
+  assert.deepEqual([z('hello').text, z('hello').font, z('hello').colour, z('hello').background], ['Welcome\nto Zql', 30, '#ffffff', '#1f2a44'])
+  assert.deepEqual(z('hello').border, { style: 'dotted', colour: null })
+  assert.equal('button_border' in z('hello'), false)
+  assert.deepEqual([z('drinks').section_id, z('drinks').button_colour, z('drinks').button_text, z('drinks').show_name, z('drinks').name_font, z('drinks').name_colour],
+    [mine.section, '#fef3c7', null, true, 22, '#1f2a44'])
+  assert.deepEqual(z('drinks').button_border, { style: 'thin', colour: '#00ff00' })
+  assert.equal(z('pay').background, null)
+  assert.deepEqual(z('pay').button_border, { style: 'none', colour: null })
+  const [row] = await sql`SELECT layout FROM pos_till_layouts WHERE id = ${l.id}`
+  assert.equal(row.layout.zones.find(x => x.id === 'hello').text, 'Welcome\nto Zql', 'stored as cleaned')
+  // The till gets it as saved.
+  await ok(owner.patch(`/api/pos/venues/${V}/settings`, { till_layout_id: l.id }))
+  const cfg = await config(till)
+  const t = cfg.till_layouts[l.id]
+  assert.equal(t.background, '#0f172a')
+  assert.equal(t.zones.find(x => x.id === 'hello').text, 'Welcome\nto Zql')
+  assert.equal(t.zones.find(x => x.id === 'drinks').button_colour, '#fef3c7')
+  assert.deepEqual(t.zones.find(x => x.id === 'check').border, { style: 'bold', colour: '#ff0000' })
+  await ok(owner.patch(`/api/pos/venues/${V}/settings`, { till_layout_id: null }))
+  // A Label with no words is a note, still saved.
+  const blank = await ok(put({ ...layout, zones: layout.zones.map(x => (x.id === 'hello' ? { ...x, text: '   ' } : x)) }))
+  assert.deepEqual(blank.warnings.filter(w => w.code === 'empty_label').map(w => w.zones), [['hello']])
+  // Every zone type at its most (49 zones) saves; more than 50 is refused.
+  const n = (k, f) => Array.from({ length: k }, (_, i) => f(i))
+  const many = {
+    cols: 24, rows: 16,
+    zones: [
+      { id: 'check', type: 'check', x: 0, y: 0, w: 4, h: 16 },
+      ...n(12, i => ({ id: 'l' + i, type: 'label', x: 4 + i, y: 0, w: 1, h: 1, text: 'L' + i })),
+      ...n(8, i => ({ id: 'b' + i, type: 'buttons', x: 4 + i, y: 1, w: 1, h: 1, buttons: [{ id: 'x', action: 'no_sale' }] })),
+      ...n(8, i => ({ id: 'k' + i, type: 'category', x: 4 + i, y: 2, w: 1, h: 1, section_id: mine.section })),
+      ...n(4, i => ({ id: 'c' + i, type: 'categories', x: 4 + i, y: 3, w: 1, h: 1 })),
+      ...n(4, i => ({ id: 'd' + i, type: 'items', x: 4 + i, y: 4, w: 1, h: 1, follows: 'c' + i })),
+      { id: 'menus', type: 'menus', x: 4, y: 5, w: 1, h: 1 },
+      { id: 'seats', type: 'seats', x: 5, y: 5, w: 1, h: 1 },
+      { id: 'must', type: 'modifiers', x: 12, y: 8, w: 4, h: 4, kind: 'required' },
+      { id: 'opt', type: 'modifiers', x: 16, y: 8, w: 4, h: 4, kind: 'optional' },
+      ...n(8, i => ({ id: 'p' + i, type: 'popup', x: 12, y: 0, w: 4, h: 4, title: 'P' + i, buttons: [{ id: 'x', action: 'no_sale' }] })),
+    ],
+  }
+  assert.equal(many.zones.length, 49)
+  const big = await ok(put(many))
+  assert.equal(big.layout.zones.length, 49)
+  assert.deepEqual(big.problems || [], [])
+  const thirteen = await put({ ...many, zones: [...many.zones, { id: 'l12', type: 'label', x: 4, y: 6, w: 1, h: 1, text: 'One too many' }] })
+  assert.equal(thirteen.status, 422)
+  assert.ok(thirteen.json.problems.some(p => p.code === 'too_many'), JSON.stringify(thirteen.json.problems))
+  const tooMany = await put({ ...many, zones: [...many.zones, ...n(2, i => ({ id: 'x' + i, type: 'label', x: 6 + i, y: 5, w: 1, h: 1 }))] })
+  assert.equal(tooMany.status, 400)
+  await ok(owner.delete('/api/pos/till-layouts/' + l.id))
+})
+
 test('the venue\'s layout and a till\'s own reach the till; deleting a layout puts them back', async () => {
   const bar = await ok(owner.post('/api/pos/till-layouts', { name: 'Zql House' }))
   await ok(owner.put('/api/pos/till-layouts/' + bar.id, { name: 'Zql House', layout: layoutWith(mine) }))

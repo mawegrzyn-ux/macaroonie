@@ -135,15 +135,29 @@ export function NumberBox({ value, onChange, decimals = 0, min = 0, max = 1e9, c
 /** Colour swatches for till buttons (null = default). */
 export const TILL_COLOURS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#db2777', '#4b5563']
 
-export function ColourPick({ value, onChange }) {
+/**
+ * A colour from a few swatches (the till's colours unless `swatches` says
+ * otherwise), or none. custom: also a colour of your own (the device's
+ * colour picker), shown ringed when the colour in use isn't a swatch.
+ */
+export function ColourPick({ value, onChange, swatches = TILL_COLOURS, custom = false, noneLabel = 'None', testid }) {
+  const own = !!value && !swatches.includes(value)
   return (
-    <div className="flex flex-wrap gap-2">
-      <button type="button" onClick={() => onChange(null)} aria-label="No colour"
-        className={cn('w-11 h-11 rounded-lg border text-xs touch-manipulation', !value && 'ring-2 ring-primary')}>None</button>
-      {TILL_COLOURS.map(c => (
-        <button key={c} type="button" onClick={() => onChange(c)} aria-label={'Colour ' + c}
-          style={{ background: c }} className={cn('w-11 h-11 rounded-lg touch-manipulation', value === c && 'ring-2 ring-offset-2 ring-primary')} />
+    <div className="flex flex-wrap gap-2" data-testid={testid} data-value={value || ''}>
+      <button type="button" onClick={() => onChange(null)} aria-label="No colour" aria-pressed={!value} data-k="none"
+        className={cn('w-12 h-12 rounded-lg border text-xs touch-manipulation', !value && 'ring-2 ring-primary')}>{noneLabel}</button>
+      {swatches.map(c => (
+        <button key={c} type="button" onClick={() => onChange(c)} aria-label={'Colour ' + c} aria-pressed={value === c} data-k={c}
+          style={{ background: c }} className={cn('w-12 h-12 rounded-lg border touch-manipulation', value === c && 'ring-2 ring-offset-2 ring-primary')} />
       ))}
+      {custom && (
+        <label title="A colour of your own" data-testid={testid ? testid + '-own' : undefined}
+          className={cn('relative w-12 h-12 rounded-lg border overflow-hidden cursor-pointer touch-manipulation', own && 'ring-2 ring-offset-2 ring-primary')}
+          style={{ background: own ? value : 'conic-gradient(#ef4444, #f59e0b, #22c55e, #06b6d4, #3b82f6, #a855f7, #ef4444)' }}>
+          <input type="color" value={value || '#000000'} onChange={e => onChange(e.target.value.toLowerCase())} aria-label="A colour of your own"
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+        </label>
+      )}
     </div>
   )
 }

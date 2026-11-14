@@ -897,7 +897,7 @@ export function layoutWarnings(layout) {
  * and to the right when it fits. A name gets (copy); a Dishes zone's copy
  * follows a Categories zone no Dishes zone follows yet, else the same one;
  * a Dish choices zone's copy shows the other kind (Must pick, Optional),
- * so the two split the choices.
+ * so the two split the choices (one showing all of them becomes Must pick).
  */
 export function copyZone(layout, id) {
   const zones = layout?.zones || []
@@ -915,14 +915,20 @@ export function copyZone(layout, id) {
     const free = zones.find(z => z.type === 'categories' && !dishesZonesOf(layout, z).length)
     if (free) copy.follows = free.id
   }
-  if (copy.type === 'modifiers') copy.kind = src.kind === 'optional' ? 'required' : 'optional'
+  // A Dish choices zone's copy takes the other kind; one showing all the
+  // choices becomes Must pick, so the two split them.
+  let list = zones
+  if (copy.type === 'modifiers') {
+    copy.kind = src.kind === 'optional' ? 'required' : 'optional'
+    if (src.kind === 'all') list = zones.map(z => (z.id === src.id ? { ...z, kind: 'required' } : z))
+  }
   if (floats(copy)) {
     if (copy.x + 1 + copy.w <= layout.cols && copy.y + 1 + copy.h <= layout.rows) Object.assign(copy, { x: copy.x + 1, y: copy.y + 1 })
   } else {
     const spot = freeSpace(layout, copy.w, copy.h)
     if (spot) Object.assign(copy, spot)
   }
-  const next = normaliseTillLayout({ ...layout, zones: [...zones, copy] })
+  const next = normaliseTillLayout({ ...layout, zones: [...list, copy] })
   return { layout: next, id: copy.id }
 }
 

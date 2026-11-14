@@ -6,6 +6,28 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-14 — Till: the dish being added in the Order zone, Change options, Label zones and zone looks; reports on menus, the website, Store tech and more]
+
+No migration.
+
+**Added (till)**
+- **The dish being added** shows in the Order zone (and on the counter's panel before an order) while its choices are picked in the Dish choices zones: a dashed line marked "Being added: not on the order yet", with what is picked so far and a placeholder for each choice still to pick ("Size to be picked", "Sauce: 1 more to be picked"). Tapping a placeholder brings that choice into view in the choices zone, lit for a moment. Once everything is picked it shows its price and "Ready: tap Add"; Cancel takes it away.
+- **Change options**: a dish not sent yet opens its choices again from its line (Change options in the line's window, or a swipe right on the line in the Order zone), with its picks, quantity, seat, course, note and allergies; Update changes the line, and the dish being changed shows under its line while its line is dimmed. Use menu price takes off a price typed in by hand. Taking the quantity down needs a manager where taking unsent items off does.
+- The item window shows **Seat and Course only where the till has them**: a counter till, or a till or revenue stream with seats or courses off, isn't asked.
+- **More** shows the order's actions first and the till's below them (headed This order when the top bar is off).
+- Till layout designer: a **Label zone** (words with their lines, size, colour, bold, where they sit); a **border** on any zone (none, thin, bold or dotted, a colour); a **border on the buttons** of any zone with buttons; a **background** on any zone but the Order, and **Behind the zones** for the layout itself (words on a coloured zone go black or white to read); a category's dishes zone gets its **button colour, words colour** and the **category's name** above its dishes (size, colour); **Duplicate** copies a zone the layout can have more of (the first free space, a copied Dishes zone following a Categories zone nothing follows, a copied Dish choices zone showing the other kind of choices).
+
+**Added (reports)**
+- 34 more report subjects, 123 in all, in two more areas (Store tech; Website and reviews): every change made on a till or kiosk with when it reached the cloud, refusals, card machine payments, kiosk receipts, till roles and floor areas; Store tech's devices, card machines, printers and print jobs; an online order's history, what tills are told is sold out, promotions; table combinations and booking emails; menu releases, option groups and options, tags, each dish's tags, option groups, prices and own options, tax rates; menu screens, boards, playlists and walls; reviews, website pages and the media library; local info's items and captures.
+
+**Fixed**
+- Pepper's report builder counted a linked subject's words once for each of its fields, so requests about guests pulled subjects linked to bookings too high; now once per link.
+
+**Notes**
+- The dish being added doesn't show when the Order zone is a pop-up (pop-ups step aside while choices are picked), nor on the standard screen (the item window is the dish being added there).
+- No starter reports for the new report areas yet; the menus, screens, website and local info subjects get their check against the pages next.
+- Tried in Chromium at 1280, 1015 and 390 px with a mouse, not yet on a real tablet.
+
 ## [2026-11-14 — Till layouts: several Dishes zones]
 
 No migration.

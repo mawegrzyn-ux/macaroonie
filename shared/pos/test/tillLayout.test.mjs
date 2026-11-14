@@ -8,7 +8,8 @@ import {
   buttonTextStyle, ALIGN_KEYS, VALIGN_KEYS, menuZoneMenus, MAX_MENUS, GRID_ZONES,
   floats, isPopup, popupCloseProblem, LABEL_MAX, ZONE_TYPES, MAX_ZONES, shownDishIds, MAX_HIDDEN,
   POPUP_ZONES, popupTitle, popupOpeners, isList, gridDefaults, TEMPLATE_KEYS, ZONE_GRID, leftOutButtons, reachablePopups, unopenedWhy,
-  categoriesZoneOf, dishesZonesOf,
+  categoriesZoneOf, dishesZonesOf, LABEL_TEXT_MAX, LABEL_FONT, NAME_FONT, copyZone, zoneBoxStyle, zoneInk,
+  inkOnColour, buttonBorderStyle, categoryButtonStyle, BUTTON_ZONES,
 } from '../tillLayout.js'
 
 const A = '11111111-1111-4111-8111-111111111111'
@@ -67,7 +68,7 @@ test('normalise: limits, defaults, unknown zones and buttons dropped', () => {
   assert.equal(mods.cover, 'zone')
 
   const empty = normaliseTillLayout(null)
-  assert.deepEqual(empty, { cols: 12, rows: 8, top_bar: true, phone: false, zones: [] })
+  assert.deepEqual(empty, { cols: 12, rows: 8, top_bar: true, phone: false, background: null, zones: [] })
   assert.equal(normaliseTillLayout({ zones: [{ type: 'categories' }] }).zones[0].sections, null, 'no list: every section')
 })
 
@@ -1050,3 +1051,161 @@ test('Several Dishes zones, each following a Categories zone', () => {
   assert.match(every.message, /the Dishes zones show every dish/)
   assert.deepEqual(warn(zones.filter(x => x.type !== 'categories'), 'same_dishes'), [])
 })
+
+test('the look: Label zones, backgrounds, borders, button borders, a category\'s colours and name', () => {
+  const l = normaliseTillLayout({
+    background: '#ABCDEF',
+    zones: [
+      { id: 'o', type: 'check', x: 0, y: 0, w: 4, h: 8, background: '#000000', border: { style: 'bold', colour: '#FF0000' }, button_border: { style: 'dotted', colour: 'red' } },
+      { id: 'l', type: 'label', x: 4, y: 0, w: 4, h: 1, text: '  Welcome\r\nto One Thai  ', font: 99, valign: 'nowhere', button_border: { style: 'bold' } },
+      { id: 'l2', type: 'label', x: 8, y: 0, w: 4, h: 1, text: 'x'.repeat(300), font: 3, bold: false, align: 'right', valign: 'bottom', colour: '#ABCDEF' },
+      { id: 'k', type: 'category', x: 4, y: 1, w: 8, h: 3, button_colour: '#1F2A44', button_text: 'white', show_name: true, name_font: 200, name_colour: '#FFFFFF', border: { style: 'wavy' }, button_border: { style: 'standard' } },
+      { id: 'k2', type: 'category', x: 4, y: 4, w: 4, h: 1 },
+      { id: 'b', type: 'buttons', x: 8, y: 4, w: 4, h: 2, background: 'pink', button_border: { style: 'none', colour: '#00FF00' } },
+      { id: 'e', type: 'label', x: 4, y: 6, w: 8, h: 1, text: '   ' },
+    ],
+  })
+  const z = id => l.zones.find(x => x.id === id)
+  assert.equal(l.background, '#abcdef')
+  assert.equal(normaliseTillLayout({ background: 'grey' }).background, null)
+  // The Order zone keeps its white panel: no background, but a border and button borders.
+  assert.equal('background' in z('o'), false)
+  assert.deepEqual(z('o').border, { style: 'bold', colour: '#ff0000' })
+  assert.deepEqual(z('o').button_border, { style: 'dotted', colour: null })
+  // A Label: its words as typed (lines kept, trimmed), size within limits, middle by default, no buttons.
+  assert.equal(z('l').text, 'Welcome\nto One Thai')
+  assert.equal(z('l').font, LABEL_FONT.max)
+  assert.deepEqual([z('l').align, z('l').valign, z('l').bold, z('l').colour], ['center', 'middle', true, null])
+  assert.equal('button_border' in z('l'), false)
+  assert.deepEqual(z('l').border, { style: 'none', colour: null })
+  assert.equal(z('l').background, null)
+  assert.equal(z('l2').text.length, LABEL_TEXT_MAX)
+  assert.equal(z('l2').font, LABEL_FONT.min)
+  assert.deepEqual([z('l2').align, z('l2').valign, z('l2').bold, z('l2').colour], ['right', 'bottom', false, '#abcdef'])
+  assert.equal(normaliseTillLayout({ zones: [{ type: 'label' }] }).zones[0].font, LABEL_FONT.default)
+  // A category's dishes: its button colours, the name above them.
+  assert.deepEqual([z('k').button_colour, z('k').button_text, z('k').show_name, z('k').name_font, z('k').name_colour],
+    ['#1f2a44', null, true, NAME_FONT.max, '#ffffff'])
+  assert.equal(z('k').border.style, 'none', 'an unknown border style is none')
+  assert.deepEqual(z('k').button_border, { style: 'standard', colour: null })
+  assert.deepEqual([z('k2').button_colour, z('k2').button_text, z('k2').show_name, z('k2').name_font, z('k2').name_colour],
+    [null, null, false, NAME_FONT.default, null])
+  assert.equal(normaliseTillLayout({ zones: [{ type: 'category', name_font: 1 }] }).zones[0].name_font, NAME_FONT.min)
+  // Only zones with buttons have a button border; every zone a border.
+  for (const zone of l.zones) {
+    assert.equal('button_border' in zone, BUTTON_ZONES.includes(zone.type), zone.id)
+    assert.ok(zone.border && 'style' in zone.border, zone.id)
+  }
+  assert.equal(z('b').background, null)
+  assert.deepEqual(z('b').button_border, { style: 'none', colour: '#00ff00' })
+  // A Label with no words is a note, not a problem.
+  const w = layoutWarnings(l).filter(x => x.code === 'empty_label')
+  assert.deepEqual(w.map(x => x.zones), [['e']])
+  assert.equal(layoutProblems(l).some(p => p.code === 'empty_label'), false)
+})
+
+test('the look as styles: a zone\'s box and words, its buttons\' border, a category\'s dish buttons', () => {
+  assert.equal(inkOnColour('#ffffff'), '#111827')
+  assert.equal(inkOnColour('#fef3c7'), '#111827')
+  assert.equal(inkOnColour('#0f172a'), '#ffffff')
+  assert.equal(inkOnColour('#1f2a44'), '#ffffff')
+  // Nothing set: the till's own white box.
+  assert.deepEqual(zoneBoxStyle({ type: 'buttons', background: null, border: { style: 'none', colour: null } }), {})
+  assert.deepEqual(zoneBoxStyle(null), {})
+  assert.equal(zoneInk({ background: null }), null)
+  assert.deepEqual(zoneInk({ background: '#0f172a' }), { ink: '#ffffff', muted: 'rgba(255, 255, 255, 0.75)' })
+  assert.deepEqual(zoneInk({ background: '#fef3c7' }), { ink: '#111827', muted: 'rgba(17, 24, 39, 0.7)' })
+  assert.deepEqual(zoneBoxStyle({ background: '#0f172a', border: { style: 'thin', colour: null } }), {
+    background: '#0f172a', color: '#ffffff', '--zone-muted': 'rgba(255, 255, 255, 0.75)', border: '1px solid #1f2a44',
+  })
+  assert.deepEqual(zoneBoxStyle({ background: '#fef3c7', border: { style: 'dotted', colour: '#ff0000' } }), {
+    background: '#fef3c7', color: '#111827', '--zone-muted': 'rgba(17, 24, 39, 0.7)', border: '2px dotted #ff0000',
+  })
+  assert.deepEqual(zoneBoxStyle({ border: { style: 'bold', colour: null } }), { border: '3px solid #1f2a44' })
+  assert.deepEqual(zoneBoxStyle({ border: { style: 'none', colour: '#ff0000' } }), {}, 'a colour without a border draws nothing')
+  // Buttons' border: standard leaves each button's own, none takes it away.
+  assert.deepEqual(buttonBorderStyle({}), {})
+  assert.deepEqual(buttonBorderStyle({ button_border: { style: 'standard', colour: '#ff0000' } }), {})
+  assert.deepEqual(buttonBorderStyle({ button_border: { style: 'none', colour: '#ff0000' } }), { borderWidth: '0px' })
+  assert.deepEqual(buttonBorderStyle({ button_border: { style: 'thin', colour: null } }), { borderWidth: '1px', borderStyle: 'solid' })
+  assert.deepEqual(buttonBorderStyle({ button_border: { style: 'bold', colour: null } }), { borderWidth: '3px', borderStyle: 'solid' })
+  assert.deepEqual(buttonBorderStyle({ button_border: { style: 'dotted', colour: '#00ff00' } }), { borderWidth: '2px', borderStyle: 'dotted', borderColor: '#00ff00' })
+  // A category's dish buttons: their colour, words readable on it unless set.
+  assert.deepEqual(categoryButtonStyle({ type: 'items', button_colour: '#1f2a44' }), {}, 'only a category\'s dishes zone')
+  assert.deepEqual(categoryButtonStyle({ type: 'category', button_colour: null, button_text: null }), {})
+  assert.deepEqual(categoryButtonStyle({ type: 'category', button_colour: '#1f2a44', button_text: null }), { background: '#1f2a44', borderColor: '#1f2a44', color: '#ffffff' })
+  assert.deepEqual(categoryButtonStyle({ type: 'category', button_colour: '#fef3c7', button_text: null }), { background: '#fef3c7', borderColor: '#fef3c7', color: '#111827' })
+  assert.deepEqual(categoryButtonStyle({ type: 'category', button_colour: '#fef3c7', button_text: '#ff0000' }), { background: '#fef3c7', borderColor: '#fef3c7', color: '#ff0000' })
+  assert.deepEqual(categoryButtonStyle({ type: 'category', button_colour: null, button_text: '#ff0000' }), { color: '#ff0000' })
+})
+
+test('Duplicate: copyZone puts a copy where there is room, with a fresh id, and keeps the layout sound', () => {
+  const base = normaliseTillLayout({
+    zones: [
+      { id: 'o', type: 'check', x: 0, y: 0, w: 4, h: 8 },
+      { id: 'cats', type: 'categories', x: 4, y: 0, w: 8, h: 1 },
+      { id: 'dishes', type: 'items', x: 4, y: 1, w: 8, h: 4 },
+      { id: 'label', type: 'label', x: 4, y: 5, w: 4, h: 1, text: 'Hi', colour: '#ff0000', border: { style: 'thin', colour: '#00ff00' } },
+      { id: 'p', type: 'popup', x: 5, y: 2, w: 4, h: 3, title: 'Drinks', buttons: [{ action: 'no_sale' }] },
+      { id: 'm', type: 'modifiers', x: 4, y: 1, w: 8, h: 4, kind: 'required' },
+    ],
+  })
+  assert.deepEqual(layoutProblems(base), [])
+  // One of a kind, or not there: no copy.
+  assert.equal(copyZone(base, 'o'), null)
+  assert.equal(copyZone(base, 'nope'), null)
+  assert.equal(copyZone(null, 'o'), null)
+  // A Label: the first free space of its size, everything else the same.
+  const one = copyZone(base, 'label')
+  assert.equal(one.id, 'label2')
+  const c1 = one.layout.zones.find(z => z.id === 'label2')
+  assert.deepEqual([c1.x, c1.y, c1.w, c1.h], [8, 5, 4, 1])
+  assert.deepEqual([c1.text, c1.colour, c1.border], ['Hi', '#ff0000', { style: 'thin', colour: '#00ff00' }])
+  assert.equal(one.layout.zones.at(-1).id, 'label2', 'last in the zones')
+  assert.deepEqual(layoutProblems(one.layout), [])
+  assert.equal(base.zones.length, 6, 'the layout given is left as it was')
+  const two = copyZone(one.layout, 'label2')
+  assert.equal(two.id, 'label3')
+  const c2 = two.layout.zones.find(z => z.id === 'label3')
+  assert.deepEqual([c2.x, c2.y, c2.w, c2.h], [4, 6, 4, 1])
+  assert.deepEqual(layoutProblems(two.layout), [])
+  // No room for its size: a smaller space, high first.
+  const d = copyZone(base, 'dishes')
+  const cd = d.layout.zones.find(z => z.id === d.id)
+  assert.equal(d.id, 'dishes2')
+  assert.deepEqual([cd.x, cd.y, cd.w, cd.h], [8, 5, 4, 3])
+  assert.deepEqual(layoutProblems(d.layout), [])
+  // With one Categories zone both Dishes zones follow it (a note); with a free one the copy follows that.
+  assert.ok(layoutWarnings(d.layout).some(x => x.code === 'same_dishes'))
+  const withCats = normaliseTillLayout({ ...base, zones: [...base.zones, { id: 'cats2', type: 'categories', x: 4, y: 6, w: 8, h: 1 }] })
+  const d2 = copyZone(withCats, 'dishes')
+  assert.equal(d2.layout.zones.find(z => z.id === d2.id).follows, 'cats2')
+  assert.equal(layoutWarnings(d2.layout).some(x => x.code === 'same_dishes'), false)
+  // A pop-up floats: a cell down and to the right, its name with (copy).
+  const p = copyZone(base, 'p')
+  const cp = p.layout.zones.find(z => z.id === 'p2')
+  assert.deepEqual([cp.x, cp.y, cp.w, cp.h], [6, 3, 4, 3])
+  assert.equal(cp.title, 'Drinks (copy)')
+  assert.deepEqual(cp.buttons.map(b => b.action), ['no_sale'])
+  // A Dish choices zone's copy takes the other kind, so the two split the choices.
+  const m = copyZone(base, 'm')
+  const cm = m.layout.zones.find(z => z.id === 'm2')
+  assert.equal(cm.kind, 'optional')
+  assert.deepEqual([cm.x, cm.y], [4, 1], 'too wide to move a cell right: on the zone it copies (choices may float over it)')
+  assert.deepEqual(layoutProblems(m.layout), [])
+  // One showing all the choices becomes Must pick, its copy Optional.
+  const all = normaliseTillLayout({ ...base, zones: base.zones.map(z => (z.id === 'm' ? { ...z, kind: 'all' } : z)) })
+  const ma = copyZone(all, 'm')
+  assert.deepEqual(ma.layout.zones.filter(z => z.type === 'modifiers').map(z => [z.id, z.kind]), [['m', 'required'], ['m2', 'optional']])
+  assert.deepEqual(layoutProblems(ma.layout), [])
+  assert.equal(all.zones.find(z => z.id === 'm').kind, 'all', 'the layout passed in is left as it was')
+  // At its type's most: no copy.
+  const labels = normaliseTillLayout({ zones: Array.from({ length: 12 }, (_, i) => ({ id: 'l' + i, type: 'label', x: i, y: 0, w: 1, h: 1, text: 'L' })) })
+  assert.equal(labels.zones.length, 12)
+  assert.equal(copyZone(labels, 'l0'), null)
+  // A zone at the very edge that floats stays where it is.
+  const edge = normaliseTillLayout({ zones: [{ id: 'q', type: 'popup', x: 8, y: 5, w: 4, h: 3, buttons: [{ action: 'no_sale' }] }] })
+  const ce = copyZone(edge, 'q').layout.zones.find(z => z.id === 'q2')
+  assert.deepEqual([ce.x, ce.y], [8, 5])
+})
+
