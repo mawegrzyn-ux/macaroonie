@@ -4835,8 +4835,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               layout&apos;s <Mono>top_bar</Mono> false, <Mono>Main</Mono> in <Mono>App.jsx</Mono> leaves the bar off the
               check and counter views (<Mono>hideBar</Mono>), and <Mono>TillNav</Mono> (<Mono>components/TillMenu.jsx</Mono>:
               <Mono>go</Mono>, <Mono>view</Mono>, <Mono>counterMode</Mono>, <Mono>hideBar</Mono>, <Mono>openMenu</Mono>)
-              carries the till menu down: <Mono>TillMenuSection</Mono> (details, <Mono>tillPages()</Mono>, Sign out) at the
-              top of More (<Mono>ActionsMenu</Mono>), <Mono>TillMenuModal</Mono> from the counter&apos;s Till menu button
+              carries the till menu down: <Mono>TillMenuSection</Mono> (details, <Mono>tillPages()</Mono>, Sign out) in
+              More under the order&apos;s own actions (<Mono>ActionsMenu</Mono>), <Mono>TillMenuModal</Mono> from the counter&apos;s Till menu button
               and the <Mono>till_menu</Mono> button. <Mono>Check.jsx</Mono> leaves the Order zone&apos;s hidden buttons out
               (the footer grid takes as many columns as buttons left), colours them with <Mono>fillStyle()</Mono>{' '}
               (<Mono>ui.jsx</Mono>, black or white words by <Mono>inkOn()</Mono>) and passes <Mono>font</Mono> to{' '}

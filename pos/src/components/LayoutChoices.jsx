@@ -262,7 +262,7 @@ function Cell({ c, zone }) {
  * One Dish choices zone while a dish is being added. cells: the choices it
  * shows; bar: this zone has the dish's name and the Add bar.
  */
-export function ChoiceZone({ zone, build, cells, bar, buildKey, onAdd, onCancel, onMore }) {
+export function ChoiceZone({ zone, build, cells, bar, buildKey, action = 'Add', onAdd, onCancel, onMore }) {
   const { it, qty, setQty, ok, error, total, count } = build
   const gridCells = cells.map(c => ({
     key: c.key,
@@ -294,7 +294,7 @@ export function ChoiceZone({ zone, build, cells, bar, buildKey, onAdd, onCancel,
           <button className="btn" onClick={onMore} disabled={count > 1} title={count > 1 ? 'Add these first, then change one on the order' : undefined} data-testid="choice-more"><PenLine size={18} /><span className="hidden xl:inline">Note &amp; more</span></button>
           <button className="btn" onClick={onCancel} data-testid="choice-cancel"><X size={18} /><span className="hidden xl:inline">Cancel</span></button>
           <button className="btn btn-primary flex-1 min-w-[140px] h-14 text-lg" disabled={!ok} onClick={onAdd} data-testid="choice-add" data-count={count}>
-            Add {count > 1 ? count + ' dishes ' : ''}{total != null ? money(total) : ''}
+            {action} {count > 1 ? count + ' dishes ' : ''}{total != null ? money(total) : ''}
           </button>
         </div>
       )}

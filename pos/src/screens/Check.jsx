@@ -30,7 +30,7 @@ import LayoutScreen from '../components/LayoutScreen.jsx'
 import {
   addItem, addChosen, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck, needsSendChoice, comboStartFrom, copyOfLine,
   coversMissing, seatCourseParts, addListCharge, counterSends, unsentAtPay, notFired, tablesOn, itemCounts, showsItemCounts,
-  leaveUnsent, takesOffCounted, lineToTakeOff,
+  leaveUnsent, takesOffCounted, lineToTakeOff, selectionFromLine, canChangeOptions, lineFields, changeLine,
 } from '../lib/checkOps.js'
 import { cx, money, elapsed, useApproval, fillStyle } from '../components/ui.jsx'
 import { useTillNav } from '../components/TillMenu.jsx'
@@ -88,8 +88,11 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
     if (check && check.status !== 'open' && modal?.kind !== 'pay') onBack()
   }, [check?.status]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Automatic combos and offers follow the check's dishes as they change.
-  const lineSig = check ? check.lines.map(l => l.id + ':' + l.qty + ':' + l.status + ':' + l.unit_price).join('|') : ''
+  // Automatic combos and offers follow the check's dishes as they change
+  // (their picks too: Change options can make a dish fit a deal, or not).
+  const picksOf = l => (l.modifiers || []).map(m => (m.option_id || m.name || '') + (m.prefix ? '/' + m.prefix : '')).join('.')
+    + (l.combo || []).map(x => ';' + (x.option_id || '') + ':' + (x.item_id || '')).join('')
+  const lineSig = check ? check.lines.map(l => l.id + ':' + l.qty + ':' + l.status + ':' + l.unit_price + ':' + picksOf(l)).join('|') : ''
   useEffect(() => {
     if (check && check.status === 'open' && check.lines.length) refreshPromotions(check.id)
   }, [lineSig]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -148,6 +151,9 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
   // What the seat and course bar shows: the check's revenue stream may use
   // no seats (covers off) or no courses (lib/checkOps.js).
   const barParts = seatCourseParts(config, check.revenue_stream_id)
+  // What a dish's windows (the choices window, an item's own) offer of seats
+  // and courses: what the bar shows, and neither on a counter order.
+  const lineParts = isCounter ? 'none' : barParts
   // Required name / tent number, and the number of guests at a table whose
   // stream must have them: asked before the order goes to the kitchen or is paid.
   const needDetails = () => {
@@ -249,6 +255,44 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
     }
     close()
     if (!replace) askAfter(item, r)
+  }
+  // Change options (the item window's button, a swipe right on a line): the
+  // dish's options with the line's own picks, where dishes are picked (a
+  // layout's Dish choices zones, else the choices window); Update changes
+  // that line (lib/checkOps.js changeLine()).
+  const changeOptions = line => {
+    const now = currentChecks()[check.id] || check
+    const cur = now.lines.find(l => l.id === line.id) || line
+    if (!canChangeOptions(config, cur)) {
+      return toast(cur.status !== 'new' ? 'This item was sent to the kitchen: void it instead of changing it' : 'This item\'s options can\'t be changed here', 'bad')
+    }
+    const item = config.items[cur.item_id]
+    const initial = { selection: selectionFromLine(cur), qty: cur.qty }
+    close()
+    if (zones?.required) return setChoosing({ item, initial, edit: cur.id, key: Date.now() + ':' + cur.id })
+    setModal({ kind: 'item', item, initial: { ...lineFields(cur), ...initial }, edit: cur.id, title: 'Change ' + cur.name })
+  }
+  // What Change options gave, onto the same line. Fewer than before asks a
+  // manager where taking items off needs one.
+  const changed = async (lineId, item, o) => {
+    const now = currentChecks()[check.id] || check
+    const line = now.lines.find(l => l.id === lineId)
+    if (!line || line.status !== 'new') {
+      setChoosing(null)
+      close()
+      return toast('This item was sent to the kitchen meanwhile: void it instead of changing it', 'bad')
+    }
+    let approver = null
+    if (o.qty != null && o.qty < line.qty) {
+      const [label, actions] = offApproval(line, 'Taking items off needs a manager here.', ['delete_unsent'])
+      approver = await approve(null, null, label, actions)
+      if (approver === false) return
+    }
+    const r = changeLine(now, line, item, o, { approved_by: approver })
+    if (!r.ok) return toast(r.error, 'bad')
+    setChoosing(null)
+    close()
+    toast('Changed ' + line.name, 'ok')
   }
   // A prompt's dish: on the order with the seat and course picked; a dish with
   // choices opens its choices window first (the prompt steps aside meanwhile).
@@ -413,7 +457,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
       {others.length > 0 && (
         <div className="px-3 py-1.5 bg-warn-soft text-warn text-sm font-semibold flex items-center gap-2"><Eye size={14} />Also open on {others.map(o => o.device_name).join(', ')}</div>
       )}
-    </>} footer={footer} font={orderZone?.font || null} onLine={line => setModal({ kind: 'line', line })} onAction={swipeAction} onRegroup={regroup}
+    </>} footer={footer} font={orderZone?.font || null} onLine={line => setModal({ kind: 'line', line })} onAction={swipeAction} onEdit={changeOptions} onRegroup={regroup}
       onAllergy={() => setModal({ kind: 'allergy' })} />
   )
 
@@ -483,8 +527,15 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
           <LayoutScreen layout={layout} config={config} check={check} checkZone={panel} menus={shownMenus.shown} tillMenus={shownMenus.menus} shownMenus={shownMenus} covers={check.covers} counts={counts}
             seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
             onDish={pick} onHold={item => setModal({ kind: 'sold_out', item })} takeOff={takeOff} onButton={runButton}
-            choosing={choosing} onChosen={o => added(choosing.item, { ...o, seat, course })} onCancelChoosing={() => setChoosing(null)}
-            onMoreChoices={initial => setModal({ kind: 'item', item: choosing.item, initial })} />
+            choosing={choosing}
+            onChosen={o => (choosing.edit ? changed(choosing.edit, choosing.item, { selection: o.selection, qty: o.qty }) : added(choosing.item, { ...o, seat, course }))}
+            onCancelChoosing={() => setChoosing(null)}
+            onMoreChoices={initial => {
+              if (!choosing.edit) return setModal({ kind: 'item', item: choosing.item, initial })
+              const line = (currentChecks()[check.id] || check).lines.find(l => l.id === choosing.edit)
+              setChoosing(null)
+              setModal({ kind: 'item', item: choosing.item, initial: { ...(line ? lineFields(line) : {}), ...initial }, edit: choosing.edit, title: line ? 'Change ' + line.name : null })
+            }} />
         </div>
       ) : (
         <>
@@ -496,11 +547,12 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
         </>
       )}
 
-      {modal?.kind === 'item' && <ItemModal item={modal.item} config={config} defaults={{ seat: modal.seat ?? seat, course: modal.course ?? course, covers: check.covers, parts: barParts }}
-        initial={modal.initial || null} title={modal.title || null} onClose={() => { modal.flowDone?.(false); close() }}
-        onAdd={o => (modal.flowDone ? flowChosen(modal, o) : added(modal.item, o, modal.replace || null))} />}
+      {modal?.kind === 'item' && <ItemModal item={modal.item} config={config} defaults={{ seat: modal.seat ?? seat, course: modal.course ?? course, covers: check.covers, parts: lineParts }}
+        initial={modal.initial || null} title={modal.title || null} actionLabel={modal.edit ? 'Update' : 'Add'} onClose={() => { modal.flowDone?.(false); close() }}
+        onAdd={o => (modal.edit ? changed(modal.edit, modal.item, o) : modal.flowDone ? flowChosen(modal, o) : added(modal.item, o, modal.replace || null))} />}
       {modal?.kind === 'line' && (
-        <LineModal check={check} line={check.lines.find(l => l.id === modal.line.id) || modal.line} config={config} onClose={close} initialMode={modal.initialMode || null} initialVoidQty={modal.voidQty || null}
+        <LineModal check={check} line={check.lines.find(l => l.id === modal.line.id) || modal.line} config={config} parts={lineParts} onClose={close} initialMode={modal.initialMode || null} initialVoidQty={modal.voidQty || null}
+          onChangeOptions={changeOptions}
           onDiscount={ids => setModal({ kind: 'discount', lineIds: ids })} onMove={ids => setModal({ kind: 'move', lineIds: ids })}
           onMakeCombo={(line, combo, start) => setModal({
             kind: 'item', item: combo, title: line.name + ' as ' + combo.name, replace: line.id, seat: line.seat ?? null, course: line.course_id ?? null,

@@ -1,22 +1,27 @@
 // What can be done to one item on a check. Before it is sent: change the
-// quantity, seat, course, note and allergies, or delete it. After: change
-// the seat, or void it (with a reason, which a manager may need to allow).
-// Either way: comp it, discount it, or move it to another check. A dish not
-// sent yet can be made into a combo that offers it (shared/combos.js).
+// quantity, seat, course, note and allergies, change its options (the
+// choices window or the layout's Dish choices zones, with its picks: Change
+// options), or delete it. After: change the seat, or void it (with a reason,
+// which a manager may need to allow). Either way: comp it, discount it, or
+// move it to another check. A dish not sent yet can be made into a combo
+// that offers it (shared/combos.js).
+//
+// Seat and Course show only where the till uses them (parts: the check's
+// seatCourseParts(); a counter order has neither).
 
 import { useState } from 'react'
-import { Minus, Plus, Trash2, Ban, Gift, Percent, ArrowRightLeft, X, Layers } from 'lucide-react'
+import { Minus, Plus, Trash2, Ban, Gift, Percent, ArrowRightLeft, X, Layers, SlidersHorizontal } from 'lucide-react'
 import { ulid } from '@shared/pos/ids.js'
 import { lineGross, modifierText, groupModifiers, checkTotals } from '@shared/pos/pricing.js'
 import { Modal, ReasonPicker, cx, money, useApproval } from './ui.jsx'
 import { dispatch, toast } from '../lib/store.js'
-import { combosForLine } from '../lib/checkOps.js'
+import { combosForLine, canChangeOptions } from '../lib/checkOps.js'
 import { offApproval, flowNameOf } from '../lib/orderFlows.js'
 
 const VOID_REASONS = ['Wrong item', 'Guest changed mind', 'Quality', 'Took too long', 'Dropped / spilt']
 const COMP_REASONS = ['Quality', 'Took too long', 'Birthday', 'Regular', 'Staff', 'Manager decision']
 
-export default function LineModal({ check, line, config, onClose, onDiscount, onMove, onMakeCombo, initialMode = null, initialVoidQty = null }) {
+export default function LineModal({ check, line, config, parts = 'both', onClose, onDiscount, onMove, onMakeCombo, onChangeOptions = null, initialMode = null, initialVoidQty = null }) {
   const approve = useApproval()
   const [mode, setMode] = useState(initialMode)   // 'void' | 'comp' | 'delete'
   const [reason, setReason] = useState('')
@@ -33,6 +38,9 @@ export default function LineModal({ check, line, config, onClose, onDiscount, on
   const net = t.lines.find(l => l.id === line.id)?.net ?? 0
   const combos = onMakeCombo ? combosForLine(line, config) : []
   const inCombo = (check.promotions || []).filter(p => p.kind === 'combo' && p.lines?.[line.id])
+  const showSeats = parts === 'both' || parts === 'seats'
+  const courses = parts === 'both' || parts === 'courses' ? config.courses || [] : []
+  const canChange = !!onChangeOptions && canChangeOptions(config, line)
 
   const change = (patch, approvedBy = null) => {
     const r = dispatch('line.changed', { line_id: line.id, ...patch }, { check_id: check.id, approved_by: approvedBy })
@@ -94,6 +102,12 @@ export default function LineModal({ check, line, config, onClose, onDiscount, on
 
         {voided && <div className="rounded-xl bg-bad-soft text-bad p-3 font-semibold">Voided: {line.voided?.reason}</div>}
 
+        {canChange && !mode && (
+          <button className="btn w-full sm:w-auto" onClick={() => { onClose(); onChangeOptions(line) }} data-testid="line-change-options">
+            <SlidersHorizontal size={18} /> Change options
+          </button>
+        )}
+
         {!voided && !mode && (
           <>
             {isNew && (
@@ -104,7 +118,7 @@ export default function LineModal({ check, line, config, onClose, onDiscount, on
                 <button className="btn w-14 px-0" onClick={() => change({ qty: line.qty + 1 })}><Plus size={20} /></button>
               </div>
             )}
-            <div className="flex items-start gap-3">
+            {showSeats && <div className="flex items-start gap-3" data-testid="line-seat">
               <span className="label w-20 pt-3">Seat</span>
               <div className="flex flex-wrap gap-2">
                 <button className={cx('chip', !line.seat && 'chip-on')} onClick={() => change({ seat: null })}>Shared</button>
@@ -112,12 +126,12 @@ export default function LineModal({ check, line, config, onClose, onDiscount, on
                   <button key={i} className={cx('chip w-12', line.seat === i + 1 && 'chip-on')} onClick={() => change({ seat: i + 1 })}>{i + 1}</button>
                 ))}
               </div>
-            </div>
-            {isNew && (config.courses || []).length > 0 && (
-              <div className="flex items-start gap-3">
+            </div>}
+            {isNew && courses.length > 0 && (
+              <div className="flex items-start gap-3" data-testid="line-course">
                 <span className="label w-20 pt-3">Course</span>
                 <div className="flex flex-wrap gap-2">
-                  {config.courses.map(c => <button key={c.id} className={cx('chip', line.course_id === c.id && 'chip-on')} onClick={() => change({ course_id: c.id })}>{c.name}</button>)}
+                  {courses.map(c => <button key={c.id} className={cx('chip', line.course_id === c.id && 'chip-on')} onClick={() => change({ course_id: c.id })}>{c.name}</button>)}
                   <button className={cx('chip', !line.course_id && 'chip-on')} onClick={() => change({ course_id: null })}>None</button>
                 </div>
               </div>

@@ -531,14 +531,20 @@ export default function LayoutScreen({
   )
 }
 
-/** The Dish choices zones while a dish is being added. */
+/**
+ * The Dish choices zones while a dish is being added, or a line's options
+ * changed (choosing.edit: the line's id; its picks in choosing.initial,
+ * Update changes that line, nothing is added on a tap and the picks never
+ * make more dishes).
+ */
 function Choosing({ config, choosing, zones, mods, onChosen, onCancel, onMore }) {
   const bar = zones.required
+  const edit = !!choosing.edit
   // Add on the tap that completes the dish (the must-pick zone's auto_add),
   // or more picks, more dishes (its split_picks; never both).
   const build = useChoiceBuilder(choosing.item, config, choosing.initial || null, {
-    onAutoAdd: bar?.auto_add && !bar?.split_picks ? onChosen : null,
-    split: !!bar?.split_picks,
+    onAutoAdd: !edit && bar?.auto_add && !bar?.split_picks ? onChosen : null,
+    split: !edit && !!bar?.split_picks,
   })
   // One zone for everything when there is one, or when the must-pick zone covers the screen.
   const together = !zones.optional || zones.optional === bar || bar.cover === 'screen'
@@ -551,7 +557,7 @@ function Choosing({ config, choosing, zones, mods, onChosen, onCancel, onMore })
     <div key={zone.id} data-zone="modifiers" data-zone-id={zone.id} data-cover={zone.cover}
       className={cx('bg-white min-w-0 min-h-0 overflow-hidden shadow-2xl ring-2 ring-brand', zone.cover === 'screen' ? 'absolute inset-0 z-30' : 'relative z-20')}
       style={zone.cover === 'screen' ? undefined : area(zone)}>
-      <ChoiceZone zone={zone} build={build} cells={cells} bar={hasBar} buildKey={choosing.key}
+      <ChoiceZone zone={zone} build={build} cells={cells} bar={hasBar} buildKey={choosing.key} action={edit ? 'Update' : 'Add'}
         onAdd={() => onChosen(build.result())} onCancel={onCancel}
         onMore={() => onMore({ selection: build.result().selection, qty: build.qty })} />
     </div>
