@@ -16,7 +16,7 @@
 //     columns: [[column, postgres type], ...]   tenant_id comes first: the
 //                                               compiler filters on it like
 //                                               on any other subject's rows
-//     fill: async (tx, { tenantId, venueIds, ranges, levels }) => rows
+//     fill: async (tx, { tenantId, venueIds, ranges, levels, memo }) => rows
 //   }
 //
 //   venueIds   the venues the report asks for (null = every venue)
@@ -25,6 +25,8 @@
 //              business (a week by its Monday)
 //   levels     the person's module levels; columns a role can't see are
 //              left out by the catalogue's `needs`, so a work may fill them
+//   memo       a Map shared by the works of one run, for what several of
+//              them work out from the same rows (the rota's weeks)
 //
 // A fill reads as the tenant (row-level security) and still filters
 // tenant_id itself, as every query does. Its rows are objects keyed by
@@ -34,6 +36,7 @@ import { workTable } from '../catalogue/define.js'
 import { CATALOGUE } from '../catalogue/index.js'
 import { catalogueTemplates } from '../catalogue/coverage.js'
 import { loadCashDays, loadCashWeeks } from '../../services/cashReconSvc.js'
+import { ROTA_WORKS } from './rota.js'
 
 const MONEY = 'numeric'
 
@@ -70,6 +73,8 @@ export const WORKS = {
       return weeks.map(w => ({ ...w, tenant_id: tenantId, date: w.week_start }))
     },
   },
+  // Rota pay, tips and hours (work/rota.js).
+  ...ROTA_WORKS,
 }
 
 const NAME = /^[a-z][a-z0-9_]{0,40}$/
@@ -82,6 +87,7 @@ const VALUES_PER_INSERT = 30000
  */
 export async function fillWorks(tx, names, ctx) {
   const filled = new Set()
+  const shared = { ...ctx, memo: ctx.memo || new Map() }
   for (const name of new Set(names)) {
     const work = WORKS[name]
     if (!work || !NAME.test(name)) throw new Error('Report rows "' + name + '" aren\'t worked out anywhere')
@@ -90,7 +96,7 @@ export async function fillWorks(tx, names, ctx) {
     await tx.unsafe('CREATE TEMPORARY TABLE ' + table + ' ('
       + work.columns.map(([c, type]) => '"' + c + '" ' + type).join(', ')
       + ') ON COMMIT DROP')
-    const rows = (await work.fill(tx, ctx)) || []
+    const rows = (await work.fill(tx, shared)) || []
     const per = Math.max(1, Math.floor(VALUES_PER_INSERT / cols.length))
     for (let i = 0; i < rows.length; i += per) {
       const chunk = rows.slice(i, i + per).map(r => Object.fromEntries(cols.map(c => [c, r[c] ?? null])))

@@ -45,10 +45,6 @@ export const PLANNED = {
     happen: ['menu_releases'],
     group: ['menu_variant_groups', 'menu_variant_options', 'menu_dietary_tags', 'menu_item_dietary', 'menu_item_variant_groups', 'menu_item_variant_prices', 'menu_item_variants'],
   },
-  staff: {
-    happen: ['rota_entries', 'rota_pay_adjustments', 'rota_tip_moves', 'rota_tip_move_lines', 'rota_week_staff', 'rota_week_pot_lines', 'rota_week_pot_manual', 'staff_rota_off'],
-    group: ['staff_roles', 'rota_shifts', 'tip_pots', 'tip_pot_lines', 'staff_shift_rates'],
-  },
   screens: {
     happen: [],
     group: ['screens', 'screen_designs', 'screen_playlists', 'screen_walls'],

@@ -313,11 +313,11 @@ export default [
     },
     links: {
       list: one('cash.wage_lists', 'wage_report_id', { label: 'Wage list' }),
+      // Empty for someone typed onto the list by name only.
+      person: one('staff.people', 'staff_id', { label: 'Person' }),
     },
     list: ['date', 'venue.name', 'name', 'wage', 'bank', 'cash', 'unpaid', 'paid_on'],
     sort: [{ by: 'date', dir: 'desc' }, { by: 'name', dir: 'asc' }],
-    // Wage lists name people as typed; the rota's staff come with the Staff and rota area.
-    skip: ['staff_id'],
   }),
 
   // ── What reports group by ─────────────────────────────────────
@@ -400,11 +400,11 @@ export default [
     },
     links: {
       entries: many('cash.service_charges', 'source_id', { label: 'Service charge entries' }),
+      pot: one('rota.tip_pots', 'tip_pot_id', { label: 'Tip pot it feeds' }),
     },
     list: ['name', 'venue.name', 'type', 'takings_effect', 'income_effect', 'active'],
     sort: [{ by: 'name', dir: 'asc' }],
-    // Which tip pot it feeds comes with the Staff and rota area.
-    skip: ['tip_pot_id', 'sort_order', 'created_at', 'tooltip'],
+    skip: ['sort_order', 'created_at', 'tooltip'],
   }),
 
   subject({
