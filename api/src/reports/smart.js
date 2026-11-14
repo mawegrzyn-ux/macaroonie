@@ -170,9 +170,12 @@ function subjectDocs(catalogue) {
       add(l.label, 2)
       const to = catalogue.subjects[l.to]
       if (!to) continue
-      add(to.label, 1)
-      for (const f of Object.values(to.fields)) add(f.title || f.label, 1)
-      if (l.many) for (const m of Object.values(to.measures)) add(m.label, 1)
+      // What a row belongs to counts once a word: a booking's guest name,
+      // email, phone and notes say "guest" four times about who, not how
+      // many, and every subject linked to bookings got all four.
+      const words = new Set([to.label, ...Object.values(to.fields).map(f => f.title || f.label),
+        ...(l.many ? Object.values(to.measures).map(m => m.label) : [])].flatMap(indexWords))
+      for (const x of words) { tf.set(x, (tf.get(x) || 0) + 1); len += 1 }
     }
     docs.push({ key: s.key, tf, len, figures: Object.keys(s.measures).length })
   }

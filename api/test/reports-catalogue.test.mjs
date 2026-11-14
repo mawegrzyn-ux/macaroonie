@@ -21,6 +21,7 @@ import { PLANNED, SETTINGS, LEFT_OUT, checkDecisions, tableDecisions, catalogueT
 import { tableCoverage, secretsRead, columnUse } from '../src/reports/catalogue/coverage.js'
 import { MODULE_KEYS } from '../src/config/modules.js'
 import { bucketsFor } from '../../shared/reports/paths.js'
+import { EVENT_LABELS, TILL_EVENT_TYPES } from '../src/reports/catalogue/till.js'
 
 let ids, columns, tables
 
@@ -47,7 +48,7 @@ test('every table in the database has one decision, and every decision names a t
   assert.equal(d.counts.subject + d.counts.planned + d.counts.settings + d.counts.out, tables.length)
 
   // Where the catalogue stands today: a change here is a change to say in the docs.
-  assert.deepEqual(d.counts, { subject: 86, planned: 46, settings: 54, out: 47 })
+  assert.deepEqual(d.counts, { subject: 101, planned: 27, settings: 57, out: 48 })
   assert.equal(tables.length, 233)
 
   // Left-out tables carry a reason; planned ones an area with a phase.
@@ -91,7 +92,7 @@ test('a table nobody has decided on, one decided twice and a stale name are each
 test('every id column of a table a subject reads is linked, offered or left out on purpose', t => {
   const cover = tableCoverage(CATALOGUE, columns)
   assert.deepEqual(cover.derived, ['till.takers', 'online.sales', 'cash.days', 'cash.weeks', 'rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.tip_moves', 'safety.days', 'local.weather'])
-  assert.equal(cover.tables.length, 74)
+  assert.equal(cover.tables.length, 90)
 
   const undecided = cover.tables.flatMap(x => x.idsUndecided.map(c => x.table + '.' + c))
   assert.deepEqual(undecided, [], 'id columns with no link: add one(...) to the subject, or the column to its skip list')
@@ -164,8 +165,8 @@ test('nothing secret is read, every module asked for exists, and no SQL leaves t
 
   for (const m of CATALOGUE_MODULES) assert.ok(MODULE_KEYS.includes(m), m)
   assert.deepEqual([...CATALOGUE_MODULES].sort(), [
-    'bookings', 'cash_recon', 'checklists', 'customers', 'food_safety', 'hs_action_log', 'local_info', 'loyalty', 'loyalty_members',
-    'menus', 'pos_reports', 'pos_setup', 'purchasing', 'purchasing_setup', 'rota', 'rota_pay', 'rota_tips', 'staff',
+    'bookings', 'cash_recon', 'checklists', 'customers', 'email_templates', 'food_safety', 'hs_action_log', 'local_info', 'loyalty', 'loyalty_members',
+    'menus', 'pos_reports', 'pos_setup', 'promotions', 'purchasing', 'purchasing_setup', 'rota', 'rota_pay', 'rota_tips', 'staff',
     'web_orders',
   ])
   for (const s of Object.values(CATALOGUE.subjects)) {
@@ -186,6 +187,13 @@ test('nothing secret is read, every module asked for exists, and no SQL leaves t
   assert.equal(view.subjects['bookings.bookings'].fields.guest_notes.pii, true)
   assert.equal(view.subjects['online.orders'].fields.allergy_note.pii, true)
   assert.equal(view.subjects['guests.customers'].fields.notes.pii, true)
+})
+
+test('every kind of till change has its words in reports', () => {
+  // Till activity and Changes refused name each event type: a new type the
+  // till sends must get words, and words for a type that is gone go.
+  assert.deepEqual(TILL_EVENT_TYPES.filter(t => !EVENT_LABELS[t]), [])
+  assert.deepEqual(Object.keys(EVENT_LABELS).filter(t => !TILL_EVENT_TYPES.includes(t)), [])
 })
 
 test('every field, grouping, figure and link of every subject runs', async () => {

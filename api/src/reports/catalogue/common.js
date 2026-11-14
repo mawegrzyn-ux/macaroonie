@@ -3,7 +3,7 @@
 // Things reports group by that more than one area shares: venues, the menu
 // (dishes, sections, menus) and customers.
 
-import { subject, text, number, money, yesno, choice, moment, count, one, many } from './define.js'
+import { subject, text, number, money, percent, yesno, choice, moment, count, one, many } from './define.js'
 
 export default [
   subject({
@@ -117,6 +117,29 @@ export default [
     list: ['name', 'section.name', 'section.menu.name', 'price'],
     sort: [{ by: 'name', dir: 'asc' }],
     skip: ['pos_course_id', 'sort_order', 'updated_at', 'pos_colour', 'combo', 'tax'],
+  }),
+
+  subject({
+    key: 'menu.tax_rates',
+    label: 'Tax rates',
+    one: 'tax rate',
+    area: 'menus',
+    module: 'menus',
+    about: 'The group\'s tax rates (Standard rate, Zero rate) set up on Menus, Tax rates. The rate shown is the usual one: a location or order type may have its own.',
+    from: 'tax_rates',
+    name: 'name',
+    fields: {
+      name: text('name'),
+      rate: percent('rate', { label: 'Usual rate', about: 'The rate before any location\'s or order type\'s own.' }),
+      usual: yesno('is_default', { label: 'The usual rate', about: 'The rate a dish gets when nothing names another.' }),
+      active: yesno('is_active', { label: 'In use' }),
+    },
+    measures: {
+      rates: count({ label: 'Tax rates', where: '{t}.is_active' }),
+    },
+    list: ['name', 'rate', 'usual', 'active'],
+    sort: [{ by: 'name', dir: 'asc' }],
+    skip: ['sort_order', 'created_at'],
   }),
 
   subject({

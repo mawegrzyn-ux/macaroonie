@@ -43,6 +43,7 @@ export const AREAS = [
   { key: 'guests', label: 'Customers' },
   { key: 'menus', label: 'Menus' },
   { key: 'local', label: 'Local info' },
+  { key: 'tech', label: 'Store tech' },
   { key: 'shared', label: 'Your group' },
 ]
 

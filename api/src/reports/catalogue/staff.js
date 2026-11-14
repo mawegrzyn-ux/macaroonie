@@ -472,11 +472,12 @@ export default [
       time_off: many('staff.time_off', 'staff_id', { label: 'Time off the rota' }),
       entries: many('rota.entries', 'staff_id', { label: 'Rota entries' }),
       adjustments: many('rota.pay_adjustments', 'staff_id', { label: 'Pay adjustments' }),
+      till_role: one('till.roles', 'pos_role_id', { label: 'Till role' }),
     },
     list: ['name', 'venue.name', 'role.name', 'active', 'left_on'],
     sort: [{ by: 'name', dir: 'asc' }],
     // The till role (Store tech's till roles come with the till's setup) and the PIN.
-    skip: ['sort_order', 'pos_pin_hash', 'pos_role_id'],
+    skip: ['sort_order', 'pos_pin_hash'],
   }),
 
   subject({
