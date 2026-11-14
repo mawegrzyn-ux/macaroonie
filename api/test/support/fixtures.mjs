@@ -313,8 +313,18 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
   }))
   // Local info (migration 240): a capture (disabled, so no sweep ever calls
   // Open-Meteo from another test file) and a typed-in event.
-  await step('local info source', () => post(`/api/local-info/venues/${V}/sources`, { kind: 'weather', place: mark + ' Ware', enabled: false }))
+  const liSource = await step('local info source', () => post(`/api/local-info/venues/${V}/sources`, { kind: 'weather', place: mark + ' Ware', enabled: false }))
   await step('local info event', () => post('/api/local-info/items', { venue_id: V, title: mark + ' street fair', starts_on: '2027-01-15', severity: 'notice' }))
+  // What a capture found (written here: findings only come from runs) and a
+  // flag on it (migration 248), so the sweep tries the flag as the other tenant.
+  const found = liSource?.source && await step('local info finding', async () => (await sql`
+    INSERT INTO local_info_items (tenant_id, venue_id, source_id, kind, title, starts_on, severity, external_key)
+    VALUES (${tenantId}, ${V}, ${liSource.source.id}, 'weather', ${mark + ' sunny spell'}, '2027-01-16', 'info', 'weather:2027-01-16')
+    RETURNING id`)[0])
+  if (found) {
+    ids.localInfoItem = found.id
+    await step('local info flag', () => put('/api/local-info/items/' + found.id + '/feedback', { relevant: true }))
+  }
   await step('promotion', () => post('/api/promotions', { name: mark + ' 10% off', kind: 'basket', discount_type: 'percent', discount_value: 10, apply_mode: 'auto' }))
   await step('issue', () => post('/api/issues', { title: mark + ' Printer jam', description: mark + ' jammed', category: 'incident', impact: 'low', urgency: 'low' }))
   await step('feature request', () => post('/api/feature-requests', { title: mark + ' Dark mode', description: mark + ' please' }))

@@ -8,12 +8,17 @@
 // often) are set up per venue in the Captures window, with Run now. Local
 // info view reads, manage changes. The rules (kinds, who sits on a day, the
 // month's weeks) are shared/localInfo.js, the same the API and Pepper use.
+//
+// Anyone who can see the page flags what a capture found as relevant or not
+// (FlagButtons on each row, migration 248); the Captures window shows the
+// flags for each capture, what Pepper learned from them for its search, Learn
+// now and Forget, and the edit form's Learn from staff flags switch.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   CloudSun, Plus, Settings2, ChevronLeft, ChevronRight, Play, Loader2,
-  Eye, EyeOff, Pencil, AlertTriangle,
+  Eye, EyeOff, Pencil, AlertTriangle, Sparkles, ThumbsUp, ThumbsDown,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
@@ -137,6 +142,11 @@ export default function LocalInfo() {
         </div>
 
         {!canManage && <ReadOnlyNotice />}
+        {!canManage && (
+          <p className="text-xs text-muted-foreground -mt-2" data-testid="li-flag-note">
+            You can still flag what the captures found as relevant or not: Pepper uses the flags to tune its searches.
+          </p>
+        )}
         {pageError && (
           <p className="text-sm text-destructive flex items-center gap-1.5" data-testid="li-error"><AlertTriangle className="w-4 h-4" /> {pageError}</p>
         )}
@@ -347,7 +357,87 @@ function EventModal({ api, venues, item, defaultVenueId, onClose, onSaved }) {
   )
 }
 
-const CAP_BLANK = { kind: 'weather', place: '', site: '', query: '', frequency: 'daily', every_hours: 4, enabled: true }
+const CAP_BLANK = { kind: 'weather', place: '', site: '', query: '', frequency: 'daily', every_hours: 4, enabled: true, learn_auto: true }
+const when = t => format(new Date(t), 'EEE d MMM HH:mm')
+
+/**
+ * A capture's flags and what Pepper learned from them for its search
+ * (migration 248): the counts, the phrases it looks for and leaves out, Learn
+ * now and Forget. A forecast has no search: its flags are only shown.
+ */
+function LearnedPart({ s, learning, onLearn, onForget, forgetting }) {
+  const [asking, setAsking] = useState(false)
+  const f = s.flags || { relevant: 0, not_relevant: 0 }
+  const total = (f.relevant || 0) + (f.not_relevant || 0)
+  const counts = (
+    <span className="inline-flex items-center gap-2 tabular-nums" data-testid="li-cap-flags" data-relevant={f.relevant || 0} data-not-relevant={f.not_relevant || 0}>
+      <span className="inline-flex items-center gap-0.5"><ThumbsUp className="w-3 h-3" />{f.relevant || 0} relevant</span>
+      <span className="inline-flex items-center gap-0.5"><ThumbsDown className="w-3 h-3" />{f.not_relevant || 0} not relevant</span>
+    </span>
+  )
+  if (s.kind === 'weather') {
+    if (!total) return null
+    return (
+      <p className="text-xs text-muted-foreground" data-testid="li-cap-learned" data-state="weather">
+        Staff flags: {counts}. A forecast has no search to tune, so these are only shown.
+      </p>
+    )
+  }
+  const l = s.learned
+  const has = l && ((l.look_for || []).length || (l.leave_out || []).length)
+  const state = s.learn_auto === false ? 'off' : has ? 'learned' : 'none'
+  return (
+    <div className="rounded-lg bg-muted/40 px-2.5 py-2 space-y-1 text-xs" data-testid="li-cap-learned" data-state={state}>
+      <p className="text-muted-foreground">
+        {total ? <>Staff flags: {counts}</> : 'No flags yet: tap Relevant or Not relevant on what this capture finds.'}
+      </p>
+      {s.learn_auto === false ? (
+        <p className="text-muted-foreground" data-testid="li-cap-learn-off">Learning from flags is off for this capture (Edit to switch it on).</p>
+      ) : has ? (
+        <div data-testid="li-cap-learned-what">
+          <p className="font-medium flex items-center gap-1"><Sparkles className="w-3.5 h-3.5 text-primary" />
+            Pepper learned{s.learned_at ? ' (' + when(s.learned_at) + ')' : ''}:</p>
+          {(l.look_for || []).length > 0 && <p data-testid="li-cap-look-for"><span className="font-medium">Looks for</span> {l.look_for.join('; ')}</p>}
+          {(l.leave_out || []).length > 0 && <p data-testid="li-cap-leave-out"><span className="font-medium">Leaves out</span> {l.leave_out.join('; ')}</p>}
+          {l.summary && <p className="text-muted-foreground">{l.summary}</p>}
+        </div>
+      ) : l && s.learned_at ? (
+        <p className="text-muted-foreground" data-testid="li-cap-learned-nothing">
+          Pepper read the flags ({when(s.learned_at)}) and found no pattern yet: the search is as you set it.
+        </p>
+      ) : null}
+      {s.learn_auto !== false && s.flags_changed && total > 0 && (
+        <p className="text-muted-foreground" data-testid="li-cap-new-flags">
+          {s.learned_at
+            ? 'The flags changed since then: Pepper learns again before the next run, or now with Learn now.'
+            : 'Pepper learns from these before the next run, or now with Learn now.'}
+        </p>
+      )}
+      {s.learn_error && <p className="text-destructive" data-testid="li-cap-learn-error">Pepper couldn't learn from the flags last time: {s.learn_error}</p>}
+      <div className="flex flex-wrap gap-1.5 pt-0.5">
+        {s.learn_auto !== false && (
+          <button type="button" className={cn(btn, 'min-h-[48px] px-3 text-xs')} data-testid="li-cap-learn"
+            disabled={!total || learning || s.running} onClick={() => onLearn(s)}>
+            {learning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} Learn now
+          </button>
+        )}
+        {has && (asking ? (
+          <span className="inline-flex items-center gap-1">
+            <button type="button" className="min-h-[48px] px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-medium touch-manipulation disabled:opacity-50"
+              data-testid="li-cap-forget-yes" disabled={forgetting} onClick={() => { setAsking(false); onForget(s) }}>
+              Yes, forget it
+            </button>
+            <button type="button" className={cn(btn, 'min-h-[48px] px-3 text-xs')} data-testid="li-cap-forget-no" onClick={() => setAsking(false)}>Keep it</button>
+          </span>
+        ) : (
+          <button type="button" className={cn(btn, 'min-h-[48px] px-3 text-xs')} data-testid="li-cap-forget" onClick={() => setAsking(true)}>
+            Forget what Pepper learned
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 /** The venue's captures: what is searched, where, how often; Run now. */
 function CapturesModal({ api, venues, defaultVenueId, onClose }) {
@@ -383,6 +473,7 @@ function CapturesModal({ api, venues, defaultVenueId, onClose }) {
         site: draft.kind === 'weather' ? null : (draft.site.trim() || null),
         query: draft.kind === 'weather' ? null : (draft.query.trim() || null),
         enabled: draft.enabled,
+        learn_auto: draft.learn_auto !== false,
       }
       return draft.id ? api.patch(`/local-info/sources/${draft.id}`, body) : api.post(`/local-info/venues/${venueId}/sources`, body)
     },
@@ -402,6 +493,25 @@ function CapturesModal({ api, venues, defaultVenueId, onClose }) {
   const runNow = useMutation({
     mutationFn: id => api.post(`/local-info/sources/${id}/run`),
     onSuccess: () => { setError(null); setNotice('Running in the background — findings appear in a minute.'); qc.invalidateQueries({ queryKey: ['local-info-sources'] }) },
+    onError: e => setError(errText(e)),
+  })
+  const learn = useMutation({
+    mutationFn: s => api.post(`/local-info/sources/${s.id}/learn`),
+    onSuccess: res => {
+      setError(null)
+      const l = res?.learned
+      const n = (l?.relevant || 0) + (l?.not_relevant || 0)
+      const found = l && ((l.look_for || []).length || (l.leave_out || []).length)
+      setNotice(found
+        ? 'Pepper learned from ' + n + ' ' + (n === 1 ? 'flag' : 'flags') + ': the next run searches with it.'
+        : 'Pepper read ' + n + ' ' + (n === 1 ? 'flag' : 'flags') + ' and found no pattern yet: the search stays as you set it.')
+      qc.invalidateQueries({ queryKey: ['local-info-sources'] })
+    },
+    onError: e => setError(errText(e)),
+  })
+  const forget = useMutation({
+    mutationFn: s => api.delete(`/local-info/sources/${s.id}/learned`),
+    onSuccess: () => { setError(null); setNotice('Forgotten: the search uses your own words only until new flags come in.'); qc.invalidateQueries({ queryKey: ['local-info-sources'] }) },
     onError: e => setError(errText(e)),
   })
 
@@ -458,13 +568,15 @@ function CapturesModal({ api, venues, defaultVenueId, onClose }) {
                       {s.enabled && s.next_run_at && !s.running ? ' · next ' + format(new Date(s.next_run_at), 'EEE d MMM HH:mm') : ''}
                     </p>
                     {s.last_error && <p className="text-xs text-destructive" data-testid="li-cap-last-error">{s.last_error}</p>}
+                    <LearnedPart s={s} learning={learn.isPending && learn.variables?.id === s.id} onLearn={x => learn.mutate(x)}
+                      forgetting={forget.isPending} onForget={x => forget.mutate(x)} />
                     <div className="flex flex-wrap gap-1.5 pt-0.5">
                       <button type="button" className={cn(btn, 'min-h-[40px] px-2.5 text-xs')} data-testid="li-cap-run"
                         disabled={runNow.isPending || s.running} onClick={() => runNow.mutate(s.id)}>
                         <Play className="w-3.5 h-3.5" /> Run now
                       </button>
                       <button type="button" className={cn(btn, 'min-h-[40px] px-2.5 text-xs')} data-testid="li-cap-edit"
-                        onClick={() => { setDraft({ id: s.id, kind: s.kind, place: s.place, site: s.site || '', query: s.query || '', frequency: s.frequency, every_hours: s.every_hours || 4, enabled: s.enabled }); setMode('edit'); setError(null); setNotice(null) }}>
+                        onClick={() => { setDraft({ id: s.id, kind: s.kind, place: s.place, site: s.site || '', query: s.query || '', frequency: s.frequency, every_hours: s.every_hours || 4, enabled: s.enabled, learn_auto: s.learn_auto !== false }); setMode('edit'); setError(null); setNotice(null) }}>
                         <Pencil className="w-3.5 h-3.5" /> Edit
                       </button>
                       <button type="button" className={cn(btn, 'min-h-[40px] px-2.5 text-xs')} data-testid="li-cap-toggle" onClick={() => toggle.mutate(s)}>
@@ -498,6 +610,18 @@ function CapturesModal({ api, venues, defaultVenueId, onClose }) {
                 <input value={draft.query} onChange={e => setDraft(p => ({ ...p, query: e.target.value }))} maxLength={300} data-testid="li-cap-query"
                   placeholder="markets, football matches" className={input} />
               </Field>
+              <Field label="Learn from staff flags" group>
+                <span data-testid="li-cap-learn-auto" data-value={draft.learn_auto !== false ? 'on' : 'off'}>
+                  <Segmented value={draft.learn_auto !== false ? 'on' : 'off'} onChange={v => setDraft(p => ({ ...p, learn_auto: v === 'on' }))}
+                    options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
+                </span>
+              </Field>
+              <p className="text-xs text-muted-foreground -mt-1">
+                {draft.learn_auto !== false
+                  ? 'When staff flag what this capture finds as relevant or not, Pepper reads the flags before its next run and tunes this search. Your own words above always stay.'
+                  : 'The search uses your own words only; flags are still shown.'}
+                {draft.id && draft.kind !== sources.find(x => x.id === draft.id)?.kind ? ' Another kind starts afresh: what Pepper learned is forgotten.' : ''}
+              </p>
             </>
           )}
           <Field label="How often" group>
