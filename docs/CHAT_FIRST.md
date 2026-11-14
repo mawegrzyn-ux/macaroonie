@@ -9,7 +9,10 @@ Built so far (30 Oct 2026): the Today page (`/today`,
 H6, H7, H8 (the remembered chat only); C1 and C2 in part (the sources listed in
 Docs → Today), C6; R2, R4; S1, S2 (by permission), S3, S7 (counts from the
 feed); F1 (as a sheet on the page, not inside the conversation), F2, F3, F5,
-F8; N2, N6; U1; Q1. Everything else below is still to do.
+F8; N2, N6; U1; Q1. Since 14 Nov 2026 the page also shows the week ahead
+under the greeting (the forecast for each day and up to five local news items
+from Local info: `summary.local`, `weekAhead()` in `shared/localInfo.js`), part
+of H2's alerts. Everything else below is still to do.
 
 ## What we're making
 

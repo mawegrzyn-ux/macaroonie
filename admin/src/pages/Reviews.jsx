@@ -14,6 +14,7 @@ import { useApi }  from '@/lib/api'
 import { cn }      from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
+import { webLink } from '@shared/links.js'
 
 const PLATFORMS = [
   { key: '',            label: 'All platforms' },
@@ -331,7 +332,8 @@ function ReviewRow({ review, onPatch, onDelete, canManage }) {
             ) : null}
           </div>
         </div>
-        <button onClick={() => setExpanded(v => !v)} className="text-muted-foreground p-1 touch-manipulation">
+        <button onClick={() => setExpanded(v => !v)} aria-expanded={expanded} aria-label={expanded ? 'Show less' : 'Show the whole review'}
+          data-testid="rv-expand" className="text-muted-foreground p-1 touch-manipulation">
           {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
       </div>
@@ -362,9 +364,10 @@ function ReviewRow({ review, onPatch, onDelete, canManage }) {
               <p className="text-sm">{review.reply_text}</p>
             </div>
           )}
-          {review.raw_data?.page_url && (
-            <a href={review.raw_data.page_url} target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-muted-foreground underline touch-manipulation">
+          {/* Only a web address is drawn as a link (never a javascript: one stored before the check). */}
+          {webLink(review.raw_data?.page_url) && (
+            <a href={webLink(review.raw_data.page_url)} target="_blank" rel="noopener noreferrer" data-testid="review-page-link"
+              className="inline-flex items-center gap-1 min-h-[48px] text-xs text-muted-foreground underline touch-manipulation">
               <Globe className="w-3 h-3" /> The page it was recorded from
             </a>
           )}

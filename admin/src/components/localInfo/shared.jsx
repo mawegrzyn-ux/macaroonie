@@ -15,6 +15,7 @@ import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { KIND_LABELS, addDays, itemOnDay, sortDayItems } from '@shared/localInfo.js'
+import { webLink } from '@shared/links.js'
 
 export const KIND_ICONS = { weather: CloudSun, traffic: TrafficCone, events: CalendarDays, incidents: AlertTriangle }
 
@@ -72,8 +73,8 @@ export function ItemRow({ item, venueNames = {}, actions = null, compact = false
         {item.details && <p className="text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap">{item.details}</p>}
         <p className="text-xs text-muted-foreground mt-0.5">
           {[rangeText(item), item.time_text, item.place, where].filter(Boolean).join(' · ')}
-          {item.url && (
-            <a href={item.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-primary underline underline-offset-2 ml-2">
+          {webLink(item.url) && (
+            <a href={webLink(item.url)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-primary underline underline-offset-2 ml-2">
               Source <ExternalLink className="w-3 h-3" />
             </a>
           )}

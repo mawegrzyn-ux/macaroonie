@@ -214,6 +214,23 @@ export default function Help() {
               told something is fine when it simply isn&apos;t theirs to see). To take it out of a
               role&apos;s menu, hide it in the Navigation designer.
             </P>
+            <H3>This week: weather and local news</H3>
+            <P>
+              Under the greeting, <strong>This week</strong> shows the venue&apos;s next seven days from Local
+              info. First a forecast for each day: the highest and lowest temperature, and the rain when there is
+              1 mm or more; a day with a weather warning is red, one worth knowing about amber, and a day the
+              forecast hasn&apos;t reached stays empty. Then up to five local news items (roadworks, events,
+              incidents), the soonest first and the loudest first on the same day, each with when and where it is
+              on and a <strong>Source</strong> link when it has one. <strong>3 more in Local info</strong> (or
+              however many are left) opens the rest.
+            </P>
+            <P>
+              The forecast comes from the venue&apos;s Weather capture; the news from its other captures and the
+              events your team types in, including those saved for every venue (Local info → Captures, Add an
+              event). The card shows for people whose role can see Local info. When nothing is held for the week,
+              people who can manage Local info get a line pointing at it and everyone else sees nothing. On the
+              phone, Today shows the same card under the greeting.
+            </P>
             <H3>Where the tasks come from</H3>
             <P>
               Tasks are worked out from your own set-up and records, not by Pepper, so the list is
@@ -306,7 +323,7 @@ export default function Help() {
             <P>
               <strong>Add an event</strong> records anything you know is coming: a street market, a festival,
               a planned road closure, an inspection. Give it a day (or a first and last day), an optional time,
-              place, link and severity, and choose one venue or every venue. Typed-in events can be edited and
+              place, link (a web address starting with https://) and severity, and choose one venue or every venue. Typed-in events can be edited and
               deleted; captured items can't be edited — <strong>hide</strong> one instead and it stays hidden even
               when the capture runs again. <strong>Show hidden</strong> brings hidden items back into view so you
               can unhide them.
@@ -316,8 +333,9 @@ export default function Help() {
               The <strong>Local info</strong> widget (Add widget, under Local info) shows the week ahead from the
               dashboard's selected day. Its options can flip it to <strong>Look back</strong> (the week up to the
               selected day — handy on a retrospective dashboard next to the cash and rota widgets) and hide any
-              of the four kinds. You can also ask Pepper things like "what's on around Ware this weekend?" —
-              it reads the same items — or tell it to run a capture.
+              of the four kinds. The <strong>Today</strong> page shows the coming week for its venue under the
+              greeting (see Today: This week). You can also ask Pepper things like "what's on around Ware this
+              weekend?" — it reads the same items — or tell it to run a capture.
             </P>
             <H3>Who can do what</H3>
             <P>
@@ -8477,7 +8495,8 @@ export default function Help() {
               <strong> Keep off the website</strong> leaves it stored but never shown. Either way the
               review is kept — that record is what stops the same review coming back into the inbox
               the next time the page is read. A recorded review carries a <strong>Recorded</strong> badge
-              and, opened out, a link to the page it was read from so you can see it in place.
+              and, opened out, a link to the page it was read from so you can see it in place (only a
+              web address, one starting with https://, is ever recorded or shown as a link).
             </P>
             <H3>Moderation</H3>
             <P>

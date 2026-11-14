@@ -25,11 +25,16 @@ import { staffTools } from '../ai/tools/staff.js'
 import { rotaTools } from '../ai/tools/rota.js'
 import { openDatesOrNull } from './openDays.js'
 import { poNumberLabel, deadlinePassed } from '../../../shared/procurement.js'
+import { weekAhead } from '../../../shared/localInfo.js'
 
 export const GRACE_MINS = 30
 export const NEXT_MINS = 120
 export const GROUPS = ['late', 'now', 'next', 'later']
 const BIG_PARTY = 8
+// The week ahead (local info): this many days from the feed's day, and at
+// most this many headlines (the rest are counted, and on the Local info page).
+const WEEK_DAYS = 7
+const HEADLINES = 5
 
 const hhmm = t => (t ? String(t).slice(0, 5) : null)
 const mins = t => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m }
@@ -248,13 +253,21 @@ const SOURCES = {
   },
 }
 
-/** H2: the day at a glance (bookings and who is working), from Pepper's own reading tools. */
+/**
+ * H2: the day at a glance (bookings and who is working, from Pepper's own
+ * reading tools) and the week ahead (the weather and local news from Local
+ * info, through its own route as the person: weekAhead() in shared/localInfo.js).
+ */
 async function summary(ctx, v, s) {
   const tool = (list, name) => list.find(t => t.name === name)
+  const can = module => (s.levels[module] || 'none') !== 'none'
   const out = {}
-  const [bookings, staff] = await Promise.allSettled([
-    s.levels.bookings !== 'none' ? tool(staffTools, 'day_overview').run(ctx, { venue_id: v.id, date: s.date }) : null,
-    s.levels.rota !== 'none' ? tool(rotaTools, 'whos_working').run(ctx, { venue: v.id, date: s.date }) : null,
+  const [bookings, staff, local] = await Promise.allSettled([
+    can('bookings') ? tool(staffTools, 'day_overview').run(ctx, { venue_id: v.id, date: s.date }) : null,
+    can('rota') ? tool(rotaTools, 'whos_working').run(ctx, { venue: v.id, date: s.date }) : null,
+    can('local_info')
+      ? callApi(ctx, 'GET', `/api/local-info/items?venue_id=${v.id}&from=${s.date}&to=${addDays(s.date, WEEK_DAYS - 1)}`)
+      : null,
   ])
   if (bookings.status === 'fulfilled' && bookings.value) {
     const d = bookings.value
@@ -268,6 +281,9 @@ async function summary(ctx, v, s) {
   if (staff.status === 'fulfilled' && staff.value) {
     const w = staff.value
     out.staff = { working: (w.working || []).length, open: w.open !== false }
+  }
+  if (local.status === 'fulfilled' && local.value) {
+    out.local = weekAhead(local.value.items || [], s.date, { days: WEEK_DAYS, headlines: HEADLINES })
   }
   return out
 }
@@ -321,4 +337,4 @@ export async function opsToday(ctx, venue, { date, time, levels }) {
 }
 
 /** The modules the feed reads, for permissionLevels(). */
-export const OPS_MODULES = [...new Set([...Object.values(AREAS), 'purchasing_approve', 'bookings', 'rota'])]
+export const OPS_MODULES = [...new Set([...Object.values(AREAS), 'purchasing_approve', 'bookings', 'rota', 'local_info'])]

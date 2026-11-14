@@ -10,6 +10,7 @@ import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 import { env }        from '../config/env.js'
 import { reviewScrapeQueue } from '../jobs/queues.js'
+import { webLink }    from '../../../shared/links.js'
 
 // Reviews belong to the website: view reads, manage changes.
 const PERM = {
@@ -63,7 +64,9 @@ const RecordedReview = z.object({
 const RecordBody = z.object({
   venue_id: z.string().uuid(),
   platform: z.enum(RECORD_PLATFORMS),
-  page_url: z.string().url().max(500).nullable().optional(),
+  // The page the reviews were read from, drawn as a link on the Reviews page:
+  // http or https only (Zod's url() alone takes javascript: and data: links).
+  page_url: z.string().trim().max(500).refine(u => !!webLink(u), 'Use a web address starting with https://').nullable().optional(),
   reviews:  z.array(RecordedReview).min(1).max(40),
 })
 
