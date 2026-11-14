@@ -6,6 +6,20 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-14 — Till layouts: several Dishes zones]
+
+No migration.
+
+**Added**
+- A till layout can have up to four **Categories** zones and four **Dishes** zones, so food and drinks (or mains and sides) can each have their own list on one screen.
+- Each Dishes zone **follows** one Categories zone and shows the dishes of the category open there. Each Categories zone keeps its own category open on the till: tapping Soft drinks in the drinks zone leaves the food zone where it was.
+- Designer: a Dishes zone's settings have **Follows** (each Categories zone with the categories it lists); a Categories zone's have **Its dishes show in** (tap one to go to it) and **Make Dishes 2 follow it**. A new Dishes zone follows the first Categories zone no Dishes zone follows yet. Zones of a kind the layout has several of are numbered on the canvas as in the zone list (Categories 2, Dishes 1).
+- Listed in amber (the layout still saves): a Categories zone no Dishes zone follows (its categories show no dishes), and two Dishes zones following the same Categories zone (they show the same dishes).
+
+**Notes**
+- Layouts saved before have one Categories zone and one Dishes zone, which follows it: nothing changes for them.
+- Tried in Chromium at 1280, 1015 and 390 px with a mouse, not yet on a real tablet.
+
 ## [2026-11-14 — Till: each group of choices under its own heading]
 
 No migration.

@@ -162,6 +162,55 @@ test('a category\'s dishes zone and dishes left out: own ids kept, in the till\'
   await ok(owner.delete('/api/pos/till-layouts/' + l.id))
 })
 
+test('several Dishes zones, each following a Categories zone: saved, checked, in the till\'s config', async () => {
+  const menu = await ok(owner.get('/api/menus/' + menuA))
+  const drinks = menu.sections.find(s => s.id !== mine.section && s.items?.length)
+  const l = await ok(owner.post('/api/pos/till-layouts', { name: 'Zql Two lists' }))
+  const layout = {
+    cols: 12, rows: 8,
+    zones: [
+      { id: 'check', type: 'check', x: 0, y: 0, w: 4, h: 8 },
+      { id: 'food', type: 'categories', x: 4, y: 0, w: 4, h: 1, sections: [mine.section] },
+      { id: 'drink', type: 'categories', x: 8, y: 0, w: 4, h: 1, sections: [drinks.id] },
+      { id: 'mains', type: 'items', x: 4, y: 1, w: 4, h: 7, follows: 'food' },
+      { id: 'glasses', type: 'items', x: 8, y: 1, w: 4, h: 7, follows: 'drink' },
+    ],
+  }
+  const put = body => owner.put('/api/pos/till-layouts/' + l.id, { name: 'Zql Two lists', layout: body })
+  const saved = await ok(put(layout))
+  const z = (r, id) => r.layout.zones.find(x => x.id === id)
+  assert.equal(z(saved, 'mains').follows, 'food')
+  assert.equal(z(saved, 'glasses').follows, 'drink')
+  assert.deepEqual(saved.warnings.filter(w => ['categories_alone', 'same_dishes', 'items_alone'].includes(w.code)), [], JSON.stringify(saved.warnings))
+
+  // Following a zone that isn't a Categories zone means following the first:
+  // both lists then show the food, and nothing shows the drinks.
+  const stale = await ok(put({ ...layout, zones: layout.zones.map(x => (x.id === 'glasses' ? { ...x, follows: 'mains' } : x)) }))
+  assert.equal(z(stale, 'glasses').follows, null)
+  const same = stale.warnings.find(w => w.code === 'same_dishes')
+  assert.deepEqual(same?.zones, ['mains', 'glasses'], JSON.stringify(stale.warnings))
+  const alone = stale.warnings.find(w => w.code === 'categories_alone')
+  assert.deepEqual(alone?.zones, ['drink'])
+  assert.match(alone.message, /Categories 2/)
+
+  // Four of each are allowed, five Dishes zones are too many.
+  const five = await put({ ...layout, zones: [...layout.zones.slice(0, 3), ...[0, 1, 2, 3, 4].map(i => ({ id: 'd' + i, type: 'items', x: 4 + i, y: 1, w: 1, h: 7 }))] })
+  assert.equal(five.status, 422)
+  assert.equal(five.json.code, 'layout')
+  assert.ok(five.json.problems.some(p => p.code === 'too_many'), JSON.stringify(five.json.problems))
+
+  // The till gets it as saved.
+  await ok(put(layout))
+  await ok(owner.patch(`/api/pos/venues/${V}/settings`, { till_layout_id: l.id }))
+  const cfg = await config(till)
+  const tz = id => cfg.till_layouts[l.id].zones.find(x => x.id === id)
+  assert.equal(tz('mains').follows, 'food')
+  assert.equal(tz('glasses').follows, 'drink')
+  assert.deepEqual(tz('drink').sections, [drinks.id])
+  await ok(owner.patch(`/api/pos/venues/${V}/settings`, { till_layout_id: null }))
+  await ok(owner.delete('/api/pos/till-layouts/' + l.id))
+})
+
 test('the venue\'s layout and a till\'s own reach the till; deleting a layout puts them back', async () => {
   const bar = await ok(owner.post('/api/pos/till-layouts', { name: 'Zql House' }))
   await ok(owner.put('/api/pos/till-layouts/' + bar.id, { name: 'Zql House', layout: layoutWith(mine) }))

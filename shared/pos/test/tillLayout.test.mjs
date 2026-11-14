@@ -8,6 +8,7 @@ import {
   buttonTextStyle, ALIGN_KEYS, VALIGN_KEYS, menuZoneMenus, MAX_MENUS, GRID_ZONES,
   floats, isPopup, popupCloseProblem, LABEL_MAX, ZONE_TYPES, MAX_ZONES, shownDishIds, MAX_HIDDEN,
   POPUP_ZONES, popupTitle, popupOpeners, isList, gridDefaults, TEMPLATE_KEYS, ZONE_GRID, leftOutButtons, reachablePopups, unopenedWhy,
+  categoriesZoneOf, dishesZonesOf,
 } from '../tillLayout.js'
 
 const A = '11111111-1111-4111-8111-111111111111'
@@ -91,10 +92,19 @@ test('problems: an Order zone, one of each, Dish choices split properly, no over
   assert.deepEqual(codes({
     zones: [
       { type: 'check', x: 0, y: 0, w: 2, h: 2 },
-      { type: 'items', x: 2, y: 0, w: 2, h: 2 },
-      { type: 'items', x: 4, y: 0, w: 2, h: 2 },
+      { type: 'seats', x: 2, y: 0, w: 2, h: 2 },
+      { type: 'seats', x: 4, y: 0, w: 2, h: 2 },
     ],
   }), ['too_many'])
+  // Up to four Dishes and four Categories zones; a fifth is too many.
+  const many = (type, n) => codes({
+    cols: 12, rows: 8,
+    zones: [{ type: 'check', x: 0, y: 0, w: 2, h: 8 }, ...Array.from({ length: n }).map((_, i) => ({ type, x: 2 + i * 2, y: 0, w: 2, h: 2 }))],
+  })
+  assert.deepEqual(many('items', 4), [])
+  assert.deepEqual(many('items', 5), ['too_many'])
+  assert.deepEqual(many('categories', 4), [])
+  assert.deepEqual(many('categories', 5), ['too_many'])
   const kinds = (a, b) => codes({
     zones: [
       { type: 'check', x: 0, y: 0, w: 2, h: 2 },
@@ -979,4 +989,64 @@ test('Phone layouts: the flag, and the three templates', () => {
   assert.ok(strip.cols >= ZONE_GRID.min && strip.cols <= 4, 'a few categories across a phone')
   // An unknown key is still the standard screen.
   assert.deepEqual(templateLayout('nonsense'), templateLayout('standard'))
+})
+
+test('Several Dishes zones, each following a Categories zone', () => {
+  const zones = [
+    { id: 'order', type: 'check', x: 0, y: 0, w: 4, h: 8 },
+    { id: 'food', type: 'categories', x: 4, y: 0, w: 4, h: 1 },
+    { id: 'drinks', type: 'categories', x: 8, y: 0, w: 4, h: 1 },
+    { id: 'mains', type: 'items', x: 4, y: 1, w: 4, h: 7 },
+    { id: 'glasses', type: 'items', x: 8, y: 1, w: 4, h: 7, follows: 'drinks' },
+  ]
+  const l = normaliseTillLayout({ zones })
+  const z = id => l.zones.find(x => x.id === id)
+  assert.equal(z('mains').follows, null, 'none named: the first')
+  assert.equal(z('glasses').follows, 'drinks')
+  assert.equal(categoriesZoneOf(l, z('mains')).id, 'food')
+  assert.equal(categoriesZoneOf(l, z('glasses')).id, 'drinks')
+  assert.deepEqual(dishesZonesOf(l, z('food')).map(x => x.id), ['mains'])
+  assert.deepEqual(dishesZonesOf(l, z('drinks')).map(x => x.id), ['glasses'])
+  assert.deepEqual(dishesZonesOf(l, null), [])
+  assert.deepEqual(layoutProblems(l), [])
+  assert.deepEqual(layoutWarnings(l).map(w => w.code), ['choices_window'], 'each Categories zone has its own Dishes zone')
+
+  // A zone it can't follow (gone, not a Categories zone, not an id): the first one.
+  for (const bad of ['gone', 'order', 'mains', 'not an id!', 7]) {
+    const k = normaliseTillLayout({ zones: zones.map(x => (x.id === 'glasses' ? { ...x, follows: bad } : x)) })
+    assert.equal(k.zones.find(x => x.id === 'glasses').follows, null, String(bad))
+    assert.equal(categoriesZoneOf(k, k.zones.find(x => x.id === 'glasses')).id, 'food')
+  }
+  // Only Dishes zones follow.
+  const own = normaliseTillLayout({ zones: [...zones.slice(0, 3), { id: 'cat', type: 'category', x: 4, y: 1, w: 4, h: 2, follows: 'drinks' }] })
+  assert.equal('follows' in own.zones.find(x => x.id === 'cat'), false)
+  // The Categories zone it followed taken out: it follows the first one.
+  const left = normaliseTillLayout({ zones: zones.filter(x => x.id !== 'drinks') })
+  assert.equal(left.zones.find(x => x.id === 'glasses').follows, null)
+  // No Categories zone: none followed (every dish of the menus on now).
+  const none = normaliseTillLayout({ zones: zones.filter(x => x.type !== 'categories') })
+  assert.equal(categoriesZoneOf(none, none.zones.find(x => x.id === 'mains')), null)
+
+  const warn = (list, code) => layoutWarnings(normaliseTillLayout({ zones: list })).filter(w => w.code === code)
+  // Both following the first: the second Categories zone shows no dishes, and they show the same.
+  const same = zones.map(x => (x.id === 'glasses' ? { ...x, follows: null } : x))
+  const [alone] = warn(same, 'categories_alone')
+  assert.deepEqual(alone.zones, ['drinks'])
+  assert.match(alone.message, /No Dishes zone follows Categories 2/)
+  const [both] = warn(same, 'same_dishes')
+  assert.deepEqual(both.zones, ['mains', 'glasses'])
+  assert.match(both.message, /^Dishes 1 and Dishes 2 follow the same Categories zone \(Categories 1\)/)
+  // One Categories zone and three Dishes zones: add another Categories zone.
+  const one = [...zones.filter(x => x.id !== 'drinks').map(x => ({ ...x, follows: null })), { id: 'third', type: 'items', x: 8, y: 0, w: 4, h: 1 }]
+  const [three] = warn(one.map(x => (x.id === 'glasses' ? { ...x, y: 1 } : x)), 'same_dishes')
+  assert.match(three.message, /^Dishes 1, Dishes 2 and Dishes 3 follow the one Categories zone.*add another Categories zone/)
+  assert.deepEqual(warn(one, 'categories_alone'), [])
+  // No Dishes zone at all: one warning, not one per Categories zone.
+  const noDishes = warn(zones.filter(x => x.type !== 'items'), 'categories_alone')
+  assert.equal(noDishes.length, 1)
+  assert.deepEqual(noDishes[0].zones, [])
+  // No Categories zone: the Dishes zones show every dish.
+  const [every] = warn(zones.filter(x => x.type !== 'categories'), 'items_alone')
+  assert.match(every.message, /the Dishes zones show every dish/)
+  assert.deepEqual(warn(zones.filter(x => x.type !== 'categories'), 'same_dishes'), [])
 })

@@ -4724,6 +4724,28 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               section&apos;s title.
             </P>
             <P>
+              Several Dishes zones (14 Nov 2026, no migration): a layout takes up to four Categories zones and four Dishes
+              zones (<Mono>ZONE_TYPES</Mono> max 4 each; <Mono>MAX_ZONES</Mono> 40 so every type at its most still fits). A
+              Dishes zone carries <Mono>follows</Mono>, the id of the Categories zone whose open category it shows;
+              null, or an id the layout doesn&apos;t have (cleared by <Mono>normaliseTillLayout()</Mono>), means the first.{' '}
+              <Mono>categoriesZoneOf(layout, zone)</Mono> is the one rule (the till, the designer&apos;s previews, the
+              warnings) and <Mono>dishesZonesOf(layout, cats)</Mono> the other way round. Warnings: <Mono>categories_alone</Mono>{' '}
+              per Categories zone no Dishes zone follows (<Mono>zones</Mono> = that zone; the old wording when the layout has
+              no Dishes zone at all) and <Mono>same_dishes</Mono> when two or more follow one (<Mono>zones</Mono> = them),
+              naming zones as <Mono>nthName()</Mono> does (Dishes 2 when the layout has several). On the till{' '}
+              <Mono>LayoutScreen</Mono> keeps the open category per Categories zone (<Mono>sectionPicks</Mono>, remembered
+              as <Mono>layoutId + &apos;:sections&apos;</Mono>), each zone&apos;s categories in <Mono>catSections</Mono> and{' '}
+              <Mono>openIn(cats)</Mono>; a Dishes zone takes <Mono>openIn(categoriesZoneOf(layout, z))</Mono>, and a
+              pop-up Categories zone&apos;s opener notes its own open category. The designer: <Mono>FollowsPicker</Mono>{' '}
+              (<Mono>tl-follows</Mono> with a button per Categories zone, <Mono>aria-pressed</Mono>, <Mono>data-zone-id</Mono>,
+              what it lists from <Mono>catsSummary()</Mono>; <Mono>tl-follows-hint</Mono>), <Mono>FollowedBy</Mono> on a
+              Categories zone (<Mono>tl-followed-by</Mono>, <Mono>tl-follower</Mono> a div that opens the zone so View users
+              can still use it, <Mono>tl-no-follower</Mono>, <Mono>tl-followers-same</Mono>, <Mono>tl-make-follow</Mono>{' '}
+              through <Mono>onPatchZone</Mono>), <Mono>addZone()</Mono> giving a new Dishes zone the first Categories zone
+              nothing follows, <Mono>previewCells()</Mono> through <Mono>categoriesZoneOf()</Mono>, and the canvas naming
+              zones as the zone list does (<Mono>zoneName()</Mono>, Categories 2).
+            </P>
+            <P>
               Pop-ups (type <Mono>popup</Mono>, up to 8 per layout, 1 Nov 2026; <Mono>MAX_ZONES</Mono> went to 24 so every
               zone type at its most fits, and to 32 with the category&apos;s dishes zone) are zones with buttons like a Buttons zone (the same <Mono>buttons</Mono>, grid and
               words settings; <Mono>GRID_DEFAULTS.popup</Mono> 3 x 2 in pages), plus <Mono>title</Mono> (default Pop-up),{' '}
