@@ -31,7 +31,21 @@ function itemView(it, venueNames) {
     ...(it.place ? { place: it.place } : {}),
     ...(it.url ? { url: it.url } : {}),
     ...(it.source_id ? {} : { typed_in: true }),
+    // Staff's own flags on what a capture found (migration 248).
+    ...(it.feedback && (it.feedback.relevant || it.feedback.not_relevant)
+      ? { staff_flags: { relevant: it.feedback.relevant, not_relevant: it.feedback.not_relevant } } : {}),
   }
+}
+
+/** A capture in a line, with what Pepper learned from its flags (migration 248). */
+function captureView(s) {
+  const learned = s.learn_auto !== false && s.learned && (s.learned.look_for?.length || s.learned.leave_out?.length)
+    ? ' · learned from flags: ' + [
+      s.learned.look_for?.length ? 'look for ' + s.learned.look_for.join('; ') : null,
+      s.learned.leave_out?.length ? 'leave out ' + s.learned.leave_out.join('; ') : null,
+    ].filter(Boolean).join(', ')
+    : ''
+  return KIND_LABELS[s.kind] + ' (' + frequencyText(s).toLowerCase() + (s.enabled ? '' : ', off') + ')' + learned
 }
 
 export const localInfoTools = [
@@ -74,7 +88,7 @@ export const localInfoTools = [
           note: 'This venue has no captures set up yet: only typed-in events can show. Captures are set up on the Local info page (/local-info).',
         } : {}),
         ...(sources?.length ? {
-          captures: sources.map(s => KIND_LABELS[s.kind] + ' (' + frequencyText(s).toLowerCase() + (s.enabled ? '' : ', off') + ')'),
+          captures: sources.map(captureView),
         } : {}),
       }
     },

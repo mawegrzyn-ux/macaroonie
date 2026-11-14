@@ -96,6 +96,8 @@ export const LEFT_OUT = {
   ],
   'Reached only through the row they belong to': [
     'table_combination_members', 'feature_request_upvotes',
+    // Staff flags on local info (migration 248): counted on the item itself.
+    'local_info_feedback',
   ],
   'No longer written (booking emails are in email_log, reported as bookings.emails)': [
     'notification_log',

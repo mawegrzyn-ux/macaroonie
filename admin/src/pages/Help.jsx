@@ -354,6 +354,35 @@ export default function Help() {
               when the capture runs again. <strong>Show hidden</strong> brings hidden items back into view so you
               can unhide them.
             </P>
+            <H3>Relevant or not relevant</H3>
+            <P>
+              Everything a capture found (not the events you type in) has two buttons on its row: a thumbs up
+              for <strong>Relevant</strong> and a thumbs down for <strong>Not relevant</strong>, each with how many of
+              your team picked it. They're on the list, in the day window and on the dashboard widget; on a phone
+              they show as the thumbs and their counts. Tap one to add your flag, tap it again to take it off, or
+              tap the other to change your mind. Everyone has their own flag, so the counts are the team's view: a
+              road closure across town that five people marked not relevant probably isn't. A flag changes nothing
+              on the calendar (hide an item to take it out of view); it tells Pepper what your venue finds useful.
+            </P>
+            <H3>Pepper learns from the flags</H3>
+            <P>
+              For a <strong>Traffic</strong>, <strong>Events</strong> or <strong>Incidents</strong> capture, Pepper reads
+              the flags on what it found and works out what its search should look for and what it should leave
+              out (say, farmers markets in Ware yes, events in London no). It does this before the capture's next
+              run whenever a flag was added, changed or taken off since it last learned, and the search then uses
+              those words beside your own <strong>Also look for</strong> words, which always stay. In{' '}
+              <strong>Captures</strong> each capture shows its flags and what Pepper learned (<strong>Looks
+              for</strong>, <strong>Leaves out</strong>, and a sentence on why). <strong>Learn now</strong> does it
+              straight away instead of waiting for the next run, and <strong>Forget what Pepper learned</strong>{' '}
+              (it asks first) puts the search back to your own words until new flags come in. To keep a
+              capture's search exactly as you set it, switch <strong>Learn from staff flags</strong> off in its
+              Edit: the flags still show. If every flag on a capture is taken off, it forgets what it learned at
+              its next run, and changing a capture's kind starts afresh. A weather forecast has no search to tune,
+              so flags on the weather are only shown. Pepper reads the 60 most recently flagged findings; learning
+              counts towards the group's Pepper allowance like the searches do (Learn now also towards your own
+              daily share). If it couldn't learn before a run, the reason shows on the capture and the run goes
+              ahead with what it learned before.
+            </P>
             <H3>On dashboards</H3>
             <P>
               The <strong>Local info</strong> widget (Add widget, under Local info) shows the week ahead from the
@@ -365,8 +394,9 @@ export default function Help() {
             </P>
             <H3>Who can do what</H3>
             <P>
-              Local info is its own module in Access. <strong>View</strong> sees the calendar, list and widget;
-              <strong> Manage</strong> adds events, hides items and sets up captures. Captured searches count
+              Local info is its own module in Access. <strong>View</strong> sees the calendar, list and widget and
+              can flag what the captures found as relevant or not; <strong>Manage</strong> adds events, hides items,
+              sets up captures and uses Learn now and Forget. Captured searches count
               towards the group's monthly Pepper allowance (what Pepper reads and writes, plus 2,500 units for
               each web search it makes, up to five a run); the weather doesn't.
             </P>
