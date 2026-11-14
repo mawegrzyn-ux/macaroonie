@@ -56,11 +56,39 @@ export default [
     },
     links: {
       section: one('bookings.sections', 'section_id', { label: 'Section' }),
+      floor_area: one('till.floor_areas', 'floor_area_id', { label: 'Floor area on the till' }),
     },
     list: ['name', 'venue.name', 'section.name', 'min_covers', 'max_covers', 'active'],
     sort: [{ by: 'name', dir: 'asc' }],
     // Where a table sits on the till's floor plan isn't something to report on.
-    skip: ['floor_area_id', 'sort_order', 'created_at', 'updated_at', 'pos_x', 'pos_y', 'pos_w', 'pos_h', 'shape', 'rotation'],
+    skip: ['sort_order', 'created_at', 'updated_at', 'pos_x', 'pos_y', 'pos_w', 'pos_h', 'shape', 'rotation'],
+  }),
+
+  subject({
+    key: 'bookings.combinations',
+    label: 'Table combinations',
+    one: 'table combination',
+    area: 'bookings',
+    module: 'bookings',
+    about: 'Tables set up to be booked together for bigger parties (T8 + T9), with how many guests each combination seats.',
+    from: 'table_combinations',
+    name: 'name',
+    venue: 'venue_id',
+    fields: {
+      name: text('name'),
+      min_covers: number('min_covers', { label: 'Seats at least', decimals: 0 }),
+      max_covers: number('max_covers', { label: 'Seats at most', decimals: 0 }),
+      active: yesno('is_active', { label: 'In use' }),
+    },
+    measures: {
+      combinations: count({ label: 'Table combinations', where: '{t}.is_active' }),
+    },
+    links: {
+      bookings: many('bookings.bookings', 'combination_id', { label: 'Bookings on it' }),
+    },
+    list: ['name', 'venue.name', 'min_covers', 'max_covers', 'active'],
+    sort: [{ by: 'name', dir: 'asc' }],
+    skip: ['created_at', 'updated_at'],
   }),
 
   subject({
@@ -123,11 +151,13 @@ export default [
       table: one('bookings.tables', 'table_id', { label: 'Table' }),
       customer: one('guests.customers', 'customer_id', { label: 'Customer', needs: 'customers' }),
       deposits: many('bookings.deposits', 'booking_id', { label: 'Deposits' }),
+      combination: one('bookings.combinations', 'combination_id', { label: 'Table combination' }),
+      emails: many('bookings.emails', 'booking_id', { label: 'Emails sent' }),
     },
     list: ['date', 'starts_at', 'venue.name', 'guest_name', 'covers', 'table.name', 'status', 'reference'],
     sort: [{ by: 'starts_at', dir: 'desc' }],
     // manage_token is the guest's key to their booking: never offered.
-    skip: ['combination_id', 'updated_at', 'manage_token'],
+    skip: ['updated_at', 'manage_token'],
   }),
 
   subject({
@@ -165,5 +195,45 @@ export default [
     sort: [{ by: 'paid_at', dir: 'desc' }],
     // Stripe's own ids and account, and the currency (a venue's currency is the one reports use).
     skip: ['stripe_pi_id', 'stripe_account', 'refund_ids', 'currency', 'updated_at'],
+  }),
+
+  subject({
+    key: 'bookings.emails',
+    label: 'Emails sent',
+    one: 'email',
+    area: 'bookings',
+    module: 'email_templates',
+    about: 'Every email sent to guests for bookings and online orders (confirmations, reminders, changes, cancellations, order ready), with whether it went or failed. Test emails sent from the Emails page are listed as Test email.',
+    from: 'email_log',
+    venue: { sql: 'COALESCE({booking}.venue_id, {order}.venue_id)' },
+    date: { sql: '({t}.created_at AT TIME ZONE {tz})::date', bound: '{t}.created_at', label: 'Day' },
+    fields: {
+      type: choice({ sql: "(CASE WHEN right({t}.template_type, 5) = '_test' THEN 'test' ELSE {t}.template_type END)" }, {
+        confirmation: 'Booking confirmation', reminder: 'Booking reminder', modification: 'Booking change', cancellation: 'Booking cancelled',
+        ai_access_code: 'Pepper access code', order_confirmation: 'Order confirmation', order_ready: 'Order ready', order_cancelled: 'Order cancelled',
+        test: 'Test email',
+      }, { label: 'Email' }),
+      to: text('recipient', { label: 'Sent to', pii: true }),
+      subject: text('subject'),
+      provider: choice('provider', { sendgrid: 'SendGrid', postmark: 'Postmark', mailgun: 'Mailgun', ses: 'Amazon SES', smtp: 'SMTP' }, { label: 'Sent through' }),
+      status: choice('status', { queued: 'Waiting', sent: 'Sent', failed: 'Failed', bounced: 'Bounced' }),
+      error: text('error', { label: 'Problem' }),
+      sent_at: moment('sent_at', { label: 'Sent' }),
+      made_at: moment('created_at', { label: 'Made' }),
+    },
+    measures: {
+      emails: count({ label: 'Emails' }),
+      sent: count({ label: 'Sent', where: "{t}.status = 'sent'" }),
+      failed: count({ label: 'Failed or bounced', where: "{t}.status IN ('failed', 'bounced')", about: 'Emails the provider refused, or that bounced.' }),
+      failed_rate: ratio('failed', 'emails', { type: 'percent', label: 'Failed (%)' }),
+    },
+    links: {
+      booking: one('bookings.bookings', 'booking_id', { label: 'Booking' }),
+      order: one('online.orders', 'order_id', { label: 'Online order', needs: 'web_orders' }),
+    },
+    list: ['made_at', 'type', 'to', 'status', 'error'],
+    sort: [{ by: 'made_at', dir: 'desc' }],
+    // The provider's own message id.
+    skip: ['provider_id'],
   }),
 ]

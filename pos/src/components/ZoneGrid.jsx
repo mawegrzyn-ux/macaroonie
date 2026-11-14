@@ -7,6 +7,10 @@
 // button in the last cell, or is left out. A list (view: 'list', one column)
 // that scrolls keeps its rows at least a finger high (LIST_MIN), whatever the
 // zone's rows come to on a small phone.
+//
+// focus ({ key, n }, a new n each time): that cell is brought into view (its
+// page shown, scrolled to, or the More sheet opened) and lit for a moment
+// (the Order zone's placeholders for a dish's choices still to pick).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react'
@@ -26,8 +30,9 @@ const track = (n, of) => `calc((100cq${of} - ${GAP * (n - 1)}px) / ${n})`
  * cells: [{ key, w, h, node }]: node fills its cell. zone: { cols, rows,
  * overflow, font, bold }. memoKey: where the page is remembered; resetKey:
  * when it changes, back to the first page (another category, another dish).
+ * focus: a cell to bring into view (see above).
  */
-export default function ZoneGrid({ zone, cells, memoKey, resetKey = '', empty = null, moreTitle = 'More', testid = null }) {
+export default function ZoneGrid({ zone, cells, memoKey, resetKey = '', empty = null, moreTitle = 'More', testid = null, focus = null }) {
   const sig = cells.map(c => c.key + ':' + (c.w || 1) + 'x' + (c.h || 1)).join('|')
   const packed = useMemo(
     () => packCells(cells.map(c => ({ w: c.w || 1, h: c.h || 1 })), zone),
@@ -44,10 +49,34 @@ export default function ZoneGrid({ zone, cells, memoKey, resetKey = '', empty = 
   const setPage = p => { pageMemo.set(memo, p); setPageState(p) }
   const pages = packed.pages
   const at = Math.min(page, pages.length - 1)
+  // A cell asked for: its page (or the More sheet), then scrolled to once drawn.
+  const box = useRef(null)
+  const pending = useRef(null)
+  const [lit, setLit] = useState(null)
+  useEffect(() => {
+    if (!focus) return undefined
+    const i = cells.findIndex(c => c.key === focus.key)
+    if (i < 0) return undefined
+    const pi = pages.findIndex(pg => pg.some(p => p.i === i))
+    if (pi >= 0) {
+      if (pi !== at) setPage(pi)
+      pending.current = focus.key
+    } else if (packed.rest.includes(i)) setMore(true)
+    setLit(focus.key)
+    const t = setTimeout(() => setLit(null), 1600)
+    return () => clearTimeout(t)
+  }, [focus?.n]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!pending.current || !box.current) return
+    const el = [...box.current.querySelectorAll('[data-cell]')].find(x => x.getAttribute('data-cell') === pending.current)
+    if (!el) return
+    pending.current = null
+    el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
+  })
   const style = { fontSize: zone.font + 'px', fontWeight: zone.bold === false ? 500 : 700 }
 
   if (!cells.length) {
-    return <div className="h-full flex items-center justify-center text-muted text-sm p-3 text-center" data-testid={testid}>{empty}</div>
+    return <div className="h-full flex items-center justify-center zone-muted text-sm p-3 text-center" data-testid={testid}>{empty}</div>
   }
 
   const across = zone.overflow === 'scroll' && zone.rows === 1 && zone.cols > 1
@@ -65,17 +94,18 @@ export default function ZoneGrid({ zone, cells, memoKey, resetKey = '', empty = 
   const rest = packed.rest.map(i => cells[i])
 
   return (
-    <div className="h-full flex flex-col min-h-0" style={style} data-testid={testid} data-overflow={zone.overflow} data-view={isList(zone) ? 'list' : 'grid'}
+    <div ref={box} className="h-full flex flex-col min-h-0" style={style} data-testid={testid} data-overflow={zone.overflow} data-view={isList(zone) ? 'list' : 'grid'}
       data-page={at} data-pages={pages.length}>
       <div className={cx('flex-1 min-h-0 min-w-0', down && 'overflow-y-auto overscroll-contain', across && 'overflow-x-auto overflow-y-hidden overscroll-contain')}
         style={{ containerType: 'size' }}>
         <div style={grid}>
           {shown.map(p => (
-            <div key={cells[p.i].key} className="min-w-0 min-h-0 relative" style={place(p)} data-cell={cells[p.i].key}>{cells[p.i].node}</div>
+            <div key={cells[p.i].key} className={cx('min-w-0 min-h-0 relative rounded-xl transition-shadow', lit === cells[p.i].key && 'ring-4 ring-warn')}
+              style={place(p)} data-cell={cells[p.i].key} data-lit={lit === cells[p.i].key ? '1' : undefined}>{cells[p.i].node}</div>
           ))}
           {rest.length > 0 && (
             <div className="min-w-0 min-h-0" style={{ gridColumn: `${zone.cols} / span 1`, gridRow: `${zone.rows} / span 1` }}>
-              <button className="w-full h-full rounded-xl border-2 border-dashed border-brand text-brand flex flex-col items-center justify-center gap-0.5 touch-manipulation"
+              <button className="w-full h-full rounded-xl border-2 border-dashed border-brand bg-white text-brand flex flex-col items-center justify-center gap-0.5 touch-manipulation"
                 onClick={() => setMore(true)} data-testid="zone-more">
                 <MoreHorizontal size={20} /><span>More ({rest.length})</span>
               </button>
@@ -87,7 +117,7 @@ export default function ZoneGrid({ zone, cells, memoKey, resetKey = '', empty = 
         // The arrows shrink to 44 px in a narrow zone; the page count stays on one line.
         <div className="shrink-0 flex items-center justify-between gap-1 pt-1.5" style={{ fontSize: 15 }}>
           <button className="btn h-11 flex-1 min-w-[44px] max-w-[64px] px-0" disabled={at === 0} onClick={() => setPage(at - 1)} aria-label="Page before" data-testid="zone-prev"><ChevronLeft size={22} /></button>
-          <span className="shrink-0 whitespace-nowrap text-sm font-semibold text-muted tabular-nums" data-testid="zone-page">{at + 1} / {pages.length}</span>
+          <span className="shrink-0 whitespace-nowrap text-sm font-semibold zone-muted tabular-nums" data-testid="zone-page">{at + 1} / {pages.length}</span>
           <button className="btn h-11 flex-1 min-w-[44px] max-w-[64px] px-0" disabled={at >= pages.length - 1} onClick={() => setPage(at + 1)} aria-label="Next page" data-testid="zone-next"><ChevronRight size={22} /></button>
         </div>
       )}

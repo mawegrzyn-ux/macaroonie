@@ -76,18 +76,13 @@ export function ActionsMenu({ check, config, menus = null, onPick, onClose }) {
     !check.lines.length && !(check.payments || []).some(p => !p.voided) && { key: 'void_check', label: 'Close empty check', icon: XCircle },
     check.lines.length > 0 && { key: 'cancel', label: 'Cancel order', icon: Ban, hint: 'void it all, with a reason', bad: true },
   ].filter(Boolean)
-  // A layout without the till's top bar: the till menu is here too.
+  // A layout without the till's top bar: the till menu is here too, under
+  // the order's own actions.
   const { hideBar } = useTillNav()
   return (
     <Modal title={'Check ' + checkLabel(check)} onClose={onClose} wide>
-      {hideBar && (
-        <div className="mb-4 pb-4 border-b border-line space-y-2">
-          <div className="label px-1">Till</div>
-          <TillMenuSection onDone={onClose} />
-          <div className="label px-1 pt-2">This order</div>
-        </div>
-      )}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+      {hideBar && <div className="label px-1 pb-2" data-testid="actions-order-label">This order</div>}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2" data-testid="actions-order">
         {items.map(it => (
           <button key={it.key} className={cx('btn h-auto min-h-[64px] py-2 justify-start text-left', it.bad && 'text-bad')} onClick={() => onPick(it.key)} data-testid={'action-' + it.key}>
             <it.icon size={22} className={cx('shrink-0', it.bad ? 'text-bad' : 'text-brand')} />
@@ -95,6 +90,12 @@ export function ActionsMenu({ check, config, menus = null, onPick, onClose }) {
           </button>
         ))}
       </div>
+      {hideBar && (
+        <div className="mt-4 pt-4 border-t border-line space-y-2" data-testid="actions-till">
+          <div className="label px-1">Till</div>
+          <TillMenuSection onDone={onClose} />
+        </div>
+      )}
     </Modal>
   )
 }

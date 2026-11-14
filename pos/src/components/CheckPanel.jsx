@@ -2,25 +2,36 @@
 // (or seat), what has gone to the kitchen, what is waiting, and the totals.
 //
 // Swipe an item to the left: its button shows (Delete before it is sent,
-// Void once the kitchen has it); a long swipe does it straight away. Drag an
-// item by its grip to another course (items not sent yet) or, grouped by
-// seat, to another seat.
+// Void once the kitchen has it); a long swipe does it straight away. Swipe a
+// dish not sent yet to the right: Options shows (its options screen with its
+// picks, onEdit; a long swipe opens it straight away), for a dish with
+// options or steps (lib/checkOps.js canChangeOptions()). Drag an item by its
+// grip to another course (items not sent yet) or, grouped by seat, to
+// another seat.
 //
 // The order's allergy flag (shared/pos/allergy.js) shows as a red bar under
 // the header (tap it to change it: onAllergy), and each dish that clashes with
 // it says how (pos/src/lib/allergyFit.js). A dish an order flow put on says
 // so (Added by <flow>), with a lock when staff can't take it off alone.
+//
+// A dish being added from a till layout's Dish choices zones shows as a
+// dashed line at the end (DraftLine.jsx: not on the order until Add, with a
+// placeholder for each choice still to pick); one whose options are being
+// changed shows under its own line, dimmed meanwhile. In a layout zone with a
+// background of its own (clear), the panel lets it show through: the lines
+// stay white, the rest takes the zone's words (zone-muted for notes).
 
-import { useEffect, useRef, useState } from 'react'
-import { Send, Hourglass, Flame, Ban, Gift, Percent, ChefHat, AlertTriangle, Layers, GripVertical, Trash2, Workflow, Lock } from 'lucide-react'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import { Send, Hourglass, Flame, Ban, Gift, Percent, ChefHat, AlertTriangle, Layers, GripVertical, Trash2, Workflow, Lock, SlidersHorizontal } from 'lucide-react'
 import { checkTotals, lineGross, modifierText, groupModifiers, isActiveLine } from '@shared/pos/pricing.js'
 import { countParts } from '@shared/combos.js'
 import { chargeLabel } from '@shared/pos/charges.js'
 import { allergyText, allergyOn } from '@shared/pos/allergy.js'
 import { cx, money } from './ui.jsx'
-import { groupByCourse, groupBySeat, canRegroup } from '../lib/checkOps.js'
+import { groupByCourse, groupBySeat, canRegroup, canChangeOptions } from '../lib/checkOps.js'
 import { lineClash, clashWords } from '../lib/allergyFit.js'
 import { flowNameOf } from '../lib/orderFlows.js'
+import DraftRow, { useDraft } from './DraftLine.jsx'
 
 const ACTION_W = 104   // the button a swipe shows
 const SWIPE_START = 12 // px sideways before a press counts as a swipe
@@ -77,20 +88,28 @@ function LineBody({ line, discountOf, comboOf, clashOf, flowOf }) {
   )
 }
 
-function LineRow({ line, discountOf, comboOf, clashOf, flowOf, swipe, dragOn, grip, dragging, onTap, onAction }) {
+function LineRow({ line, discountOf, comboOf, clashOf, flowOf, swipe, dragOn, grip, dragging, changing = false, canEdit, onTap, onAction, onEdit }) {
   const voided = line.status === 'voided'
   const shift = swipe.shiftOf(line.id)
   const sent = line.status !== 'new'
   return (
-    <div className={cx('relative overflow-hidden border-b border-line/60', dragging && 'opacity-30')} data-line={line.id}>
+    <div className={cx('relative overflow-hidden border-b border-line/60', dragging && 'opacity-30', changing && 'opacity-40')} data-line={line.id}
+      data-changing={changing ? '1' : undefined}>
+      {canEdit && (
+        <button className="absolute inset-y-0 left-0 bg-brand text-white font-semibold flex flex-col items-center justify-center gap-1 touch-manipulation"
+          style={{ width: ACTION_W }} tabIndex={-1} aria-hidden={shift <= 0}
+          data-testid="line-swipe-edit" onClick={() => onEdit(line)}>
+          <SlidersHorizontal size={20} /><span className="text-sm">Options</span>
+        </button>
+      )}
       {!voided && (
         <button className="absolute inset-y-0 right-0 bg-bad text-white font-semibold flex flex-col items-center justify-center gap-1 touch-manipulation"
-          style={{ width: ACTION_W }} tabIndex={-1} aria-hidden={shift === 0}
+          style={{ width: ACTION_W }} tabIndex={-1} aria-hidden={shift >= 0}
           data-testid="line-swipe-action" onClick={() => onAction(line)}>
           {sent ? <Ban size={20} /> : <Trash2 size={20} />}<span className="text-sm">{sent ? 'Void' : 'Delete'}</span>
         </button>
       )}
-      <div className={cx('relative bg-white flex items-stretch', voided && 'opacity-50')}
+      <div className={cx('relative bg-white text-ink flex items-stretch', voided && 'opacity-50')}
         style={{ transform: shift ? `translateX(${shift}px)` : undefined, transition: swipe.isMoving(line.id) ? 'none' : 'transform 160ms ease-out' }}>
         {dragOn && (
           grip
@@ -99,7 +118,7 @@ function LineRow({ line, discountOf, comboOf, clashOf, flowOf, swipe, dragOn, gr
             : <span className="w-9 shrink-0" />
         )}
         <button
-          onPointerDown={e => swipe.down(e, line, !voided)}
+          onPointerDown={e => swipe.down(e, line, !voided, canEdit)}
           onClick={() => { if (swipe.swallow(line.id)) return; onTap(line) }}
           style={{ touchAction: 'pan-y' }}
           className={cx('flex-1 min-w-0 text-left py-2.5 pr-3 flex gap-3 items-start touch-manipulation active:bg-page select-none', !dragOn && 'pl-3')}>
@@ -110,21 +129,27 @@ function LineRow({ line, discountOf, comboOf, clashOf, flowOf, swipe, dragOn, gr
   )
 }
 
-/** Swiping rows sideways: one row at a time shows its button. */
-function useSwipe({ onAction }) {
-  const [open, setOpen] = useState(null)       // line id showing its button
+/**
+ * Swiping rows sideways: one row at a time shows a button. Left shows the
+ * row's Delete / Void (onAction), right its Options (onEdit) when it has them.
+ */
+function useSwipe({ onAction, onEdit }) {
+  const [open, setOpen] = useState(null)       // { id, dir: 'left' | 'right' }: the row showing a button
   const [moving, setMoving] = useState(null)   // { id, dx } while a finger moves it
   const g = useRef(null)
   const swallowed = useRef(null)
   const end = useRef(null)
   useEffect(() => () => end.current?.(), [])
 
-  const down = (e, line, enabled) => {
+  const openShift = id => (open?.id !== id ? 0 : open.dir === 'right' ? ACTION_W : -ACTION_W)
+  const down = (e, line, enabled, right = false) => {
     if (e.button > 0) return
-    if (open && open !== line.id) { setOpen(null); swallowed.current = line.id; return }
+    if (open && open.id !== line.id) { setOpen(null); swallowed.current = line.id; return }
     if (!enabled) return
     const row = e.currentTarget.closest('[data-line]')
-    const s = { line, x: e.clientX, y: e.clientY, pid: e.pointerId, swiping: false, base: open === line.id ? -ACTION_W : 0, width: row?.offsetWidth || 400, target: e.currentTarget }
+    const s = { line, x: e.clientX, y: e.clientY, pid: e.pointerId, swiping: false, base: openShift(line.id), width: row?.offsetWidth || 400, target: e.currentTarget }
+    // How far it may go: left always (its Delete / Void), right only with Options.
+    const clamp = (dx, room) => Math.max(-s.width * room, Math.min(right ? s.width * room : 0, dx))
     g.current = s
     const move = ev => {
       if (ev.pointerId !== s.pid || g.current !== s) return
@@ -136,17 +161,20 @@ function useSwipe({ onAction }) {
         s.swiping = true
         try { s.target.setPointerCapture(s.pid) } catch { /* not every pointer can be captured */ }
       }
-      setMoving({ id: line.id, dx: Math.max(-s.width * 0.9, Math.min(0, s.base + dx)) })
+      setMoving({ id: line.id, dx: clamp(s.base + dx, 0.9) })
     }
     const up = ev => {
       if (ev.pointerId !== s.pid) return
       if (s.swiping) {
         swallowed.current = line.id
-        const off = Math.max(-s.width, Math.min(0, s.base + (ev.clientX - s.x)))
+        const off = clamp(s.base + (ev.clientX - s.x), 1)
         setMoving(null)
         if (-off > s.width * 0.5) { setOpen(null); onAction(line) }
-        else setOpen(-off > ACTION_W / 2 ? line.id : null)
-      } else if (open === line.id) {
+        else if (off > s.width * 0.5) { setOpen(null); onEdit?.(line) }
+        else if (-off > ACTION_W / 2) setOpen({ id: line.id, dir: 'left' })
+        else if (off > ACTION_W / 2) setOpen({ id: line.id, dir: 'right' })
+        else setOpen(null)
+      } else if (open?.id === line.id) {
         // A tap on a row showing its button closes it.
         swallowed.current = line.id
         setOpen(null)
@@ -168,7 +196,7 @@ function useSwipe({ onAction }) {
   }
   return {
     down,
-    shiftOf: id => (moving?.id === id ? moving.dx : open === id ? -ACTION_W : 0),
+    shiftOf: id => (moving?.id === id ? moving.dx : openShift(id)),
     isMoving: id => moving?.id === id,
     // The click a swipe or a closing tap ends with isn't a tap on the item.
     swallow: id => { if (swallowed.current === id) { swallowed.current = null; return true } return false },
@@ -236,12 +264,18 @@ function useDrag({ listRef, by, onDrop }) {
 }
 
 /**
- * onLine(line): an item tapped. onAction(line): its swipe button (Delete or
- * Void). onRegroup(line, { by: 'course' | 'seat', id }): dragged to another
- * course (id = course id, '' for none) or seat ('0' = shared).
+ * onLine(line): an item tapped. onAction(line): its swipe left button (Delete
+ * or Void). onEdit(line): its swipe right button (Options: change a dish's
+ * options; no button without onEdit). onRegroup(line, { by: 'course' |
+ * 'seat', id }): dragged to another course (id = course id, '' for none) or
+ * seat ('0' = shared).
  */
-export default function CheckPanel({ check, config, onLine, onAction, onRegroup, onAllergy, footer, header, font = null }) {
+export default function CheckPanel({ check, config, onLine, onAction, onEdit = null, onRegroup, onAllergy, footer, header, font = null, clear = false }) {
   const [by, setBy] = useState('course')
+  // A dish being added or changed in a till layout's Dish choices zones.
+  const pending = useDraft()
+  const draft = pending?.draft || null
+  const editing = draft?.edit && check.lines.some(l => l.id === draft.edit) ? draft.edit : null
   const listRef = useRef(null)
   const t = checkTotals(check)
   const offById = Object.fromEntries(t.lines.map(l => [l.id, l.discount]))
@@ -253,7 +287,7 @@ export default function CheckPanel({ check, config, onLine, onAction, onRegroup,
   if (allergyOn(check.allergy)) for (const l of check.lines) clashes[l.id] = clashWords(lineClash(config, l, check.allergy), check.allergy)
   const clashOf = line => clashes[line.id] || []
   const flowOf = line => flowNameOf(config, line.flow)
-  const swipe = useSwipe({ onAction: line => onAction?.(line) })
+  const swipe = useSwipe({ onAction: line => onAction?.(line), onEdit: line => onEdit?.(line) })
   const { drag, start } = useDrag({ listRef, by, onDrop: (line, to) => onRegroup?.(line, to) })
   const hasSeats = check.lines.some(l => l.seat)
   const maxSeat = Math.max(2, Number(check.covers) || 0, ...check.lines.map(l => l.seat || 0))
@@ -265,7 +299,7 @@ export default function CheckPanel({ check, config, onLine, onAction, onRegroup,
   const dragOn = canDrag && check.lines.some(l => canRegroup(l, by))
 
   return (
-    <div className="h-full flex flex-col bg-white border-r border-line min-w-0">
+    <div className={cx('h-full flex flex-col border-r border-line min-w-0', !clear && 'bg-white')}>
       {header}
       {allergyOn(check.allergy) && (onAllergy ? (
         <button className="px-3 py-2 bg-bad text-white font-bold text-sm flex items-start gap-2 text-left touch-manipulation min-h-[48px]" onClick={onAllergy} data-testid="check-allergy">
@@ -283,7 +317,7 @@ export default function CheckPanel({ check, config, onLine, onAction, onRegroup,
         </div>
       )}
       <div ref={listRef} className="flex-1 overflow-y-auto" data-testid="check-lines" style={font ? { fontSize: font + 'px' } : undefined}>
-        {!check.lines.length && <div className="p-6 text-center text-muted">Nothing on this check yet. Tap dishes on the right.</div>}
+        {!check.lines.length && !draft && <div className="p-6 text-center zone-muted">Nothing on this check yet. Tap dishes on the right.</div>}
         {groups.map(g => {
           const key = groupKey(g)
           const over = drag && drag.over === key
@@ -300,35 +334,41 @@ export default function CheckPanel({ check, config, onLine, onAction, onRegroup,
                 </div>
               )}
               {g.lines.map(l => (
-                <LineRow key={l.id} line={l} discountOf={id => offById[id] || 0} comboOf={id => comboById[id] || null} clashOf={clashOf} flowOf={flowOf}
-                  swipe={swipe} dragOn={dragOn} dragging={drag?.line.id === l.id}
-                  grip={canDrag && canRegroup(l, by) ? (e, line) => { swipe.close(); start(e, line, key) } : null}
-                  onTap={onLine} onAction={line => { swipe.close(); onAction?.(line) }} />
+                <Fragment key={l.id}>
+                  <LineRow line={l} discountOf={id => offById[id] || 0} comboOf={id => comboById[id] || null} clashOf={clashOf} flowOf={flowOf}
+                    swipe={swipe} dragOn={dragOn} dragging={drag?.line.id === l.id} changing={editing === l.id}
+                    grip={canDrag && canRegroup(l, by) ? (e, line) => { swipe.close(); start(e, line, key) } : null}
+                    canEdit={!!onEdit && canChangeOptions(config, l)}
+                    onTap={onLine} onAction={line => { swipe.close(); onAction?.(line) }} onEdit={line => { swipe.close(); onEdit?.(line) }} />
+                  {editing === l.id && <DraftRow draft={draft} onFocus={pending.focus} />}
+                </Fragment>
               ))}
               {drag && !g.lines.length && (
-                <div className={cx('m-2 rounded-xl border-2 border-dashed min-h-[52px] flex items-center justify-center text-sm font-semibold', over ? 'border-brand text-brand' : 'border-line text-muted')}>
+                <div className={cx('m-2 rounded-xl border-2 border-dashed min-h-[52px] flex items-center justify-center text-sm font-semibold', over ? 'border-brand text-brand' : 'border-line zone-muted')}>
                   Drop here
                 </div>
               )}
             </div>
           )
         })}
+        {/* The dish being added: at the end, where it goes. */}
+        {draft && !editing && <DraftRow draft={draft} onFocus={pending.focus} />}
       </div>
       <div className="border-t border-line px-4 py-3 space-y-1 shrink-0" style={{ fontSize: font ? font * 0.94 + 'px' : '15px' }} data-testid="check-totals">
         <Row label="Subtotal" value={money(t.subtotal)} />
         {t.discounts.filter(d => d.amount > 0).map(d => (
-          <Row key={d.id + d.name} label={<span className="flex items-center gap-1">{d.comp ? <Gift size={14} /> : d.combo ? <Layers size={14} /> : <Percent size={14} />}{d.name}</span>} value={'−' + money(d.amount)} className="text-ok" />
+          <Row key={d.id + d.name} label={<span className="flex items-center gap-1">{d.comp ? <Gift size={14} /> : d.combo ? <Layers size={14} /> : <Percent size={14} />}{d.name}</span>} value={'−' + money(d.amount)} className={clear ? '' : 'text-ok'} />
         ))}
         {t.charges.filter(x => x.amount > 0).map(x => (
           <Row key={x.id} label={chargeLabel(x)} value={money(x.amount)} />
         ))}
         <Row label={<b>Total</b>} value={<b className="text-[1.33em]">{money(t.total)}</b>} />
-        {t.paid > 0 && <Row label="Paid" value={money(t.paid)} className="text-ok" />}
+        {t.paid > 0 && <Row label="Paid" value={money(t.paid)} className={clear ? '' : 'text-ok'} />}
         {t.paid > 0 && <Row label={<b>Left to pay</b>} value={<b>{money(t.balance)}</b>} />}
       </div>
       {footer}
       {drag && (
-        <div className="fixed z-[70] pointer-events-none rounded-xl bg-white shadow-2xl border-2 border-brand px-3 py-2.5 flex gap-3 items-center"
+        <div className="fixed z-[70] pointer-events-none rounded-xl bg-white text-ink shadow-2xl border-2 border-brand px-3 py-2.5 flex gap-3 items-center"
           style={{ left: drag.x - drag.dx, top: drag.y - drag.dy, width: drag.w }} data-testid="line-drag-ghost">
           <GripVertical size={18} className="text-brand" />
           <span className="font-bold tabular-nums">{drag.line.qty}</span>

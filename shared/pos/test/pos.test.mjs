@@ -180,6 +180,36 @@ function apply(check, type, payload, opts = {}) {
 }
 const ok = r => { assert.ok(r.ok, r.error); return r }
 
+test('line.changed: options changed at the menu\'s price take a typed price off; kept, it stays typed', () => {
+  const PRICER = uuid()
+  const staff = { ...staffById, [PRICER]: { id: PRICER, name: 'Dee', permissions: { price_override: true } } }
+  const run = (checks, type, payload, opts = {}) => applyEvent(checks, ev(type, payload, opts), { staffById: staff })
+  const id = ulid()
+  let checks = ok(run({}, 'check.opened', { mode: 'table', table_id: TABLE5, covers: 2, revenue_stream_id: RC_REST }, { check_id: id })).checks
+  const a = line(PAD_THAI, { choices: { [PROTEIN]: [CHICKEN] } })
+  checks = ok(run(checks, 'line.added', { line: a }, { check_id: id })).checks
+  const at = () => checks[id].lines.find(l => l.id === a.id)
+  // Typing a price needs the permission.
+  assert.equal(run(checks, 'line.changed', { line_id: a.id, unit_price: 999 }, { check_id: id }).code, 'permission')
+  checks = ok(run(checks, 'line.changed', { line_id: a.id, unit_price: 999, price_override: true }, { check_id: id, staff_id: PRICER })).checks
+  assert.deepEqual([at().unit_price, at().price_override], [999, true])
+  // Change options keeping the typed price: still typed, nobody's permission asked.
+  const prawn = priceItem(PAD_THAI, { choices: { [PROTEIN]: [PRAWN] } }, { itemsById, groupsById })
+  checks = ok(run(checks, 'line.changed', { line_id: a.id, modifiers: prawn.modifiers, combo: prawn.combo, unit_price: 999 }, { check_id: id })).checks
+  assert.deepEqual([at().unit_price, at().price_override], [999, true])
+  assert.ok(at().modifiers.some(m => m.option_id === PRAWN))
+  // At the menu's price: the typed price mark goes with it.
+  checks = ok(run(checks, 'line.changed', { line_id: a.id, modifiers: prawn.modifiers, combo: prawn.combo, unit_price: prawn.unit_price, price_override: false }, { check_id: id })).checks
+  assert.deepEqual([at().unit_price, at().price_override], [1395, false])
+  // Without new options, price_override: false clears nothing.
+  checks = ok(run(checks, 'line.changed', { line_id: a.id, unit_price: 800, price_override: true }, { check_id: id, staff_id: PRICER })).checks
+  checks = ok(run(checks, 'line.changed', { line_id: a.id, note: 'No chilli', price_override: false }, { check_id: id })).checks
+  assert.deepEqual([at().unit_price, at().price_override, at().note], [800, true, 'No chilli'])
+  // Once sent, options can't be changed at all.
+  checks = ok(run(checks, 'lines.sent', { send_id: ulid(), line_ids: [a.id] }, { check_id: id })).checks
+  assert.equal(run(checks, 'line.changed', { line_id: a.id, modifiers: prawn.modifiers, unit_price: prawn.unit_price, price_override: false }, { check_id: id }).code, 'sent')
+})
+
 test('totals: discounts, comps, service charge, VAT', () => {
   let c = open()
   const a = line(PAD_THAI, { choices: { [PROTEIN]: [CHICKEN] } })           // 1250

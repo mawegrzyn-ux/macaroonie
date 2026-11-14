@@ -536,6 +536,74 @@ export function selectionFromModifiers(mods = []) {
   return out
 }
 
+/**
+ * A line's picks back as the choices window's selection ({ choices, combo }):
+ * its options, and a meal deal's steps with each part's own options. What
+ * Change options starts from.
+ */
+export function selectionFromLine(line) {
+  const combo = {}
+  for (const p of line?.combo || []) {
+    if (!p.step_id) continue
+    ;(combo[p.step_id] ||= []).push({ option_id: p.option_id, item_id: p.item_id ?? null, choices: selectionFromModifiers(p.modifiers || []) })
+  }
+  return { choices: selectionFromModifiers(line?.modifiers || []), combo }
+}
+
+/**
+ * Whether a line's options can be changed on the till (Change options in its
+ * window, a swipe right on it in the order): a dish not sent yet, still on
+ * the till's menu, with options or steps (a meal deal). One the kitchen has
+ * is voided and added again instead; a dish an order flow put on by itself
+ * keeps what the flow gave it.
+ */
+export function canChangeOptions(config, line) {
+  if (!line || line.status !== 'new' || !line.item_id || line.open_item || line.flow) return false
+  if (!config?.items?.[line.item_id]) return false
+  return needsChoices(config, { id: line.item_id })
+}
+
+/**
+ * The window's fields from a line, for Change options: seat, course ('none'
+ * for no course), note, allergies and a price typed in before (else null:
+ * the menu's price).
+ */
+export const lineFields = line => ({
+  seat: line.seat ?? null, course: line.course_id || 'none', note: line.note || '', allergies: line.allergies || [],
+  unit_price: line.price_override ? line.unit_price : null,
+})
+
+/**
+ * A line not sent yet changed by the choices window or a till layout's Dish
+ * choices zones (Change options): the same line, with its new picks and the
+ * price they come to, and what else the window gave (o = { selection, qty,
+ * seat, course, note, allergies, unit_price }; a key left out keeps the
+ * line's own). unit_price: a number typed in, null for the menu's price, or
+ * left out: the line's own when it was typed in, else the menu's. A typed
+ * price other than the line's is a price change (the role's permission, as
+ * when adding); the menu's price after a typed one clears the line's typed
+ * price mark. Fewer than before may need a manager (the caller asks).
+ */
+export function changeLine(check, line, item, o = {}, { approved_by = null } = {}) {
+  const { config } = getState()
+  const it = tillItem(config, item.id)
+  if (!it) return { ok: false, error: 'This dish isn\'t on the till\'s menu any more' }
+  const priced = priceItem(it, o.selection || {}, comboCtx(config))
+  if (!priced.ok) return priced
+  const unit = o.unit_price != null ? o.unit_price
+    : o.unit_price === undefined && line.price_override ? line.unit_price
+      : priced.unit_price
+  const patch = { line_id: line.id, modifiers: priced.modifiers, combo: priced.combo, unit_price: unit }
+  if (o.unit_price != null && o.unit_price !== line.unit_price) patch.price_override = true
+  else if (o.unit_price === null && line.price_override) patch.price_override = false
+  if (o.qty != null) patch.qty = Math.max(1, Math.min(999, Number(o.qty) || 1))
+  if (o.seat !== undefined) patch.seat = o.seat ?? null
+  if (o.course !== undefined) patch.course_id = coursesOn(config, check.revenue_stream_id) ? courseFor(it, o.course) : null
+  if (o.note !== undefined) patch.note = String(o.note || '').trim() || null
+  if (o.allergies !== undefined) patch.allergies = o.allergies || []
+  return dispatch('line.changed', patch, { check_id: check.id, approved_by })
+}
+
 /** Combos (manual or automatic) that offer this line's dish, with where it goes: [{ combo, start }]. */
 export function combosForLine(line, config) {
   if (!line?.item_id || line.status !== 'new' || (line.combo && line.combo.length) || line.open_item) return []

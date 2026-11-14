@@ -18,47 +18,6 @@
 
 /** Reported on later. { area: { happen: [...], group: [...] } }, all in phase 3 unless `phase` says otherwise. */
 export const PLANNED = {
-  till: {
-    happen: [
-      'pos_card_payments', 'pos_print_jobs', 'pos_event_rejections',
-      // An activity list (who did what, when, on which till, who approved it):
-      // never an event's contents, and never the source of a figure.
-      'pos_events',
-      // Counts only: the address a receipt is waiting for is sealed and left out.
-      'pos_receipts',
-    ],
-    group: ['pos_roles', 'pos_discounts', 'pos_charges', 'pos_printers', 'pos_card_readers', 'floor_areas', 'tax_rates', 'tax_rate_values'],
-  },
-  online: {
-    happen: ['order_events', 'ordering_item_availability'],
-    group: ['promotions'],
-  },
-  bookings: {
-    happen: ['email_log', 'notification_log'],
-    group: ['table_combinations'],
-  },
-  guests: {
-    happen: ['reviews'],
-    group: [],
-  },
-  menus: {
-    happen: ['menu_releases'],
-    group: ['menu_variant_groups', 'menu_variant_options', 'menu_dietary_tags', 'menu_item_dietary', 'menu_item_variant_groups', 'menu_item_variant_prices', 'menu_item_variants'],
-  },
-  screens: {
-    happen: [],
-    group: ['screens', 'screen_designs', 'screen_playlists', 'screen_walls'],
-  },
-  website: {
-    happen: [],
-    group: ['website_pages', 'media_items', 'media_categories'],
-  },
-  local: {
-    // local_info_items' weather days are read by local.weather; traffic,
-    // events and incidents come with the rest of phase 3d.
-    happen: [],
-    group: ['local_info_sources'],
-  },
   pepper: {
     // Counts and dates only: never what was said.
     happen: ['ai_usage', 'ai_usage_people', 'ai_actions', 'ai_conversations'],
@@ -81,6 +40,9 @@ export const PLANNED = {
 export const SETTINGS = [
   // Till
   'pos_settings', 'pos_charge_rules', 'pos_stream_order_types', 'pos_till_layouts', 'pos_order_flows',
+  // The lists a check's discounts and charges come from (what each gave is in till.discounts and till.charges),
+  // and a tax rate's own % at a location or for an order type
+  'pos_discounts', 'pos_charges', 'tax_rate_values',
   'pos_card_accounts', // its name and provider only
   'print_designs', 'print_design_uses',
   // Online ordering and its links
@@ -134,6 +96,9 @@ export const LEFT_OUT = {
   ],
   'Reached only through the row they belong to': [
     'table_combination_members', 'feature_request_upvotes',
+  ],
+  'No longer written (booking emails are in email_log, reported as bookings.emails)': [
+    'notification_log',
   ],
   'Shared across groups': [
     'loyalty_identities',

@@ -111,21 +111,27 @@ export function useDishPress({ item, onTap, onHold, count = 0, takeOff = null, l
  * A dish's button. count: how many of it are on the order already (the
  * till's Item counts on buttons setting, lib/checkOps.js itemCounts()),
  * shown as a badge: in the corner, or beside the price on a list's row.
- * takeOff: the order screen's Take one off (useDishPress()).
+ * takeOff: the order screen's Take one off (useDishPress()). look: a till
+ * layout zone's styles for its buttons (its button border; a category's
+ * dishes zone's colours: categoryButtonStyle()). With words of a colour of
+ * their own, the price takes them too.
  */
-export function DishButton({ item, colour, priceText, soldOut, onPick, onHold, fill = false, showPrice = true, place = null, list = false, count = 0, takeOff = null }) {
+export function DishButton({ item, colour, priceText, soldOut, onPick, onHold, fill = false, showPrice = true, place = null, look = null, list = false, count = 0, takeOff = null }) {
   const press = useDishPress({
     item, count, takeOff, list,
     onTap: () => (soldOut && onHold ? onHold(item) : onPick(item)),
     onHold: onHold ? () => onHold(item) : null,
   })
-  const style = place || press.style ? { ...place, ...press.style } : undefined
+  // A sold out dish keeps its greyed look whatever the zone's colours (its border's width and style stay).
+  const own = look ? (soldOut ? { borderWidth: look.borderWidth, borderStyle: look.borderStyle } : look) : null
+  const style = place || press.style || own ? { ...place, ...own, ...press.style } : undefined
+  const ownInk = !!own?.color
   return press.wrap(
     <button {...press.handlers} data-testid="dish" data-item={item.id} data-hold={press.hold || undefined}
       className={cx('relative rounded-xl border p-3 flex flex-col touch-manipulation active:scale-[0.97] transition-transform overflow-hidden select-none',
         !place && 'text-left justify-between',
         fill ? 'w-full h-full py-2' : 'min-h-[84px]',
-        soldOut ? 'bg-page border-line text-muted' : 'bg-white border-line')}
+        soldOut ? 'bg-page border-line text-muted' : 'bg-white border-line text-ink')}
       style={style}>
       <span className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: colour, opacity: soldOut ? 0.35 : 1 }} />
       <span className={cx('leading-tight pl-1', list ? 'line-clamp-2 flex-1 min-w-0' : 'line-clamp-3', !fill && 'font-semibold text-[15px]', soldOut && 'line-through', count > 0 && !list && 'pr-7')}
@@ -135,7 +141,7 @@ export function DishButton({ item, colour, priceText, soldOut, onPick, onHold, f
           list ? 'shrink-0 mx-2' : 'absolute top-1.5 right-1.5')} data-testid="dish-count" aria-label={count + ' on the order'}>{count}</span>
       )}
       {(showPrice || soldOut) && (
-        <span className={cx('text-muted pl-1 tabular-nums', list ? 'shrink-0' : 'mt-1', fill ? 'text-[0.8em] font-medium' : 'text-sm')} data-testid="dish-price">
+        <span className={cx(ownInk ? 'opacity-80' : 'text-muted', 'pl-1 tabular-nums', list ? 'shrink-0' : 'mt-1', fill ? 'text-[0.8em] font-medium' : 'text-sm')} data-testid="dish-price">
           {soldOut ? <span className="font-bold text-bad uppercase text-xs tracking-wide">Sold out</span> : priceText}
         </span>
       )}
@@ -163,33 +169,33 @@ const BAR = 'chip shrink-0 h-16 min-w-[64px] rounded-xl px-5 text-base'
  * own heading on as many lines as they need, instead of one bar that scrolls
  * sideways.
  */
-export function SeatCourseBar({ config, seat, setSeat, course, setCourse, covers, fill = false, font = null, parts = 'both', wrap = false }) {
+export function SeatCourseBar({ config, seat, setSeat, course, setCourse, covers, fill = false, font = null, parts = 'both', wrap = false, look = null }) {
   const bar = wrap ? 'chip h-14 min-w-[64px] rounded-xl px-5' : fill ? 'chip shrink-0 h-full max-h-20 min-h-[48px] min-w-[64px] rounded-xl px-5' : BAR
   // parts: 'both' | 'seats' | 'courses' (a till layout's zone), or 'none' when
   // the check's revenue stream uses neither (seatCourseParts() in lib/checkOps.js).
   const seats = parts === 'both' || parts === 'seats'
   const courses = (parts === 'both' || parts === 'courses') && (config.courses || []).length > 0
   const seatChips = seats && <>
-    <button className={cx(bar, seat == null && 'chip-on')} onClick={() => setSeat(null)} data-testid="seat-shared">Shared</button>
+    <button className={cx(bar, seat == null && 'chip-on')} style={look || undefined} onClick={() => setSeat(null)} data-testid="seat-shared">Shared</button>
     {Array.from({ length: Math.max(2, Math.min(12, covers || 4)) }).map((_, i) => (
-      <button key={i} className={cx(bar, 'w-16 px-0', seat === i + 1 && 'chip-on')} onClick={() => setSeat(seat === i + 1 ? null : i + 1)} data-testid="seat-chip">{i + 1}</button>
+      <button key={i} className={cx(bar, 'w-16 px-0', seat === i + 1 && 'chip-on')} style={look || undefined} onClick={() => setSeat(seat === i + 1 ? null : i + 1)} data-testid="seat-chip">{i + 1}</button>
     ))}
   </>
   const courseChips = courses && <>
-    <button className={cx(bar, course == null && 'chip-on')} onClick={() => setCourse(null)} data-testid="course-usual">Usual</button>
+    <button className={cx(bar, course == null && 'chip-on')} style={look || undefined} onClick={() => setCourse(null)} data-testid="course-usual">Usual</button>
     {config.courses.map(c => (
-      <button key={c.id} className={cx(bar, course === c.id && 'chip-on')} onClick={() => setCourse(course === c.id ? null : c.id)} data-testid="course-chip">{c.short_name || c.name}</button>
+      <button key={c.id} className={cx(bar, course === c.id && 'chip-on')} style={look || undefined} onClick={() => setCourse(course === c.id ? null : c.id)} data-testid="course-chip">{c.short_name || c.name}</button>
     ))}
   </>
   const none = !seats && !courses && (
-    <span className="text-sm text-muted pl-1" data-testid="no-courses">{parts === 'none' ? 'This revenue stream uses no seats or courses.' : 'No courses set up at this location.'}</span>
+    <span className="text-sm zone-muted pl-1" data-testid="no-courses">{parts === 'none' ? 'This revenue stream uses no seats or courses.' : 'No courses set up at this location.'}</span>
   )
   if (wrap) {
     return (
       <div className="h-full overflow-y-auto overscroll-contain p-3 space-y-4" style={font ? { fontSize: font + 'px' } : undefined}
         data-testid="seat-course-bar" data-parts={parts} data-wrap="1">
-        {seats && <div><div className="label mb-2">Seat</div><div className="flex flex-wrap gap-2">{seatChips}</div></div>}
-        {courses && <div><div className="label mb-2">Course</div><div className="flex flex-wrap gap-2">{courseChips}</div></div>}
+        {seats && <div><div className="label zone-muted mb-2">Seat</div><div className="flex flex-wrap gap-2">{seatChips}</div></div>}
+        {courses && <div><div className="label zone-muted mb-2">Course</div><div className="flex flex-wrap gap-2">{courseChips}</div></div>}
         {none}
       </div>
     )
@@ -198,11 +204,11 @@ export function SeatCourseBar({ config, seat, setSeat, course, setCourse, covers
     <div className={cx('flex items-center gap-2 scroll-x', fill ? 'h-full p-2' : 'border-t border-line bg-white p-2 shrink-0')}
       style={font ? { fontSize: font + 'px' } : undefined} data-testid="seat-course-bar" data-parts={parts}>
       {seats && <>
-        <span className="label shrink-0 pl-1">Seat</span>
+        <span className="label zone-muted shrink-0 pl-1">Seat</span>
         {seatChips}
       </>}
       {courses && <>
-        <span className={cx('label shrink-0', seats ? 'ml-3' : 'pl-1')}>Course</span>
+        <span className={cx('label zone-muted shrink-0', seats ? 'ml-3' : 'pl-1')}>Course</span>
         {courseChips}
       </>}
       {none}

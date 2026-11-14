@@ -49,12 +49,20 @@
 // the order comes off one at a time from its own button, by a long press on a
 // button or a swipe left on a list's row (useDishPress() in MenuPanel.jsx;
 // takeOff from Check.jsx).
+//
+// The look (14 Nov 2026): a Label zone's words; each zone's background and
+// border (zoneBoxStyle(): the words on a background follow it, notes and
+// counts through the zone-muted class); the border of a zone's buttons
+// (buttonBorderStyle()); a category's dishes zone's button colours and its
+// name above them (categoryButtonStyle()); the layout's background behind
+// the zones. Anything white inside a zone says its own dark words (text-ink),
+// so a dark zone background never turns them white.
 
 import { useEffect, useMemo, useState } from 'react'
 import { Search, X, ChevronRight } from 'lucide-react'
 import {
   choiceZones, overlaps, buttonLabel, actionOf, buttonTextStyle, menuZoneMenus, shownDishIds, floats, isPopup, isList, popupTitle,
-  categoriesZoneOf,
+  categoriesZoneOf, zoneBoxStyle, buttonBorderStyle, categoryButtonStyle,
 } from '@shared/pos/tillLayout.js'
 import { switchMenus } from '@shared/menuTimes.js'
 import { discountList } from '@shared/pos/discounts.js'
@@ -63,6 +71,7 @@ import { cx, inkOn, money } from './ui.jsx'
 import ZoneGrid from './ZoneGrid.jsx'
 import { DishButton, SeatCourseBar, SECTION_COLOURS, dishPriceText, useDishPress } from './MenuPanel.jsx'
 import { useChoiceBuilder, ChoiceZone } from './LayoutChoices.jsx'
+import { DraftContext } from './DraftLine.jsx'
 import { soldOutMap } from '../lib/store.js'
 import { menuTimesText } from '../lib/tillMenus.js'
 import { listCharges, seatCourseParts, defaultStreamId } from '../lib/checkOps.js'
@@ -90,11 +99,11 @@ const SECOND = 'shrink-0'
  * A category button: filled in its colour when it is the one open. place:
  * where its words sit (buttonTextStyle() of the zone). list: a row in a list.
  */
-function SectionButton({ label, colour, on, onTap, testid, place, list = false }) {
+function SectionButton({ label, colour, on, onTap, testid, place, border = null, list = false }) {
   return (
     <button onClick={onTap} data-testid={testid} data-on={on ? '1' : '0'}
       className={cx('w-full h-full rounded-xl py-1 leading-tight border-2 touch-manipulation flex flex-col', list ? 'px-3' : 'px-2')}
-      style={{ ...place, ...(on ? { background: colour, borderColor: colour, color: '#fff' } : { borderColor: colour, color: colour, background: '#fff' }) }}>
+      style={{ ...place, ...(on ? { background: colour, borderColor: colour, color: '#fff' } : { borderColor: colour, color: colour, background: '#fff' }), ...border }}>
       <span className={cx('line-clamp-2 break-words', list && WORDS)} data-testid="button-words">{label}</span>
       {list && <ChevronRight size={18} className={cx(SECOND, 'opacity-60')} aria-hidden="true" />}
     </button>
@@ -108,15 +117,15 @@ function SectionButton({ label, colour, on, onTap, testid, place, list = false }
  * total, the category open, the seat picked). list: a row in a list. item: the
  * dish a dish button adds (its count and Take one off: useDishPress()).
  */
-function LayoutButton({ b, label, disabled, sub = null, note = null, onTap, onHold, place, list = false, count = 0, item = null, takeOff = null }) {
+function LayoutButton({ b, label, disabled, sub = null, note = null, onTap, onHold, place, border = null, list = false, count = 0, item = null, takeOff = null }) {
   const press = useDishPress({ item, count, takeOff, list, onTap, onHold })
   const fill = b.colour ? { background: b.colour, borderColor: b.colour, color: inkOn(b.colour) } : null
   return press.wrap(
     <button {...press.handlers} disabled={disabled} data-testid="layout-button" data-action={b.action} data-button={b.id} data-popup={b.popup_id || undefined}
       data-hold={item ? press.hold || undefined : undefined}
       className={cx('relative w-full h-full rounded-xl border-2 py-1 flex flex-col leading-tight touch-manipulation active:scale-[0.97] transition-transform select-none',
-        list ? 'px-3' : 'px-2', !fill && 'bg-white border-line', disabled && 'opacity-40')}
-      style={{ ...place, ...fill, ...press.style }}>
+        list ? 'px-3' : 'px-2', !fill && 'bg-white border-line text-ink', disabled && 'opacity-40')}
+      style={{ ...place, ...fill, ...border, ...press.style }}>
       <span className={cx('break-words', list ? 'line-clamp-2 ' + WORDS : 'line-clamp-3', count > 0 && !list && 'pr-7')} data-testid="button-words">{label}</span>
       {count > 0 && (
         <span className={cx('min-w-[26px] h-[26px] px-1.5 rounded-full bg-brand text-white text-sm font-bold tabular-nums flex items-center justify-center',
@@ -130,6 +139,7 @@ function LayoutButton({ b, label, disabled, sub = null, note = null, onTap, onHo
 
 function CategoriesZone({ zone, layoutId, sections, sectionId, setSectionId, resetKey }) {
   const place = buttonTextStyle(zone)
+  const border = buttonBorderStyle(zone)
   const list = isList(zone)
   return (
     <ZoneGrid zone={zone} memoKey={'cats:' + layoutId + ':' + zone.id} resetKey={resetKey} moreTitle="Categories"
@@ -137,18 +147,18 @@ function CategoriesZone({ zone, layoutId, sections, sectionId, setSectionId, res
       cells={sections.map(c => ({
         key: 's:' + c.s.id,
         node: <SectionButton label={c.s.title} colour={c.s.colour || SECTION_COLOURS[c.i % SECTION_COLOURS.length]} on={c.s.id === sectionId} testid="category"
-          place={place} list={list} onTap={() => setSectionId(c.s.id)} />,
+          place={place} border={border} list={list} onTap={() => setSectionId(c.s.id)} />,
       }))} />
   )
 }
 
 /** A menu (or Menu times) button: filled while it is what the till shows. */
-function MenuButton({ label, sub, on, onTap, testid, menuId = null, place, list = false }) {
+function MenuButton({ label, sub, on, onTap, testid, menuId = null, place, border = null, list = false }) {
   return (
     <button onClick={onTap} data-testid={testid} data-menu={menuId || undefined} data-on={on ? '1' : '0'} aria-pressed={on}
       className={cx('w-full h-full rounded-xl border-2 py-1 flex flex-col leading-tight touch-manipulation active:scale-[0.97] transition-transform',
-        list ? 'px-3' : 'px-2', on ? 'bg-brand border-brand text-white' : 'bg-white border-line')}
-      style={place}>
+        list ? 'px-3' : 'px-2', on ? 'bg-brand border-brand text-white' : 'bg-white border-line text-ink')}
+      style={{ ...place, ...border }}>
       <span className={cx('line-clamp-2 break-words', list && WORDS)} data-testid="button-words">{label}</span>
       {sub && <span className={cx('text-[0.75em] font-semibold opacity-80 line-clamp-1', list ? SECOND + ' max-w-[55%]' : 'mt-0.5')} data-testid="menu-times">{sub}</span>}
     </button>
@@ -162,6 +172,7 @@ function MenuButton({ label, sub, on, onTap, testid, menuId = null, place, list 
  */
 function MenusZone({ zone, layoutId, shown, onUsed = null }) {
   const place = buttonTextStyle(zone)
+  const border = buttonBorderStyle(zone)
   const rows = isList(zone)
   const list = menuZoneMenus(zone, shown.menus)
   // onUsed: the zone is a pop-up that closes after a menu is tapped.
@@ -175,14 +186,14 @@ function MenusZone({ zone, layoutId, shown, onUsed = null }) {
   if (zone.times_button) {
     cells.push({
       key: 'times',
-      node: <MenuButton label="Menu times" testid="zone-menu-times" place={place} list={rows} on={shown.auto} onTap={() => { shown.follow(); onUsed?.() }}
+      node: <MenuButton label="Menu times" testid="zone-menu-times" place={place} border={border} list={rows} on={shown.auto} onTap={() => { shown.follow(); onUsed?.() }}
         sub={zone.show_times ? (shown.auto ? (shown.none ? 'No menu on now' : 'Following') : 'Back to the times') : null} />,
     })
   }
   for (const m of list) {
     cells.push({
       key: 'm:' + m.id,
-      node: <MenuButton label={m.name} menuId={m.id} testid="zone-menu" place={place} list={rows} on={shown.ids.includes(m.id)} onTap={() => tap(m.id)}
+      node: <MenuButton label={m.name} menuId={m.id} testid="zone-menu" place={place} border={border} list={rows} on={shown.ids.includes(m.id)} onTap={() => tap(m.id)}
         sub={zone.show_times ? menuTimesText(m) : null} />,
     })
   }
@@ -220,6 +231,7 @@ function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCa
   }, [q, menus, section, config, hasCategories, zone.hide_item_ids])
   const colour = section && !q ? section.colour || SECTION_COLOURS[sectionIndex % SECTION_COLOURS.length] : '#64708a'
   const place = buttonTextStyle(zone)
+  const look = buttonBorderStyle(zone)
   return (
     <div className="h-full flex flex-col min-h-0">
       {zone.search && (
@@ -234,7 +246,7 @@ function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCa
           empty={q ? 'No dish matches.' : hasCategories ? 'This category has no dishes.' : 'No dishes on the menus on now.'} testid="zone-items"
           cells={items.map(it => ({
             key: it.id,
-            node: <DishButton fill place={place} list={isList(zone)} item={it} colour={it.colour || colour} priceText={dishPriceText(config, it.id, comboRefs)}
+            node: <DishButton fill place={place} look={look} list={isList(zone)} item={it} colour={it.colour || colour} priceText={dishPriceText(config, it.id, comboRefs)}
               showPrice={zone.price} soldOut={soldOut.has(it.id)} onPick={onDish} onHold={onHold} count={counts?.[it.id] || 0} takeOff={takeOff} />,
           }))} />
       </div>
@@ -260,15 +272,40 @@ function CategoryZone({ zone, layoutId, config, menus, tillMenus, soldOut, combo
   const items = shownDishIds(zone, found?.s.item_ids).map(id => config.items?.[id]).filter(Boolean)
   const colour = found ? found.s.colour || SECTION_COLOURS[found.i % SECTION_COLOURS.length] : '#64708a'
   const place = buttonTextStyle(zone)
-  return (
+  // The zone's own button colours, then its button border.
+  const look = { ...categoryButtonStyle(zone), ...buttonBorderStyle(zone) }
+  const grid = (
     <ZoneGrid zone={zone} memoKey={'category:' + layoutId + ':' + zone.id} resetKey={zone.section_id || ''} moreTitle={found?.s.title || 'Dishes'}
       empty={!zone.section_id ? 'No category picked for this zone.' : !found ? 'This category isn\'t on this till\'s menus.' : 'No dishes to show here.'}
       testid="zone-category"
       cells={items.map(it => ({
         key: it.id,
-        node: <DishButton fill place={place} list={isList(zone)} item={it} colour={it.colour || colour} priceText={dishPriceText(config, it.id, comboRefs)}
+        node: <DishButton fill place={place} look={look} list={isList(zone)} item={it} colour={it.colour || colour} priceText={dishPriceText(config, it.id, comboRefs)}
           showPrice={zone.price} soldOut={soldOut.has(it.id)} onPick={onDish} onHold={onHold} count={counts?.[it.id] || 0} takeOff={takeOff} />,
       }))} />
+  )
+  // The category's name above its dishes: in its size and colour (none: the zone's words).
+  if (!zone.show_name || !found) return grid
+  return (
+    <div className="h-full flex flex-col min-h-0">
+      <div className="shrink-0 font-bold leading-tight truncate pb-1.5" style={{ fontSize: zone.name_font, color: zone.name_colour || undefined }} data-testid="category-name">
+        {found.s.title}
+      </div>
+      <div className="flex-1 min-h-0">{grid}</div>
+    </div>
+  )
+}
+
+/** A Label zone: its words, in their size and colour, where the zone puts them. */
+function LabelZone({ zone }) {
+  const across = { left: 'flex-start', center: 'center', right: 'flex-end' }[zone.align]
+  const down = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[zone.valign]
+  return (
+    <div className="h-full w-full flex flex-col overflow-hidden" style={{ justifyContent: down, alignItems: across, textAlign: zone.align }}
+      data-testid="zone-label" data-align={zone.align} data-valign={zone.valign}>
+      <div className={cx('max-w-full whitespace-pre-line break-words leading-tight', zone.bold ? 'font-bold' : 'font-medium')}
+        style={{ fontSize: zone.font, color: zone.colour || undefined }} data-testid="label-text">{zone.text}</div>
+    </div>
   )
 }
 
@@ -284,6 +321,7 @@ function ButtonsZone({ zone, layoutId, config, check, soldOut, onDish, onHold, o
   const tenders = config.settings?.tenders || []
   const charges = listCharges(config)
   const place = buttonTextStyle(zone)
+  const border = buttonBorderStyle(zone)
   const list = isList(zone)
   const inPopup = zone.type === 'popup'
   const cells = zone.buttons.map(b => {
@@ -296,7 +334,7 @@ function ButtonsZone({ zone, layoutId, config, check, soldOut, onDish, onHold, o
     const sold = item && soldOut.has(item.id)
     return {
       key: b.id, w: b.w, h: b.h,
-      node: <LayoutButton b={b} disabled={disabled} place={place} list={list} label={buttonLabel(b, { items: config.items || {}, presets, tenders, charges, popups })}
+      node: <LayoutButton b={b} disabled={disabled} place={place} border={border} list={list} label={buttonLabel(b, { items: config.items || {}, presets, tenders, charges, popups })}
         sub={sold ? 'Sold out' : null} note={b.action === 'open_popup' ? notes[b.popup_id] || null : null} count={item ? counts?.[item.id] || 0 : 0}
         item={item} takeOff={takeOff}
         onTap={() => (item ? (sold ? onHold(item) : onDish(item)) : onButton(b))}
@@ -318,17 +356,19 @@ function ButtonsZone({ zone, layoutId, config, check, soldOut, onDish, onHold, o
 function Popup({ zone, title, flush = false, onClose, children }) {
   const whole = zone.cover === 'screen'
   const outside = zone.close_outside && !whole
+  // Its own background and border (a border of its own takes the frame's ring's place).
+  const box = zoneBoxStyle(zone)
   return (
     <>
       <div className="absolute inset-0 z-[24]" data-testid="popup-cover" data-closes={outside ? '1' : '0'}
         onClick={() => { if (outside) onClose() }} />
-      <div style={whole ? undefined : area(zone)} role="dialog" aria-label={title}
+      <div style={{ ...(whole ? {} : area(zone)), ...box }} role="dialog" aria-label={title}
         className={cx('z-[25] bg-white min-w-0 min-h-0 flex flex-col overflow-hidden', whole ? 'absolute inset-0' : 'relative',
-          zone.frame && !whole && 'rounded-xl shadow-2xl ring-2 ring-brand')}
+          zone.frame && !whole && cx('rounded-xl shadow-2xl', !box.border && 'ring-2 ring-brand'))}
         data-testid="popup" data-popup-id={zone.id} data-popup-type={zone.type} data-cover={whole ? 'screen' : 'zone'}
         data-frame={zone.frame && !whole ? '1' : '0'} data-controls={zone.controls ? '1' : '0'}>
         {zone.controls && (
-          <div className="shrink-0 flex items-center gap-2 pl-3 border-b border-line bg-page" data-testid="popup-bar">
+          <div className="shrink-0 flex items-center gap-2 pl-3 border-b border-line bg-page text-ink" data-testid="popup-bar">
             <span className="flex-1 min-w-0 truncate font-bold" data-testid="popup-title">{title}</span>
             <button onClick={onClose} className="w-12 h-12 shrink-0 flex items-center justify-center touch-manipulation" aria-label={'Close ' + title} data-testid="popup-close">
               <X size={22} />
@@ -392,6 +432,14 @@ export default function LayoutScreen({
   const shownKey = menus.map(m => m.id).join(',')
 
   const zones = choiceZones(layout)
+  // The dish being added (or changed) in the Dish choices zones, for the
+  // Order zone's dashed line (DraftLine.jsx), and the choice one of its
+  // placeholders asked to see.
+  const [draft, setDraft] = useState(null)
+  const [focus, setFocus] = useState(null)
+  const draftValue = useMemo(() => (draft
+    ? { draft, focus: key => setFocus(f => ({ key, n: (f?.n || 0) + 1 })) }
+    : null), [draft])
   // The zones always on screen; the rest float over them (a pop-up while it
   // is open, a dish's choices while it is being added).
   const solid = layout.zones.filter(z => !floats(z))
@@ -497,17 +545,20 @@ export default function LayoutScreen({
     }
     if (z.type === 'seats') {
       // What the zone shows, as far as the check's revenue stream uses seats and courses.
-      return <SeatCourseBar fill wrap={isPopup(z)} font={z.font} parts={seatParts(z)} config={config} covers={covers}
+      return <SeatCourseBar fill wrap={isPopup(z)} font={z.font} parts={seatParts(z)} config={config} covers={covers} look={buttonBorderStyle(z)}
         seat={seat} setSeat={v => { setSeat(v); used(z) }} course={course} setCourse={v => { setCourse(v); used(z) }} />
     }
+    if (z.type === 'label') return <LabelZone zone={z} />
     return null
   }
 
   return (
+    <DraftContext.Provider value={draftValue}>
     <div className="h-full grid gap-px bg-line relative min-w-0" data-testid="layout-screen" data-layout={layout.id || ''}
-      style={{ gridTemplateColumns: `repeat(${layout.cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${layout.rows}, minmax(0, 1fr))` }}>
+      style={{ gridTemplateColumns: `repeat(${layout.cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${layout.rows}, minmax(0, 1fr))`,
+        ...(layout.background ? { background: layout.background } : {}) }}>
       {solid.map(z => (
-        <div key={z.id} style={area(z)} className={cx('bg-white min-w-0 min-h-0 overflow-hidden', z.type !== 'check' && z.type !== 'seats' && 'p-2')}
+        <div key={z.id} style={{ ...area(z), ...zoneBoxStyle(z) }} className={cx('bg-white min-w-0 min-h-0 overflow-hidden', z.type !== 'check' && z.type !== 'seats' && 'p-2')}
           data-zone={z.type} data-zone-id={z.id}>
           {zoneBody(z)}
         </div>
@@ -520,26 +571,38 @@ export default function LayoutScreen({
       )}
       {choosing
         ? <Choosing key={choosing.key} layout={layout} config={config} choosing={choosing} zones={zones} mods={mods}
-            onChosen={onChosen} onCancel={onCancelChoosing} onMore={onMoreChoices} />
+            onDraft={setDraft} focus={focus} onChosen={onChosen} onCancel={onCancelChoosing} onMore={onMoreChoices} />
         : mods.filter(m => m.cover === 'zone' && !solid.some(z => overlaps(z, m))).map(m => (
           // A Dish choices zone with its own space waits there, empty.
-          <div key={m.id} style={area(m)} className="bg-white min-w-0 min-h-0 flex items-center justify-center text-sm text-muted p-3 text-center" data-zone="modifiers" data-zone-id={m.id}>
+          <div key={m.id} style={{ ...area(m), ...zoneBoxStyle(m) }} className="bg-white min-w-0 min-h-0 flex items-center justify-center text-sm zone-muted p-3 text-center" data-zone="modifiers" data-zone-id={m.id}>
             A dish's choices show here.
           </div>
         ))}
     </div>
+    </DraftContext.Provider>
   )
 }
 
-/** The Dish choices zones while a dish is being added. */
-function Choosing({ config, choosing, zones, mods, onChosen, onCancel, onMore }) {
+/**
+ * The Dish choices zones while a dish is being added, or a line's options
+ * changed (choosing.edit: the line's id; its picks in choosing.initial,
+ * Update changes that line, nothing is added on a tap and the picks never
+ * make more dishes).
+ */
+function Choosing({ config, choosing, zones, mods, onDraft, focus = null, onChosen, onCancel, onMore }) {
   const bar = zones.required
+  const edit = !!choosing.edit
   // Add on the tap that completes the dish (the must-pick zone's auto_add),
   // or more picks, more dishes (its split_picks; never both).
   const build = useChoiceBuilder(choosing.item, config, choosing.initial || null, {
-    onAutoAdd: bar?.auto_add && !bar?.split_picks ? onChosen : null,
-    split: !!bar?.split_picks,
+    onAutoAdd: !edit && bar?.auto_add && !bar?.split_picks ? onChosen : null,
+    split: !edit && !!bar?.split_picks,
   })
+  // The dish as it stands, to the Order zone (its dashed line), whenever it
+  // changes; gone once it is added, changed or cancelled.
+  const sig = JSON.stringify(build.draft) + '|' + (choosing.edit || '')
+  useEffect(() => { onDraft?.({ ...build.draft, edit: choosing.edit || null }) }, [sig]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onDraft?.(null), []) // eslint-disable-line react-hooks/exhaustive-deps
   // One zone for everything when there is one, or when the must-pick zone covers the screen.
   const together = !zones.optional || zones.optional === bar || bar.cover === 'screen'
   const need = build.cells.filter(c => c.need)
@@ -547,13 +610,17 @@ function Choosing({ config, choosing, zones, mods, onChosen, onCancel, onMore })
   const show = []
   show.push({ zone: bar, cells: together ? build.cells : need, bar: true })
   if (!together && rest.length) show.push({ zone: zones.optional, cells: rest, bar: false })
-  return show.map(({ zone, cells, bar: hasBar }) => (
+  return show.map(({ zone, cells, bar: hasBar }) => {
+    // Its own background and border (a border of its own takes the ring's place).
+    const box = zoneBoxStyle(zone)
+    return (
     <div key={zone.id} data-zone="modifiers" data-zone-id={zone.id} data-cover={zone.cover}
-      className={cx('bg-white min-w-0 min-h-0 overflow-hidden shadow-2xl ring-2 ring-brand', zone.cover === 'screen' ? 'absolute inset-0 z-30' : 'relative z-20')}
-      style={zone.cover === 'screen' ? undefined : area(zone)}>
-      <ChoiceZone zone={zone} build={build} cells={cells} bar={hasBar} buildKey={choosing.key}
+      className={cx('bg-white min-w-0 min-h-0 overflow-hidden shadow-2xl', !box.border && 'ring-2 ring-brand', zone.cover === 'screen' ? 'absolute inset-0 z-30' : 'relative z-20')}
+      style={{ ...(zone.cover === 'screen' ? {} : area(zone)), ...box }}>
+      <ChoiceZone zone={zone} build={build} cells={cells} bar={hasBar} buildKey={choosing.key} action={edit ? 'Update' : 'Add'} focus={focus}
         onAdd={() => onChosen(build.result())} onCancel={onCancel}
         onMore={() => onMore({ selection: build.result().selection, qty: build.qty })} />
     </div>
-  ))
+    )
+  })
 }

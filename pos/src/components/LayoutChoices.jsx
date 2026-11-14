@@ -24,13 +24,20 @@
 // (a protein, a size) takes more, each tap one more dish (shared/pos/
 // pricing.js splitPicks()): Pad Thai with Chicken and Prawn adds two Pad
 // Thai, one of each. Add puts a line on the order for each dish.
+//
+// The dish as it stands (14 Nov 2026): useChoiceBuilder() also gives draft
+// (its name, quantity, each group's picks so far and how many each must-pick
+// group still needs), which Choosing in LayoutScreen.jsx hands to the Order
+// zone: a dashed line that isn't on the order yet, with a placeholder for
+// each choice still to pick (DraftLine.jsx). Tapping a placeholder brings
+// its choices into view here (ZoneGrid's focus).
 
 import { useMemo, useRef, useState } from 'react'
 import { Minus, Plus, AlertTriangle, X, PenLine } from 'lucide-react'
 import { priceItem, lineGross, PREFIXES, groupChoice, splitPicks, splitsPicks } from '@shared/pos/pricing.js'
 import { resolveSteps, stepRule, askedChoices } from '@shared/combos.js'
 import { dealItem } from '@shared/pos/offers.js'
-import { buttonTextStyle, isList } from '@shared/pos/tillLayout.js'
+import { buttonTextStyle, buttonBorderStyle, isList } from '@shared/pos/tillLayout.js'
 import { cx, money } from './ui.jsx'
 import ZoneGrid from './ZoneGrid.jsx'
 import { tillItem, comboCtx } from '../lib/checkOps.js'
@@ -104,6 +111,7 @@ export function useChoiceBuilder(item, config, initial = null, { onAutoAdd = nul
       kind: 'head', key: path + ':head', need, title,
       rule: choiceHint(choice) + (choice.repeat ? ' · tap again for more' : '') + (more ? ' · more picks, more dishes' : ''),
       bad: !!choice.min && counted < choice.min,
+      missing: choice.min ? Math.max(0, choice.min - counted) : 0,
       prefixes: choice.prefixes ? { mode, set: m => setModes(x => ({ ...x, [path]: m })) } : null,
     })
     for (const o of choice.options) {
@@ -155,6 +163,9 @@ export function useChoiceBuilder(item, config, initial = null, { onAutoAdd = nul
         rule: auto ? 'Included' : stepRule(step) + (step.repeat ? ' · tap again for more' : ''),
         charge: auto && autoCharge ? '+' + money(autoCharge) : '',
         bad: got.length < step.min,
+        missing: auto ? 0 : Math.max(0, (step.min || 0) - got.length),
+        // A step that picks itself: what it put in, for the order's line.
+        included: auto ? choices.filter(c => count(c) > 0).map(c => (count(c) > 1 ? count(c) + ' x ' : '') + c.label) : null,
       })
       if (!auto) {
         for (const c of choices) {
@@ -199,7 +210,37 @@ export function useChoiceBuilder(item, config, initial = null, { onAutoAdd = nul
     const r = resultOf(sel, priced.ok ? steps : null)
     return many ? { ...r, split: dishes.selections.map(x => ({ ...x, combo: r.selection.combo })) } : r
   }
-  return { it, sel, qty, setQty, priced, cells, result, ok, error, total, count: many ? dishes.selections.length : 1 }
+  const count = many ? dishes.selections.length : 1
+  return { it, sel, qty, setQty, priced, cells, result, ok, error, total, count, draft: draftOf(it, cells, { qty, count, ok, total }) }
+}
+
+/**
+ * The dish as it stands, for the Order zone while it is being added: each
+ * group (or meal deal step) with its picks so far, and how many picks a
+ * must-pick one still needs (missing; open: a step behind a button nobody has
+ * opened yet). Groups with nothing picked and nothing needed are left out.
+ */
+export function draftOf(it, cells, { qty, count, ok, total }) {
+  const parts = []
+  let cur = null
+  for (const c of cells) {
+    if (c.kind === 'head') {
+      cur = { key: c.key, title: c.title, picks: [...(c.included || [])], missing: c.missing || 0, open: false }
+      parts.push(cur)
+    } else if (c.kind === 'open') {
+      cur = null
+      if (c.need) parts.push({ key: c.key, title: c.label, picks: [], missing: 1, open: true })
+    } else if (c.kind === 'note') {
+      cur = null
+      parts.push({ key: c.key, title: null, picks: [c.text], missing: 0, open: false })
+    } else if (c.kind === 'option' && c.on && cur) {
+      cur.picks.push(c.label)
+    }
+  }
+  return {
+    item_id: it.id, name: it.name, qty, count, ok, total: ok ? total : null,
+    parts: parts.filter(p => p.picks.length || p.missing),
+  }
 }
 
 function Cell({ c, zone }) {
@@ -212,7 +253,7 @@ function Cell({ c, zone }) {
       <div className="h-full flex items-center gap-2 px-1 min-w-0" data-testid="choice-head" data-need={c.need ? '1' : '0'}>
         <div className="min-w-0 flex flex-col leading-tight">
           <span className="truncate">{c.title}</span>
-          <span className={cx('text-xs font-semibold truncate', c.bad ? 'text-bad' : 'text-muted')} style={{ fontSize: Math.max(12, Math.round(zone.font * 0.72)) }}>{c.rule}{prices && c.charge ? ' · ' + c.charge : ''}</span>
+          <span className={cx('text-xs font-semibold truncate', c.bad ? 'text-bad' : 'zone-muted')} style={{ fontSize: Math.max(12, Math.round(zone.font * 0.72)) }}>{c.rule}{prices && c.charge ? ' · ' + c.charge : ''}</span>
         </div>
         {c.prefixes && (
           <div className="ml-auto flex gap-1 shrink-0">
@@ -224,7 +265,7 @@ function Cell({ c, zone }) {
       </div>
     )
   }
-  if (c.kind === 'note') return <div className="h-full flex items-center px-1 text-muted truncate" data-testid="choice-fixed">{c.text}</div>
+  if (c.kind === 'note') return <div className="h-full flex items-center px-1 zone-muted truncate" data-testid="choice-fixed">{c.text}</div>
   if (c.kind === 'open') {
     return (
       <button className="w-full h-full rounded-xl border-2 border-dashed border-line flex flex-col px-2 py-1 touch-manipulation"
@@ -241,9 +282,9 @@ function Cell({ c, zone }) {
       <button onClick={c.onTap} disabled={c.disabled} data-testid="choice-option" data-on={c.on || ''}
         className={cx('w-full h-full rounded-xl border-2 py-1 flex flex-col leading-tight touch-manipulation active:scale-[0.98] transition-transform',
           list ? (c.onLess ? 'pl-3 pr-14' : 'px-3') : 'px-2',
-          c.on === 'on' ? 'bg-brand text-white border-brand' : c.on === 'no' ? 'bg-bad-soft border-bad text-bad' : 'bg-white border-line',
+          c.on === 'on' ? 'bg-brand text-white border-brand' : c.on === 'no' ? 'bg-bad-soft border-bad text-bad' : 'bg-white border-line text-ink',
           c.disabled && 'line-through text-muted')}
-        style={place}>
+        style={{ ...place, ...buttonBorderStyle(zone) }}>
         <span className={list ? 'line-clamp-2 flex-1 min-w-0' : 'line-clamp-3'} data-testid="button-words">{c.label}</span>
         {c.price && (prices || c.disabled) ? <span className={cx('text-sm opacity-90 font-semibold', list && 'shrink-0')} data-testid="choice-price">{c.price}</span> : null}
       </button>
@@ -262,7 +303,7 @@ function Cell({ c, zone }) {
  * One Dish choices zone while a dish is being added. cells: the choices it
  * shows; bar: this zone has the dish's name and the Add bar.
  */
-export function ChoiceZone({ zone, build, cells, bar, buildKey, onAdd, onCancel, onMore }) {
+export function ChoiceZone({ zone, build, cells, bar, buildKey, action = 'Add', focus = null, onAdd, onCancel, onMore }) {
   const { it, qty, setQty, ok, error, total, count } = build
   const gridCells = cells.map(c => ({
     key: c.key,
@@ -275,11 +316,11 @@ export function ChoiceZone({ zone, build, cells, bar, buildKey, onAdd, onCancel,
       {bar && (zone.show_name !== false || (zone.show_description !== false && it.description)) && (
         <div className="shrink-0 px-3 pt-2 pb-1 flex items-baseline gap-2 min-w-0">
           {zone.show_name !== false && <div className="font-bold text-lg truncate" data-testid="choice-dish">{it.name}</div>}
-          {zone.show_description !== false && it.description && <div className="text-sm text-muted truncate" data-testid="choice-description">{it.description}</div>}
+          {zone.show_description !== false && it.description && <div className="text-sm zone-muted truncate" data-testid="choice-description">{it.description}</div>}
         </div>
       )}
       <div className="flex-1 min-h-0 p-2">
-        <ZoneGrid zone={zone} cells={gridCells} memoKey={'choices:' + zone.id} resetKey={buildKey} moreTitle={it.name}
+        <ZoneGrid zone={zone} cells={gridCells} memoKey={'choices:' + zone.id} resetKey={buildKey} moreTitle={it.name} focus={focus}
           empty={bar ? 'Nothing to pick here: add it, or Note & more.' : null} testid="choice-grid" />
       </div>
       {bar && (
@@ -294,7 +335,7 @@ export function ChoiceZone({ zone, build, cells, bar, buildKey, onAdd, onCancel,
           <button className="btn" onClick={onMore} disabled={count > 1} title={count > 1 ? 'Add these first, then change one on the order' : undefined} data-testid="choice-more"><PenLine size={18} /><span className="hidden xl:inline">Note &amp; more</span></button>
           <button className="btn" onClick={onCancel} data-testid="choice-cancel"><X size={18} /><span className="hidden xl:inline">Cancel</span></button>
           <button className="btn btn-primary flex-1 min-w-[140px] h-14 text-lg" disabled={!ok} onClick={onAdd} data-testid="choice-add" data-count={count}>
-            Add {count > 1 ? count + ' dishes ' : ''}{total != null ? money(total) : ''}
+            {action} {count > 1 ? count + ' dishes ' : ''}{total != null ? money(total) : ''}
           </button>
         </div>
       )}

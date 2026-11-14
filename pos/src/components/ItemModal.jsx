@@ -242,22 +242,28 @@ function ComboSteps({ item, config, picks, onChange, ctx, stepRefs }) {
   })
 }
 
+const has = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k)
+
 /**
  * onAdd({ selection, qty, seat, course, note, allergies, unit_price }) adds the dish.
  * defaults: { seat, course, covers, parts } from the check screen (parts:
- * what of seats and courses the check's revenue stream uses, seatCourseParts()).
- * initial: { selection, qty } to start from (e.g. "Make it a combo").
+ * what of seats and courses the check uses, seatCourseParts(); 'none' on a
+ * counter order).
+ * initial: what to start from: { selection, qty } (e.g. "Make it a combo"),
+ * and for Change options the line's own { seat, course, note, allergies,
+ * unit_price } too (lineFields() in lib/checkOps.js).
+ * actionLabel: the main button's word (Add; Update when changing a line).
  */
-export default function ItemModal({ item, config, defaults = {}, initial = null, title = null, onClose, onAdd }) {
+export default function ItemModal({ item, config, defaults = {}, initial = null, title = null, actionLabel = 'Add', onClose, onAdd }) {
   const it = tillItem(config, item.id)
   const ctx = useMemo(() => comboCtx(config), [config])
   const [sel, setSel] = useState(() => ({ choices: {}, combo: {}, ...(initial?.selection || {}) }))
   const [qty, setQty] = useState(initial?.qty || 1)
-  const [seat, setSeat] = useState(defaults.seat ?? null)
-  const [course, setCourse] = useState(defaults.course ?? null)
-  const [note, setNote] = useState('')
-  const [allergies, setAllergies] = useState([])
-  const [priceText, setPriceText] = useState(null)
+  const [seat, setSeat] = useState(has(initial, 'seat') ? initial.seat ?? null : defaults.seat ?? null)
+  const [course, setCourse] = useState(has(initial, 'course') ? initial.course ?? null : defaults.course ?? null)
+  const [note, setNote] = useState(initial?.note || '')
+  const [allergies, setAllergies] = useState(initial?.allergies || [])
+  const [priceText, setPriceText] = useState(initial?.unit_price != null ? (initial.unit_price / 100).toFixed(2) : null)
   const stepRefs = useRef({})
   const priced = useMemo(() => priceItem(it, sel, ctx), [it, sel, ctx])
   const unit = priceText != null ? poundsToPence(priceText) : priced.ok ? priced.unit_price : null
@@ -281,7 +287,7 @@ export default function ItemModal({ item, config, defaults = {}, initial = null,
         </div>
         <button className="btn btn-primary min-w-[180px] h-14 text-lg" disabled={!priced.ok || unit == null} data-testid="add"
           onClick={() => onAdd({ selection: { ...sel, combo: isCombo ? priced.ok && steps ? steps.picks : sel.combo : undefined }, qty, seat, course, note: note.trim(), allergies, unit_price: priceText != null ? unit : null })}>
-          Add {total != null ? money(total) : ''}
+          {actionLabel} {total != null ? money(total) : ''}
         </button>
       </>}>
       <div className="space-y-6">

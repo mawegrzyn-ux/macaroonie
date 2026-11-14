@@ -619,6 +619,10 @@ export function applyEvent(checks, e, ctx = {}) {
       if (p.price_override || (p.unit_price != null && p.unit_price !== l.unit_price && !p.modifiers)) {
         const no = need('price_override'); if (no) return no
         l.price_override = true
+      } else if (p.price_override === false && p.modifiers != null) {
+        // Its options priced again at the menu's price (Change options with
+        // Use menu price): no longer a typed price.
+        l.price_override = false
       }
       if (p.qty != null && p.qty < l.qty) {
         const no = needManager('delete_unsent'); if (no) return no
