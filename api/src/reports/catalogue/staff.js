@@ -40,6 +40,8 @@ const KINDS = { extra: 'Extra pay', deduction: 'Deduction', advance: 'Cash advan
 // Hours of a rota day from its minutes.
 const minutesAsHours = (...cols) => ({ sql: '((' + cols.map(c => '{t}.' + c).join(' + ') + ') / 60.0)' })
 const TIME_OFF_MINUTES = ['sick_minutes', 'pto_minutes', 'uto_minutes', 'abs_minutes']
+// What a tip move gave its person, of one kind: taken out is a minus, as the Rota page counts it.
+const given = kind => ({ sql: "(CASE WHEN {t}.kind = '" + kind + "' THEN (CASE WHEN {t}.action = 'remove' THEN -{t}.amount ELSE {t}.amount END) END)" })
 
 export default [
   // ── Worked out for each run ──────────────────────────────────
@@ -417,16 +419,16 @@ export default [
     fields: {
       kind: choice('kind', { points: 'Points', money: 'Tips' }, { label: 'Points or tips' }),
       action: choice('action', { move: 'Moved', add: 'Added', remove: 'Taken out' }, { label: 'What was done' }),
-      points: number({ sql: "(CASE WHEN {t}.kind = 'points' THEN {t}.amount END)" }, { label: 'Points', adds: true, decimals: 2 }),
-      tips: pounds({ sql: "(CASE WHEN {t}.kind = 'money' THEN {t}.amount END)" }, { label: 'Tips' }),
+      points: number(given('points'), { label: 'Points', adds: true, decimals: 2, about: 'What the move gave this person: taken out is a minus.' }),
+      tips: pounds(given('money'), { label: 'Tips', about: 'What the move gave this person: taken out is a minus.' }),
       note: text('note', { label: 'Reason' }),
       added_by: text('created_by', { label: 'Added by' }),
       added_at: moment('created_at', { label: 'Added at' }),
     },
     measures: {
       moves: count({ label: 'Moves' }),
-      points_total: sum({ sql: "(CASE WHEN {t}.kind = 'points' THEN {t}.amount END)" }, { label: 'Points', decimals: 2 }),
-      tips_total: total({ sql: "(CASE WHEN {t}.kind = 'money' THEN {t}.amount END)" }, { label: 'Tips' }),
+      points_total: sum(given('points'), { label: 'Points', decimals: 2, about: 'Points the moves gave, less points taken out.' }),
+      tips_total: total(given('money'), { label: 'Tips', about: 'Tips the moves gave, less tips taken out.' }),
     },
     links: {
       person: one('staff.people', 'to_staff_id', { label: 'Person' }),

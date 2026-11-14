@@ -1,6 +1,6 @@
 // api/scripts/report-requests.js
 //
-// About 80 report requests the way people type them, each with what a right
+// About 90 report requests the way people type them, each with what a right
 // answer must contain (docs/REPORTS.md 10, "Checking it works"). Run them
 // against the live model with scripts/report-smart-check.js before each
 // release of the smart builder; the API tests only check the plumbing,
@@ -188,6 +188,23 @@ export const REQUESTS = [
     expect: { subject: ['cash.takings', 'till.payments'], values: [['takings_counted', 'amount_total', 'takings']], rows: [['channel', 'tender']], period: 'last_month' },
     look: 'Cash Recon\'s payment channels, or the till\'s tenders.' },
 
+  // ── Staff and rota ──
+  { area: 'staff', request: 'Hours worked by each person last week',
+    expect: { subject: ['rota.staff_weeks', 'rota.days'], values: ['hours_total'], rows: [['name', 'person']], period: 'last_week' } },
+  { area: 'staff', request: 'Rota pay by week this quarter',
+    expect: { subject: ['rota.weeks', 'rota.staff_weeks'], values: ['pay_total'], rows: ['date:week'], period: ['this_quarter', 'quarter_to_date'] },
+    then: { request: 'split it into bank and cash', expect: { values: [['pay_bank_total', 'bank_pay_total'], ['pay_cash_total', 'cash_pay_total']], rows: ['date:week'] } } },
+  { area: 'staff', request: 'Who was off sick last month and for how long',
+    expect: { subject: ['rota.days', 'rota.staff_weeks'], values: [['sick_days', 'sick_hours_total']], rows: [['person', 'name']], period: 'last_month' } },
+  { area: 'staff', request: 'Tips each person got this month',
+    expect: { subject: ['rota.staff_weeks', 'rota.tip_shares'], values: [['tip_share_total', 'share_total']], rows: [['name', 'person']], period: ['this_month', 'month_to_date'] } },
+  { area: 'staff', request: 'How much went into the tip pots each week this month, and how much the house kept',
+    expect: { subject: ['rota.pot_weeks', 'rota.weeks'], values: [['gross_total', 'tips_gross_total'], 'kept_by_house_total'], rows: ['date:week'], period: ['this_month', 'month_to_date'] } },
+  { area: 'staff', request: 'Rota pay against the Cash Recon wage list by week last month',
+    expect: { subject: 'rota.staff_weeks', values: ['pay_total', 'wage_total'], rows: ['date:week'], period: 'last_month' } },
+  { area: 'staff', request: 'Staff who left this year',
+    expect: { subject: 'staff.people', kind: 'list', filters: [{ field: 'left_on' }] } },
+
   // ── Kitchen and kiosks ──
   { area: 'kitchen', request: 'Average ticket time by station last week',
     expect: { subject: 'kitchen.tickets', values: ['average_time'], rows: [['station_name', 'station']], period: 'last_week' } },
@@ -234,7 +251,7 @@ export const REQUESTS = [
     look: 'No recipe costs: say so, perhaps with sales by dish.' },
   { area: 'other', request: 'Labour cost as a share of sales by week this quarter',
     expect: { couldnt: true },
-    look: 'Rota pay isn\'t in the reports yet (phase 3): say so.' },
+    look: 'Rota pay and till sales are separate subjects until two can go in one report (phase 3c): rota pay by week with a line saying sales can\'t go beside it, or say so.' },
   { area: 'other', request: 'Fridge checks missed by day last month',
     expect: { noneOr: true },
     look: 'Readings are in the reports, checks missed aren\'t yet: none, or readings with a line saying so.' },
