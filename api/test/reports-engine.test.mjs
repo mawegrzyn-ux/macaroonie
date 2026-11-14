@@ -821,7 +821,7 @@ test('venues in two currencies: money is shown for each currency on its own, nev
     assert.deepEqual(summary.meta.drill, { down: [{ field: 'server.name', label: 'Server' }], rows: true, of: 'Checks' })
     const step = { at: [{ field: 'venue.currency', value: 'GBP' }, { field: 'order_type.name', value: 'Take out' }], to: 'rows' }
     assert.match(drillSpec(byType, step, { listColumns: ['number'] }).problem, /isn't grouped by "venue\.currency"/)
-    const also = { listColumns: ['number'], also: [currencyPath('till.checks')] }
+    const also = { listColumns: ['number'], extra: [currencyPath('till.checks')] }
     assert.equal([...letters(await run(drillSpec(byType, step, also).spec))].sort().join(''), 'bf')
     const down = drillSpec(byType, { ...step, to: { field: 'server.name' } }, also)
     assert.deepEqual(down.spec.filters.slice(-2), [{ field: 'venue.currency', op: 'is', value: 'GBP' }, { field: 'order_type.name', op: 'is', value: 'Take out' }])

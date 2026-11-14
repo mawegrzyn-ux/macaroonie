@@ -3,7 +3,9 @@
 // The report builder's three small windows (docs/REPORTS.md 9): a grouping
 // or list column, a value, and a filter. Each keeps what is typed to itself
 // and hands back a whole new definition when Apply is pressed, through the
-// edits in shared/reports/build.js. Nothing changes until then.
+// edits in shared/reports/build.js. Nothing changes until then. A value can
+// be a figure of another subject of the report, and a filter one of that
+// subject's own (docs/REPORTS.md 7.1).
 
 import { useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -13,9 +15,9 @@ import {
   updateRow, removeRow, removeColumn, addRow, addColumn, setTotals,
   addValue, updateValue, removeValue,
   filterOps, filterShape, filterValueKind, filterValueOk, blankValue as blank, setFilter, removeFilter,
-  roomLeft, BUCKET_LABELS,
+  roomLeft, updateAlso, BUCKET_LABELS,
 } from '@shared/reports/build.js'
-import { rowId, OP_LABELS, LIMITS } from '@shared/reports/spec.js'
+import { rowId, valueSubject, OP_LABELS, LIMITS } from '@shared/reports/spec.js'
 import { resolvePath, pathLabel } from '@shared/reports/paths.js'
 import { parseExpr, exprProblem, exprRefs, ExprError, MAX_EXPR_LENGTH } from '@shared/reports/expr.js'
 import { useApi } from '@/lib/api'
@@ -26,6 +28,7 @@ import { cn } from '@/lib/utils'
 const primary = 'h-12 px-5 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50'
 const plain = 'h-12 px-4 rounded-lg border bg-background text-sm touch-manipulation hover:bg-muted disabled:opacity-50'
 const danger = 'inline-flex items-center gap-2 h-12 px-4 rounded-lg border border-red-200 bg-background text-sm text-red-700 touch-manipulation hover:bg-red-50'
+const lowerFirst = s => (s && /^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s)
 
 function Toggle({ checked, onChange, label, hint, testId, disabled }) {
   return (
@@ -156,7 +159,10 @@ export function ValueWindow({ catalogue, spec, valueKey, onApply, onClose }) {
   const others = spec.values.filter(v => v.key !== valueKey && !v.calc)
   const problem = isCalc ? calcProblem(calc, spec, valueKey) : null
   const readers = valueKey ? valueReaders(spec, valueKey) : []
-  const own = value ? valueName(catalogue, spec.subject, { ...value, label: '' }) : 'Calculation'
+  const own = value ? valueName(catalogue, spec, { ...value, label: '' }) : 'Calculation'
+  // A figure of another subject of the report: its paths are that subject's.
+  const subjectKey = value ? valueSubject(spec, value) : spec.subject
+  const other = value?.from ? (spec.also || []).find(a => a.key === value.from) : null
   const full = !valueKey && roomLeft(spec).values <= 0
 
   // A value's short name goes in where the cursor is.
@@ -181,7 +187,7 @@ export function ValueWindow({ catalogue, spec, valueKey, onApply, onClose }) {
   }
 
   return (
-    <Modal title={valueKey ? 'Value: ' + valueName(catalogue, spec.subject, value) : 'A calculation'} onClose={onClose}
+    <Modal title={valueKey ? 'Value: ' + valueName(catalogue, spec, value) : 'A calculation'} onClose={onClose}
       footer={(
         <>
           <button type="button" onClick={apply} disabled={!!problem || full} data-testid="value-apply" className={primary}>{valueKey ? 'Apply' : 'Add it'}</button>
@@ -194,7 +200,8 @@ export function ValueWindow({ catalogue, spec, valueKey, onApply, onClose }) {
       )}>
       {value && !isCalc && (
         <p className="text-xs text-muted-foreground" data-testid="value-what">
-          {valueKindText(value)}{value.measure || value.field ? ': ' + pathLabel(catalogue, spec.subject, value.measure || value.field) : ''}
+          {valueKindText(value)}{value.measure || value.field ? ': ' + pathLabel(catalogue, subjectKey, value.measure || value.field) : ''}
+          {other && <span className="block mt-0.5" data-testid="value-also">From {lowerFirst(other.label || catalogue.subjects[other.subject]?.label || other.subject)}, lined up by the report&apos;s rows</span>}
         </p>
       )}
 
@@ -212,7 +219,7 @@ export function ValueWindow({ catalogue, spec, valueKey, onApply, onClose }) {
                 {others.map(v => (
                   <button key={v.key} type="button" onClick={() => insert(v.key)} data-testid="value-calc-chip" data-key={v.key}
                     className="min-h-[48px] px-3 py-1 rounded-lg border bg-background text-left touch-manipulation hover:bg-muted">
-                    <span className="block text-xs leading-tight">{valueName(catalogue, spec.subject, v)}</span>
+                    <span className="block text-xs leading-tight">{valueName(catalogue, spec, v)}</span>
                     <span className="block text-[11px] font-mono text-muted-foreground leading-tight">{v.key}</span>
                   </button>
                 ))}
@@ -253,10 +260,10 @@ export function ValueWindow({ catalogue, spec, valueKey, onApply, onClose }) {
       )}
       {readers.length > 0 && (
         <p className="text-[11px] text-amber-800" data-testid="value-readers">
-          Used by {readers.map(v => valueName(catalogue, spec.subject, v)).join(', ')}. Taking it off stops {readers.length === 1 ? 'that calculation' : 'those calculations'} working.
+          Used by {readers.map(v => valueName(catalogue, spec, v)).join(', ')}. Taking it off stops {readers.length === 1 ? 'that calculation' : 'those calculations'} working.
         </p>
       )}
-      {value && !isCalc && <Linked catalogue={catalogue} subject={spec.subject} path={value.measure || value.field} />}
+      {value && !isCalc && <Linked catalogue={catalogue} subject={subjectKey} path={value.measure || value.field} />}
     </Modal>
   )
 }
@@ -269,14 +276,19 @@ const PARTS = [{ value: '', label: 'The date' }, { value: 'weekday', label: 'Day
 /**
  * index: one of the report's top-level filters, or null for a new one on
  * `path`. Only plain conditions open here ("any of" and "has" filters are
- * shown in words on the shelf).
+ * shown in words on the shelf). With `also` (the key of another subject of
+ * the report) it is one of that subject's own filters: a value set here,
+ * never asked for when the report is opened, and only its rows are picked.
  */
-export function FilterWindow({ catalogue, spec, index = null, path: newPath = null, today, onApply, onClose }) {
+export function FilterWindow({ catalogue, spec, index = null, path: newPath = null, also = null, today, onApply, onClose }) {
   const api = useApi()
-  const old = index != null ? spec.filters[index] : null
+  const other = also ? (spec.also || []).find(a => a.key === also) || null : null
+  const subjectKey = other ? other.subject : spec.subject
+  const list = other ? other.filters : spec.filters
+  const old = index != null ? list[index] : null
   const path = old ? old.field : newPath
   const oldParam = old?.param ? spec.params.find(p => p.key === old.param) : null
-  const found = useMemo(() => resolvePath(catalogue, spec.subject, path), [catalogue, spec.subject, path])
+  const found = useMemo(() => resolvePath(catalogue, subjectKey, path), [catalogue, subjectKey, path])
   const def = found.ok && found.kind === 'field' ? found.def : null
   const type = def?.type || 'text'
   const timed = type === 'date' || type === 'moment'
@@ -289,13 +301,13 @@ export function FilterWindow({ catalogue, spec, index = null, path: newPath = nu
     return timed ? { relative: 'last_week' } : null
   })
   // A new filter on the report's own day asks each time when nothing else does: it is the report's period.
-  const [ask, setAsk] = useState(old ? !!old.param : (path === 'date' && timed && !hasPeriod))
+  const [ask, setAsk] = useState(other ? false : old ? !!old.param : (path === 'date' && timed && !hasPeriod))
   const [askLabel, setAskLabel] = useState(oldParam?.label || '')
 
   const ops = filterOps(type, bucket || null)
   const shape = filterShape(op)
   const kind = filterValueKind(type, bucket || null, op)
-  const label = pathLabel(catalogue, spec.subject, path, bucket || null)
+  const label = pathLabel(catalogue, subjectKey, path, bucket || null)
 
   const pickBucket = b => {
     const first = filterOps(type, b || null)[0]
@@ -313,13 +325,15 @@ export function FilterWindow({ catalogue, spec, index = null, path: newPath = nu
   const wantsOffers = !!def && type === 'text' && !def.pii && kind === 'text' && shape !== 'none'
   const periodFilter = spec.filters.find(f => f.field === 'date' && !f.bucket && f.op === 'in_period')
   const period = periodFilter?.param ? spec.params.find(p => p.key === periodFilter.param)?.default : periodFilter?.value
+  // The report's period applies to another subject too, when it has days.
+  const dated = !!catalogue.subjects[subjectKey]?.fields?.date
   const offersQ = useQuery({
-    queryKey: ['report-values', spec.subject, path, period || null],
+    queryKey: ['report-values', subjectKey, path, (dated && period) || null],
     queryFn: () => api.post('/reports/preview', {
       rows: 60,
       spec: {
-        subject: spec.subject, kind: 'summary', rows: [{ field: path }], values: [{ key: 'n', agg: 'count' }],
-        filters: period ? [{ field: 'date', op: 'in_period', value: period }] : [],
+        subject: subjectKey, kind: 'summary', rows: [{ field: path }], values: [{ key: 'n', agg: 'count' }],
+        filters: dated && period ? [{ field: 'date', op: 'in_period', value: period }] : [],
         sort: [{ by: 'n', dir: 'desc' }], limit: { top: 60 }, totals: { grand: false },
       },
     }),
@@ -332,13 +346,21 @@ export function FilterWindow({ catalogue, spec, index = null, path: newPath = nu
   const asking = ask && shape !== 'none'
   const ok = shape === 'none' || filterValueOk(type, bucket || null, op, value) || (asking && shape !== 'period' && blank(value))
   const room = roomLeft(spec)
-  const full = index == null && room.filters <= 0
+  const full = index == null && (other ? list.length >= LIMITS.filters : room.filters <= 0)
   const noAsk = asking && !oldParam && room.params <= 0
 
   const apply = () => {
     const cond = { field: path, ...(bucket ? { bucket } : {}), op, ...(shape !== 'none' ? { value: blank(value) ? null : value } : {}) }
+    if (other) {
+      onApply(updateAlso(spec, other.key, { filters: index != null ? list.map((f, n) => (n === index ? cond : f)) : [...list, cond] }))
+      return
+    }
     onApply(setFilter(spec, index ?? spec.filters.length, cond, { ask: asking, label: askLabel.trim() }))
   }
+  const remove = () => onApply(other
+    ? updateAlso(spec, other.key, { filters: list.filter((_, n) => n !== index) })
+    : removeFilter(spec, index))
+  const otherName = other ? other.label || catalogue.subjects[other.subject]?.label || other.subject : ''
 
   return (
     <Modal title={'Filter: ' + label} onClose={onClose}
@@ -346,12 +368,17 @@ export function FilterWindow({ catalogue, spec, index = null, path: newPath = nu
         <>
           <button type="button" onClick={apply} disabled={!ok || full || noAsk} data-testid="filter-apply" className={primary}>{index == null ? 'Add the filter' : 'Apply'}</button>
           {index != null && (
-            <button type="button" onClick={() => onApply(removeFilter(spec, index))} data-testid="filter-remove" className={danger}>
+            <button type="button" onClick={remove} data-testid="filter-remove" className={danger}>
               <Trash2 className="w-4 h-4" /> Take it off
             </button>
           )}
         </>
       )}>
+      {other && (
+        <p className="text-xs text-muted-foreground" data-testid="filter-also">
+          This picks which of {lowerFirst(otherName)}&apos;s rows count. The report&apos;s own rows aren&apos;t changed.
+        </p>
+      )}
       {timed && (
         <Field label="Filter by" group>
           <Segmented value={bucket} onChange={pickBucket} className="[&>button]:h-12"
@@ -370,7 +397,7 @@ export function FilterWindow({ catalogue, spec, index = null, path: newPath = nu
           {type === 'duration' && <p className="text-[11px] text-muted-foreground mt-1.5">Typed in minutes.</p>}
         </div>
       )}
-      {shape !== 'none' && (
+      {shape !== 'none' && !other && (
         <div className="rounded-lg border p-3 space-y-2">
           <Toggle checked={ask} onChange={setAsk} testId="filter-ask" label="Ask each time the report is opened"
             hint={shape === 'period' ? 'Whoever opens it can pick another period. What is set here is what it starts with.' : 'Whoever opens it can pick something else. What is set here is what it starts with; leave it empty to start with everything.'} />
@@ -384,7 +411,7 @@ export function FilterWindow({ catalogue, spec, index = null, path: newPath = nu
       {full && <p className="text-xs text-red-700" role="alert">A report takes {LIMITS.filters} filters at most.</p>}
       {noAsk && <p className="text-xs text-red-700" role="alert">A report asks for {LIMITS.params} things at most. Take one off, or set this filter's value here.</p>}
       {def.about && <p className="text-[11px] text-muted-foreground">{def.about}</p>}
-      <Linked catalogue={catalogue} subject={spec.subject} path={path} />
+      <Linked catalogue={catalogue} subject={subjectKey} path={path} />
     </Modal>
   )
 }

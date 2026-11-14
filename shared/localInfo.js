@@ -126,12 +126,37 @@ export function weatherText(code) {
   return WEATHER_WORDS.get(Number(code)) || 'Weather'
 }
 
+/** Every weather code with its words, in code order (the report builder's choices). */
+export const weatherCodes = () => [...WEATHER_WORDS.entries()]
+
+// The kinds of weather a day can be put under, for reports that compare
+// days by their weather. Every code above is in exactly one.
+export const WEATHER_GROUPS = [
+  { key: 'clear', label: 'Clear or bright', codes: [0, 1] },
+  { key: 'cloudy', label: 'Cloudy', codes: [2, 3] },
+  { key: 'fog', label: 'Fog', codes: [45, 48] },
+  { key: 'drizzle', label: 'Drizzle', codes: [51, 53, 55, 56, 57] },
+  { key: 'rain', label: 'Rain or showers', codes: [61, 63, 65, 66, 67, 80, 81, 82] },
+  { key: 'snow', label: 'Snow', codes: [71, 73, 75, 77, 85, 86] },
+  { key: 'thunder', label: 'Thunderstorm', codes: [95, 96, 99] },
+]
+
+/** The kind of weather a code is ('rain'), or null for a code we don't know. */
+export function weatherGroup(code) {
+  const n = Number(code)
+  return WEATHER_GROUPS.find(g => g.codes.includes(n))?.key ?? null
+}
+
+// A wet day: 1 mm of rain or snow or more, the line weatherSummary() starts
+// saying how much from.
+export const WET_DAY_MM = 1
+
 /** One line for a captured weather day: "Rain, 3 to 9°C, 12 mm". */
 export function weatherSummary(d = {}) {
   const parts = [weatherText(d.weather_code)]
   if (d.temp_min != null && d.temp_max != null) parts.push(Math.round(d.temp_min) + ' to ' + Math.round(d.temp_max) + '°C')
   else if (d.temp_max != null) parts.push('up to ' + Math.round(d.temp_max) + '°C')
-  if ((d.precip_mm || 0) >= 1) parts.push(Math.round(d.precip_mm) + ' mm')
+  if ((d.precip_mm || 0) >= WET_DAY_MM) parts.push(Math.round(d.precip_mm) + ' mm')
   if ((d.wind_kph || 0) >= 30) parts.push('wind ' + Math.round(d.wind_kph) + ' km/h')
   return parts.join(', ')
 }

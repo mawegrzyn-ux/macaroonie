@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { describeReport, andList, venuesWords } from '../reports/describe.js'
-import { startReport, addFilter, setParamDefault, setLimit, setCompare, setView, setKind } from '../reports/build.js'
+import { startReport, addFilter, setParamDefault, setLimit, setCompare, setView, setKind, addAlso, addValue, updateAlso } from '../reports/build.js'
 import { normaliseReport } from '../reports/spec.js'
 
 const f = (key, label, type, more = {}) => [key, { key, label, type, ...more }]
@@ -82,4 +82,15 @@ test('venues and lists in words', () => {
 test('a report about something unknown says nothing', () => {
   assert.equal(describeReport(CAT, { subject: 'stock' }), '')
   assert.equal(describeReport(null, dishes()), '')
+})
+
+test('figures from another subject are named from it, with its own filters said', () => {
+  let s = startReport(CAT, 'lines')
+  s = addAlso(s, 'payments')
+  s = addValue(s, { measure: 'taken', from: 's2' })
+  s = updateAlso(s, 's2', { filters: [{ field: 'tender', op: 'is', value: 'card' }] })
+  s = setParamDefault(s, 'period', { relative: 'last_month' })
+  assert.equal(describeReport(CAT, s), 'Net sales and taken by trading day, payments only where tender is Card, for last month at every venue.')
+  // Its own name, when it has one.
+  assert.equal(describeReport(CAT, updateAlso(s, 's2', { label: 'Card takings' })), 'Net sales and taken by trading day, card takings only where tender is Card, for last month at every venue.')
 })

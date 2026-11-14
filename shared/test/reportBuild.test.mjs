@@ -16,6 +16,7 @@ import {
   setSort, setLimit, limitOf, setTotals, setCompare, compareProblem, setKind, startReport, sortChoices,
   drillRoom, addDrillLevel, removeDrillLevel, moveDrillLevel, updateDrillLevel, setDrillRows, drillLevels,
   setView, viewOptions, openChoices, setOpen,
+  alsoKeyFor, alsoChoices, alsoProblems, addAlso, removeAlso, updateAlso,
 } from '../reports/build.js'
 
 const f = (key, label, type, more = {}) => [key, { key, label, type, ...more }]
@@ -946,4 +947,97 @@ test('what a report\'s rows open: the pages a row can reach, the usual first, an
   assert.equal(setOpen(d, null).drill.open, undefined)
   assert.equal(setOpen(startReport(OPEN, 'lines'), 'check.server.venue').drill, null, 'three links is too far')
   assert.deepEqual(reportProblems(d), [])
+})
+
+test('figures from other subjects: added, named, lined up, changed and taken out', () => {
+  // Checks by trading day, with the usual period and venues.
+  const start = startReport(CAT, 'checks')
+  assert.deepEqual(start.rows, [{ field: 'date' }])
+  assert.equal(alsoKeyFor(start), 's2')
+  assert.equal(roomLeft(start).also, LIMITS.also)
+
+  // What can sit beside it: the subjects the role can build on, in the
+  // catalogue's order; the ones with no day of their own say why.
+  const choices = alsoChoices(CAT, start)
+  assert.deepEqual(choices.map(c => [c.key, c.ok]), [['venue', false], ['dishes', false], ['checks', true], ['lines', true], ['payments', true]])
+  assert.match(choices[0].why, /^Venues has no day of its own, so it can't be lined up by trading day\.$/)
+  // Nothing for a list.
+  assert.deepEqual(alsoChoices(CAT, setKind(start, 'list', CAT)), [])
+  assert.equal(roomLeft(setKind(start, 'list', CAT)).also, 0)
+
+  // Added: it needs a figure of its own before the report runs.
+  let s = addAlso(start, 'payments', { label: 'Takings' })
+  assert.deepEqual(s.also, [{ key: 's2', subject: 'payments', label: 'Takings', filters: [] }])
+  assert.deepEqual(reportProblems(s), ['Takings: add a figure from it, or take it out'])
+  assert.equal(alsoKeyFor(s), 's3')
+  // A key asked for is used when it is free and well formed.
+  const named = addAlso(s, 'lines', { key: 'sold' })
+  assert.equal(named.also[1].key, 'sold')
+  assert.equal(addAlso(s, 'lines', { key: 's2' }).also[1].key, 's3')
+  assert.equal(addAlso(s, 'lines', { key: 'Bad Key' }).also[1].key, 's3')
+
+  // Its figure, once: the same figure of another subject is another value.
+  s = addValue(s, { measure: 'taken', from: 's2' })
+  assert.deepEqual(s.values.map(v => [v.key, v.from || null]), [['checks', null], ['taken', 's2']])
+  assert.equal(addValue(s, { measure: 'taken', from: 's2' }), s)
+  assert.deepEqual(reportProblems(s), [])
+  // Named from its own subject when the report is given.
+  s = addAlso(s, 'lines')
+  s = addValue(s, { measure: 'qty_sold', from: 's3' })
+  const qty = s.values.find(v => v.from === 's3')
+  assert.equal(valueName(CAT, s, qty), 'Quantity sold')
+  assert.equal(valueName(CAT, 'lines', qty), 'Quantity sold')
+  assert.deepEqual(sortChoices(CAT, s).map(c => c.label), ['Trading day', 'Checks', 'Taken', 'Quantity sold'])
+  // Net sales of the dishes beside the checks' own: two values, not one.
+  const both = addValue(addValue(s, { measure: 'net_sales' }), { measure: 'net_sales', from: 's3' })
+  assert.deepEqual(both.values.filter(v => v.measure === 'net_sales').map(v => v.from || null), [null, 's3'])
+
+  // No table across while other subjects are there (it would drop them).
+  assert.equal(addColumn(s, 'status'), s)
+  // At most three.
+  const full = addAlso(addAlso(addAlso(start, 'payments'), 'lines'), 'checks')
+  assert.equal(full.also.length, LIMITS.also)
+  assert.equal(roomLeft(full).also, 0)
+  assert.equal(addAlso(full, 'payments'), full)
+  // Not on a list.
+  const list = setKind(start, 'list', CAT)
+  assert.equal(addAlso(list, 'payments'), list)
+
+  // Its name and its own filters changed in place.
+  s = updateAlso(s, 's2', { label: 'Card takings', filters: [{ field: 'tender', op: 'is', value: 'card' }, { field: 'nope', op: 'whatever' }] })
+  assert.deepEqual(s.also[0], { key: 's2', subject: 'payments', label: 'Card takings', filters: [{ field: 'tender', op: 'is', value: 'card' }] })
+  assert.deepEqual(updateAlso(s, 's2', { label: '' }).also[0], { key: 's2', subject: 'payments', filters: [{ field: 'tender', op: 'is', value: 'card' }] })
+  assert.equal(updateAlso(s, 'nope', { label: 'x' }), s)
+
+  // Lined up as the rows are now: a field of the checks' own means nothing to payments.
+  assert.deepEqual(alsoProblems(CAT, s), [])
+  const byNumber = addRow(s, 'number')
+  assert.deepEqual(alsoProblems(CAT, byNumber), [
+    'Card takings can\'t be lined up by check: it belongs to checks only.',
+    'Dishes sold can\'t be lined up by check: it belongs to checks only.',
+  ])
+  // By the server both lead to: lined up through each one's own links (a
+  // payment's check's server, a dish's check's server).
+  assert.deepEqual(alsoProblems(CAT, addRow(s, 'server.name')), [])
+
+  // A parameter only another subject's filter asks for is kept and asked for.
+  const asks = normaliseReport({
+    ...s,
+    params: [...s.params, { key: 'tender', type: 'value', default: 'card' }],
+    also: s.also.map(a => (a.key === 's2' ? { ...a, filters: [{ field: 'tender', op: 'is', param: 'tender' }] } : a)),
+  })
+  assert.ok(usedParams(asks).has('tender'))
+  const input = paramInputs(CAT, asks).find(p => p.key === 'tender')
+  assert.equal(input.subject, 'payments')
+  assert.equal(input.label, 'Tender')
+  assert.ok(removeFilter(asks, 0).params.some(p => p.key === 'tender'))
+
+  // Taken out with its figures; a calculation that read one stays, and is named.
+  const calc = addValue(s, { calc: 'taken / checks', label: 'Takings per check' })
+  assert.deepEqual(valueReaders(calc, 'taken').map(v => v.label), ['Takings per check'])
+  const out = removeAlso(calc, 's2')
+  assert.deepEqual(out.also.map(a => a.key), ['s3'])
+  assert.deepEqual(out.values.map(v => [v.key, v.from || null]), [['checks', null], ['qty_sold', 's3'], ['calc_1', null]])
+  assert.ok(reportProblems(out).some(p => /Takings per check/.test(p)))
+  assert.equal(removeAlso(out, 's2'), out)
 })

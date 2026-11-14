@@ -123,7 +123,7 @@ export default [
     from: { work: 'cash_weeks', tables: WORK_TABLES },
     idType: 'text',
     venue: 'venue_id',
-    date: { sql: '{t}.date', label: 'Week starting' },
+    date: { sql: '{t}.date', label: 'Week starting', grain: 'week' },
     fields: {
       days: number('days', { label: 'Days reported', adds: true }),
       days_submitted: number('days_submitted', { label: 'Days submitted', adds: true }),
@@ -290,7 +290,7 @@ export default [
     from: 'cash_wage_entries',
     name: 'name',
     venue: { sql: '{list}.venue_id' },
-    date: { sql: '{list}.week_start', label: 'Week starting' },
+    date: { sql: '{list}.week_start', label: 'Week starting', grain: 'week' },
     fields: {
       name: text('name', { label: 'Name' }),
       pay_type: choice('entry_type', { hourly: 'Hourly', fixed: 'Fixed' }, { label: 'Paid by the hour or fixed' }),
@@ -470,7 +470,7 @@ export default [
     about: 'A venue\'s wage list for a week on Cash Recon.',
     from: 'cash_wage_reports',
     venue: 'venue_id',
-    date: { sql: '{t}.week_start', label: 'Week starting' },
+    date: { sql: '{t}.week_start', label: 'Week starting', grain: 'week' },
     fields: {
       notes: text('notes', { label: 'Notes' }),
     },

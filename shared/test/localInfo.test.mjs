@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   everyHours, frequencyText, nextRunAt, zonedInstant, itemKey,
   weatherText, weatherSummary, weatherSeverity, itemOnDay, sortDayItems,
-  monthGrid, addDays, weekAhead, isForecast,
+  monthGrid, addDays, weekAhead, isForecast, weatherCodes, WEATHER_GROUPS, weatherGroup,
 } from '../localInfo.js'
 
 const iso = d => d.toISOString().slice(0, 16) + 'Z'
@@ -70,6 +70,22 @@ test('weather words, the one-line summary and how loud a day shows', () => {
   assert.equal(weatherSeverity({ weather_code: 2, wind_kph: 45 }), 'notice')
   assert.equal(weatherSeverity({ weather_code: 2, wind_kph: 30, precip_mm: 0 }), 'info')
   assert.equal(weatherSeverity({}), 'info')
+})
+
+test('every weather code is in exactly one kind of weather', () => {
+  const codes = weatherCodes().map(([code]) => code)
+  assert.ok(codes.length > 20)
+  for (const code of codes) {
+    const groups = WEATHER_GROUPS.filter(g => g.codes.includes(code))
+    assert.equal(groups.length, 1, 'code ' + code + ' is in ' + groups.length + ' kinds of weather')
+  }
+  // No group names a code the words don't know.
+  for (const g of WEATHER_GROUPS) for (const code of g.codes) assert.ok(codes.includes(code), g.key + ' names ' + code)
+  assert.equal(weatherGroup(63), 'rain')
+  assert.equal(weatherGroup('81'), 'rain')
+  assert.equal(weatherGroup(1), 'clear')
+  assert.equal(weatherGroup(96), 'thunder')
+  assert.equal(weatherGroup(999), null)
 })
 
 test('which days an item is on, and a day’s reading order', () => {

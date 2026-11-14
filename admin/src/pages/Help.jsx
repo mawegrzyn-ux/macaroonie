@@ -2277,11 +2277,11 @@ export default function Help() {
             <DataTable
               head={['Area', 'Reports']}
               rows={[
-                ['Till sales', 'Sales by day; Sales by hour and weekday; Sales by dish; Sales by section; Sales by server; Sales by order type and revenue stream; Payments by tender; Discounts and comps, by whom and why; Voids, by whom and why; Cancelled orders, by whom and why; Charges added and taken off; Tips, by who took the payment; Average spend per check and per guest; VAT by rate; Trading days: cash counted against expected.'],
+                ['Till sales', 'Sales by day; Sales by hour and weekday; Sales by dish; Sales by section; Sales by server; Sales by order type and revenue stream; Payments by tender; Discounts and comps, by whom and why; Voids, by whom and why; Cancelled orders, by whom and why; Charges added and taken off; Tips, by who took the payment; Average spend per check and per guest; VAT by rate; Trading days: cash counted against expected; Sales against the weather; Sales, labour and bookings by venue.'],
                 ['Online orders', 'Online orders and sales by day and channel; Top dishes online; Promotions used online; Online orders: time to accept and to get ready; Online refunds; GloriaFood beside your own ordering.'],
                 ['Bookings', 'Guests by day and time; Bookings by source; No-shows and cancellations; How far ahead people book; Party sizes; Deposits taken and refunded; New and returning guests.'],
                 ['Cash reconciliation', 'Cash variance by day; Cash variance by week; Cash variance by venue; Days the cash was short; Income against takings; Takings by payment channel; Expenses by category; Wages by week.'],
-                ['Staff and rota', 'Hours and pay by person; Rota pay by week; Hours on the rota by day; Time off by person; Tips by person and pot; Tip pots by week; Rota pay against the wage list.'],
+                ['Staff and rota', 'Hours and pay by person; Rota pay by week; Hours on the rota by day; Time off by person; Tips by person and pot; Tip pots by week; Rota pay against the wage list; Labour against sales by week.'],
                 ['Kitchen', 'Ticket times by station; Ticket times by hour; Remakes and why.'],
                 ['Self-order kiosks', 'Kiosk visits and orders by day; Where kiosk guests gave up.'],
                 ['Loyalty', 'Members joined by week; Points given and spent; Rewards used; Stamp cards: stamps and cards filled.'],
@@ -2300,7 +2300,9 @@ export default function Help() {
               setup for prices, price changes and what is out of stock), and Food safety logs,
               Checklists or the H&amp;S Action Log for theirs (H&amp;S days need Food safety logs, and
               Checklists as well for their colour and anything that counts checklists). A figure
-              your role can't see is left out of the report with a note saying so.
+              your role can't see is left out of the report with a note saying so, and so are the
+              figures a starter takes from another area (the weather, bookings, the rota) when your
+              role can't see that area.
             </P>
             <P>
               Cash variance, rota pay and tips and each venue's H&amp;S day are worked out each time a
@@ -2425,6 +2427,45 @@ export default function Help() {
               The preview's rows can be tapped the way the saved report's can, to try what a row
               opens into; a trail shows above it. Any change to the report goes back to the report
               itself.
+            </P>
+            <H3>Figures from other subjects</H3>
+            <P>
+              A summary can put figures from up to three other subjects beside its own: the hours and
+              pay on the rota beside the till's sales, the guests booked beside the guests served, or
+              the weather beside each day's sales. In Set up, under{' '}
+              <strong>Figures from other subjects</strong>, tap <strong>Add</strong> and pick one.
+              Subjects that can't line up with the report's rows as they are now say why (the rota
+              can't be lined up by dish). Then add its figures: <strong>Figure</strong> on its card,
+              or pick it in the list at the top of the Data panel and tap a figure there. Another
+              subject's fields can be values or filters, never rows.
+            </P>
+            <P>
+              Each subject is counted on its own, and its figures go beside the row they belong to:
+              the same day (or week, month and so on), the same venue, or the same thing both lead to
+              (a server, a dish). Nothing is counted twice. The report's period and venues apply to
+              every subject. <strong>Filter</strong> on a subject's card picks which of its rows count,
+              with a fixed value (it can't be asked each time, and it can't be on the day or the venue,
+              which the report decides). Rota weeks run Monday to Sunday, so beside a report by day
+              they line up only by week or longer: group the days by week and pick whole weeks. A row
+              where a subject has nothing shows nothing for its figures.
+            </P>
+            <P>
+              The box at the top of a subject's card is what it is called in the report (Rota,
+              Bookings), and its figures' headings say so. <strong>Take it out</strong> removes its
+              figures; the card names any calculation that uses them, which stops working. A table
+              across can't have figures from other subjects. When the rows change so that a subject
+              can't line up any more, its card says why, the preview leaves its figures out with a
+              note, and <strong>Save</strong> waits until you change the rows or take it out.
+            </P>
+            <P>
+              In the report, tapping a row breaks every subject's figures down together, and the rows
+              behind one of another subject's figures are that subject's (<strong>The rota weeks behind
+              Hours worked</strong>). Someone whose role can't see a subject sees the
+              report without its figures, with a note saying so. The <strong>Weather</strong> subject
+              (under Local info) is one row per venue and day from the weather capture on the Local
+              info page: the forecast as it was last read for that day, so for a past day usually that
+              morning's forecast, not a measurement. Pepper can build reports like these too ("sales
+              against the weather by day", "labour against sales by week").
             </P>
             <H3>Saving and changing a report</H3>
             <P>

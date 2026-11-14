@@ -315,6 +315,153 @@ test('every day: a report about what is so now has no period, and a change to it
   assert.ok(!again.spec.params.some(p => p.type === 'period'), 'and the change keeps none')
 })
 
+test('figures from another subject go beside the report\'s own, lined up by its rows, with filters of their own', async () => {
+  const calls = claude.requests.length
+  let refs
+  claude.script.push(body => {
+    refs = shown(body)
+    const checks = refs.get('Checks'), wx = refs.get('Weather')
+    return reply({
+      subject: checks.ref,
+      rows: [row(checks.fields.get('Trading day'))],
+      also: [{ name: 'Wx', subject: wx.ref, label: 'Rainy days', filters: [filter(wx.fields.get('Kind of weather'), 'is', ['Rain or showers'])] }],
+      values: [
+        value('v1', checks.figures.get('Net sales')),
+        value('v2', wx.figures.get('Average highest (°C)'), { from: 'wx' }),
+        // One of the weather's own refs and no from: the weather beside the sales again.
+        value('v3', wx.figures.get('Wet days')),
+        value('v4', '', { calc: 'v1 / v3', label: 'Sales per wet day', format: 'money' }),
+      ],
+      name: 'Sales and the rain',
+    })()
+  })
+  const out = await ok(owner.post(BUILD, { request: 'sales against the weather' }))
+  assert.equal(claude.requests.length - calls, 1, 'one call: both are listed in full')
+  assert.ok(refs.get('Checks').detailed && refs.get('Weather').detailed)
+  assert.match(lastBody().system[0].text, /^- also: other subjects whose figures go beside the report's own/m, 'Pepper is told how')
+
+  assert.equal(out.problem, null)
+  assert.deepEqual(out.couldnt, [])
+  assert.deepEqual(out.spec.also.map(a => [a.key, a.subject, a.label]), [['wx', 'local.weather', 'Rainy days']], 'its name, lower case, is its key')
+  assert.deepEqual(out.spec.also[0].filters, [{ field: 'kind', op: 'is', value: 'rain' }], 'its own filter, on its own field')
+  const [sales, high, wet, per] = out.spec.values
+  assert.deepEqual([sales.measure, sales.from], ['net_sales', undefined])
+  assert.deepEqual([high.measure, high.from], ['average_high', 'wx'])
+  assert.deepEqual([wet.measure, wet.from], ['wet_days', 'wx'], 'a ref of the other subject\'s finds it')
+  assert.equal(per.calc, sales.key + ' / ' + wet.key, 'a calculation reads values from both')
+  assert.match(out.about, /rainy days only where kind of weather is Rain or showers/)
+  assert.equal(out.result.kind, 'summary')
+  const keys = out.result.columns.map(c => c.key)
+  for (const v of out.spec.values) assert.ok(keys.includes(v.key), v.key + ' is in the result: ' + keys.join(', '))
+})
+
+test('another subject listed in a line only is shown in full on the second ask; its days and venues stay the report\'s', async () => {
+  const calls = claude.requests.length
+  const seen = []
+  claude.script.push(body => {
+    const s = shown(body)
+    const checks = s.get('Checks'), b = s.get('Bookings')
+    seen.push(b)
+    return reply({ subject: checks.ref, rows: [row(checks.fields.get('Trading day'))], also: [{ name: 'booked', subject: b.ref, label: '', filters: [] }], values: [value('v1', checks.figures.get('Net sales')), value('v2', 'F99999', { from: 'booked' })] })()
+  })
+  claude.script.push(body => {
+    const s = shown(body)
+    const checks = s.get('Checks'), b = s.get('Bookings')
+    seen.push(b)
+    return reply({
+      subject: checks.ref,
+      rows: [row(checks.fields.get('Trading day'))],
+      also: [{ name: 'booked', subject: b.ref, label: 'Booked', filters: [
+        filter(b.fields.get('Status'), 'in', ['Confirmed', 'Seated']),
+        filter(b.fields.get('Day'), 'after', ['2026-01-01']),
+        filter(b.things.get('Venue'), 'in', ['Ware']),
+      ] }],
+      values: [
+        value('v1', checks.figures.get('Net sales')),
+        value('v2', b.figures.get('Guests'), { from: 'booked' }),
+        value('v3', '', { calc: 'v1 / v2', label: 'Sales per booked guest', format: 'money' }),
+      ],
+    })()
+  })
+  const out = await ok(owner.post(BUILD, { request: 'net sales and booked guests by day' }))
+  assert.equal(claude.requests.length - calls, 2, 'asked twice')
+  assert.ok(seen[0] && !seen[0].detailed, 'bookings are listed in a line for this request')
+  assert.ok(seen[1]?.detailed, 'and in full the second time')
+  assert.match(userText(lastBody()), /Build it from S\d+ \(Checks\), with figures from S\d+ \(Bookings\), now listed in full\./)
+
+  assert.equal(out.problem, null)
+  assert.deepEqual(out.spec.also.map(a => [a.key, a.subject, a.label]), [['booked', 'bookings.bookings', 'Booked']])
+  assert.deepEqual(out.spec.also[0].filters, [{ field: 'status', op: 'in', value: ['confirmed', 'seated'] }], 'its own filter; its day and venues are the report\'s')
+  assert.ok(out.couldnt.includes('The report\'s period applies to booked, so its own filter on the day was left out'), JSON.stringify(out.couldnt))
+  assert.ok(out.couldnt.includes('The report\'s venues apply to booked, so its own filter on the venue was left out'), JSON.stringify(out.couldnt))
+  const [sales, guests, per] = out.spec.values
+  assert.deepEqual([sales.measure, sales.from], ['net_sales', undefined])
+  assert.deepEqual([guests.measure, guests.from], ['guests', 'booked'])
+  assert.equal(per.calc, sales.key + ' / ' + guests.key)
+  assert.ok(out.result.columns.some(c => c.key === guests.key))
+})
+
+test('a change keeps the other subjects, their names and their own filters, listed in full', async () => {
+  claude.script.push(body => {
+    const s = shown(body)
+    const checks = s.get('Checks'), wx = s.get('Weather')
+    return reply({
+      subject: checks.ref, rows: [row(checks.fields.get('Trading day'))],
+      also: [{ name: 'wx', subject: wx.ref, label: '', filters: [filter(wx.fields.get('Wet day'), 'is', ['yes'])] }],
+      values: [value('v1', checks.figures.get('Net sales')), value('v2', wx.figures.get('Days'), { from: 'wx' })],
+      name: 'Sales on wet days',
+    })()
+  })
+  const built = await ok(owner.post(BUILD, { request: 'sales against the weather' }))
+  assert.deepEqual(built.spec.also.map(a => [a.key, a.subject]), [['wx', 'local.weather']])
+  assert.deepEqual(built.spec.also[0].filters, [{ field: 'wet', op: 'is', value: true }])
+
+  let current, refs
+  claude.script.push(body => {
+    refs = shown(body)
+    current = JSON.parse(userText(body).split('The report as it is now:\n')[1].split('\n\n')[0])
+    return reply({ ...current, values: [...current.values, value('v3', refs.get('Checks').figures.get('Checks'))] })()
+  })
+  // No earlier requests: the change's own words don't name the weather.
+  const out = await ok(owner.post(BUILD, { request: 'add the checks too', previous: { spec: built.spec, requests: [], name: built.name } }))
+  const wx = refs.get('Weather'), checks = refs.get('Checks')
+  assert.ok(checks.detailed && wx.detailed, 'the report\'s subjects are listed in full')
+  assert.deepEqual(current.also, [{ name: 'wx', subject: wx.ref, label: '', filters: [{ ref: wx.fields.get('Wet day'), bucket: '', op: 'is', values: ['yes'], ask: false, label: '' }] }], 'the other subject in refs')
+  assert.deepEqual(current.values.map(v => [v.name, v.from, v.ref]), [['v1', '', checks.figures.get('Net sales')], ['v2', 'wx', wx.figures.get('Days')]])
+  assert.deepEqual(out.spec.also, built.spec.also, 'kept as it was')
+  assert.deepEqual(out.spec.values.map(v => [v.measure, v.from || null]), [['net_sales', null], ['days', 'wx'], ['checks', null]])
+  assert.equal(out.name, 'Sales on wet days')
+})
+
+test('figures from another subject are left out, with why, when the rows can\'t line up or the report is a list', async () => {
+  const calls = claude.requests.length
+  claude.script.push(body => {
+    const s = shown(body)
+    const checks = s.get('Checks'), wx = s.get('Weather')
+    return reply({
+      subject: checks.ref, rows: [row(checks.things.get('Server'))],
+      also: [{ name: 'wx', subject: wx.ref, label: '', filters: [] }],
+      values: [value('v1', checks.figures.get('Net sales')), value('v2', wx.figures.get('Average highest (°C)'), { from: 'wx' })],
+    })()
+  })
+  const out = await ok(owner.post(BUILD, { request: 'sales against the weather by server' }))
+  assert.equal(claude.requests.length - calls, 1)
+  assert.equal(out.problem, null)
+  assert.deepEqual(out.spec.also, [], 'the weather has no server')
+  assert.deepEqual(out.spec.values.map(v => v.measure), ['net_sales'])
+  assert.ok(out.couldnt.some(c => /^Figures from weather were left out: weather isn't linked to .+, so it can't be lined up by server\.$/.test(c)), JSON.stringify(out.couldnt))
+
+  claude.script.push(body => {
+    const s = shown(body)
+    const checks = s.get('Checks'), wx = s.get('Weather')
+    return reply({ subject: checks.ref, kind: 'list', rows: [row(checks.fields.get('Trading day'))], also: [{ name: 'wx', subject: wx.ref, label: '', filters: [] }] })()
+  })
+  const listed = await ok(owner.post(BUILD, { request: 'every check beside the weather' }))
+  assert.equal(listed.spec.kind, 'list')
+  assert.deepEqual(listed.spec.also, [])
+  assert.ok(listed.couldnt.includes('A list shows its own rows as they are, so figures from weather were left out'), JSON.stringify(listed.couldnt))
+})
+
 test('a photo or a PDF goes to Pepper with the request; anything else is refused', async () => {
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
   claude.script.push(body => {

@@ -54,7 +54,9 @@ export const PLANNED = {
     group: ['website_pages', 'media_items', 'media_categories'],
   },
   local: {
-    happen: ['local_info_items'],
+    // local_info_items' weather days are read by local.weather; traffic,
+    // events and incidents come with the rest of phase 3d.
+    happen: [],
     group: ['local_info_sources'],
   },
   pepper: {

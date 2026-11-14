@@ -42,6 +42,7 @@ import { rowId, rankKey, AGG_LABELS, OPS_BY_TYPE, BUCKET_OPS } from '../../../sh
 import { parseExpr, exprToSql, exprRefs, exprProblem, ExprError } from '../../../shared/reports/expr.js'
 import { resolvePeriod, comparePeriod, isYmd, periodText, rangeText } from '../../../shared/reports/period.js'
 import { NUMERIC_TYPES } from '../../../shared/reports/format.js'
+import { matchRows, sharedFilters, grainOf } from '../../../shared/reports/also.js'
 
 export const SCREEN_ROWS = 5000
 export const GROUP_CAP = 50000
@@ -218,6 +219,24 @@ const idTypeOf = loc => (loc.def.on ? 'uuid' : CATALOGUE.subjects[loc.def.to].id
 const TRUNC = { week: 'week', month: 'month', quarter: 'quarter', year: 'year' }
 
 /**
+ * The days whose week (month, quarter, year) starts between two days: from
+ * the first of them to the last day of the one `to` falls in. A grouped
+ * day's filter bounds the day itself with these, for an index.
+ */
+export function bucketSpan(bucket, from, to) {
+  const [y, m, d] = to.split('-').map(Number)
+  const day = (Y, M, D) => new Date(Date.UTC(Y, M, D)).toISOString().slice(0, 10)
+  let hi = to
+  if (bucket === 'week') {
+    const dow = (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7
+    hi = day(y, m - 1, d - dow + 6)
+  } else if (bucket === 'month') hi = day(y, m, 0)
+  else if (bucket === 'quarter') hi = day(y, Math.floor((m - 1) / 3) * 3 + 3, 0)
+  else if (bucket === 'year') hi = day(y, 12, 0)
+  return [from, hi]
+}
+
+/**
  * A date or moment grouped by day, week, month, quarter, year, weekday or
  * hour. Moments are read at their venue's own time. `shift` moves each day
  * forward (a comparison period's rows land on the report's own).
@@ -303,14 +322,29 @@ function conditionSql(scope, f, env) {
 
   // Grouped days and hours.
   if (bucket && bucket !== 'day') {
-    if (!BUCKET_OPS.includes(op) && op !== 'empty' && op !== 'not_empty' && !['before', 'after'].includes(op)) fail(label + ' can\'t be filtered that way')
+    if (!BUCKET_OPS.includes(op) && !['empty', 'not_empty', 'before', 'after', 'in_period'].includes(op)) fail(label + ' can\'t be filtered that way')
     const b = bucketSql(loc, bucket, st)
     if (op === 'empty') return b.sql + ' IS NULL'
     if (op === 'not_empty') return b.sql + ' IS NOT NULL'
     const cast = b.kind === 'int' ? 'int' : 'date'
     const val = x => (b.kind === 'int' ? Math.round(numberOf(x, label)) : dayOf(x, label))
+    // The weeks (months...) a period, a day or a span picks: by the day
+    // they start on. Another subject's daily rows beside a weekly report
+    // are picked this way (shared/reports/also.js). The days themselves are
+    // bounded too, so an index on them can be used.
+    const span = (from, to, sql) => {
+      if (b.kind !== 'date' || type !== 'date') return sql
+      const [lo, hi] = bucketSpan(bucket, from, to)
+      return '(' + sql + ' AND (' + fieldSql(loc) + ') BETWEEN ' + st.p(lo, 'date') + ' AND ' + st.p(hi, 'date') + ')'
+    }
     switch (op) {
-      case 'is': return b.sql + ' = ' + st.p(val(v), cast)
+      case 'in_period': {
+        if (b.kind !== 'date') fail(label + ' can\'t be filtered that way')
+        const r = resolvePeriod(v, env.today)
+        if (!r) fail(label + ': choose a period')
+        return span(r.from, r.to, b.sql + ' BETWEEN ' + st.p(r.from, 'date') + ' AND ' + st.p(r.to, 'date'))
+      }
+      case 'is': return b.kind === 'date' ? span(val(v), val(v), b.sql + ' = ' + st.p(val(v), cast)) : b.sql + ' = ' + st.p(val(v), cast)
       case 'is_not': return b.sql + ' IS DISTINCT FROM ' + st.p(val(v), cast)
       case 'in': return b.sql + ' = ANY(' + st.p(listOf(v).map(val), cast + '[]') + ')'
       case 'not_in': return '(' + b.sql + ' IS NULL OR ' + b.sql + ' <> ALL(' + st.p(listOf(v).map(val), cast + '[]') + '))'
@@ -631,14 +665,15 @@ function buildList(spec, env, what, limit, withOpen = false) {
 // The inputs of each figure go into the inner SELECT (a0, a1, ...), the
 // figure itself into the outer one (v0, v1, ...).
 class Figures {
-  constructor() { this.list = []; this.byKey = new Map() }
+  // A prefix keeps the columns of another subject's statement apart from the report's own.
+  constructor(prefix = '') { this.prefix = prefix; this.list = []; this.byKey = new Map() }
   has(cacheKey) { return this.byKey.get(cacheKey) || null }
   // `agg` is how the figure adds up across rows (what it is over no rows at
   // all: a total or a count is 0, an average is nothing).
   add(cacheKey, inner, agg) {
     if (cacheKey && this.byKey.has(cacheKey)) return this.byKey.get(cacheKey)
     const i = this.list.length
-    const f = { in: 'a' + i, out: 'v' + i, inner, outer: OUTER[agg]('a' + i), agg }
+    const f = { in: this.prefix + 'a' + i, out: this.prefix + 'v' + i, inner, outer: OUTER[agg](this.prefix + 'a' + i), agg }
     this.list.push(f)
     if (cacheKey) this.byKey.set(cacheKey, f)
     return f
@@ -683,11 +718,19 @@ function measureFigure(scope, figs, loc) {
  * Every value of a summary or matrix: [{ key, label, type, decimals,
  * hidden, src }] where src is { fig } (a column of the result), { ratio:
  * [fig, fig] } or { calc: tree }.
+ *
+ * With figures from other subjects (the definition's `also`), each
+ * subject's values are worked out in a statement of its own and the
+ * calculations with the report's own: opts.outside are the keys of the
+ * values the other statements have, opts.denied those the role can't see
+ * there and opts.gone those left out for another reason (a subject that
+ * can't be lined up with the report's rows). Returns { values, denied, gone }.
  */
-function valuesOf(scope, spec, env, figs, notes) {
+function valuesOf(scope, spec, env, figs, notes, opts = {}) {
   const subject = scope.subject
   const out = []
-  const denied = new Set()
+  const denied = new Set(opts.denied || [])
+  const gone = new Set(opts.gone || [])
   for (const v of spec.values) {
     const base = { key: v.key, hidden: !!v.hidden, ...(v.decimals != null ? { decimals: v.decimals } : {}) }
     try {
@@ -781,21 +824,27 @@ function valuesOf(scope, spec, env, figs, notes) {
   }
   // A calculation reading a value the role can't see goes with it (a share
   // of a hidden figure would give it away), and so does one reading that.
+  // One reading a value left out for another reason goes too.
   for (;;) {
-    const v = out.find(x => x.src.calc && exprRefs(x.src.calc).some(n => denied.has(n)))
+    const v = out.find(x => x.src.calc && exprRefs(x.src.calc).some(n => denied.has(n) || gone.has(n)))
     if (!v) break
     out.splice(out.indexOf(v), 1)
-    denied.add(v.key)
-    notes.push(v.label + ' is left out: your role can\'t see what it is worked out from')
+    if (exprRefs(v.src.calc).some(n => denied.has(n))) {
+      denied.add(v.key)
+      notes.push(v.label + ' is left out: your role can\'t see what it is worked out from')
+    } else {
+      gone.add(v.key)
+      notes.push(v.label + ' is left out: what it is worked out from is left out')
+    }
   }
   // A calculation can only read the values that are there.
-  const keys = new Set(out.map(v => v.key))
+  const keys = new Set([...out.map(v => v.key), ...(opts.outside || [])])
   for (const v of out) {
     if (!v.src.calc) continue
     const missing = exprRefs(v.src.calc).find(n => !keys.has(n))
     if (missing) fail(v.label + ': "' + missing + '" isn\'t one of this report\'s values')
   }
-  return out
+  return { values: out, denied, gone }
 }
 
 // ── Summaries and matrices ───────────────────────────────────
@@ -837,6 +886,10 @@ function groupOf(scope, ref, env, shift) {
  *   opts.shift    move date groupings forward (a comparison period)
  *   opts.exclude  key tuples of the rows already shown: this run adds up
  *                 every other row ("Everything else")
+ *   opts.prefix   for another subject's statement: its figures' columns
+ *   opts.outside, opts.denied, opts.gone   values of the other subjects (valuesOf())
+ *   opts.allowNone  a statement with no figure the role can see is fine:
+ *                   the report as a whole is checked (compileReport())
  */
 function buildGrouped(spec, env, opts = {}) {
   const st = new Statement(env)
@@ -845,9 +898,9 @@ function buildGrouped(spec, env, opts = {}) {
   const notes = []
   const rows = spec.rows.map(r => groupOf(scope, r, env, opts.shift))
   const cols = spec.columns.map(r => groupOf(scope, r, env, opts.shift))
-  const figs = new Figures()
-  const values = valuesOf(scope, spec, env, figs, notes)
-  if (!values.some(v => !v.hidden) && spec.values.length) fail('None of this report\'s figures can be shown to your role', 403)
+  const figs = new Figures(opts.prefix || '')
+  const { values, denied, gone } = valuesOf(scope, spec, env, figs, notes, opts)
+  if (!opts.allowNone && !values.some(v => !v.hidden) && spec.values.length) fail('None of this report\'s figures can be shown to your role', 403)
   const where = whereSql(scope, spec.filters, env)
 
   const keys = [...rows, ...cols].map((g, i) => ({ ...g, name: 'g' + i }))
@@ -903,8 +956,98 @@ function buildGrouped(spec, env, opts = {}) {
     rows: rows.map(g => ({ col: g.col, parse: g.parse })),
     cols: cols.map(g => ({ col: g.col, parse: g.parse })),
     values,
+    denied: [...denied],
+    gone: [...gone],
     figures: figs.list.map(f => ({ out: f.out, agg: f.agg })),
   }
+}
+
+// ── Figures from other subjects ──────────────────────────────
+
+// Whether a period starts on a Monday and ends on a Sunday.
+function wholeWeeks(range) {
+  const day = ymd => new Date(ymd + 'T12:00:00Z').getUTCDay()
+  return day(range.from) === 1 && day(range.to) === 0
+}
+
+// Whether a filter of the report narrows anything this run: every venue,
+// or an empty choice, doesn't.
+function narrows(f, env) {
+  if (!f.param) return true
+  const p = env.spec.params.find(x => x.key === f.param)
+  const v = env.params[f.param]
+  if (p?.type === 'venues' && v === 'all') return false
+  if (p?.type === 'value' && (v == null || v === '' || (Array.isArray(v) && !v.length))) return false
+  return true
+}
+
+/**
+ * The definition's other subjects (its `also`, docs/REPORTS.md 7.1): each
+ * grouped by what the report's rows show, as that subject finds them
+ * (shared/reports/also.js), in a statement of its own, with the report's
+ * period and venues (translated between daily and weekly subjects) and its
+ * own filters. shape.js lines their rows up with the report's by their
+ * keys: nothing is joined row to row, so no figure is counted twice.
+ *
+ * A subject the role can't report on, or one that can't be lined up with
+ * the report's rows, is left out with a note; `strict` refuses the report
+ * instead (one being saved). Returns, in the definition's order:
+ *   { key, left: true, notes, denied, gone }            left out
+ *   { key, subject, label, prefix, specFor(base), run, values, notes,
+ *     denied, gone, widen }                             to run
+ * `specFor(base)` is the subject's definition from a version of the
+ * report's (the period before, for a comparison).
+ */
+function compileParts(spec, env, period, { strict = false } = {}) {
+  const main = CATALOGUE.subjects[spec.subject]
+  const out = []
+  ;(spec.also || []).forEach((a, i) => {
+    const subject = CATALOGUE.subjects[a.subject]
+    const label = a.label || subject?.label || a.subject
+    const keys = spec.values.filter(v => v.from === a.key).map(v => v.key)
+    const leave = (why, role = false) => {
+      if (strict) fail(why, role ? 403 : 422)
+      out.push({ key: a.key, left: true, notes: [why], denied: role ? keys : [], gone: role ? [] : keys, values: [] })
+    }
+    if (!subject || subject.hidden) return leave('There is nothing to report on called "' + a.subject + '"')
+    if (!canReportOn(subject, env.levels)) return leave('Figures from ' + lowerFirst(label) + ' are left out: your role can\'t see them', true)
+    const m = matchRows(CATALOGUE, spec, a.subject, a.label)
+    if (!m.ok) return leave(m.missing[0].why + ' Its figures are left out.')
+    const values = spec.values.filter(v => v.from === a.key).map(({ from: _f, ...v }) => v)
+    const specFor = base => ({
+      ...base, subject: a.subject, kind: 'summary', rows: m.rows, columns: [], values,
+      filters: [...sharedFilters(CATALOGUE, base, a.subject).filters, ...a.filters],
+      sort: [], limit: null, compare: null, also: [],
+    })
+    const prefix = 'x' + (i + 1) + '_'
+    let run
+    try {
+      run = buildGrouped(specFor(spec), env, { prefix, allowNone: true })
+    } catch (e) {
+      if (!(e instanceof ReportError)) throw e
+      return leave('Figures from ' + lowerFirst(label) + ' are left out: ' + lowerFirst(e.problems[0]), e.statusCode === 403)
+    }
+    // The report's filters on its day or venue this subject can't take: said
+    // when they narrow anything (its figures cover more than the rows do).
+    const notes = [
+      ...sharedFilters(CATALOGUE, spec, a.subject).left.filter(l => narrows(l.filter, env)).map(l => l.why),
+      ...run.notes,
+    ]
+    // A weekly subject beside a daily report counts each week in the period
+    // its Monday is in: a period of part weeks lines up a whole week of it
+    // with some days of the report's own.
+    if (period && grainOf(subject) === 'week' && grainOf(main) !== 'week' && !wholeWeeks(period.range)) {
+      notes.push(label + ' has a row for each week, counted in the period when its Monday is. The period isn\'t whole weeks (Monday to Sunday), so the weeks at its ends don\'t line up exactly.')
+    }
+    out.push({
+      key: a.key, subject: a.subject, label, prefix, specFor, run, values: run.values, notes,
+      denied: run.denied, gone: run.gone,
+      // A daily subject beside a weekly report reads the days of the weeks
+      // its period picks: up to six days past the period's last.
+      widen: grainOf(main) === 'week' && grainOf(subject) !== 'week',
+    })
+  })
+  return out
 }
 
 // ── The plan ─────────────────────────────────────────────────
@@ -914,7 +1057,7 @@ function buildGrouped(spec, env, opts = {}) {
  * (resolved), today, tz, spec }. Throws ReportError with sentences when it
  * can't be run.
  */
-export function compileReport(spec, envIn, { listLimit = SCREEN_ROWS + 1, open = true } = {}) {
+export function compileReport(spec, envIn, { listLimit = SCREEN_ROWS + 1, open = true, strictParts = false } = {}) {
   const env = { ...envIn, spec }
   const period = mainPeriod(spec, env)
 
@@ -924,14 +1067,44 @@ export function compileReport(spec, envIn, { listLimit = SCREEN_ROWS + 1, open =
     return { kind: 'list', subject: spec.subject, period, rows, totals, columns: rows.columns, adds: rows.adds, notes: rows.notes, says: rows.says, open: rows.open }
   }
 
-  const main = buildGrouped(spec, env)
+  // Figures from other subjects first: the report's own calculations may read them.
+  const parts = spec.kind === 'summary' && spec.also?.length ? compileParts(spec, env, period, { strict: strictParts }) : []
+  const live = parts.filter(p => !p.left)
+  const own = parts.length ? { ...spec, values: spec.values.filter(v => !v.from) } : spec
+  const mainOpts = parts.length
+    ? {
+      outside: live.flatMap(p => p.values.map(v => v.key)),
+      denied: parts.flatMap(p => p.denied),
+      gone: parts.flatMap(p => p.gone),
+      allowNone: true,
+    }
+    : {}
+  const main = buildGrouped(own, env, mainOpts)
+  let values = main.values
+  if (parts.length) {
+    // In the definition's order, whichever statement works each one out.
+    const byKey = new Map([...main.values, ...live.flatMap(p => p.values)].map(v => [v.key, v]))
+    values = spec.values.map(v => byKey.get(v.key)).filter(Boolean)
+    if (spec.values.length && !values.some(v => !v.hidden)) {
+      const lined = parts.find(p => p.gone.length && p.left)
+      if (lined && !parts.some(p => p.denied.length)) fail(lined.notes[0])
+      fail('None of this report\'s figures can be shown to your role', 403)
+    }
+  }
   const plan = {
     kind: spec.kind, subject: spec.subject, period, main,
-    rows: main.rows, cols: main.cols, values: main.values, figures: main.figures, notes: main.notes,
+    rows: main.rows, cols: main.cols, values,
+    figures: [...main.figures, ...live.flatMap(p => p.run.figures)],
+    notes: [...main.notes, ...parts.flatMap(p => p.notes)],
     sort: spec.sort, limit: spec.limit, totals: spec.totals, rankKey: spec.limit ? rankKey(spec) : null,
     compare: null,
     // "Everything else" needs the rows shown first: built once they are known.
-    rest: spec.limit?.rest_as ? keys => buildGrouped(spec, env, { exclude: keys }) : null,
+    rest: spec.limit?.rest_as ? keys => buildGrouped(own, env, { ...mainOpts, exclude: keys }) : null,
+    parts: live.map(p => ({
+      key: p.key, subject: p.subject, label: p.label, widen: p.widen,
+      run: p.run, figures: p.run.figures, compare: null,
+      rest: spec.limit?.rest_as ? keys => buildGrouped(p.specFor(spec), env, { prefix: p.prefix, allowNone: true, exclude: keys }) : null,
+    })),
   }
 
   if (spec.compare) {
@@ -939,13 +1112,23 @@ export function compileReport(spec, envIn, { listLimit = SCREEN_ROWS + 1, open =
     const before = comparePeriod(period.range, spec.compare.with)
     const filters = spec.filters.map((f, i) => (i === period.index ? { field: 'date', op: 'in_period', value: { from: before.from, to: before.to } } : f))
     const earlier = { ...spec, filters }
+    const earlierOwn = { ...own, filters }
+    const shift = before.shift
     plan.compare = {
       with: spec.compare.with,
       from: before.from, to: before.to, text: rangeText(before.from, before.to),
       // Its days are moved forward onto the report's own, so the two line up row by row.
-      run: buildGrouped(earlier, env, { shift: before.shift }),
-      rest: spec.limit?.rest_as ? keys => buildGrouped(earlier, env, { exclude: keys, shift: before.shift }) : null,
+      run: buildGrouped(earlierOwn, env, { ...mainOpts, shift }),
+      rest: spec.limit?.rest_as ? keys => buildGrouped(earlierOwn, env, { ...mainOpts, exclude: keys, shift }) : null,
     }
+    // The other subjects over the period before too, moved forward the same way.
+    live.forEach((p, i) => {
+      const was = p.specFor(earlier)
+      plan.parts[i].compare = {
+        run: buildGrouped(was, env, { prefix: p.prefix, allowNone: true, shift }),
+        rest: spec.limit?.rest_as ? keys => buildGrouped(was, env, { prefix: p.prefix, allowNone: true, exclude: keys, shift }) : null,
+      }
+    })
   }
   return plan
 }

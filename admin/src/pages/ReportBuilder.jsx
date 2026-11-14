@@ -16,6 +16,11 @@
 // the way the saved report can (components/reports/drill.jsx), so what a
 // tapped row opens is tried here before it is saved.
 //
+// A summary can also put figures from other subjects beside its own (sales
+// beside the hours on the rota, or the weather): Set up adds one, and the
+// Data panel switches to its data to add its figures and its own filters
+// (docs/REPORTS.md 7.1).
+//
 // The builder never writes a definition by hand: every change is an edit in
 // shared/reports/build.js, which gives back a whole checked definition.
 // Nothing is saved until Save.
@@ -27,10 +32,11 @@ import {
   DndContext, DragOverlay, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, pointerWithin, closestCenter,
 } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
-import { ChevronLeft, Save, CopyPlus, Eye, FileText, PanelLeftClose, PanelLeftOpen, ChevronRight, FileBarChart } from 'lucide-react'
+import { ChevronLeft, Save, CopyPlus, Eye, FileText, PanelLeftClose, PanelLeftOpen, ChevronRight, FileBarChart, Search } from 'lucide-react'
 import {
   dataTree, startReport, paramInputs, setParamDefault, setKind, addRow, addColumn, addValue, addFilter,
   moveRow, moveColumn, moveValue, roomLeft, addDrillLevel, moveDrillLevel, setDrillRows,
+  addAlso, alsoChoices, alsoProblems,
 } from '@shared/reports/build.js'
 import { normaliseReport, reportProblems, rowId, LIMITS } from '@shared/reports/spec.js'
 import { useApi } from '@/lib/api'
@@ -41,7 +47,7 @@ import ResultCard from '@/components/reports/ResultCard'
 import { DrillTrail, DrillWindow, drillBody, drillChoices, stepOf } from '@/components/reports/drill'
 import ParamInputs, { showsInputs } from '@/components/reports/ParamInputs'
 import DataPanel from '@/components/reports/builder/DataPanel'
-import SetUp, { accepts } from '@/components/reports/builder/SetUp'
+import SetUp, { accepts, alsoName } from '@/components/reports/builder/SetUp'
 import { RowWindow, ValueWindow, FilterWindow } from '@/components/reports/builder/Windows'
 import { Problems, reportPath, editPath, retryUnlessRefused } from '@/components/reports/shared'
 import { DescribeCard, SmartAnswer } from '@/components/reports/SmartBuild'
@@ -98,6 +104,8 @@ const SHELF_TITLES = {
   rows: 'Add a grouping', columns: 'Put a grouping across the top', values: 'Add a value', filters: 'Add a filter',
   drill: 'Break a tapped row down by', drillrows: 'A column of the rows behind a tapped row',
 }
+const lowerFirst = s => (s && /^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s)
+const ACROSS_ALSO = 'A table across can\'t have figures from other subjects. Take them out of the report first'
 
 // ── What the report is about ─────────────────────────────────
 
@@ -187,11 +195,25 @@ function Builder({ catalogue, id, from, initial }) {
 
   const subject = catalogue.subjects[spec.subject]
   const tree = useMemo(() => dataTree(catalogue, spec.subject), [catalogue, spec.subject])
+  // The Data panel shows the report's own data, or one of its other
+  // subjects' (the one picked, while it is still in the report).
+  const trees = useMemo(() => new Map(), [catalogue])
+  const treeOf = key => {
+    if (!trees.has(key)) trees.set(key, dataTree(catalogue, key))
+    return trees.get(key)
+  }
+  const others = (spec.also || []).filter(a => catalogue.subjects[a.subject]?.base)
+  const [dataSubject, setDataSubject] = useState(null)
+  const dataAlso = others.find(a => a.key === dataSubject) || null
+  const panelAlso = a => (a ? { key: a.key, label: alsoName(catalogue, a) } : null)
   // Pepper's "ask about this page": what the report is about, and the saved
   // report when it is one (the draft on screen isn't sent).
   usePepperPage({ report: { id: id || undefined, subject: spec.subject }, label: String(name || '').trim() || undefined })
   const list = spec.kind === 'list'
   const problems = useMemo(() => reportProblems(spec), [spec])
+  // Other subjects the report's rows can't be lined up with: the preview
+  // leaves their figures out with a note, and saving is refused.
+  const unlined = useMemo(() => alsoProblems(catalogue, spec), [catalogue, spec])
 
   // ── Layout: side by side with room, tabs without ──
   const [boxRef, width] = useWidth()
@@ -241,6 +263,23 @@ function Builder({ catalogue, id, from, initial }) {
     return { ok: true, text: 'The rows behind a tapped row now show it' }
   }
 
+  // Another subject added: the Data panel switches to its data and its
+  // figures are offered straight away (it needs one to run).
+  const pickAlso = key => {
+    const next = addAlso(spec, key)
+    if (next === spec) {
+      setWin(null)
+      say('A report takes ' + LIMITS.also + ' other subjects at most')
+      return
+    }
+    const had = new Set((spec.also || []).map(a => a.key))
+    const added = next.also.find(a => !had.has(a.key))
+    change(next)
+    if (!added) { setWin(null); return }
+    setDataSubject(added.key)
+    setWin({ what: 'add', mode: 'values', also: added.key })
+  }
+
   // What a tap in the Data panel does; what it says back, the panel says for a moment.
   const act = a => {
     const node = a.node
@@ -254,6 +293,7 @@ function Builder({ catalogue, id, from, initial }) {
       return { ok: true, text: list ? 'Added as a column' : 'The report is grouped by it' }
     }
     if (a.type === 'column') {
+      if ((spec.also || []).length) return { ok: false, text: ACROSS_ALSO }
       const next = addColumn(spec, a.ref)
       if (next === spec) {
         const there = spec.columns.some(r => rowId(r) === rowId(a.ref))
@@ -278,6 +318,11 @@ function Builder({ catalogue, id, from, initial }) {
       return { ok: true, text: 'A tapped row can now be broken down by it' }
     }
     if (a.type === 'drillrow') return addDrillRow(node)
+    if (a.type === 'filter' && a.also) {
+      // One of another subject's own filters: a value set here, never asked for.
+      setWin({ what: 'filter', path: node.path, also: a.also })
+      return null
+    }
     if (a.type === 'filter') {
       if (node.uses.filter === 'venues') {
         if (spec.filters.some(f => f.field === node.path)) return { ok: false, text: 'The report already asks which venues' }
@@ -298,11 +343,30 @@ function Builder({ catalogue, id, from, initial }) {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
   const [dragNode, setDragNode] = useState(null)
+  const [dragAlso, setDragAlso] = useState(null)     // the other subject a dragged field is from
   const [overShelf, setOverShelf] = useState(null)
-  const endDrag = () => { setDragNode(null); setOverShelf(null) }
+  const endDrag = () => { setDragNode(null); setDragAlso(null); setOverShelf(null) }
 
-  const dropNode = (node, shelf, overId) => {
+  // A field of another subject goes on Values only, as one of its figures.
+  const dropAlsoNode = (node, shelf, overId, also) => {
+    if (!accepts(node, shelf, spec, also)) {
+      say(shelf === 'values' ? node.full + ' can\'t be added up'
+        : 'Figures from ' + lowerFirst(also.label) + ' go on Values. Its own filters are set on its card in Set up')
+      return
+    }
+    let next = addValue(spec, { ...node.uses.values[0], from: also.key })
+    if (next === spec) { say(roomLeft(spec).values <= 0 ? 'A report takes ' + LIMITS.values + ' values at most' : 'That value is in the report already'); return }
+    if (overId.startsWith('val:')) {
+      const to = next.values.findIndex(v => 'val:' + v.key === overId)
+      if (to !== -1) next = moveValue(next, next.values.length - 1, to)
+    }
+    change(next)
+  }
+
+  const dropNode = (node, shelf, overId, also = null) => {
+    if (also) { dropAlsoNode(node, shelf, overId, also); return }
     if (!accepts(node, shelf, spec)) {
+      if (shelf === 'columns' && (spec.also || []).length && node.uses.group) { say(ACROSS_ALSO); return }
       say(shelf === 'values' ? (list ? 'A list has no values: make it a summary to add things up' : node.full + ' can\'t be added up')
         : shelf === 'filters' ? node.full + ' can\'t be filtered by'
           : shelf === 'drill' ? 'A row can\'t be broken down by ' + node.full + ': it is a figure'
@@ -365,7 +429,7 @@ function Builder({ catalogue, id, from, initial }) {
     if (!target) return
     if (a.startsWith('node:')) {
       const node = active.data.current?.node
-      if (node) dropNode(node, target, o)
+      if (node) dropNode(node, target, o, active.data.current?.also || null)
       return
     }
     const home = shelfOf(a)
@@ -404,7 +468,7 @@ function Builder({ catalogue, id, from, initial }) {
     if (home === 'rows' && target === 'columns') {
       const entry = spec.rows.find(r => 'row:' + rowId(r) === a)
       const next = entry ? addColumn(spec, entry) : spec
-      if (next === spec) say('Across the top takes ' + LIMITS.columns + ' at most')
+      if (next === spec) say((spec.also || []).length ? ACROSS_ALSO : 'Across the top takes ' + LIMITS.columns + ' at most')
       else change(next)
       return
     }
@@ -473,7 +537,10 @@ function Builder({ catalogue, id, from, initial }) {
     return () => clearTimeout(t)
   }, [justSaved])
 
-  const whyNot = !name.trim() ? 'Name the report to save it' : problems.length ? 'It can\'t be saved yet: see what the preview says' : null
+  const whyNot = !name.trim() ? 'Name the report to save it'
+    : problems.length ? 'It can\'t be saved yet: see what the preview says'
+      : unlined.length ? 'It can\'t be saved yet: ' + lowerFirst(unlined[0]).replace(/\.$/, '')
+        : null
   const canSave = !whyNot && !saving && (!id || dirty)
 
   const save = async ({ asNew = false, newName = null } = {}) => {
@@ -520,11 +587,25 @@ function Builder({ catalogue, id, from, initial }) {
 
   // ── The three parts ──
   const dataPart = (
-    <DataPanel tree={tree} spec={spec} onAct={act} drag={wide} className="h-full" />
+    <div className="h-full flex flex-col min-h-0">
+      {others.length > 0 && (
+        <div className="px-2 pt-2 shrink-0">
+          <select value={dataAlso?.key || ''} onChange={e => setDataSubject(e.target.value || null)} aria-label="Whose data to show"
+            data-testid="data-subject" className={cn(inputCls, 'h-12 w-full text-sm')}>
+            <option value="">{subject?.label}: the report&apos;s own</option>
+            {others.map(a => <option key={a.key} value={a.key}>{alsoName(catalogue, a)}</option>)}
+          </select>
+        </div>
+      )}
+      <div className="flex-1 min-h-0">
+        <DataPanel key={dataAlso?.key || 'main'} tree={dataAlso ? treeOf(dataAlso.subject) : tree} spec={spec} also={panelAlso(dataAlso)}
+          onAct={act} drag={wide} className="h-full" />
+      </div>
+    </div>
   )
   const setupPart = (
-    <SetUp catalogue={catalogue} spec={spec} onChange={change} onOpen={setWin} onAdd={mode => setWin({ what: 'add', mode })} onKind={switchKind}
-      venues={venues} currency={currency} dragNode={dragNode} overShelf={overShelf} />
+    <SetUp catalogue={catalogue} spec={spec} onChange={change} onOpen={setWin} onAdd={(mode, also) => setWin({ what: 'add', mode, also: also || null })} onKind={switchKind}
+      venues={venues} currency={currency} dragNode={dragNode} dragAlso={dragAlso} overShelf={overShelf} />
   )
   const previewPart = (
     <div className="p-3 sm:p-4 space-y-3" data-testid="builder-preview" data-waiting={waiting ? '1' : '0'}>
@@ -566,6 +647,12 @@ function Builder({ catalogue, id, from, initial }) {
   )
 
   const adding = win?.what === 'add' ? win.mode : null
+  // Adding to one of the report's other subjects (gone meanwhile: nothing to add to).
+  const addingAlso = adding && win.also ? others.find(a => a.key === win.also) || null : null
+  const addingTitle = addingAlso
+    ? (adding === 'values' ? 'Add a figure from ' : 'Add a filter to ') + lowerFirst(alsoName(catalogue, addingAlso))
+    : list && adding === 'rows' ? 'Add a column' : SHELF_TITLES[adding]
+  const filterAlso = win?.what === 'filter' && win.also ? (spec.also || []).find(a => a.key === win.also) || null : null
 
   return (
     <div className="relative flex flex-col h-full overflow-hidden" data-testid="report-builder" data-layout={wide ? 'wide' : 'tabs'} data-dirty={dirty ? '1' : '0'}>
@@ -585,7 +672,7 @@ function Builder({ catalogue, id, from, initial }) {
           </button>
         )}
         {id && (
-          <button type="button" onClick={() => setWin({ what: 'saveas' })} disabled={!!problems.length || saving} data-testid="builder-save-as" className={btn} title="Save as a new report">
+          <button type="button" onClick={() => setWin({ what: 'saveas' })} disabled={!!problems.length || !!unlined.length || saving} data-testid="builder-save-as" className={btn} title="Save as a new report">
             <CopyPlus className="w-4 h-4" /><span className="hidden sm:inline">Save as</span>
           </button>
         )}
@@ -608,7 +695,7 @@ function Builder({ catalogue, id, from, initial }) {
       {saveError && <div className="px-4 pt-3 shrink-0"><Problems error={saveError} title="The report wasn't saved" /></div>}
 
       <DndContext sensors={sensors} collisionDetection={collide}
-        onDragStart={({ active }) => setDragNode(active.data.current?.node || null)}
+        onDragStart={({ active }) => { setDragNode(active.data.current?.node || null); setDragAlso(active.data.current?.also || null) }}
         onDragOver={({ over }) => setOverShelf(over ? shelfOf(over.id) : null)}
         onDragEnd={onDragEnd} onDragCancel={endDrag}>
         <div ref={boxRef} className="flex-1 min-h-0 flex flex-col">
@@ -629,7 +716,7 @@ function Builder({ catalogue, id, from, initial }) {
               {showData ? (
                 <aside className="w-60 shrink-0 border-r bg-background flex flex-col min-h-0" data-testid="builder-data">
                   <div className="flex items-center gap-1 pl-3 pr-1 pt-1 shrink-0">
-                    <h2 className="flex-1 text-xs font-semibold">Data: {subject?.label}</h2>
+                    <h2 className="flex-1 text-xs font-semibold">Data: {dataAlso ? alsoName(catalogue, dataAlso) : subject?.label}</h2>
                     <button type="button" onClick={() => setDataOpen(false)} aria-label="Hide the Data panel" title="Hide the Data panel" data-testid="builder-data-hide"
                       className="w-12 h-12 flex items-center justify-center rounded-lg text-muted-foreground touch-manipulation hover:bg-muted">
                       <PanelLeftClose className="w-4 h-4" />
@@ -675,17 +762,19 @@ function Builder({ catalogue, id, from, initial }) {
         <DrillWindow result={result} target={tapped} onPick={choice => openInto(tapped, choice)} onClose={() => setTappedAt(null)} />
       )}
 
-      {adding && (
-        <Modal title={list && adding === 'rows' ? 'Add a column' : SHELF_TITLES[adding]} onClose={() => setWin(null)}>
-          <DataPanel tree={tree} spec={spec} mode={adding} onAct={act} autoFocus={false} className="h-[60vh] -m-2" />
+      {adding && (!win.also || addingAlso) && (
+        <Modal title={addingTitle} onClose={() => setWin(null)}>
+          <DataPanel key={addingAlso?.key || 'main'} tree={addingAlso ? treeOf(addingAlso.subject) : tree} spec={spec} mode={adding} also={panelAlso(addingAlso)}
+            onAct={act} autoFocus={false} className="h-[60vh] -m-2" />
         </Modal>
       )}
+      {win?.what === 'also' && <AlsoWindow catalogue={catalogue} spec={spec} onPick={pickAlso} onClose={() => setWin(null)} />}
       {win?.what === 'row' && <RowWindow key={win.where + ':' + win.id} catalogue={catalogue} spec={spec} where={win.where} id={win.id} onApply={apply} onClose={() => setWin(null)} />}
       {win?.what === 'value' && <ValueWindow key={win.key} catalogue={catalogue} spec={spec} valueKey={win.key} onApply={apply} onClose={() => setWin(null)} />}
       {win?.what === 'calc' && <ValueWindow catalogue={catalogue} spec={spec} valueKey={null} onApply={apply} onClose={() => setWin(null)} />}
-      {win?.what === 'filter' && (
-        <FilterWindow key={win.index ?? 'new:' + win.path} catalogue={catalogue} spec={spec} index={win.index ?? null} path={win.path ?? null} today={today}
-          onApply={apply} onClose={() => setWin(null)} />
+      {win?.what === 'filter' && (!win.also || filterAlso) && (
+        <FilterWindow key={(win.also || '') + ':' + (win.index ?? 'new:' + win.path)} catalogue={catalogue} spec={spec} index={win.index ?? null} path={win.path ?? null}
+          also={filterAlso?.key || null} today={today} onApply={apply} onClose={() => setWin(null)} />
       )}
       {win?.what === 'details' && (
         <Modal title="Details" onClose={() => setWin(null)}
@@ -701,6 +790,52 @@ function Builder({ catalogue, id, from, initial }) {
       )}
       {win?.what === 'saveas' && <SaveAsWindow name={name} saving={saving} error={saveError} onSave={newName => save({ asNew: true, newName })} onClose={() => setWin(null)} />}
     </div>
+  )
+}
+
+// Which subject's figures to put beside the report's own. One whose rows
+// can't be lined up with the report's groupings as they are says why.
+function AlsoWindow({ catalogue, spec, onPick, onClose }) {
+  const [q, setQ] = useState('')
+  const choices = useMemo(() => alsoChoices(catalogue, spec), [catalogue, spec])
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const shows = c => {
+    const text = (c.label + ' ' + (catalogue.subjects[c.key]?.about || '')).toLowerCase()
+    return words.every(w => text.includes(w))
+  }
+  const groups = catalogue.areas
+    .map(a => ({ ...a, choices: choices.filter(c => c.area === a.key && shows(c)) }))
+    .filter(g => g.choices.length)
+  return (
+    <Modal title="Figures from another subject" onClose={onClose}>
+      <p className="text-sm text-muted-foreground">
+        Its figures sit beside the report&apos;s own, lined up by the report&apos;s rows. The report&apos;s period and venues apply to them too.
+      </p>
+      <label className="relative block">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+        <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="Search" aria-label="Search the subjects"
+          data-testid="also-search" className={cn(inputCls, 'h-12 pl-9 w-full')} />
+      </label>
+      {!groups.length && <p className="text-sm text-muted-foreground" data-testid="also-none">Nothing matches.</p>}
+      {groups.map(g => (
+        <section key={g.key} data-testid="also-area" data-area={g.key}>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">{g.label}</h3>
+          <div className="space-y-1.5">
+            {g.choices.map(c => (
+              <button key={c.key} type="button" disabled={!c.ok} onClick={() => onPick(c.key)} data-testid="also-choice" data-subject={c.key} data-ok={c.ok ? '1' : '0'}
+                className="w-full min-h-[48px] rounded-lg border bg-background px-3 py-2 text-left touch-manipulation hover:border-primary/60 hover:bg-muted/40 disabled:opacity-60 disabled:hover:border-border disabled:hover:bg-background">
+                <span className="block text-sm font-medium leading-tight">
+                  {c.label}{c.key === spec.subject ? ' (again, with filters of its own)' : ''}
+                </span>
+                {c.ok
+                  ? catalogue.subjects[c.key]?.about && <span className="block text-xs text-muted-foreground mt-0.5 leading-snug">{catalogue.subjects[c.key].about}</span>
+                  : <span className="block text-xs text-amber-800 mt-0.5 leading-snug" data-testid="also-why">{c.why}</span>}
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
+    </Modal>
   )
 }
 

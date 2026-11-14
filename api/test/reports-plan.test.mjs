@@ -163,7 +163,7 @@ test('what a plan names that isn\'t there comes back with the near ones, and not
   })
   assert.equal(paths.status, 200, paths.body)
   const { problem, unknown } = paths.json
-  assert.match(problem, /have nothing called "dish_name", "sales"/)
+  assert.match(problem, /^Nothing called "dish_name", "sales" in Dishes sold/)
   assert.match(problem, /no figure v7 \(figures are v1 to v2/)
   assert.match(problem, /figure v2 says nothing/)
   const near = p => unknown.paths.find(x => x.path === p).near

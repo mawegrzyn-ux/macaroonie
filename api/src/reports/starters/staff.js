@@ -120,4 +120,27 @@ export default [
       drill: { down: ['name', 'venue.name'], rows: ['date', 'venue.name', 'name', 'hours', 'pay', 'on_wage_list', 'wage', 'wage_unpaid'] },
     },
   }),
+
+  // The till's net sales beside the rota's weeks (phase 3c): counted on
+  // their own and lined up by week.
+  starter({
+    key: 'rota_labour_against_sales',
+    name: 'Labour against sales by week',
+    about: 'Each week\'s hours and pay on the rota beside the till\'s net sales that week, with pay as a share of net sales and net sales for each hour worked.',
+    period: { relative: 'last_n_days', n: 84 },
+    spec: {
+      subject: 'rota.weeks',
+      rows: ['date'],
+      also: [{ key: 'till', subject: 'till.checks', label: 'Till', filters: [{ field: 'status', op: 'is', value: 'closed' }] }],
+      values: [
+        ...m('hours_total', 'pay_total'),
+        { key: 'net_sales', measure: 'net_sales', from: 'till' },
+        { key: 'pay_share', calc: 'pay_total / net_sales', label: 'Pay as a share of net sales', format: 'percent', decimals: 1 },
+        { key: 'sales_per_hour', calc: 'net_sales / hours_total', label: 'Net sales per hour worked', format: 'money' },
+      ],
+      sort: [{ by: 'date', dir: 'asc' }],
+      drill: { down: ['venue.name'] },
+      view: { kind: 'line', x: 'date', y: ['net_sales', 'pay_total'] },
+    },
+  }),
 ]

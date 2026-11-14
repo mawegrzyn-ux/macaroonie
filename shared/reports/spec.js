@@ -11,10 +11,14 @@
 //     version: 1,
 //     kind: 'list' | 'summary' | 'matrix',
 //     subject: 'till.lines',
+//     also:    [{ key: 's2', subject: 'rota.staff_weeks', label?, filters }],   summaries only:
+//              other subjects whose figures sit beside this one's, lined up
+//              by the rows (shared/reports/also.js); a value with `from: 's2'`
+//              is one of theirs, and their `filters` are their own
 //     params:  [{ key, type: 'period' | 'venues' | 'value', label, default }],
 //     rows:    [{ field: 'section.name', bucket?, label? }],     list: its columns
 //     columns: [{ field, bucket?, label? }],                     matrix only
-//     values:  [{ key, measure } | { key, agg, field } | { key, agg, of } | { key, calc }, ...label, format, decimals, hidden],
+//     values:  [{ key, measure } | { key, agg, field } | { key, agg, of } | { key, calc }, ...label, format, decimals, hidden, from],
 //     filters: [{ field, bucket?, op, value | param } | { any: [...] } | { all: [...] } | { has: link, where: [...], not? }
 //               | { counted: [measure, ...] }],                   the rows at least one of these figures counts
 //     sort:    [{ by: <value key or row id>, dir }],
@@ -79,7 +83,7 @@ export const BUCKET_OPS = ['is', 'is_not', 'in', 'not_in', 'gt', 'gte', 'lt', 'l
 export const LIMITS = {
   name: 120, label: 80, text: 200, path_hops: 4,
   rows: 8, list_columns: 30, columns: 2, values: 20, filters: 30, filter_depth: 3, in_values: 200,
-  params: 12, sort: 5, drill_down: 8, drill_rows: 30, top: 500, tags: 12,
+  params: 12, sort: 5, drill_down: 8, drill_rows: 30, top: 500, tags: 12, also: 3,
   // How many links a row may go through to the record it opens in the app.
   open_hops: 2,
 }
@@ -87,6 +91,7 @@ export const LIMITS = {
 const PATH = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/
 const KEY = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const ALSO_KEY = /^[a-z][a-z0-9_]{0,20}$/
 
 const obj = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : null)
 const arr = v => (Array.isArray(v) ? v : [])
@@ -269,6 +274,9 @@ function cleanValues(raw) {
     } else continue
     const wanted = typeof v.key === 'string' && KEY.test(v.key) && v.key.length <= 60 ? v.key : null
     entry = { key: unique(wanted || base), ...entry }
+    // A figure of another subject of the report (`also`); a calculation
+    // reads values of every subject, so it belongs to none.
+    if (!entry.calc && typeof v.from === 'string' && ALSO_KEY.test(v.from)) entry.from = v.from
     const label = str(v.label, LIMITS.label)
     if (label) entry.label = label
     if (VALUE_FORMATS.includes(v.format)) entry.format = v.format
@@ -277,6 +285,35 @@ function cleanValues(raw) {
     out.push(entry)
   }
   return out
+}
+
+// The report's other subjects, each with a key its values name. Keys given
+// are kept when they are unique; the rest are numbered s2, s3, s4.
+function cleanAlso(raw, paramKeys) {
+  const list = []
+  for (const a0 of arr(raw)) {
+    if (list.length >= LIMITS.also) break
+    const a = obj(a0)
+    const subject = cleanPath(a?.subject)
+    if (subject) list.push({ a, subject })
+  }
+  const given = new Set()
+  const keys = list.map(({ a }) => {
+    const k = typeof a.key === 'string' && ALSO_KEY.test(a.key) && !given.has(a.key) ? a.key : null
+    if (k) given.add(k)
+    return k
+  })
+  let n = 2
+  return list.map(({ a, subject }, i) => {
+    let key = keys[i]
+    if (!key) {
+      while (given.has('s' + n)) n++
+      key = 's' + n
+      given.add(key)
+    }
+    const label = str(a.label, LIMITS.label)
+    return { key, subject, ...(label ? { label } : {}), filters: cleanFilters(a.filters, paramKeys) }
+  })
 }
 
 /**
@@ -299,6 +336,12 @@ export function normaliseReport(raw) {
   if (kind === 'matrix' && !columns.length) kind = 'summary'
   if (kind !== 'matrix') columns = []
   if (kind === 'list') values = []
+
+  // Figures from other subjects sit beside a summary's own; a value naming
+  // a subject the report doesn't have goes.
+  const also = kind === 'summary' ? cleanAlso(r.also, paramKeys) : []
+  const alsoKeys = new Set(also.map(a => a.key))
+  values = values.filter(v => !v.from || alsoKeys.has(v.from))
 
   const rows = uniqueBy(arr(r.rows).map(cleanFieldRef).filter(Boolean), rowId)
     .slice(0, kind === 'list' ? LIMITS.list_columns : LIMITS.rows)
@@ -376,7 +419,7 @@ export function normaliseReport(raw) {
     view.table_below = v.table_below !== false
   }
 
-  return { version: SPEC_VERSION, kind, subject, params, rows, columns, values, filters, sort, limit, totals, compare, drill, view }
+  return { version: SPEC_VERSION, kind, subject, also, params, rows, columns, values, filters, sort, limit, totals, compare, drill, view }
 }
 
 /**
@@ -415,7 +458,25 @@ export function reportProblems(spec) {
     }
   }
   if (spec.limit && !spec.values.some(v => !v.hidden)) out.push('A top or bottom N needs a value to rank by')
+  for (const a of spec.also || []) {
+    const name = a.label || 'Another subject of the report'
+    if (!spec.values.some(v => v.from === a.key)) out.push(name + ': add a figure from it, or take it out')
+    // Its days are the report's period: a day filter of its own would line
+    // up one stretch of days beside another.
+    if (onItsDay(a.filters)) out.push(name + ': its days follow the report\'s period. Take its own filter on the day out')
+  }
   return out
+}
+
+// Whether a list of filters (and the groups in it) has one on the day itself.
+function onItsDay(list) {
+  return (list || []).some(f => (f.any ? onItsDay(f.any) : f.all ? onItsDay(f.all) : f.field === 'date'))
+}
+
+/** The subject a value's figure comes from: one of the report's other subjects, else its own. */
+export function valueSubject(spec, value) {
+  if (!value?.from) return spec.subject
+  return (spec.also || []).find(a => a.key === value.from)?.subject || spec.subject
 }
 
 /** The value a top or bottom N ranks by: the first sort that names a value, else the first value shown. */

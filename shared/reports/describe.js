@@ -60,7 +60,7 @@ export function describeReport(catalogue, spec, ctx = {}) {
     parts.push('A list of ' + lowerFirst(subject.label) + (cols.length ? ', showing ' + andList(cols, 6) : ''))
   } else {
     const shown = arr(spec.values).filter(v => !v.hidden)
-    const values = shown.map(v => lowerFirst(valueName(catalogue, key, v)))
+    const values = shown.map(v => lowerFirst(valueName(catalogue, spec, v)))
     const rows = arr(spec.rows).map(r => lowerFirst(rowName(catalogue, key, r)))
     const cols = arr(spec.columns).map(r => lowerFirst(rowName(catalogue, key, r)))
     let text = values.length ? andList(values, 5) : 'How many ' + lowerFirst(subject.label)
@@ -71,7 +71,7 @@ export function describeReport(catalogue, spec, ctx = {}) {
     if (spec.limit) {
       const which = spec.limit.top ? 'top' : 'bottom'
       const by = shown.find(v => v.key === rankKey(spec))
-      parts.push('the ' + which + ' ' + spec.limit[which] + (by ? ' by ' + lowerFirst(valueName(catalogue, key, by)) : '')
+      parts.push('the ' + which + ' ' + spec.limit[which] + (by ? ' by ' + lowerFirst(valueName(catalogue, spec, by)) : '')
         + (spec.limit.rest_as ? ' with the rest together as "' + spec.limit.rest_as + '"' : ''))
     }
   }
@@ -93,6 +93,13 @@ export function describeReport(catalogue, spec, ctx = {}) {
     if (words) filters.push(lowerFirst(words) + (param ? ' (chosen each time)' : ''))
   }
   if (filters.length) parts.push('where ' + andList(filters, 5))
+  // Another subject's own filters: "the rota only where role is Kitchen".
+  for (const a of arr(spec.also)) {
+    const other = catalogue.subjects[a.subject]
+    if (!other) continue
+    const own = arr(a.filters).map(f => filterWords(catalogue, a.subject, f, { ...ctx, params })).filter(Boolean).map(lowerFirst)
+    if (own.length) parts.push(lowerFirst(a.label || other.label) + ' only where ' + andList(own, 3))
+  }
 
   const period = params.find(p => p.type === 'period')
   const venues = params.find(p => p.type === 'venues')

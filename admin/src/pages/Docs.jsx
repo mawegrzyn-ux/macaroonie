@@ -8253,11 +8253,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               sentences; a definition is stored (<Mono>reports.spec</Mono>) and run only after both. Version 1:
             </P>
             <Code>{`{ version: 1, kind: 'list' | 'summary' | 'matrix', subject: 'till.lines',
+  also:    [{ key: 's2', subject: 'rota.weeks', label: 'Rota', filters: [...] }],  // summaries only: 3 at most
   params:  [{ key, type: 'period' | 'venues' | 'value', label, default }],
   rows:    ['section.name', { field: 'date', bucket: 'week' }],   // groupings (a list's columns)
   columns: [{ field: 'sent_at', bucket: 'hour' }],                 // a matrix's column groupings (2 at most)
   values:  [{ measure: 'net_sales' }, { agg: 'count' }, { agg: 'sum', field: 'qty' },
-            { calc: 'net_sales / total(net_sales)', label: 'Share', format: 'percent' }],
+            { calc: 'net_sales / total(net_sales)', label: 'Share', format: 'percent' },
+            { measure: 'hours_total', from: 's2' }],                  // a figure of another subject
   filters: [{ field: 'date', op: 'in_period', param: 'period' }, { field: 'venue', op: 'in', param: 'venues' },
             { any: [...] }, { all: [...] }, { has: 'payments', where: [...], not: false },
             { counted: ['net_sales'] }],                           // the rows these figures count (drill-downs)
@@ -8285,6 +8287,16 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>plainHeading()</Mono> / <Mono>csvCell()</Mono> for files) and <Mono>drill.js</Mono>{' '}
               (<Mono>cleanDrill()</Mono>, <Mono>drillSpec()</Mono>: the definition a drill step runs, made by the
               server from the report&apos;s own). The admin imports them as <Mono>@shared/reports/...</Mono>.
+            </P>
+            <P>
+              A summary&apos;s <Mono>also</Mono> names up to three other subjects (<Mono>LIMITS.also</Mono>), each{' '}
+              <Mono>{'{ key, subject, label?, filters }'}</Mono> (a key given is kept when it is unique, the rest are
+              numbered s2, s3, s4); a value with <Mono>from</Mono> is one of that subject&apos;s figures, and a
+              calculation (never <Mono>from</Mono>) may read values of every subject.{' '}
+              <Mono>normaliseReport()</Mono> keeps <Mono>also</Mono> on a summary only and drops a value naming a key it
+              doesn&apos;t have; <Mono>reportProblems()</Mono> refuses another subject with no figure, or with a filter
+              of its own on its day (its days are the report&apos;s period); <Mono>valueSubject(spec, value)</Mono>{' '}
+              gives the subject a value&apos;s figure comes from. Below, Figures from other subjects.
             </P>
 
             <H3>The data catalogue</H3>
@@ -8325,11 +8337,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Food safety and H&S (food_safety, checklists, hs_action_log)', 'safety.days (each venue\'s H&S day as the Overview judges it, worked out for each run), safety.fridges, safety.fridge_checks, safety.hold_stations, safety.hold_checks, safety.cooking_sessions, safety.cooking_items, safety.cooking_checks, safety.delivery_checks; safety.checklist_templates, safety.checklist_tasks, safety.checklists, safety.checklist_ticks; safety.action_categories, safety.actions'],
                 ['Cash reconciliation (cash_recon)', 'cash.days and cash.weeks (worked out for each run by Cash Recon\'s own rule), cash.income, cash.takings, cash.service_charges, cash.expenses, cash.wages, cash.reports, cash.wage_lists, and to group by: cash.income_sources, cash.payment_channels, cash.sc_sources, cash.expense_categories'],
                 ['Staff and rota (rota; pay rota_pay, points and tips rota_tips, the wage list beside the rota cash_recon, people, roles, time off and tip pots staff)', 'rota.staff_weeks, rota.weeks, rota.days, rota.pot_weeks, rota.tip_shares (worked out for each run by the Rota page\'s own rules), rota.entries, rota.pay_adjustments, rota.tip_moves, rota.shifts, and staff.people, staff.roles, staff.time_off, rota.tip_pots'],
+                ['Local info (local_info)', 'local.weather (the weather at each venue, one row a day: the forecast read last for that day from the Local info weather capture)'],
                 ['Shared', 'venue (no module), menu.menus / menu.sections / menu.dishes (menus), guests.customers (customers)'],
               ]}
             />
             <P>
-              88 subjects. A field, figure or link can name a module of its own (<Mono>needs</Mono>): a role without
+              89 subjects. A subject whose rows each sit on their week&apos;s Monday says so on its day,{' '}
+              <Mono>{"date: { sql, label, grain: 'week' }"}</Mono> (the rota and Cash Recon weeks), and{' '}
+              <Mono>catalogueView()</Mono> passes <Mono>grain</Mono> on: such a subject lines up with another
+              subject&apos;s days only by week or longer. A field, figure or link can name a module of its own (<Mono>needs</Mono>): a role without
               it doesn&apos;t see it, and <Mono>CATALOGUE_MODULES</Mono> (every module a subject, field, figure or
               link asks for) is what the routes read a person&apos;s levels for. The start-up check refuses a{' '}
               <Mono>needs</Mono> that isn&apos;t a module, on figures too.
@@ -8480,6 +8496,113 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               exist but none count for the figure, and empty where there are no rows.
             </P>
 
+            <H3>Figures from other subjects</H3>
+            <P>
+              13-14 Nov 2026, no migration (<Mono>docs/REPORTS.md</Mono> 7.1, phase 3c): sales beside the hours on
+              the rota, guests booked beside guests served, sales beside the weather. How a row of the report is
+              found in another subject is one rule, <Mono>shared/reports/also.js</Mono>, for the engine, the builder
+              and Pepper. <Mono>matchRow(catalogue, mainKey, row, otherKey, name)</Mono> answers for one grouping:
+              the report&apos;s day is the other subject&apos;s own day grouped the same way (a weekly subject only by{' '}
+              <Mono>WEEKLY_BUCKETS</Mono>: week, month, quarter or year; <Mono>grainOf()</Mono>); a thing both lead
+              to (a venue, a dish, a server) is the same field of it through the other subject&apos;s own one-row
+              links (<Mono>routesTo()</Mono>, <Mono>ALSO_HOPS</Mono> 2, never through a list of rows, whose rows
+              would repeat); anything else lines up only when the other subject is the report&apos;s own subject
+              again (lunch beside dinner, each with filters of its own). <Mono>matchRows(catalogue, spec, otherKey,
+              name)</Mono> checks every grouping: <Mono>{'{ ok, fields, missing: [{ row, why }] }'}</Mono>, where{' '}
+              <Mono>why</Mono> is a sentence (&quot;The rota can&apos;t be lined up by dish: it belongs to dishes sold
+              only.&quot;) naming the subject by <Mono>name</Mono>, the report&apos;s own label for it, when given.{' '}
+              <Mono>isShared(f)</Mono> says which of the report&apos;s filters apply to it too (those on its day and
+              its venue: the period and venues choices), <Mono>translateFilter()</Mono> /{' '}
+              <Mono>sharedFilters()</Mono> write them in the other subject&apos;s own paths and{' '}
+              <Mono>heldFilters()</Mono> holds it to a drilled row.
+            </P>
+            <P>
+              The engine: <Mono>compileParts()</Mono> in <Mono>compile.js</Mono> compiles each other subject as a
+              summary of its own (the report&apos;s groupings in its paths, the shared filters, its own filters, no
+              sort, top or compare of its own) in a statement of its own, plus one for the compared period and one
+              for a top N&apos;s everything-else row; <Mono>summaryShaper(plan, rows, compareRows, partRows)</Mono>{' '}
+              (<Mono>shape.js</Mono>) puts every statement&apos;s figures side by side by the groupings&apos; values
+              (every key any statement has; a subject with no rows for a key shows its figures over no rows).
+              Nothing is joined row to row, so nothing is counted twice, and totals, subtotals, the compared period
+              and a top N work for every subject. A subject the role can&apos;t see, or one that can&apos;t line up with
+              the rows, is left out with a note (&quot;Figures from weather are left out: your role can&apos;t see
+              them&quot;, or <Mono>why</Mono> + &quot; Its figures are left out.&quot;), with the calculations that read its
+              figures; saving refuses it instead (<Mono>checkedSpec(raw, p, {'{ strict: true }'})</Mono> →{' '}
+              <Mono>compileReport(..., {'{ strictParts: true }'})</Mono>: 422, or 403 when it is the role), as do the
+              starters&apos; start-up check and Pepper&apos;s answers. A weekly subject beside a period that isn&apos;t whole
+              weeks gets a note; a daily subject beside a weekly report reads up to six days past the period so its
+              last week is whole (<Mono>widen</Mono>, <Mono>rangesOf()</Mono> in <Mono>run.js</Mono>); worked-out
+              subjects are filled for the other subjects&apos; statements too.
+            </P>
+            <P>
+              Drill-downs: breaking a row down keeps the other subjects, each held to the row (<Mono>drillSpec(spec,
+              step, {'{ catalogue, listColumns, extra }'})</Mono>; <Mono>listColumns</Mono> may be a function of a
+              subject&apos;s key; one that can&apos;t line up with the new grouping goes, with its figures and the
+              calculations reading them). The rows behind another subject&apos;s figure are that subject&apos;s rows
+              (<Mono>countedBy(spec, key, {'{ from }'})</Mono>, <Mono>readsFrom(spec, key)</Mono>: a calculation&apos;s
+              when every value it reads is one subject&apos;s), <Mono>meta.drill.of_values</Mono> names them per value
+              (the catalogue label: &quot;The rota weeks behind Hours worked&quot; in the window, &quot;Rota weeks behind
+              ...&quot; on the trail), and <Mono>per_figure</Mono> is set when the figures count different subjects&apos;
+              rows.
+            </P>
+            <P>
+              The builder: <Mono>alsoChoices(catalogue, spec)</Mono> (<Mono>{'[{ key, label, area, ok, why }]'}</Mono>:
+              every subject the role can build on, the report&apos;s own too, and why one can&apos;t line up),{' '}
+              <Mono>addAlso(spec, subjectKey, {'{ key, label, filters }'})</Mono>, <Mono>removeAlso()</Mono>,{' '}
+              <Mono>updateAlso()</Mono>, <Mono>alsoKeyFor()</Mono>, <Mono>alsoProblems()</Mono> (the subjects that
+              can&apos;t line up any more, as sentences) and <Mono>addValue()</Mono> with <Mono>from</Mono> (another
+              subject&apos;s figure is another value even when the figure is the same); <Mono>addColumn()</Mono> refuses a
+              table across while other subjects are in; <Mono>valueName()</Mono> names a figure with its subject.
+              Admin: <Mono>AlsoPart</Mono> / <Mono>AlsoCard</Mono> in <Mono>builder/SetUp.jsx</Mono> (<Mono>setup-also</Mono>,{' '}
+              <Mono>also-add</Mono>, <Mono>also-card</Mono> <Mono>data-key</Mono> <Mono>data-subject</Mono>,{' '}
+              <Mono>also-name</Mono>, <Mono>also-values</Mono>, <Mono>also-no-values</Mono>, <Mono>also-unlined</Mono>,{' '}
+              <Mono>also-hidden</Mono>, <Mono>also-filter</Mono>, <Mono>also-filter-open</Mono>,{' '}
+              <Mono>also-filter-remove</Mono>, <Mono>also-readers</Mono>, <Mono>also-add-value</Mono>,{' '}
+              <Mono>also-add-filter</Mono>, <Mono>also-remove</Mono>, <Mono>also-matrix</Mono>), <Mono>AlsoWindow</Mono>{' '}
+              in <Mono>pages/ReportBuilder.jsx</Mono> (<Mono>also-search</Mono>, <Mono>also-area</Mono>,{' '}
+              <Mono>also-choice</Mono> <Mono>data-subject</Mono> <Mono>data-ok</Mono>, <Mono>also-why</Mono>,{' '}
+              <Mono>also-none</Mono>), the Data panel&apos;s subject list (<Mono>data-subject</Mono>,{' '}
+              <Mono>data-also-hint</Mono>; another subject&apos;s fields are values with <Mono>from</Mono> or filters
+              on fields that aren&apos;t shared, never groupings), the <Mono>filter-also</Mono> and{' '}
+              <Mono>value-also</Mono> lines in <Mono>Windows.jsx</Mono>. Across the top is closed while another
+              subject is in, and Save and Save as wait while <Mono>alsoProblems()</Mono> says anything. The builder
+              offers fixed values only for another subject&apos;s filters; a definition may still ask for one, and its
+              choice shows like any other.
+            </P>
+            <P>
+              Pepper and plans: the smart builder&apos;s answer has <Mono>also</Mono>{' '}
+              (<Mono>{'[{ name, subject (an S ref), label, filters }]'}</Mono>) and a value&apos;s <Mono>from</Mono>;{' '}
+              <Mono>toSpec()</Mono> adds them through the builder&apos;s edits, leaves out (in couldnt, with the
+              reason) what can&apos;t line up or is over three, keeps the report&apos;s period and venues for them, and asks
+              once more with a subject listed only in a line now listed in full (<Mono>rankSubjects()</Mono> takes{' '}
+              <Mono>pinned</Mono> as a key or a list; <Mono>buildSlice()</Mono> gives <Mono>fIn()</Mono> /{' '}
+              <Mono>refIn()</Mono> per subject). Plans: <Mono>PLAN.also</Mono>{' '}
+              (<Mono>{'[{ subject, name?, label?, filters? }]'}</Mono>) and a figure&apos;s <Mono>from</Mono> (an also
+              name, or a subject key, added when missing); <Mono>planOf()</Mono> writes them back and{' '}
+              <Mono>planProblems()</Mono> names a <Mono>from</Mono> that names nothing (<Mono>unknown.froms</Mono>) and
+              another subject&apos;s unknown paths (<Mono>paths[].subject</Mono>). Pepper&apos;s report tools say whose
+              figures are whose.
+            </P>
+            <P>
+              The weather: <Mono>local.weather</Mono> (<Mono>api/src/reports/catalogue/local.js</Mono>, area Local
+              info, module <Mono>local_info</Mono>), one row per venue and day from <Mono>local_info_items</Mono> of
+              kind weather holding a forecast: the one read last for that day (<Mono>DISTINCT ON</Mono> venue and
+              day by <Mono>updated_at</Mono>), days hidden on Local info left out. Fields: the weather and its kind
+              from the code (<Mono>weatherCodes()</Mono>, <Mono>WEATHER_GROUPS</Mono>, <Mono>weatherGroup()</Mono> in{' '}
+              <Mono>shared/localInfo.js</Mono>, never the row&apos;s title), how it shows, highest and lowest, rain and
+              snow, strongest wind, wet (<Mono>WET_DAY_MM</Mono> 1 mm, the line the Local info summary starts saying
+              how much from), when the forecast was last read; figures: days, wet and dry days, days with a weather
+              warning, share of days wet, average highest and lowest, hottest, coldest, average rain, wettest day,
+              windiest. Starters: Sales against the weather and Sales, labour and bookings by venue (<Mono>till.js</Mono>),
+              Labour against sales by week (<Mono>staff.js</Mono>). Tests: <Mono>shared/test/reportAlso.test.mjs</Mono>,
+              the other-subject tests in <Mono>reportBuild.test.mjs</Mono>, <Mono>api/test/reports-also.test.mjs</Mono>{' '}
+              (9: lining up by venue, day and week, the period before, a top N, roles, rows that can&apos;t line up,
+              part weeks, a daily subject beside a weekly report, opening rows up), <Mono>reports-weather.test.mjs</Mono>{' '}
+              (7), the other subjects in <Mono>reports-smart.test.mjs</Mono>, and every starter run in{' '}
+              <Mono>reports-api.test.mjs</Mono> (a starter with a weekly subject beside a daily one runs over the week
+              holding today).
+            </P>
+
             <H3>Who may do what</H3>
             <P>
               Module <Mono>reports</Mono> (group <Mono>reports</Mono>; View, Use and Manage; owner and admin Manage,
@@ -8538,13 +8661,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
 
             <H3>Starter reports</H3>
             <P>
-              <Mono>api/src/reports/starters/</Mono>: 69 definitions in code (<Mono>till.js</Mono> 15,{' '}
-              <Mono>online.js</Mono> 6, <Mono>bookings.js</Mono> 7, <Mono>cash.js</Mono> 8, <Mono>staff.js</Mono> 7,{' '}
+              <Mono>api/src/reports/starters/</Mono>: 72 definitions in code (<Mono>till.js</Mono> 17,{' '}
+              <Mono>online.js</Mono> 6, <Mono>bookings.js</Mono> 7, <Mono>cash.js</Mono> 8, <Mono>staff.js</Mono> 8,{' '}
               <Mono>purchasing.js</Mono> 8, <Mono>safety.js</Mono> 9, <Mono>loyalty.js</Mono> 4,{' '}
               <Mono>kitchen.js</Mono> 3, <Mono>kiosks.js</Mono> 2), each made with <Mono>starter()</Mono>{' '}
               (<Mono>define.js</Mono>: adds the <Mono>period</Mono> and <Mono>venues</Mono> parameters and their
-              filters) and checked when the API starts: one that <Mono>normaliseReport()</Mono> would change, or
-              that has a problem, stops the start. They are never rows in <Mono>reports</Mono>; a copy is. A starter
+              filters) and checked when the API starts: one that <Mono>normaliseReport()</Mono> would change, that
+              has a problem, or whose other subjects can&apos;t line up with its rows (compiled with{' '}
+              <Mono>strictParts</Mono>), stops the start. They are never rows in <Mono>reports</Mono>; a copy is. A starter
               on an area the role can&apos;t see is still listed, with <Mono>runs: false</Mono> and what it needs.
               Whether a starter runs is decided by its subject&apos;s module only, so every starter must run for a
               role with just that module: a figure needing another one drops out with a note (Spend by supplier for
