@@ -719,11 +719,16 @@ export function choiceZones(layout) {
  * one-row zone (cells then one row high); pages: as many pages as needed;
  * more: what fits with the last cell kept for More, the rest behind it;
  * hide: what fits on the first page. A cell takes the first free place,
- * row by row; a cell bigger than the grid is cut down to it.
+ * row by row; a cell bigger than the grid is cut down to it. In a Dish
+ * choices zone (type 'modifiers') a cell takes the first free place after
+ * the cell before it, never a gap left further up: a group's heading
+ * starts its own row and its choices follow it, so the choices of the next
+ * group never fill the end of this group's row.
  */
-export function packCells(cells, { cols, rows, overflow }) {
+export function packCells(cells, { cols, rows, overflow, type }) {
   cols = Math.max(1, cols | 0)
   rows = Math.max(1, rows | 0)
+  const inOrder = type === 'modifiers'
   const size = cells.map(c => ({ w: Math.min(cols, Math.max(1, c?.w | 0 || 1)), h: Math.min(rows, Math.max(1, c?.h | 0 || 1)) }))
   if (overflow === 'scroll' && rows === 1 && cols > 1) {
     // Across: one row, as many columns as it takes.
@@ -732,16 +737,16 @@ export function packCells(cells, { cols, rows, overflow }) {
     return { pages: [page], rest: [], hidden: 0, rows: 1, cols: Math.max(cols, x) }
   }
   if (overflow === 'scroll') {
-    const grid = new Grid(cols, Infinity)
+    const grid = new Grid(cols, Infinity, inOrder)
     const page = size.map((s, i) => ({ i, ...grid.place(s.w, s.h), w: s.w, h: s.h }))
     return { pages: [page], rest: [], hidden: 0, rows: Math.max(rows, grid.used), cols }
   }
   if (overflow === 'more') {
-    const one = new Grid(cols, rows)
+    const one = new Grid(cols, rows, inOrder)
     const all = size.map((s, i) => one.fits(s.w, s.h) ? { i, ...one.place(s.w, s.h), w: s.w, h: s.h } : null)
     if (all.every(Boolean)) return { pages: [all], rest: [], hidden: 0, rows, cols }
     // Not everything fits: keep the last cell for More.
-    const grid = new Grid(cols, rows)
+    const grid = new Grid(cols, rows, inOrder)
     grid.block(cols - 1, rows - 1)
     const page = []
     const rest = []
@@ -753,12 +758,12 @@ export function packCells(cells, { cols, rows, overflow }) {
   }
   // Pages, or (hide) the first page and nothing after the first cell that doesn't fit.
   const pages = [[]]
-  let grid = new Grid(cols, rows)
+  let grid = new Grid(cols, rows, inOrder)
   for (let i = 0; i < size.length; i++) {
     const s = size[i]
     if (!grid.fits(s.w, s.h)) {
       if (overflow === 'hide') return { pages, rest: [], hidden: size.length - i, rows, cols }
-      grid = new Grid(cols, rows)
+      grid = new Grid(cols, rows, inOrder)
       pages.push([])
     }
     pages[pages.length - 1].push({ i, ...grid.place(s.w, s.h), w: s.w, h: s.h })
@@ -767,12 +772,16 @@ export function packCells(cells, { cols, rows, overflow }) {
 }
 
 // Free cells of one page, filled row by row. rows Infinity grows as needed.
+// inOrder: each cell goes after the one placed before it (at: where the
+// last one ended), never back into a gap further up.
 class Grid {
-  constructor(cols, rows) {
+  constructor(cols, rows, inOrder = false) {
     this.cols = cols
     this.rows = rows
     this.taken = new Set()
     this.used = 0
+    this.inOrder = inOrder
+    this.at = { x: 0, y: 0 }
   }
   free(x, y, w, h) {
     if (x + w > this.cols || y + h > this.rows) return false
@@ -781,7 +790,10 @@ class Grid {
   }
   spot(w, h) {
     const limit = Number.isFinite(this.rows) ? this.rows : this.used + h + 1
-    for (let y = 0; y + h <= limit; y++) for (let x = 0; x + w <= this.cols; x++) if (this.free(x, y, w, h)) return { x, y }
+    const from = this.inOrder ? this.at : { x: 0, y: 0 }
+    for (let y = from.y; y + h <= limit; y++) {
+      for (let x = y === from.y ? from.x : 0; x + w <= this.cols; x++) if (this.free(x, y, w, h)) return { x, y }
+    }
     return null
   }
   fits(w, h) { return !!this.spot(w, h) }
@@ -789,6 +801,7 @@ class Grid {
     const at = this.spot(w, h)
     for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) this.taken.add((at.y + dy) * 1000 + at.x + dx)
     this.used = Math.max(this.used, at.y + h)
+    this.at = { x: at.x + w, y: at.y }
     return at
   }
   block(x, y) { this.taken.add(y * 1000 + x) }
