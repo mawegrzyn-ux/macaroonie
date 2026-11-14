@@ -1,6 +1,6 @@
 // api/scripts/report-requests.js
 //
-// About 60 report requests the way people type them, each with what a right
+// About 80 report requests the way people type them, each with what a right
 // answer must contain (docs/REPORTS.md 10, "Checking it works"). Run them
 // against the live model with scripts/report-smart-check.js before each
 // release of the smart builder; the API tests only check the plumbing,
@@ -92,7 +92,7 @@ export const REQUESTS = [
   { area: 'till', request: 'Net sales at {venue} and {venue2} by week this month', needs: ['venue2'],
     expect: { subject: 'till.checks', values: ['net_sales'], rows: ['venue', 'date:week'], venues: ['{venue}', '{venue2}'] } },
   { area: 'till', request: 'Checks still open right now',
-    expect: { subject: 'till.checks', period: 'today' },
+    expect: { subject: 'till.checks', period: ['today', 'any'] },
     look: 'Either the Checks still open figure or a list of checks whose status is open.' },
   { area: 'till', request: 'Z report figures for yesterday',
     expect: { subject: ['till.days', 'till.checks', 'till.payments'], period: 'yesterday' } },
@@ -173,6 +173,46 @@ export const REQUESTS = [
   { area: 'other', request: 'Dishes on the menu without a photo',
     expect: { subject: 'menu.dishes', filters: [{ field: 'has_photo' }] } },
 
+  // ── Kitchen and kiosks ──
+  { area: 'kitchen', request: 'Average ticket time by station last week',
+    expect: { subject: 'kitchen.tickets', values: ['average_time'], rows: [['station_name', 'station']], period: 'last_week' } },
+  { area: 'kitchen', request: 'What are the most common reasons for remakes this month',
+    expect: { subject: 'kitchen.remakes', values: ['remakes'], rows: ['reason'], period: ['this_month', 'month_to_date'] } },
+  { area: 'kitchen', request: 'How many tickets were late at each station yesterday',
+    expect: { subject: 'kitchen.tickets', values: ['late_count'], rows: [['station_name', 'station']], period: 'yesterday' } },
+  { area: 'kiosks', request: 'Kiosk orders and sales by day this week',
+    expect: { subject: 'kiosks.visits', values: ['orders', 'sales'], rows: ['date:day'], period: ['this_week', 'week_to_date'] } },
+  { area: 'kiosks', request: 'Where do people give up on the kiosk',
+    expect: { subject: 'kiosks.visits', values: ['gave_up'], rows: [['last_screen', 'furthest']] } },
+
+  // ── Loyalty ──
+  { area: 'loyalty', request: 'Loyalty points earned and spent by month this year',
+    expect: { subject: 'loyalty.ledger', values: ['earned', 'spent'], rows: ['date:month'], period: ['this_year', 'year_to_date'] } },
+  { area: 'loyalty', request: 'Which loyalty rewards were used most last month',
+    expect: { subject: 'loyalty.redemptions', values: ['used'], rows: [['name', 'reward']], period: 'last_month' } },
+  { area: 'loyalty', request: 'How many people joined the loyalty programme each week',
+    expect: { subject: 'loyalty.members', values: [['joined', 'members']], rows: ['date:week'] } },
+  { area: 'loyalty', request: 'Which members hold the most points',
+    expect: { subject: 'loyalty.members', period: 'any' },
+    look: 'Points held now by everyone, whenever they joined (no period).' },
+
+  // ── Purchasing ──
+  { area: 'purchasing', request: 'How much did we spend with each supplier last month',
+    expect: { subject: ['purchasing.orders', 'purchasing.order_lines'], values: [['spend', 'goods']], rows: [['supplier', 'order.supplier']], period: 'last_month' } },
+  { area: 'purchasing', request: 'Which suppliers delivered short most often this year',
+    expect: { subject: 'purchasing.order_lines', values: [['short', 'problems']], rows: ['order.supplier'], period: ['this_year', 'year_to_date'] } },
+  { area: 'purchasing', request: 'Spend by inventory category this month',
+    expect: { subject: 'purchasing.order_lines', values: [['spend', 'goods']], rows: [['category_name', 'item.category']], period: ['this_month', 'month_to_date'] } },
+
+  // ── Food safety and H&S ──
+  { area: 'safety', request: 'Fridge readings out of range last week',
+    expect: { subject: 'safety.fridge_checks', period: 'last_week' } },
+  { area: 'safety', request: 'Checklists done at each venue this month',
+    expect: { subject: 'safety.checklists', values: ['done'], rows: ['venue'], period: ['this_month', 'month_to_date'] } },
+  { area: 'safety', request: 'Open H&S actions that are overdue',
+    expect: { subject: 'safety.actions', period: 'any' },
+    look: 'Every action still open, whatever day it was logged (no period).' },
+
   // ── What the reports can't show (yet) ──
   { area: 'other', request: 'Gross profit margin by dish last month',
     expect: { couldnt: true },
@@ -181,7 +221,8 @@ export const REQUESTS = [
     expect: { couldnt: true },
     look: 'Rota pay isn\'t in the reports yet (phase 3): say so.' },
   { area: 'other', request: 'Fridge checks missed by day last month',
-    expect: { noneOr: true } },
+    expect: { noneOr: true },
+    look: 'Readings are in the reports, checks missed aren\'t yet: none, or readings with a line saying so.' },
   { area: 'other', request: 'How much chicken do we have in stock',
     expect: { noneOr: true } },
   { area: 'till', request: 'Net sales last week at Atlantis',
@@ -228,6 +269,7 @@ function valueMatches(v, want) {
 }
 
 function periodMatches(p, want) {
+  if (want === 'any') return !p
   if (!p) return false
   if (want === 'dates') return !p.relative && !!p.from
   if (typeof want === 'string') return p.relative === want

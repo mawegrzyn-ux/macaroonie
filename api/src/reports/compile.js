@@ -678,6 +678,7 @@ function measureFigure(scope, figs, loc) {
 function valuesOf(scope, spec, env, figs, notes) {
   const subject = scope.subject
   const out = []
+  const denied = new Set()
   for (const v of spec.values) {
     const base = { key: v.key, hidden: !!v.hidden, ...(v.decimals != null ? { decimals: v.decimals } : {}) }
     try {
@@ -762,11 +763,21 @@ function valuesOf(scope, spec, env, figs, notes) {
     } catch (e) {
       if (e instanceof Denied) {
         notes.push((v.label || e.label) + ' is left out: your role can\'t see it')
+        denied.add(v.key)
         continue
       }
       if (e instanceof ExprError) fail((v.label || v.key) + ': ' + e.message)
       throw e
     }
+  }
+  // A calculation reading a value the role can't see goes with it (a share
+  // of a hidden figure would give it away), and so does one reading that.
+  for (;;) {
+    const v = out.find(x => x.src.calc && exprRefs(x.src.calc).some(n => denied.has(n)))
+    if (!v) break
+    out.splice(out.indexOf(v), 1)
+    denied.add(v.key)
+    notes.push(v.label + ' is left out: your role can\'t see what it is worked out from')
   }
   // A calculation can only read the values that are there.
   const keys = new Set(out.map(v => v.key))

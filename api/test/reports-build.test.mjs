@@ -142,7 +142,9 @@ test('everything the Data panel offers runs, for every subject: each grouping, c
     bad.push(...await runParts(key + ' filter', filters.filter(bare), 12, withFilters))
   }
   assert.deepEqual(bad, [])
-  assert.equal(counts.subjects, 26)
+  // Every subject in the catalogue, each one the role builds on.
+  assert.equal(counts.subjects, Object.keys(CATALOGUE.subjects).length)
+  assert.equal(Object.values(view.subjects).filter(s => s.base).length, counts.subjects)
   assert.ok(counts.groupings > 1500 && counts.columns > 900 && counts.values > 1500 && counts.filters > 4000, JSON.stringify(counts))
 })
 
@@ -240,8 +242,8 @@ test('every drill the builder offers is one the engine opens: each field a row c
     }
   }
   assert.deepEqual(bad, [])
-  assert.equal(counts.subjects, 26)
-  assert.ok(counts.levels > 1500 && counts.columns > 900 && counts.opened > 1500 && counts.refused >= 26, JSON.stringify(counts))
+  assert.equal(counts.subjects, Object.keys(CATALOGUE.subjects).length)
+  assert.ok(counts.levels > 1500 && counts.columns > 900 && counts.opened > 1500 && counts.refused >= counts.subjects, JSON.stringify(counts))
 })
 
 test('what the builder leaves out because the engine can\'t do it really is refused', async () => {

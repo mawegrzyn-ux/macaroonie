@@ -99,7 +99,8 @@ export const PLAN = z.object({
     n: z.number().int().min(1).max(3660).optional().describe('With last_n_days and next_n_days'),
     from: Ymd.optional(),
     to: Ymd.optional(),
-  }).optional().describe('Which days: relative (with n for last_n_days), or from and to. Left out: last week'),
+    any: z.boolean().optional().describe('true: every day, no period, for what is so now whatever the day a row is dated (actions still open, what members hold now)'),
+  }).optional().describe('Which days: relative (with n for last_n_days), or from and to, or any. Left out: last week'),
   venues: z.array(z.string().trim().min(1).max(120)).max(100).optional().describe('Venue names as said; left out for every venue'),
   sort: z.array(z.object({
     by: z.string().trim().min(1).max(160).describe('A figure\'s name (v1), count, or a grouping\'s or list column\'s path'),
@@ -157,7 +158,7 @@ export function planAnswer(plan) {
     })),
     period: {
       relative: plan.period?.relative || '', n: plan.period?.n || 0,
-      from: plan.period?.from || '', to: plan.period?.to || '',
+      from: plan.period?.from || '', to: plan.period?.to || '', any: plan.period?.any === true,
     },
     venues: arr(plan.venues),
     sort: arr(plan.sort).map(s => ({ by: s.by, dir: s.dir === 'desc' ? 'desc' : 'asc' })),
@@ -219,7 +220,8 @@ export function planOf(catalogue, spec, venues = [], name = '') {
     }))
   }
   const pd = a.period
-  if (pd.relative) plan.period = { relative: pd.relative, ...(pd.n ? { n: pd.n } : {}) }
+  if (pd.any) plan.period = { any: true }
+  else if (pd.relative) plan.period = { relative: pd.relative, ...(pd.n ? { n: pd.n } : {}) }
   else if (pd.from && pd.to) plan.period = { from: pd.from, to: pd.to }
   if (a.venues.length) plan.venues = a.venues
   if (a.sort.length) plan.sort = a.sort.map(x => ({ by: /^v\d+$/i.test(x.by) ? asName(x.by) : x.by, dir: x.dir }))

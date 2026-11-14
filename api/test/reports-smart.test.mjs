@@ -29,7 +29,7 @@ const userText = body => body.messages[0].content.filter(b => b.type === 'text')
 /** A full answer: everything the schema asks for, empty unless given. */
 const answer = (a = {}) => ({
   subject: '', kind: 'summary', rows: [], columns: [], values: [], filters: [],
-  period: { relative: '', n: 0, from: '', to: '' }, venues: [], sort: [],
+  period: { relative: '', n: 0, from: '', to: '', any: false }, venues: [], sort: [],
   limit: { which: 'none', n: 0, by: '', rest: '' }, compare: 'none',
   chart: { kind: 'table', x: '', y: [], line: '', stacked: false, sideways: false },
   name: '', assumed: [], couldnt: [], questions: [], ...a,
@@ -287,12 +287,32 @@ test('a change starts from the report as it is, with the requests that made it a
   const checks = shown(lastBody()).get('Checks')
   assert.equal(current.subject, checks.ref, 'the report in refs')
   assert.deepEqual(current.values.map(v => [v.name, v.ref]), [['v1', checks.figures.get('Net sales')]])
-  assert.deepEqual(current.period, { relative: 'today', n: 0, from: '', to: '' })
+  assert.deepEqual(current.period, { relative: 'today', n: 0, from: '', to: '', any: false })
   assert.equal(current.name, 'Sales by server today', 'Pepper sees the name it gave, so it can keep it')
   assert.equal(out.name, 'Sales by server today', 'and the changed report keeps it')
   assert.deepEqual(out.spec.values.map(v => v.measure), ['net_sales', 'guests'])
   assert.deepEqual(out.spec.compare, { with: 'previous_period' })
   assert.match(out.about, /compared with the period before/)
+})
+
+test('every day: a report about what is so now has no period, and a change to it keeps none', async () => {
+  claude.script.push(body => {
+    const checks = shown(body).get('Checks')
+    return reply({ subject: checks.ref, name: 'Checks still open', values: [value('v1', checks.figures.get('Checks'))], period: { relative: '', n: 0, from: '', to: '', any: true } })()
+  })
+  const built = await ok(owner.post(BUILD, { request: 'how many checks are still open' }))
+  assert.ok(!built.spec.params.some(p => p.type === 'period'), 'no period choice')
+  assert.ok(!built.spec.filters.some(f => f.op === 'in_period'), 'no period filter')
+  assert.ok(!built.assumed.some(a => /last week/.test(a)), 'not taken as last week: ' + JSON.stringify(built.assumed))
+
+  let current
+  claude.script.push(body => {
+    current = JSON.parse(userText(body).split('The report as it is now:\n')[1].split('\n\n')[0])
+    return reply(current)()
+  })
+  const again = await ok(owner.post(BUILD, { request: 'keep it as it is', previous: { spec: built.spec, requests: ['how many checks are still open'], name: built.name } }))
+  assert.deepEqual(current.period, { relative: '', n: 0, from: '', to: '', any: true }, 'Pepper is told it has no period')
+  assert.ok(!again.spec.params.some(p => p.type === 'period'), 'and the change keeps none')
 })
 
 test('a photo or a PDF goes to Pepper with the request; anything else is refused', async () => {

@@ -1,9 +1,10 @@
 // Helpers for the report tests: run a definition as someone, and read a
 // result's rows by column key.
 import { runReport } from '../../src/reports/run.js'
+import { CATALOGUE_MODULES } from '../../src/reports/catalogue/index.js'
 
 /** View on every module the catalogue asks for. */
-export const LEVELS = { pos_reports: 'view', menus: 'view', customers: 'view', web_orders: 'view', bookings: 'view' }
+export const LEVELS = Object.fromEntries(CATALOGUE_MODULES.map(k => [k, 'view']))
 
 /** runner(tenantId)(spec, given?, { levels, userKey, ...opts }?) -> the report's result, never from the kept results. */
 export const runner = tenantId => (spec, given, { levels = LEVELS, userKey = 'u-test', ...opts } = {}) =>

@@ -2051,9 +2051,11 @@ export default function Help() {
             <H2>Reports</H2>
             <P>
               <strong>Reports</strong> (main menu, under Dashboards) answers questions about your own
-              figures: till sales, online orders and table bookings to begin with, with the other areas
-              to follow. It comes with 28 starter reports, such as Sales by day, Payments by tender, Top
-              dishes online and No-shows and cancellations, and you can build your own. A report can be
+              figures: till sales, online orders, table bookings, the kitchen screens, self-order kiosk
+              visits, loyalty, purchasing, and food safety, checklists and the H&S action log, with
+              rota pay, cash reconciliation and the rest to follow. It comes with 50 starter reports,
+              such as Sales by day, Payments by tender, No-shows and cancellations, Ticket times by
+              station and Spend by supplier, and you can build your own. A report can be
               drawn as a chart above its table, opened up row by row down to the check, order or
               booking itself, downloaded and printed. A report
               always runs as the person looking at it, so it only ever shows what your role is allowed
@@ -2063,7 +2065,8 @@ export default function Help() {
             <P>
               The page lists <strong>Starred</strong> reports first, then <strong>Your reports</strong> and{' '}
               <strong>From your team</strong> (once there are any), then the <strong>Starter reports</strong>{' '}
-              an area at a time: Till sales, Online orders, Bookings. Type in <strong>Find a report</strong>{' '}
+              an area at a time: Till sales, Online orders, Bookings, Kitchen, Self-order kiosks, Loyalty,
+              Purchasing, Food safety and H&amp;S. Type in <strong>Find a report</strong>{' '}
               to search names and descriptions, or tap an area button to see just that area. The star on a
               report keeps it at the top for you only. A starter shown faded with <strong>Needs Online
               orders</strong> (or another area) is one your role can't run; an owner or admin can give
@@ -2106,7 +2109,9 @@ export default function Help() {
               sideways. An empty cell means nothing happened there at all; a 0 means something did but
               none of it counts for that figure (a time of day whose only booking was a no-show has 0
               guests). A report of the top 25 of something can end with a row for everything else. A
-              note under the bar tells you when a column was left out because your role can't see it.
+              note under the bar tells you when a column was left out because your role can't see it,
+              and a figure worked out from it goes with it: without Purchasing setup, Spend by
+              supplier shows each supplier's orders without the money or each one's share of it.
             </P>
             <H3>Charts</H3>
             <P>
@@ -2223,6 +2228,21 @@ export default function Help() {
               Guests leave out cancelled bookings and no-shows, as the Bookings page does. A deposit sits
               on the day it was paid. Times are shown at the venue's own time.
             </P>
+            <P>
+              Kitchen tickets are the Kitchen report's: a ticket is a bump that wasn't brought back,
+              timed from the order reaching the station, on time within the station's own target
+              minutes and late after its late minutes (8 and 12 unless set in Store tech). Kiosk visits
+              are Kiosk analytics' own: a visit ordered when it ended with an order, one that didn't
+              gave up on the screen it ended on, and what was left in baskets is what those orders
+              held. Loyalty points are each member's history added up, as the member's own page shows
+              it; a member erased for GDPR has their points taken to nothing without a line in their
+              history, so their history no longer adds up to their points. Supplier orders sit on the
+              day they are delivered, cancelled orders are left out of spend, and deliveries booked in
+              without an order count with the rest; prices and money need Purchasing setup, as on the
+              purchasing pages. A reading out of range with nothing written in its corrective action is
+              unresolved, the rule the Overview's H&amp;S tiles use, and a checklist sits on the first
+              day of its day, week or month.
+            </P>
             <H3>Downloading a file</H3>
             <P>
               <strong>CSV</strong> and <strong>Excel</strong> (top right, with Use or Manage on Reports)
@@ -2258,13 +2278,20 @@ export default function Help() {
                 ['Till sales', 'Sales by day; Sales by hour and weekday; Sales by dish; Sales by section; Sales by server; Sales by order type and revenue stream; Payments by tender; Discounts and comps, by whom and why; Voids, by whom and why; Cancelled orders, by whom and why; Charges added and taken off; Tips, by who took the payment; Average spend per check and per guest; VAT by rate; Trading days: cash counted against expected.'],
                 ['Online orders', 'Online orders and sales by day and channel; Top dishes online; Promotions used online; Online orders: time to accept and to get ready; Online refunds; GloriaFood beside your own ordering.'],
                 ['Bookings', 'Guests by day and time; Bookings by source; No-shows and cancellations; How far ahead people book; Party sizes; Deposits taken and refunded; New and returning guests.'],
+                ['Kitchen', 'Ticket times by station; Ticket times by hour; Remakes and why.'],
+                ['Self-order kiosks', 'Kiosk visits and orders by day; Where kiosk guests gave up.'],
+                ['Loyalty', 'Members joined by week; Points given and spent; Rewards used; Stamp cards: stamps and cards filled.'],
+                ['Purchasing', 'Spend by supplier; Spend by month; Spend by category; Delivery problems by supplier; Invoices above the price ordered; Price changes; Products out of stock.'],
+                ['Food safety and H&S', 'Fridge and freezer readings out of range; Hot and cold hold readings out of range; Cooking checks out of range; Delivery checks failed; Checklists done; Open H&S actions by age.'],
               ]}
             />
             <P>
               Starter reports come with Macaroonie and stay as they are; <strong>Customise</strong> on
               one makes a report of your own that starts the same way. Each needs access to its own
-              area as well as to Reports: Till reports for till sales, Online orders for online orders,
-              Bookings for bookings.
+              area as well as to Reports: Till reports for till sales, the kitchen and kiosk visits,
+              Online orders for online orders, Bookings for bookings, Loyalty members for loyalty,
+              Purchasing for supplier orders (and Purchasing setup for prices, price changes and what
+              is out of stock), and Food safety logs, Checklists or the H&amp;S Action Log for theirs.
             </P>
             <H3>Asking Pepper to build a report</H3>
             <P>
@@ -2284,9 +2311,10 @@ export default function Help() {
               it left out and why (a venue it couldn't find, something the reports don't hold yet).
               When a name could mean more than one thing (a venue or a dish written loosely), Pepper
               asks, and a tap on a choice changes the report straight away; answering a second
-              question keeps the first answer. When nothing the reports hold can show it (fridge
-              checks, stock), Pepper says so, and <strong>Ask in other words</strong> puts your words
-              back in the box.
+              question keeps the first answer. Ask about what is so now (H&amp;S actions still open,
+              the points members hold) and the report covers every day instead of a period. When
+              nothing the reports hold can show it (stock on the shelf, recipe costs), Pepper says so,
+              and <strong>Ask in other words</strong> puts your words back in the box.
             </P>
             <P>
               Then <strong>Save it</strong> (its name and what it is for are filled in for you),{' '}
@@ -2426,7 +2454,8 @@ export default function Help() {
               and a guest's customer record needs Customers access as well.
             </P>
             <InfoBox>
-              Still to come: asking Pepper about your figures in the chat, and later reports sent by
+              Still to come: rota pay and tips, cash reconciliation, menus, reviews and the other
+              areas; a report about two things at once (sales beside staff costs); and reports sent by
               email as PDFs on a schedule. The builder has no undo (leaving without
               saving goes back to the last save), and filters made of several parts, which a few
               starter reports use, can be taken off but not changed on screen. The Till reports page,

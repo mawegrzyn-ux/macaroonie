@@ -19,7 +19,8 @@
 //   --platform           run as a platform admin: every area at Manage,
 //                        counted towards the group but no person's share
 //   --only 3,7,12        these requests only (numbers as --list shows them)
-//   --area <area>        till | online | bookings | other
+//   --area <area>        till | online | bookings | kitchen | kiosks | loyalty |
+//                        purchasing | safety | other
 //   --no-changes         skip the follow-up changes ("only weekends")
 //   --out <file.json>    write every answer, with what it missed
 //   --list               print the requests (with the group's names filled

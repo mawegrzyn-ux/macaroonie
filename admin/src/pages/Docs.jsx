@@ -8237,7 +8237,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H2>Reports (report builder)</H2>
             <P>
               Migrations 243 and 244. The plan is <Mono>docs/REPORTS.md</Mono>; this section is what is built so far: its
-              groundwork, the engine with a viewer, the builder, drill-downs, charts and the print page (till sales, online orders and bookings). One engine
+              groundwork, the engine with a viewer, the builder, drill-downs, charts and the print page (till sales, online orders and bookings,
+              and since phase 3a the kitchen screens, self-order kiosk visits, loyalty, purchasing, and food safety, checklists and the
+              H&amp;S action log). One engine
               serves every way of making a report: a report is a JSON definition, checked by one shared function,
               looked up in a data catalogue kept in code, turned into SQL by the server and run as the person
               looking at it, inside their tenant, read only. Nobody writes SQL and no report holds any.
@@ -8315,9 +8317,20 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Till sales (pos_reports)', 'till.days (trading days), till.checks, till.lines (dishes sold), till.voids, till.cancelled, till.payments, till.discounts, till.charges, till.vat, and to group by: till.takers (staff and kiosks), till.streams, till.order_types, till.courses'],
                 ['Online orders (web_orders)', 'online.orders, online.items, online.promotions, online.sales (own orders and GloriaFood in one list, each with its tender: the rules of onlineTransactions())'],
                 ['Bookings (bookings)', 'bookings.bookings, bookings.deposits, bookings.tables, bookings.sections'],
+                ['Kitchen screens (pos_reports)', 'kitchen.stations, kitchen.tickets (every bump in kds_log), kitchen.remakes, kitchen.orders (the kitchen\'s copy of each order)'],
+                ['Self-order kiosks (pos_reports; designs pos_setup)', 'kiosks.visits (every guest visit, kiosk_sessions), kiosks.designs'],
+                ['Loyalty (loyalty_members; rewards and stamp cards loyalty)', 'loyalty.members, loyalty.ledger (every points or stamps change), loyalty.redemptions, loyalty.member_rewards, loyalty.rewards, loyalty.stamp_cards'],
+                ['Purchasing (purchasing; the catalogue purchasing_setup)', 'purchasing.orders (purchase orders), purchasing.order_lines, purchasing.invoices, purchasing.restaurant_orders, and purchasing.suppliers, purchasing.items, purchasing.categories, purchasing.prices, purchasing.price_changes. Money (prices, goods, spend, VAT, the average order, lines invoiced above their price) needs purchasing_setup on every subject'],
+                ['Food safety and H&S (food_safety, checklists, hs_action_log)', 'safety.fridges, safety.fridge_checks, safety.hold_stations, safety.hold_checks, safety.cooking_sessions, safety.cooking_items, safety.cooking_checks, safety.delivery_checks; safety.checklist_templates, safety.checklist_tasks, safety.checklists, safety.checklist_ticks; safety.action_categories, safety.actions'],
                 ['Shared', 'venue (no module), menu.menus / menu.sections / menu.dishes (menus), guests.customers (customers)'],
               ]}
             />
+            <P>
+              61 subjects. A field, figure or link can name a module of its own (<Mono>needs</Mono>): a role without
+              it doesn&apos;t see it, and <Mono>CATALOGUE_MODULES</Mono> (every module a subject, field, figure or
+              link asks for) is what the routes read a person&apos;s levels for. The start-up check refuses a{' '}
+              <Mono>needs</Mono> that isn&apos;t a module, on figures too.
+            </P>
             <P>
               Every table in the database has a decision (<Mono>decisions.js</Mono>): read by a subject, planned for
               a later phase (things that happen, or things to group by), settings, or left out with a reason.{' '}
@@ -8349,6 +8362,20 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               figures), <Mono>reports-online.test.mjs</Mono> (<Mono>/api/orders/transactions</Mono> and{' '}
               <Mono>/api/orders/report</Mono>) and <Mono>reports-bookings.test.mjs</Mono> (<Mono>/api/bookings</Mono>).
             </P>
+            <P>
+              Phase 3a&apos;s areas copy their pages&apos; own rules (<Mono>api/test/reports-areas.test.mjs</Mono> holds
+              each against them). Kitchen: the Kitchen report&apos;s, a ticket is a bump that wasn&apos;t brought back
+              (<Mono>recalled_at</Mono>), its time from reaching the station to the bump, on time within the
+              station&apos;s <Mono>target_mins</Mono> and late over its <Mono>late_mins</Mono> (8 and 12 unless set).
+              Kiosks: Kiosk analytics&apos; (<Mono>aggregateJourneys()</Mono> in <Mono>shared/kioskJourney.js</Mono>):
+              ordered by the visit&apos;s outcome, sales the totals of visits that ordered, left in baskets the order
+              value of the ones that didn&apos;t, bounced when a visit ended without opening a dish. Loyalty: a
+              member&apos;s points are what their ledger adds up to, as the member page shows them (an erased
+              member&apos;s points are zeroed without a ledger row). Purchasing: a purchase order is on its delivery
+              day; cancelled orders count for nothing in spend. Food safety: a reading is unresolved when it is out of
+              range with no corrective action written (any words, as <Mono>computeHsStatus()</Mono> reads it); a
+              checklist sits on the first day of its period (<Mono>periodStartFor()</Mono>).
+            </P>
 
             <H3>The engine</H3>
             <P>
@@ -8363,7 +8390,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               subquery first (a total, a count, a smallest or a largest only: <Mono>ACROSS_AGGS</Mono>). A
               condition takes a statement parameter only on the path that uses it, since Postgres refuses a
               statement with a parameter nothing reads. A list column the role can&apos;t see is left out with a note; grouping, filtering or
-              sorting by one is refused (403). <Mono>run.js</Mono>: <Mono>runReport(ctx, spec, params, opts)</Mono>{' '}
+              sorting by one is refused (403). A value the role can&apos;t see is left out with a note, and so is a
+              calculation that reads one, however many calculations away (a share of hidden spend would give it
+              away: &quot;Share of spend is left out: your role can&apos;t see what it is worked out from&quot;); a
+              summary sorted by a hidden value keeps its rows in the order of its groupings, and one with no figure
+              left is refused (403). <Mono>run.js</Mono>: <Mono>runReport(ctx, spec, params, opts)</Mono>{' '}
               runs the plan through <Mono>withReport()</Mono> (<Mono>config/db.js</Mono>: the report builder&apos;s own
               pool <Mono>reportSql</Mono>, <Mono>REPORT_POOL_SIZE</Mono> 4, a REPEATABLE READ READ ONLY transaction
               as the tenant with a statement timeout) and <Mono>shape.js</Mono> puts the rows in order (subtotals,
@@ -8453,12 +8484,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
 
             <H3>Starter reports</H3>
             <P>
-              <Mono>api/src/reports/starters/</Mono>: 28 definitions in code (<Mono>till.js</Mono> 15,{' '}
-              <Mono>online.js</Mono> 6, <Mono>bookings.js</Mono> 7), each made with <Mono>starter()</Mono>{' '}
+              <Mono>api/src/reports/starters/</Mono>: 50 definitions in code (<Mono>till.js</Mono> 15,{' '}
+              <Mono>online.js</Mono> 6, <Mono>bookings.js</Mono> 7, <Mono>purchasing.js</Mono> 7,{' '}
+              <Mono>safety.js</Mono> 6, <Mono>loyalty.js</Mono> 4, <Mono>kitchen.js</Mono> 3,{' '}
+              <Mono>kiosks.js</Mono> 2), each made with <Mono>starter()</Mono>{' '}
               (<Mono>define.js</Mono>: adds the <Mono>period</Mono> and <Mono>venues</Mono> parameters and their
               filters) and checked when the API starts: one that <Mono>normaliseReport()</Mono> would change, or
               that has a problem, stops the start. They are never rows in <Mono>reports</Mono>; a copy is. A starter
               on an area the role can&apos;t see is still listed, with <Mono>runs: false</Mono> and what it needs.
+              Whether a starter runs is decided by its subject&apos;s module only, so every starter must run for a
+              role with just that module: a figure needing another one drops out with a note (Spend by supplier for
+              a role without Purchasing setup shows how many orders). <Mono>reports-areas.test.mjs</Mono> runs every
+              starter, its rows and each of its breakdowns that way.
             </P>
 
             <H3>The builder</H3>
@@ -8912,8 +8949,12 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
               <Mono>base</Mono>) by BM25 over their words (the names of the subject and its figures, fields and
               links, and what its fields are about; not what its figures are about, words most till subjects
               share, which pushed the subject a request is about out of the few listed in full;{' '}
-              <Mono>stem()</Mono> and a few <Mono>SYNONYMS</Mono>), and <Mono>buildSlice()</Mono> lists the best
-              few in full (3 to 8,
+              <Mono>stem()</Mono> and a few <Mono>SYNONYMS</Mono>). Words that say when, compare or count
+              (week, monthly, last year, versus, how many) are left out (<Mono>STOP</Mono>): any report can do
+              those, and their echoes in labels (Week, Day) pulled the wrong subjects in. Another word for one
+              typed counts for less than the word itself (<Mono>SYNONYM_WEIGHT</Mono> 0.7), never for more because
+              it is rarer; ties go by the catalogue&apos;s order of areas (sales first), then to the subject with
+              more figures. <Mono>buildSlice()</Mono> lists the best few in full (3 to 8,
               about 7,000 tokens) and every other one in a line. A subject is an S ref and each figure, field and
               link of a listed subject an F ref: the model never sees a table or column name and never writes
               one. (2) One structured call through <Mono>askForJson()</Mono> on the main model with adaptive
@@ -8959,7 +9000,7 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
             </P>
             <P>
               Checking it against the live model, by hand before a release (every request is a paid call):{' '}
-              <Mono>api/scripts/report-requests.js</Mono> (63 requests the way people type them, each with what a
+              <Mono>api/scripts/report-requests.js</Mono> (78 requests the way people type them, in every area the catalogue has, each with what a
               right answer must contain, a few with a change asked afterwards; <Mono>checkAnswer()</Mono>,{' '}
               <Mono>listProblems()</Mono>) and <Mono>api/scripts/report-smart-check.js</Mono> (<Mono>--tenant</Mono>,{' '}
               <Mono>--email</Mono>, <Mono>--platform</Mono>, <Mono>--only</Mono>, <Mono>--area</Mono>,{' '}
@@ -8985,7 +9026,12 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
               catalogue&apos;s own paths (<Mono>till.lines</Mono>, <Mono>net_sales</Mono>,{' '}
               <Mono>check.server.name</Mono>) where the answer has refs:{' '}
               <Mono>{'{ subject, list?, by, across, figures, filters, period, venues, sort, top, compare, chart, totals, name }'}</Mono>{' '}
-              (<Mono>PLAN</Mono>, a Zod schema that is also the tools&apos; input). A figure is named by its place
+              (<Mono>PLAN</Mono>, a Zod schema that is also the tools&apos; input). A period is relative, from
+              and to, or <Mono>{'{ any: true }'}</Mono>: every day, no period, for what is so now whatever the
+              day a row is dated (actions still open, the points members hold); left out it is last week, and a
+              period named wins over <Mono>any</Mono>. The smart builder&apos;s answer has the same{' '}
+              <Mono>period.any</Mono>, and <Mono>answerOf()</Mono> says it of a dated report with no period on
+              its day. A figure is named by its place
               (v1, v2, in the order of <Mono>figures</Mono>) in calculations, sorting, a top N and a chart;{' '}
               <Mono>count: true</Mono> is how many rows there are. <Mono>planAnswer()</Mono> makes the answer{' '}
               <Mono>toSpec()</Mono> takes with <Mono>pathSlice()</Mono> (a slice whose refs are paths), so a plan
