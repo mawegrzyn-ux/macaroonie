@@ -6,6 +6,23 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-14 — Today: cash-ups and wages to pay]
+
+No migration.
+
+**Added**
+- **Cash-ups on Today**: today's cash-up, due when the venue closes (the latest doors close, else last orders, on the day's booking schedule); yesterday's when it isn't submitted; and earlier days of the last week not submitted, once the venue uses Cash Recon (a cash-up started or submitted on any day of this week or last). Closed days need none. **Do the cash-up** (or **Carry on**) opens the day right on the page, the same as the Cash Recon day: it saves as you go, and Submit is at the foot of the window (Unsubmit for an owner or admin). The task goes once the day is submitted.
+- **Wages to pay on Today**: when last week's cash wages aren't all paid (what is due in cash, the total less what goes by bank, is more than what is marked paid), one task with the cash left and how many people. **Pay wages** opens the week's wages list on the page: mark what is paid, or Pay everyone in full, then Save.
+- Closing the wages list with changes not saved asks first: Keep editing, Close without saving or Save and close.
+- On the phone, Today does the same; Open the full page goes to the phone's Cash Up and Wages pages, and their tiles on the phone show how many are waiting.
+
+**Fixed**
+- Submit on a cash-up (the phone's Cash Up page) showed while the day was still loading, and Submit saves the form first, so a quick tap could save an empty day over its figures. Submit now waits until the day has loaded.
+
+**Notes**
+- Doing a cash-up or paying wages needs Manage on Cash reconciliation; with View the forms are read only.
+- Tried in Chromium at 1280, 1015 and 390 px with a mouse, not yet on a real tablet or phone.
+
 ## [2026-11-14 — Till on phones: swipe left asks first, leaving with items not sent, take one off]
 
 No migration.

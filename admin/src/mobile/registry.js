@@ -56,6 +56,7 @@ export const MOBILE_MODULES = [
     description: 'Staff wages for the week - what\'s owed and what\'s been paid',
     icon: Users,
     path: '/mobile/wages',
+    areas: ['wages'],
   },
   {
     key: 'orders',

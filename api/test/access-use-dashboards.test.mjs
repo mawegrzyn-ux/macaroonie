@@ -115,7 +115,7 @@ test('Use ticks checklists, logs and corrects checks and adds actions; the setup
   const kinds = feed.tasks.map(t => t.kind)
   for (const k of ['fridge_check', 'checklist', 'hs_action']) assert.ok(kinds.includes(k), k + ' in the feed: ' + kinds.join(', '))
   assert.ok(feed.tasks.every(t => t.can_act === true), 'every task the supervisor sees can be done: ' + JSON.stringify(feed.tasks.map(t => [t.kind, t.can_act])))
-  assert.deepEqual(feed.not_included, ['cash', 'online_orders', 'purchasing'], 'areas without access left out')
+  assert.deepEqual(feed.not_included, ['cash', 'online_orders', 'purchasing', 'wages'], 'areas without access left out')
   const vfeed = await ok(viewer.get(`/api/ops/today?venue_id=${V}&date=${date}&time=08:30`))
   const vtasks = vfeed.tasks.filter(t => ['fridge_check', 'checklist', 'hs_action'].includes(t.kind))
   assert.ok(vtasks.length >= 3 && vtasks.every(t => t.can_act === false), 'View sees them, can\'t do them')

@@ -20,7 +20,7 @@
 import { withTenant } from '../config/db.js'
 import { permissionAtLeast, workLevel } from '../config/modules.js'
 import { callApi, ToolError } from '../ai/context.js'
-import { localParts, longDate, shortDate } from '../ai/tools/util.js'
+import { localParts, longDate, shortDate, mondayOf, money } from '../ai/tools/util.js'
 import { staffTools } from '../ai/tools/staff.js'
 import { rotaTools } from '../ai/tools/rota.js'
 import { openDatesOrNull } from './openDays.js'
@@ -35,6 +35,9 @@ const BIG_PARTY = 8
 // most this many headlines (the rest are counted, and on the Local info page).
 const WEEK_DAYS = 7
 const HEADLINES = 5
+// Cash-ups: the day's own and the days before it that aren't submitted, this
+// many days back (earlier days only once the venue uses Cash Recon these weeks).
+const CASH_DAYS_BACK = 7
 
 const hhmm = t => (t ? String(t).slice(0, 5) : null)
 const mins = t => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m }
@@ -74,7 +77,25 @@ const AREAS = {
   hs_actions: 'hs_action_log',
   purchasing: 'purchasing',
   cash: 'cash_recon',
+  wages: 'cash_recon',
   online_orders: 'web_orders',
+}
+
+/**
+ * When a venue closes on a day, from the booking schedule's sittings
+ * (doors close, else last orders): the latest of them. A sitting closing
+ * after midnight counts as 23:59. Null when the day has no sittings.
+ */
+export function closingTime(sittings) {
+  let last = null
+  for (const x of sittings || []) {
+    let close = hhmm(x.doors_close_time) || hhmm(x.closes_at)
+    if (!close) continue
+    const opens = hhmm(x.opens_at)
+    if (opens && close < opens) close = '23:59'
+    if (!last || close > last) last = close
+  }
+  return last
 }
 
 /** Units (fridges or hold stations) against their check times. */
@@ -224,18 +245,70 @@ const SOURCES = {
     return tasks
   },
 
+  // The cash-ups to do (R2: gone once submitted): the day's own, due when
+  // the venue closes; yesterday's; and earlier days of the last week that
+  // were never submitted, once the venue uses Cash Recon (a cash-up on any
+  // day of these two weeks). Closed days need none. Each opens in place.
   async cash(ctx, v, s) {
+    const days = Array.from({ length: CASH_DAYS_BACK + 1 }, (_, i) => addDays(s.date, i - CASH_DAYS_BACK))
+    const open = await withTenant(ctx.tenantId, tx => openDatesOrNull(tx, ctx.tenantId, v.id, days))
+    const isOpen = d => !open || open.includes(d)
+    const monday = mondayOf(s.date)
+    const weeks = await Promise.all([addDays(monday, -7), monday].map(w =>
+      callApi(ctx, 'GET', `/api/venues/${v.id}/cash-recon/week/${w}`)))
+    const status = new Map(weeks.flatMap(w => w.days || []).map(x => [x.date, x.status]))
+    const inUse = [...status.values()].some(Boolean)
     const yesterday = addDays(s.date, -1)
-    const open = await withTenant(ctx.tenantId, tx => openDatesOrNull(tx, ctx.tenantId, v.id, [yesterday]))
-    if (open && !open.includes(yesterday)) return []
-    const report = await callApi(ctx, 'GET', `/api/venues/${v.id}/cash-recon/daily/${yesterday}`)
-    if (report?.status === 'submitted') return []
+    const tasks = []
+    for (const day of days) {
+      if (!isOpen(day) || status.get(day) === 'submitted') continue
+      // A day before the feed's is missed only once it has passed (a feed
+      // for tomorrow doesn't count today as missed).
+      if (day !== s.date && day >= s.today) continue
+      if (day < yesterday && !inUse) continue
+      const started = !!status.get(day)
+      const action = { form: 'cash_up', label: started ? 'Carry on' : 'Do the cash-up', ref: { date: day } }
+      if (day === s.date) {
+        const sittings = await callApi(ctx, 'GET', `/api/venues/${v.id}/schedule/sittings-for-date?date=${day}`)
+          .then(r => r.sittings).catch(() => [])
+        const due = closingTime(sittings)
+        const past = s.date < s.today
+        tasks.push({
+          key: 'cash_up:' + day, area: 'cash', kind: 'cash_up', compliance: false,
+          title: s.date === s.today ? 'Today\'s cash-up' : 'Cash-up for ' + weekday(day),
+          detail: started ? 'Started, not submitted' : 'Not started',
+          due, group: past ? 'late' : due ? groupFor(due, s.now) : 'later',
+          action,
+        })
+      } else {
+        tasks.push({
+          key: 'cash_up:' + day, area: 'cash', kind: 'cash_up', compliance: false,
+          title: 'Cash-up for ' + (day === yesterday ? weekday(day) : shortDate(day)) + ' not submitted',
+          detail: started ? 'Started, not submitted' : 'Not started',
+          due: null, group: 'late',
+          action,
+        })
+      }
+    }
+    return tasks
+  },
+
+  // Last week's cash wages not all paid: cash due (total less bank) above
+  // what was paid. They are paid in their own week, so by now they are late.
+  async wages(ctx, v, s) {
+    const week = addDays(mondayOf(s.date), -7)
+    const report = await callApi(ctx, 'GET', `/api/venues/${v.id}/cash-recon/wages/${week}`)
+    const unpaid = (report?.entries || []).map(e => Math.max(0,
+      Math.round((num(e.total) || 0) * 100) - Math.round((num(e.bank_amount) || 0) * 100) - Math.round((num(e.cash_amount) || 0) * 100)))
+    const owed = unpaid.filter(p => p > 0)
+    if (!owed.length) return []
+    const total = owed.reduce((a, b) => a + b, 0) / 100
     return [{
-      key: 'cash_up:' + yesterday, area: 'cash', kind: 'cash_up', compliance: false,
-      title: 'Cash-up for ' + weekday(yesterday) + ' not submitted',
-      detail: report ? 'Started, not submitted' : 'Not started',
+      key: 'wages:' + week, area: 'wages', kind: 'wages_to_pay', compliance: false,
+      title: 'Wages to pay for the week of ' + shortDate(week),
+      detail: (money(total) || '£' + total.toFixed(2)) + ' cash still to pay · ' + plural(owed.length, 'person', 'people'),
       due: null, group: 'late',
-      action: { path: '/cash-recon', label: 'Do the cash-up' },
+      action: { form: 'wages', label: 'Pay wages', ref: { week } },
     }]
   },
 
@@ -300,7 +373,7 @@ export async function opsToday(ctx, venue, { date, time, levels }) {
   const [closed] = await Promise.all([
     callApi(ctx, 'GET', `/api/hs-settings?venue_id=${venue.id}&date=${day}`).then(r => !!r.closed).catch(() => false),
   ])
-  const s = { date: day, now: at, closed, levels }
+  const s = { date: day, now: at, today: now.date, closed, levels }
 
   const tasks = []
   const notIncluded = []

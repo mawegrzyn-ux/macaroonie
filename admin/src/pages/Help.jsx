@@ -248,7 +248,9 @@ export default function Help() {
                 ['Send the order to...', 'A supplier order is waiting to be sent (Late once the supplier\'s cutoff for its delivery day has passed)'],
                 ['Book in the delivery from...', 'A supplier order sent earlier is due to arrive today, or its day has gone and it was never booked in (Late)'],
                 ['Supplier orders waiting for approval', 'Someone asked for an order and you can approve orders'],
-                ['Cash-up not submitted', "Yesterday's cash-up isn't submitted (and the venue was open)"],
+                ['Today\'s cash-up', 'The venue is open today; due when it closes (the latest doors close, else last orders, on the booking schedule). It goes once the day is submitted'],
+                ['Cash-up for ... not submitted', 'Yesterday\'s cash-up isn\'t submitted (and the venue was open). Earlier days of the last week too, once the venue uses Cash Recon: a cash-up started or submitted on any day of this week or last'],
+                ['Wages to pay for the week of ...', 'Last week\'s cash wages aren\'t all paid: what is due in cash (each total less what goes by bank) is more than what has been marked paid'],
                 ['Online orders waiting', 'Online orders are waiting to be accepted'],
               ]}
             />
@@ -261,7 +263,7 @@ export default function Help() {
             <DataTable
               head={['Group', 'Means']}
               rows={[
-                ['Late', 'More than 30 minutes past its time, or overdue by nature (a reading needing an action, yesterday\'s cash-up)'],
+                ['Late', 'More than 30 minutes past its time, or overdue by nature (a reading needing an action, an earlier day\'s cash-up, last week\'s wages)'],
                 ['Now', 'Due within 30 minutes either side, or due some time today with no set time'],
                 ['Next', 'Due in the next two hours'],
                 ['Later', 'Later today, or due this week or month'],
@@ -269,11 +271,35 @@ export default function Help() {
             />
             <H3>Doing a task from the page</H3>
             <P>
-              Each task has one button. Fridge, hold and cooking checks and checklists open right on the page,
-              the same forms as the Food safety and Checklists pages: type the readings or tick the tasks, then
-              tap <strong>Done</strong>. <strong>Open the full page</strong> takes you to the page itself. Other
-              tasks (a supplier order, the cash-up, online orders) open their page. If your role can only view an
-              area, the button says <strong>View</strong> and the form is read only.
+              Each task has one button. Fridge, hold and cooking checks, checklists, cash-ups and wages open
+              right on the page, the same forms as the Food safety, Checklists and Cash Recon pages: type the
+              readings, tick the tasks or fill the day in, then tap <strong>Done</strong>. <strong>Open the full
+              page</strong> takes you to the page itself. Other tasks (a supplier order, online orders) open their
+              page. If your role can only view an area, the button says <strong>View</strong> and the form is read
+              only.
+            </P>
+            <H3>Cash-ups and wages on the Today page</H3>
+            <P>
+              <strong>Do the cash-up</strong> (or <strong>Carry on</strong> for a day already started) opens the
+              day&apos;s declaration: income, service charges and tips, takings, expenses, the wages paid that day
+              and the notes, as on the Cash Recon day page. It saves as you go, and the foot of the window says
+              whether it is saved. When the day is right, tap <strong>Submit</strong>: the task goes. An owner or
+              admin sees <strong>Unsubmit</strong> instead once it is submitted. Submit only appears once the
+              day&apos;s figures have loaded, so a quick tap can&apos;t save an empty day over them.
+            </P>
+            <P>
+              <strong>Pay wages</strong> opens last week&apos;s wages list (who, the total, what was paid in cash and
+              on which day, the notes), the same list as the Wages page. Mark what you hand over, or tap
+              <strong> Pay everyone in full</strong>, then <strong>Save</strong>. The list saves only on Save: if you
+              close it with changes not saved, it asks first (<strong>Keep editing</strong>,
+              <strong> Close without saving</strong> or <strong>Save and close</strong>). The task goes once every
+              cash wage is paid.
+            </P>
+            <P>
+              On the phone, Today does the same, and <strong>Open the full page</strong> goes to the phone&apos;s
+              Cash Up and Wages pages. The Cash Up and Wages tiles on the phone show how many of these are waiting.
+              Doing a cash-up or paying wages needs Manage on Cash reconciliation; with View you can look but not
+              change anything.
             </P>
             <H3>Go to</H3>
             <P>

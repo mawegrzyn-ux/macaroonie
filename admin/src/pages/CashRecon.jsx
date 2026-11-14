@@ -1376,6 +1376,11 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
 
   const currentStatus = daily?.status ?? 'none'
   const isSubmitted = currentStatus === 'submitted'
+  // Submitting saves the form first, so it waits until the day has loaded: a
+  // Submit before then would save an empty day over the real figures. (The
+  // form is filled from the day in an effect above, which runs before the one
+  // that tells the host, so Submit never shows ahead of the figures.)
+  const ready = config !== undefined && daily !== undefined
 
   // hideHeader hosts (e.g. MobileCashUp) render their own header combining
   // this state with their own back/logout affordances — same "hideHeader +
@@ -1383,15 +1388,16 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
   useEffect(() => {
     onStateChange?.({
       status: currentStatus,
+      ready,
       saving, saved, saveErr,
       isSubmitted,
-      canSubmit: canManage,
+      canSubmit: canManage && ready,
       canUnsubmit,
       submitPending: submitMutation.isPending,
       submit:   () => submitMutation.mutate('submit'),
       unsubmit: () => submitMutation.mutate('unsubmit'),
     })
-  }, [currentStatus, saving, saved, saveErr, isSubmitted, canManage, canUnsubmit, submitMutation.isPending, onStateChange])
+  }, [currentStatus, ready, saving, saved, saveErr, isSubmitted, canManage, canUnsubmit, submitMutation.isPending, onStateChange])
 
   if (configLoading || dailyLoading) {
     return (

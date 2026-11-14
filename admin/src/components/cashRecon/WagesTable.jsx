@@ -143,11 +143,14 @@ function useWidth() {
  *                            unless their option is on)
  * @param readOnly            Cash reconciliation = View: every field disabled,
  *                            no list changes, pay-all or Save
+ * @param onStateChange       told { dirty, saving, save } whenever changes wait
+ *                            to be saved (save() resolves true once saved), so a
+ *                            host that can close the editor can ask first
  */
 export function WeekWagesEditor({
   venueId, weekStart, defaultPaidDay, showWeekNotes = false, layout = 'auto',
   hideManage = false, hideBulk = false, paidOnly = false, showBank = true, hidePaidOnForAll = false,
-  readOnly = false,
+  readOnly = false, onStateChange,
 }) {
   if (readOnly) { hideManage = true; hideBulk = true }
   const api = useApi()
@@ -252,6 +255,11 @@ export function WeekWagesEditor({
     onSuccess: () => { setDraft(null); setNotesDraft(null); setNotice({ tone: 'ok', text: 'Saved' }); invalidateWeek() },
     onError: err => setNotice({ tone: 'error', text: err?.message || 'Save failed' }),
   })
+
+  const saveNow = save.mutateAsync
+  useEffect(() => {
+    onStateChange?.({ dirty, saving: save.isPending, save: () => saveNow().then(() => true, () => false) })
+  }, [dirty, save.isPending, saveNow, onStateChange])
 
   // The default list stores who's on it and each person's pay type from
   // their staff record (types aren't edited here).

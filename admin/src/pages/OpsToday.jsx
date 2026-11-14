@@ -20,7 +20,7 @@ import {
   Users, Plus, Sparkles, Loader2, Info, CloudSun, Cloud, CloudFog, CloudDrizzle, CloudRain, CloudSnow,
   CloudLightning,
 } from 'lucide-react'
-import { format } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { usePepperPage } from '@/lib/pepperPage'
@@ -28,6 +28,9 @@ import ChatView, { useAiStatus } from '@/components/ai/ChatView'
 import { useRememberedConversation } from '@/components/ai/AssistantDrawer'
 import { TempChecksTable, HoldChecksTable, CookingChecksPanel } from '@/components/foodSafety/shared'
 import { ChecklistRunPanel } from '@/components/checklists/shared'
+import { DayView, StatusBadge, SaveIndicator } from '@/pages/CashRecon'
+import { WeekWagesEditor } from '@/components/cashRecon/WagesTable'
+import { usePermission } from '@/hooks/usePermission'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 import { addDays } from '@shared/localInfo.js'
 import { KIND_ICONS, SEV_CHIP } from '@/components/localInfo/shared'
@@ -44,7 +47,7 @@ const GROUPS = [
 const KIND_ICON = {
   fridge_check: Thermometer, hold_check: Thermometer, cooking_check: Flame, corrective_action: AlertTriangle,
   checklist: ListChecks, hs_action: ClipboardList, po_to_send: Send, delivery_due: Truck, delivery_not_booked: Truck,
-  orders_to_approve: ClipboardList, cash_up: Wallet, online_orders: ShoppingBag,
+  orders_to_approve: ClipboardList, cash_up: Wallet, wages_to_pay: Users, online_orders: ShoppingBag,
 }
 
 // The full page behind each form (F8).
@@ -53,17 +56,19 @@ const FORMS = {
   holds:     { title: 'Hot and cold hold checks',  path: '/food-safety' },
   cooking:   { title: 'Cooking checks',            path: '/food-safety' },
   checklist: { title: 'Checklist',                 path: '/checklists' },
+  cash_up:   { title: 'Cash-up',                   path: '/cash-recon' },
+  wages:     { title: 'Wages',                     path: '/cash-recon', phone: '/mobile/wages' },
 }
 
 // Which menu pages an area's tasks belong to: tiles with something to do go first.
 const AREA_ROUTES = {
   food_safety: ['/food-safety', '/hs-dashboard'], checklists: ['/checklists'], hs_actions: ['/hs-action-log'],
-  purchasing: ['/purchasing'], cash: ['/cash-recon'], online_orders: ['/orders'],
+  purchasing: ['/purchasing'], cash: ['/cash-recon'], wages: ['/cash-recon'], online_orders: ['/orders'],
 }
 
 const AREA_NAMES = {
   food_safety: 'food safety', checklists: 'checklists', hs_actions: 'the H&S action log',
-  purchasing: 'purchasing', cash: 'cash reconciliation', online_orders: 'online orders',
+  purchasing: 'purchasing', cash: 'cash reconciliation', wages: 'wages', online_orders: 'online orders',
 }
 
 export function readVenue() { try { return localStorage.getItem(VENUE_KEY) || '' } catch { return '' } }
@@ -385,21 +390,47 @@ function TaskRow({ t, onForm, linkFor }) {
   )
 }
 
+/** The sheet's title: the task's own for a checklist, the day or week for Cash Recon. */
+function formTitle(form, meta) {
+  if (form.form === 'checklist') return form.task.title
+  if (form.form === 'cash_up') return 'Cash-up for ' + format(parseISO(form.ref.date), 'EEEE d MMMM')
+  if (form.form === 'wages') return 'Wages for the week of ' + format(parseISO(form.ref.week), 'd MMMM')
+  return meta.title
+}
+
 /** F1-F9: the form for a task, the same panel its page uses, saving through the same routes. */
 export function FormSheet({ form, venueId, date, onClose, linkFor }) {
+  const qc = useQueryClient()
+  const { canManage: cashManage } = usePermission('cash_recon')
   const meta = FORMS[form.form] || { title: form.task.title, path: '/' }
-  const title = form.form === 'checklist' ? form.task.title : meta.title
+  const title = formTitle(form, meta)
+  // The full page: on the phone a form may have a phone page of its own.
+  const page = linkFor && meta.phone ? { to: meta.phone, linkFor: null } : { to: meta.path, linkFor }
+  // A cash-up's state from DayView (status, saving, Submit): shown in the foot.
+  const [day, setDay] = useState(null)
+  const submitted = !!day?.isSubmitted
+  useEffect(() => { if (submitted) qc.invalidateQueries({ queryKey: ['ops-today'] }) }, [submitted, qc])
+  const cashUp = form.form === 'cash_up' && day?.ready
+  // The wages editor saves only on Save: closing with changes waiting asks
+  // first, so Done never throws a payment away without a word.
+  const [wages, setWages] = useState(null)
+  const unsaved = form.form === 'wages' && !!wages?.dirty
+  const [asking, setAsking] = useState(false)
+  useEffect(() => { if (!unsaved) setAsking(false) }, [unsaved])
+  const close = () => (unsaved ? setAsking(true) : onClose())
+  const saveAndClose = async () => { if (await wages.save()) onClose() }
+  const footBtn = 'min-h-[48px] px-5 rounded-md font-medium touch-manipulation disabled:opacity-50'
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose} data-testid="today-form">
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center sm:p-4" onClick={close} data-testid="today-form" data-form={form.form}>
       <div className="bg-background w-full sm:max-w-4xl max-h-[85vh] overflow-y-auto rounded-t-xl sm:rounded-xl shadow-xl"
         onClick={e => e.stopPropagation()} role="dialog" aria-label={title}>
         <div className="sticky top-0 z-10 bg-background border-b px-4 h-14 flex items-center gap-2">
-          <h2 className="font-semibold truncate">{title}</h2>
-          <Go to={meta.path} linkFor={linkFor} className="ml-auto shrink-0 inline-flex items-center gap-1 text-sm text-primary min-h-[44px] px-2 touch-manipulation" data-testid="today-form-page">
+          <h2 className="font-semibold truncate" data-testid="today-form-title">{title}</h2>
+          <Go to={page.to} linkFor={page.linkFor} className="ml-auto shrink-0 inline-flex items-center gap-1 text-sm text-primary min-h-[48px] px-2 touch-manipulation" data-testid="today-form-page">
             Open the full page <ExternalLink className="w-3.5 h-3.5" />
           </Go>
-          <button type="button" onClick={onClose} aria-label="Close" data-testid="today-form-close"
-            className="w-11 h-11 rounded-md flex items-center justify-center hover:bg-accent touch-manipulation">
+          <button type="button" onClick={close} aria-label="Close" data-testid="today-form-close"
+            className="w-12 h-12 rounded-md flex items-center justify-center hover:bg-accent touch-manipulation">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -408,10 +439,49 @@ export function FormSheet({ form, venueId, date, onClose, linkFor }) {
           {form.form === 'holds' && <HoldChecksTable venueId={venueId} date={date} />}
           {form.form === 'cooking' && <CookingChecksPanel venueId={venueId} date={date} />}
           {form.form === 'checklist' && <ChecklistRunPanel template={form.ref.template} date={date} />}
+          {form.form === 'cash_up' && <DayView venueId={venueId} date={form.ref.date} hideHeader onStateChange={setDay} />}
+          {form.form === 'wages' && (
+            <WeekWagesEditor venueId={venueId} weekStart={form.ref.week} readOnly={!cashManage}
+              showBank={!linkFor} hidePaidOnForAll={!!linkFor} onStateChange={setWages} />
+          )}
         </div>
-        <div className="sticky bottom-0 bg-background border-t px-4 py-3 flex justify-end">
-          <button type="button" onClick={onClose} data-testid="today-form-done"
-            className="min-h-[48px] px-6 rounded-md bg-primary text-primary-foreground font-medium touch-manipulation">Done</button>
+        <div className="sticky bottom-0 bg-background border-t px-4 py-3 flex flex-wrap items-center justify-end gap-2">
+          {asking ? (
+            <>
+              <p className="mr-auto text-sm font-medium" data-testid="today-unsaved">The changes to the wages aren't saved.</p>
+              <button type="button" onClick={() => setAsking(false)} data-testid="today-unsaved-stay"
+                className={cn(footBtn, 'border hover:bg-accent')}>Keep editing</button>
+              <button type="button" onClick={onClose} data-testid="today-unsaved-discard"
+                className={cn(footBtn, 'border text-destructive hover:bg-destructive/10')}>Close without saving</button>
+              <button type="button" onClick={saveAndClose} disabled={wages?.saving} data-testid="today-unsaved-save"
+                className={cn(footBtn, 'bg-primary text-primary-foreground')}>
+                {wages?.saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save and close'}
+              </button>
+            </>
+          ) : (
+            <>
+              {cashUp && (
+                <div className="mr-auto flex items-center gap-2 min-w-0" data-testid="today-cash-state" data-status={day.status}>
+                  <StatusBadge status={day.status} />
+                  <SaveIndicator saving={day.saving} saved={day.saved} error={day.saveErr} />
+                </div>
+              )}
+              {cashUp && !day.isSubmitted && day.canSubmit && (
+                <button type="button" onClick={day.submit} disabled={day.submitPending} data-testid="today-cash-submit"
+                  className={cn(footBtn, 'bg-green-600 text-white hover:bg-green-700')}>
+                  {day.submitPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Submit'}
+                </button>
+              )}
+              {cashUp && day.isSubmitted && day.canUnsubmit && (
+                <button type="button" onClick={day.unsubmit} disabled={day.submitPending} data-testid="today-cash-unsubmit"
+                  className={cn(footBtn, 'border hover:bg-accent')}>
+                  {day.submitPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Unsubmit'}
+                </button>
+              )}
+              <button type="button" onClick={close} data-testid="today-form-done"
+                className="min-h-[48px] px-6 rounded-md bg-primary text-primary-foreground font-medium touch-manipulation">Done</button>
+            </>
+          )}
         </div>
       </div>
     </div>

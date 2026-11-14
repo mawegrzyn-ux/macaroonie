@@ -8153,15 +8153,21 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['checklists (checklists)', 'checklist per template not completed (daily = now, weekly / monthly = later)', '/api/checklists/due'],
                 ['hs_actions (hs_action_log)', 'hs_action per open entry due today or overdue', '/api/hs-action-log/entries'],
                 ['purchasing (purchasing)', 'po_to_send (soonest first; late once deadlinePassed() for its day, listed first); delivery_due (sent, delivery today); delivery_not_booked (sent, delivery day before today: late); orders_to_approve (only with purchasing_approve manage)', '/api/purchasing/pos (order=asc for to_send), /api/purchasing/orders'],
-                ['cash (cash_recon)', "cash_up when yesterday's report isn't submitted and the venue was open (openDatesOrNull())", '/api/venues/:id/cash-recon/daily/:date'],
+                ['cash (cash_recon)', "cash_up per open day (openDatesOrNull()) of the last CASH_DAYS_BACK (7) and the feed's own day that isn't submitted: the day's own due at closingTime() of its sittings (now / next / later, late once the day has passed), yesterday late, earlier days late only once the venue uses Cash Recon (a report on any day of this week or last); days after the venue's today never", '/api/venues/:id/cash-recon/week/:monday (this week and last), /api/venues/:id/schedule/sittings-for-date'],
+                ['wages (cash_recon)', 'wages_to_pay when last week has cash still to pay: per entry max(0, total - bank_amount - cash_amount), one late task with the sum and how many people', '/api/venues/:id/cash-recon/wages/:monday'],
                 ['online_orders (web_orders)', 'online_orders when orders are placed but not accepted', '/api/orders'],
               ]}
             />
             <P>
               Every task: <Mono>{'{ key, area, kind, compliance, title, detail, due, group, action, can_act }'}</Mono>.{' '}
               <Mono>key</Mono> is stable (one card per thing to do, C6), <Mono>action</Mono> is{' '}
-              <Mono>{'{ form, label, ref }'}</Mono> (temps, holds, cooking, checklist) or{' '}
-              <Mono>{'{ path, label }'}</Mono>, and <Mono>can_act</Mono> is Manage on the task's module (U1).
+              <Mono>{'{ form, label, ref }'}</Mono> (temps, holds, cooking, checklist, cash_up with{' '}
+              <Mono>{'ref.date'}</Mono>, wages with <Mono>{'ref.week'}</Mono>) or <Mono>{'{ path, label }'}</Mono>, and{' '}
+              <Mono>can_act</Mono> is the module's work level (<Mono>workLevel()</Mono>: Use where the module offers it,
+              else Manage, so Manage for Cash Recon) (U1). <Mono>closingTime(sittings)</Mono> (exported) is the latest
+              of the day's sittings' doors close, else last orders; a sitting closing after midnight counts as 23:59.
+              The context <Mono>s</Mono> carries <Mono>today</Mono> (the venue's date now) beside the feed's{' '}
+              <Mono>date</Mono>, so a feed for another day never counts a day that hasn't passed as missed.
               <Mono> groupFor()</Mono> decides the group (<Mono>GRACE_MINS</Mono> 30, <Mono>NEXT_MINS</Mono> 120) and{' '}
               <Mono>sortTasks()</Mono> the order: group, compliance first, then time (S1). A closed day
               (<Mono>/api/hs-settings</Mono> <Mono>closed</Mono>) expects no check rounds (R4). There is no task store
@@ -8204,7 +8210,24 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               Forms open in a sheet on the page with the shared panels (<Mono>TempChecksTable</Mono>,{' '}
               <Mono>HoldChecksTable</Mono>, <Mono>CookingChecksPanel</Mono>, <Mono>ChecklistRunPanel</Mono>), so they save
-              through the same routes and keep their own read-only rules (F1, F3, F5); Done refetches the feed. The tiles
+              through the same routes and keep their own read-only rules (F1, F3, F5); Done refetches the feed. A cash-up
+              is <Mono>DayView</Mono> (<Mono>CashRecon.jsx</Mono>) with <Mono>hideHeader</Mono> and{' '}
+              <Mono>onStateChange</Mono>: the sheet's foot shows its status and save state and its Submit / Unsubmit,
+              only once DayView says <Mono>ready</Mono> (the day and Cash Recon setup loaded; DayView's{' '}
+              <Mono>canSubmit</Mono> includes it, since Submit saves the form first and a Submit before the load would save
+              an empty day over the real one: <Mono>MobileCashUp.jsx</Mono> had that gap). Submitting refetches the feed at
+              once. Wages are <Mono>WeekWagesEditor</Mono> (<Mono>readOnly</Mono> without Cash Recon Manage; on the phone
+              without the Bank column and Paid on for all) with <Mono>onStateChange</Mono>{' '}
+              <Mono>{'{ dirty, saving, save }'}</Mono>: Done, the X and the backdrop ask first while <Mono>dirty</Mono>{' '}
+              (<Mono>today-unsaved</Mono>: Keep editing, Close without saving, Save and close, which closes only when{' '}
+              <Mono>save()</Mono> resolves true). A <Mono>FORMS</Mono> entry's <Mono>phone</Mono> path is where Open the
+              full page goes on the phone (wages: <Mono>/mobile/wages</Mono>; the cash-up's <Mono>/cash-recon</Mono> goes
+              through <Mono>opsLink()</Mono> to <Mono>/mobile/cash-up</Mono>). The phone hub's Cash Up and Wages tiles
+              count the <Mono>cash</Mono> and <Mono>wages</Mono> tasks (<Mono>areas</Mono> in{' '}
+              <Mono>mobile/registry.js</Mono>). Test ids <Mono>today-form</Mono> (<Mono>data-form</Mono>),{' '}
+              <Mono>today-form-title</Mono>, <Mono>today-cash-state</Mono> (<Mono>data-status</Mono>),{' '}
+              <Mono>today-cash-submit</Mono>, <Mono>today-cash-unsubmit</Mono>, <Mono>today-unsaved</Mono>,{' '}
+              <Mono>today-unsaved-stay</Mono>, <Mono>today-unsaved-discard</Mono>, <Mono>today-unsaved-save</Mono>. The tiles
               are <Mono>/api/me</Mono>'s <Mono>nav_tree</Mono> links, pages with tasks first (<Mono>AREA_ROUTES</Mono>).
               Pepper is <Mono>ChatView</Mono> with <Mono>pageAware</Mono> (the page calls <Mono>usePepperPage()</Mono>
               with the venue and day) and a <Mono>suggestions</Mono> list for the day; the conversation is the drawer's
