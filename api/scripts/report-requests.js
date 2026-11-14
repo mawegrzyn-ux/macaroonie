@@ -244,6 +244,11 @@ export const REQUESTS = [
   { area: 'safety', request: 'Open H&S actions that are overdue',
     expect: { subject: 'safety.actions', period: 'any' },
     look: 'Every action still open, whatever day it was logged (no period).' },
+  { area: 'safety', request: 'Fridge checks missed by day last month',
+    expect: { subject: 'safety.days', values: [['fridge_missed_total', 'fridge_missed']], rows: ['date'], period: 'last_month' },
+    look: 'Each venue\'s H&S day as the Overview judges it: fridge checks due and not logged, day by day.' },
+  { area: 'safety', request: 'Which venues needed action on H&S most often this month',
+    expect: { subject: 'safety.days', values: [['days_action', 'days_fs_action']], rows: ['venue'], period: ['this_month', 'month_to_date'] } },
 
   // ── What the reports can't show (yet) ──
   { area: 'other', request: 'Gross profit margin by dish last month',
@@ -252,9 +257,6 @@ export const REQUESTS = [
   { area: 'other', request: 'Labour cost as a share of sales by week this quarter',
     expect: { couldnt: true },
     look: 'Rota pay and till sales are separate subjects until two can go in one report (phase 3c): rota pay by week with a line saying sales can\'t go beside it, or say so.' },
-  { area: 'other', request: 'Fridge checks missed by day last month',
-    expect: { noneOr: true },
-    look: 'Readings are in the reports, checks missed aren\'t yet: none, or readings with a line saying so.' },
   { area: 'other', request: 'How much chicken do we have in stock',
     expect: { noneOr: true } },
   { area: 'till', request: 'Net sales last week at Atlantis',
