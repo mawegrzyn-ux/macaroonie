@@ -325,6 +325,11 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
     ids.localInfoItem = found.id
     await step('local info flag', () => put('/api/local-info/items/' + found.id + '/feedback', { relevant: true }))
   }
+  // A bulk delete's dry run (14 Nov 2026: from today on, nothing written), so
+  // the sweep sends it again with another group's capture and venue.
+  if (liSource?.source) {
+    await step('local info bulk delete check', () => post('/api/local-info/items/delete', { source_id: liSource.source.id, venue_id: V, dry_run: true }))
+  }
   await step('promotion', () => post('/api/promotions', { name: mark + ' 10% off', kind: 'basket', discount_type: 'percent', discount_value: 10, apply_mode: 'auto' }))
   await step('issue', () => post('/api/issues', { title: mark + ' Printer jam', description: mark + ' jammed', category: 'incident', impact: 'low', urgency: 'low' }))
   await step('feature request', () => post('/api/feature-requests', { title: mark + ' Dark mode', description: mark + ' please' }))

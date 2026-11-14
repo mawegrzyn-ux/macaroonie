@@ -354,6 +354,21 @@ export default function Help() {
               when the capture runs again. <strong>Show hidden</strong> brings hidden items back into view so you
               can unhide them.
             </P>
+            <H3>Deleting entries in bulk</H3>
+            <P>
+              Each capture in <strong>Captures</strong> has <strong>Delete future entries</strong>. Pick the first day
+              (today at the earliest) and, if you like, a last day; leave it at <strong>No end</strong> for
+              everything from that day on. Before you delete it counts what that capture found in those days: the
+              entries that will be deleted, the ones people flagged as relevant or not (these are hidden instead, so
+              Pepper keeps learning from the flags), and the ones someone already hid (these stay hidden, so the
+              capture doesn't add them again). An entry counts by the day it starts. Tap <strong>Delete N
+              entries</strong>, then <strong>Yes, delete</strong>. Past days are never touched. The capture's next run
+              can find some of the same things again: turn the capture off first if you want them to stay gone.
+              You can also ask Pepper, for example "delete the traffic entries for Ware from next Monday" or
+              "clear everything mentioning the marathon": it can pick a venue (or only the events saved for every
+              venue), a capture, typed-in or captured entries, kinds, severities, words and days, and shows a card
+              with how many and the first few before anything is deleted.
+            </P>
             <H3>Relevant or not relevant</H3>
             <P>
               Everything a capture found (not the events you type in) has two buttons on its row: a thumbs up
@@ -396,7 +411,7 @@ export default function Help() {
             <P>
               Local info is its own module in Access. <strong>View</strong> sees the calendar, list and widget and
               can flag what the captures found as relevant or not; <strong>Manage</strong> adds events, hides items,
-              sets up captures and uses Learn now and Forget. Captured searches count
+              sets up captures, uses Learn now and Forget, and deletes entries in bulk. Captured searches count
               towards the group's monthly Pepper allowance (what Pepper reads and writes, plus 2,500 units for
               each web search it makes, up to five a run); the weather doesn't.
             </P>

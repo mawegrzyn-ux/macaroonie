@@ -8474,6 +8474,42 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>learned</Mono> (the summary), <Mono>learned_at</Mono> and <Mono>learn_problem</Mono>. Tests:{' '}
               <Mono>api/test/local-info-flags.test.mjs</Mono>.
             </P>
+            <H3>Deleting entries in bulk</H3>
+            <P>
+              <Mono>POST /api/local-info/items/delete</Mono> (Local info Manage) with{' '}
+              <Mono>{'{ from?, until?, venue_id?, group_wide?, source_id?, origin: any | typed | captured, kinds?, severities?, words?, dry_run }'}</Mono>.
+              Every criterion given must hold; an entry is in the days when it <em>starts</em> in them (an event
+              running since last week isn&apos;t). <Mono>from</Mono> defaults to today and can&apos;t be before it:{' '}
+              <Mono>earliestToday()</Mono> is the venue&apos;s own day (the capture&apos;s venue when only{' '}
+              <Mono>source_id</Mono> is given), else the earliest day at any of the group&apos;s venues, so a day that
+              is still today somewhere counts (422 with the day). <Mono>venue_id</Mono> touches only that venue&apos;s
+              own entries, <Mono>group_wide</Mono> only the whole group&apos;s, both together is a 422;{' '}
+              <Mono>words</Mono> (100 characters) is matched in the title, details and place with{' '}
+              <Mono>ILIKE</Mono>, <Mono>%</Mono> / <Mono>_</Mono> / backslash escaped. What happens to each entry is{' '}
+              <Mono>deleteAction()</Mono>: a typed-in event is deleted; a captured finding someone hid is kept (the
+              hidden row is what stops its capture adding it again: the capture&apos;s upsert never un-hides); a
+              captured finding people flagged, of its capture&apos;s own kind and not a forecast, is hidden instead
+              (its flags keep teaching the capture, <Mono>learnFromFlags()</Mono> reads hidden findings too); every
+              other captured row is deleted (its flags go with it, <Mono>ON DELETE CASCADE</Mono>). The answer, dry
+              run or not, is <Mono>{'{ dry_run, today, from, until, deleted, hidden, kept, examples }'}</Mono>, the
+              first <Mono>DELETE_EXAMPLES</Mono> (10) entries that change with their <Mono>action</Mono>. A capture
+              deleted entries can find again on its next run (the next weather run fills its days in again).
+              Admin: each capture&apos;s <Mono>Delete future entries</Mono> in the Captures window
+              (<Mono>ClearFuturePart</Mono> in <Mono>pages/LocalInfo.jsx</Mono>: <Mono>li-cap-clear</Mono>,{' '}
+              <Mono>li-cap-clear-panel</Mono>, <Mono>li-cap-clear-from</Mono> (today at the venue at the earliest),{' '}
+              <Mono>li-cap-clear-until</Mono> / <Mono>li-cap-clear-no-end</Mono>, a dry run on every change{' '}
+              (<Mono>staleTime: 0</Mono>) into <Mono>li-cap-clear-count</Mono> <Mono>data-deleted</Mono>{' '}
+              <Mono>data-hidden</Mono> <Mono>data-kept</Mono>, <Mono>li-cap-clear-go</Mono> then{' '}
+              <Mono>li-cap-clear-sure</Mono> with <Mono>-yes</Mono> / <Mono>-no</Mono>, <Mono>li-cap-clear-cancel</Mono>,{' '}
+              <Mono>li-cap-clear-error</Mono>). Pepper: <Mono>delete_local_info</Mono> in{' '}
+              <Mono>ai/tools/localInfo.js</Mono> (Manage, a confirm card): a venue by name, the whole group, a capture
+              by name (<Mono>captureFor()</Mono>: its kind, place, site or query), and the same criteria;{' '}
+              <Mono>describe()</Mono> runs the dry run, says what is deleted, hidden instead and kept with the first
+              examples, refuses before the card when nothing matches, and pins the first day, the venue and the
+              capture it worked out (<Mono>pin</Mono>), so Confirm deletes what the card said even after midnight;{' '}
+              <Mono>run()</Mono> plans again (it is called straight away over the staff connector). Tests:{' '}
+              <Mono>api/test/local-info-delete.test.mjs</Mono>.
+            </P>
             <InfoBox title="Limits">
               Scheduled search runs count the group's monthly Pepper allowance with no person (<Mono>addUsage()</Mono>{' '}
               person null); a Run now from the page counts the same way. Since migration 242 the searches
@@ -8490,7 +8526,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               a later run can still find something staff flagged not relevant. Learning reads at most the 60 most
               recently flagged findings, weighs every person&apos;s flag the same, and is tested only against a
               stand-in Claude: first live use, flag a few findings, press Learn now and read what it says before
-              the next run. Flags on weather forecasts are only shown (a forecast has no search to tune).
+              the next run. Flags on weather forecasts are only shown (a forecast has no search to tune). Bulk delete
+              never touches the past, and a capture&apos;s next run can bring back what it deleted: to keep a
+              finding off for good, hide it (or turn the capture off first).
             </InfoBox>
           </section>
 
