@@ -150,6 +150,14 @@ test('refusals: a review with nothing to hold, manual as a site, another tenant\
   assert.equal((await owner.post('/api/reviews/record', rec({ venue_id: BV, reviews: FIRST }))).status, 404, 'another tenant\'s venue')
   assert.equal((await owner.post('/api/reviews/record', rec({ venue_id: '00000000-0000-4000-8000-00000000dead', reviews: FIRST }))).status, 404)
 
+  // The page is drawn as a link on the Reviews page: a web address only (Zod's url() takes these).
+  for (const bad of ['javascript:alert(1)', 'data:text/html,<b>hi</b>', 'ftp://reviews.example/x']) {
+    const r = await owner.post('/api/reviews/record', rec({ page_url: bad, reviews: [{ author: 'Link Test', rating: 5, text: 'Bad link' }] }))
+    assert.equal(r.status, 400, bad)
+  }
+  const linkRows = await sql`SELECT COUNT(*)::int AS n FROM reviews WHERE reviewer_name = 'Link Test'`
+  assert.equal(linkRows[0].n, 0, 'nothing stored with a bad page link')
+
   // The website module: operators and viewers have none by default.
   assert.equal((await as(A.operator, ids.a).post('/api/reviews/record', rec({ reviews: FIRST }))).status, 403)
   assert.equal((await as(A.viewer, ids.a).get('/api/reviews/latest?venue_id=' + V)).status, 403)
@@ -194,6 +202,14 @@ test('the staff connector records and reads reviews (the Claude in Chrome path)'
   const out = toolResult(call)
   assert.deepEqual({ recorded_new: out.recorded_new, already: out.already_recorded }, { recorded_new: 2, already: 0 })
   assert.match(out.message, /waiting to be checked/)
+
+  // A page address that isn't a web address is refused before anything is stored.
+  const badLink = await mcp(token, 'tools/call', { name: 'record_reviews', arguments: {
+    venue: 'Zqx Ware', site: 'tripadvisor', page_url: 'javascript:alert(1)',
+    reviews: [{ author: 'Link Test', rating: 5, text: 'Bad link' }],
+  } })
+  assert.equal(badLink.json?.result?.isError, true, badLink.body.slice(0, 300))
+  assert.match(badLink.json.result.content[0].text, /https/)
 
   // The same page read again: nothing new, and nothing duplicated.
   const again = toolResult(await mcp(token, 'tools/call', { name: 'record_reviews', arguments: {

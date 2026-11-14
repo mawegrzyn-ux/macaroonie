@@ -25,6 +25,7 @@ import {
   KIND_ICONS, SEV_CHIP, SEV_DOT, dayText, useLocalInfoItems, ItemRow, DayGroups,
 } from '@/components/localInfo/shared'
 import { KINDS, KIND_LABELS, FREQUENCIES, frequencyText, itemOnDay, sortDayItems, monthGrid } from '@shared/localInfo.js'
+import { webLink } from '@shared/links.js'
 
 const VENUE_KEY = 'maca_local_info_venue'
 const VIEW_KEY = 'maca_local_info_view'
@@ -266,6 +267,8 @@ function EventModal({ api, venues, item, defaultVenueId, onClose, onSaved }) {
   }))
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
   const [error, setError] = useState(null)
+  // Only a web address can be a link (the API refuses anything else).
+  const linkBad = !!f.url.trim() && !webLink(f.url)
   const save = useMutation({
     mutationFn: () => {
       const body = {
@@ -283,7 +286,7 @@ function EventModal({ api, venues, item, defaultVenueId, onClose, onSaved }) {
   return (
     <Modal title={editing ? 'Change this event' : 'Add a local event'} onClose={onClose}
       footer={<>
-        <button type="button" className={btnPrimary} data-testid="li-ev-save" disabled={!f.title.trim() || save.isPending} onClick={() => save.mutate()}>
+        <button type="button" className={btnPrimary} data-testid="li-ev-save" disabled={!f.title.trim() || linkBad || save.isPending} onClick={() => save.mutate()}>
           {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {editing ? 'Save' : 'Add it'}
         </button>
         <button type="button" className={btn} onClick={onClose}>Cancel</button>
@@ -330,7 +333,9 @@ function EventModal({ api, venues, item, defaultVenueId, onClose, onSaved }) {
             <input value={f.place} onChange={e => set('place', e.target.value)} maxLength={200} data-testid="li-ev-place" className={input} />
           </Field>
           <Field label="Link (optional)">
-            <input value={f.url} onChange={e => set('url', e.target.value)} maxLength={500} placeholder="https://…" data-testid="li-ev-url" className={input} />
+            <input value={f.url} onChange={e => set('url', e.target.value)} maxLength={500} placeholder="https://…" data-testid="li-ev-url"
+              aria-invalid={linkBad || undefined} className={input} />
+            {linkBad && <span className="block text-xs text-destructive mt-1" data-testid="li-ev-url-problem">Use a web address starting with https://</span>}
           </Field>
         </div>
         <Field label="How loud" group>

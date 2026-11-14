@@ -8,8 +8,9 @@ import { as, ok, closeApp, sql } from './support/app.mjs'
 import { resetAndSeed, A, B } from './support/seed.mjs'
 import { fillTenant } from './support/fixtures.mjs'
 import { groupFor, sortTasks, GROUPS } from '../src/services/opsToday.js'
+import { addDays, weatherText } from '../../shared/localInfo.js'
 
-let ids, owner, V, today
+let ids, owner, V, V2, today
 const feed = (who, q = '') => ok(who.get(`/api/ops/today?venue_id=${V}${q}`))
 const byKind = (d, kind) => d.tasks.filter(t => t.kind === kind)
 
@@ -19,6 +20,7 @@ before(async () => {
   assert.deepEqual(filled.failed, [], 'fixtures')
   owner = as(A.owner, ids.a)
   V = filled.ids.venue
+  V2 = filled.ids.venue2
   today = (await feed(owner)).date
 })
 after(closeApp)
@@ -112,6 +114,88 @@ test('another group\'s venue is refused; bad input is a 400', async () => {
   assert.equal((await owner.get(`/api/ops/today?venue_id=${V}&time=25:00`)).status, 400)
   const none = await other.get('/api/ops/today')
   assert.equal(none.status, 404, 'a group with no venues yet')
+})
+
+// The week ahead (summary.local): the forecast per day and the local news
+// from Local info, read through its route as the person, for this venue (its
+// own items and the whole group's), never another venue's or hidden ones.
+test('the week ahead: the forecast and the headlines from Local info', async () => {
+  const day = n => addDays(today, n)
+  await sql`DELETE FROM local_info_items WHERE tenant_id = ${ids.a}`
+  const [src] = await sql`SELECT id FROM local_info_sources WHERE tenant_id = ${ids.a} AND venue_id = ${V} AND kind = 'weather' LIMIT 1`
+  assert.ok(src, 'the fixtures\' weather capture')
+  const weather = (venue, n, code, { severity = 'info', rain = 0 } = {}) => sql`
+    INSERT INTO local_info_items (tenant_id, venue_id, source_id, kind, title, details, starts_on, severity, data, external_key)
+    VALUES (${ids.a}, ${venue}, ${venue === V ? src.id : null}, 'weather', ${weatherText(code)}, ${'Wk details ' + n},
+            ${day(n)}, ${severity}, ${sql.json({ weather_code: code, temp_min: 4.4, temp_max: 11.6, precip_mm: rain, wind_kph: 12 })},
+            ${'weather:' + day(n) + ':' + venue})`
+  await weather(V, 0, 61)
+  await weather(V, 1, 95, { severity: 'warning', rain: 22 })
+  await weather(V, 3, 0)
+  await weather(V, 8, 3)                        // after the week
+  await weather(V2, 0, 75, { severity: 'warning' })   // another venue's
+  const add = body => ok(owner.post('/api/local-info/items', body))
+  await add({ venue_id: V, kind: 'traffic', title: 'Wk roadworks', starts_on: day(-3), ends_on: day(10), severity: 'notice', url: 'https://roads.test/works', place: 'High St' })
+  await add({ venue_id: null, kind: 'events', title: 'Wk food festival', starts_on: day(2), severity: 'notice', time_text: '11:00' })
+  for (const t of ['Wk market D', 'Wk market B', 'Wk market A', 'Wk market C']) await add({ venue_id: V, kind: 'events', title: t, starts_on: day(4) })
+  await add({ venue_id: V2, kind: 'events', title: 'Wk Hertford parade', starts_on: day(1) })
+  await add({ venue_id: V, kind: 'events', title: 'Wk too late', starts_on: day(9) })
+  const hidden = await add({ venue_id: V, kind: 'events', title: 'Wk hidden gig', starts_on: day(2) })
+  await ok(owner.patch('/api/local-info/items/' + hidden.id, { hidden: true }))
+
+  // Only web addresses: a javascript: or data: link is refused, typed or edited.
+  assert.equal((await owner.post('/api/local-info/items', { venue_id: V, title: 'Wk bad', starts_on: day(1), url: 'javascript:alert(1)' })).status, 400)
+  assert.equal((await owner.post('/api/local-info/items', { venue_id: V, title: 'Wk bad', starts_on: day(1), url: 'data:text/html,hi' })).status, 400)
+  assert.equal((await owner.patch('/api/local-info/items/' + hidden.id, { url: 'JavaScript:alert(1)' })).status, 400)
+
+  const w = (await feed(owner, '&time=10:00')).summary.local
+  assert.equal(w.from, today)
+  assert.equal(w.to, day(6))
+  assert.deepEqual(w.weather.map(x => [x.date, x.title, x.severity]), [
+    [day(0), 'Light rain', 'info'], [day(1), 'Thunderstorm', 'warning'], [day(3), 'Clear', 'info'],
+  ], 'one forecast a day for this venue, none after the week')
+  assert.equal(w.weather[1].precip_mm, 22)
+  assert.equal(w.weather[1].code, 95)
+  assert.equal(w.weather[0].temp_max, 11.6)
+  assert.equal(w.weather[0].details, 'Wk details 0')
+  assert.deepEqual(w.headlines.map(h => [h.day, h.title]), [
+    [day(0), 'Wk roadworks'], [day(2), 'Wk food festival'],
+    [day(4), 'Wk market A'], [day(4), 'Wk market B'], [day(4), 'Wk market C'],
+  ], 'by the day each first shows, five at most')
+  assert.equal(w.more, 1, 'market D is counted, not listed')
+  const road = w.headlines[0]
+  assert.equal(road.starts_on, day(-3))
+  assert.equal(road.ends_on, day(10))
+  assert.equal(road.url, 'https://roads.test/works')
+  assert.equal(road.place, 'High St')
+  assert.equal(road.kind, 'traffic')
+  assert.equal(w.headlines[1].venue_wide, true, 'a whole-group event')
+  assert.equal(w.headlines[1].time_text, '11:00')
+
+  // Another day's feed: the week from that day.
+  const later = (await feed(owner, `&date=${day(2)}`)).summary.local
+  assert.equal(later.from, day(2))
+  assert.deepEqual(later.weather.map(x => x.date), [day(3), day(8)], 'day 8 is in that week')
+  assert.deepEqual(later.headlines.slice(0, 2).map(h => [h.day, h.title]), [[day(2), 'Wk roadworks'], [day(2), 'Wk food festival']])
+
+  // The other venue sees its own.
+  const there = (await ok(owner.get(`/api/ops/today?venue_id=${V2}&time=10:00`))).summary.local
+  assert.deepEqual(there.weather.map(x => x.title), ['Heavy snow'])
+  assert.deepEqual(there.headlines.map(h => h.title), ['Wk Hertford parade', 'Wk food festival'])
+
+  // A viewer has Local info View: they see it; a role without Local info doesn't.
+  assert.ok((await feed(as(A.viewer, ids.a))).summary.local, 'a viewer sees the week')
+  const roles = await ok(owner.get('/api/access/roles'))
+  const op = roles.find(r => r.key === 'operator')
+  try {
+    await ok(owner.patch('/api/access/roles/' + op.id, { permissions: { ...op.permissions, local_info: 'none' } }))
+    const d = await feed(as(A.operator, ids.a))
+    assert.equal(d.summary.local, undefined, 'no Local info: no week ahead')
+    assert.ok(!(d.not_included || []).includes('local_info'), 'not an area of tasks')
+  } finally {
+    await ok(owner.patch('/api/access/roles/' + op.id, { permissions: op.permissions }))
+  }
+  await sql`DELETE FROM local_info_items WHERE tenant_id = ${ids.a} AND title LIKE 'Wk %'`
 })
 
 // Migration 227: the Today link is for every role. A custom role names only

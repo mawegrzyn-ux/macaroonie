@@ -6,7 +6,9 @@
 // Pepper switched off), each task with one action: a form opened right here
 // (the same shared panels the Food safety and Checklists pages use, saving
 // through the same routes) or the page it belongs to. The modules as tiles,
-// the ones with something to do first, and Pepper beside it all.
+// the ones with something to do first, and Pepper beside it all. Below the
+// greeting, the week ahead from Local info (WeekAhead): the forecast for each
+// day and the local news, for people who can see Local info.
 
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -15,8 +17,10 @@ import * as LucideIcons from 'lucide-react'
 import {
   Sun, Sunrise, Moon, RefreshCw, Thermometer, Flame, ListChecks, AlertTriangle, Truck, Send,
   Wallet, ShoppingBag, ClipboardList, CheckCircle2, ExternalLink, X, ChevronRight, CalendarDays,
-  Users, Plus, Sparkles, Loader2, Info,
+  Users, Plus, Sparkles, Loader2, Info, CloudSun, Cloud, CloudFog, CloudDrizzle, CloudRain, CloudSnow,
+  CloudLightning,
 } from 'lucide-react'
+import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { usePepperPage } from '@/lib/pepperPage'
@@ -25,6 +29,8 @@ import { useRememberedConversation } from '@/components/ai/AssistantDrawer'
 import { TempChecksTable, HoldChecksTable, CookingChecksPanel } from '@/components/foodSafety/shared'
 import { ChecklistRunPanel } from '@/components/checklists/shared'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
+import { addDays } from '@shared/localInfo.js'
+import { KIND_ICONS, SEV_CHIP } from '@/components/localInfo/shared'
 
 export const VENUE_KEY = 'maca_today_venue'
 
@@ -142,6 +148,8 @@ export default function OpsToday() {
               {d && <Glance d={d} />}
             </div>
 
+            {d && <WeekAhead d={d} canSetUp={me?.permissions?.local_info === 'manage'} />}
+
             {feed.isLoading && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground py-6 justify-center">
                 <Loader2 className="w-4 h-4 animate-spin" /> Loading today's tasks
@@ -203,6 +211,113 @@ export function Glance({ d, linkFor }) {
         return c.to ? <Go key={c.key} to={c.to} linkFor={linkFor} className={cn(cls, 'hover:bg-accent')}>{inner}</Go> : <span key={c.key} className={cls}>{inner}</span>
       })}
     </div>
+  )
+}
+
+// Open-Meteo's WMO weather codes as a picture.
+function WeatherIcon({ code, className }) {
+  const c = Number(code)
+  const Icon = c === 0 ? Sun : c <= 2 ? CloudSun : c === 3 ? Cloud : c <= 48 ? CloudFog
+    : c <= 57 ? CloudDrizzle : (c <= 67 || (c >= 80 && c <= 82)) ? CloudRain
+    : (c <= 77 || c === 85 || c === 86) ? CloudSnow : c >= 95 ? CloudLightning : Cloud
+  return <Icon className={className} aria-hidden="true" />
+}
+
+const WEATHER_CELL = {
+  warning: 'bg-red-50 border-red-300',
+  notice:  'bg-amber-50 border-amber-300',
+  info:    'bg-background',
+}
+
+/**
+ * The week ahead (summary.local, weekAhead() in shared/localInfo.js): the
+ * forecast for each day and the local news, from Local info. Hidden when the
+ * person can't see Local info; when nothing is held for the week, only people
+ * who can set captures up see a line pointing at Local info.
+ */
+export function WeekAhead({ d, linkFor, canSetUp = false }) {
+  const w = d.summary?.local
+  if (!w) return null
+  const empty = !w.weather.length && !w.headlines.length
+  if (empty && !canSetUp) return null
+  // Days in words from the feed's own day (the venue's), never the browser's.
+  const tomorrow = addDays(d.date, 1)
+  const named = (date, long) => format(new Date(date + 'T12:00:00'), long ? 'EEEE' : 'EEE')
+  const dayLabel = (date, long = true) => {
+    if (d.is_today && date === d.date) return 'Today'
+    if (d.is_today && date === tomorrow && long) return 'Tomorrow'
+    if (date >= w.from && date <= w.to) return named(date, long)
+    return format(new Date(date + 'T12:00:00'), 'EEE d MMM')
+  }
+  // Each forecast day in its own column, so a day the forecast lacks shows as a gap.
+  const column = date => Math.round((Date.parse(date + 'T00:00:00Z') - Date.parse(w.from + 'T00:00:00Z')) / 86400000) + 1
+  const when = h => !h.ends_on ? dayLabel(h.day)
+    : h.starts_on < w.from ? 'Until ' + dayLabel(h.ends_on)
+    : dayLabel(h.starts_on) + ' to ' + dayLabel(h.ends_on)
+  const link = 'inline-flex items-center gap-1 min-h-[48px] min-w-[48px] touch-manipulation text-sm text-primary underline underline-offset-2'
+  return (
+    <section className="rounded-lg border bg-background overflow-hidden" data-testid="today-week">
+      <div className="section-head px-4 py-1 flex items-center gap-2">
+        <CloudSun className="w-4 h-4 shrink-0" />
+        <h2 className="font-semibold">This week</h2>
+        <Go to="/local-info" linkFor={linkFor} className={cn(link, 'ml-auto justify-end')} data-testid="today-week-open">Local info</Go>
+      </div>
+      {empty ? (
+        <p className="px-4 py-3 text-sm text-muted-foreground" data-testid="today-week-empty">
+          No weather or local news for this week yet. Set up captures in{' '}
+          <Go to="/local-info" linkFor={linkFor} className="text-primary underline underline-offset-2">Local info</Go>{' '}
+          to see the forecast and what&apos;s on nearby here.
+        </p>
+      ) : (
+        <>
+          {w.weather.length > 0 && (
+            <div className="grid grid-cols-7 gap-1 sm:gap-2 p-2 sm:p-3" data-testid="today-weather">
+              {w.weather.map(x => (
+                <div key={x.date} title={x.details || x.title} data-testid="today-weather-day" data-date={x.date} data-severity={x.severity}
+                  style={{ gridColumnStart: column(x.date) }}
+                  className={cn('min-w-0 rounded-md border px-0.5 py-2 flex flex-col items-center gap-1 text-center', WEATHER_CELL[x.severity] || WEATHER_CELL.info)}>
+                  <span className="text-xs font-medium leading-none truncate max-w-full">{dayLabel(x.date, false)}</span>
+                  <WeatherIcon code={x.code} className="w-6 h-6 text-muted-foreground" />
+                  <span className="text-sm font-semibold leading-none" data-testid="today-weather-max">{x.temp_max != null ? Math.round(x.temp_max) + '°' : '–'}</span>
+                  <span className="text-xs text-muted-foreground leading-none">{x.temp_min != null ? Math.round(x.temp_min) + '°' : ''}</span>
+                  {(x.precip_mm || 0) >= 1 && <span className="text-[11px] leading-none text-muted-foreground">{Math.round(x.precip_mm)} mm</span>}
+                  <span className="sr-only">{dayLabel(x.date)}: {x.details || x.title}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {w.headlines.length > 0 && (
+            <ul className={cn('divide-y', w.weather.length > 0 && 'border-t')} data-testid="today-headlines">
+              {w.headlines.map(h => {
+                const Icon = KIND_ICONS[h.kind] || CalendarDays
+                return (
+                  <li key={h.id} className="flex items-center gap-3 pl-4 pr-2 py-1.5" data-testid="today-headline" data-kind={h.kind} data-severity={h.severity}>
+                    <span className={cn('w-8 h-8 rounded-full border inline-flex items-center justify-center shrink-0', SEV_CHIP[h.severity] || SEV_CHIP.info)}>
+                      <Icon className="w-4 h-4" aria-hidden="true" />
+                    </span>
+                    <div className="min-w-0 flex-1 py-1">
+                      <p className="text-sm font-medium break-words" data-testid="today-headline-title">{h.title}</p>
+                      <p className="text-xs text-muted-foreground" data-testid="today-headline-when">{[when(h), h.time_text, h.place].filter(Boolean).join(' · ')}</p>
+                    </div>
+                    {h.url && (
+                      <a href={h.url} target="_blank" rel="noopener noreferrer" className={cn(link, 'shrink-0 justify-center px-2')} data-testid="today-headline-source">
+                        Source <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                      </a>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {w.more > 0 && (
+            <Go to="/local-info" linkFor={linkFor} data-testid="today-week-more"
+              className="flex items-center justify-center gap-1 border-t min-h-[48px] text-sm text-primary hover:bg-accent touch-manipulation">
+              {w.more} more in Local info <ChevronRight className="w-4 h-4" aria-hidden="true" />
+            </Go>
+          )}
+        </>
+      )}
+    </section>
   )
 }
 

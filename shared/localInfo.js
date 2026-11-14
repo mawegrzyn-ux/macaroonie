@@ -7,7 +7,11 @@
 // updates rather than repeats), what a captured weather day says
 // (weatherText / weatherSummary / weatherSeverity from Open-Meteo's WMO
 // codes), which items sit on a day (itemOnDay), their order on a day
-// (sortDayItems) and the calendar's month of whole weeks (monthGrid).
+// (sortDayItems), the calendar's month of whole weeks (monthGrid) and the
+// Today page's week ahead (weekAhead). Which links may be opened is
+// webLink() in shared/links.js.
+
+import { webLink } from './links.js'
 
 export const KINDS = ['weather', 'traffic', 'events', 'incidents']
 export const KIND_LABELS = { weather: 'Weather', traffic: 'Traffic', events: 'Events', incidents: 'Incidents' }
@@ -180,4 +184,54 @@ export function monthGrid(month) {
     out.push({ date: iso, inMonth: iso.slice(0, 7) === monthStr })
   }
   return out
+}
+
+const numOrNull = v => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v))) ? null : Number(v)
+
+/** A captured forecast day (the weather capture's items carry the numbers). */
+export const isForecast = it => it?.kind === 'weather' && it.data != null && it.data.weather_code != null
+
+/**
+ * The week ahead at a venue (the Today page): `days` days from `from`
+ * ('YYYY-MM-DD'), out of the venue's items (its own and the whole group's,
+ * hidden ones left out by the caller).
+ *   weather    one forecast per day that has one, in date order (the loudest
+ *              when two captures cover a day)
+ *   headlines  everything else on those days, each once: by the first day it
+ *              shows in the week (an item that began earlier shows from
+ *              `from`), then the loudest, then kind (incidents, traffic,
+ *              events, weather typed in) and title; at most `headlines`
+ *   more       how many headlines were left out
+ */
+export function weekAhead(items = [], from, { days = 7, headlines = 5 } = {}) {
+  const to = addDays(from, days - 1)
+  const weather = []
+  for (let i = 0; i < days; i++) {
+    const day = addDays(from, i)
+    const f = sortDayItems(items.filter(it => isForecast(it) && itemOnDay(it, day)))[0]
+    if (!f) continue
+    weather.push({
+      date: day, title: f.title, details: f.details || null, severity: f.severity || 'info',
+      code: numOrNull(f.data.weather_code), temp_min: numOrNull(f.data.temp_min), temp_max: numOrNull(f.data.temp_max),
+      precip_mm: numOrNull(f.data.precip_mm), wind_kph: numOrNull(f.data.wind_kph),
+    })
+  }
+  const news = []
+  for (const it of items) {
+    if (isForecast(it)) continue
+    const start = String(it.starts_on || '').slice(0, 10)
+    const end = String(it.ends_on || it.starts_on || '').slice(0, 10)
+    if (!start || end < from || start > to) continue
+    news.push({
+      id: it.id, kind: it.kind, title: it.title, details: it.details || null, severity: it.severity || 'info',
+      starts_on: start, ends_on: end !== start ? end : null, time_text: it.time_text || null,
+      place: it.place || null, url: webLink(it.url), venue_wide: !it.venue_id, typed: !it.source_id,
+      day: start < from ? from : start,
+    })
+  }
+  news.sort((a, b) => a.day.localeCompare(b.day)
+    || (SEV_ORDER[a.severity] ?? 9) - (SEV_ORDER[b.severity] ?? 9)
+    || (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9)
+    || String(a.title || '').localeCompare(String(b.title || '')))
+  return { from, to, weather, headlines: news.slice(0, headlines), more: Math.max(0, news.length - headlines) }
 }

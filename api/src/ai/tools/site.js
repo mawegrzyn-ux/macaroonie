@@ -26,6 +26,7 @@ import { z } from 'zod'
 import { ToolError, callApi, requireStaffPermission } from '../context.js'
 import { env } from '../../config/env.js'
 import { promoSummary, promoTerms, promoRunning } from '../../../../shared/promotions.js'
+import { webLink } from '../../../../shared/links.js'
 import { localParts, shortDate, plural, pickByName, audited, venueFor, venueToday, VenueText, tenantVenueList } from './util.js'
 
 const when = (ts, tz) => {
@@ -305,7 +306,7 @@ export const siteTools = [
     input: z.object({
       venue: z.string().trim().min(1).max(120).describe('The venue the page\'s reviews are about'),
       site: z.enum(REVIEW_SITES),
-      page_url: z.string().url().max(500).optional().describe('The page the reviews were read from'),
+      page_url: z.string().trim().max(500).refine(u => !!webLink(u), 'Use the page\'s web address (https://...)').optional().describe('The page the reviews were read from (its https:// address)'),
       reviews: z.array(z.object({
         author: z.string().max(200).optional(),
         rating: z.number().int().min(1).max(5).optional().describe('Stars out of 5'),

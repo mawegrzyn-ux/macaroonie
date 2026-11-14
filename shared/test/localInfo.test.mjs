@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   everyHours, frequencyText, nextRunAt, zonedInstant, itemKey,
   weatherText, weatherSummary, weatherSeverity, itemOnDay, sortDayItems,
-  monthGrid, addDays,
+  monthGrid, addDays, weekAhead, isForecast,
 } from '../localInfo.js'
 
 const iso = d => d.toISOString().slice(0, 16) + 'Z'
@@ -111,4 +111,65 @@ test('monthGrid: whole weeks, Monday first', () => {
   assert.equal(jun.at(-1).date, '2026-07-05')
   assert.equal(jun.length % 7, 0)
   assert.equal(addDays('2026-11-30', 1), '2026-12-01')
+})
+
+test('weekAhead: a forecast per day and the headlines in order', () => {
+  const w = (day, code, extra = {}) => ({
+    id: 'w' + day, kind: 'weather', source_id: 's1', venue_id: 'v1', title: weatherText(code),
+    details: 'details ' + day, starts_on: day, severity: 'info',
+    data: { weather_code: code, temp_min: 3.4, temp_max: 9.6, precip_mm: 0, wind_kph: 10 }, ...extra,
+  })
+  const items = [
+    w('2026-11-13', 0),                                   // the day before: not this week
+    w('2026-11-14', 61),
+    w('2026-11-14', 65, { id: 'w2', severity: 'warning', title: 'Heavy rain' }),  // two captures: the loudest
+    w('2026-11-16', 3),
+    w('2026-11-21', 0),                                   // after the week
+    { id: 'e1', kind: 'events', title: 'Christmas market', starts_on: '2026-11-17', ends_on: '2026-11-17', severity: 'info', venue_id: null, source_id: null },
+    { id: 'e2', kind: 'traffic', title: 'Roadworks High St', starts_on: '2026-11-10', ends_on: '2026-11-28', severity: 'notice', venue_id: 'v1', source_id: 's2', url: 'javascript:alert(1)' },
+    { id: 'e3', kind: 'incidents', title: 'Water off', starts_on: '2026-11-14', severity: 'warning', venue_id: 'v1', source_id: 's3', url: 'https://news.test/a', time_text: '09:00', place: 'Ware' },
+    { id: 'e4', kind: 'events', title: 'Next week fair', starts_on: '2026-11-21', severity: 'warning', venue_id: 'v1', source_id: null },
+    { id: 'e5', kind: 'weather', title: 'Heat warning', starts_on: '2026-11-15', severity: 'warning', venue_id: null, source_id: null },
+    { id: 'e6', kind: 'events', title: 'A gig', starts_on: '2026-11-15', severity: 'info', venue_id: 'v1', source_id: 's2' },
+    { id: 'e7', kind: 'events', title: 'B gig', starts_on: '2026-11-15', severity: 'info', venue_id: 'v1', source_id: 's2' },
+  ]
+  assert.ok(isForecast(items[0]))
+  assert.ok(!isForecast(items[9]), 'a weather item typed in is a headline')
+  const out = weekAhead(items, '2026-11-14')
+  assert.equal(out.from, '2026-11-14')
+  assert.equal(out.to, '2026-11-20')
+  assert.deepEqual(out.weather.map(x => [x.date, x.title, x.severity]),
+    [['2026-11-14', 'Heavy rain', 'warning'], ['2026-11-16', 'Overcast', 'info']])
+  assert.equal(out.weather[0].code, 65)
+  assert.equal(out.weather[0].temp_max, 9.6)
+  assert.equal(out.weather[0].details, 'details 2026-11-14')
+  // By the day it first shows (roadworks from before: shown from today),
+  // then the loudest, kind and title; five at most.
+  assert.deepEqual(out.headlines.map(x => [x.day, x.title]), [
+    ['2026-11-14', 'Water off'], ['2026-11-14', 'Roadworks High St'],
+    ['2026-11-15', 'Heat warning'], ['2026-11-15', 'A gig'], ['2026-11-15', 'B gig'],
+  ])
+  assert.equal(out.more, 1, 'the market is left over')
+  const road = out.headlines[1]
+  assert.equal(road.url, null, 'a javascript: link never goes out')
+  assert.equal(road.starts_on, '2026-11-10')
+  assert.equal(road.ends_on, '2026-11-28')
+  const water = out.headlines[0]
+  assert.equal(water.url, 'https://news.test/a')
+  assert.equal(water.ends_on, null, 'one day: no end')
+  assert.equal(water.time_text, '09:00')
+  assert.equal(water.place, 'Ware')
+  assert.equal(water.typed, false)
+  assert.equal(out.headlines[2].venue_wide, true)
+  assert.equal(out.headlines[2].typed, true)
+  // A bigger limit shows them all; nothing outside the week.
+  const all = weekAhead(items, '2026-11-14', { headlines: 20 })
+  assert.equal(all.more, 0)
+  assert.deepEqual(all.headlines.map(x => x.id), ['e3', 'e2', 'e5', 'e6', 'e7', 'e1'])
+  // Fewer days: only those.
+  const two = weekAhead(items, '2026-11-14', { days: 2 })
+  assert.equal(two.to, '2026-11-15')
+  assert.deepEqual(two.weather.map(x => x.date), ['2026-11-14'])
+  assert.deepEqual(two.headlines.map(x => x.id), ['e3', 'e2', 'e5', 'e6', 'e7'])
+  assert.deepEqual(weekAhead([], '2026-11-14'), { from: '2026-11-14', to: '2026-11-20', weather: [], headlines: [], more: 0 })
 })

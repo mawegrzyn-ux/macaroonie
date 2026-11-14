@@ -22,6 +22,7 @@ import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 import { claimSource, runClaimed, listItems } from '../services/localInfoSvc.js'
 import { KINDS, SEVERITIES, FREQUENCIES, addDays } from '../../../shared/localInfo.js'
+import { webLink } from '../../../shared/links.js'
 
 const UUID = z.string().uuid()
 const DAY  = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -52,7 +53,7 @@ const ItemFields = {
   title:     z.string().trim().min(1).max(200),
   details:   z.string().trim().max(1000).nullable(),
   place:     z.string().trim().max(200).nullable(),
-  url:       z.string().trim().url().max(500).nullable(),
+  url:       z.string().trim().max(500).refine(u => !!webLink(u), 'Use a web address starting with https://').nullable(),
   starts_on: DAY,
   ends_on:   DAY.nullable(),
   time_text: z.string().trim().max(40).nullable(),

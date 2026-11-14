@@ -1199,7 +1199,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET', '/scrape-jobs', 'view', 'Recent Apify scrape jobs and their status.'],
                 ['GET', '/:id', 'view', 'Single review detail.'],
                 ['POST', '/', 'manage', 'Create a manual review. Born checked (checked_at/checked_by set): the person typed it, it never needs the inbox.'],
-                ['POST', '/record', 'manage', 'Reviews read off a review site\'s page (google | tripadvisor | justeat | deliveroo | glovo — never manual) by a client that can see it: Claude in Chrome through the staff connector, or Pepper. Body: venue_id, platform, page_url?, reviews[] (max 40: author?, rating?, text?, date? (YYYY-MM-DD or ISO), date_text? (as written, e.g. "2 weeks ago"), reply?). Dedupe: external_id = "rec:" + md5(venue|platform|author|text, normalised — never the date, which relative wording makes unstable), upserted ON CONFLICT on the existing (tenant_id, platform, external_id) index: a repeat counts as already (a later reply/date/rating fills in blanks, nothing else changes, checked_at untouched so a dismissed review never resurfaces). A review with neither author nor text is counted unusable and skipped. New rows: source recorded, unapproved, unchecked, raw_data { recorded_by, page_url, date_text }. Returns { venue_name, platform, added, already, unusable, to_check, newest_review }.'],
+                ['POST', '/record', 'manage', 'Reviews read off a review site\'s page (google | tripadvisor | justeat | deliveroo | glovo — never manual) by a client that can see it: Claude in Chrome through the staff connector, or Pepper. Body: venue_id, platform, page_url? (http or https only, webLink() in shared/links.js, since it is drawn as a link on the Reviews page), reviews[] (max 40: author?, rating?, text?, date? (YYYY-MM-DD or ISO), date_text? (as written, e.g. "2 weeks ago"), reply?). Dedupe: external_id = "rec:" + md5(venue|platform|author|text, normalised — never the date, which relative wording makes unstable), upserted ON CONFLICT on the existing (tenant_id, platform, external_id) index: a repeat counts as already (a later reply/date/rating fills in blanks, nothing else changes, checked_at untouched so a dismissed review never resurfaces). A review with neither author nor text is counted unusable and skipped. New rows: source recorded, unapproved, unchecked, raw_data { recorded_by, page_url, date_text }. Returns { venue_name, platform, added, already, unusable, to_check, newest_review }.'],
                 ['PATCH', '/:id', 'manage', 'Update review fields (approve, feature, edit text, add reply). Setting is_approved (either way), or checked: true alone ("keep off the website"), stamps checked_at/checked_by on the first decision — out of the To check inbox for good.'],
                 ['DELETE', '/:id', 'manage', 'Delete a review permanently. Deleting a recorded one also deletes its fingerprint, so it can be recorded again — keep it off with checked instead.'],
                 ['POST', '/bulk-approve', 'manage', 'Approve multiple reviews by ID array (stamps checked too).'],
@@ -8103,7 +8103,38 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (<Mono>/api/hs-settings</Mono> <Mono>closed</Mono>) expects no check rounds (R4). There is no task store
               yet: tasks are worked out on every request, done when their record exists (R2). The response also carries{' '}
               <Mono>summary</Mono> (bookings and big parties from <Mono>day_overview</Mono>, people on the rota from{' '}
-              <Mono>whos_working</Mono>), <Mono>counts</Mono> and the <Mono>venues</Mono> for the switch.
+              <Mono>whos_working</Mono>, the week ahead from Local info), <Mono>counts</Mono> and the <Mono>venues</Mono>{' '}
+              for the switch.
+            </P>
+            <H3>The week ahead (summary.local)</H3>
+            <P>
+              With Local info View or more (<Mono>local_info</Mono> is in <Mono>OPS_MODULES</Mono>), <Mono>summary()</Mono>{' '}
+              reads <Mono>GET /api/local-info/items</Mono> for the venue from the day to six days on (<Mono>WEEK_DAYS</Mono>{' '}
+              7, through the route as the person, so hidden items and other venues stay out and items saved for every venue
+              come in) and turns it into <Mono>summary.local</Mono> with <Mono>weekAhead()</Mono> in{' '}
+              <Mono>shared/localInfo.js</Mono>: <Mono>{'{ from, to, weather, headlines, more }'}</Mono>.{' '}
+              <Mono>weather</Mono> has one entry per day with a captured forecast (<Mono>isForecast()</Mono>: kind weather
+              with <Mono>data.weather_code</Mono>; the loudest when two captures cover a day), with the code, temperatures,
+              rain and wind from the capture&apos;s <Mono>data</Mono>. Every other item is a headline (a typed-in weather
+              item too), each once, on the first day of the week it shows, sorted by that day, then severity, kind and
+              title; at most <Mono>HEADLINES</Mono> 5, <Mono>more</Mono> counting the rest. A headline&apos;s{' '}
+              <Mono>url</Mono> goes through <Mono>webLink()</Mono> (<Mono>shared/links.js</Mono>: http / https only, else null). Without Local info the
+              key is left out, and the area isn&apos;t named in <Mono>not_included</Mono> (it holds no tasks).
+            </P>
+            <P>
+              <Mono>WeekAhead</Mono> (exported from <Mono>OpsToday.jsx</Mono>; <Mono>MobileToday.jsx</Mono> draws it with{' '}
+              <Mono>{'linkFor={opsLink}'}</Mono>) sits under the greeting: a seven-column strip, each day in its own column
+              (<Mono>gridColumnStart</Mono> from its offset, so a day without a forecast is a gap), with{' '}
+              <Mono>WeatherIcon</Mono> from the WMO code, the high, the low and the rain from 1 mm, red or amber for a
+              warning or a notice; then the headlines with the kind icon in its severity chip (<Mono>KIND_ICONS</Mono>,{' '}
+              <Mono>SEV_CHIP</Mono>), when (a day, Until a day, or a day to a day), time and place, and a 48 px Source link;
+              then the more link to Local info. Day names come from the feed&apos;s own <Mono>date</Mono> and{' '}
+              <Mono>is_today</Mono> (the venue&apos;s day), never the browser&apos;s clock. With nothing held, Local info
+              Manage gets a line pointing at Local info and everyone else no card. Test ids <Mono>today-week</Mono>,{' '}
+              <Mono>today-week-open</Mono>, <Mono>today-weather</Mono>, <Mono>today-weather-day</Mono>{' '}
+              (<Mono>data-date</Mono>, <Mono>data-severity</Mono>), <Mono>today-headlines</Mono>,{' '}
+              <Mono>today-headline</Mono> (<Mono>data-kind</Mono>, <Mono>data-severity</Mono>),{' '}
+              <Mono>today-headline-source</Mono>, <Mono>today-week-more</Mono>, <Mono>today-week-empty</Mono>.
             </P>
             <H3>The page</H3>
             <P>
@@ -8141,7 +8172,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               kinds, severities, frequencies, <Mono>nextRunAt()</Mono> (05:30 venue time for daily / weekly),{' '}
               <Mono>itemKey()</Mono>, the WMO weather maps (<Mono>weatherText()</Mono> / <Mono>weatherSummary()</Mono> /{' '}
               <Mono>weatherSeverity()</Mono>), <Mono>itemOnDay()</Mono>, <Mono>sortDayItems()</Mono>,{' '}
-              <Mono>monthGrid()</Mono>.
+              <Mono>monthGrid()</Mono> and <Mono>weekAhead()</Mono> (the Today page&apos;s week, see Today). Which
+              links may be opened is <Mono>webLink()</Mono> in <Mono>shared/links.js</Mono> (http or https, else null),
+              also used for the page a review was recorded from.
             </P>
             <H3>Captures</H3>
             <P>
@@ -8171,11 +8204,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               reads, manage changes): venue sources CRUD (site cleaned to a bare host, a changed capture runs again
               soon), <Mono>/items</Mono> (span filter over starts/ends, venue + group-wide rows, kinds,{' '}
               <Mono>include_hidden</Mono>, a range capped near a year), items POST / PATCH / DELETE (typed-in only;
-              date columns read back through <Mono>dayOf()</Mono> — the date-column trap). Admin:{' '}
+              date columns read back through <Mono>dayOf()</Mono> — the date-column trap; a <Mono>url</Mono> must pass{' '}
+              <Mono>webLink()</Mono>, since Zod&apos;s <Mono>url()</Mono> alone accepts javascript: and data: links).
+              Admin:{' '}
               <Mono>pages/LocalInfo.jsx</Mono> (calendar from <Mono>monthGrid()</Mono>, day modal, list, Add an
               event, Captures window with Run now polling every 4 s) and{' '}
               <Mono>components/localInfo/shared.jsx</Mono> (<Mono>useLocalInfoItems()</Mono>,{' '}
-              <Mono>ItemRow</Mono>, <Mono>DayGroups</Mono>, <Mono>LocalInfoWidget</Mono>). The widget type{' '}
+              <Mono>ItemRow</Mono>, which links only what <Mono>webLink()</Mono> passes, <Mono>DayGroups</Mono>,{' '}
+              <Mono>LocalInfoWidget</Mono>); the event window says why a link is refused (<Mono>li-ev-url-problem</Mono>)
+              and keeps Add it off until it is a web address. The widget type{' '}
               <Mono>local_info</Mono> (group Local info, nav day) shows the week from the dashboard's selected day,
               with options look_back and hide per kind. Pepper: <Mono>ai/tools/localInfo.js</Mono> —{' '}
               <Mono>local_info</Mono> (read, two weeks ahead by default), <Mono>add_local_event</Mono> (confirm

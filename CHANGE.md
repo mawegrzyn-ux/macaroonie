@@ -6,6 +6,16 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-14 — Today: this week's weather and local news; only web links are links]
+
+No migration.
+
+**Added**
+- **This week** on Today (office and phone), under the greeting, for the venue picked: the forecast for each of the next seven days (the day, a weather picture, the highest and lowest, rain from 1 mm; red for a weather warning, amber for a notice; the forecast's words when you point at a day), then up to five local news items from Local info (events, traffic, incidents and events you typed in, the venue's own and the whole group's), soonest first and the most important first on a day, each with when, its time and place and a **Source** link, and "3 more in Local info" (or however many are left). Comes from Local info's captures: no weather capture, no forecast. People who can't see Local info don't see the card; with nothing for the week, people who can set Local info up see a line pointing at it.
+
+**Fixed**
+- A link typed for a Local info event, or sent by Claude in Chrome or Pepper as the page a review was recorded from, could be a `javascript:` or `data:` address and was drawn as a link: tapping it would have run it in the admin. Only web addresses (starting with http:// or https://) are saved now ("Use a web address starting with https://"), and the Local info, Today and Reviews pages draw only web addresses as links, older ones included.
+
 ## [2026-11-14 — Till fixes: table service or counter, seats, guests, typed discounts, phones]
 
 Migration 246 (`pos_revenue_streams.seats`, `pos_settings.phone_layout_id`; streams' Don't ask for guests becomes Ask; till roles get Type a discount).
