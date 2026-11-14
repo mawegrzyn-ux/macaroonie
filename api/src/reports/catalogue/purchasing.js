@@ -24,6 +24,12 @@ const ORDER_LIVE = "{order}.status <> 'cancelled'"
 const NET = 'round({t}.price * {t}.qty, 2)'
 const VAT = 'round(round({t}.price * {t}.qty, 2) * {t}.vat_rate / 100, 2)'
 const RECEIVED_LATE = "({t}.status = 'received' AND ({t}.received_at AT TIME ZONE {tz})::date > {t}.delivery_date)"
+// Sent on time or late is judged once, when an order first goes to the
+// supplier (migration 247: judgeFirstSend() in services/purchasingSvc.js,
+// by deadlinePassed() in shared/procurement.js); NULL = never judged.
+const LATE_BY = 'EXTRACT(EPOCH FROM ({t}.first_sent_at - {t}.deadline_at))'
+const SENT = LIVE + ' AND {t}.sent_late IS NOT NULL'
+const SENT_LATE = LIVE + ' AND {t}.sent_late'
 const PROBLEM = "{t}.receive_status IN ('short', 'damaged', 'substituted', 'missing')"
 
 const STORAGE = { ambient: 'Cupboard', chilled: 'Chilled', frozen: 'Frozen' }
@@ -74,6 +80,10 @@ export default [
       amended_at: moment('amended_at', { label: 'Changed at' }),
       amended_by: text('amended_by', { label: 'Changed by' }),
       received_late: yesno({ sql: RECEIVED_LATE }, { label: 'Booked in after its day' }),
+      first_sent_at: moment('first_sent_at', { label: 'First sent at', about: 'When the order first went to the supplier; a resend after a change doesn\'t move it.' }),
+      deadline_at: moment('deadline_at', { label: 'Order deadline', about: 'When the order deadline for its delivery day passed, with the supplier\'s cutoff and days\' notice for the venue when the order first went: the cutoff on the deadline day, else the end of that day.' }),
+      sent_late: yesno('sent_late', { label: 'Sent after the deadline', about: 'The order first went to the supplier after the order deadline for its delivery day. Empty for an order never sent and a delivery booked in without an order.' }),
+      late_by: duration({ sql: 'CASE WHEN {t}.sent_late THEN ' + LATE_BY + ' END' }, { label: 'How late', about: 'How long after its order deadline the order first went; empty for an order sent in time.' }),
       goods_value: pounds('subtotal', { label: 'Goods' }),
       vat_value: pounds('vat', { label: 'VAT' }),
       delivery_value: pounds('delivery_charge', { label: 'Delivery charge' }),
@@ -92,6 +102,11 @@ export default [
       without_order: count({ label: 'Booked in without an order', where: '{t}.no_order', about: 'Deliveries booked in that nobody had ordered.' }),
       received_late_count: count({ label: 'Booked in after their day', where: RECEIVED_LATE, about: 'Deliveries booked in on a later day than the order was for.' }),
       changed: count({ label: 'Changed after sending', where: '{t}.amended_at IS NOT NULL', about: 'Orders changed (or split) after the supplier had them.' }),
+      sent_orders: count({ label: 'Orders sent', where: SENT, about: 'Orders that went to the supplier (emailed or marked sent), each judged against the order deadline for its delivery day when it first went. Cancelled orders are left out.' }),
+      sent_late_count: count({ label: 'Sent late', where: SENT_LATE, about: 'Orders that first went to the supplier after the order deadline for their delivery day; orders the supplier agreed to take late count too. Cancelled orders are left out.' }),
+      sent_on_time: count({ label: 'Sent on time', where: LIVE + ' AND NOT {t}.sent_late', about: 'Orders that first went to the supplier before the order deadline for their delivery day. Cancelled orders are left out.' }),
+      late_rate: ratio('sent_late_count', 'sent_orders', { type: 'percent', label: 'Sent late (%)', about: 'Orders sent late out of the orders sent.' }),
+      average_late_by: avg({ sql: LATE_BY }, { type: 'duration', label: 'Average lateness', where: SENT_LATE, about: 'How long after their order deadline the orders sent late went, on average.' }),
     },
     links: {
       supplier: one('purchasing.suppliers', 'supplier_id', { label: 'Supplier' }),

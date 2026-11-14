@@ -81,6 +81,9 @@ try {
   // (migration 243). Not awaited: the till works without them.
   const { backfillCheckProjections } = await import('./services/posSvc.js')
   backfillCheckProjections(app.log).catch(err => app.log.warn({ err }, 'Till check breakdowns failed'))
+  // Supplier orders sent before migration 247 are judged on time or late.
+  const { backfillSentLate } = await import('./services/purchasingSvc.js')
+  backfillSentLate(app.log).catch(err => app.log.warn({ err }, 'Judging supplier orders sent late failed'))
 
   // Keys saved before migration 179 are sealed now.
   sealStoredSecrets()

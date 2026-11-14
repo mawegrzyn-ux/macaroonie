@@ -10,13 +10,13 @@ import * as XLSX from 'xlsx'
 import {
   chooseQuote, quotePrice, packLabel, packParts, orderTotals, lineAmounts, fitQty, packBaseQty,
   supplierForVenue, nextDeliveryDate, minutesToCutoff, poNumberLabel, fmtNum, round2, convertQty, slotText,
-  quickOrderCsv,
+  quickOrderCsv, orderDeadline, deadlinePassed,
 } from '../../../shared/procurement.js'
-import { localParts } from './orderSvc.js'
+import { localParts, zonedToUtc, addDays } from './orderSvc.js'
 import { PdfDoc, A4, fitText, wrapText } from './pdfDoc.js'
 import { sendEmail, emailCredentials } from './emailSvc.js'
 import { env } from '../config/env.js'
-import { withTenant } from '../config/db.js'
+import { withTenant, withSystem } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 
 const num = v => (v == null || v === '' ? 0 : Number(v))
@@ -400,6 +400,95 @@ export async function loadSuppliersForVenue(tx, tenantId, venue, supplierIds = n
   return out
 }
 
+// ── Sent on time or late (migration 247) ─────────────────────────
+
+/**
+ * How an order went against its order deadline when it went to the supplier
+ * at `sentAt` (a Date): { deadline_at, sent_late }. The deadline is the one
+ * for its delivery day with the supplier's settings for the venue
+ * (supplierForVenue(): cutoff and days' notice); sent_late is
+ * deadlinePassed() at the moment it went, at the venue, so the rule Today
+ * and the order screens use decides. deadline_at is the moment that
+ * deadline passes: the cutoff on the deadline day, else the start of the
+ * day after it (with no cutoff the whole deadline day counts).
+ */
+export function sendLateness(settings, deliveryDate, sentAt, tz) {
+  const zone = tz || 'Europe/London'
+  const dl = orderDeadline(settings, deliveryDate)
+  const deadline_at = dl.time ? zonedToUtc(dl.date, dl.time, zone) : zonedToUtc(addDays(dl.date, 1), '00:00', zone)
+  return { deadline_at, sent_late: deadlinePassed(settings, deliveryDate, localParts(sentAt, zone)) }
+}
+
+/**
+ * Judge a purchase order's first send, once: call right after it is marked
+ * sent or emailed, in the transaction that marked it. A delivery booked in
+ * without an order is never judged, and an order judged already keeps its
+ * judgement (a resend after a change doesn't move it). An order changed
+ * after sending before migration 247 doesn't know when it first went and
+ * stays unjudged. Returns the judgement, or null.
+ */
+export async function judgeFirstSend(tx, tenantId, poId) {
+  const [po] = await tx`
+    SELECT po.id, po.venue_id, po.supplier_id, po.delivery_date::text AS day, po.no_order, po.sent_late,
+           po.first_sent_at, po.sent_at, po.amended_at, v.timezone
+      FROM purchase_orders po
+      JOIN venues v ON v.id = po.venue_id AND v.tenant_id = po.tenant_id
+     WHERE po.id = ${poId} AND po.tenant_id = ${tenantId}`
+  if (!po || po.no_order || po.sent_late != null) return null
+  const at = po.first_sent_at || (po.amended_at ? null : po.sent_at)
+  if (!at) return null
+  const venue = { id: po.venue_id, timezone: po.timezone }
+  const settings = (await loadSuppliersForVenue(tx, tenantId, venue, [po.supplier_id]))[po.supplier_id]
+  if (!settings) return null
+  const j = sendLateness(settings, po.day, new Date(at), po.timezone)
+  await tx`
+    UPDATE purchase_orders SET first_sent_at = ${at}, deadline_at = ${j.deadline_at}, sent_late = ${j.sent_late}
+     WHERE id = ${po.id} AND tenant_id = ${tenantId} AND sent_late IS NULL`
+  return j
+}
+
+/**
+ * Judge the orders sent before migration 247 (it set their first_sent_at)
+ * with each supplier's settings for the venue as they are now. Run when the
+ * API starts, a batch at a time, by one process at a time.
+ */
+export async function backfillSentLate(log, { batch = 200 } = {}) {
+  let done = 0
+  for (;;) {
+    const n = await withSystem(async tx => {
+      const [lock] = await tx`SELECT pg_try_advisory_xact_lock(hashtext('purchasing:sent-late')) AS ok`
+      if (!lock.ok) return -1
+      const rows = await tx`
+        SELECT po.id, po.tenant_id, po.venue_id, po.supplier_id, po.delivery_date::text AS day, po.first_sent_at, v.timezone
+          FROM purchase_orders po
+          JOIN venues v ON v.id = po.venue_id AND v.tenant_id = po.tenant_id
+         WHERE po.first_sent_at IS NOT NULL AND po.sent_late IS NULL AND NOT po.no_order
+         ORDER BY po.tenant_id, po.venue_id, po.id
+         LIMIT ${batch}`
+      const settingsAt = new Map()
+      let judged = 0
+      for (const r of rows) {
+        const key = r.tenant_id + '|' + r.venue_id
+        if (!settingsAt.has(key)) {
+          settingsAt.set(key, await loadSuppliersForVenue(tx, r.tenant_id, { id: r.venue_id, timezone: r.timezone }))
+        }
+        const s = settingsAt.get(key)[r.supplier_id]
+        if (!s) continue
+        const j = sendLateness(s, r.day, new Date(r.first_sent_at), r.timezone)
+        await tx`
+          UPDATE purchase_orders SET deadline_at = ${j.deadline_at}, sent_late = ${j.sent_late}
+           WHERE id = ${r.id} AND tenant_id = ${r.tenant_id} AND sent_late IS NULL`
+        judged++
+      }
+      return judged
+    })
+    if (n <= 0) break
+    done += n
+  }
+  if (done) log?.info({ orders: done }, 'Supplier orders judged sent on time or late')
+  return done
+}
+
 // ── Purchase orders ──────────────────────────────────────────────
 
 /** Next PO number for the tenant (call inside the creating transaction). */
@@ -760,15 +849,18 @@ export async function emailPo(tenantId, poId, sentBy) {
     `)
     throw httpError(422, `Email to ${po.supplier_name} failed: ${err.message || err}`)
   }
-  const [row] = await withTenant(tenantId, tx => tx`
-    UPDATE purchase_orders
-       SET status = CASE WHEN status = 'to_send' THEN 'sent' ELSE status END,
-           sent_at = now(), sent_by = ${sentBy}, sent_via = 'email', sent_to = ${po.supplier_email},
-           send_error = NULL, updated_at = now()
-     WHERE id = ${poId} AND tenant_id = ${tenantId}
-     RETURNING id, status
-  `)
-  return row
+  return withTenant(tenantId, async tx => {
+    const [row] = await tx`
+      UPDATE purchase_orders
+         SET status = CASE WHEN status = 'to_send' THEN 'sent' ELSE status END,
+             sent_at = now(), sent_by = ${sentBy}, sent_via = 'email', sent_to = ${po.supplier_email},
+             send_error = NULL, updated_at = now()
+       WHERE id = ${poId} AND tenant_id = ${tenantId}
+       RETURNING id, status
+    `
+    await judgeFirstSend(tx, tenantId, poId)
+    return row
+  })
 }
 
 export { packBaseQty, fitQty, round2 }

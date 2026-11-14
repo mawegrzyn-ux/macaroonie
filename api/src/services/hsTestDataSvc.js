@@ -32,7 +32,7 @@ import { periodStartFor } from '../utils/checklistPeriod.js'
 import { openDatesOrNull } from './openDays.js'
 import { zonedToUtc } from './orderSvc.js'
 import { loadCookingPicker } from './cookingItems.js'
-import { loadItemQuotes, loadPreferred } from './purchasingSvc.js'
+import { loadItemQuotes, loadPreferred, loadSuppliersForVenue, sendLateness } from './purchasingSvc.js'
 import { chooseQuote, packLabel, quotePrice, packsToPar, fitQty, orderTotals } from '../../../shared/procurement.js'
 
 export const HS_KINDS = ['temps', 'holds', 'cooking', 'orders', 'deliveries', 'checklists']
@@ -365,6 +365,11 @@ export async function generateHsData(tx, tenantId, venueId, opts) {
         LEFT JOIN supplier_venues sv ON sv.supplier_id = s.id AND sv.venue_id = ${venueId} AND sv.tenant_id = ${tenantId}
        WHERE s.tenant_id = ${tenantId} AND s.is_active AND s.id = ANY(${[...bySupplier.keys()]}::uuid[])
     ` : []
+    // Each supplier's ordering settings for the venue (cutoff, days' notice):
+    // orders are sent against their deadline, as the real ones are judged.
+    const settingsOf = suppliers.length
+      ? await loadSuppliersForVenue(tx, tenantId, { id: venueId, timezone: tz }, suppliers.map(s => s.id))
+      : {}
     const havePo = new Set((await tx`
       SELECT supplier_id, delivery_date::text AS d FROM purchase_orders
        WHERE venue_id = ${venueId} AND tenant_id = ${tenantId} AND status <> 'cancelled'
@@ -390,7 +395,16 @@ export async function generateHsData(tx, tenantId, venueId, opts) {
           number = Number(m.n)
         }
         const id = randomUUID()
-        const sentAt = at(addDays(d, -1), '14:00', tz, rand(0, 120))
+        // Most orders go in before the supplier's order deadline for the
+        // day, about one in eight after it (reports: Orders sent late),
+        // never later than now. Judged as a real first send is.
+        const deadline = sendLateness(settingsOf[s.id], d, new Date(), tz).deadline_at
+        const late = Math.random() < 0.12
+        const sentAt = new Date(Math.min(
+          deadline.getTime() + (late ? randInt(5, 120) : -randInt(15, 360)) * 60_000,
+          Date.now() - 60_000,
+        ))
+        const judged = sendLateness(settingsOf[s.id], d, sentAt, tz)
         const lines = chosen.map(({ item, quote }, i) => {
           const par = packsToPar(item.par_base, quote)
           const qty = fitQty(par > 0 ? Math.max(1, Math.round(par * rand(0.7, 1.3))) : randInt(1, 4), quote)
@@ -411,6 +425,7 @@ export async function generateHsData(tx, tenantId, venueId, opts) {
             subtotal: t.subtotal, vat: t.vat, delivery_charge: t.delivery_charge, total: t.total,
             created_by: who(), created_at: new Date(sentAt.getTime() - randInt(5, 90) * 60_000),
             sent_at: sentAt, sent_by: who(), sent_via: s.send_method,
+            first_sent_at: sentAt, deadline_at: judged.deadline_at, sent_late: judged.sent_late,
             ...(received ? { received_at: at(d, '07:00', tz, rand(0, 240)), received_by: who() } : {}),
             is_generated: true,
           },

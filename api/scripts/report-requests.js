@@ -235,6 +235,9 @@ export const REQUESTS = [
     expect: { subject: 'purchasing.order_lines', values: [['short', 'problems']], rows: ['order.supplier'], period: ['this_year', 'year_to_date'] } },
   { area: 'purchasing', request: 'Spend by inventory category this month',
     expect: { subject: 'purchasing.order_lines', values: [['spend', 'goods']], rows: [['category_name', 'item.category']], period: ['this_month', 'month_to_date'] } },
+  { area: 'purchasing', request: 'Which suppliers did we send orders to after their cutoff last month',
+    expect: { subject: 'purchasing.orders', values: [['sent_late_count', 'late_rate']], rows: ['supplier'], period: 'last_month' },
+    look: 'Orders sent late: each order judged against its order deadline when it first went to the supplier.' },
 
   // ── Food safety and H&S ──
   { area: 'safety', request: 'Fridge readings out of range last week',

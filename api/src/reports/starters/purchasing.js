@@ -77,6 +77,23 @@ export default [
   }),
 
   starter({
+    key: 'purchasing_orders_sent_late',
+    name: 'Orders sent late',
+    about: 'Each supplier\'s orders for delivery in the period and how many went after the order deadline for their delivery day (the supplier\'s cutoff and days\' notice for the venue), judged when each order first went. Orders the supplier agreed to take late count as late; cancelled orders and deliveries booked in without an order are left out.',
+    period: 'last_month',
+    spec: {
+      subject: 'purchasing.orders',
+      rows: ['supplier.name'],
+      values: m('sent_orders', 'sent_late_count', 'late_rate', 'average_late_by'),
+      sort: [{ by: 'sent_late_count', dir: 'desc' }],
+      drill: {
+        down: ['venue.name', { field: 'date', bucket: 'week' }, 'sent_by'],
+        rows: ['date', 'number', 'venue.name', 'supplier.name', 'deadline_at', 'first_sent_at', 'late_by', 'sent_by', 'sent_via'],
+      },
+    },
+  }),
+
+  starter({
     key: 'purchasing_invoice_prices',
     name: 'Invoices above the price ordered',
     about: 'Each supplier\'s lines whose invoice price per pack was above the price they were ordered at, and what the invoices came to over the orders. Needs Purchasing setup to see prices.',
