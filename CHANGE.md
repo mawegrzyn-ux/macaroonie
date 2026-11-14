@@ -6,6 +6,15 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-14 — Reports: a last round of checks on the new kinds of report]
+
+No migration. Nothing in the app changed but the in-app Help and Docs.
+
+**Notes**
+- Every kind of report added on 14 November (the kitchen, kiosks, loyalty, purchasing, food safety and H&S, Cash Recon, the rota, H&S days, orders sent late, figures from other subjects, menus, screens, the website, local info, Pepper and your group) went through a last round of checks: all the automatic tests, a run that breaks the report rules on purpose, one at a time, to see the tests notice, and the report pages again in a browser.
+- The automatic checks now cover seven report rules they couldn't tell right from wrong before: an H&S action whose corrective action is only spaces (it counts as put right, as on the Overview), a closed issue (not open), a cancelled supplier order and its lines (they count nothing), venues in time zones a day apart (each one's H&S days end at its own today), a wage paid on a day outside its own week (it counts in its week), a delivery booked in without an order (never judged as sent late, since it was never sent) and an order sent a second time (it keeps the judgement it got the first time). All seven were already right; the checks now keep them that way.
+- Help no longer lists rota pay and tips, Cash Recon, menus, reviews and reports about two things at once as still to come (they arrived on 14 November); what is still to come is PDFs and reports sent by email on a schedule, a list of past runs, reports on dashboards and the phone, and links other apps can read a report from. The kitchen screens section no longer says the venue hub comes later: with a hub linked and Hub first on (Store tech → Venue hub), the tills and kitchen screens keep working together with the internet down.
+
 ## [2026-11-14 — Reports: Pepper's use, your team and group, and starter reports for every area]
 
 No migration.

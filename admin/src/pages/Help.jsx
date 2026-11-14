@@ -2670,9 +2670,9 @@ export default function Help() {
               and a guest's customer record needs Customers access as well.
             </P>
             <InfoBox>
-              Still to come: rota pay and tips, cash reconciliation, menus, reviews and the other
-              areas; a report about two things at once (sales beside staff costs); and reports sent by
-              email as PDFs on a schedule. The builder has no undo (leaving without
+              Still to come: PDFs, page layouts and reports sent by email on a schedule, a list of
+              past runs, reports on dashboards and the phone, and links other apps can read a report
+              from. The builder has no undo (leaving without
               saving goes back to the last save), and filters made of several parts, which a few
               starter reports use, can be taken off but not changed on screen. The Till reports page,
               the Online orders report and the Kitchen report stay where they are.
@@ -7552,8 +7552,8 @@ export default function Help() {
             <InfoBox type="info">
               Kitchen screens talk to Macaroonie over the internet, like the tills. If the internet drops, a
               screen keeps what it has and saves its taps, then catches up when it's back; new orders reach it
-              once the till can send them. Working between the till and the kitchen with the internet down
-              needs the venue hub, which comes later.
+              once the till can send them. To keep the tills and the kitchen working together with the
+              internet down, link a venue hub and leave <strong>Hub first</strong> on (Store tech → Venue hub).
             </InfoBox>
 
             <H3>Setting up (Store tech → Kitchen screens)</H3>

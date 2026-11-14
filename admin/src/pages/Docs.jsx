@@ -9756,10 +9756,9 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
             </P>
 
             <InfoBox>
-              <strong>Not built yet.</strong> The other modules with
-              stored results for rota pay and tips, cash variance and H&amp;S status, layouts and PDFs with
-              schedules and email, and data links. The plan&apos;s private file store moves to the phase that
-              first keeps files. Limits of the builder: no undo; filters made of several parts (<Mono>any</Mono>,{' '}
+              <strong>Not built yet.</strong> Layouts, Page reports and PDFs with schedules and email, the
+              private file store and a past-runs screen (phase 4); data links, push, a dashboard widget, the
+              phone viewer, saved reports in the menu search and Today alerts (phase 5). Limits of the builder: no undo; filters made of several parts (<Mono>any</Mono>,{' '}
               <Mono>all</Mono>, <Mono>has</Mono>) are said in words and can be taken off, never made or edited on
               screen; tags aren&apos;t edited; the Data panel walks two links deep (a deeper path a starter uses
               still shows and runs); a top or bottom few ranks by a value that is shown; the question before
@@ -9796,11 +9795,13 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
               boxes (Chromium does); for its 15 minutes the link opens with no login for anyone who has
               it, showing what the person who pressed Print could see then. Limits of the smart builder:
               tested only against a stand-in Claude (run <Mono>report-smart-check.js</Mono> against the live
-              model before relying on it); one subject per report, as in the builder; names in the data are
+              model before relying on it); one subject per report with figures from up to three others beside its
+              own, as in the builder; names typed for another subject&apos;s filters aren&apos;t looked up; names in the data are
               looked for among the first 500 values of the report&apos;s period; filters made of several parts,
               tags, drill settings and what a row opens aren&apos;t set by Pepper (Open in the builder for those);
               a file is read for what it asks, not checked against your figures. Limits of Pepper&apos;s report
-              tools: tested only against a stand-in Claude; one subject per report; a plan can&apos;t make filters
+              tools: tested only against a stand-in Claude; one subject per report with figures from up to three
+              others beside its own; a plan can&apos;t make filters
               of several parts, tags, drill-down settings or what a row opens (a report that has them keeps them
               when its plan is changed); <Mono>run_report</Mono> changes only the period and the venues (other
               choices go through <Mono>get_report</Mono>&apos;s plan and <Mono>ask_data</Mono>); Pepper reads 200
