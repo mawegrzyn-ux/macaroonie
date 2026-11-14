@@ -6,6 +6,17 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-14 — Till: each group of choices under its own heading]
+
+No migration.
+
+**Fixed**
+- In a till layout's Dish choices zone, a dish's groups of choices ran into each other: the first choices of a second group (Flavour) filled the end of the first group's row, under its heading (Size), and only what was left showed under its own heading. Each group now starts on a row of its own under its heading, its choices in the menu's order. The designer's preview shows the same.
+
+**Notes**
+- Only Dish choices zones changed: in a Buttons zone a smaller button still fills a gap left earlier on the page, as before.
+- Tried in Chromium at 1280 px with a mouse, not yet on a real tablet.
+
 ## [2026-11-14 — Today: cash-ups and wages to pay]
 
 No migration.

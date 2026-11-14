@@ -4679,7 +4679,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               and any zone shown as a pop-up), a pop-up nothing closes, an Order zone shown as a pop-up that no button
               opens); <Mono>layoutWarnings()</Mono> only advises.{' '}
               <Mono>packCells(cells, zone)</Mono> places a zone&apos;s buttons (the first free place row by row; a button
-              bigger than the grid is cut down) and returns <Mono>&#123; pages, rest, hidden, rows, cols &#125;</Mono>. The
+              bigger than the grid is cut down) and returns <Mono>&#123; pages, rest, hidden, rows, cols &#125;</Mono>. In a
+              Dish choices zone (<Mono>type</Mono> modifiers) each cell goes in the first free place after the cell before it
+              (<Mono>Grid</Mono>&apos;s <Mono>inOrder</Mono>, 14 Nov 2026): a group&apos;s heading is as wide as the zone, so a
+              later group&apos;s choices filling the gap at the end of the row before it put them under the wrong heading. The
               till&apos;s <Mono>ZoneGrid.jsx</Mono> and the designer&apos;s <Mono>GridPreview</Mono> both use it, so a button
               lands in the same place in both.
             </P>

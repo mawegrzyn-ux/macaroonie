@@ -188,6 +188,48 @@ test('which zone shows which choices', () => {
   assert.equal(onlyOptional.optional.id, 'optional0')
 })
 
+test('packing: a Dish choices zone keeps a group\'s choices under its heading', () => {
+  // Fries: Size (Regular, Large), then Fries Flavour (Wingstop Style, Lemon
+  // Pepper, Cajun), each group a heading the width of the zone, 4 across.
+  const head = { w: 4, h: 1 }
+  const one = { w: 1, h: 1 }
+  const fries = [head, one, one, head, one, one, one]
+  const at = r => r.pages.map(pg => pg.map(p => [p.i, p.x, p.y]))
+  const want = [[0, 0, 0], [1, 0, 1], [2, 1, 1], [3, 0, 2], [4, 0, 3], [5, 1, 3], [6, 2, 3]]
+  for (const overflow of ['scroll', 'pages', 'more', 'hide']) {
+    assert.deepEqual(at(packCells(fries, { type: 'modifiers', cols: 4, rows: 4, overflow })), [want], overflow + ': in order, each heading on a row of its own')
+  }
+  // Other zones take the first free place: the flavours fill the end of the
+  // Size row (what a Dish choices zone did before, the bug).
+  assert.deepEqual(at(packCells(fries, { type: 'buttons', cols: 4, rows: 4, overflow: 'pages' })),
+    [[[0, 0, 0], [1, 0, 1], [2, 1, 1], [3, 0, 2], [4, 2, 1], [5, 3, 1], [6, 0, 3]]])
+  // Scrolling down, the rows it takes.
+  assert.equal(packCells(fries, { type: 'modifiers', cols: 4, rows: 2, overflow: 'scroll' }).rows, 4)
+  // Pages: what doesn't fit after the cell before it starts the next page, in order.
+  assert.deepEqual(at(packCells(fries, { type: 'modifiers', cols: 4, rows: 3, overflow: 'pages' })),
+    [[[0, 0, 0], [1, 0, 1], [2, 1, 1], [3, 0, 2]], [[4, 0, 0], [5, 1, 0], [6, 2, 0]]])
+  // More: the last cell is kept for More, so the second heading (a whole
+  // row) doesn't fit; it and everything after it go behind More, in order.
+  const more = packCells(fries, { type: 'modifiers', cols: 4, rows: 3, overflow: 'more' })
+  assert.deepEqual(more.pages[0].map(p => p.i), [0, 1, 2])
+  assert.deepEqual(more.rest, [3, 4, 5, 6])
+  // A wider button (a group asked on request) after a group's choices goes
+  // on the same row when it fits there, else on the next; never back up.
+  const wide = { w: 2, h: 1 }
+  assert.deepEqual(at(packCells([head, one, one, one, wide, one], { type: 'modifiers', cols: 4, rows: 4, overflow: 'pages' })),
+    [[[0, 0, 0], [1, 0, 1], [2, 1, 1], [3, 2, 1], [4, 0, 2], [5, 2, 2]]])
+  // Taller cells still never overlap.
+  const mixed = packCells(Array.from({ length: 30 }, (_, i) => ({ w: 1 + (i % 3), h: 1 + (i % 2) })), { type: 'modifiers', cols: 4, rows: 3, overflow: 'pages' })
+  for (const page of mixed.pages) {
+    for (let i = 0; i < page.length; i++) for (let j = i + 1; j < page.length; j++) assert.ok(!overlaps(page[i], page[j]), 'cells on a page don\'t overlap')
+    // Reading order: each cell starts at or after the one before it.
+    for (let i = 1; i < page.length; i++) {
+      const a = page[i - 1], b = page[i]
+      assert.ok(b.y > a.y || (b.y === a.y && b.x >= a.x + a.w), 'in reading order')
+    }
+  }
+})
+
 test('packing: scroll down, across in one row, pages, More, hide', () => {
   const ones = n => Array.from({ length: n }, () => ({ w: 1, h: 1 }))
   // Scroll: carries on down; a 2x2 takes the first place it fits.
