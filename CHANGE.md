@@ -6,6 +6,22 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-14 — Reports: figures from other subjects (sales against labour, the weather, bookings)]
+
+No migration.
+
+**Added**
+- **Figures from other subjects** (Reports → New report → Set up → Other subjects, and Pepper): a summary can show figures from up to three other kinds of thing beside its own. Each is counted on its own, over the same period and venues, and lined up by the report's rows: by the day (weekly figures, such as the rota's, by week, month, quarter or year), by the venue, dish or server they share, or by the same subject with filters of its own (lunch beside dinner). Calculations can use every subject's figures (pay as a share of net sales, sales per booked guest). Totals, the period before, a top few with everything else, charts, files, printing and drill-downs take them too; a figure from another subject opens into that subject's rows ("The rota weeks behind Hours worked").
+- **Weather** as a subject under Local info: each venue's day from the Local info weather capture (conditions, highest and lowest temperatures, rain, wind, wet days), to put beside sales.
+- **3 more starter reports** (72 in all): Sales against the weather; Sales, labour and bookings by venue; Labour against sales by week.
+- **Pepper** builds and changes reports with other subjects' figures ("sales against labour by week", "net sales and booked guests by day").
+
+**Notes**
+- Rows that can't line up (a field only one subject has, like the till's server beside the rota's people) are refused when saving; a subject your role can't see is left out of the report with a note.
+- Weekly figures beside a period that isn't whole weeks count each week whose Monday is in the period (a note says so). A table across and a list show their own subject only.
+- The weather is the forecast read last for each day, not a measurement; days before the weather capture was switched on have none.
+- Next: the remaining areas (menus, reviews, local info's other items, emails, Pepper's own usage, devices), then the end-of-phase checks.
+
 ## [2026-11-14 — Reports: Cash Recon, staff and the rota, H&S days, orders sent late]
 
 Migration 247 (`purchase_orders.first_sent_at`, `deadline_at`, `sent_late`).
