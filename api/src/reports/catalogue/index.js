@@ -23,6 +23,9 @@ import loyalty from './loyalty.js'
 import cash from './cash.js'
 import staff from './staff.js'
 import local from './local.js'
+import menus from './menus.js'
+import screens from './screens.js'
+import website from './website.js'
 import { templateRefs } from './define.js'
 import { MODULE_KEYS } from '../../config/modules.js'
 import { NUMERIC_TYPES } from '../../../../shared/reports/format.js'
@@ -42,6 +45,7 @@ export const AREAS = [
   { key: 'safety', label: 'Food safety and H&S' },
   { key: 'guests', label: 'Customers' },
   { key: 'menus', label: 'Menus' },
+  { key: 'website', label: 'Website and reviews' },
   { key: 'local', label: 'Local info' },
   { key: 'tech', label: 'Store tech' },
   { key: 'shared', label: 'Your group' },
@@ -147,7 +151,7 @@ function build(lists) {
   return { subjects }
 }
 
-export const CATALOGUE = build([common, till, online, bookings, cash, staff, kitchen, kiosks, loyalty, purchasing, safety, local])
+export const CATALOGUE = build([common, till, online, bookings, cash, staff, kitchen, kiosks, loyalty, purchasing, safety, menus, website, local, screens])
 
 /** Every module a subject, field, figure or link of the catalogue asks for. */
 export const CATALOGUE_MODULES = [...new Set(Object.values(CATALOGUE.subjects).flatMap(s => [

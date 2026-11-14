@@ -46,6 +46,9 @@ export default [
     measures: {
       menus: count({ label: 'Menus' }),
     },
+    links: {
+      releases: many('menu.releases', 'menu_id', { label: 'Publishes', about: 'Each time the menu was published, or is to be.' }),
+    },
     list: ['name', 'published'],
     sort: [{ by: 'name', dir: 'asc' }],
     skip: [
@@ -113,6 +116,10 @@ export default [
     },
     links: {
       section: one('menu.sections', 'section_id', { label: 'Section' }),
+      tags: many('menu.dish_tags', 'item_id', { label: 'Allergens and dietary tags' }),
+      option_groups: many('menu.dish_option_groups', 'item_id', { label: 'Option groups' }),
+      option_prices: many('menu.dish_option_prices', 'item_id', { label: 'Its own option prices', about: 'Options whose price this dish sets itself.' }),
+      own_options: many('menu.dish_own_options', 'item_id', { label: 'Its own options', about: 'One-off options only this dish has, outside any option group.' }),
     },
     list: ['name', 'section.name', 'section.menu.name', 'price'],
     sort: [{ by: 'name', dir: 'asc' }],

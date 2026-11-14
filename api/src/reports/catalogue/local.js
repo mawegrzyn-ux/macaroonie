@@ -2,16 +2,20 @@
 //
 // Local info around each venue (migration 240; docs/REPORTS.md 20): the
 // weather captured for each venue and day, to put beside sales, covers and
-// labour. The weather rows are local_info_items of kind weather that hold a
+// labour; everything else on the Local info page (traffic, events,
+// incidents, and what staff typed in); and the captures that find it.
+//
+// The weather rows are local_info_items of kind weather that hold a
 // forecast (shared/localInfo.js isForecast()): a venue with two weather
 // captures has two rows a day, so the subject keeps the one read last. The
 // words and the kind of weather come from the code (weatherCodes(),
 // WEATHER_GROUPS), never the row's title, which a capture never rewrites.
-// Days someone hid on the Local info page are left out, as on that page and
-// on Today. Traffic, events and incidents come with phase 3d.
+// local.items is every other item. Items someone hid on the Local info page
+// are left out of both, as on that page and on Today; an item for the whole
+// group (no venue) shows only with every venue picked.
 
-import { subject, choice, number, yesno, moment, count, avg, min, max, ratio } from './define.js'
-import { weatherCodes, WEATHER_GROUPS, WET_DAY_MM } from '../../../../shared/localInfo.js'
+import { subject, text, choice, number, yesno, date, moment, count, avg, min, max, ratio, one, many } from './define.js'
+import { weatherCodes, WEATHER_GROUPS, WET_DAY_MM, KIND_LABELS } from '../../../../shared/localInfo.js'
 
 const slug = words => String(words).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
 
@@ -47,6 +51,20 @@ const WEATHER_DAYS = `(
 )`
 
 const WET = '({t}.precip_mm >= ' + WET_DAY_MM + ')'
+const SEVERITY = { info: 'Info', notice: 'Worth knowing', warning: 'Warning' }
+const KINDS = { ...KIND_LABELS, other: 'Other' }
+
+// An item that is a weather forecast (local.weather's rows) and one that
+// isn't (local.items'): the same test, so every item is in exactly one.
+const FORECAST = "({t}.kind = 'weather' AND COALESCE(jsonb_typeof({t}.data->'weather_code') = 'number', false))"
+
+// How often a capture runs, worded as the Local info page words it
+// (frequencyText() and everyHours()).
+const HOW_OFTEN = `(CASE {t}.frequency
+   WHEN 'hours' THEN 'Every ' || LEAST(24, GREATEST(1, COALESCE(NULLIF({t}.every_hours, 0), 4))) || ' hours'
+   WHEN 'weekly' THEN 'Once a week (Monday morning)'
+   ELSE 'Once a day (early morning)' END)`
+const FAILING = "(COALESCE({t}.last_error, '') <> '')"
 
 export default [
   subject({
@@ -63,7 +81,7 @@ export default [
     fields: {
       conditions: choice({ sql: caseOf('{t}.weather_code', WORD_OF_CODE) }, WORDS, { label: 'Weather', empty: 'Not known' }),
       kind: choice({ sql: caseOf('{t}.weather_code', GROUP_OF_CODE) }, GROUPS, { label: 'Kind of weather', empty: 'Not known', about: 'Clear or bright, cloudy, fog, drizzle, rain or showers, snow, or a thunderstorm.' }),
-      severity: choice('severity', { info: 'Info', notice: 'Worth knowing', warning: 'Warning' }, { label: 'How it shows', about: 'Warning for heavy rain or snow, thunder, a gale or a downpour; worth knowing for fog, rain, snow or a strong wind; else info. As on the Local info page.' }),
+      severity: choice('severity', SEVERITY, { label: 'How it shows', about: 'Warning for heavy rain or snow, thunder, a gale or a downpour; worth knowing for fog, rain, snow or a strong wind; else info. As on the Local info page.' }),
       temp_max: number('temp_max', { label: 'Highest (°C)', decimals: 1 }),
       temp_min: number('temp_min', { label: 'Lowest (°C)', decimals: 1 }),
       rain: number('precip_mm', { label: 'Rain and snow (mm)', decimals: 1, adds: true }),
@@ -87,5 +105,89 @@ export default [
     },
     list: ['date', 'venue.name', 'conditions', 'temp_min', 'temp_max', 'rain', 'wind', 'severity'],
     sort: [{ by: 'date', dir: 'desc' }],
+  }),
+
+  subject({
+    key: 'local.items',
+    label: 'Local news and events',
+    one: 'local item',
+    area: 'local',
+    module: 'local_info',
+    about: 'Traffic, events and incidents around each venue on the Local info page: what the captures found and what staff typed in. Weather forecasts are in Weather. Items someone hid are left out; an item for the whole group shows only with every venue picked.',
+    from: 'local_info_items',
+    where: 'NOT {t}.hidden AND NOT ' + FORECAST,
+    name: 'title',
+    venue: 'venue_id',
+    date: { sql: '{t}.starts_on', label: 'Day it starts' },
+    fields: {
+      title: text('title', { label: 'Title' }),
+      details: text('details', { label: 'Details' }),
+      kind: choice('kind', KINDS, { label: 'Kind' }),
+      severity: choice('severity', SEVERITY, { label: 'How it shows' }),
+      place: text('place', { label: 'Where' }),
+      last_day: date({ sql: 'COALESCE({t}.ends_on, {t}.starts_on)' }, { label: 'Last day' }),
+      days: number({ sql: '(COALESCE({t}.ends_on, {t}.starts_on) - {t}.starts_on + 1)' }, { label: 'Days it runs', decimals: 0 }),
+      time: text('time_text', { label: 'Time' }),
+      link: text('url', { label: 'Web address' }),
+      came_from: choice({ sql: "(CASE WHEN {t}.source_id IS NULL THEN 'typed' ELSE 'captured' END)" }, { typed: 'Typed in', captured: 'Found by a capture' }, { label: 'How it came in' }),
+      typed_by: text('created_by', { label: 'Typed in by', pii: true }),
+      found_at: moment('captured_at', { label: 'Found' }),
+    },
+    measures: {
+      items: count({ label: 'Items' }),
+      warnings: count({ label: 'Warnings', where: "{t}.severity = 'warning'" }),
+      events: count({ label: 'Events', where: "{t}.kind = 'events'" }),
+      traffic: count({ label: 'Traffic', where: "{t}.kind = 'traffic'" }),
+      incidents: count({ label: 'Incidents', where: "{t}.kind = 'incidents'" }),
+      typed: count({ label: 'Typed in', where: '{t}.source_id IS NULL' }),
+      captured: count({ label: 'Found by a capture', where: '{t}.source_id IS NOT NULL' }),
+    },
+    links: {
+      capture: one('local.captures', 'source_id', { label: 'Capture' }),
+    },
+    list: ['date', 'venue.name', 'kind', 'title', 'place', 'severity'],
+    sort: [{ by: 'date', dir: 'desc' }],
+    // The capture's own copy of what it found and its duplicate check.
+    skip: ['external_key', 'updated_at'],
+  }),
+
+  subject({
+    key: 'local.captures',
+    label: 'Local info captures',
+    one: 'capture',
+    area: 'local',
+    module: 'local_info',
+    about: 'The captures on the Local info page that find the weather, traffic, events and incidents around each venue: how often each runs, when it ran last, and whether it ran into a problem.',
+    from: 'local_info_sources',
+    name: 'kind',
+    venue: 'venue_id',
+    fields: {
+      kind: choice('kind', KINDS, { label: 'What it captures' }),
+      enabled: yesno('enabled', { label: 'Switched on' }),
+      how_often: text({ sql: HOW_OFTEN }, { label: 'How often' }),
+      place: text('place', { label: 'Place' }),
+      site: text('site', { label: 'Site searched', empty: 'Any site' }),
+      query: text('query', { label: 'Search words' }),
+      found_as: text('geocoded_place', { label: 'Found on the map as', about: 'Where a weather capture found the place on the map.' }),
+      last_ran: moment('last_run_at', { label: 'Last ran' }),
+      next_run: moment('next_run_at', { label: 'Next run' }),
+      running: yesno({ sql: '(COALESCE({t}.running_until > now(), false))' }, { label: 'Running now' }),
+      failing: yesno({ sql: FAILING }, { label: 'Ran into a problem', about: 'Its last run ended with a problem, shown on its row on the Local info page.' }),
+      problem: text('last_error', { label: 'The problem' }),
+      made_at: moment('created_at', { label: 'Added' }),
+    },
+    measures: {
+      captures: count({ label: 'Captures' }),
+      switched_on: count({ label: 'Switched on', where: '{t}.enabled' }),
+      failing_captures: count({ label: 'Ran into a problem', where: FAILING }),
+    },
+    links: {
+      items: many('local.items', 'source_id', { label: 'What it found', about: 'Traffic, events and incidents it found; a weather capture\'s forecasts are in Weather.' }),
+    },
+    list: ['venue.name', 'kind', 'how_often', 'enabled', 'last_ran', 'failing'],
+    sort: [{ by: 'kind', dir: 'asc' }],
+    // Where a weather capture found the place, as numbers (found_as says it
+    // in words).
+    skip: ['lat', 'lon', 'updated_at'],
   }),
 ]

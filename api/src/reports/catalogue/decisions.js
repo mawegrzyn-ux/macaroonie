@@ -18,28 +18,6 @@
 
 /** Reported on later. { area: { happen: [...], group: [...] } }, all in phase 3 unless `phase` says otherwise. */
 export const PLANNED = {
-  guests: {
-    happen: ['reviews'],
-    group: [],
-  },
-  menus: {
-    happen: ['menu_releases'],
-    group: ['menu_variant_groups', 'menu_variant_options', 'menu_dietary_tags', 'menu_item_dietary', 'menu_item_variant_groups', 'menu_item_variant_prices', 'menu_item_variants'],
-  },
-  screens: {
-    happen: [],
-    group: ['screens', 'screen_designs', 'screen_playlists', 'screen_walls'],
-  },
-  website: {
-    happen: [],
-    group: ['website_pages', 'media_items', 'media_categories'],
-  },
-  local: {
-    // local_info_items' weather days are read by local.weather; traffic,
-    // events and incidents come with the rest of phase 3d.
-    happen: [],
-    group: ['local_info_sources'],
-  },
   pepper: {
     // Counts and dates only: never what was said.
     happen: ['ai_usage', 'ai_usage_people', 'ai_actions', 'ai_conversations'],

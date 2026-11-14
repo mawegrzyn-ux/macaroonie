@@ -177,146 +177,6 @@ export default [
     skip: ['short_name', 'hold_by_default', 'colour', 'sort_order', 'created_at'],
   }),
 
-  subject({
-    key: 'till.roles',
-    label: 'Till roles',
-    one: 'till role',
-    area: 'till',
-    module: 'pos_setup',
-    about: 'What people may do on the till (Server, Supervisor, Manager), set up in Store tech.',
-    from: 'pos_roles',
-    name: 'name',
-    fields: {
-      name: text('name'),
-    },
-    measures: { roles: count({ label: 'Till roles' }) },
-    links: {
-      people: many('staff.people', 'pos_role_id', { label: 'People with it' }),
-    },
-    list: ['name'],
-    sort: [{ by: 'name', dir: 'asc' }],
-    skip: ['permissions', 'sort_order', 'created_at'],
-  }),
-
-  subject({
-    key: 'till.floor_areas',
-    label: 'Floor areas',
-    one: 'floor area',
-    area: 'till',
-    module: 'pos_setup',
-    about: 'The rooms of each venue\'s floor plan on the till (Restaurant, Terrace), with the revenue stream a room sells in.',
-    from: 'floor_areas',
-    name: 'name',
-    venue: 'venue_id',
-    fields: {
-      name: text('name'),
-    },
-    measures: { areas: count({ label: 'Floor areas' }) },
-    links: {
-      stream: one('till.streams', 'revenue_stream_id', { label: 'Revenue stream' }),
-      tables: many('bookings.tables', 'floor_area_id', { label: 'Tables' }),
-    },
-    list: ['name', 'venue.name', 'stream.name'],
-    sort: [{ by: 'name', dir: 'asc' }],
-    // Its size and drawing on the floor plan.
-    skip: ['width', 'height', 'decor', 'sort_order', 'created_at'],
-  }),
-
-  subject({
-    key: 'till.devices',
-    label: 'Devices',
-    one: 'device',
-    area: 'tech',
-    module: 'pos_setup',
-    about: 'The tills, kitchen screens, self-order kiosks and venue hubs set up in Store tech, with when each last talked to us. Removed ones stay, so their sales keep a name.',
-    from: 'pos_devices',
-    name: 'name',
-    venue: 'venue_id',
-    fields: {
-      name: text('name'),
-      kind: choice('kind', DEVICE_KINDS, { label: 'Kind of device' }),
-      code: text('short_code', { label: 'Short code', about: 'The code its check numbers start with (T2 in T2-47).' }),
-      app_version: text('app_version', { label: 'App version' }),
-      linked_at: moment('paired_at', { label: 'Linked' }),
-      last_seen_at: moment('last_seen_at', { label: 'Last seen' }),
-      removed: yesno({ sql: '({t}.revoked_at IS NOT NULL)' }, { label: 'Removed' }),
-      removed_at: moment('revoked_at', { label: 'Removed at' }),
-      added_at: moment('created_at', { label: 'Added' }),
-    },
-    measures: {
-      devices: count({ label: 'Devices', where: '{t}.revoked_at IS NULL', about: 'Devices set up and not removed.' }),
-      removed_devices: count({ label: 'Removed', where: '{t}.revoked_at IS NOT NULL', about: 'Devices removed in Store tech.' }),
-    },
-    list: ['name', 'kind', 'venue.name', 'code', 'last_seen_at', 'app_version', 'removed'],
-    sort: [{ by: 'name', dir: 'asc' }],
-    // How it signs in, its settings and what it last reported: none of it a figure.
-    skip: ['secret_hash', 'pairing_code_hash', 'pairing_expires_at', 'user_agent', 'settings', 'created_by', 'info', 'info_at', 'update_requested_at', 'pending_changes', 'pending_at'],
-  }),
-
-  subject({
-    key: 'till.card_readers',
-    label: 'Card machines',
-    one: 'card machine',
-    area: 'tech',
-    module: 'pos_setup',
-    about: 'The card machines tills and kiosks take payments on, set up in Store tech.',
-    from: 'pos_card_readers',
-    name: 'name',
-    venue: 'venue_id',
-    fields: {
-      name: text('name'),
-      provider: choice('provider', CARD_PROVIDERS),
-      model: text('model'),
-      serial: text('serial', { label: 'Serial number' }),
-      online: yesno('online', { label: 'Online when last checked' }),
-      checked_at: moment('status_at', { label: 'Last checked' }),
-      removed: yesno({ sql: '({t}.removed_at IS NOT NULL)' }, { label: 'Removed' }),
-      added_at: moment('created_at', { label: 'Added' }),
-    },
-    measures: {
-      machines: count({ label: 'Card machines', where: '{t}.removed_at IS NULL', about: 'Card machines set up and not removed.' }),
-    },
-    links: {
-      payments: many('till.card_payments', 'reader_id', { label: 'Payments' }),
-    },
-    list: ['name', 'provider', 'venue.name', 'model', 'online', 'checked_at'],
-    sort: [{ by: 'name', dir: 'asc' }],
-    // The provider's own ids and the account it is reached through.
-    skip: ['account_id', 'provider_reader_id'],
-  }),
-
-  subject({
-    key: 'till.printers',
-    label: 'Printers',
-    one: 'printer',
-    area: 'tech',
-    module: 'pos_setup',
-    about: 'The receipt and kitchen printers set up in Store tech: on the network (printed by the venue hub) or plugged into a till, kitchen screen or hub.',
-    from: 'pos_printers',
-    name: 'name',
-    venue: 'venue_id',
-    fields: {
-      name: text('name'),
-      kind: choice('kind', { station: 'Kitchen printer', receipt: 'Receipt printer' }, { label: 'Kind of printer' }),
-      connection: choice('connection', { hub: 'On the network', device: 'Plugged into a device' }),
-      address: text('host', { label: 'Network address' }),
-      columns: number('columns', { label: 'Characters a line', decimals: 0 }),
-      active: yesno('is_active', { label: 'In use' }),
-      checked_at: moment('status_at', { label: 'Last checked' }),
-    },
-    measures: {
-      printers: count({ label: 'Printers', where: '{t}.is_active', about: 'Printers in use.' }),
-    },
-    links: {
-      backup: one('till.printers', 'backup_printer_id', { label: 'Backup printer' }),
-      device: one('till.devices', 'device_id', { label: 'Plugged into' }),
-      jobs: many('till.print_jobs', 'printer_id', { label: 'Print jobs' }),
-    },
-    list: ['name', 'kind', 'venue.name', 'connection', 'device.name', 'active'],
-    sort: [{ by: 'name', dir: 'asc' }],
-    skip: ['port', 'status', 'local_id', 'sort_order', 'created_at'],
-  }),
-
   // ── Trading days ───────────────────────────────────────────
 
   subject({
@@ -705,6 +565,148 @@ export default [
     },
     list: ['date', 'check.number', 'rate', 'net', 'vat', 'gross'],
     sort: [{ by: 'date', dir: 'desc' }],
+  }),
+
+  // ── Set up on the tills: roles, floor areas, devices ───────
+
+  subject({
+    key: 'till.roles',
+    label: 'Till roles',
+    one: 'till role',
+    area: 'till',
+    module: 'pos_setup',
+    about: 'What people may do on the till (Server, Supervisor, Manager), set up in Store tech.',
+    from: 'pos_roles',
+    name: 'name',
+    fields: {
+      name: text('name'),
+    },
+    measures: { roles: count({ label: 'Till roles' }) },
+    links: {
+      people: many('staff.people', 'pos_role_id', { label: 'People with it' }),
+    },
+    list: ['name'],
+    sort: [{ by: 'name', dir: 'asc' }],
+    skip: ['permissions', 'sort_order', 'created_at'],
+  }),
+
+  subject({
+    key: 'till.floor_areas',
+    label: 'Floor areas',
+    one: 'floor area',
+    area: 'till',
+    module: 'pos_setup',
+    about: 'The rooms of each venue\'s floor plan on the till (Restaurant, Terrace), with the revenue stream a room sells in.',
+    from: 'floor_areas',
+    name: 'name',
+    venue: 'venue_id',
+    fields: {
+      name: text('name'),
+    },
+    measures: { areas: count({ label: 'Floor areas' }) },
+    links: {
+      stream: one('till.streams', 'revenue_stream_id', { label: 'Revenue stream' }),
+      tables: many('bookings.tables', 'floor_area_id', { label: 'Tables' }),
+    },
+    list: ['name', 'venue.name', 'stream.name'],
+    sort: [{ by: 'name', dir: 'asc' }],
+    // Its size and drawing on the floor plan.
+    skip: ['width', 'height', 'decor', 'sort_order', 'created_at'],
+  }),
+
+  subject({
+    key: 'till.devices',
+    label: 'Devices',
+    one: 'device',
+    area: 'tech',
+    module: 'pos_setup',
+    about: 'The tills, kitchen screens, self-order kiosks and venue hubs set up in Store tech, with when each last talked to us. Removed ones stay, so their sales keep a name.',
+    from: 'pos_devices',
+    name: 'name',
+    venue: 'venue_id',
+    fields: {
+      name: text('name'),
+      kind: choice('kind', DEVICE_KINDS, { label: 'Kind of device' }),
+      code: text('short_code', { label: 'Short code', about: 'The code its check numbers start with (T2 in T2-47).' }),
+      app_version: text('app_version', { label: 'App version' }),
+      linked_at: moment('paired_at', { label: 'Last linked', about: 'When it was last linked by a code. A device disconnected since keeps the time.' }),
+      last_seen_at: moment('last_seen_at', { label: 'Last seen' }),
+      removed: yesno({ sql: '({t}.revoked_at IS NOT NULL)' }, { label: 'Removed' }),
+      removed_at: moment('revoked_at', { label: 'Removed at' }),
+      added_at: moment('created_at', { label: 'Added' }),
+    },
+    measures: {
+      devices: count({ label: 'Devices', where: '{t}.revoked_at IS NULL', about: 'Devices set up and not removed.' }),
+      removed_devices: count({ label: 'Removed', where: '{t}.revoked_at IS NOT NULL', about: 'Devices removed in Store tech.' }),
+    },
+    list: ['name', 'kind', 'venue.name', 'code', 'last_seen_at', 'app_version', 'removed'],
+    sort: [{ by: 'name', dir: 'asc' }],
+    // How it signs in, its settings and what it last reported: none of it a figure.
+    skip: ['secret_hash', 'pairing_code_hash', 'pairing_expires_at', 'user_agent', 'settings', 'created_by', 'info', 'info_at', 'update_requested_at', 'pending_changes', 'pending_at'],
+  }),
+
+  subject({
+    key: 'till.card_readers',
+    label: 'Card machines',
+    one: 'card machine',
+    area: 'tech',
+    module: 'pos_setup',
+    about: 'The card machines tills and kiosks take payments on, set up in Store tech.',
+    from: 'pos_card_readers',
+    name: 'name',
+    venue: 'venue_id',
+    fields: {
+      name: text('name'),
+      provider: choice('provider', CARD_PROVIDERS),
+      model: text('model'),
+      serial: text('serial', { label: 'Serial number' }),
+      online: yesno('online', { label: 'Online when last checked' }),
+      checked_at: moment('status_at', { label: 'Last checked' }),
+      removed: yesno({ sql: '({t}.removed_at IS NOT NULL)' }, { label: 'Removed' }),
+      added_at: moment('created_at', { label: 'Added' }),
+    },
+    measures: {
+      machines: count({ label: 'Card machines', where: '{t}.removed_at IS NULL', about: 'Card machines set up and not removed.' }),
+    },
+    links: {
+      payments: many('till.card_payments', 'reader_id', { label: 'Payments' }),
+    },
+    list: ['name', 'provider', 'venue.name', 'model', 'online', 'checked_at'],
+    sort: [{ by: 'name', dir: 'asc' }],
+    // The provider's own ids and the account it is reached through.
+    skip: ['account_id', 'provider_reader_id'],
+  }),
+
+  subject({
+    key: 'till.printers',
+    label: 'Printers',
+    one: 'printer',
+    area: 'tech',
+    module: 'pos_setup',
+    about: 'The receipt and kitchen printers set up in Store tech: on the network (printed by the venue hub) or plugged into a till, kitchen screen or hub.',
+    from: 'pos_printers',
+    name: 'name',
+    venue: 'venue_id',
+    fields: {
+      name: text('name'),
+      kind: choice('kind', { station: 'Kitchen printer', receipt: 'Receipt printer' }, { label: 'Kind of printer' }),
+      connection: choice('connection', { hub: 'On the network', device: 'Plugged into a device' }),
+      address: text('host', { label: 'Network address' }),
+      columns: number('columns', { label: 'Characters a line', decimals: 0 }),
+      active: yesno('is_active', { label: 'In use' }),
+      checked_at: moment('status_at', { label: 'Last checked' }),
+    },
+    measures: {
+      printers: count({ label: 'Printers', where: '{t}.is_active', about: 'Printers in use.' }),
+    },
+    links: {
+      backup: one('till.printers', 'backup_printer_id', { label: 'Backup printer' }),
+      device: one('till.devices', 'device_id', { label: 'Plugged into' }),
+      jobs: many('till.print_jobs', 'printer_id', { label: 'Print jobs' }),
+    },
+    list: ['name', 'kind', 'venue.name', 'connection', 'device.name', 'active'],
+    sort: [{ by: 'name', dir: 'asc' }],
+    skip: ['port', 'status', 'local_id', 'sort_order', 'created_at'],
   }),
 
   // ── What happened on the tills ─────────────────────────────
