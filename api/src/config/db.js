@@ -59,22 +59,33 @@ export const systemSql = postgres(env.DATABASE_URL, {
  * withReport() runs `fn(tx)` as the tenant in a read-only transaction that
  * sees one snapshot (a report's queries agree with each other), with a time
  * limit on every statement. Nothing but the report engine uses it.
+ *
+ * `before(tx)`, when given, runs first in the same transaction before it is
+ * made read only: the engine's own code fills the temporary tables of rows
+ * worked out in code for the run (reports/work/). Its answer goes to
+ * `fn(tx, ready)`. Statements made from a person's report never run in that
+ * window: `fn` only starts once the transaction is read only, and a
+ * temporary table can't be made after that.
  */
 export const reportSql = postgres(env.DATABASE_URL, {
   max:          env.REPORT_POOL_SIZE,
   idle_timeout: 30,
 })
 
-export async function withReport(tenantId, { timeoutMs = 20000 } = {}, fn) {
+export async function withReport(tenantId, { timeoutMs = 20000, before = null } = {}, fn) {
   if (!tenantId) {
     const err = new Error('No tenant selected')
     err.statusCode = 400
     throw err
   }
-  return reportSql.begin('isolation level repeatable read read only', async tx => {
+  const mode = before ? 'isolation level repeatable read' : 'isolation level repeatable read read only'
+  return reportSql.begin(mode, async tx => {
     await tx`SELECT set_config('app.tenant_id', ${tenantId}, true)`
     await tx`SELECT set_config('statement_timeout', ${String(Math.max(1000, Math.round(timeoutMs)))}, true)`
-    return fn(tx)
+    if (!before) return fn(tx)
+    const ready = await before(tx)
+    await tx`SET TRANSACTION READ ONLY`
+    return fn(tx, ready)
   })
 }
 

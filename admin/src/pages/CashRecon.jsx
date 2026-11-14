@@ -30,6 +30,7 @@ import { LoyverseSettings, LoyverseFillButton } from '@/components/cashRecon/Loy
 import { GloriaFoodSettings, GloriaFoodFillButton, GloriaFoodOrdersButton } from '@/components/cashRecon/GloriaFood'
 import { ReadReceiptButton, ReceiptNote, applyReceipt } from '@/components/cashRecon/ReceiptRead'
 import { splitPay } from '@shared/payMethod.js'
+import { reconSetup, cashDay, cashWeek } from '@shared/cashRecon.js'
 import { usePepperPage } from '@/lib/pepperPage'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -111,13 +112,7 @@ export function parseNum(v) {
 // sit out of each side of the reconciliation-variance adjustment (Takings
 // and Income) — e.g. a source that's counted in Takings but needs to be
 // DEDUCTED (not the usual "add") because it was refunded out of the till
-// separately. `effect` is one of 'none' | 'add' | 'subtract'.
-function scEffectAmount(effect, amount) {
-  if (effect === 'add') return amount
-  if (effect === 'subtract') return -amount
-  return 0
-}
-
+// separately. The figures themselves are worked out in shared/cashRecon.js.
 const SC_EFFECTS = [
   { value: 'none',     label: 'No effect' },
   { value: 'add',      label: 'Add' },
@@ -483,44 +478,39 @@ export function reconCalc({ config, detail, weekStart, getCellVal }) {
   const dates        = detail?.dates     ?? isoWeekDates(weekStart)
   const visibleDates = detail?.open_dates ?? dates   // only days the venue is open
 
-  const activeSources  = (config?.income_sources   ?? []).filter(s => s.is_active)
-  const activeSc       = (config?.sc_sources       ?? []).filter(s => s.is_active)
-  const activeChannels = (config?.payment_channels ?? []).filter(s => s.is_active)
-  // Channels flagged as cash-in-hand (what is counted and banked); card,
-  // voucher and online channels never become physical cash in the till.
-  const cashChannels   = activeChannels.filter(c => c.counts_as_cash !== false)
+  // Active sources and channels only; card, voucher and online channels
+  // never become cash in the till (counts_as_cash).
+  const setup = reconSetup(config)
+  const { sources: activeSources, sc: activeSc, channels: activeChannels, cash: cashChannels } = setup
 
   function cellNum(date, cat, id) { return parseNum(readCell(date, cat, id)) }
-
-  // Day totals
-  function dayTotal(date, cat) {
-    if (cat === 'income')  return activeSources.filter(s => !s.exclude_from_recon).reduce((s, r) => s + cellNum(date, 'income', r.id), 0)
-    if (cat === 'sc')      return activeSc.reduce((s, r) => s + cellNum(date, 'sc', r.id), 0)
-    if (cat === 'takings') return activeChannels.reduce((s, r) => s + cellNum(date, 'takings', r.id), 0)
-    return 0
-  }
 
   function dayExpenses(date) { return parseNum(detail?.days?.[date]?.total_expenses ?? 0) }
   function dayCardExpenses(date) { return parseNum(detail?.days?.[date]?.total_card_expenses ?? 0) }
   // Cash wages paid out of the till on this day (cash_wage_entries.paid_date).
   function dayWages(date) { return parseNum(detail?.wages_cash_by_date?.[date] ?? 0) }
 
-  // Staff pay expenses and cash wages out of the till before counting, so
-  // the counted cash is what goes to the bank and is already short by those
-  // payouts. Variance adds them back:
-  //   day  = Takings + cash expenses + cash wages paid that day − (Income + SC adjustment)
-  //   week = sum of day variances + cash wages not paid on an open day
-  //          (no paid_date, or a date outside the visible days)
-  // Positive = surplus, negative = shortfall.
-  function variance(date) {
-    const adj = activeSc.reduce((sum, s) => {
-      const a = cellNum(date, 'sc', s.id)
-      return sum + scEffectAmount(s.takings_effect, a) + scEffectAmount(s.income_effect, a)
-    }, 0)
-    return dayTotal(date, 'takings') + dayExpenses(date) + dayWages(date) - (dayTotal(date, 'income') + adj)
+  // A day's figures: the one rule in shared/cashRecon.js (variance = takings
+  // + cash expenses + cash wages paid that day − (income + SC adjustment);
+  // positive = surplus, negative = shortfall).
+  function dayOf(date) {
+    return cashDay(setup, {
+      amount: (kind, id) => cellNum(date, kind, id),
+      expenses: dayExpenses(date),
+      cardExpenses: dayCardExpenses(date),
+      wagesPaid: dayWages(date),
+    })
   }
 
-  function cashTakingsTotal(date) { return cashChannels.reduce((s, r) => s + cellNum(date, 'takings', r.id), 0) }
+  // Day totals
+  function dayTotal(date, cat) {
+    if (cat === 'income')  return dayOf(date).income
+    if (cat === 'sc')      return dayOf(date).service_charges
+    if (cat === 'takings') return dayOf(date).takings
+    return 0
+  }
+  function variance(date) { return dayOf(date).variance }
+  function cashTakingsTotal(date) { return dayOf(date).cash_takings }
 
   // Week totals
   function weekTotal(cat, id) {
@@ -531,8 +521,11 @@ export function reconCalc({ config, detail, weekStart, getCellVal }) {
   function weekCardExpenses() { return visibleDates.reduce((s, d) => s + dayCardExpenses(d), 0) }
   function weekCashTakings() { return visibleDates.reduce((s, d) => s + cashTakingsTotal(d), 0) }
   function weekCashWages()   { return parseNum(detail?.wages_cash_total ?? 0) }
-  function weekUnassignedWages() { return weekCashWages() - visibleDates.reduce((s, d) => s + dayWages(d), 0) }
-  function weekVariance()    { return visibleDates.reduce((s, d) => s + variance(d), 0) + weekUnassignedWages() }
+  // The week's variance: the open days' variances + cash wages not paid on
+  // one of them (no paid_date, or a date outside the visible days).
+  function weekOf() { return cashWeek(visibleDates.map(dayOf), weekCashWages()) }
+  function weekUnassignedWages() { return weekOf().wages_off_days }
+  function weekVariance()    { return weekOf().variance }
 
   return {
     dates, visibleDates, activeSources, activeSc, activeChannels, cashChannels,
@@ -1281,54 +1274,27 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
     }
   }
 
-  // Total Income is the raw declared value — no SC adjustments here.
-  // Excluded income sources don't count toward reconciliation.
-  const totalIncome = useMemo(() =>
-    activeSources
-      .filter(s => !s.exclude_from_recon)
-      .reduce((sum, s) => sum + parseNum(incomeValues[s.id] ?? 0), 0),
-    [activeSources, incomeValues]
-  )
-
-  // SC adjustment for reconciliation variance: each source independently
-  // adds to, deducts from, or sits out of each side (Takings / Income) —
-  // see scEffectAmount(). Summing both sides' contributions per source
-  // reproduces the old fixed-direction XOR behaviour exactly when a
-  // source is 'add' on takings and/or 'subtract' on income (the only
-  // combinations the old two-boolean model could express), and generalises
-  // to any other combination the operator now picks.
-  const scAdjustment = useMemo(() =>
-    activeSc.reduce((sum, s) => {
-      const a = parseNum(scValues[s.id] ?? 0)
-      return sum + scEffectAmount(s.takings_effect, a) + scEffectAmount(s.income_effect, a)
-    }, 0),
-    [activeSc, scValues]
-  )
-
+  // The day's figures, by the same rule as the week grid (shared/cashRecon.js):
+  // income leaves out excluded sources, the SC adjustment applies each
+  // source's effect on Takings and Income, only till-paid expenses count, and
+  // expenses and wages paid today come out of the till before the cash is
+  // counted, so they are added back. Positive = surplus, negative = shortfall.
+  const figures = useMemo(() => cashDay(reconSetup(config), {
+    amount: (kind, id) => parseNum((kind === 'income' ? incomeValues : kind === 'sc' ? scValues : takingsValues)[id] ?? 0),
+    expenses: expenses.filter(e => !e.paid_by_card).reduce((sum, e) => sum + parseNum(e.amount ?? 0), 0),
+    wagesPaid: wagesPaidToday,
+  }), [config, incomeValues, scValues, takingsValues, expenses, wagesPaidToday])
+  const totalIncome   = figures.income
+  const scAdjustment  = figures.sc_adjustment
+  const totalSc       = figures.service_charges
+  const totalTakings  = figures.takings
+  const totalExpenses = figures.expenses
+  const variance      = figures.variance
   // Kept for display context only.
   const totalScIncluded = useMemo(() =>
     activeSc.filter(s => s.takings_effect !== 'none').reduce((sum, s) => sum + parseNum(scValues[s.id] ?? 0), 0),
     [activeSc, scValues]
   )
-  const totalSc = useMemo(() =>
-    activeSc.reduce((sum, s) => sum + parseNum(scValues[s.id] ?? 0), 0),
-    [activeSc, scValues]
-  )
-
-  const totalTakings = useMemo(() =>
-    activeChannels.reduce((sum, c) => sum + parseNum(takingsValues[c.id] ?? 0), 0),
-    [activeChannels, takingsValues]
-  )
-
-  // Only till-paid expenses reduce cash; card-paid ones are shown separately.
-  const totalExpenses = useMemo(() =>
-    expenses.filter(e => !e.paid_by_card).reduce((sum, e) => sum + parseNum(e.amount ?? 0), 0),
-    [expenses]
-  )
-  // Same rule as reconCalc()'s day variance: expenses and wages paid today
-  // come out of the till before the cash is counted, so they are added back.
-  // Positive = surplus (took more than declared), negative = shortfall.
-  const variance = totalTakings + totalExpenses + wagesPaidToday - (totalIncome + scAdjustment)
 
   // Auto-save on blur (debounced 800ms)
   function triggerSave(data) {

@@ -48,7 +48,7 @@ import {
 } from '../../../shared/procurement.js'
 import {
   resolveQuotes, loadItemQuotes, loadQuotesById, quoteView, loadVenue, venueNow, loadSuppliersForVenue, createPurchaseOrder,
-  loadPo, loadPoLines, poFile, emailPo, nextPoNumber,
+  loadPo, loadPoLines, poFile, emailPo, nextPoNumber, judgeFirstSend,
   invoiceView, codeTaken, codeTakenError,
   RECEIVE_WITHOUT_ORDER, loadPurchasingSettings, mayReceiveWithoutOrder, withoutOrderRefusal,
 } from '../services/purchasingSvc.js'
@@ -1814,6 +1814,8 @@ export default async function purchasingRoutes(app) {
                supplier_ref = COALESCE(${b.supplier_ref ?? null}, supplier_ref), send_error = NULL, updated_at = now()
          WHERE id = ${po.id} AND tenant_id = ${req.tenantId}
       `
+      // On time or late, judged at the time it went (once: a resend keeps it).
+      await judgeFirstSend(tx, req.tenantId, po.id)
       return poDetail(tx, req.tenantId, po.id, prices)
     })
   })

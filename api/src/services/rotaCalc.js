@@ -142,6 +142,80 @@ export function roundTip(amount, to, mode = 'nearest') {
   return (n * unit) / 100
 }
 
+/** Shifts by id, each with its span in minutes: what entryPieces() reads. */
+export function shiftIndex(shifts) {
+  return new Map(shifts.map(s => [s.id, { ...s, span: span(s.start_time, s.end_time) }]))
+}
+
+/**
+ * One rota entry's pieces of work: each shift it covers ({ shift, minutes,
+ * fraction }) and its minutes outside every shift (loose); minutes is all of
+ * them. A shift entry is that whole shift; a period counts its own minutes,
+ * and each shift it overlaps in proportion. null when the entry's shift is
+ * no longer there.
+ */
+export function entryPieces(e, shiftById) {
+  const pieces = []
+  let loose = 0
+  if (e.shift_id) {
+    const sh = shiftById.get(e.shift_id)
+    if (!sh) return null
+    pieces.push({ shift: sh, minutes: sh.span[1] - sh.span[0], fraction: 1 })
+  } else {
+    const period = span(e.start_time, e.end_time)
+    const total = period[1] - period[0]
+    let inShifts = 0
+    for (const sh of shiftById.values()) {
+      const len = sh.span[1] - sh.span[0]
+      const ov = overlap(period, sh.span)
+      if (ov > 0 && len > 0) {
+        pieces.push({ shift: sh, minutes: ov, fraction: ov / len })
+        inShifts += ov
+      }
+    }
+    loose = Math.max(0, total - inShifts)
+  }
+  return { pieces, loose, minutes: pieces.reduce((t, pc) => t + pc.minutes, 0) + loose }
+}
+
+const STATUSES = ['on', 'pto', 'sick', 'uto', 'abs']
+
+/**
+ * Each person's day on the rota, by the minutes rules computeRotaWeek()
+ * counts a week by: [{ staff_id, date, entries, minutes: { on, pto, sick,
+ * uto, abs }, worked, paid, kind }]. worked / paid are what the week counts
+ * as a day worked / paid (an entry whose shift is gone still counts its
+ * day); kind is what the day was: worked when anything was, else the time
+ * off with the most minutes (ties in the order holiday, sick, unpaid,
+ * absent), else the first entry's.
+ */
+export function computeRotaDays({ shifts, entries }) {
+  const shiftById = shiftIndex(shifts)
+  const days = new Map()
+  for (const e of entries) {
+    const status = STATUSES.includes(e.status) ? e.status : 'on'
+    const date = String(e.work_date).slice(0, 10)
+    const key = e.staff_id + '|' + date
+    let d = days.get(key)
+    if (!d) {
+      d = { staff_id: e.staff_id, date, entries: 0, minutes: { on: 0, pto: 0, sick: 0, uto: 0, abs: 0 }, worked: false, paid: false, first: status }
+      days.set(key, d)
+    }
+    d.entries++
+    if (status === 'on') d.worked = true
+    if (status === 'on' || status === 'pto') d.paid = true
+    const work = entryPieces(e, shiftById)
+    if (work) d.minutes[status] += work.minutes
+  }
+  return [...days.values()].map(({ first, ...d }) => {
+    let kind = d.worked ? 'on' : null
+    if (!kind) {
+      for (const s of STATUSES.slice(1)) if (d.minutes[s] > 0 && (!kind || d.minutes[s] > d.minutes[kind])) kind = s
+    }
+    return { ...d, kind: kind || first }
+  })
+}
+
 /** True when any two hourly periods (same person, same day) overlap. */
 export function periodsOverlap(periods) {
   const spans = periods.map(p => span(p.start_time, p.end_time)).sort((a, b) => a[0] - b[0])
@@ -161,7 +235,7 @@ export function periodsOverlap(periods) {
  * @param {number} p.tipPot     amount to share out
  */
 export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves = [], pots = [], tipRounding = null, payAdjustments = [], carriedOwed = {}, carriedIn = 0 }) {
-  const shiftById = new Map(shifts.map(s => [s.id, { ...s, span: span(s.start_time, s.end_time) }]))
+  const shiftById = shiftIndex(shifts)
   const adjByStaff = new Map(weekStaff.map(w => [w.staff_id, w]))
   const moved = { points: new Map(), money: new Map() }
   const bump = (map, id, v) => map.set(id, (map.get(id) ?? 0) + v)
@@ -209,28 +283,11 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
       if (worked) days.add(day)
       if (paid) paidDays.add(day)
       // Pieces of work: { shift, minutes, fraction } plus unassigned minutes.
-      const pieces = []
-      let loose = 0
-      if (e.shift_id) {
-        const sh = shiftById.get(e.shift_id)
-        if (!sh) continue
-        pieces.push({ shift: sh, minutes: sh.span[1] - sh.span[0], fraction: 1 })
-      } else {
-        const period = span(e.start_time, e.end_time)
-        const total = period[1] - period[0]
-        let inShifts = 0
-        for (const sh of shiftById.values()) {
-          const len = sh.span[1] - sh.span[0]
-          const ov = overlap(period, sh.span)
-          if (ov > 0 && len > 0) {
-            pieces.push({ shift: sh, minutes: ov, fraction: ov / len })
-            inShifts += ov
-          }
-        }
-        loose = Math.max(0, total - inShifts)
-      }
+      const work = entryPieces(e, shiftById)
+      if (!work) continue
+      const { pieces, loose } = work
 
-      const entryMinutes = pieces.reduce((t, pc) => t + pc.minutes, 0) + loose
+      const entryMinutes = work.minutes
       if (!worked) absenceMinutes[status] = (absenceMinutes[status] ?? 0) + entryMinutes
       if (!paid) continue
       paidMinutes += entryMinutes

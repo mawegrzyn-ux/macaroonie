@@ -21,7 +21,8 @@ function dateRange(from, to) {
   return dates
 }
 
-function deriveStatus(expected, completed, unresolved) {
+// A colour from what is due, done and unresolved (the Overview tiles; reports too).
+export function deriveStatus(expected, completed, unresolved) {
   if (unresolved > 0) return 'red'
   if (expected === 0) return 'grey'
   if (completed >= expected) return 'green'
@@ -42,8 +43,17 @@ function deriveStatus(expected, completed, unresolved) {
 // no fridge / hold / cooking checks; weekly and monthly checklists and any
 // out-of-range reading still count. A venue-day left with nothing expected
 // and nothing unresolved gets status 'closed' (future days included).
-export async function computeHsStatus(tx, tenantId, from, to, today) {
-  const venues = await tx`SELECT id, name FROM venues WHERE tenant_id = ${tenantId} AND is_active = true ORDER BY name`
+//
+// `venueIds` (optional) limits it to those venues (reports ask for some).
+export async function computeHsStatus(tx, tenantId, from, to, today, { venueIds = null } = {}) {
+  const venues = await tx`
+    SELECT id, name FROM venues
+     WHERE tenant_id = ${tenantId} AND is_active = true
+       ${venueIds ? tx`AND id = ANY(${venueIds}::uuid[])` : tx``}
+     ORDER BY name`
+  // Rows of the venues asked for only (reports name some; the tiles want them all).
+  const ids = venues.map(v => v.id)
+  const atVenues = () => tx`AND venue_id = ANY(${ids}::uuid[])`
   const dates = dateRange(from, to)
   const follows = await hsFollowsOpeningDays(tx, tenantId)
   const closedByVenue = new Map()
@@ -52,39 +62,41 @@ export async function computeHsStatus(tx, tenantId, from, to, today) {
   const templates = await tx`
     SELECT id, venue_id, name, frequency FROM checklist_templates
      WHERE tenant_id = ${tenantId} AND is_active = true
+       ${atVenues()}
   `
   const minPeriodStart = [mondayOf(from), monthStartOf(from), from].sort()[0]
   const instances = await tx`
     SELECT template_id, period_start::text AS period_start, status FROM checklist_instances
      WHERE tenant_id = ${tenantId} AND period_start >= ${minPeriodStart} AND period_start <= ${to}
+       ${atVenues()}
   `
   const instanceMap = new Map(instances.map(i => [`${i.template_id}|${i.period_start}`, i.status]))
 
-  const equipment    = await tx`SELECT id, venue_id FROM fs_equipment WHERE tenant_id = ${tenantId} AND is_active = true`
-  const captureTimes = await tx`SELECT id, venue_id FROM fs_capture_times WHERE tenant_id = ${tenantId} AND is_active = true`
+  const equipment    = await tx`SELECT id, venue_id FROM fs_equipment WHERE tenant_id = ${tenantId} AND is_active = true ${atVenues()}`
+  const captureTimes = await tx`SELECT id, venue_id FROM fs_capture_times WHERE tenant_id = ${tenantId} AND is_active = true ${atVenues()}`
   const tempLogs      = await tx`
     SELECT venue_id, log_date::text AS log_date, equipment_id, capture_time_id, is_within_range, corrective_action
-      FROM fs_temp_logs WHERE tenant_id = ${tenantId} AND log_date BETWEEN ${from} AND ${to}
+      FROM fs_temp_logs WHERE tenant_id = ${tenantId} AND log_date BETWEEN ${from} AND ${to} ${atVenues()}
   `
 
-  const holdStations     = await tx`SELECT id, venue_id FROM fs_hold_stations WHERE tenant_id = ${tenantId} AND is_active = true`
-  const holdCaptureTimes = await tx`SELECT id, venue_id FROM fs_hold_capture_times WHERE tenant_id = ${tenantId} AND is_active = true`
+  const holdStations     = await tx`SELECT id, venue_id FROM fs_hold_stations WHERE tenant_id = ${tenantId} AND is_active = true ${atVenues()}`
+  const holdCaptureTimes = await tx`SELECT id, venue_id FROM fs_hold_capture_times WHERE tenant_id = ${tenantId} AND is_active = true ${atVenues()}`
   const holdChecks        = await tx`
     SELECT venue_id, check_date::text AS check_date, station_id, capture_time_id, is_within_range, corrective_action
-      FROM fs_hold_checks WHERE tenant_id = ${tenantId} AND check_date BETWEEN ${from} AND ${to}
+      FROM fs_hold_checks WHERE tenant_id = ${tenantId} AND check_date BETWEEN ${from} AND ${to} ${atVenues()}
   `
 
-  const cookingSessions = await tx`SELECT id, venue_id, required_items_count FROM fs_cooking_sessions WHERE tenant_id = ${tenantId} AND is_active = true`
+  const cookingSessions = await tx`SELECT id, venue_id, required_items_count FROM fs_cooking_sessions WHERE tenant_id = ${tenantId} AND is_active = true ${atVenues()}`
   const cookingChecks    = await tx`
     SELECT venue_id, check_date::text AS check_date, session_id, is_within_range, corrective_action
-      FROM fs_cooking_checks WHERE tenant_id = ${tenantId} AND check_date BETWEEN ${from} AND ${to}
+      FROM fs_cooking_checks WHERE tenant_id = ${tenantId} AND check_date BETWEEN ${from} AND ${to} ${atVenues()}
   `
 
   const deliveryChecks = await tx`
     SELECT venue_id, delivery_date::text AS delivery_date,
            (packaging_ok AND damage_ok AND quality_ok AND temp_ok AND accepted) AS passed,
            corrective_action
-      FROM fs_delivery_checks WHERE tenant_id = ${tenantId} AND delivery_date BETWEEN ${from} AND ${to}
+      FROM fs_delivery_checks WHERE tenant_id = ${tenantId} AND delivery_date BETWEEN ${from} AND ${to} ${atVenues()}
   `
 
   const byVenue = (rows) => {
@@ -95,12 +107,32 @@ export async function computeHsStatus(tx, tenantId, from, to, today) {
     }
     return m
   }
+  // A day's readings by venue and day, looked up per venue-day (filtering the
+  // whole range for each one made long ranges slow).
+  const byVenueDay = (rows, col) => {
+    const m = new Map()
+    for (const r of rows) {
+      const k = r.venue_id + '|' + r[col]
+      if (!m.has(k)) m.set(k, [])
+      m.get(k).push(r)
+    }
+    return m
+  }
+  const tempLogsByDay      = byVenueDay(tempLogs, 'log_date')
+  const holdChecksByDay    = byVenueDay(holdChecks, 'check_date')
+  const cookingChecksByDay = byVenueDay(cookingChecks, 'check_date')
+  const deliveriesByDay    = byVenueDay(deliveryChecks, 'delivery_date')
   const templatesByVenue    = byVenue(templates)
   const equipmentByVenue    = byVenue(equipment)
   const captureTimesByVenue = byVenue(captureTimes)
   const holdStationsByVenue = byVenue(holdStations)
   const holdCaptureByVenue  = byVenue(holdCaptureTimes)
   const sessionsByVenue     = byVenue(cookingSessions)
+  const idSets = byV => new Map(venues.map(v => [v.id, new Set((byV.get(v.id) ?? []).map(r => r.id))]))
+  const equipIds       = idSets(equipmentByVenue)
+  const captureIds     = idSets(captureTimesByVenue)
+  const stationIds     = idSets(holdStationsByVenue)
+  const holdCaptureIds = idSets(holdCaptureByVenue)
 
   const days = dates.map(date => {
     const isUpcoming = date > today
@@ -121,24 +153,29 @@ export async function computeHsStatus(tx, tenantId, from, to, today) {
       const vEquip = equipmentByVenue.get(v.id) ?? []
       const vCaptures = captureTimesByVenue.get(v.id) ?? []
       const equipExpected = closed ? 0 : vEquip.length * vCaptures.length
-      const dayTempLogs = tempLogs.filter(l => l.venue_id === v.id && l.log_date === date)
+      const dayTempLogs = tempLogsByDay.get(v.id + '|' + date) ?? []
+      // A check done is a reading of a fridge set up now at a check time set
+      // up now: one of a fridge or check time taken out since doesn't count
+      // (it made past days look done, or more than done, when a fridge was removed).
       const equipCompleted = closed ? 0 : new Set(
-        dayTempLogs.filter(l => l.capture_time_id).map(l => `${l.equipment_id}|${l.capture_time_id}`)
+        dayTempLogs.filter(l => l.capture_time_id && equipIds.get(v.id).has(l.equipment_id) && captureIds.get(v.id).has(l.capture_time_id))
+          .map(l => `${l.equipment_id}|${l.capture_time_id}`)
       ).size
       const equipUnresolved = dayTempLogs.filter(l => l.is_within_range === false && !l.corrective_action).length
 
       const vStations = holdStationsByVenue.get(v.id) ?? []
       const vHoldCaptures = holdCaptureByVenue.get(v.id) ?? []
       const holdExpected = closed ? 0 : vStations.length * vHoldCaptures.length
-      const dayHoldChecks = holdChecks.filter(h => h.venue_id === v.id && h.check_date === date)
+      const dayHoldChecks = holdChecksByDay.get(v.id + '|' + date) ?? []
       const holdCompleted = closed ? 0 : new Set(
-        dayHoldChecks.filter(h => h.capture_time_id).map(h => `${h.station_id}|${h.capture_time_id}`)
+        dayHoldChecks.filter(h => h.capture_time_id && stationIds.get(v.id).has(h.station_id) && holdCaptureIds.get(v.id).has(h.capture_time_id))
+          .map(h => `${h.station_id}|${h.capture_time_id}`)
       ).size
       const holdUnresolved = dayHoldChecks.filter(h => h.is_within_range === false && !h.corrective_action).length
 
       const vSessions = sessionsByVenue.get(v.id) ?? []
       const cookingExpected = closed ? 0 : vSessions.reduce((s, sess) => s + sess.required_items_count, 0)
-      const dayCookingChecks = cookingChecks.filter(c => c.venue_id === v.id && c.check_date === date)
+      const dayCookingChecks = cookingChecksByDay.get(v.id + '|' + date) ?? []
       const cookingCompleted = closed ? 0 : vSessions.reduce((sum, sess) => {
         const count = dayCookingChecks.filter(c => c.session_id === sess.id).length
         return sum + Math.min(count, sess.required_items_count)
@@ -148,7 +185,7 @@ export async function computeHsStatus(tx, tenantId, from, to, today) {
       // Deliveries aren't scheduled, so there's no "expected" count — they
       // only ever raise the day's status (a failed check with no corrective
       // action is unresolved), never count toward expected/completed.
-      const dayDeliveries = deliveryChecks.filter(d => d.venue_id === v.id && d.delivery_date === date)
+      const dayDeliveries = deliveriesByDay.get(v.id + '|' + date) ?? []
       const deliveryUnresolved = dayDeliveries.filter(d => !d.passed && !d.corrective_action).length
 
       const expected  = checklistExpected + equipExpected + holdExpected + cookingExpected

@@ -6,6 +6,30 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-14 — Reports: Cash Recon, staff and the rota, H&S days, orders sent late]
+
+Migration 247 (`purchase_orders.first_sent_at`, `deadline_at`, `sent_late`).
+
+**Added**
+- **Reports about Cash reconciliation** (Reports → New report, and Pepper): each venue's days and weeks with income, takings, the service charge adjustment, cash expenses, cash wages and the **variance**, worked out by the same rule as the Cash Recon page; and income, takings, service charge, expense and wage entries, with the income sources, payment channels, service charge sources and expense categories to group by. Needs Cash reconciliation, as the page does.
+- **Reports about staff and the rota**: each person's week (hours, days, pay with adjustments, points, tips), each venue's week, each tip pot's week and each person's share of it, each person's hours by day, and rota entries, pay adjustments, tip moves, shifts, tip pots, staff, roles and time off. Hours need Rota, pay needs Rota pay and tips need Rota tips, as on the Rota page; the wage list beside the rota needs Cash reconciliation.
+- **H&S days**: each venue's day as the Overview's H&S tiles judge it (green, amber, red, closed), checklists and food safety checks expected, done and needing action, kind by kind, up to today.
+- **Orders sent late**: a supplier order now records when it first went, its order deadline for its delivery day (the supplier's cutoff and days' notice for the venue) and whether it went after it; reports can count late orders, the share sent late and by how much. Orders sent before this change were judged when it was deployed.
+- **19 more starter reports** (69 in all): Cash variance by day, Cash variance by week, Cash variance by venue, Days the cash was short, Income against takings, Takings by payment channel, Expenses by category, Wages by week; Hours and pay by person, Rota pay by week, Hours on the rota by day, Time off by person, Tips by person and pot, Tip pots by week, Rota pay against the wage list; H&S status by day, Food safety checks missed by venue, Food safety days needing action; Orders sent late.
+
+**Changed**
+- Cash reconciliation, rota pay and tips and H&S days in reports are worked out for each run by the pages' own code, so they always match the pages and are never out of date.
+- The Cash Recon variance rule now lives in one shared place used by the day view, the week grid, its dashboard widgets, the week cards and reports; the Rota page's pay and tips come from one loader shared with reports. Nothing changes on screen.
+
+**Fixed**
+- The Overview's H&S tiles (and Pepper's H&S status and day briefing) counted a reading of a fridge, hold station or check time that has since been taken out as done, so a past day could look done, or more than done. Only readings of what is set up now count.
+
+**Notes**
+- Pay belongs to the week: Hours on the rota by day has hours only. Rates, role multipliers and shift hours are read as they are now, so changing them changes past weeks in reports, as on the Rota page.
+- Rows worked out for each run open no record page; a period at many venues does the work each time (not measured at volume yet).
+- H&S days count what is set up now: a fridge added last month is expected on earlier days too.
+- Next: reports that put two kinds of thing side by side (sales against labour, against the weather), then the remaining areas.
+
 ## [2026-11-14 — Reports: kitchen, kiosks, loyalty, purchasing, food safety and H&S]
 
 No migration.

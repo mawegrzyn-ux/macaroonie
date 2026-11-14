@@ -452,10 +452,10 @@ test('the list of real requests names only what the catalogue has, and its check
   assert.match(check(atlantis, { spec: spec(), couldnt: ['Something else'] }).join(), /couldn't do \(Atlantis\)/)
 
   // No report at all, or one that says what it couldn't do.
-  const fridge = 'Fridge checks missed by day last month'
-  assert.deepEqual(check(fridge, { spec: null }), [])
-  assert.deepEqual(check(fridge, { spec: spec(), couldnt: ['Food safety isn\'t in the reports'] }), [])
-  assert.match(check(fridge, { spec: spec() }).join(), /Expected no report, or one saying/)
+  const stock = 'How much chicken do we have in stock'
+  assert.deepEqual(check(stock, { spec: null }), [])
+  assert.deepEqual(check(stock, { spec: spec(), couldnt: ['Stock on hand isn\'t in the reports'] }), [])
+  assert.match(check(stock, { spec: spec() }).join(), /Expected no report, or one saying/)
   assert.deepEqual(checkAnswer({ none: true }, { spec: null }), [])
   assert.match(checkAnswer({ none: true }, { spec: spec() }).join(), /Expected no report, got one about till.checks/)
   assert.match(checkAnswer({ question: true }, { spec: spec() }).join(), /Expected a question/)

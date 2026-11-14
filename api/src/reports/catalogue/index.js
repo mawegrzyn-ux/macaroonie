@@ -20,6 +20,8 @@ import safety from './safety.js'
 import kitchen from './kitchen.js'
 import kiosks from './kiosks.js'
 import loyalty from './loyalty.js'
+import cash from './cash.js'
+import staff from './staff.js'
 import { templateRefs } from './define.js'
 import { MODULE_KEYS } from '../../config/modules.js'
 import { NUMERIC_TYPES } from '../../../../shared/reports/format.js'
@@ -30,6 +32,8 @@ export const AREAS = [
   { key: 'till', label: 'Till sales' },
   { key: 'online', label: 'Online orders' },
   { key: 'bookings', label: 'Bookings' },
+  { key: 'cash', label: 'Cash reconciliation' },
+  { key: 'staff', label: 'Staff and rota' },
   { key: 'kitchen', label: 'Kitchen' },
   { key: 'kiosks', label: 'Self-order kiosks' },
   { key: 'loyalty', label: 'Loyalty' },
@@ -93,6 +97,9 @@ function build(lists) {
       const to = subjects[l.to]
       if (!to) fail(s, 'link ' + l.key + ' leads to "' + l.to + '", which isn\'t a subject')
       if (l.needs && !MODULE_KEYS.includes(l.needs)) fail(s, 'link ' + l.key + ' needs an unknown module')
+      // Rows worked out in code are filled for the run's own subject, its
+      // venues and period: nothing can reach them through a link.
+      if (to.from.work) fail(s, 'link ' + l.key + ' leads to ' + to.key + ', whose rows are worked out for each run')
       if (l.many) {
         // Their column, read on their row.
         const theirs = new Set(Object.values(to.links).filter(x => !x.many).map(x => x.key))
@@ -137,7 +144,7 @@ function build(lists) {
   return { subjects }
 }
 
-export const CATALOGUE = build([common, till, online, bookings, kitchen, kiosks, loyalty, purchasing, safety])
+export const CATALOGUE = build([common, till, online, bookings, cash, staff, kitchen, kiosks, loyalty, purchasing, safety])
 
 /** Every module a subject, field, figure or link of the catalogue asks for. */
 export const CATALOGUE_MODULES = [...new Set(Object.values(CATALOGUE.subjects).flatMap(s => [

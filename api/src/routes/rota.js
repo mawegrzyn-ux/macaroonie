@@ -52,14 +52,18 @@
 //   POST   /venues/:venueId/weeks/:week/reset-unallocated  hand the unallocated pot back (every nudge to 0)
 //   POST   /venues/:venueId/weeks/:week/points-nudge    { staff_id, direction: plus | minus }  half a point to / from the spare points (migration 151)
 //   POST   /venues/:venueId/weeks/:week/reset-points-nudges  every point tap back to 0
-//   Whatever is left unallocated (£ and what spare points are worth) carries into the next week (carriedIn()).
+//   Whatever is left unallocated (£ and what spare points are worth) carries into the next week (carriedIn() in services/rotaWeeks.js).
 //   POST   /venues/:venueId/weeks/:week/fill-wages      writes Cash Recon wages
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission, requireAnyPermission, permissionLevel } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
-import { computeRotaWeek, periodsOverlap, span } from '../services/rotaCalc.js'
+import { periodsOverlap } from '../services/rotaCalc.js'
+import {
+  addDays, weekDates, loadOffDays, offAll, loadSettings, loadShifts, loadPots, loadEntries,
+  loadVenueStaff, computeWeek,
+} from '../services/rotaWeeks.js'
 import { openDatesOrNull } from '../services/openDays.js'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -167,81 +171,12 @@ function mondayOf(dateStr) {
   return d.toISOString().slice(0, 10)
 }
 
-function addDays(dateStr, n) {
-  const d = new Date(dateStr + 'T00:00:00Z')
-  d.setUTCDate(d.getUTCDate() + n)
-  return d.toISOString().slice(0, 10)
-}
-
-function weekDates(monday) {
-  return Array.from({ length: 7 }, (_, i) => addDays(monday, i))
-}
-
 const dayLabel = d => new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })
   .format(new Date(d + 'T12:00:00Z'))
-
-/**
- * Who is off the rota on which of `dates` (migration 164): people past their
- * last working day (cash_staff.left_on) and people in an off-rota period.
- * Map staff_id -> { [date]: { kind: 'left', left_on, note } | { kind: 'off', from, until, note } }.
- * Leaving wins over a period on the same day.
- */
-async function loadOffDays(tx, tenantId, venueId, dates) {
-  const from = dates[0], to = dates[dates.length - 1]
-  const [left, periods] = await Promise.all([
-    tx`SELECT id, left_on::text AS left_on, left_note FROM cash_staff
-        WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
-          AND left_on IS NOT NULL AND left_on < ${to}::date`,
-    tx`SELECT o.staff_id, o.from_date::text AS from_date, o.to_date::text AS to_date, o.note
-         FROM staff_rota_off o
-         JOIN cash_staff s ON s.id = o.staff_id AND s.tenant_id = o.tenant_id
-        WHERE o.tenant_id = ${tenantId} AND s.venue_id = ${venueId}
-          AND o.from_date <= ${to}::date AND o.to_date >= ${from}::date`,
-  ])
-  const out = new Map()
-  const mark = (id, date, v) => {
-    const m = out.get(id) ?? {}
-    m[date] ??= v
-    out.set(id, m)
-  }
-  for (const s of left) for (const d of dates) if (d > s.left_on) mark(s.id, d, { kind: 'left', left_on: s.left_on, note: s.left_note })
-  for (const p of periods) {
-    for (const d of dates) if (d >= p.from_date && d <= p.to_date) mark(p.staff_id, d, { kind: 'off', from: p.from_date, until: p.to_date, note: p.note })
-  }
-  return out
-}
-
-/** True when the person is off the rota on every one of `dates`. */
-const offAll = (offDays, staffId, dates) => {
-  const m = offDays.get(staffId)
-  return !!m && dates.every(d => m[d])
-}
 
 async function assertVenue(tx, tenantId, venueId) {
   const [v] = await tx`SELECT id FROM venues WHERE id = ${venueId} AND tenant_id = ${tenantId}`
   if (!v) throw httpError(404, 'Venue not found')
-}
-
-async function loadSettings(tx, tenantId) {
-  const [row] = await tx`
-    SELECT mode, slot_minutes, tip_round_to::float8 AS tip_round_to, tip_round_mode,
-           hide_closed_on_rota, hide_closed_on_print
-      FROM rota_settings WHERE tenant_id = ${tenantId}
-  `
-  return row ?? {
-    mode: 'day_parts', slot_minutes: 30, tip_round_to: null, tip_round_mode: 'nearest',
-    hide_closed_on_rota: false, hide_closed_on_print: false,
-  }
-}
-
-function loadShifts(tx, tenantId) {
-  return tx`
-    SELECT id, name, start_time::text AS start_time, end_time::text AS end_time,
-           points::float8 AS points, sort_order, is_active
-      FROM rota_shifts
-     WHERE tenant_id = ${tenantId}
-     ORDER BY sort_order, start_time
-  `
 }
 
 function loadRoles(tx, tenantId) {
@@ -251,23 +186,6 @@ function loadRoles(tx, tenantId) {
      WHERE tenant_id = ${tenantId}
      ORDER BY sort_order, name
   `
-}
-
-/** Tip pots with their manual lines and allocated SC source ids (all venues). */
-async function loadPots(tx, tenantId) {
-  const [pots, lines, sources] = await Promise.all([
-    tx`SELECT id, name, distribution, payout_method, payout_to, surcharges, sort_order, is_active FROM tip_pots
-        WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
-    tx`SELECT id, pot_id, name, kind, sort_order, is_active FROM tip_pot_lines
-        WHERE tenant_id = ${tenantId} ORDER BY sort_order, created_at`,
-    tx`SELECT id, tip_pot_id FROM cash_sc_sources
-        WHERE tenant_id = ${tenantId} AND tip_pot_id IS NOT NULL`,
-  ])
-  return pots.map(p => ({
-    ...p,
-    lines:      lines.filter(l => l.pot_id === p.id),
-    source_ids: sources.filter(x => x.tip_pot_id === p.id).map(x => x.id),
-  }))
 }
 
 /** Surcharges as stored: blank names become null, 0% rows are dropped. */
@@ -292,41 +210,20 @@ async function assertPot(tx, tenantId, potId) {
 /** Staff with role + per-shift rates; `alsoIds` keeps inactive staff that have rota entries.
  *  `withPeriods` adds each person's off-rota periods (Staff page). */
 async function loadStaff(tx, tenantId, venueId, { activeOnly = false, alsoIds = [], withPeriods = false } = {}) {
-  const rows = await tx`
-    SELECT s.id, s.name, s.role_id, s.pay_type, s.pay_basis,
-           s.default_rate::float8 AS default_rate, s.pay_method, s.bank_amount::float8 AS bank_amount,
-           s.is_active, s.sort_order, s.left_on::text AS left_on, s.left_note,
-           r.name AS role_name, r.points_multiplier::float8 AS role_multiplier
-      FROM cash_staff s
-      LEFT JOIN staff_roles r ON r.id = s.role_id
-     WHERE s.tenant_id = ${tenantId}
-       AND s.venue_id  = ${venueId}
-       AND (${!activeOnly} OR s.is_active = true OR s.id = ANY(${alsoIds}::uuid[]))
-     ORDER BY s.sort_order, s.name
-  `
-  if (!rows.length) return rows
-  const rates = await tx`
-    SELECT staff_id, shift_id, rate::float8 AS rate
-      FROM staff_shift_rates
-     WHERE tenant_id = ${tenantId}
-       AND staff_id = ANY(${rows.map(r => r.id)}::uuid[])
-  `
-  const byStaff = {}
-  for (const r of rates) (byStaff[r.staff_id] ??= {})[r.shift_id] = r.rate
+  const also = new Set(alsoIds)
+  const rows = (await loadVenueStaff(tx, tenantId, [venueId]))
+    .filter(s => !activeOnly || s.is_active || also.has(s.id))
+    .map(({ venue_id, ...s }) => s)
+  if (!rows.length || !withPeriods) return rows
   const periods = {}
-  if (withPeriods) {
-    const list = await tx`
-      SELECT id, staff_id, from_date::text AS from_date, to_date::text AS to_date, note
-        FROM staff_rota_off
-       WHERE tenant_id = ${tenantId} AND staff_id = ANY(${rows.map(r => r.id)}::uuid[])
-       ORDER BY from_date
-    `
-    for (const p of list) (periods[p.staff_id] ??= []).push({ id: p.id, from_date: p.from_date, to_date: p.to_date, note: p.note })
-  }
-  return rows.map(r => ({
-    ...r, shift_rates: byStaff[r.id] ?? {},
-    ...(withPeriods ? { off_periods: periods[r.id] ?? [] } : {}),
-  }))
+  const list = await tx`
+    SELECT id, staff_id, from_date::text AS from_date, to_date::text AS to_date, note
+      FROM staff_rota_off
+     WHERE tenant_id = ${tenantId} AND staff_id = ANY(${rows.map(r => r.id)}::uuid[])
+     ORDER BY from_date
+  `
+  for (const p of list) (periods[p.staff_id] ??= []).push({ id: p.id, from_date: p.from_date, to_date: p.to_date, note: p.note })
+  return rows.map(r => ({ ...r, off_periods: periods[r.id] ?? [] }))
 }
 
 /** A staff member of this venue, or 404. */
@@ -347,167 +244,6 @@ async function loadRemoved(tx, tenantId, venueId, monday) {
      WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date AND removed
   `
   return rows.map(r => r.staff_id)
-}
-
-function loadEntries(tx, tenantId, venueId, monday) {
-  return tx`
-    SELECT id, staff_id, work_date::text AS work_date, shift_id,
-           to_char(start_time, 'HH24:MI') AS start_time,
-           to_char(end_time,   'HH24:MI') AS end_time, status
-      FROM rota_entries
-     WHERE tenant_id = ${tenantId}
-       AND venue_id  = ${venueId}
-       AND work_date BETWEEN ${monday}::date AND ${addDays(monday, 6)}::date
-     ORDER BY work_date, start_time NULLS FIRST
-  `
-}
-
-/**
- * What earlier weeks left unallocated, carried into this week: every earlier
- * £ tap (minus the sum of tip_unallocated) plus what each earlier week's
- * spare points were worth. Only weeks with spare points left need their pots
- * worked out, so this is usually one query.
- */
-async function carriedIn(tx, tenantId, venueId, monday) {
-  const [money] = await tx`
-    SELECT COALESCE(-SUM(tip_unallocated), 0)::float8 AS amount
-      FROM rota_week_staff
-     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start < ${monday}::date
-  `
-  const spare = await tx`
-    SELECT week_start::text AS week
-      FROM rota_week_staff
-     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start < ${monday}::date
-     GROUP BY week_start
-    HAVING SUM(points_nudge) < 0
-     ORDER BY week_start
-  `
-  let total = money.amount
-  for (const w of spare) {
-    const week = await computeWeek(tx, tenantId, venueId, w.week, { carry: false })
-    total += week.totals.tips_unallocated_points
-  }
-  return Math.round(total * 100) / 100
-}
-
-/** Everything the pay calculation needs for one venue week. `carry: false`
- *  skips what earlier weeks left unallocated (not needed for pay or checks
- *  on people's own balances). */
-async function computeWeek(tx, tenantId, venueId, monday, { carry = true } = {}) {
-  const sunday = addDays(monday, 6)
-  const [shifts, entries, settings, pots] = await Promise.all([
-    loadShifts(tx, tenantId), loadEntries(tx, tenantId, venueId, monday), loadSettings(tx, tenantId),
-    loadPots(tx, tenantId),
-  ])
-  // This venue's service charge / tips for the week, per SC source.
-  const scRows = await tx`
-    SELECT s.id, s.name, s.tip_pot_id, COALESCE(SUM(e.amount), 0)::float8 AS amount
-      FROM cash_sc_sources s
-      LEFT JOIN cash_sc_entries e ON e.source_id = s.id AND e.tenant_id = ${tenantId}
-       AND e.report_id IN (
-         SELECT id FROM cash_daily_reports
-          WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
-            AND report_date BETWEEN ${monday}::date AND ${sunday}::date)
-     WHERE s.tenant_id = ${tenantId} AND s.venue_id = ${venueId} AND s.tip_pot_id IS NOT NULL
-     GROUP BY s.id, s.name, s.tip_pot_id, s.sort_order
-     ORDER BY s.sort_order, s.name
-  `
-  const lineAmounts = await tx`
-    SELECT line_id, amount::float8 AS amount FROM rota_week_pot_lines
-     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
-  `
-  const manualRows = await tx`
-    SELECT pot_id, staff_id, amount::float8 AS amount FROM rota_week_pot_manual
-     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
-  `
-  const lineAmt = new Map(lineAmounts.map(l => [l.line_id, l.amount]))
-  // Who each pot is paid to: this week's pick, else the latest earlier one.
-  const payeeRows = await tx`
-    SELECT DISTINCT ON (pot_id) pot_id, week_start::text AS week_start, staff_ids
-      FROM rota_week_pot_payees
-     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start <= ${monday}::date
-     ORDER BY pot_id, week_start DESC
-  `
-  const payeesOf = new Map(payeeRows.map(r => [r.pot_id, r]))
-
-  // Active pots, plus inactive ones that still hold money this week.
-  const potInputs = pots.map(p => {
-    const sources = scRows.filter(r => r.tip_pot_id === p.id).map(r => ({ id: r.id, name: r.name, amount: r.amount }))
-    const lines = p.lines
-      .filter(l => l.is_active || lineAmt.has(l.id))
-      .map(l => ({ id: l.id, name: l.name, kind: l.kind, amount: lineAmt.get(l.id) ?? 0, is_active: l.is_active }))
-    const manual = {}
-    for (const m of manualRows.filter(m => m.pot_id === p.id)) manual[m.staff_id] = m.amount
-    const pick = payeesOf.get(p.id)
-    return {
-      id: p.id, name: p.name, distribution: p.distribution, is_active: p.is_active,
-      payout_method: p.payout_method, payout_to: p.payout_to,
-      payees: pick?.staff_ids ?? [], payees_week: pick?.week_start ?? null,
-      surcharges: p.surcharges,
-      sources, sources_total: sources.reduce((s, x) => s + x.amount, 0), lines, manual,
-    }
-  }).filter(p => p.is_active || p.sources_total > 0 || p.lines.some(l => l.amount !== 0) || Object.keys(p.manual).length)
-
-  const weekStaff = await tx`
-    SELECT staff_id, pay_override::float8 AS pay_override, tip_unallocated::float8 AS tip_unallocated,
-           points_nudge::float8 AS points_nudge, removed
-      FROM rota_week_staff
-     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
-  `
-  const moves = await loadMoves(tx, tenantId, venueId, monday)
-  // Pay adjustments this week (migration 137), and what last week's Cash
-  // Recon wage rows left unpaid (total - bank transfer - cash paid), which
-  // carries in. Only part-paid rows carry: a row with no cash paid at all is
-  // either paid another way or not paid yet, and isn't counted as owed.
-  const payAdjustments = await tx`
-    SELECT id, staff_id, kind, amount::float8 AS amount, note, source_id
-      FROM rota_pay_adjustments
-     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
-     ORDER BY created_at, id
-  `
-  const owedRows = await tx`
-    SELECT e.staff_id, SUM(e.total - e.bank_amount - e.cash_amount)::float8 AS owed
-      FROM cash_wage_entries e
-      JOIN cash_wage_reports r ON r.id = e.wage_report_id AND r.tenant_id = ${tenantId}
-     WHERE e.tenant_id = ${tenantId} AND r.venue_id = ${venueId}
-       AND r.week_start = ${addDays(monday, -7)}::date AND e.staff_id IS NOT NULL
-       AND e.cash_amount > 0 AND e.cash_amount + e.bank_amount < e.total
-     GROUP BY e.staff_id
-    HAVING SUM(e.total - e.bank_amount - e.cash_amount) > 0.004
-  `
-  const carriedOwed = Object.fromEntries(owedRows.map(r => [r.staff_id, r.owed]))
-  const withEntries = [...new Set([
-    ...payAdjustments.map(a => a.staff_id), ...owedRows.map(r => r.staff_id),
-    ...entries.map(e => e.staff_id), ...manualRows.map(m => m.staff_id),
-    ...weekStaff.filter(w => w.pay_override != null || w.tip_unallocated !== 0 || w.points_nudge !== 0).map(w => w.staff_id),
-    ...moves.flatMap(m => [m.from_staff_id, ...m.lines.map(l => l.to_staff_id)]).filter(Boolean),
-    ...potInputs.filter(p => p.payout_to === 'people').flatMap(p => p.payees),
-  ])]
-  // People taken off this week, or off the rota all week (left, or an
-  // off-rota period), are left out, unless they have something this week
-  // (entries, money) that has to show.
-  const kept = new Set(withEntries)
-  const removed = new Set(weekStaff.filter(w => w.removed).map(w => w.staff_id))
-  const dates = weekDates(monday)
-  const offDays = await loadOffDays(tx, tenantId, venueId, dates)
-  const staff = (await loadStaff(tx, tenantId, venueId, { activeOnly: true, alsoIds: withEntries }))
-    .filter(s => (!removed.has(s.id) && !offAll(offDays, s.id, dates)) || kept.has(s.id))
-  const tipRounding = settings.tip_round_to ? { to: settings.tip_round_to, mode: settings.tip_round_mode } : null
-  const carryIn = carry ? await carriedIn(tx, tenantId, venueId, monday) : 0
-  const result = computeRotaWeek({ shifts, staff, entries, weekStaff, moves, pots: potInputs, tipRounding, payAdjustments, carriedOwed, carriedIn: carryIn })
-  const nameOf = new Map(staff.map(s => [s.id, s.name]))
-  // Which week each pot's payees were picked in (null = never picked).
-  result.pots.forEach((p, i) => { p.payees_week = potInputs[i].payees_week })
-  return {
-    ...result,
-    week_start: monday,
-    moves: moves.map(m => ({
-      ...m,
-      from_name: m.from_staff_id ? (nameOf.get(m.from_staff_id) ?? 'Unknown') : null,
-      lines: m.lines.map(l => ({ ...l, name: nameOf.get(l.to_staff_id) ?? 'Unknown' })),
-      total: Math.round(m.lines.reduce((s, l) => s + l.amount, 0) * 100) / 100,
-    })),
-  }
 }
 
 // The pay payload covers two permissions: `rota_pay` (hours and pay) and
@@ -547,23 +283,6 @@ export function redactWeek(week, { pay, tips }) {
 async function weekFor(req, tx, monday) {
   const [pay, tips] = await Promise.all([permissionLevel(req, 'rota_pay'), permissionLevel(req, 'rota_tips')])
   return redactWeek(await computeWeek(tx, req.tenantId, req.params.venueId, monday), { pay, tips })
-}
-
-/** The week's tip moves, oldest first, each with its recipient lines. */
-async function loadMoves(tx, tenantId, venueId, monday) {
-  const moves = await tx`
-    SELECT id, kind, action, from_staff_id, note, created_by, created_at
-      FROM rota_tip_moves
-     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
-     ORDER BY created_at, id
-  `
-  if (!moves.length) return []
-  const lines = await tx`
-    SELECT move_id, to_staff_id, amount::float8 AS amount
-      FROM rota_tip_move_lines
-     WHERE tenant_id = ${tenantId} AND move_id = ANY(${moves.map(m => m.id)}::uuid[])
-  `
-  return moves.map(m => ({ ...m, lines: lines.filter(l => l.move_id === m.id).map(({ move_id, ...l }) => l) }))
 }
 
 async function ensureWeekStaff(tx, tenantId, venueId, monday, staffId) {

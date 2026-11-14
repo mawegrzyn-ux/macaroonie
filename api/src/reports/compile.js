@@ -36,6 +36,7 @@
 // and what shape.js needs to turn the rows into a result.
 
 import { CATALOGUE, canReportOn, canSee, ACROSS_AGGS, openTarget } from './catalogue/index.js'
+import { workTable } from './catalogue/define.js'
 import { resolvePath, pathLabel, bucketsFor } from '../../../shared/reports/paths.js'
 import { rowId, rankKey, AGG_LABELS, OPS_BY_TYPE, BUCKET_OPS } from '../../../shared/reports/spec.js'
 import { parseExpr, exprToSql, exprRefs, exprProblem, ExprError } from '../../../shared/reports/expr.js'
@@ -65,7 +66,9 @@ class Denied extends ReportError {
 const fail = (msg, status) => { throw new ReportError(msg, status) }
 
 const lowerFirst = s => (s && /^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s)
-const fromSql = s => s.from.table || s.from.sql
+// A subject's rows: its table, its own SELECT, or the rows worked out in
+// code for this run (reports/work/, filled before the run's statements).
+const fromSql = s => s.from.table || (s.from.work ? workTable(s.from.work) : s.from.sql)
 
 // ── One statement's parameters and aliases ───────────────────
 
@@ -75,6 +78,12 @@ class Statement {
     this.params = [env.tenantId]
     this.n = 0
     this.tzParam = null
+    this.works = new Set()
+  }
+  /** A subject's rows as SQL, noting the rows worked out for the run this statement reads. */
+  from(subject) {
+    if (subject.from.work) this.works.add(subject.from.work)
+    return fromSql(subject)
   }
   p(value, cast) {
     this.params.push(value)
@@ -113,7 +122,7 @@ class Scope {
     const key = link.on ? a + '.' + link.on : to.id.sql.replaceAll('{t}', a)
     const on = [key + ' = ' + src, a + '.' + to.tenant + ' = $1']
     if (to.where) on.push('(' + to.where.replaceAll('{t}', a) + ')')
-    this.joins.push('LEFT JOIN ' + fromSql(to) + ' ' + a + ' ON ' + on.join(' AND '))
+    this.joins.push('LEFT JOIN ' + this.st.from(to) + ' ' + a + ' ON ' + on.join(' AND '))
     const out = { alias: a, subject: to }
     this.links.set(id, out)
     return out
@@ -140,10 +149,10 @@ class Scope {
     const laterals = [...this.laterals.values()].map(l => {
       const to = l.child.subject
       const cols = l.aggs.map((a, i) => a + ' AS m' + i).join(', ')
-      return 'LEFT JOIN LATERAL (SELECT ' + cols + ' FROM ' + fromSql(to) + ' ' + l.child.alias + ' ' + l.child.joins.join(' ')
+      return 'LEFT JOIN LATERAL (SELECT ' + cols + ' FROM ' + this.st.from(to) + ' ' + l.child.alias + ' ' + l.child.joins.join(' ')
         + ' WHERE ' + l.conds.join(' AND ') + ') ' + l.alias + ' ON true'
     })
-    return 'FROM ' + fromSql(this.subject) + ' ' + this.alias + ' ' + [...this.joins, ...laterals].join(' ')
+    return 'FROM ' + this.st.from(this.subject) + ' ' + this.alias + ' ' + [...this.joins, ...laterals].join(' ')
   }
 }
 
@@ -408,7 +417,7 @@ function hasSql(scope, f, env) {
     child.render(link.sql, child.alias, to) + ' = ' + scope.render(owner.id.sql, alias, owner)]
   if (to.where) conds.push('(' + child.render(to.where, child.alias, to) + ')')
   conds.push(...filtersSql(child, f.where, env))
-  return (f.not ? 'NOT ' : '') + 'EXISTS (SELECT 1 FROM ' + fromSql(to) + ' ' + child.alias + ' ' + child.joins.join(' ') + ' WHERE ' + conds.join(' AND ') + ')'
+  return (f.not ? 'NOT ' : '') + 'EXISTS (SELECT 1 FROM ' + st.from(to) + ' ' + child.alias + ' ' + child.joins.join(' ') + ' WHERE ' + conds.join(' AND ') + ')'
 }
 
 /**
@@ -580,7 +589,7 @@ function buildList(spec, env, what, limit, withOpen = false) {
   if (what === 'totals') {
     const sums = cols.map((c, i) => (c.adds ? '(SUM(' + fieldSql(c.loc) + '))::float8 AS s' + i : null)).filter(Boolean)
     const text = 'SELECT COUNT(*)::int AS n' + (sums.length ? ', ' + sums.join(', ') : '') + ' ' + scope.fromClause() + ' WHERE ' + where.join(' AND ')
-    return { text, params: st.params, columns: cols.map(c => c.col), adds: cols.map(c => c.adds), notes, says }
+    return { text, params: st.params, works: [...st.works], columns: cols.map(c => c.col), adds: cols.map(c => c.adds), notes, says }
   }
 
   // The order asked for, else the subject's usual one; the row's own id last
@@ -614,7 +623,7 @@ function buildList(spec, env, what, limit, withOpen = false) {
   }
   const text = 'SELECT ' + select.join(', ') + ' ' + scope.fromClause() + ' WHERE ' + where.join(' AND ')
     + ' ORDER BY ' + order.join(', ') + ' LIMIT ' + Math.max(1, Math.round(limit))
-  return { text, params: st.params, columns: cols.map(c => c.col), adds: cols.map(c => c.adds), notes, says, open }
+  return { text, params: st.params, works: [...st.works], columns: cols.map(c => c.col), adds: cols.map(c => c.adds), notes, says, open }
 }
 
 // ── Figures ──────────────────────────────────────────────────
@@ -889,7 +898,7 @@ function buildGrouped(spec, env, opts = {}) {
   text += ' LIMIT ' + (GROUP_CAP + 1)
 
   return {
-    text, params: st.params, notes,
+    text, params: st.params, works: [...st.works], notes,
     names,
     rows: rows.map(g => ({ col: g.col, parse: g.parse })),
     cols: cols.map(g => ({ col: g.col, parse: g.parse })),

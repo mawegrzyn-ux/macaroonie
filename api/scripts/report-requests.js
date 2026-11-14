@@ -1,6 +1,6 @@
 // api/scripts/report-requests.js
 //
-// About 80 report requests the way people type them, each with what a right
+// About 90 report requests the way people type them, each with what a right
 // answer must contain (docs/REPORTS.md 10, "Checking it works"). Run them
 // against the live model with scripts/report-smart-check.js before each
 // release of the smart builder; the API tests only check the plumbing,
@@ -122,7 +122,8 @@ export const REQUESTS = [
   { area: 'till', request: 'VAT by rate for last quarter',
     expect: { subject: 'till.vat', values: ['vat_total'], rows: ['rate'], period: 'last_quarter' } },
   { area: 'till', request: 'Cash over or short by day last month',
-    expect: { subject: 'till.days', values: [['difference_total', 'cash_difference']], rows: ['date:day'], period: 'last_month' } },
+    expect: { subject: ['till.days', 'cash.days'], values: [['difference_total', 'cash_difference', 'variance_total', 'variance']], rows: ['date:day'], period: 'last_month' },
+    look: 'Either the till\'s cash count at the close of day (Till reports) or the Cash Recon variance will do.' },
 
   // ── Online ordering ──
   { area: 'online', request: 'Online orders by day last week',
@@ -173,6 +174,37 @@ export const REQUESTS = [
   { area: 'other', request: 'Dishes on the menu without a photo',
     expect: { subject: 'menu.dishes', filters: [{ field: 'has_photo' }] } },
 
+  // ── Cash reconciliation ──
+  { area: 'cash', request: 'Cash variance by day last week',
+    expect: { subject: 'cash.days', values: [['variance_total', 'variance']], rows: ['date:day'], period: 'last_week' } },
+  { area: 'cash', request: 'Which days was the cash short last month',
+    expect: { subject: 'cash.days', period: 'last_month' },
+    look: 'The short days: a list filtered on the variance below 0 (or the balance Short), or the days short counted by date.' },
+  { area: 'cash', request: 'Petty cash spend by category this month',
+    expect: { subject: 'cash.expenses', values: [['cash_spend', 'spend']], rows: [['category_name', 'category']], period: ['this_month', 'month_to_date'] } },
+  { area: 'cash', request: 'Wages paid in cash and by bank by week this quarter',
+    expect: { subject: 'cash.wages', values: ['cash_total', 'bank_total'], rows: ['date:week'], period: ['this_quarter', 'quarter_to_date'] } },
+  { area: 'cash', request: 'Takings by payment channel last month',
+    expect: { subject: ['cash.takings', 'till.payments'], values: [['takings_counted', 'amount_total', 'takings']], rows: [['channel', 'tender']], period: 'last_month' },
+    look: 'Cash Recon\'s payment channels, or the till\'s tenders.' },
+
+  // ── Staff and rota ──
+  { area: 'staff', request: 'Hours worked by each person last week',
+    expect: { subject: ['rota.staff_weeks', 'rota.days'], values: ['hours_total'], rows: [['name', 'person']], period: 'last_week' } },
+  { area: 'staff', request: 'Rota pay by week this quarter',
+    expect: { subject: ['rota.weeks', 'rota.staff_weeks'], values: ['pay_total'], rows: ['date:week'], period: ['this_quarter', 'quarter_to_date'] },
+    then: { request: 'split it into bank and cash', expect: { values: [['pay_bank_total', 'bank_pay_total'], ['pay_cash_total', 'cash_pay_total']], rows: ['date:week'] } } },
+  { area: 'staff', request: 'Who was off sick last month and for how long',
+    expect: { subject: ['rota.days', 'rota.staff_weeks'], values: [['sick_days', 'sick_hours_total']], rows: [['person', 'name']], period: 'last_month' } },
+  { area: 'staff', request: 'Tips each person got this month',
+    expect: { subject: ['rota.staff_weeks', 'rota.tip_shares'], values: [['tip_share_total', 'share_total']], rows: [['name', 'person']], period: ['this_month', 'month_to_date'] } },
+  { area: 'staff', request: 'How much went into the tip pots each week this month, and how much the house kept',
+    expect: { subject: ['rota.pot_weeks', 'rota.weeks'], values: [['gross_total', 'tips_gross_total'], 'kept_by_house_total'], rows: ['date:week'], period: ['this_month', 'month_to_date'] } },
+  { area: 'staff', request: 'Rota pay against the Cash Recon wage list by week last month',
+    expect: { subject: 'rota.staff_weeks', values: ['pay_total', 'wage_total'], rows: ['date:week'], period: 'last_month' } },
+  { area: 'staff', request: 'Staff who left this year',
+    expect: { subject: 'staff.people', kind: 'list', filters: [{ field: 'left_on' }] } },
+
   // ── Kitchen and kiosks ──
   { area: 'kitchen', request: 'Average ticket time by station last week',
     expect: { subject: 'kitchen.tickets', values: ['average_time'], rows: [['station_name', 'station']], period: 'last_week' } },
@@ -203,6 +235,9 @@ export const REQUESTS = [
     expect: { subject: 'purchasing.order_lines', values: [['short', 'problems']], rows: ['order.supplier'], period: ['this_year', 'year_to_date'] } },
   { area: 'purchasing', request: 'Spend by inventory category this month',
     expect: { subject: 'purchasing.order_lines', values: [['spend', 'goods']], rows: [['category_name', 'item.category']], period: ['this_month', 'month_to_date'] } },
+  { area: 'purchasing', request: 'Which suppliers did we send orders to after their cutoff last month',
+    expect: { subject: 'purchasing.orders', values: [['sent_late_count', 'late_rate']], rows: ['supplier'], period: 'last_month' },
+    look: 'Orders sent late: each order judged against its order deadline when it first went to the supplier.' },
 
   // ── Food safety and H&S ──
   { area: 'safety', request: 'Fridge readings out of range last week',
@@ -212,6 +247,11 @@ export const REQUESTS = [
   { area: 'safety', request: 'Open H&S actions that are overdue',
     expect: { subject: 'safety.actions', period: 'any' },
     look: 'Every action still open, whatever day it was logged (no period).' },
+  { area: 'safety', request: 'Fridge checks missed by day last month',
+    expect: { subject: 'safety.days', values: [['fridge_missed_total', 'fridge_missed']], rows: ['date'], period: 'last_month' },
+    look: 'Each venue\'s H&S day as the Overview judges it: fridge checks due and not logged, day by day.' },
+  { area: 'safety', request: 'Which venues needed action on H&S most often this month',
+    expect: { subject: 'safety.days', values: [['days_action', 'days_fs_action']], rows: ['venue'], period: ['this_month', 'month_to_date'] } },
 
   // ── What the reports can't show (yet) ──
   { area: 'other', request: 'Gross profit margin by dish last month',
@@ -219,10 +259,7 @@ export const REQUESTS = [
     look: 'No recipe costs: say so, perhaps with sales by dish.' },
   { area: 'other', request: 'Labour cost as a share of sales by week this quarter',
     expect: { couldnt: true },
-    look: 'Rota pay isn\'t in the reports yet (phase 3): say so.' },
-  { area: 'other', request: 'Fridge checks missed by day last month',
-    expect: { noneOr: true },
-    look: 'Readings are in the reports, checks missed aren\'t yet: none, or readings with a line saying so.' },
+    look: 'Rota pay and till sales are separate subjects until two can go in one report (phase 3c): rota pay by week with a line saying sales can\'t go beside it, or say so.' },
   { area: 'other', request: 'How much chicken do we have in stock',
     expect: { noneOr: true } },
   { area: 'till', request: 'Net sales last week at Atlantis',

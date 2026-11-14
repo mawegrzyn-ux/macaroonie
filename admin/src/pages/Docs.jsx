@@ -8236,10 +8236,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           <section id="reports" data-doc="">
             <H2>Reports (report builder)</H2>
             <P>
-              Migrations 243 and 244. The plan is <Mono>docs/REPORTS.md</Mono>; this section is what is built so far: its
+              Migrations 243, 244 and 247. The plan is <Mono>docs/REPORTS.md</Mono>; this section is what is built so far: its
               groundwork, the engine with a viewer, the builder, drill-downs, charts and the print page (till sales, online orders and bookings,
-              and since phase 3a the kitchen screens, self-order kiosk visits, loyalty, purchasing, and food safety, checklists and the
-              H&amp;S action log). One engine
+              since phase 3a the kitchen screens, self-order kiosk visits, loyalty, purchasing, and food safety, checklists and the
+              H&amp;S action log, and since phase 3b Cash Recon days and weeks, staff and the rota with their pay and tips, each
+              venue&apos;s H&amp;S day and supplier orders sent after their deadline). One engine
               serves every way of making a report: a report is a JSON definition, checked by one shared function,
               looked up in a data catalogue kept in code, turned into SQL by the server and run as the person
               looking at it, inside their tenant, read only. Nobody writes SQL and no report holds any.
@@ -8320,13 +8321,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Kitchen screens (pos_reports)', 'kitchen.stations, kitchen.tickets (every bump in kds_log), kitchen.remakes, kitchen.orders (the kitchen\'s copy of each order)'],
                 ['Self-order kiosks (pos_reports; designs pos_setup)', 'kiosks.visits (every guest visit, kiosk_sessions), kiosks.designs'],
                 ['Loyalty (loyalty_members; rewards and stamp cards loyalty)', 'loyalty.members, loyalty.ledger (every points or stamps change), loyalty.redemptions, loyalty.member_rewards, loyalty.rewards, loyalty.stamp_cards'],
-                ['Purchasing (purchasing; the catalogue purchasing_setup)', 'purchasing.orders (purchase orders), purchasing.order_lines, purchasing.invoices, purchasing.restaurant_orders, and purchasing.suppliers, purchasing.items, purchasing.categories, purchasing.prices, purchasing.price_changes. Money (prices, goods, spend, VAT, the average order, lines invoiced above their price) needs purchasing_setup on every subject'],
-                ['Food safety and H&S (food_safety, checklists, hs_action_log)', 'safety.fridges, safety.fridge_checks, safety.hold_stations, safety.hold_checks, safety.cooking_sessions, safety.cooking_items, safety.cooking_checks, safety.delivery_checks; safety.checklist_templates, safety.checklist_tasks, safety.checklists, safety.checklist_ticks; safety.action_categories, safety.actions'],
+                ['Purchasing (purchasing; the catalogue purchasing_setup)', 'purchasing.orders (purchase orders, with when each first went, its order deadline and whether it went after it), purchasing.order_lines, purchasing.invoices, purchasing.restaurant_orders, and purchasing.suppliers, purchasing.items, purchasing.categories, purchasing.prices, purchasing.price_changes. Money (prices, goods, spend, VAT, the average order, lines invoiced above their price) needs purchasing_setup on every subject'],
+                ['Food safety and H&S (food_safety, checklists, hs_action_log)', 'safety.days (each venue\'s H&S day as the Overview judges it, worked out for each run), safety.fridges, safety.fridge_checks, safety.hold_stations, safety.hold_checks, safety.cooking_sessions, safety.cooking_items, safety.cooking_checks, safety.delivery_checks; safety.checklist_templates, safety.checklist_tasks, safety.checklists, safety.checklist_ticks; safety.action_categories, safety.actions'],
+                ['Cash reconciliation (cash_recon)', 'cash.days and cash.weeks (worked out for each run by Cash Recon\'s own rule), cash.income, cash.takings, cash.service_charges, cash.expenses, cash.wages, cash.reports, cash.wage_lists, and to group by: cash.income_sources, cash.payment_channels, cash.sc_sources, cash.expense_categories'],
+                ['Staff and rota (rota; pay rota_pay, points and tips rota_tips, the wage list beside the rota cash_recon, people, roles, time off and tip pots staff)', 'rota.staff_weeks, rota.weeks, rota.days, rota.pot_weeks, rota.tip_shares (worked out for each run by the Rota page\'s own rules), rota.entries, rota.pay_adjustments, rota.tip_moves, rota.shifts, and staff.people, staff.roles, staff.time_off, rota.tip_pots'],
                 ['Shared', 'venue (no module), menu.menus / menu.sections / menu.dishes (menus), guests.customers (customers)'],
               ]}
             />
             <P>
-              61 subjects. A field, figure or link can name a module of its own (<Mono>needs</Mono>): a role without
+              88 subjects. A field, figure or link can name a module of its own (<Mono>needs</Mono>): a role without
               it doesn&apos;t see it, and <Mono>CATALOGUE_MODULES</Mono> (every module a subject, field, figure or
               link asks for) is what the routes read a person&apos;s levels for. The start-up check refuses a{' '}
               <Mono>needs</Mono> that isn&apos;t a module, on figures too.
@@ -8375,6 +8378,57 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               day; cancelled orders count for nothing in spend. Food safety: a reading is unresolved when it is out of
               range with no corrective action written (any words, as <Mono>computeHsStatus()</Mono> reads it); a
               checklist sits on the first day of its period (<Mono>periodStartFor()</Mono>).
+            </P>
+            <P>
+              Phase 3b&apos;s figures follow rules too long to write in SQL, so they are worked out in code for each run
+              (next part) by the functions the pages use. Cash Recon: <Mono>shared/cashRecon.js</Mono> is the one rule
+              for the day view, the week grid and its widgets, the week route and the reports. A day&apos;s variance is
+              takings plus cash expenses plus cash wages paid that day, less income and the service charge adjustment; a
+              week&apos;s is its days&apos; plus the week&apos;s cash wages not paid on one of those days. Only the
+              venue&apos;s switched-on sources and channels count, as set up now; card expenses never do.{' '}
+              <Mono>services/cashReconSvc.js</Mono> (<Mono>loadCashDays()</Mono>, <Mono>loadCashWeeks()</Mono>) reads
+              days and weeks for the week route and the reports. Rota: <Mono>services/rotaWeeks.js</Mono> is the one
+              loader of a venue&apos;s week (<Mono>computeWeek()</Mono> for the Rota page&apos;s routes,{' '}
+              <Mono>loadRotaWeeks()</Mono> for many weeks at once, with the carry from earlier weeks and a memo for
+              the run), then <Mono>computeRotaWeek()</Mono>; days come from <Mono>computeRotaDays()</Mono> and carry
+              hours only, since pay belongs to the week. A tip move counts as the Rota page counts it (taken out is a
+              minus). H&amp;S days: <Mono>computeHsStatus()</Mono> (<Mono>services/hsStatus.js</Mono>, with{' '}
+              <Mono>{'{ venueIds }'}</Mono>) for each day of the period up to today at each venue, expecting the checks
+              set up now. It counts a reading as done only for a fridge, hold station and check time still set up
+              (the Overview tiles, Pepper&apos;s hs_status and the day briefing count the same way). Orders sent late
+              (migration 247): <Mono>purchase_orders.first_sent_at</Mono>, <Mono>deadline_at</Mono> and{' '}
+              <Mono>sent_late</Mono>, judged once when an order first goes (<Mono>judgeFirstSend()</Mono>, called by
+              Mark as sent and <Mono>emailPo()</Mono> in their transactions, by <Mono>sendLateness()</Mono>:{' '}
+              <Mono>orderDeadline()</Mono> and <Mono>deadlinePassed()</Mono> with the supplier&apos;s settings for the
+              venue at that moment). A resend never moves it; a delivery booked in without an order is never judged;
+              orders sent before 247 are judged when the API starts with today&apos;s settings
+              (<Mono>backfillSentLate()</Mono>), except an order changed after sending, which doesn&apos;t know when it
+              first went. Each is held against its page by a test: <Mono>reports-cash.test.mjs</Mono>,{' '}
+              <Mono>reports-rota.test.mjs</Mono>, <Mono>reports-hs-days.test.mjs</Mono> and{' '}
+              <Mono>reports-sent-late.test.mjs</Mono>.
+            </P>
+
+            <H3>Rows worked out for each run</H3>
+            <P>
+              A subject whose rows are worked out in code says <Mono>{"from: { work: '<name>', tables: [...] }"}</Mono>{' '}
+              (the tables are what the rows come from, for the catalogue test). <Mono>api/src/reports/work/index.js</Mono>{' '}
+              holds <Mono>WORKS</Mono>: each work&apos;s columns, <Mono>tenant_id</Mono> first, and{' '}
+              <Mono>fill(tx, {'{ tenantId, venueIds, ranges, levels, memo }'})</Mono>. Before a run&apos;s statements,{' '}
+              <Mono>fillWorks()</Mono> makes a temporary table for each work they read (<Mono>pg_temp.rpt_&lt;name&gt;</Mono>,
+              dropped with the transaction), fills it in chunks for the run&apos;s venues (from the report&apos;s
+              venues choice; none = every venue) and its period and the one it is compared with, and ANALYZEs it. It
+              runs in <Mono>withReport()</Mono>&apos;s <Mono>before</Mono> step (<Mono>config/db.js</Mono>); the
+              transaction is then made <Mono>READ ONLY</Mono>, so nothing from the person&apos;s report can write. The
+              compiler reads such a subject from its table and filters <Mono>tenant_id</Mono> as on any other rows.
+              No link may lead to a work subject (the rows behind a link aren&apos;t known before the run), and{' '}
+              <Mono>workProblems()</Mono> (at start and in the catalogue test) checks that every column a template
+              reads is one the work fills. The works: <Mono>cash_days</Mono> and <Mono>cash_weeks</Mono>{' '}
+              (<Mono>services/cashReconSvc.js</Mono>); <Mono>rota_staff_weeks</Mono>, <Mono>rota_weeks</Mono>,{' '}
+              <Mono>rota_pot_weeks</Mono>, <Mono>rota_tip_shares</Mono> and <Mono>rota_days</Mono>{' '}
+              (<Mono>work/rota.js</Mono>; a venue week is worked out when anything is stored for it, and a week with
+              nothing on the rota and no tips isn&apos;t a row); <Mono>hs_days</Mono> (<Mono>work/safety.js</Mono>;
+              up to <Mono>MAX_DAYS</Mono> 1,100 days a period, a report over every day starting at the first check
+              logged).
             </P>
 
             <H3>The engine</H3>
@@ -8484,10 +8538,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
 
             <H3>Starter reports</H3>
             <P>
-              <Mono>api/src/reports/starters/</Mono>: 50 definitions in code (<Mono>till.js</Mono> 15,{' '}
-              <Mono>online.js</Mono> 6, <Mono>bookings.js</Mono> 7, <Mono>purchasing.js</Mono> 7,{' '}
-              <Mono>safety.js</Mono> 6, <Mono>loyalty.js</Mono> 4, <Mono>kitchen.js</Mono> 3,{' '}
-              <Mono>kiosks.js</Mono> 2), each made with <Mono>starter()</Mono>{' '}
+              <Mono>api/src/reports/starters/</Mono>: 69 definitions in code (<Mono>till.js</Mono> 15,{' '}
+              <Mono>online.js</Mono> 6, <Mono>bookings.js</Mono> 7, <Mono>cash.js</Mono> 8, <Mono>staff.js</Mono> 7,{' '}
+              <Mono>purchasing.js</Mono> 8, <Mono>safety.js</Mono> 9, <Mono>loyalty.js</Mono> 4,{' '}
+              <Mono>kitchen.js</Mono> 3, <Mono>kiosks.js</Mono> 2), each made with <Mono>starter()</Mono>{' '}
               (<Mono>define.js</Mono>: adds the <Mono>period</Mono> and <Mono>venues</Mono> parameters and their
               filters) and checked when the API starts: one that <Mono>normaliseReport()</Mono> would change, or
               that has a problem, stops the start. They are never rows in <Mono>reports</Mono>; a copy is. A starter

@@ -56,6 +56,8 @@ import path                             from 'node:path'
 import { randomUUID }                   from 'node:crypto'
 import { openDatesOrNull }              from '../services/openDays.js'
 import { reconLinks }                   from '../services/reconLinks.js'
+import { loadCashDays }                 from '../services/cashReconSvc.js'
+import { cashWeek }                     from '../../../shared/cashRecon.js'
 
 // Cash reconciliation permission: view reads, manage changes. Settings and
 // unsubmitting a day also stay owner / admin (operators have manage by default).
@@ -968,65 +970,28 @@ export default async function cashReconRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
 
-      // Fetch all daily reports for the week in one query. Each total is its
-      // own subquery (joining two child tables and summing would multiply
-      // rows). Filters match reconCalc() in CashRecon.jsx: active sources /
-      // channels only, income sources excluded from recon left out.
-      const reports = await tx`
-        SELECT r.id,
-               r.report_date::text AS report_date,
-               r.status,
-               (SELECT COALESCE(SUM(ie.gross_amount), 0)
-                  FROM cash_income_entries ie
-                  JOIN cash_income_sources s ON s.id = ie.source_id
-                 WHERE ie.report_id = r.id AND s.is_active AND NOT s.exclude_from_recon) AS total_income,
-               (SELECT COALESCE(SUM(te.amount), 0)
-                  FROM cash_takings_entries te
-                  JOIN cash_payment_channels c ON c.id = te.channel_id
-                 WHERE te.report_id = r.id AND c.is_active) AS total_takings,
-               (SELECT COALESCE(SUM(
-                         (CASE s.takings_effect WHEN 'add' THEN se.amount WHEN 'subtract' THEN -se.amount ELSE 0 END)
-                       + (CASE s.income_effect  WHEN 'add' THEN se.amount WHEN 'subtract' THEN -se.amount ELSE 0 END)), 0)
-                  FROM cash_sc_entries se
-                  JOIN cash_sc_sources s ON s.id = se.source_id
-                 WHERE se.report_id = r.id AND s.is_active) AS sc_adjustment,
-               (SELECT COALESCE(SUM(ex.amount), 0)
-                  FROM cash_expenses ex
-                 WHERE ex.report_id = r.id AND NOT ex.paid_by_card) AS total_expenses
-          FROM cash_daily_reports r
-         WHERE r.venue_id    = ${venueId}
-           AND r.tenant_id   = ${req.tenantId}
-           AND r.report_date = ANY(${weekDates}::date[])
-      `
-
-      const reportByDate = Object.fromEntries(reports.map(r => [r.report_date, r]))
-      const wagesByDate  = await wagesCashByDate(tx, req.tenantId, venueId, mondayStr)
-
-      // Day variance = Takings + cash paid out of the till that day (expenses
-      // and wages with that paid_date) − (Income + SC adjustment). Staff pay
-      // these before counting, so the counted takings are already short by
-      // them. Cash wages with no paid_date only count in the week's variance
-      // (wages.unassigned_cash_wages).
+      // The week's reported days, worked out by the one rule in
+      // shared/cashRecon.js (services/cashReconSvc.js): day variance =
+      // takings + cash paid out of the till that day (expenses and wages
+      // with that paid_date) − (income + SC adjustment). Staff pay these
+      // before counting, so the counted takings are already short by them.
+      const reported = await loadCashDays(tx, req.tenantId, {
+        venueIds: [venueId], ranges: [{ from: weekDates[0], to: weekDates[6] }],
+      })
+      const reportByDate = Object.fromEntries(reported.map(r => [r.date, r]))
       const days = weekDates.map(date => {
         const r = reportByDate[date]
         if (!r) return { date, status: null }
-        const income   = Number(r.total_income)
-        const takings  = Number(r.total_takings)
-        const expenses = Number(r.total_expenses)
-        const wagesPaid = wagesByDate[date] ?? 0
         return {
           date,
           status:         r.status,
-          total_income:   income,
-          total_takings:  takings,
-          total_expenses: expenses,
-          wages_cash:     wagesPaid,
-          variance:       takings + expenses + wagesPaid - (income + Number(r.sc_adjustment)),
+          total_income:   r.income,
+          total_takings:  r.takings,
+          total_expenses: r.expenses,
+          wages_cash:     r.wages_paid,
+          variance:       r.variance,
         }
       })
-      // Wages paid on a day with no daily report yet can't balance any day,
-      // so they stay in the week-only figure too.
-      const assignedToReportedDays = days.reduce((s, d) => s + (d.wages_cash ?? 0), 0)
 
       // Fetch wage report for this week
       const [wageReport] = await tx`
@@ -1041,11 +1006,13 @@ export default async function cashReconRoutes(app) {
          GROUP BY wr.id
       `
 
+      // Wages paid on a day with no daily report yet can't balance any day,
+      // so they stay in the week-only figure (cashWeek()'s wages_off_days).
       const wages = wageReport
         ? {
             total_wages: Number(wageReport.total_wages),
             total_cash_wages: Number(wageReport.total_cash_wages),
-            unassigned_cash_wages: Math.round((Number(wageReport.total_cash_wages) - assignedToReportedDays) * 100) / 100,
+            unassigned_cash_wages: cashWeek(reported, wageReport.total_cash_wages).wages_off_days,
           }
         : { total_wages: 0, total_cash_wages: 0, unassigned_cash_wages: 0 }
 

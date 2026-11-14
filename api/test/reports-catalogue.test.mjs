@@ -47,7 +47,7 @@ test('every table in the database has one decision, and every decision names a t
   assert.equal(d.counts.subject + d.counts.planned + d.counts.settings + d.counts.out, tables.length)
 
   // Where the catalogue stands today: a change here is a change to say in the docs.
-  assert.deepEqual(d.counts, { subject: 61, planned: 71, settings: 54, out: 47 })
+  assert.deepEqual(d.counts, { subject: 85, planned: 47, settings: 54, out: 47 })
   assert.equal(tables.length, 233)
 
   // Left-out tables carry a reason; planned ones an area with a phase.
@@ -65,10 +65,15 @@ test('every table in the database has one decision, and every decision names a t
   // The tables report subjects read are the ones the catalogue says it reads.
   const read = catalogueTables(CATALOGUE)
   assert.deepEqual(read.get('pos_check_lines'), ['till.lines', 'till.voids'])
-  assert.deepEqual(read.get('cash_staff'), ['till.takers'])
+  assert.deepEqual(read.get('cash_staff'), ['till.takers', 'rota.staff_weeks', 'rota.weeks', 'rota.pot_weeks', 'rota.tip_shares', 'staff.people'])
   assert.deepEqual(read.get('gloriafood_orders'), ['online.sales'])
   assert.deepEqual(read.get('kds_log'), ['kitchen.tickets', 'kitchen.remakes'])
-  assert.equal(tableDecisions(CATALOGUE).find(x => x.table === 'cash_daily_reports').area, 'cash')
+  assert.equal(tableDecisions(CATALOGUE).find(x => x.table === 'reviews').area, 'guests')
+  // The rota's own rows, and the weeks and days worked out from them.
+  assert.deepEqual(read.get('rota_entries'), ['rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.entries'])
+  // A table read by rows worked out for each run counts as read by them.
+  assert.deepEqual(read.get('cash_wage_entries'), ['cash.days', 'cash.weeks', 'cash.wages', 'rota.staff_weeks', 'rota.weeks', 'rota.pot_weeks', 'rota.tip_shares'])
+  assert.deepEqual(read.get('fs_temp_logs'), ['safety.fridge_checks', 'safety.days'])
   assert.equal(tableDecisions(CATALOGUE).find(x => x.table === 'supply_order_lines').reason, 'Filled in until placed, then copied onto the purchase order lines reports read')
   assert.equal(tableDecisions(CATALOGUE).find(x => x.table === 'report_runs').phase, 4)
   assert.equal(tableDecisions(CATALOGUE).find(x => x.table === 'platform_secrets').reason, 'Secrets and keys')
@@ -85,8 +90,8 @@ test('a table nobody has decided on, one decided twice and a stale name are each
 
 test('every id column of a table a subject reads is linked, offered or left out on purpose', t => {
   const cover = tableCoverage(CATALOGUE, columns)
-  assert.deepEqual(cover.derived, ['till.takers', 'online.sales'])
-  assert.equal(cover.tables.length, 56)
+  assert.deepEqual(cover.derived, ['till.takers', 'online.sales', 'cash.days', 'cash.weeks', 'rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.tip_moves', 'safety.days'])
+  assert.equal(cover.tables.length, 74)
 
   const undecided = cover.tables.flatMap(x => x.idsUndecided.map(c => x.table + '.' + c))
   assert.deepEqual(undecided, [], 'id columns with no link: add one(...) to the subject, or the column to its skip list')
@@ -159,8 +164,9 @@ test('nothing secret is read, every module asked for exists, and no SQL leaves t
 
   for (const m of CATALOGUE_MODULES) assert.ok(MODULE_KEYS.includes(m), m)
   assert.deepEqual([...CATALOGUE_MODULES].sort(), [
-    'bookings', 'checklists', 'customers', 'food_safety', 'hs_action_log', 'loyalty', 'loyalty_members',
-    'menus', 'pos_reports', 'pos_setup', 'purchasing', 'purchasing_setup', 'web_orders',
+    'bookings', 'cash_recon', 'checklists', 'customers', 'food_safety', 'hs_action_log', 'loyalty', 'loyalty_members',
+    'menus', 'pos_reports', 'pos_setup', 'purchasing', 'purchasing_setup', 'rota', 'rota_pay', 'rota_tips', 'staff',
+    'web_orders',
   ])
   for (const s of Object.values(CATALOGUE.subjects)) {
     assert.ok(AREAS.some(a => a.key === s.area), s.key + ' area')
@@ -191,6 +197,12 @@ test('every field, grouping, figure and link of every subject runs', async () =>
     try { await run(spec, {}, { levels }); ran++ } catch (e) { failed.push(what + ': ' + (e.problems || [e.message]).join(' | ').slice(0, 300)) }
   }
   for (const s of Object.values(CATALOGUE.subjects)) {
+    // A subject reached only through links (a day's Cash Recon report) can't
+    // start a report: its fields run through the links that lead to it (below).
+    if (s.hidden) {
+      await assert.rejects(run({ kind: 'list', subject: s.key, rows: [{ field: Object.keys(s.fields)[0] }] }, {}, { levels }), /nothing to report on/, s.key)
+      continue
+    }
     const fields = Object.keys(s.fields)
     // Its fields as a list, 25 at a time.
     for (let i = 0; i < fields.length; i += 25) await attempt(s.key + ' list', { kind: 'list', subject: s.key, rows: fields.slice(i, i + 25).map(f => ({ field: f })) })
@@ -212,9 +224,13 @@ test('every field, grouping, figure and link of every subject runs', async () =>
         if (m) await attempt(s.key + ' ' + l.key + '.' + m.key, { kind: 'summary', subject: s.key, values: [{ measure: l.key + '.' + m.key }] })
         await attempt(s.key + ' has ' + l.key, { kind: 'summary', subject: s.key, values: [{ agg: 'count' }], filters: [{ has: l.key, where: [] }] })
       } else {
-        // The row it points at: grouped by its name, filtered and counted by the link itself.
-        const f = to.name || Object.keys(to.fields)[0]
-        await attempt(s.key + ' by ' + l.key + '.' + f, { kind: 'summary', subject: s.key, rows: [{ field: l.key + '.' + f }], values: [{ agg: 'count' }] })
+        // The row it points at: grouped by its name (by every field of one
+        // reached only through links), filtered and counted by the link itself.
+        const fs = to.hidden ? Object.keys(to.fields) : [to.name || Object.keys(to.fields)[0]]
+        for (const f of fs) {
+          const b = bucketsFor(to.fields[f].type)[0]
+          await attempt(s.key + ' by ' + l.key + '.' + f, { kind: 'summary', subject: s.key, rows: [{ field: l.key + '.' + f, ...(b ? { bucket: b } : {}) }], values: [{ agg: 'count' }] })
+        }
         await attempt(s.key + ' filtered by ' + l.key, { kind: 'summary', subject: s.key, values: [{ agg: 'count' }, { agg: 'count_distinct', field: l.key }], filters: [{ field: l.key, op: 'not_empty' }] })
       }
     }

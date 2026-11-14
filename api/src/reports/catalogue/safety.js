@@ -10,8 +10,15 @@
 // (a corrective action). A delivery passes when every check was ticked and it
 // was accepted. Each kind of check has its own module, as on its page. Test
 // readings the H&S test data made are read like real ones.
+//
+// H&S days are worked out for every run by the Overview's own rule
+// (services/hsStatus.js, through reports/work/safety.js): each venue's day
+// with the checks due and done, what was left unresolved and the day's
+// colour. Checklists have their own module, so the figures that count them
+// need it too.
 
-import { subject, text, number, yesno, choice, date, moment, duration, avg, min, max, count, ratio, one, many } from './define.js'
+import { subject, text, number, yesno, choice, date, moment, duration, percent, sum, avg, min, max, count, ratio, one, many } from './define.js'
+import { HS_TABLES } from '../work/safety.js'
 
 const OUT = '{t}.is_within_range = false'
 // The Overview tiles' rule (services/hsStatus.js): any corrective action written counts.
@@ -44,6 +51,15 @@ const readingMeasures = col => ({
   lowest_temp: min(col, { label: 'Lowest °C', decimals: 1 }),
   highest_temp: max(col, { label: 'Highest °C', decimals: 1 }),
 })
+
+// H&S days: the Overview's colours, in its own words.
+const HS_STATUS = { green: 'All clear', amber: 'Attention needed', red: 'Needs action', grey: 'Nothing configured', closed: 'Closed' }
+const CHECKLISTS = 'checklists'
+const JUDGED = "IN ('green', 'amber', 'red')"
+const checks = (col, opts) => number(col, { adds: true, decimals: 0, ...opts })
+const checksTotal = (col, opts) => sum(col, { decimals: 0, ...opts })
+// A day's share of its checks done (no checks due: no share).
+const doneShare = (done, due, opts) => percent({ sql: '(CASE WHEN {t}.' + due + ' > 0 THEN {t}.' + done + '::numeric / {t}.' + due + ' END)' }, { unit: 'fraction', ...opts })
 
 /** A check time's label (fs_capture_times / fs_hold_capture_times are settings, not subjects). */
 const checkTime = table => text({ sql: '(SELECT c.label FROM ' + table + ' c WHERE c.id = {t}.capture_time_id AND c.tenant_id = {t}.tenant_id)' }, { label: 'Check time' })
@@ -442,5 +458,97 @@ export default [
     list: ['date', 'venue.name', 'task', 'category.name', 'priority', 'due', 'done', 'assigned_to'],
     sort: [{ by: 'date', dir: 'desc' }],
     skip: ['updated_at'],
+  }),
+
+  subject({
+    key: 'safety.days',
+    label: 'H&S days',
+    one: 'venue\'s H&S day',
+    area: 'safety',
+    module: 'food_safety',
+    about: 'Each venue\'s day as the Overview\'s H&S tiles work it out: the checklists and the fridge, hold and cooking checks due and done, readings and deliveries left unresolved, and the day\'s colour. Days up to today; what is due is the checks set up now.',
+    from: { work: 'hs_days', tables: HS_TABLES },
+    idType: 'text',
+    venue: 'venue_id',
+    date: { sql: '{t}.date', label: 'Day' },
+    fields: {
+      status: choice('status', HS_STATUS, {
+        label: 'H&S status', needs: CHECKLISTS,
+        about: 'The Overview\'s colour: Needs action when anything was left unresolved or none of what was due was done, Attention needed when some of it was done, All clear when all of it was.',
+      }),
+      fs_status: choice('fs_status', HS_STATUS, { label: 'Food safety status', about: 'The same colour from the fridge, hold and cooking checks and what was left unresolved, without the checklists.' }),
+      closed: yesno('closed', { label: 'Closed', about: 'Closed on the opening days, when H&S follows them: no daily checklists or food safety checks are due.' }),
+      due: checks('expected', { label: 'Checks due', needs: CHECKLISTS, about: 'Checklists and fridge, hold and cooking checks due that day.' }),
+      done: checks('completed', { label: 'Checks done', needs: CHECKLISTS, about: 'Checks due that were done: a checklist with every task ticked, a fridge or hold check at its check time, a cooking session\'s readings up to the number it asks for.' }),
+      missed: checks('missed', { label: 'Checks missed', needs: CHECKLISTS }),
+      done_share: doneShare('completed', 'expected', { label: 'Share done', needs: CHECKLISTS }),
+      unresolved: checks('unresolved', { label: 'Left unresolved', about: 'Fridge, hold and cooking readings out of range and deliveries that failed a check, with nothing written about what was done.' }),
+      checklists_due: checks('checklists_expected', { label: 'Checklists due', needs: CHECKLISTS, about: 'Daily checklists, and the weekly and monthly ones of the week or month the day is in: as on the Overview, those count on every day of their week or month, done once finished.' }),
+      checklists_done: checks('checklists_done', { label: 'Checklists done', needs: CHECKLISTS }),
+      checklists_missed: checks('checklists_missed', { label: 'Checklists not done', needs: CHECKLISTS }),
+      fridge_due: checks('fridge_expected', { label: 'Fridge checks due', about: 'Each fridge and freezer at each of its check times.' }),
+      fridge_done: checks('fridge_done', { label: 'Fridge checks done' }),
+      fridge_missed: checks('fridge_missed', { label: 'Fridge checks missed' }),
+      fridge_unresolved: checks('fridge_unresolved', { label: 'Fridge readings unresolved' }),
+      hold_due: checks('hold_expected', { label: 'Hold checks due', about: 'Each hot and cold hold station at each of its check times.' }),
+      hold_done: checks('hold_done', { label: 'Hold checks done' }),
+      hold_missed: checks('hold_missed', { label: 'Hold checks missed' }),
+      hold_unresolved: checks('hold_unresolved', { label: 'Hold readings unresolved' }),
+      cooking_due: checks('cooking_expected', { label: 'Cooking checks due', about: 'The readings each cooking session asks for.' }),
+      cooking_done: checks('cooking_done', { label: 'Cooking checks done' }),
+      cooking_missed: checks('cooking_missed', { label: 'Cooking checks missed' }),
+      cooking_unresolved: checks('cooking_unresolved', { label: 'Cooking readings unresolved' }),
+      deliveries: checks('deliveries', { label: 'Deliveries checked' }),
+      deliveries_unresolved: checks('delivery_unresolved', { label: 'Deliveries unresolved', about: 'Deliveries that failed a check or were turned away, with nothing written about what was done.' }),
+      fs_due: checks('fs_expected', { label: 'Food safety checks due', about: 'Fridge, hold and cooking checks due.' }),
+      fs_done: checks('fs_done', { label: 'Food safety checks done' }),
+      fs_missed: checks('fs_missed', { label: 'Food safety checks missed' }),
+      fs_done_share: doneShare('fs_done', 'fs_expected', { label: 'Food safety share done' }),
+    },
+    measures: {
+      days: count({ label: 'Days', about: 'Each venue\'s day counts once.' }),
+      days_judged: count({ label: 'Days with checks due', where: '{t}.status ' + JUDGED, needs: CHECKLISTS, about: 'Days with checks due or something left unresolved: the days the Overview gives a colour other than grey or closed.' }),
+      days_clear: count({ label: 'Days all clear', where: "{t}.status = 'green'", needs: CHECKLISTS }),
+      days_attention: count({ label: 'Days needing attention', where: "{t}.status = 'amber'", needs: CHECKLISTS }),
+      days_action: count({ label: 'Days needing action', where: "{t}.status = 'red'", needs: CHECKLISTS }),
+      clear_rate: ratio('days_clear', 'days_judged', { type: 'percent', label: 'Days all clear (share)', needs: CHECKLISTS, about: 'Days all clear out of the days with checks due.' }),
+      days_closed: count({ label: 'Days closed', where: '{t}.closed' }),
+      days_missed: count({ label: 'Days with checks missed', where: '{t}.missed > 0', needs: CHECKLISTS }),
+      days_unresolved: count({ label: 'Days with something unresolved', where: '{t}.unresolved > 0' }),
+      days_fs_judged: count({ label: 'Days with food safety checks due', where: '{t}.fs_status ' + JUDGED }),
+      days_fs_clear: count({ label: 'Days food safety all clear', where: "{t}.fs_status = 'green'" }),
+      days_fs_action: count({ label: 'Days food safety needing action', where: "{t}.fs_status = 'red'" }),
+      fs_clear_rate: ratio('days_fs_clear', 'days_fs_judged', { type: 'percent', label: 'Days food safety all clear (share)', about: 'Days with every fridge, hold and cooking check done and nothing unresolved, out of the days with food safety checks due.' }),
+      days_fs_missed: count({ label: 'Days with food safety checks missed', where: '{t}.fs_missed > 0' }),
+      due_total: checksTotal('expected', { label: 'Checks due', needs: CHECKLISTS }),
+      done_total: checksTotal('completed', { label: 'Checks done', needs: CHECKLISTS }),
+      missed_total: checksTotal('missed', { label: 'Checks missed', needs: CHECKLISTS }),
+      done_rate: ratio('done_total', 'due_total', { type: 'percent', label: 'Checks done (share)', needs: CHECKLISTS, about: 'Checks done out of the checks due.' }),
+      unresolved_total: checksTotal('unresolved', { label: 'Left unresolved', about: 'Readings out of range and deliveries that failed a check, with nothing written about what was done.' }),
+      checklists_due_total: checksTotal('checklists_expected', { label: 'Checklists due', needs: CHECKLISTS, about: 'Added up over days: a weekly or monthly checklist counts on each day of its week or month.' }),
+      checklists_done_total: checksTotal('checklists_done', { label: 'Checklists done', needs: CHECKLISTS }),
+      checklists_missed_total: checksTotal('checklists_missed', { label: 'Checklists not done', needs: CHECKLISTS }),
+      checklists_done_rate: ratio('checklists_done_total', 'checklists_due_total', { type: 'percent', label: 'Checklists done (share)', needs: CHECKLISTS }),
+      fridge_due_total: checksTotal('fridge_expected', { label: 'Fridge checks due' }),
+      fridge_done_total: checksTotal('fridge_done', { label: 'Fridge checks done' }),
+      fridge_missed_total: checksTotal('fridge_missed', { label: 'Fridge checks missed' }),
+      fridge_unresolved_total: checksTotal('fridge_unresolved', { label: 'Fridge readings unresolved' }),
+      hold_due_total: checksTotal('hold_expected', { label: 'Hold checks due' }),
+      hold_done_total: checksTotal('hold_done', { label: 'Hold checks done' }),
+      hold_missed_total: checksTotal('hold_missed', { label: 'Hold checks missed' }),
+      hold_unresolved_total: checksTotal('hold_unresolved', { label: 'Hold readings unresolved' }),
+      cooking_due_total: checksTotal('cooking_expected', { label: 'Cooking checks due' }),
+      cooking_done_total: checksTotal('cooking_done', { label: 'Cooking checks done' }),
+      cooking_missed_total: checksTotal('cooking_missed', { label: 'Cooking checks missed' }),
+      cooking_unresolved_total: checksTotal('cooking_unresolved', { label: 'Cooking readings unresolved' }),
+      deliveries_total: checksTotal('deliveries', { label: 'Deliveries checked' }),
+      deliveries_unresolved_total: checksTotal('delivery_unresolved', { label: 'Deliveries unresolved' }),
+      fs_due_total: checksTotal('fs_expected', { label: 'Food safety checks due' }),
+      fs_done_total: checksTotal('fs_done', { label: 'Food safety checks done' }),
+      fs_missed_total: checksTotal('fs_missed', { label: 'Food safety checks missed' }),
+      fs_done_rate: ratio('fs_done_total', 'fs_due_total', { type: 'percent', label: 'Food safety checks done (share)', about: 'Fridge, hold and cooking checks done out of those due.' }),
+    },
+    list: ['date', 'venue.name', 'status', 'fs_status', 'due', 'done', 'missed', 'unresolved'],
+    sort: [{ by: 'date', dir: 'desc' }],
   }),
 ]

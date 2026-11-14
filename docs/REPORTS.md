@@ -700,6 +700,16 @@ Each phase ships with its Help and Docs sections, a changelog entry and its test
 - A plan and the smart builder's answer can say "every day" (`period: { any: true }`): a report about what is so now (open actions, the points members hold) has no period at all, where left out the period is still last week.
 - Appendix B's kitchen line became two starters (ticket times by station, and by hour), its food safety readings line three (fridges, holds, cooking).
 
+**As built (14 Nov 2026): phase 3b.** 27 more subjects, 88 in all, and 19 more starters, 69 in all: Cash Recon (`api/src/reports/catalogue/cash.js`, 8 starters), staff and the rota (`catalogue/staff.js`, 7 starters), each venue's H&S day (`safety.days`, 3 starters) and orders sent late (1 starter). Differences from the plan:
+
+- 5.4's stored results (`rpt_*` tables kept up to date when something changes, with an "as at" time on each result) became **rows worked out for each run**: a subject with `from: { work, tables }` reads a temporary table that `fillWorks()` (`api/src/reports/work/`) makes and fills with the pages' own functions inside the run's transaction, before it is made read only, for the venues and days the report asks for only. They are never out of date and nothing has to notice a change; the price is the work on every run (a year of rota weeks works out every week, with its carry from earlier weeks). If volume makes that slow, the stored tables of 5.4 can still be built behind the same subjects.
+- No till trading day result: `till.days` already reads the Z report's figures stored on `pos_days.figures` (the trading day open now has none yet).
+- Cash Recon: the variance rule moved to `shared/cashRecon.js` (`reconSetup()`, `cashDay()`, `cashWeek()`), now used by the page, its week grid and widgets, the `/week` route and reports (`cash.days`, `cash.weeks`); the entries (income, takings, service charge, expenses, wages) are plain subjects beside them.
+- Rota: `api/src/services/rotaWeeks.js` is the one loader of a venue's week, used by the Rota page's pay routes and by reports; pay belongs to the week (`rota.staff_weeks`), hours alone to the day (`rota.days`), each part behind the module the Rota page uses for it.
+- The H&S day (`safety.days`) comes from `computeHsStatus()`, which now counts only readings of fridges, hold stations and check times still set up (it counted readings of ones taken out since, so the Overview, Pepper and reports could show a past day done, or more than done).
+- Orders sent late are judged once, when an order first goes, and stored (migration 247: `first_sent_at`, `deadline_at`, `sent_late`, by `judgeFirstSend()` with the supplier's settings at that moment; orders sent before were judged at the deploy by `backfillSentLate()`), not worked out per run: the settings when the order went are what count.
+- Rows worked out for each run open no record page.
+
 ## 21. Risks
 
 | Risk | Why it matters | What the plan does |
