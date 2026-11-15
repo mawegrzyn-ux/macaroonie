@@ -16,7 +16,8 @@
 //   alsoChoices() the subjects whose figures can sit beside a summary's
 //                 own, and addAlso(), removeAlso(), updateAlso()
 //   the words     rowName(), valueName(), filterWords(), filterParts(),
-//                 paramWords(): what a shelf or a choice says
+//                 paramWords(): what a shelf or a choice says; valueType(),
+//                 what kind of number a value is
 //   paramInputs() what a report asks for when it is opened
 //
 // The engine (api/src/reports/compile.js) has the last word on what runs.
@@ -32,6 +33,7 @@ import {
 } from './spec.js'
 import { chartChoices, chartValues } from './chart.js'
 import { matchRows } from './also.js'
+import { parseExpr, exprRefs } from './expr.js'
 
 const lowerFirst = s => (s && /^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s)
 const arr = v => (Array.isArray(v) ? v : [])
@@ -245,6 +247,33 @@ export function valueName(catalogue, subjectOrSpec, v) {
   if (v.agg === 'count') return label + ' (how many)'
   if (v.agg === 'count_distinct') return label + ' (how many different)'
   return AGG_LABELS[v.agg] + ' ' + lowerFirst(label)
+}
+
+/**
+ * What kind of value a value is, as the engine heads its column: its own
+ * format, else a figure's type, a count's plain number, the field's own type
+ * for a total, average, smallest or largest (a date for the latest day), and
+ * for a total of a calculation on each row money when every field it reads
+ * is money. A calculation is a plain number until a format is chosen. Only
+ * values of a number type (NUMERIC_TYPES) can be watched by a schedule. Pass
+ * the report itself, so a figure of another of its subjects is looked up there.
+ */
+export function valueType(catalogue, spec, v) {
+  if (!v) return 'number'
+  if (v.format) return v.format
+  const subjectKey = spec && typeof spec === 'object' ? valueSubject(spec, v) : spec
+  const typeOf = path => {
+    const r = resolvePath(catalogue, subjectKey, path)
+    return r.ok ? r.def.type || null : null
+  }
+  if (v.measure) return typeOf(v.measure) || 'number'
+  if (v.calc || v.agg === 'count' || v.agg === 'count_distinct') return 'number'
+  if (v.of) {
+    let refs = []
+    try { refs = exprRefs(parseExpr(v.of)) } catch { return 'number' }
+    return refs.length && refs.every(name => typeOf(name) === 'money') ? 'money' : 'number'
+  }
+  return typeOf(v.field) || 'number'
 }
 
 /** What a value is, in a few words, for its row on the Values shelf. */

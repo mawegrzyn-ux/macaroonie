@@ -151,7 +151,7 @@ const cleanTags = tags => [...new Set((tags || []).map(t => t.toLowerCase()))]
 // every API test request), so the secret alone doesn't mean Pepper; the
 // header alone isn't believed, so a browser can't mark its runs as Pepper's.
 // Recorded as Pepper's and held to limitPepperRuns().
-const viaPepper = req => (req.headers[INTERNAL_CALL_HEADER] === INTERNAL_CALL_SECRET && req.headers[PEPPER_HEADER] === 'pepper' ? 'pepper' : null)
+export const viaPepper = req => (req.headers[INTERNAL_CALL_HEADER] === INTERNAL_CALL_SECRET && req.headers[PEPPER_HEADER] === 'pepper' ? 'pepper' : null)
 
 // ── What the browser gets ────────────────────────────────────
 

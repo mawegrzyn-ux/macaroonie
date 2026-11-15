@@ -36,6 +36,8 @@
 //                                 file, record: { status, error, ... }
 //   tellPaused(schedule, reason)  email the schedule's owner and the group's
 //                                 owners that it has paused, and why
+//   watchable(spec)               the values a schedule can watch: the
+//                                 number ones (valueType()), not a latest day
 //   maskEmail(email)              s***@example.com
 //
 // An email holds at most EMAIL_ROWS rows of the table; an attached list at
@@ -58,6 +60,8 @@ import { CATALOGUE } from './catalogue/index.js'
 import { tableModel, listCount } from '../../../shared/reports/table.js'
 import { resolvePath } from '../../../shared/reports/paths.js'
 import { resolveParams } from '../../../shared/reports/spec.js'
+import { valueType } from '../../../shared/reports/build.js'
+import { NUMERIC_TYPES } from '../../../shared/reports/format.js'
 import { todayIn } from '../../../shared/reports/period.js'
 import {
   normaliseDelivery, deliveryProblem, normaliseCondition, conditionProblem, conditionMet,
@@ -163,6 +167,9 @@ function heldOutside(spec) {
 
 /* ------------------------------------------------------------------ checks */
 
+/** The values a schedule can watch: the ones that are numbers (not the latest day). */
+export const watchable = spec => (spec.values || []).filter(v => NUMERIC_TYPES.includes(valueType(CATALOGUE, spec, v)))
+
 /**
  * The checks before a send, as the person it runs as: what they may send to
  * whom, what the report asks for, and for a schedule that its period moves
@@ -179,7 +186,7 @@ export async function prepareSend(p, target, opts = {}) {
   }
   const delivery = normaliseDelivery(opts.delivery)
   const condition = normaliseCondition(opts.condition)
-  const bad = deliveryProblem(delivery) || conditionProblem(condition, spec.kind, spec.values) || recipientsProblem(opts.recipients)
+  const bad = deliveryProblem(delivery) || conditionProblem(condition, spec.kind, watchable(spec)) || recipientsProblem(opts.recipients)
   if (bad) throw httpError(422, bad)
   const { to, skipped } = await resolveRecipients(p.tenantId, opts.recipients)
   if (!to.length) throw httpError(422, 'None of the people picked are on the team any more')
@@ -377,16 +384,18 @@ async function sendAll(list, make) {
  * Run the report as `p` (at `due`, a schedule's due time: its "today"),
  * check the condition (unless `ignoreCondition`, Send now), email it to
  * each address and keep the file when asked. Records one report_runs row
- * whatever happens. Never throws. Returns { status: 'sent' | 'partly' |
- * 'failed' | 'not_met', error, transient (worth trying again), refused (the
- * owner can't run it: pause), runId, to, sent, failed, held, kept, why }.
+ * whatever happens (`via` 'pepper' marks one Pepper asked for). Never
+ * throws. Returns { status: 'sent' | 'partly' | 'failed' | 'not_met', error,
+ * transient (worth trying again), refused (the owner can't run it: pause),
+ * runId, to, sent, failed, held, kept, why }.
  */
-export async function deliver(p, target, plan, { schedule = null, due = null, log = null, ignoreCondition = false } = {}) {
+export async function deliver(p, target, plan, { schedule = null, due = null, log = null, ignoreCondition = false, via = null } = {}) {
   const started = Date.now()
   const spec = target.spec
   const when = due instanceof Date ? due : new Date()
   const base = {
     kind: plan.kind,
+    via,
     format: plan.delivery.attach === 'none' ? 'email' : plan.delivery.attach,
     saved: target.saved, starter: target.starter, name: target.name, spec,
     params: resolveParams(spec, plan.params),

@@ -77,6 +77,7 @@ import reportAiRoutes        from './routes/reportAi.js'
 import opsRoutes             from './routes/ops.js'
 import localInfoRoutes       from './routes/localInfo.js'
 import reportRoutes, { reportPrintRoutes } from './routes/reports.js'
+import reportScheduleRoutes from './routes/reportSchedules.js'
 import aiApiRoutes           from './routes/aiApi.js'
 import posSite               from './routes/posSite.js'
 import posSetupRoutes        from './routes/posSetup.js'
@@ -305,6 +306,8 @@ export async function buildApp() {
   await app.register(opsRoutes,          { prefix: '/api/ops' })
   await app.register(localInfoRoutes,    { prefix: '/api/local-info' })
   await app.register(reportRoutes,       { prefix: '/api/reports' })
+  // Schedules and Email it now (src/reports/send.js sends).
+  await app.register(reportScheduleRoutes, { prefix: '/api/reports' })
   // The print page (no login: its link is the key).
   await app.register(reportPrintRoutes,  { prefix: '/api/reports' })
   await app.register(aiApiRoutes, { prefix: '/ai-api' })

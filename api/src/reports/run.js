@@ -72,6 +72,25 @@ async function takeSlot(tx, tenantId) {
   }
 }
 
+/**
+ * The venues a report is for, from its venues choice (`params` resolved),
+ * out of the group's venues in the order they were made: `ids` (null = every
+ * venue), `chosen`, `scope` (every venue when none chosen is left) and `tz`,
+ * the time zone of the first venue in scope, the one its days are counted
+ * in. The run and the schedule routes both decide it here.
+ */
+export function venueScope(venues, spec, params) {
+  let ids = null
+  for (const p of spec.params) {
+    if (p.type === 'venues' && Array.isArray(params[p.key])) { ids = new Set(params[p.key]); break }
+  }
+  const chosen = ids ? venues.filter(v => ids.has(v.id)) : venues
+  const scope = chosen.length ? chosen : venues
+  let tz = scope[0]?.timezone || 'Europe/London'
+  try { todayIn(tz) } catch { tz = 'Europe/London' }
+  return { ids, chosen, scope, tz }
+}
+
 // What the run needs to know about the group's venues: the day it is there
 // (the first venue in scope), the time zone for rows with no venue, and
 // whether money comes in more than one currency.
@@ -80,16 +99,8 @@ async function scopeOf(tx, tenantId, spec, params, at = null) {
     SELECT id::text AS id, COALESCE(NULLIF(timezone, ''), 'Europe/London') AS timezone,
            COALESCE(NULLIF(btrim(currency::text), ''), 'GBP') AS currency
       FROM venues WHERE tenant_id = ${tenantId} ORDER BY created_at, id`
-  let ids = null
-  for (const p of spec.params) {
-    if (p.type === 'venues' && Array.isArray(params[p.key])) { ids = new Set(params[p.key]); break }
-  }
-  const chosen = ids ? venues.filter(v => ids.has(v.id)) : venues
-  const scope = chosen.length ? chosen : venues
-  let tz = scope[0]?.timezone || 'Europe/London'
-  let today
-  const when = at || new Date()
-  try { today = todayIn(tz, when) } catch { tz = 'Europe/London'; today = todayIn(tz, when) }
+  const { ids, chosen, scope, tz } = venueScope(venues, spec, params)
+  const today = todayIn(tz, at || new Date())
   return {
     tz, today, currencies: [...new Set(scope.map(v => v.currency))],
     // The venues asked for, for rows worked out in code (null = every venue).
