@@ -16,6 +16,7 @@ import { z } from 'zod'
 import { withTenant, sql } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { eraseFromAi } from '../ai/erase.js'
+import { forgetPersonalFiles, removeStored } from '../reports/fileErasure.js'
 
 // Customers permission: view reads (including the booking screens' guest
 // search), manage changes, anonymise and export.
@@ -311,7 +312,7 @@ export default async function customersRoutes(app) {
     const suffix   = req.params.id.replace(/-/g, '').slice(0, 12)
     const anonEmail = `anon-${suffix}@deleted.local`
 
-    await withTenant(req.tenantId, async tx => {
+    const files = await withTenant(req.tenantId, async tx => {
       const [customer] = await tx`
         SELECT id, name, email, phone FROM customers
          WHERE id = ${req.params.id}
@@ -381,7 +382,10 @@ export default async function customersRoutes(app) {
       // Loyalty (migration 211): their memberships are erased too.
       const { eraseMembersOfCustomer } = await import('../services/loyaltySvc.js')
       await eraseMembersOfCustomer(tx, req.tenantId, req.params.id, [customer.email, ...linked.map(l => l.email)])
+      // Kept report files with people's details in them (migration 250) go too.
+      return forgetPersonalFiles(tx, req.tenantId)
     })
+    await removeStored(files)
 
     return reply.code(204).send()
   })

@@ -56,5 +56,5 @@ export const ACTION_LABELS = {
   add_local_event: 'Added a local event', run_local_capture: 'Ran a local info capture',
   delete_local_info: 'Deleted local info entries',
   build_report: 'Saved a report', change_report: 'Changed a report', copy_report: 'Copied a report',
-  delete_report: 'Deleted a report', share_report: 'Shared a report',
+  delete_report: 'Deleted a report', share_report: 'Shared a report', export_report: 'Kept a report file',
 }

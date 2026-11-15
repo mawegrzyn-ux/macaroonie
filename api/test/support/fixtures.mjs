@@ -622,6 +622,9 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
         report: spec,
       }))
       await step('report file', () => post(`/api/reports/${rid}/export`, { format: 'csv', ...given }))
+      // A file kept to download later (migration 250): only its maker downloads it.
+      const kept = await step('report kept file', () => post(`/api/reports/${rid}/files`, { format: 'csv', ...given }))
+      if (kept?.file?.id) ids.reportFile = kept.file.id
       await step('report print link', () => post(`/api/reports/${rid}/print-link`, given))
       await step('report changed', () => put(`/api/reports/${rid}`, { description: mark + ' week by week', spec: { ...spec, rows: [{ field: 'date', bucket: 'week' }] } }))
       if (viewerRole) await step('report shared', () => patch(`/api/reports/${rid}/sharing`, { shared: 'roles', role_ids: [viewerRole.id] }))

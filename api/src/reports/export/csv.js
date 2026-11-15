@@ -32,9 +32,12 @@ const drained = out => new Promise(resolve => {
   out.on('close', done)
 })
 
+// Whether a file has a column of people's details (the catalogue's pii).
+export const hasPersonal = columns => (columns || []).some(c => c.pii)
+
 /**
  * A definition as a CSV: { text | stream, done }. `done` resolves with
- * { rows, truncated, notes } once the whole file is written, and rejects if
+ * { rows, truncated, notes, personal } once the whole file is written, and rejects if
  * it breaks off part way (the stream is destroyed with the error, so the
  * download fails rather than looking complete). A refusal (the definition,
  * the person's role, too heavy) is thrown before anything is sent.
@@ -45,7 +48,7 @@ export async function csvExport(ctx, spec, given, { finish } = {}) {
     const result = await runReport(ctx, spec, given, { mode: 'export' })
     return {
       text: csvOf(result),
-      done: Promise.resolve({ rows: result.meta.row_count, truncated: result.meta.truncated, notes: result.meta.notes }),
+      done: Promise.resolve({ rows: result.meta.row_count, truncated: result.meta.truncated, notes: result.meta.notes, personal: hasPersonal(result.columns) }),
     }
   }
 
@@ -83,7 +86,7 @@ export async function csvExport(ctx, spec, given, { finish } = {}) {
     // The caller's own last step (the run's record) before the file is done.
     try { await finish?.(r) } catch { /* the file is whole either way */ }
     out.end()
-    return { ...r, notes }
+    return { ...r, notes, personal: hasPersonal(columns) }
   }, e => {
     if (begun) out.destroy(e)
     else { out.destroy(); ready.reject(e) }

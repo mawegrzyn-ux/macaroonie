@@ -173,6 +173,10 @@ export function startAiCleanupWorker(log) {
     await cleanUpReportRuns()
     // Print links (migration 244) a day after they ran out.
     await cleanUpPrintLinks()
+    // Kept report files (migration 250) after their 7 or 30 days.
+    const { cleanUpReportFiles } = await import('../reports/files.js')
+    const rf = await cleanUpReportFiles()
+    if (rf.removed || rf.folders) log.info(rf, 'Report file clean-up')
   }, { connection })
 
   worker.on('failed', (job, err) => {

@@ -167,6 +167,15 @@ test('a yes or no on a row is never empty: every subject\'s own yes / no fields 
   // do: one that has never connected, whose Online now read empty.
   const [venue] = await sql`SELECT id FROM venues WHERE tenant_id = ${ids.a} ORDER BY created_at LIMIT 1`
   await sql`INSERT INTO screens (tenant_id, venue_id, name, short_code) VALUES (${ids.a}, ${venue.id}, 'Zqx Never connected', 'S99')`
+  // Report runs are recorded by the report routes, which this file doesn't
+  // use: one of each yes / no, by hand (by Pepper with rows opened up, a file
+  // that failed, a print with nothing recorded of its choices).
+  await sql`
+    INSERT INTO report_runs (tenant_id, starter_key, report_name, subject, kind, format, user_sub, user_email, params, row_count, ms, error)
+    VALUES (${ids.a}, 'till_sales_by_day', 'Sales by day', 'till.checks', 'run', NULL, 'u-yes-no', 'yes-no@test.local',
+            ${sql.json({ params: {}, via: 'pepper', drill: [{ to: 'rows', at: ['date'] }] })}, 3, 120, NULL),
+           (${ids.a}, NULL, 'Every check', 'till.checks', 'export', 'csv', 'u-yes-no', 'yes-no@test.local', ${sql.json({ params: {} })}, NULL, 40, 'Too slow'),
+           (${ids.a}, NULL, NULL, NULL, 'export', 'print', 'u-yes-no', NULL, ${sql.json({})}, 5, 60, NULL)`
   const bad = new Set()
   const unread = []
   let checked = 0
@@ -190,6 +199,7 @@ test('a yes or no on a row is never empty: every subject\'s own yes / no fields 
   assert.deepEqual([...bad], [])
   assert.ok(checked > 200, 'yes / no cells checked: ' + checked)
   assert.ok(!unread.includes('screens.screens'), 'the screen added above was read')
+  assert.ok(!unread.includes('group.report_runs'), 'the report runs added above were read')
   ctx.diagnostic('subjects with yes / no fields and no rows to read here: ' + (unread.join(', ') || 'none'))
 })
 

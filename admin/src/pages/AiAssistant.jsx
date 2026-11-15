@@ -550,6 +550,7 @@ function changeDetail(r) {
     case 'copy_report':           return x.as || null
     case 'delete_report':         return x.deleted || null
     case 'share_report':          return [x.report, x.shared_with].filter(Boolean).join(', ') || null
+    case 'export_report':         return [x.report, x.kept].filter(Boolean).join(', ') || null
     case 'create_menu':
     case 'update_menu':
     case 'duplicate_menu':        return x.name

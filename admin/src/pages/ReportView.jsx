@@ -30,7 +30,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { ChevronLeft, Download, Lock, Pencil, Copy, Share2, Trash2, MoreHorizontal, Type, Printer } from 'lucide-react'
+import { ChevronLeft, Download, Lock, Pencil, Copy, Share2, Trash2, MoreHorizontal, Type, Printer, History, FileSpreadsheet, CheckCircle2, X } from 'lucide-react'
 import { paramInputs } from '@shared/reports/build.js'
 import { normaliseReport, LIMITS } from '@shared/reports/spec.js'
 import { useApi } from '@/lib/api'
@@ -247,6 +247,22 @@ export default function ReportView() {
     }
   }
 
+  // ── Keep a file: made as the download is, kept on Past runs for its maker ──
+  const [keeping, setKeeping] = useState({ busy: null, error: null })
+  const [kept, setKept] = useState(null)   // the file just kept
+  const keep = async format => {
+    setKeeping({ busy: format, error: null })
+    try {
+      const out = await api.post('/reports/' + ref + '/files', { format, params: given, ...(drill.length ? { drill } : {}) })
+      setKeeping({ busy: null, error: null })
+      setKept(out.file)
+      qc.invalidateQueries({ queryKey: ['report-runs'] })
+      closeWin()
+    } catch (error) {
+      setKeeping({ busy: null, error })
+    }
+  }
+
   // ── Print: what is on screen, on a page made for paper ──
   const tableShown = useRef(null)   // the table under a chart: showing or not (ResultCard keeps it)
   const seriesOff = useRef([])      // the series switched off in the chart's legend (the chart keeps it)
@@ -279,7 +295,7 @@ export default function ReportView() {
   const [asking, setAsking] = useState(false)   // delete: are you sure?
   const [busy, setBusy] = useState(null)
   const [failed, setFailed] = useState(null)    // { title, error }
-  const closeWin = () => { setWin(null); setAsking(false) }
+  const closeWin = () => { setWin(null); setAsking(false); setKeeping(k => (k.busy ? k : { busy: null, error: null })) }
   const remove = async () => {
     setBusy('delete')
     try {
@@ -319,7 +335,10 @@ export default function ReportView() {
   const canCopy = saved && report.runs && canUse
   const canShare = saved && report.can_share
   const canDelete = saved && report.can_delete
-  const hasMore = canCopy || canEdit || canShare || canDelete
+  const canKeep = !!report?.runs && canUse
+  // Past runs of this report is there for anyone who can open it.
+  const hasMore = !!report
+  const moreLabel = 'More: ' + ['past runs', canKeep && 'keep a file', canCopy && 'copy', canEdit && 'rename', canShare && 'share', canDelete && 'delete'].filter(Boolean).join(', ')
 
   const values = Object.fromEntries((spec?.params || []).map(p => [p.key, p.key in given ? given[p.key] : p.default]))
   const set = (key, value) => setGiven(g => ({ ...g, [key]: value }))
@@ -374,7 +393,7 @@ export default function ReportView() {
           </>
         )}
         {hasMore && (
-          <button type="button" onClick={() => setWin('more')} aria-label="More: copy, rename, share, delete" title="More" data-testid="report-more"
+          <button type="button" onClick={() => setWin('more')} aria-label={moreLabel} title="More" data-testid="report-more"
             className="w-12 h-12 flex items-center justify-center rounded-lg border bg-background text-muted-foreground touch-manipulation hover:bg-muted shrink-0">
             <MoreHorizontal className="w-5 h-5" />
           </button>
@@ -386,6 +405,22 @@ export default function ReportView() {
           <Problems error={reportQ.error} />
           <Problems error={file.error} title="The file wasn't made" />
           <Problems error={printing.error} title="The print page wasn't made" />
+          {kept && (
+            <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900 flex flex-wrap items-center gap-x-3 gap-y-2" role="status" data-testid="report-kept">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span className="flex-1 min-w-[12rem]">
+                File kept: <span className="font-medium break-all">{kept.name}</span>. It is on Past runs until {new Date(kept.expires_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}{kept.personal ? ' (it holds people\'s details, so 7 days)' : ''}. Only you can download it.
+              </span>
+              <Link to={'/reports/runs?file=' + encodeURIComponent(kept.id)} data-testid="report-kept-open"
+                className="inline-flex items-center gap-2 h-12 px-3 rounded-lg border border-green-300 bg-white text-sm font-medium touch-manipulation hover:bg-green-100 shrink-0">
+                <History className="w-4 h-4" /> Open Past runs
+              </Link>
+              <button type="button" onClick={() => setKept(null)} aria-label="Close this note" data-testid="report-kept-close"
+                className="w-12 h-12 flex items-center justify-center rounded-lg text-green-900 hover:bg-green-100 touch-manipulation shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
           <Problems error={failed?.error} title={failed?.title} />
 
           {report && (
@@ -448,6 +483,35 @@ export default function ReportView() {
       {win === 'more' && report && (
         <Modal title={report.name} onClose={closeWin}>
           <div className="space-y-2" data-testid="report-more-list">
+            {canKeep && (
+              <div className="rounded-lg border bg-background px-3 py-2" data-testid="more-keep">
+                <div className="flex items-start gap-3">
+                  <FileSpreadsheet className="w-4 h-4 mt-1 text-muted-foreground shrink-0" />
+                  <span className="flex-1">
+                    <span className="block text-sm font-medium">Keep a file to download later</span>
+                    <span className="block text-[11px] text-muted-foreground">
+                      The report as it is shown here, kept on Past runs for 30 days (7 if it holds people's details). Only you can download it.
+                    </span>
+                  </span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {['csv', 'xlsx'].map(format => (
+                    <button key={format} type="button" onClick={() => keep(format)} disabled={!!keeping.busy} data-testid={'more-keep-' + format} className={btn}>
+                      <FileSpreadsheet className="w-4 h-4" />
+                      {keeping.busy === format ? 'Keeping the file…' : (format === 'csv' ? 'Keep a CSV file' : 'Keep an Excel file')}
+                    </button>
+                  ))}
+                </div>
+                <Problems error={keeping.error} title="The file wasn't kept" className="mt-2" />
+              </div>
+            )}
+            <Link to={'/reports/runs?report=' + encodeURIComponent(id)} data-testid="more-runs" className={rowBtn}>
+              <History className="w-4 h-4 text-muted-foreground shrink-0" />
+              <span>
+                <span className="block text-sm font-medium">Past runs of this report</span>
+                <span className="block text-[11px] text-muted-foreground">When you ran, downloaded, printed or kept a file of it.</span>
+              </span>
+            </Link>
             {canCopy && (
               <button type="button" onClick={copy} disabled={!!busy} data-testid="more-copy" className={rowBtn}>
                 <Copy className="w-4 h-4 text-muted-foreground shrink-0" />

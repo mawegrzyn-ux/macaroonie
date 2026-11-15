@@ -90,7 +90,8 @@ export function useApi() {
     a.href     = url
     a.download = filename ?? path.split('/').pop()
     a.click()
-    URL.revokeObjectURL(url)
+    // Some browsers start the save after this tick: let go of the blob later.
+    setTimeout(() => URL.revokeObjectURL(url), 30_000)
   }, [getAccessTokenSilently])
 
   // upload: posts multipart/form-data (file + optional fields) to the API.

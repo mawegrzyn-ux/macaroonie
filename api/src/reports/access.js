@@ -27,6 +27,8 @@
 //                            ([{ id, name, timezone, is_active }]): names in
 //                            requests and plans are matched among these
 //   recordRun(person, run)   one row of report_runs (never throws)
+//   insertRun(tx, person, run)  the same row inside a transaction of the
+//                            caller's (a kept file's row beside it): its id
 //   limitPepperRuns(person)  429 once Pepper has run PEPPER_RUNS_PER_MINUTE
 //                            reports for the person in the last minute
 //   cleanUpReportRuns()      hourly: run records after 400 days
@@ -187,28 +189,33 @@ const drillRecord = steps => (steps || []).map(s => ({
  */
 export async function recordRun(p, run, log) {
   try {
-    const params = {
-      params: recordable(run.spec, run.params),
-      ...(run.drill?.length ? { drill: drillRecord(run.drill) } : {}),
-      ...(run.via ? { via: run.via } : {}),
-    }
-    await withTenant(p.tenantId, async tx => {
-      await tx`
-        INSERT INTO report_runs (tenant_id, report_id, starter_key, report_name, subject, kind, format,
-                                 user_sub, user_email, params, row_count, ms, error)
-        VALUES (${p.tenantId}, ${run.saved?.id ?? null}, ${run.starter?.key ?? run.saved?.starter_key ?? null},
-                ${String(run.name || '').slice(0, 120) || null}, ${run.spec?.subject ?? null},
-                ${run.kind === 'export' ? 'export' : 'run'}, ${run.format ?? null},
-                ${p.sub}, ${p.email}, ${tx.json(params)},
-                ${Number.isFinite(run.rows) ? Math.round(run.rows) : null}, ${Number.isFinite(run.ms) ? Math.round(run.ms) : null},
-                ${run.error ? String(run.error).slice(0, 300) : null})`
-      if (run.saved?.id && !run.error) {
-        await tx`UPDATE reports SET last_run_at = now() WHERE tenant_id = ${p.tenantId} AND id = ${run.saved.id}`
-      }
-    })
+    await withTenant(p.tenantId, tx => insertRun(tx, p, run))
   } catch (err) {
     log?.warn({ err }, 'A report run wasn\'t recorded')
   }
+}
+
+/** recordRun()'s row, inside the caller's transaction; returns its id. Throws. */
+export async function insertRun(tx, p, run) {
+  const params = {
+    params: recordable(run.spec, run.params),
+    ...(run.drill?.length ? { drill: drillRecord(run.drill) } : {}),
+    ...(run.via ? { via: run.via } : {}),
+  }
+  const [row] = await tx`
+    INSERT INTO report_runs (tenant_id, report_id, starter_key, report_name, subject, kind, format,
+                             user_sub, user_email, params, row_count, ms, error)
+    VALUES (${p.tenantId}, ${run.saved?.id ?? null}, ${run.starter?.key ?? run.saved?.starter_key ?? null},
+            ${String(run.name || '').slice(0, 120) || null}, ${run.spec?.subject ?? null},
+            ${run.kind === 'export' ? 'export' : 'run'}, ${run.format ?? null},
+            ${p.sub}, ${p.email}, ${tx.json(params)},
+            ${Number.isFinite(run.rows) ? Math.round(run.rows) : null}, ${Number.isFinite(run.ms) ? Math.round(run.ms) : null},
+            ${run.error ? String(run.error).slice(0, 300) : null})
+    RETURNING id`
+  if (run.saved?.id && !run.error) {
+    await tx`UPDATE reports SET last_run_at = now() WHERE tenant_id = ${p.tenantId} AND id = ${run.saved.id}`
+  }
+  return row.id
 }
 
 // How many reports Pepper may run for one person in a minute (docs/REPORTS.md

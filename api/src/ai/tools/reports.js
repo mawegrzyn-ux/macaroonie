@@ -17,6 +17,11 @@
 //   copy_report     a copy of a report or a starter as the person's own  reports, use
 //   delete_report   delete a saved report                                reports, use
 //   share_report    who a report is shared with; offer it as a starter   reports, manage
+//   report_runs     past runs: the reports run, downloaded, printed or
+//                   kept as a file, with the files kept; everyone's with
+//                   Manage                                               reports, view
+//   export_report   keep a CSV or Excel file of a report, for the person
+//                   to download from Past runs                           reports, use
 //
 // Everything goes through the report routes (callApi), as the person: a
 // plan (src/reports/plan.js) names the catalogue's own paths, never SQL, and
@@ -59,6 +64,17 @@ const AS_PEPPER = { [PEPPER_HEADER]: 'pepper' }
 const linkTo = (ctx, label, path) => (ctx.channel === 'staff_chat'
   ? { link: '[' + label + '](' + path + ')' }
   : { url: officeOrigin() + path })
+// The same, as one value, for a link inside a row.
+const linkText = (ctx, label, path) => Object.values(linkTo(ctx, label, path))[0]
+
+// Past runs (/reports/runs): a kept file is found there by its id.
+const runsPath = (q = {}) => {
+  const s = new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== '')).toString()
+  return '/reports/runs' + (s ? '?' + s : '')
+}
+const RUN_WORDS = { ran: 'Ran on screen', downloaded: 'Downloaded', kept: 'File kept', printed: 'Printed' }
+const RUNS_SHOWN = 20
+const RUNS_MAX = 50
 
 // ── The catalogue, as the person may see it ──────────────────
 
@@ -315,6 +331,40 @@ async function rolesFor(ctx, names) {
   const roles = await callApi(ctx, 'GET', '/api/access/roles')
   const live = (roles || []).filter(x => x.is_active !== false)
   return [...new Map(names.map(n => pickByName(live, n, x => x.label, 'role')).map(x => [x.id, x])).values()]
+}
+
+// A past run as Pepper reads it (GET /api/reports/runs): what was done, to
+// which report, by whom, with which choices, and the file it kept.
+function runLine(ctx, r, everyone) {
+  const f = r.file
+  return {
+    when: r.at,
+    what: RUN_WORDS[r.what] || r.what,
+    report: r.report?.name || 'Not named',
+    ...(r.report?.open && r.report.ref ? { report_id: r.report.ref } : {}),
+    ...(everyone ? { by: r.person?.mine ? 'you' : (r.person?.email || 'someone') } : {}),
+    ...(r.via === 'pepper' ? { by_pepper: true } : {}),
+    ...(r.choices?.length ? { choices: r.choices.map(c => c.label + ': ' + c.text) } : {}),
+    ...(r.opened_up ? { rows_opened_up: true } : {}),
+    ...(r.rows != null ? { rows: r.rows } : {}),
+    ...(r.ms != null ? { seconds: Math.round(r.ms / 100) / 10 } : {}),
+    ...(r.error ? { failed: r.error } : {}),
+    ...(f ? { file: fileLine(ctx, f) } : {}),
+  }
+}
+
+// A kept file: until when, whether it holds people's details, and where its
+// maker downloads it. Nobody else can download it, Pepper included.
+function fileLine(ctx, f) {
+  return {
+    name: f.name,
+    ...(f.removed ? { kept: 'No longer kept' } : { kept_until: f.expires_at }),
+    ...(f.personal ? { holds_peoples_details: true } : {}),
+    ...(f.truncated ? { cut: 'The report had more rows than one file holds' } : {}),
+    ...(f.removed ? {} : f.mine
+      ? { download: linkText(ctx, 'Download it from Past runs', runsPath({ file: f.id })) }
+      : { download: 'Only ' + (f.by || 'the person who made it') + ' can download it' }),
+  }
 }
 
 // ── The tools ─────────────────────────────────────────────────
@@ -795,6 +845,104 @@ export const reportTools = [
           },
         })
         return { report: report.name, shared_with: SHARED_WORDS[report.shared] || report.shared, ...(report.is_starter ? { offered_as_starter: true } : {}) }
+      })
+    },
+  },
+
+  {
+    name: 'report_runs',
+    section: 'reports',
+    title: 'Reports: past runs and kept files',
+    description:
+      'The reports the person ran, downloaded, printed or kept as a file, newest first, with the choices each was made with and ' +
+      'the files they kept (until when, and a link to Past runs, where they download it). Narrow it to one report or to kept files. ' +
+      'everyone: true lists everyone\'s in the group (needs Manage on Reports). A kept file can only be downloaded by the person ' +
+      'who made it; export_report keeps a new one.',
+    input: z.object({
+      report: ReportRef.optional().describe('One report\'s runs: its name, or its id from list_reports'),
+      files_only: z.boolean().optional().describe('Only the runs that kept a file'),
+      everyone: z.boolean().optional().describe('Everyone\'s in the group, not only the person\'s own (needs Manage on Reports)'),
+      limit: z.number().int().min(1).max(RUNS_MAX).optional()
+        .describe('How many runs (' + RUNS_SHOWN + ' unless asked; ' + RUNS_MAX + ' at most)'),
+    }),
+    readOnly: true,
+    async run(ctx, input) {
+      await requireStaffPermission(ctx, 'reports', 'view')
+      const report = input.report ? pickReport(await reportList(ctx), input.report) : null
+      const q = {
+        scope: input.everyone ? 'all' : 'mine',
+        ...(report ? { report: report.id } : {}),
+        ...(input.files_only ? { files: '1' } : {}),
+      }
+      const out = await callApi(ctx, 'GET', '/api/reports/runs?' + new URLSearchParams({ ...q, limit: String(input.limit ?? RUNS_SHOWN) }).toString())
+      const runs = (out.runs || []).map(r => runLine(ctx, r, !!input.everyone))
+      return {
+        ...(report ? { report: report.name } : {}),
+        whose: input.everyone ? 'everyone\'s in the group' : 'the person\'s own',
+        runs,
+        ...(!runs.length ? { note: input.files_only ? 'No kept files.' : 'Nothing run yet.' } : {}),
+        ...(out.next ? { more: 'There are older runs: Past runs lists them all.' } : {}),
+        ...linkTo(ctx, 'Past runs', runsPath({ ...q, scope: input.everyone ? 'all' : null })),
+      }
+    },
+  },
+
+  {
+    name: 'export_report',
+    section: 'reports',
+    title: 'Reports: keep a file of one',
+    description:
+      'Keeps a CSV or Excel file of a saved report or a starter, as it is or for another period and other venues, for the person ' +
+      'to download from Past runs: only they can download it. Kept for 30 days, or 7 when it holds people\'s details (names, ' +
+      'emails, phone numbers). Use when the person asks for a file, a spreadsheet or a download of a report. Give them the link.',
+    input: z.object({
+      report: ReportRef,
+      format: z.enum(['csv', 'xlsx']).optional().describe('csv (the usual) or xlsx for Excel'),
+      period: PeriodInput.optional().describe('Another period: relative (last_week, last_n_days with n) or from and to'),
+      venues: z.array(z.string().trim().min(1).max(120)).max(50).optional().describe('Venue names; leave out to keep the report\'s own'),
+      params: Pinned,
+    }),
+    confirm: true,
+    needs: 'use',
+    async describe(ctx, input) {
+      await requireStaffPermission(ctx, 'reports', 'use')
+      const r = await loadReport(ctx, input.report)
+      if (r.runs === false) throw new ToolError('Your role can\'t run "' + r.name + '": it needs ' + (r.needs || 'another area') + '. Ask an owner or admin.', 403)
+      const params = await runParams(ctx, r.spec, input)
+      const cat = await catalogueFor(ctx, 'use')
+      const venues = venueNames(await tenantVenueList(ctx))
+      const choices = paramInputs(cat, r.spec)
+        .map(i => i.label + ': ' + (paramWords(cat, i, params[i.key] ?? i.default, { venues }) || 'anything'))
+      return {
+        title: 'Keep ' + (input.format === 'xlsx' ? 'an Excel' : 'a CSV') + ' file of "' + r.name + '"?',
+        lines: [
+          ...choices,
+          'Kept for 30 days (7 if it holds people\'s details) to download from Past runs. Only you can download it.',
+        ],
+        confirmLabel: 'Keep the file',
+        pin: { report: r.id, params },
+      }
+    },
+    async run(ctx, input) {
+      await requireStaffPermission(ctx, 'reports', 'use')
+      const r = await loadReport(ctx, input.report)
+      if (r.runs === false) throw new ToolError('Your role can\'t run "' + r.name + '": it needs ' + (r.needs || 'another area') + '. Ask an owner or admin.', 403)
+      const params = input.params || await runParams(ctx, r.spec, input)
+      const format = input.format || 'csv'
+      return audited(ctx, 'export_report', { report: r.name, format }, async () => {
+        const { file } = await callApi(ctx, 'POST', '/api/reports/' + encodeURIComponent(r.id) + '/files', {
+          body: { format, params }, headers: AS_PEPPER,
+        })
+        return {
+          kept: file.name,
+          report: r.name,
+          ...(file.rows != null ? { rows: file.rows } : {}),
+          ...(file.truncated ? { cut: 'The report has more rows than one file holds: the file has the first ' + file.rows } : {}),
+          kept_until: file.expires_at,
+          ...(file.personal ? { holds_peoples_details: 'Kept 7 days, since it holds people\'s details' } : {}),
+          only_you: 'Only the person who asked can download it.',
+          ...linkTo(ctx, 'Download it from Past runs', runsPath({ file: file.id })),
+        }
       })
     },
   },

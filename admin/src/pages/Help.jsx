@@ -2418,6 +2418,39 @@ export default function Help() {
               has run out, and <strong>Print</strong> on the report makes a new one. Anyone who can
               open a report can print it, and the page shows only what your own role may see.
             </P>
+            <H3>Keep a file</H3>
+            <P>
+              <strong>More</strong> (top right of a report), then <strong>Keep a CSV file</strong> or{' '}
+              <strong>Keep an Excel file</strong> (with Use or Manage on Reports), makes the same file a
+              download would, for the period, venues and other choices showing and the rows you opened
+              up, and keeps it on <strong>Past runs</strong> to download later: on another device, or
+              once you are back at a desk. A note says where it is, with <strong>Open Past runs</strong>.
+              A file is kept for 30 days, or 7 days when it lists people&apos;s names, emails or phone
+              numbers. You can also ask Pepper to keep a file of a report for you.
+            </P>
+            <P>
+              Only the person who kept a file can download it: others who manage reports see it on
+              Past runs with who made it. If what your role can see in the report changes after the file
+              was made, more or less, the file can&apos;t be downloaded any more: run the report again
+              for a new one. To take a file off before its time, use <strong>Remove this file</strong> on
+              Past runs, then <strong>Yes, remove it</strong>. Your group keeps up to 500 MB of files at
+              once. When a guest&apos;s customer record is anonymised or a loyalty member is erased,
+              every kept file that lists people is taken off at once.
+            </P>
+            <H3>Past runs</H3>
+            <P>
+              <strong>Past runs</strong> (top of the Reports page, or More on a report, then{' '}
+              <strong>Past runs of this report</strong>) lists the reports you ran on screen,
+              downloaded, printed or kept a file of, newest first: what was done and when, the report,
+              the period, venues and other choices it was run for, how many rows it had, how long it
+              took, and <strong>By Pepper</strong> when Pepper ran it for you. Words typed into a
+              filter show as set, never the words themselves. <strong>Kept files</strong> shows only the
+              runs that kept a file, each with <strong>Download</strong>; <strong>Show older runs</strong>{' '}
+              at the foot goes further back, up to 400 days. With Manage on Reports,{' '}
+              <strong>Everyone&apos;s</strong> shows everyone&apos;s runs in your group with who ran
+              them, and the <strong>Report runs</strong> subject under Your group counts them in a
+              report of your own.
+            </P>
             <H3>The starter reports</H3>
             <DataTable
               head={['Area', 'Reports']}
@@ -2661,18 +2694,20 @@ export default function Help() {
             <P>
               Reports is its own module on the Access page. <strong>View</strong> opens and runs the
               starter reports and any report shared with you, changes the period, venues and other
-              choices for the visit, opens rows up and prints. <strong>Use</strong> also builds, saves, copies, renames and
-              deletes reports of your own and downloads files. <strong>Manage</strong> also shares
+              choices for the visit, opens rows up, prints and sees their own past runs.{' '}
+              <strong>Use</strong> also builds, saves, copies, renames and
+              deletes reports of your own and downloads and keeps files. <strong>Manage</strong> also shares
               reports, sees every report in the group, including ones other people haven't shared
-              (marked <strong>Not shared</strong> under From your team), and can change or delete them.
+              (marked <strong>Not shared</strong> under From your team), and can change or delete them,
+              and sees everyone&apos;s past runs.
               To begin with owners and admins have Manage, operators have View and viewers have no
               access. Guests' names, emails and phone numbers only appear in reports that list them,
               and a guest's customer record needs Customers access as well.
             </P>
             <InfoBox>
-              Still to come: PDFs, page layouts and reports sent by email on a schedule, a list of
-              past runs, reports on dashboards and the phone, and links other apps can read a report
-              from. The builder has no undo (leaving without
+              Still to come: PDFs, page layouts and reports sent by email on a schedule, reports on
+              dashboards and the phone, and links other apps can read a report from. Kept files are
+              CSV or Excel for now. The builder has no undo (leaving without
               saving goes back to the last save), and filters made of several parts, which a few
               starter reports use, can be taken off but not changed on screen. The Till reports page,
               the Online orders report and the Kitchen report stay where they are.

@@ -13,6 +13,7 @@ import XLSX from 'xlsx'
 import { safeText } from '../../../../shared/reports/format.js'
 import { runReport } from '../run.js'
 import { resultTable } from './table.js'
+import { hasPersonal } from './csv.js'
 
 export const XLSX_CELLS = 200000
 
@@ -99,7 +100,7 @@ export function xlsxOf(result, about = {}) {
 }
 
 /**
- * A definition as a workbook: { buffer, rows, truncated, notes }. A list is
+ * A definition as a workbook: { buffer, rows, truncated, notes, personal }. A list is
  * run with a cap that keeps the workbook under XLSX_CELLS.
  */
 export async function xlsxExport(ctx, spec, given, about = {}) {
@@ -118,5 +119,6 @@ export async function xlsxExport(ctx, spec, given, about = {}) {
     rows: result.meta.row_count,
     truncated: result.meta.truncated,
     notes: result.meta.notes,
+    personal: hasPersonal(result.columns),
   }
 }

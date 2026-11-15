@@ -1023,6 +1023,7 @@ const TOOL_LABELS = {
   local_info: 'Looked at the local info',
   find_fields: 'Looked at what reports can show', explain_figure: 'Looked up what a figure counts',
   list_reports: 'Looked at the reports', get_report: 'Opened a report', run_report: 'Ran a report', ask_data: 'Worked the figures out from the data',
+  report_runs: 'Looked at past runs',
   screens_status: 'Looked at the menu screens', email_log: 'Looked at the booking emails', list_issues: 'Looked at the issue log',
   plan_new_location: 'Scoped the new location', answer_location_questions: 'Passed on the answers',
   change_location_plan: 'Changed the new location\'s plan', location_openings: 'Looked at the new locations',
