@@ -123,6 +123,7 @@ const RunsQuery = z.object({
   scope: z.enum(['mine', 'all']).optional(),
   report: z.string().max(80).optional(),
   file: z.string().max(40).optional(),
+  schedule: z.string().max(40).optional(),
   files: z.enum(['1', '0', 'true', 'false']).optional(),
   before: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(RUNS_MAX).optional(),
