@@ -9153,6 +9153,92 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               the other group.
             </P>
 
+            <H3>Schedules and emailed reports (phase 4b, migration 251)</H3>
+            <P>
+              A saved report or a starter can be sent by email on a schedule, or once from the viewer
+              (<strong>Email it now</strong>). The rules are one shared file, <Mono>shared/reports/schedule.js</Mono>,
+              used by the API, the schedule window and Pepper: timing (<Mono>normaliseTiming()</Mono>,{' '}
+              <Mono>timingText()</Mono>, <Mono>nextRunAt(timing, now, tz)</Mono>: every day, chosen weekdays, or
+              once a month on a day, the last day or a weekday such as the first Monday, at a time on the
+              venue&apos;s clock), delivery (<Mono>normaliseDelivery()</Mono>: the figures in the message, a CSV
+              or Excel file attached, or both, and whether the file is kept in Past runs), the condition
+              (<Mono>normaliseCondition()</Mono>: every time, only when there are rows, or only when one of the
+              report&apos;s figures is over, at least, under, at most or more than an amount either way, in
+              total or on any row) and who it goes to (<Mono>normaliseRecipients()</Mono>,{' '}
+              <Mono>recipientsProblem()</Mono>, 50 addresses at most). A schedule&apos;s period must be a
+              relative one (<Mono>periodProblem()</Mono>). The report&apos;s venues and the time zone its clock
+              runs on come from <Mono>venueScope(venues, spec, params)</Mono> in{' '}
+              <Mono>shared/reports/spec.js</Mono>: the first venue in scope, venues in the order they were made.
+            </P>
+            <P>
+              <strong>Tables.</strong> <Mono>report_schedules</Mono> (forced RLS): the report or its starter key,
+              its owner, name and message, <Mono>timing</Mono>, <Mono>params</Mono>, <Mono>delivery</Mono>,{' '}
+              <Mono>condition</Mono> and <Mono>recipients</Mono> as jsonb, <Mono>personal_outside</Mono>,{' '}
+              <Mono>enabled</Mono>, <Mono>paused_reason</Mono>, <Mono>next_run_at</Mono>, <Mono>retry_of</Mono>,{' '}
+              <Mono>running_until</Mono>, <Mono>failures</Mono> and the last run, send, status and error.{' '}
+              <Mono>report_runs.kind</Mono> gains <Mono>scheduled</Mono> and <Mono>emailed</Mono>, with{' '}
+              <Mono>schedule_id</Mono> and a <Mono>delivery</Mono> record that holds counts and masked addresses
+              only.
+            </P>
+            <P>
+              <strong>The sweep.</strong> <Mono>sweepSchedules()</Mono> (<Mono>api/src/reports/schedules.js</Mono>)
+              runs every minute from <Mono>startReportScheduleWorker()</Mono> in <Mono>jobs/queues.js</Mono> (BullMQ
+              queue <Mono>report-schedules</Mono>). It claims each due schedule with a ten-minute lease
+              (<Mono>running_until</Mono>, <Mono>FOR UPDATE SKIP LOCKED</Mono>), writes its next regular time
+              before anything is sent, so a crash never sends a run twice, and runs the report as the
+              schedule&apos;s owner, loaded afresh each time (<Mono>ownerPerson()</Mono>), with the time it was
+              due as its today. Runs missed while the worker was down run once, and only when the last is
+              under 6 hours late (<Mono>LATE_HOURS</Mono>); otherwise the run is marked late and not sent. A
+              send that fails for a passing reason is tried again 5, 20, 50, 110, 230 and 350 minutes after
+              it was due (<Mono>RETRY_MINUTES</Mono>, the due time kept in <Mono>retry_of</Mono>); one the
+              provider refuses waits for the next run; five failures in a row (<Mono>MAX_FAILURES</Mono>)
+              pause the schedule. It also pauses when its owner has left, can no longer open the report or
+              has lost the access it needs, when the report needs changing, or when nothing could go out,
+              and <Mono>tellPaused()</Mono> emails the owner and the group&apos;s owners.
+            </P>
+            <P>
+              <strong>The sender.</strong> <Mono>api/src/reports/send.js</Mono>: <Mono>prepareSend()</Mono> checks
+              and plans a send (also the dry run behind the window&apos;s notes and Pepper&apos;s cards), and{' '}
+              <Mono>deliver()</Mono> runs the report, judges the condition, makes the file, sends and records
+              the run. A message holds the first 100 rows (<Mono>EMAIL_ROWS</Mono>), an attached list 20,000
+              rows (<Mono>LIST_CAP</Mono>) and an attachment 5 MB (<Mono>MAX_ATTACH_MB</Mono>).{' '}
+              <Mono>mailSender()</Mono> picks the venue whose email settings send: a venue in the report&apos;s
+              scope with a provider, else any venue with one, else a venue in scope, the default widget
+              venue, the first made; replies go to the owner. Sending to yourself needs Use, to people on
+              the team Manage, to outside addresses an owner or admin, and people&apos;s details are held
+              back from outside addresses unless an owner or admin switched <Mono>personal_outside</Mono> on.
+              Messages to outside addresses carry no link into the app.
+            </P>
+            <P>
+              <strong>Routes</strong> (<Mono>api/src/routes/reportSchedules.js</Mono>):{' '}
+              <Mono>GET /api/reports/recipients</Mono>, <Mono>GET /api/reports/schedules</Mono> (yours, or
+              everyone&apos;s with Manage; <Mono>report=</Mono> narrows),{' '}
+              <Mono>GET /api/reports/schedules/:scheduleId</Mono>, <Mono>GET</Mono> and{' '}
+              <Mono>POST /api/reports/:id/schedules</Mono>, <Mono>PATCH</Mono> and{' '}
+              <Mono>DELETE /api/reports/schedules/:scheduleId</Mono> (409 while it runs; changing someone
+              else&apos;s makes it yours), <Mono>POST .../pause</Mono>, <Mono>.../resume</Mono> and{' '}
+              <Mono>.../send</Mono> (Send now, whatever its condition), and{' '}
+              <Mono>POST /api/reports/:id/send</Mono> (Email it now). Save, change, resume and send take{' '}
+              <Mono>dry_run</Mono>. Pepper&apos;s tools (<Mono>api/src/ai/tools/reportSchedules.js</Mono>):{' '}
+              <Mono>schedule_report</Mono>, <Mono>change_schedule</Mono>, <Mono>pause_schedule</Mono> and{' '}
+              <Mono>send_report</Mono>, each behind a Confirm card made from the route&apos;s dry run. Admin:{' '}
+              <Mono>components/reports/ScheduleWindow.jsx</Mono> (the schedule and send windows),{' '}
+              <Mono>pages/ReportSchedules.jsx</Mono> (<Mono>/reports/schedules</Mono>), the viewer&apos;s More,
+              and Past runs&apos; Sent by a schedule, Skipped by a schedule and Emailed.
+            </P>
+            <P>
+              <strong>Tests and limits.</strong> <Mono>shared/test/reportSchedule.test.mjs</Mono> (13),{' '}
+              <Mono>api/test/reports-schedule-routes.test.mjs</Mono> (9),{' '}
+              <Mono>reports-schedules.test.mjs</Mono> (10, the sweep called directly) and{' '}
+              <Mono>reports-schedule-pepper.test.mjs</Mono> (13); no real email provider is used. The screens
+              had one short browser pass at 1280 px and on a touch phone at 390 px: what someone with Use
+              sees, taking over a schedule, the outside-address refusal, a skipped run, a failed send and
+              the time zone hint are covered by API tests only. Limits: one time zone per schedule; a run
+              over 6 hours late is skipped; a send is known only as far as the provider taking the
+              message; files are CSV or Excel until PDFs (phase 4d); nothing goes to Slack, Teams or a web
+              address (push is phase 5).
+            </P>
+
             <H3>Starter reports</H3>
             <P>
               <Mono>api/src/reports/starters/</Mono>: 88 definitions in code (<Mono>till.js</Mono> 17,{' '}
@@ -9831,8 +9917,7 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
             </P>
 
             <InfoBox>
-              <strong>Not built yet.</strong> Layouts, Page reports and PDFs with schedules and email, the
-              private file store and a past-runs screen (phase 4); data links, push, a dashboard widget, the
+              <strong>Not built yet.</strong> Layout templates, Page reports and PDFs (phase 4c and 4d); data links, push, a dashboard widget, the
               phone viewer, saved reports in the menu search and Today alerts (phase 5). Limits of the builder: no undo; filters made of several parts (<Mono>any</Mono>,{' '}
               <Mono>all</Mono>, <Mono>has</Mono>) are said in words and can be taken off, never made or edited on
               screen; tags aren&apos;t edited; the Data panel walks two links deep (a deeper path a starter uses
