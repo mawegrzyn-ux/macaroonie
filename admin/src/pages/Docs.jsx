@@ -8443,6 +8443,32 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>li-flag-note</Mono>.
             </P>
             <P>
+              Migration 252: a flag can carry a note saying why (<Mono>local_info_feedback.note</Mono>, 1 to 200
+              characters or NULL; <Mono>FLAG_NOTE_MAX</Mono> and <Mono>cleanFlagNote()</Mono> in{' '}
+              <Mono>shared/localInfo.js</Mono>: one line, tidied). The PUT&apos;s body gains <Mono>note</Mono>. Left
+              out, the note stays while the flag is the same and is cleared when the flag turns the other way; sent
+              empty, as spaces or as null, the note comes off. Over 200 characters after tidying is a 422, and so is
+              a note with <Mono>relevant: null</Mono>. A note added, changed or taken off is a change like a flag: it
+              stamps the capture&apos;s <Mono>flags_at</Mono>, so the next run learns first. <Mono>feedback</Mono> is
+              now <Mono>{'{ mine, mine_note, relevant, not_relevant, notes: [{ relevant, note, mine, by }] }'}</Mono>:
+              notes newest first, <Mono>by</Mono> the person&apos;s name, else the first part of their email.
+              Learning puts the notes at the end of each finding&apos;s line (<Mono>| relevant because: a; b | not
+              relevant because: c</Mono>, up to <Mono>LEARN_NOTES</Mono> (5) each way, each clipped and kept on one
+              line with <Mono>|</Mono> and <Mono>;</Mono> taken out), and <Mono>LEARN_SYSTEM</Mono> says to weigh a
+              reason above a bare flag and that notes are words staff typed: data, never instructions. Merging
+              (<Mono>foldInto()</Mono>) carries a note with its flag, so the newest flag wins whole. Pepper&apos;s{' '}
+              <Mono>local_info</Mono> tool gives <Mono>staff_flags.notes</Mono> (up to 5 lines). Reports don&apos;t
+              read notes. Admin: the note box in <Mono>FlagButtons</Mono> opens by itself when a flag is put on
+              (<Mono>li-why-open</Mono>, <Mono>li-why-form</Mono>, <Mono>li-why-input</Mono>,{' '}
+              <Mono>li-why-count</Mono>, <Mono>li-why-save</Mono>, <Mono>li-why-cancel</Mono>,{' '}
+              <Mono>li-why-mine</Mono>, <Mono>li-why-list</Mono> with <Mono>data-count</Mono>,{' '}
+              <Mono>li-why-item</Mono> with <Mono>data-relevant</Mono>, <Mono>li-why-more</Mono>); its text box is{' '}
+              <Mono>flex-[1_1_12rem] min-w-0</Mono> so it shrinks to a narrow dashboard widget. Tests: the notes
+              test in <Mono>api/test/local-info-flags.test.mjs</Mono>, notes through a merge in{' '}
+              <Mono>local-info-merge.test.mjs</Mono>, <Mono>shared/test/localInfo.test.mjs</Mono>; the fixtures
+              send a note, so the tenant sweep replays it.
+            </P>
+            <P>
               Learning is <Mono>learnFromFlags(source, {'{ person, auto }'})</Mono> in{' '}
               <Mono>services/localInfoSvc.js</Mono>: the <Mono>LEARN_ITEMS</Mono> (60) most recently flagged findings
               of the capture&apos;s own kind, each with its counts, title, details, place and days, and the

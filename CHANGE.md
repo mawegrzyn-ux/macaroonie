@@ -6,6 +6,20 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-15 — Local info: say why something is relevant or not]
+
+Migration 252 (`local_info_feedback.note`).
+
+**Added**
+- **A note with a flag**: after you tap Relevant or Not relevant on something a capture found, a box asks why (optional, up to 200 characters). **Say why** / **Change your note** opens it again; emptying it takes the note off. On the Local info list, the day window and the dashboard widget.
+- Your own note shows as **Your note**; other people's show under the item with their names.
+- Pepper reads the notes when it learns from the flags and gives a reason more weight than a flag with nothing said. Its `local_info` tool shows them too.
+
+**Notes**
+- A note belongs to its flag: switching to the other thumb clears it, and taking the flag off removes it. Adding, changing or removing a note makes the capture learn again before its next run.
+- When reports of the same event are put into one entry, each person's note moves with their flag.
+- Tested with unit and API tests (the tenant sweep included) and one short browser pass at 1280 px, on a touch phone at 390 px and in the dashboard widget. Learning from notes has only run against a stand-in Claude.
+
 ## [2026-11-15 — Reports: sent by email on a schedule, or now]
 
 Migration 251 (`report_schedules`; scheduled and emailed runs on `report_runs`).

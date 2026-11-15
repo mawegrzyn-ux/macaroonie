@@ -11,6 +11,9 @@
 // each person's own, tapped again to take it off, with everyone's counts.
 // Pepper learns from them to tune that capture's search
 // (services/localInfoSvc.js); typed-in events take none.
+// A flag can carry a short note saying why (migration 252): the box opens
+// when a flag is put on, the person's own note shows under the buttons with
+// everyone else's, and Pepper reads the notes when it learns.
 //
 // The same event found under other names is one entry (migration 249): the
 // other reports of it come with the item as `also`, shown under it, each
@@ -19,12 +22,15 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { CloudSun, TrafficCone, CalendarDays, AlertTriangle, EyeOff, ExternalLink, Loader2, ThumbsUp, ThumbsDown, ChevronDown, Layers } from 'lucide-react'
+import { CloudSun, TrafficCone, CalendarDays, AlertTriangle, EyeOff, ExternalLink, Loader2, ThumbsUp, ThumbsDown, ChevronDown, Layers, MessageSquarePlus, Pencil } from 'lucide-react'
 import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { KIND_LABELS, addDays, itemOnDay, sortDayItems } from '@shared/localInfo.js'
+import { KIND_LABELS, addDays, itemOnDay, sortDayItems, FLAG_NOTE_MAX, cleanFlagNote } from '@shared/localInfo.js'
 import { webLink } from '@shared/links.js'
+
+// No keyboard popping up by itself on a tablet when the note box opens.
+const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 
 export const KIND_ICONS = { weather: CloudSun, traffic: TrafficCone, events: CalendarDays, incidents: AlertTriangle }
 
@@ -62,14 +68,16 @@ const errText = e => e?.body?.error || e?.message || 'Something went wrong'
 
 /**
  * The person's own flag on a captured item: { id, relevant: true | false |
- * null }. The reply is the item's flags as they are now, put straight into
- * every list holding the item; the captures' counts are read again.
+ * null, note? }. `note` left out keeps the note the flag has (the server
+ * clears it when the flag turns the other way); '' takes it off. The reply is
+ * the item's flags as they are now, put straight into every list holding the
+ * item; the captures' counts are read again.
  */
 export function useItemFlag() {
   const api = useApi()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, relevant }) => api.put(`/local-info/items/${id}/feedback`, { relevant }),
+    mutationFn: ({ id, relevant, note }) => api.put(`/local-info/items/${id}/feedback`, note === undefined ? { relevant } : { relevant, note }),
     onSuccess: (res, { id }) => {
       qc.setQueriesData({ queryKey: ['local-info-items'] }, old => old?.items
         ? { ...old, items: old.items.map(it => it.id === id ? { ...it, feedback: res.feedback } : it) }
@@ -87,10 +95,20 @@ export function useItemFlag() {
  */
 export function FlagButtons({ item, compact = false }) {
   const flag = useItemFlag()
+  // The note box: closed, or open with what is being typed. It opens by
+  // itself when a flag is put on, so the reason can be said there and then.
+  const [draft, setDraft] = useState(null)
   const fb = item.feedback
   if (!item.source_id || !fb) return null
   const mine = fb.mine === true ? 'yes' : fb.mine === false ? 'no' : ''
-  const tap = want => flag.mutate({ id: item.id, relevant: fb.mine === want ? null : want })
+  const tap = want => {
+    const off = fb.mine === want
+    flag.mutate({ id: item.id, relevant: off ? null : want }, { onSuccess: () => setDraft(off ? null : '') })
+  }
+  const typed = cleanFlagNote(draft || '')
+  const saveNote = () => flag.mutate({ id: item.id, relevant: fb.mine, note: typed }, { onSuccess: () => setDraft(null) })
+  const notes = (fb.notes || []).filter(n => !n.mine)
+  const shown = notes.slice(0, compact ? 2 : 5)
   const button = (want, Icon, label, count, on) => (
     <button type="button" onClick={() => tap(want)} disabled={flag.isPending}
       aria-pressed={fb.mine === want} title={label}
@@ -104,11 +122,60 @@ export function FlagButtons({ item, compact = false }) {
     </button>
   )
   return (
-    <div className="flex flex-wrap items-center gap-1.5 mt-1.5" data-testid="li-flags" data-mine={mine}>
-      {button(true, ThumbsUp, 'Relevant', fb.relevant, 'bg-emerald-50 border-emerald-300 text-emerald-800')}
-      {button(false, ThumbsDown, 'Not relevant', fb.not_relevant, 'bg-rose-50 border-rose-300 text-rose-800')}
-      {flag.isPending && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
-      {flag.error && <span className="text-xs text-destructive" role="alert" data-testid="li-flag-error">{errText(flag.error)}</span>}
+    <div className="mt-1.5" data-testid="li-flags" data-mine={mine}>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {button(true, ThumbsUp, 'Relevant', fb.relevant, 'bg-emerald-50 border-emerald-300 text-emerald-800')}
+        {button(false, ThumbsDown, 'Not relevant', fb.not_relevant, 'bg-rose-50 border-rose-300 text-rose-800')}
+        {fb.mine !== null && draft === null && (
+          <button type="button" onClick={() => setDraft(fb.mine_note || '')} disabled={flag.isPending}
+            data-testid="li-why-open" title={fb.mine_note ? 'Change your note' : 'Say why'}
+            className="inline-flex items-center justify-center gap-1 min-h-[48px] min-w-[48px] px-2.5 rounded-lg border bg-background text-xs font-medium text-muted-foreground hover:bg-muted touch-manipulation disabled:opacity-60">
+            {fb.mine_note ? <Pencil className="w-4 h-4 shrink-0" /> : <MessageSquarePlus className="w-4 h-4 shrink-0" />}
+            <span className={compact ? 'sr-only' : ''}>{fb.mine_note ? 'Change your note' : 'Say why'}</span>
+          </button>
+        )}
+        {flag.isPending && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+        {flag.error && <span className="text-xs text-destructive" role="alert" data-testid="li-flag-error">{errText(flag.error)}</span>}
+      </div>
+      {fb.mine !== null && draft !== null && (
+        <form className="mt-1.5 flex flex-wrap items-start gap-1.5" data-testid="li-why-form"
+          onSubmit={e => { e.preventDefault(); if (!flag.isPending) saveNote() }}>
+          <div className="flex-[1_1_12rem] min-w-0">
+            <input type="text" value={draft} onChange={e => setDraft(e.target.value.slice(0, FLAG_NOTE_MAX))} maxLength={FLAG_NOTE_MAX}
+              autoFocus={!IS_TOUCH} data-testid="li-why-input"
+              aria-label={fb.mine ? 'Why it is relevant' : 'Why it isn\u2019t relevant'}
+              placeholder={fb.mine ? 'Why is it relevant? (optional)' : 'Why isn\u2019t it relevant? (optional)'}
+              className="w-full h-12 px-3 rounded-lg border bg-background text-sm touch-manipulation" />
+            <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums" data-testid="li-why-count">{typed.length} of {FLAG_NOTE_MAX}</p>
+          </div>
+          <button type="submit" disabled={flag.isPending || typed === (fb.mine_note || '')} data-testid="li-why-save"
+            className="h-12 min-w-[48px] px-3 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50">
+            {typed || !fb.mine_note ? 'Save note' : 'Take the note off'}
+          </button>
+          <button type="button" onClick={() => setDraft(null)} disabled={flag.isPending} data-testid="li-why-cancel"
+            className="h-12 min-w-[48px] px-3 rounded-lg border bg-background text-sm touch-manipulation disabled:opacity-50">
+            {fb.mine_note ? 'Cancel' : 'No note'}
+          </button>
+        </form>
+      )}
+      {fb.mine !== null && fb.mine_note && draft === null && (
+        <p className="mt-1 text-xs text-muted-foreground break-words" data-testid="li-why-mine">
+          <span className="font-medium text-foreground">Your note:</span> {fb.mine_note}
+        </p>
+      )}
+      {shown.length > 0 && (
+        <ul className="mt-1 space-y-0.5" data-testid="li-why-list" data-count={notes.length}>
+          {shown.map((n, i) => (
+            <li key={i} className="flex items-start gap-1.5 text-xs text-muted-foreground break-words" data-testid="li-why-item" data-relevant={n.relevant ? '1' : '0'}>
+              {n.relevant
+                ? <ThumbsUp className="w-3.5 h-3.5 mt-0.5 shrink-0 text-emerald-700" aria-label="Relevant" />
+                : <ThumbsDown className="w-3.5 h-3.5 mt-0.5 shrink-0 text-rose-700" aria-label="Not relevant" />}
+              <span className="min-w-0"><span className="font-medium text-foreground">{n.by || 'Someone'}:</span> {n.note}</span>
+            </li>
+          ))}
+          {notes.length > shown.length && <li className="text-[11px] text-muted-foreground" data-testid="li-why-more">and {notes.length - shown.length} more</li>}
+        </ul>
+      )}
     </div>
   )
 }

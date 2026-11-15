@@ -34,7 +34,13 @@ function itemView(it, venueNames) {
     ...(it.source_id ? {} : { typed_in: true }),
     // Staff's own flags on what a capture found (migration 248).
     ...(it.feedback && (it.feedback.relevant || it.feedback.not_relevant)
-      ? { staff_flags: { relevant: it.feedback.relevant, not_relevant: it.feedback.not_relevant } } : {}),
+      ? { staff_flags: {
+        relevant: it.feedback.relevant, not_relevant: it.feedback.not_relevant,
+        // Why, in the words staff left with their flags (migration 252).
+        ...(it.feedback.notes?.length ? {
+          notes: it.feedback.notes.slice(0, 5).map(n => (n.relevant ? 'Relevant: ' : 'Not relevant: ') + n.note + (n.by ? ' (' + n.by + ')' : '')),
+        } : {}),
+      } } : {}),
     // The same event found under other names, put into this entry (migration 249).
     ...(it.also?.length ? {
       also_reported_as: it.also.slice(0, 5).map(a => ({

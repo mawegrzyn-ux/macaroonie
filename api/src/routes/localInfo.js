@@ -37,7 +37,7 @@ import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 import { claimSource, runClaimed, listItems, itemFeedback, learnNow, lockMerges } from '../services/localInfoSvc.js'
 import { pepperOn } from '../services/aiJson.js'
-import { KINDS, SEVERITIES, FREQUENCIES, addDays, localDateTime } from '../../../shared/localInfo.js'
+import { KINDS, SEVERITIES, FREQUENCIES, addDays, localDateTime, FLAG_NOTE_MAX, cleanFlagNote } from '../../../shared/localInfo.js'
 import { webLink } from '../../../shared/links.js'
 
 const UUID = z.string().uuid()
@@ -92,7 +92,13 @@ const EditItem = z.object({
   hidden: z.boolean().optional(),
   ...Object.fromEntries(Object.entries(ItemFields).map(([k, v]) => [k, v.optional()])),
 })
-const Feedback = z.object({ relevant: z.boolean().nullable() })
+// A flag, with an optional note saying why. The note key left out keeps the
+// note the flag has (and clears it when the flag turns the other way); sent
+// empty or null it takes the note off.
+const Feedback = z.object({
+  relevant: z.boolean().nullable(),
+  note: z.string().max(FLAG_NOTE_MAX * 4).nullable().optional(),
+})
 
 // Bulk delete (14 Nov 2026). Every criterion given must hold; an entry is in
 // the days when it starts in them. venue_id = that venue's own entries (the
@@ -369,7 +375,9 @@ export default async function localInfoRoutes(app) {
   })
 
   // The person's own flag on a captured item: relevant, not relevant, or none
-  // (null). A flag added, changed or taken off stamps the item's capture
+  // (null), with an optional short note saying why (migration 252: a note
+  // added, changed or taken off counts as a change too).
+  // A flag added, changed or taken off stamps the item's capture
   // (flags_at) so its next run learns again first, and the captures of the
   // findings merged into it; the same flag again changes nothing and stamps
   // nothing.
@@ -377,6 +385,10 @@ export default async function localInfoRoutes(app) {
     const b = Feedback.parse(req.body)
     const sub = req.user?.sub
     if (!sub) throw httpError(403, 'Sign in to flag what a capture found')
+    // undefined: nothing said about the note; null: no note.
+    const note = b.note === undefined ? undefined : (cleanFlagNote(b.note) || null)
+    if (note && note.length > FLAG_NOTE_MAX) throw httpError(422, 'Keep the note to ' + FLAG_NOTE_MAX + ' characters')
+    if (note && b.relevant === null) throw httpError(422, 'A note goes with a flag: flag it as relevant or not relevant first')
     return withTenant(req.tenantId, async tx => {
       if (!UUID.safeParse(req.params.id).success) throw httpError(404, 'Item not found')
       const [item] = await tx`SELECT id, source_id, kind, merged_into FROM local_info_items WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
@@ -385,12 +397,22 @@ export default async function localInfoRoutes(app) {
       if (item.merged_into) throw httpError(422, MERGED_COPY)
       const changed = b.relevant === null
         ? await tx`DELETE FROM local_info_feedback WHERE tenant_id = ${req.tenantId} AND item_id = ${item.id} AND user_sub = ${sub} RETURNING item_id`
-        : await tx`
-            INSERT INTO local_info_feedback (tenant_id, item_id, user_sub, relevant)
-            VALUES (${req.tenantId}, ${item.id}, ${sub}, ${b.relevant})
-            ON CONFLICT (item_id, user_sub) DO UPDATE SET relevant = EXCLUDED.relevant, updated_at = now()
-             WHERE local_info_feedback.relevant IS DISTINCT FROM EXCLUDED.relevant
-            RETURNING item_id`
+        : note === undefined
+          // No word about the note: it stays with the same flag, and goes when
+          // the flag turns the other way (it said why the old one was right).
+          ? await tx`
+              INSERT INTO local_info_feedback (tenant_id, item_id, user_sub, relevant)
+              VALUES (${req.tenantId}, ${item.id}, ${sub}, ${b.relevant})
+              ON CONFLICT (item_id, user_sub) DO UPDATE SET relevant = EXCLUDED.relevant, note = NULL, updated_at = now()
+               WHERE local_info_feedback.relevant IS DISTINCT FROM EXCLUDED.relevant
+              RETURNING item_id`
+          : await tx`
+              INSERT INTO local_info_feedback (tenant_id, item_id, user_sub, relevant, note)
+              VALUES (${req.tenantId}, ${item.id}, ${sub}, ${b.relevant}, ${note})
+              ON CONFLICT (item_id, user_sub) DO UPDATE SET relevant = EXCLUDED.relevant, note = EXCLUDED.note, updated_at = now()
+               WHERE local_info_feedback.relevant IS DISTINCT FROM EXCLUDED.relevant
+                  OR local_info_feedback.note IS DISTINCT FROM EXCLUDED.note
+              RETURNING item_id`
       // Only a finding of the capture's own kind is something it learns from.
       if (changed.length) {
         await tx`UPDATE local_info_sources SET flags_at = ${new Date()}

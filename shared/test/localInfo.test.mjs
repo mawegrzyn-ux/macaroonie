@@ -189,3 +189,12 @@ test('weekAhead: a forecast per day and the headlines in order', () => {
   assert.deepEqual(two.headlines.map(x => x.id), ['e3', 'e2', 'e5', 'e6', 'e7'])
   assert.deepEqual(weekAhead([], '2026-11-14'), { from: '2026-11-14', to: '2026-11-20', weather: [], headlines: [], more: 0 })
 })
+
+test('a flag\'s note is one tidy line', async () => {
+  const { cleanFlagNote, FLAG_NOTE_MAX } = await import('../localInfo.js')
+  assert.equal(FLAG_NOTE_MAX, 200)
+  assert.equal(cleanFlagNote('  Too far away:\n nobody\twalks   from Hertford '), 'Too far away: nobody walks from Hertford')
+  assert.equal(cleanFlagNote('line one\r\nline two\u0000\u007f end'), 'line one line two end')
+  assert.equal(cleanFlagNote('   '), '')
+  for (const v of [null, undefined, 7, {}, ['a']]) assert.equal(cleanFlagNote(v), '', String(v))
+})

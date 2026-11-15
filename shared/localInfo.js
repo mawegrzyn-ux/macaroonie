@@ -216,6 +216,15 @@ const numOrNull = v => (v === null || v === undefined || v === '' || !Number.isF
 /** A captured forecast day (the weather capture's items carry the numbers). */
 export const isForecast = it => it?.kind === 'weather' && it.data != null && it.data.weather_code != null
 
+// A flag's note: why a finding is relevant, or isn't. One short line.
+export const FLAG_NOTE_MAX = 200
+
+/** A flag's note as it is kept: one line, tidied; '' when there is nothing to keep. */
+export function cleanFlagNote(v) {
+  if (typeof v !== 'string') return ''
+  return v.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
 /**
  * The week ahead at a venue (the Today page): `days` days from `from`
  * ('YYYY-MM-DD'), out of the venue's items (its own and the whole group's,
