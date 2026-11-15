@@ -41,7 +41,8 @@
 //   maskEmail(email)              s***@example.com
 //
 // An email holds at most EMAIL_ROWS rows of the table; an attached list at
-// most LIST_CAP rows (a file over MAX_ATTACH_MB isn't attached, but can
+// most LIST_CAP rows, and a PDF (the report's print page, by its layout)
+// what the screen holds (a file over MAX_ATTACH_MB isn't attached, but can
 // still be kept).
 
 import { withTenant } from '../config/db.js'
@@ -49,10 +50,14 @@ import { env } from '../config/env.js'
 import { httpError } from '../middleware/error.js'
 import { reportPerson, runsFor, refuseOtherVenues, insertRun } from './access.js'
 import { runReport, reportZone } from './run.js'
+import { SCREEN_ROWS } from './compile.js'
+import { layoutFor } from './layouts.js'
+import { groupAbout, reportPrint } from './export/printPage.js'
+import { pdfAvailable, htmlToPdf } from '../services/pdfBrowser.js'
 import { csvOf, hasPersonal } from './export/csv.js'
 import { xlsxOf, XLSX_CELLS } from './export/xlsx.js'
 import { fileName } from './export/table.js'
-import { CSV_TYPE, XLSX_TYPE, errorText, venuesText } from './export/file.js'
+import { CSV_TYPE, XLSX_TYPE, PDF_TYPE, errorText, venuesText } from './export/file.js'
 import { keepMadeFile } from './files.js'
 import { sendEmail, emailCredentials } from '../services/emailSvc.js'
 import { officeOrigin } from '../services/platformHost.js'
@@ -65,7 +70,7 @@ import { NUMERIC_TYPES } from '../../../shared/reports/format.js'
 import { todayIn } from '../../../shared/reports/period.js'
 import {
   normaliseDelivery, deliveryProblem, normaliseCondition, conditionProblem, conditionMet,
-  normaliseRecipients, recipientsProblem, periodProblem, timingText,
+  normaliseRecipients, recipientsProblem, periodProblem, timingText, ATTACH_WORDS,
 } from '../../../shared/reports/schedule.js'
 
 export const EMAIL_ROWS = 100
@@ -188,6 +193,9 @@ export async function prepareSend(p, target, opts = {}) {
   const condition = normaliseCondition(opts.condition)
   const bad = deliveryProblem(delivery) || conditionProblem(condition, spec.kind, watchable(spec)) || recipientsProblem(opts.recipients)
   if (bad) throw httpError(422, bad)
+  if (delivery.attach === 'pdf' && !pdfAvailable()) {
+    throw httpError(422, 'This server can\'t make PDFs yet. Attach a CSV or Excel file instead')
+  }
   const { to, skipped } = await resolveRecipients(p.tenantId, opts.recipients)
   if (!to.length) throw httpError(422, 'None of the people picked are on the team any more')
   if (to.some(r => !isSelf(p, r)) && !p.canManage) {
@@ -253,6 +261,7 @@ function capOf(spec, delivery) {
   if (spec.kind !== 'list') return null
   if (delivery.attach === 'none') return EMAIL_ROWS
   if (delivery.attach === 'csv') return LIST_CAP
+  if (delivery.attach === 'pdf') return SCREEN_ROWS
   return Math.min(LIST_CAP, Math.max(1000, Math.floor(XLSX_CELLS / Math.max(1, spec.rows.length + 1))))
 }
 
@@ -281,7 +290,8 @@ function outsideCopy(result) {
 }
 
 // A file of a result for the email (and to keep): { buffer, format, type,
-// name } or { note } when it can't be made.
+// name } or { note } when it can't be made. (A PDF is made in deliver(): it
+// is the report's print page, and takes a browser.)
 function fileOf(result, attach, about, when) {
   if (attach === 'csv') return { buffer: Buffer.from(csvOf(result), 'utf8'), format: 'csv', type: CSV_TYPE, name: fileName(about.name, 'csv', when) }
   if (result.rows.length * Math.max(1, result.columns.length) > XLSX_CELLS * 2) {
@@ -446,7 +456,25 @@ export async function deliver(p, target, plan, { schedule = null, due = null, lo
   const sendNotes = []
   const shown = (r, total) => (r.kind === 'list' ? listCount(r) : total)
 
-  const copyOf = (res, extraNotes) => {
+  // A PDF: the report's print page by its layout, with the result this copy
+  // holds. Never stops the send: without it the email goes with a note.
+  let printing = null
+  const pdfOf = async (res, forOutside) => {
+    try {
+      printing = printing || Promise.all([groupAbout(p, { pdf: true }), layoutFor(p, target.saved)])
+      const [about, layout] = await printing
+      const html = reportPrint(about, {
+        name: title, description: target.description, base: spec, values: base.params, levels: p.levels, outside: forOutside,
+        result: { ...res, meta: { ...res.meta, notes: notesFor(res.meta?.notes || [], false) } },
+      }, { layout, by: p.email, byLabel: 'Sent by', pdf: true })
+      return { buffer: await htmlToPdf(html), format: 'pdf', type: PDF_TYPE, name: fileName(title, 'pdf', when) }
+    } catch (err) {
+      log?.warn({ err: err?.cause || err }, 'A report\'s PDF wasn\'t made')
+      return { note: 'The PDF couldn\'t be made, so none is attached. Open the report in Macaroonie' }
+    }
+  }
+
+  const copyOf = async (res, extraNotes, forOutside = false) => {
     if (!res) return null
     const fileNotes = []
     if (res.kind === 'list' && meta.truncated && plan.delivery.attach !== 'none') {
@@ -454,7 +482,9 @@ export async function deliver(p, target, plan, { schedule = null, due = null, lo
     }
     let file = null
     if (plan.delivery.attach !== 'none') {
-      file = fileOf(res, plan.delivery.attach, { name: title, description: target.description, venues, by: p.email, notes: [...extraNotes, ...fileNotes] }, when)
+      file = plan.delivery.attach === 'pdf'
+        ? await pdfOf(res, forOutside)
+        : fileOf(res, plan.delivery.attach, { name: title, description: target.description, venues, by: p.email, notes: [...extraNotes, ...fileNotes] }, when)
       if (file.note) { fileNotes.push(file.note); file = null }
     }
     const attach = file && file.buffer.length <= MAX_ATTACH_MB * 1024 * 1024
@@ -463,9 +493,11 @@ export async function deliver(p, target, plan, { schedule = null, due = null, lo
     }
     return { result: res, file, attach, extraNotes, fileNotes }
   }
-  const team = copyOf(result, [])
+  const team = await copyOf(result, [])
+  // Outside the team a PDF is a copy of its own: its header leaves out the
+  // report's other choices (words someone typed into a filter).
   const outCopy = counts.outside
-    ? (outside.result === result ? team : copyOf(outside.result, outside.note ? [outside.note] : []))
+    ? (outside.result === result && plan.delivery.attach !== 'pdf' ? team : await copyOf(outside.result, outside.note ? [outside.note] : [], !plan.personalOutside))
     : null
   const held = counts.outside && !outCopy ? plan.to.filter(r => r.outside) : []
   if (held.length) sendNotes.push(plural(held.length, 'address', 'addresses') + ' outside the team got nothing: ' + PII_HELD.charAt(0).toLowerCase() + PII_HELD.slice(1))
@@ -499,7 +531,7 @@ export async function deliver(p, target, plan, { schedule = null, due = null, lo
         }
       }
     } else if (copy.attach) {
-      lines.push('The report is attached as ' + (copy.file.format === 'csv' ? 'a CSV file' : 'an Excel file') + '.')
+      lines.push('The report is attached as ' + ATTACH_WORDS[copy.file.format] + '.')
     }
     notes.push(...copy.fileNotes)
     const footer = []

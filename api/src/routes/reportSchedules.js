@@ -53,6 +53,7 @@ import { limitPepperRuns } from '../reports/access.js'
 import { loadTarget } from '../reports/target.js'
 import { reportZone } from '../reports/run.js'
 import { requestPerson, ownerPerson, prepareSend, deliver } from '../reports/send.js'
+import { pdfAvailable } from '../services/pdfBrowser.js'
 import { viaPepper } from './reports.js'
 import { normaliseReport, resolveParams, venueScope } from '../../../shared/reports/spec.js'
 import { paramInputs, paramWords, valueName, valueType } from '../../../shared/reports/build.js'
@@ -362,6 +363,7 @@ export default async function reportScheduleRoutes(app) {
       can_others: p.canManage,
       can_outside: p.canManage && p.isOwnerOrAdmin,
       can_personal_outside: p.isOwnerOrAdmin,
+      can_pdf: pdfAvailable(),
       max: MAX_RECIPIENTS,
     }
   })

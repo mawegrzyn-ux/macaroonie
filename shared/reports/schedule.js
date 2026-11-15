@@ -12,7 +12,7 @@
 //              { every: 'month', on: { week: 'first'..'fourth' | 'last', weekday: 1..7 }, time }
 //              time is 'HH:MM' at the venue (a day the month lacks, the 31st
 //              in April, runs on its last day)
-//   delivery   { in_message, attach: 'none' | 'csv' | 'xlsx', keep_file }
+//   delivery   { in_message, attach: 'none' | 'csv' | 'xlsx' | 'pdf', keep_file }
 //   condition  { when: 'always' } | { when: 'rows' }
 //              { when: 'figure', value, op, than, scope: 'total' | 'any' }
 //              `than` is in the figure's own units, as result cells hold
@@ -37,8 +37,10 @@ import { resolveParams, periodParams } from './spec.js'
 
 export const EVERY = ['day', 'week', 'month']
 export const WEEKS = ['first', 'second', 'third', 'fourth', 'last']
-export const ATTACH = ['none', 'csv', 'xlsx']
-export const ATTACH_LABELS = { none: 'No file', csv: 'CSV file', xlsx: 'Excel file' }
+export const ATTACH = ['none', 'csv', 'xlsx', 'pdf']
+export const ATTACH_LABELS = { none: 'No file', csv: 'CSV file', xlsx: 'Excel file', pdf: 'PDF' }
+// "attached as a CSV file"
+export const ATTACH_WORDS = { csv: 'a CSV file', xlsx: 'an Excel file', pdf: 'a PDF' }
 export const WHEN = ['always', 'rows', 'figure']
 export const OPS = ['over', 'at_least', 'under', 'at_most', 'outside']
 export const OP_WORDS = {
@@ -204,7 +206,7 @@ export function deliveryText(raw) {
   const d = normaliseDelivery(raw)
   const parts = []
   if (d.in_message) parts.push('the report in the email')
-  if (d.attach !== 'none') parts.push((d.attach === 'csv' ? 'a CSV file' : 'an Excel file') + ' attached')
+  if (d.attach !== 'none') parts.push(ATTACH_WORDS[d.attach] + ' attached')
   const words = listWords(parts)
   const text = words ? words[0].toUpperCase() + words.slice(1) : 'Nothing to send'
   return d.keep_file ? text + ', kept in Past runs' : text

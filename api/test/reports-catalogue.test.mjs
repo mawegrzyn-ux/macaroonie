@@ -48,8 +48,8 @@ test('every table in the database has one decision, and every decision names a t
   assert.equal(d.counts.subject + d.counts.planned + d.counts.settings + d.counts.out, tables.length)
 
   // Where the catalogue stands today: a change here is a change to say in the docs.
-  assert.deepEqual(d.counts, { subject: 128, planned: 0, settings: 57, out: 51 })
-  assert.equal(tables.length, 236)
+  assert.deepEqual(d.counts, { subject: 128, planned: 0, settings: 57, out: 52 })
+  assert.equal(tables.length, 237)
 
   // Left-out tables carry a reason; planned ones an area with a phase.
   for (const [reason, list] of Object.entries(LEFT_OUT)) {

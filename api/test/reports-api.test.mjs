@@ -602,7 +602,7 @@ test('files: a CSV and an Excel workbook of a summary, a matrix and a list (Use)
 
   // Refusals: a file needs Use; a bad format; a definition that can't run.
   assert.equal((await operator.post('/api/reports/starter:till_sales_by_day/export', { format: 'csv' })).status, 403)
-  assert.equal((await builder.post(`/api/reports/${id}/export`, { format: 'pdf' })).status, 400)
+  assert.equal((await builder.post(`/api/reports/${id}/export`, { format: 'doc' })).status, 400)
   const bad = await builder.post('/api/reports/export', { format: 'csv', spec: { subject: 'online.orders', kind: 'list', rows: ['number'] } })
   assert.equal(bad.status, 403, bad.body)
   assert.match(bad.headers['content-type'], /json/, 'a refusal is said, never sent as a file')
