@@ -6,6 +6,21 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-15 — Reports: past runs, and files kept to download later]
+
+Migration 250 (`report_files`).
+
+**Added**
+- **Past runs** (Reports → Past runs, or a report's More → Past runs of this report): the reports you ran on screen, downloaded, printed or kept a file of, newest first, with the period, venues and other choices each was run for, how many rows it had, how long it took and whether Pepper ran it for you. Words typed into a filter show as set, never the words. Kept files shows only the runs that kept a file. With Manage on Reports, Everyone's shows everyone's runs in your group with who ran them.
+- **Keep a file**: on a report, More → Keep a CSV file or Keep an Excel file makes the same file a download would and keeps it on Past runs to download later (with Use or Manage on Reports). Files are kept 30 days, or 7 when they list people's names, emails or phone numbers. Only the person who kept a file can download it, and only while what their role can see in that report is the same; they can take it off before its time. A group keeps up to 500 MB of files.
+- Pepper can list your past runs (everyone's, with Manage) and keep a file of a report for you after you confirm; the file is then on Past runs for you to download. Pepper never sees what is in the file.
+- A **Report runs** subject under Your group (Manage on Reports): runs, downloads, kept files, prints and failures, by person, report or day, for a report of your own.
+
+**Notes**
+- Files are kept in a private folder on the server, outside the website's own files, and are never reachable by an address. When a guest's customer record is anonymised or a loyalty member is erased, every kept file that lists people is taken off at once.
+- Past runs go back to when the report builder arrived (13 November) and are kept 400 days.
+- Each deploy now writes the server's cores, memory and disk into its log, to decide how PDFs of reports will be made.
+
 ## [2026-11-14 — Reports: a last round of checks on the new kinds of report]
 
 No migration. Nothing in the app changed but the in-app Help and Docs.

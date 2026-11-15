@@ -37,6 +37,10 @@ export const RUNS_MAX = 200
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 // A run's created_at as Postgres writes it as text (microseconds kept): the
 // page cursor carries it so the next page starts exactly after the last row.
+// It goes back as a text parameter (`::text::timestamptz`): a parameter the
+// database takes as a timestamptz is written by postgres.js through a JS
+// Date, which keeps milliseconds only, and runs made within one millisecond
+// of the cursor's would drop off the next page.
 const AT_TEXT = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2})?$/
 
 const FILE_COLUMNS = 'id, run_id, file_name, format, content_type, storage_key, bytes, row_count, truncated, personal, user_sub, user_email, downloads, last_downloaded_at, expires_at, removed_at, created_at'
@@ -153,7 +157,7 @@ export async function pastRuns(p, q = {}) {
          ${starterKey ? tx`AND r.report_id IS NULL AND r.starter_key = ${starterKey}` : tx``}
          ${fileId ? tx`AND r.id = (SELECT f.run_id FROM report_files f WHERE f.tenant_id = ${p.tenantId} AND f.id = ${fileId})` : tx``}
          ${filesOnly ? tx`AND EXISTS (SELECT 1 FROM report_files f WHERE f.tenant_id = ${p.tenantId} AND f.run_id = r.id)` : tx``}
-         ${before ? tx`AND (r.created_at, r.id) < (${before.at}::timestamptz, ${before.id}::uuid)` : tx``}
+         ${before ? tx`AND (r.created_at, r.id) < (${before.at}::text::timestamptz, ${before.id}::uuid)` : tx``}
        ORDER BY r.created_at DESC, r.id DESC
        LIMIT ${limit + 1}`
     const page = rows.slice(0, limit)

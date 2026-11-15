@@ -8743,10 +8743,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               column of a catalogue table that no field, link or <Mono>skip</Mono> entry accounts for.{' '}
               <Mono>node api/scripts/report-catalogue.js</Mono> prints where things stand, and with a table name or{' '}
               <Mono>--area</Mono> drafts subjects from the columns, checks and foreign keys. After phase 3d the
-              decisions are <Mono>{'{ subject: 127, planned: 1, settings: 57, out: 49 }'}</Mono> over 234 tables
+              decisions were <Mono>{'{ subject: 127, planned: 1, settings: 57, out: 49 }'}</Mono> over 234 tables
               (migration 248&apos;s <Mono>local_info_feedback</Mono>, staff flags on local info, is left out: its
-              counts are on each item); the one table still planned is <Mono>report_runs</Mono> (phase 4: who ran
-              which report). What was said to Pepper (<Mono>ai_actions</Mono> input and result,{' '}
+              counts are on each item), the one table planned being <Mono>report_runs</Mono>; phase 4a made it the
+              Report runs subject and left migration 250&apos;s <Mono>report_files</Mono> out (a run&apos;s kept
+              file is a field of its run), so they are <Mono>{'{ subject: 128, planned: 0, settings: 57, out: 50 }'}</Mono>{' '}
+              over 235 tables, with nothing left planned. What was said to Pepper (<Mono>ai_actions</Mono> input and result,{' '}
               <Mono>ai_conversations</Mono> title, system_prompt and guest_key) and a new location&apos;s words
               and Pepper&apos;s plan (<Mono>store_openings</Mono> input, steps, ai, overrides, plan, results) stay
               in their subjects&apos; <Mono>skip</Mono> lists: a test in <Mono>reports-catalogue.test.mjs</Mono>{' '}
@@ -9054,6 +9056,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['POST /:id/export', 'Use', 'format csv | xlsx, params, drill'],
                 ['POST /:id/print-link', 'View', 'params, drill, trail (the trail\'s words), table (shown under the chart or not), hidden (series switched off): a link to the print page that works for 15 minutes'],
                 ['GET /print/:linkId', 'No login', 'The print page (its own plugin, reportPrintRoutes): the link is the key; ?print=1 opens the print window'],
+                ['GET /runs', 'View', 'Past runs (phase 4a): scope mine | all (all needs Manage), report (an id or starter:<key>), file (a kept file\'s id), files 1 (runs that kept a file), before (the cursor the last page gave), limit (50 unless given, 200 at most) → { runs, next, can_manage }'],
+                ['POST /:id/files', 'Use', 'Keep a CSV or Excel file of a report to download later: format, params, drill (as /export) → 201 { file }; 422 when the group keeps 500 MB already'],
+                ['GET /files/:fileId', 'Use', 'Download a kept file: its maker only (404 for anyone else), while it is kept (410) and while their role sees the report the same way (403); counted'],
+                ['DELETE /files/:fileId', 'View', 'Its maker takes a kept file off at once (204; again is no error)'],
                 ['POST /:id/copy', 'Use', 'A copy of a report or a starter as the person\'s own'],
                 ['POST /:id/star, DELETE /:id/star', 'View', 'The person\'s own stars (report_stars)'],
               ]}
@@ -9078,6 +9084,73 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               About sheet (report, period, venues, who and when, notes); built in memory, so 200,000 cells at most,
               a longer list cut with a note on the About sheet. A list&apos;s file has no totals row. The admin
               downloads with <Mono>api.postDownload(path, body, fallbackName)</Mono> (<Mono>lib/api.js</Mono>).
+            </P>
+
+            <H3>Past runs and kept files (phase 4a, migration 250)</H3>
+            <P>
+              A file can be kept on the server to download later, from the report&apos;s page (More → Keep a CSV
+              file / Keep an Excel file) or by Pepper (<Mono>export_report</Mono>), and every run, download, print
+              and kept file is listed on Past runs (<Mono>/reports/runs</Mono>, <Mono>pages/ReportRuns.jsx</Mono>).
+              Table <Mono>report_files</Mono> (forced RLS): its run (<Mono>run_id</Mono>), who made it, the
+              definition and choices it was made from (<Mono>spec</Mono>, <Mono>params</Mono>, <Mono>drill</Mono>),
+              the maker&apos;s module levels then (<Mono>levels</Mono>), name, format, bytes, rows, whether it holds
+              people&apos;s details (<Mono>personal</Mono>: any column the catalogue marks <Mono>pii</Mono>), where
+              it is stored (<Mono>storage_key</Mono>), <Mono>expires_at</Mono>, downloads and the last one,{' '}
+              <Mono>removed_at</Mono>.
+            </P>
+            <P>
+              <Mono>api/src/services/privateStore.js</Mono> keeps the files outside anything the web server
+              serves: under <Mono>PRIVATE_DIR</Mono> (default <Mono>/home/ubuntu/macaroonie-private</Mono>, never
+              under <Mono>UPLOAD_DIR</Mono>), folders 0700 and files 0600, keys{' '}
+              <Mono>reports/YYYY-MM-DD/&lt;uuid&gt;.csv|xlsx</Mono> checked by a pattern before any path is built,
+              written with <Mono>wx</Mono> (never over another file). <Mono>api/src/reports/files.js</Mono>:{' '}
+              <Mono>keepReportFile()</Mono> (the group&apos;s room checked first, <Mono>GROUP_MB</Mono> 500: a
+              refusal records no run; the file written by the same exporters as a download, then its run and its
+              row in one transaction; a failure removes the half-written file and records a failed run),{' '}
+              <Mono>openFile()</Mono> (its maker only: 404 for anyone else, Manage included; 410 once removed or
+              past <Mono>expires_at</Mono>: <Mono>FILE_DAYS</Mono> 30, <Mono>PERSONAL_DAYS</Mono> 7 with
+              people&apos;s details; 403 when the maker&apos;s role would see the report differently now:{' '}
+              <Mono>reachOf()</Mono> compiles the definition with the levels then and now and compares the columns
+              or values and the notes, a change to an area the report doesn&apos;t read changing nothing),{' '}
+              <Mono>countDownload()</Mono>, <Mono>removeFile()</Mono> (the row stays, its definition and levels
+              cleared), <Mono>cleanUpReportFiles()</Mono> (hourly with the AI clean-up: files past their time
+              taken off, and day folders older than 32 days removed whatever they hold), <Mono>fileView()</Mono>.
+              Customer and loyalty member erasure takes off every live personal file of the group in its own
+              transaction (<Mono>forgetPersonalFiles()</Mono> in <Mono>reports/fileErasure.js</Mono>, the stored
+              files removed after it commits), since such a file may hold that person&apos;s name.
+            </P>
+            <P>
+              <Mono>api/src/reports/runs.js</Mono>: <Mono>pastRuns()</Mono> reads <Mono>report_runs</Mono> newest
+              first with each run&apos;s kept file, in pages of <Mono>RUNS_PAGE</Mono> 50 (<Mono>RUNS_MAX</Mono>{' '}
+              200) by a cursor of the last row&apos;s time and id compared in SQL (a JS <Mono>Date</Mono> would drop
+              microseconds, so the time is read as text and sent back as text, <Mono>::text::timestamptz</Mono>:
+              postgres.js writes a timestamptz parameter through a <Mono>Date</Mono>); a run says what was done (ran, printed, kept, downloaded), its report (name, whether
+              the person may open it now), the person (with <Mono>mine</Mono>), by Pepper, rows, time, any error,
+              its choices in words (typed values only as &quot;a value typed in&quot;) and the rows opened up.
+              Pepper&apos;s <Mono>report_runs</Mono> and <Mono>export_report</Mono> read and write through these
+              routes as the person; a file Pepper keeps is the person&apos;s, downloaded by them from Past runs
+              (Pepper never sees its rows). The catalogue&apos;s Report runs subject (<Mono>group.report_runs</Mono>{' '}
+              in <Mono>catalogue/runs.js</Mono>, area Your group, Manage on Reports) counts the same rows:
+              runs, on screen, downloads, files kept, prints, failures, by Pepper, people, reports, average and
+              slowest time; who ran each is their email, and the link to their team record (name, role) needs the team module. The deploy prints the machine&apos;s cores, memory,
+              disk and PM2 processes in its log (read only), for the PDF decision in phase 4d.
+            </P>
+            <P>
+              The viewer&apos;s More (<Mono>pages/ReportView.jsx</Mono>) is on every report now: Past runs of this
+              report (<Mono>more-runs</Mono>, to <Mono>/reports/runs?report=</Mono>) is for anyone who can open the
+              report, Keep a file (<Mono>more-keep</Mono>, <Mono>more-keep-csv</Mono>, <Mono>more-keep-xlsx</Mono>)
+              needs Use and a report the role can run, and the button&apos;s <Mono>aria-label</Mono> lists what the
+              window holds (More: past runs, keep a file, copy, rename, share, delete). After keeping, a note
+              (<Mono>report-kept</Mono>) gives the file&apos;s name, how long it is kept and{' '}
+              <Mono>report-kept-open</Mono> (Open Past runs, on that file).
+            </P>
+            <P>
+              Tests: <Mono>api/test/reports-files.test.mjs</Mono> (a kept file byte for byte the download, on disk
+              0600 under its key; seven days with people&apos;s details; only its maker; who sees Past runs, its
+              filters and pages; expiry and the clean-up; a role that sees the report differently; the
+              group&apos;s room; taking one off; erasure; Pepper on the connector and in the chat; the Report runs
+              subject against Past runs); the fixtures keep a file, so the tenant sweep sends the file routes as
+              the other group.
             </P>
 
             <H3>Starter reports</H3>
