@@ -52,8 +52,7 @@ import { requireAuth, requirePermission, INTERNAL_CALL_HEADER, INTERNAL_CALL_SEC
 import { httpError } from '../middleware/error.js'
 import { ownRoleIds } from '../services/roles.js'
 import { AREAS, CATALOGUE, catalogueView } from '../reports/catalogue/index.js'
-import { STARTERS, STARTER_PREFIX, starterByKey } from '../reports/starters/index.js'
-import { ReportError } from '../reports/compile.js'
+import { STARTERS, starterByKey } from '../reports/starters/index.js'
 import { runReport } from '../reports/run.js'
 import { reportPerson, rightsOn, openTo, runsFor, checkedSpec, recordRun, refuseOtherVenues, groupVenues, limitPepperRuns, PEPPER_HEADER } from '../reports/access.js'
 import { PLAN, planReport } from '../reports/plan.js'
@@ -61,10 +60,11 @@ import { drillSteps, drilled } from '../reports/drilled.js'
 import { prepareFile, makeReportFile, errorText } from '../reports/export/file.js'
 import { keepReportFile, openFile, countDownload, removeFile, fileView } from '../reports/files.js'
 import { pastRuns, RUNS_MAX } from '../reports/runs.js'
+import { starterOf, savedRow, loadTarget, checkedForRun } from '../reports/target.js'
 import { readStream, sizeOf } from '../services/privateStore.js'
 import { printHtml, messageHtml } from '../reports/export/print.js'
 import { brandColours } from '../services/themeColours.js'
-import { normaliseReport, reportProblems, resolveParams, LIMITS } from '../../../shared/reports/spec.js'
+import { normaliseReport, resolveParams, LIMITS } from '../../../shared/reports/spec.js'
 import { paramInputs, paramWords } from '../../../shared/reports/build.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -219,37 +219,12 @@ function starterView(s, p, starred, withSpec = false) {
 const notFound = () => httpError(404, 'Report not found')
 const BUILT_IN = 'This starter report comes with Macaroonie. Make a copy to change it'
 
-const starterOf = id => (typeof id === 'string' && id.startsWith(STARTER_PREFIX) ? starterByKey(id.slice(STARTER_PREFIX.length)) : null)
-
-async function savedRow(tx, id, p) {
-  if (!UUID_RE.test(id)) return null
-  const [row] = await tx`SELECT r.* FROM reports r WHERE r.tenant_id = ${p.tenantId} AND r.id = ${id}`
-  return row && rightsOn(row, p).open ? row : null
-}
-
 // A saved report the person can open (a starter in code is refused with `why`, else 404).
 async function loadSaved(id, p, why = BUILT_IN) {
   if (starterOf(id)) throw httpError(422, why)
   const row = await withTenant(p.tenantId, tx => savedRow(tx, String(id), p))
   if (!row) throw notFound()
   return row
-}
-
-// What a run, a file or a copy starts from: a saved report or a starter.
-async function loadTarget(id, p) {
-  const starter = starterOf(id)
-  if (starter) return { ref: starter.ref, starter, name: starter.name, description: starter.about, spec: starter.spec }
-  const saved = await withTenant(p.tenantId, tx => savedRow(tx, String(id), p))
-  if (!saved) throw notFound()
-  return { ref: saved.id, saved, name: saved.name, description: saved.description, spec: checkedForRun(saved.spec) }
-}
-
-// A stored definition as it is today (the tidying may have moved on since it was saved).
-function checkedForRun(raw) {
-  const spec = normaliseReport(raw)
-  const problems = reportProblems(spec)
-  if (problems.length) throw new ReportError(problems)
-  return spec
 }
 
 const isStarred = (tx, p, ref) => tx`

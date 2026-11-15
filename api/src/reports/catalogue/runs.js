@@ -1,8 +1,9 @@
 // src/reports/catalogue/runs.js
 //
-// Report runs: every time a report was run on screen, downloaded, printed or
-// kept as a file (report_runs, migration 243; kept files, migration 250), as
-// Past runs lists them for everyone in the group. Seeing everyone's runs on
+// Report runs: every time a report was run on screen, downloaded, printed,
+// kept as a file or sent by email (report_runs, migration 243; kept files,
+// migration 250; schedules and emails, migration 251), as Past runs lists
+// them for everyone in the group. Seeing everyone's runs on
 // Past runs needs Manage on Reports, and so does this.
 //
 // What a run was about is said in the catalogue's own words for its subject
@@ -14,9 +15,10 @@
 //
 // The choices a run was made with (params) are read only for whether Pepper
 // made it and whether rows were opened up. An error's words aren't offered:
-// only whether it failed.
+// only whether it failed. A send's record (delivery) is read only for its
+// counts: the addresses in it are masked and never offered.
 
-import { subject, text, number, yesno, choice, moment, duration, avg, max, count, countDistinct, ratio, one } from './define.js'
+import { subject, text, number, yesno, choice, moment, duration, sum, avg, max, count, countDistinct, ratio, one } from './define.js'
 import { ASSISTANT_NAME } from '../../../../shared/assistant.js'
 
 const KEY = 'group.report_runs'
@@ -24,7 +26,11 @@ const LABEL = 'Report runs'
 const DAY = '({t}.created_at AT TIME ZONE {tz})::date'
 const SECONDS = '({t}.ms::numeric / 1000)'
 const KEPT = '(EXISTS (SELECT 1 FROM report_files f WHERE f.tenant_id = {t}.tenant_id AND f.run_id = {t}.id))'
-const WHAT = "(CASE WHEN {t}.kind = 'run' THEN 'ran' WHEN {t}.format = 'print' THEN 'printed' WHEN " + KEPT + " THEN 'kept' ELSE 'downloaded' END)"
+const NOT_MET = "(COALESCE({t}.delivery->>'not_met', '') = 'true')"
+const WHAT = "(CASE WHEN {t}.kind = 'scheduled' AND " + NOT_MET + " THEN 'skipped' WHEN {t}.kind = 'scheduled' THEN 'scheduled'" +
+  " WHEN {t}.kind = 'emailed' THEN 'emailed' WHEN {t}.kind = 'run' THEN 'ran' WHEN {t}.format = 'print' THEN 'printed'" +
+  " WHEN " + KEPT + " THEN 'kept' ELSE 'downloaded' END)"
+const EMAILS_SENT = "COALESCE(NULLIF({t}.delivery->>'sent', '')::int, 0)"
 const BY_PEPPER = "(COALESCE({t}.params->>'via', '') = 'pepper')"
 const OPENED_UP = "(jsonb_typeof({t}.params->'drill') = 'array' AND jsonb_array_length({t}.params->'drill') > 0)"
 // A subject's key goes into the SQL as written: keys are code, never typed.
@@ -52,19 +58,26 @@ export default function runsSubjects(others, areas) {
       area: 'shared',
       module: 'reports',
       level: 'manage',
-      about: 'Every time a report was run on screen, downloaded, printed or kept as a file, as Past runs lists them: which report, who, when, how many rows and how long it took. Like everyone\'s runs on Past runs, this needs Manage on Reports.',
+      about: 'Every time a report was run on screen, downloaded, printed, kept as a file or sent by email, as Past runs lists them: which report, who, when, how many rows and how long it took. Like everyone\'s runs on Past runs, this needs Manage on Reports.',
       from: 'report_runs',
       name: 'report',
+      // The schedule a run was sent by: What was done says Sent by a schedule;
+      // schedules themselves are settings, not counted.
+      skip: ['schedule_id'],
       date: { sql: DAY, bound: '{t}.created_at', label: 'Day' },
       fields: {
         at: moment('created_at', { label: 'When' }),
         report: text({ sql: "COALESCE(NULLIF(btrim({t}.report_name), ''), 'Not named')" }, { label: 'Report' }),
         about: text({ sql: aboutSql }, { label: 'What it was about', about: 'The kind of thing the report counted, as the report builder names it.' }),
         area: text({ sql: areaSql }, { label: 'Area' }),
-        what: choice({ sql: WHAT }, { ran: 'Ran', downloaded: 'Downloaded', kept: 'File kept', printed: 'Printed' }, {
-          label: 'What was done', about: 'Ran on screen (the builder\'s preview isn\'t counted), downloaded as a file, kept as a file to download later, or printed.',
+        what: choice({ sql: WHAT }, {
+          ran: 'Ran', downloaded: 'Downloaded', kept: 'File kept', printed: 'Printed',
+          scheduled: 'Sent by a schedule', skipped: 'Skipped by a schedule', emailed: 'Emailed',
+        }, {
+          label: 'What was done',
+          about: 'Ran on screen (the builder\'s preview isn\'t counted), downloaded as a file, kept as a file to download later, printed, sent by a schedule, skipped by a schedule because its condition wasn\'t met, or emailed by someone.',
         }),
-        format: choice('format', { csv: 'CSV', xlsx: 'Excel', print: 'Print' }, { label: 'Format', empty: 'On screen' }),
+        format: choice('format', { csv: 'CSV', xlsx: 'Excel', print: 'Print', email: 'In the email' }, { label: 'Format', empty: 'On screen' }),
         kind_of_report: choice({ sql: "(CASE WHEN {t}.report_id IS NOT NULL THEN 'saved' WHEN {t}.starter_key IS NOT NULL THEN 'starter' ELSE 'unsaved' END)" },
           { saved: 'Saved report', starter: 'Starter report', unsaved: 'Not saved, or deleted since' }, { label: 'Kind of report' }),
         who: text('user_email', { label: 'Who', pii: true }),
@@ -81,6 +94,10 @@ export default function runsSubjects(others, areas) {
         kept: count({ label: 'Files kept', where: KEPT }),
         prints: count({ label: 'Printed', where: "{t}.format = 'print'" }),
         failures: count({ label: 'Failed', where: '{t}.error IS NOT NULL' }),
+        schedule_sends: count({ label: 'Sent by a schedule', where: "{t}.kind = 'scheduled' AND NOT " + NOT_MET }),
+        schedule_skips: count({ label: 'Skipped by a schedule', where: "{t}.kind = 'scheduled' AND " + NOT_MET, about: 'Times a schedule didn\'t send because its condition wasn\'t met.' }),
+        emailed: count({ label: 'Emailed', where: "{t}.kind = 'emailed'", about: 'Times someone emailed a report with Email it now.' }),
+        emails_sent: sum({ sql: EMAILS_SENT }, { label: 'Emails sent', about: 'Emails that went out, one for each person a send reached.' }),
         by_pepper_runs: count({ label: 'By ' + ASSISTANT_NAME, where: BY_PEPPER }),
         people: countDistinct('user_sub', { label: 'People' }),
         reports: countDistinct({ sql: "COALESCE({t}.report_id::text, 'starter:' || {t}.starter_key, {t}.report_name)" }, {

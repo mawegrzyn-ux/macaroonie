@@ -59,11 +59,30 @@ function readCursor(s) {
   return { at, id }
 }
 
-// What a run did, for the page's words: Ran, Downloaded, File kept, Printed.
+// What a run did, for the page's words: Ran, Downloaded, File kept, Printed,
+// Sent by a schedule, Skipped by a schedule (its condition wasn't met), Emailed.
 function whatOf(run, file) {
+  if (run.kind === 'scheduled') return run.delivery?.not_met ? 'skipped' : 'scheduled'
+  if (run.kind === 'emailed') return 'emailed'
   if (run.kind === 'run') return 'ran'
   if (run.format === 'print') return 'printed'
   return file ? 'kept' : 'downloaded'
+}
+
+// A send's record as Past runs shows it: how many it went to and how it went.
+function sentView(d) {
+  const n = v => (Number.isFinite(Number(v)) ? Number(v) : 0)
+  return {
+    to: n(d.to), outside: n(d.outside), sent: n(d.sent), failed: n(d.failed), held: n(d.held), skipped: n(d.skipped),
+    to_hint: Array.isArray(d.to_hint) ? d.to_hint.slice(0, 10) : [],
+    failed_to: Array.isArray(d.failed_to) ? d.failed_to.slice(0, 10) : [],
+    attach: d.attach || null,
+    in_message: d.in_message !== false,
+    kept: !!d.kept,
+    not_met: !!d.not_met, not_run: !!d.not_run, forced: !!d.forced,
+    why: d.why || null,
+    notes: Array.isArray(d.notes) ? d.notes.slice(0, 10) : [],
+  }
 }
 
 const humanKey = key => {
@@ -143,18 +162,25 @@ export async function pastRuns(p, q = {}) {
     if (!UUID_RE.test(String(q.file))) throw httpError(404, 'File not found')
     fileId = String(q.file).toLowerCase()
   }
+  let scheduleId = null
+  if (q.schedule != null && q.schedule !== '') {
+    if (!UUID_RE.test(String(q.schedule))) throw httpError(404, 'Schedule not found')
+    scheduleId = String(q.schedule).toLowerCase()
+  }
   const filesOnly = q.files === true || q.files === '1' || q.files === 'true'
 
   return withTenant(p.tenantId, async tx => {
     const rows = await tx`
       SELECT r.id, r.report_id, r.starter_key, r.report_name, r.subject, r.kind, r.format,
              r.user_sub, r.user_email, r.params, r.row_count, r.ms, r.error, r.created_at,
-             r.created_at::text AS at_text
+             r.created_at::text AS at_text, r.delivery, r.schedule_id, s.name AS schedule_name
         FROM report_runs r
+        LEFT JOIN report_schedules s ON s.tenant_id = r.tenant_id AND s.id = r.schedule_id
        WHERE r.tenant_id = ${p.tenantId}
          ${scope === 'mine' ? tx`AND r.user_sub = ${p.sub}` : tx``}
          ${reportId ? tx`AND r.report_id = ${reportId}` : tx``}
          ${starterKey ? tx`AND r.report_id IS NULL AND r.starter_key = ${starterKey}` : tx``}
+         ${scheduleId ? tx`AND r.schedule_id = ${scheduleId}` : tx``}
          ${fileId ? tx`AND r.id = (SELECT f.run_id FROM report_files f WHERE f.tenant_id = ${p.tenantId} AND f.id = ${fileId})` : tx``}
          ${filesOnly ? tx`AND EXISTS (SELECT 1 FROM report_files f WHERE f.tenant_id = ${p.tenantId} AND f.run_id = r.id)` : tx``}
          ${before ? tx`AND (r.created_at, r.id) < (${before.at}::text::timestamptz, ${before.id}::uuid)` : tx``}
@@ -222,6 +248,9 @@ export async function pastRuns(p, q = {}) {
         choices: choicesOf(run, { inputs: ref ? inputs(ref, spec) : [], catalogue, venues }),
         opened_up: Array.isArray(run.params?.drill) && run.params.drill.length > 0,
         file: file ? fileView(file, p) : null,
+        // A send's who and what, never the addresses in full (send.js keeps them masked).
+        sent: run.delivery ? sentView(run.delivery) : null,
+        schedule: run.schedule_id ? { id: run.schedule_id, name: run.schedule_name || null } : null,
       }
     })
     return {

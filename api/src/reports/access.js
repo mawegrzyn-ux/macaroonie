@@ -181,11 +181,14 @@ const drillRecord = steps => (steps || []).map(s => ({
 }))
 
 /**
- * Record a run or a file. `run`: { kind: 'run' | 'export', format, saved (a
- * reports row) | starter, name, spec, params, drill, rows, ms, error, via }.
- * `via` 'pepper': run by Pepper's report tools (src/ai/tools/reports.js),
- * which limitPepperRuns() counts. Never throws: a report that ran is not
- * failed by its record.
+ * Record a run or a file. `run`: { kind: 'run' | 'export' | 'scheduled' |
+ * 'emailed', format, saved (a reports row) | starter, name, spec, params,
+ * drill, rows, ms, error, via, schedule_id, delivery }. `via` 'pepper': run
+ * by Pepper's report tools (src/ai/tools/reports.js), which
+ * limitPepperRuns() counts. 'scheduled' is a send by a schedule and
+ * 'emailed' one made by hand (Email it now, migration 251), with what was
+ * sent in `delivery` (src/reports/send.js). Never throws: a report that ran
+ * is not failed by its record.
  */
 export async function recordRun(p, run, log) {
   try {
@@ -194,6 +197,9 @@ export async function recordRun(p, run, log) {
     log?.warn({ err }, 'A report run wasn\'t recorded')
   }
 }
+
+// The kinds of run report_runs holds (the CHECK of migration 251).
+export const RUN_KINDS = ['run', 'export', 'scheduled', 'emailed']
 
 /** recordRun()'s row, inside the caller's transaction; returns its id. Throws. */
 export async function insertRun(tx, p, run) {
@@ -204,13 +210,14 @@ export async function insertRun(tx, p, run) {
   }
   const [row] = await tx`
     INSERT INTO report_runs (tenant_id, report_id, starter_key, report_name, subject, kind, format,
-                             user_sub, user_email, params, row_count, ms, error)
+                             user_sub, user_email, params, row_count, ms, error, schedule_id, delivery)
     VALUES (${p.tenantId}, ${run.saved?.id ?? null}, ${run.starter?.key ?? run.saved?.starter_key ?? null},
             ${String(run.name || '').slice(0, 120) || null}, ${run.spec?.subject ?? null},
-            ${run.kind === 'export' ? 'export' : 'run'}, ${run.format ?? null},
+            ${RUN_KINDS.includes(run.kind) ? run.kind : 'run'}, ${run.format ?? null},
             ${p.sub}, ${p.email}, ${tx.json(params)},
             ${Number.isFinite(run.rows) ? Math.round(run.rows) : null}, ${Number.isFinite(run.ms) ? Math.round(run.ms) : null},
-            ${run.error ? String(run.error).slice(0, 300) : null})
+            ${run.error ? String(run.error).slice(0, 300) : null},
+            ${run.schedule_id ?? null}, ${run.delivery ? tx.json(run.delivery) : null})
     RETURNING id`
   if (run.saved?.id && !run.error) {
     await tx`UPDATE reports SET last_run_at = now() WHERE tenant_id = ${p.tenantId} AND id = ${run.saved.id}`

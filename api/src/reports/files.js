@@ -18,6 +18,10 @@
 //
 //   keepReportFile(person, target, body, { log, via })
 //                                 make, store and record one: the file's row
+//   keepMadeFile(person, run, made)
+//                                 keep a file already made (a schedule's
+//                                 attachment) and record its run with it
+//   roomLeft(person)              throws 422 when the group's files are full
 //   openFile(person, id)          a file row ready to send, after the checks;
 //                                 throws 404 (not theirs), 410 (gone), 403
 //   countDownload(person, id)     one more download on the row
@@ -78,7 +82,7 @@ export function fileView(row, p) {
 }
 
 // A group's live files may not hold more than GROUP_MB between them.
-async function roomLeft(p) {
+export async function roomLeft(p) {
   const [{ bytes }] = await withTenant(p.tenantId, tx => tx`
     SELECT COALESCE(sum(bytes), 0)::bigint AS bytes FROM report_files
      WHERE tenant_id = ${p.tenantId} AND removed_at IS NULL AND expires_at > now()`)
@@ -135,6 +139,42 @@ export async function keepReportFile(p, target, body, { log, via = null } = {}) 
     // A file left half written, or written with no row to say whose it is, goes.
     if (written && e?.code !== 'EEXIST') await remove(key).catch(() => {})
     await recordRun(p, { ...base, ms: Date.now() - started, error: errorText(e) }, log)
+    throw e
+  }
+}
+
+/**
+ * Keep a file someone else has already made (a schedule's attachment, made
+ * once for the email and kept as well): store it and record its run in one
+ * transaction, as keepReportFile() does. `run` is what insertRun() takes;
+ * `made` { buffer, name, format, type, rows, truncated, personal, spec }.
+ * Returns { runId, file }. Throws 422 when the group's files are full, before
+ * anything is written; a failure after that removes what was written and
+ * records nothing (the caller records the run without its file).
+ */
+export async function keepMadeFile(p, run, made) {
+  await roomLeft(p)
+  const key = newKey(AREA, made.format)
+  let written = false
+  try {
+    written = true
+    await putBuffer(key, made.buffer)
+    const bytes = await sizeOf(key)
+    const days = made.personal ? PERSONAL_DAYS : FILE_DAYS
+    return await withTenant(p.tenantId, async tx => {
+      const runId = await insertRun(tx, p, run)
+      const [file] = await tx`
+        INSERT INTO report_files (tenant_id, run_id, file_name, format, content_type, storage_key, bytes, row_count,
+                                  truncated, personal, user_sub, user_email, spec, levels, expires_at)
+        VALUES (${p.tenantId}, ${runId}, ${made.name}, ${made.format}, ${made.type}, ${key}, ${bytes ?? 0},
+                ${Number.isFinite(made.rows) ? Math.round(made.rows) : null}, ${!!made.truncated}, ${!!made.personal},
+                ${p.sub}, ${p.email}, ${tx.json(made.spec)}, ${tx.json(p.levels || {})},
+                now() + make_interval(days => ${days}))
+        RETURNING ${tx.unsafe(FILE_COLUMNS)}`
+      return { runId, file }
+    })
+  } catch (e) {
+    if (written && e?.code !== 'EEXIST') await remove(key).catch(() => {})
     throw e
   }
 }
