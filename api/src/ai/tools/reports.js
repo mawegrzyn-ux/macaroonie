@@ -17,11 +17,14 @@
 //   copy_report     a copy of a report or a starter as the person's own  reports, use
 //   delete_report   delete a saved report                                reports, use
 //   share_report    who a report is shared with; offer it as a starter   reports, manage
-//   report_runs     past runs: the reports run, downloaded, printed or
-//                   kept as a file, with the files kept; everyone's with
-//                   Manage                                               reports, view
+//   report_runs     past runs: the reports run, downloaded, printed,
+//                   emailed or kept as a file, with the files kept, and
+//                   what is scheduled; everyone's with Manage            reports, view
 //   export_report   keep a CSV or Excel file of a report, for the person
 //                   to download from Past runs                           reports, use
+//
+// Schedules and sends (schedule_report, change_schedule, pause_schedule,
+// send_report) are in reportSchedules.js, with the helpers exported here.
 //
 // Everything goes through the report routes (callApi), as the person: a
 // plan (src/reports/plan.js) names the catalogue's own paths, never SQL, and
@@ -50,29 +53,32 @@ const CARD_ROWS = 3            // rows of a result on a confirm card
 const FIELD_LINES = 14         // matching figures and fields per subject in a search
 const SUBJECTS_FOUND = 5
 
-const clip = (t, n) => {
+export const clip = (t, n) => {
   const s = String(t || '').replace(/\s+/g, ' ').trim()
   return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s
 }
-const lowerFirst = s => (s && /^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s || '')
+export const lowerFirst = s => (s && /^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s || '')
 
-const reportPath = id => '/reports/' + encodeURIComponent(id)
+export const reportPath = id => '/reports/' + encodeURIComponent(id)
 // Runs Pepper asks for carry this mark: recorded as Pepper's and limited per
 // person per minute (limitPepperRuns()).
-const AS_PEPPER = { [PEPPER_HEADER]: 'pepper' }
+export const AS_PEPPER = { [PEPPER_HEADER]: 'pepper' }
 
-const linkTo = (ctx, label, path) => (ctx.channel === 'staff_chat'
+export const linkTo = (ctx, label, path) => (ctx.channel === 'staff_chat'
   ? { link: '[' + label + '](' + path + ')' }
   : { url: officeOrigin() + path })
 // The same, as one value, for a link inside a row.
 const linkText = (ctx, label, path) => Object.values(linkTo(ctx, label, path))[0]
 
 // Past runs (/reports/runs): a kept file is found there by its id.
-const runsPath = (q = {}) => {
+export const runsPath = (q = {}) => {
   const s = new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== '')).toString()
   return '/reports/runs' + (s ? '?' + s : '')
 }
-const RUN_WORDS = { ran: 'Ran on screen', downloaded: 'Downloaded', kept: 'File kept', printed: 'Printed' }
+const RUN_WORDS = {
+  ran: 'Ran on screen', downloaded: 'Downloaded', kept: 'File kept', printed: 'Printed',
+  scheduled: 'Sent by a schedule', skipped: 'A schedule that didn\'t send: its condition wasn\'t met', emailed: 'Emailed',
+}
 const RUNS_SHOWN = 20
 const RUNS_MAX = 50
 
@@ -193,7 +199,7 @@ const ownerWords = r => (r.kind === 'starter' ? 'a starter that comes with Macar
 
 const SHARED_WORDS = { private: 'only its owner (and people with Manage on Reports)', roles: 'some roles', everyone: 'everyone with Reports' }
 
-async function loadReport(ctx, text) {
+export async function loadReport(ctx, text) {
   const list = await reportList(ctx)
   const found = pickReport(list, text)
   const { report } = await callApi(ctx, 'GET', '/api/reports/' + encodeURIComponent(found.id))
@@ -268,7 +274,7 @@ const answerWords = out => ({
 
 // The values a run of a saved report or a starter is given: its period and
 // its venues, from what the person said; its other choices stay as saved.
-async function runParams(ctx, spec, input) {
+export async function runParams(ctx, spec, input) {
   const params = {}
   const period = (spec.params || []).find(p => p.type === 'period')
   if (input.period) {
@@ -348,6 +354,8 @@ function runLine(ctx, r, everyone) {
     ...(r.opened_up ? { rows_opened_up: true } : {}),
     ...(r.rows != null ? { rows: r.rows } : {}),
     ...(r.ms != null ? { seconds: Math.round(r.ms / 100) / 10 } : {}),
+    ...(r.schedule ? { schedule: r.schedule.name || 'A schedule' } : {}),
+    ...(r.sent ? { sent: sentLine(r.sent) } : {}),
     ...(r.error ? { failed: r.error } : {}),
     ...(f ? { file: fileLine(ctx, f) } : {}),
   }
@@ -367,9 +375,85 @@ function fileLine(ctx, f) {
   }
 }
 
+// What a send reached (a past run's `sent`, GET /api/reports/runs): counts and
+// masked addresses only, as the run's record keeps them.
+function sentLine(s) {
+  if (s.not_met) return { not_sent: 'Its condition wasn\'t met' + (s.why ? ': ' + lowerFirst(s.why) : '') }
+  if (s.not_run) return { not_sent: s.why || 'It didn\'t run' }
+  return {
+    to: s.to,
+    sent: s.sent,
+    ...(s.outside ? { outside_the_team: s.outside } : {}),
+    ...(s.failed ? { failed: s.failed, ...(s.failed_to?.length ? { failed_to: s.failed_to } : {}) } : {}),
+    ...(s.held ? { held_back: s.held + ' outside the team got nothing: the report holds people\'s details' } : {}),
+    ...(s.skipped ? { no_longer_on_the_team: s.skipped } : {}),
+    ...(s.to_hint?.length ? { addresses: s.to_hint } : {}),
+    ...(s.forced ? { sent_now: 'Sent by hand, whatever its condition' } : {}),
+    ...(s.notes?.length ? { notes: s.notes } : {}),
+  }
+}
+
+// ── Schedules, as Pepper reads them (GET .../schedules) ───────
+
+// The Schedules page (/reports/schedules).
+export const schedulesPath = (q = {}) => {
+  const s = new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== '')).toString()
+  return '/reports/schedules' + (s ? '?' + s : '')
+}
+
+export const STATUS_WORDS = {
+  sent: 'Sent',
+  partly: 'Sent to some of the people, not all',
+  not_met: 'Not sent: its condition wasn\'t met',
+  late: 'Not sent: the server couldn\'t send it within 6 hours of its time',
+  failed: 'Failed',
+  paused: 'Paused instead of sent',
+}
+
+// A moment in the venue's own time, as people read it.
+export function whenText(iso, tz) {
+  if (!iso) return null
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: tz || 'Europe/London', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(new Date(iso))
+}
+
+// Who a schedule goes to, in words: a name with its address, and whether it
+// is outside the team or someone no longer on it.
+export const recipientWords = x => (x.name ? x.name + (x.email ? ' <' + x.email + '>' : '') : x.email || 'Someone no longer on the team')
+  + (x.outside ? ' (outside the team)' : !x.on_team ? ' (no longer on the team: not sent it)' : '')
+
+export function scheduleLine(ctx, s, { everyone = false } = {}) {
+  const tz = s.time_zone
+  const title = s.name && s.name !== s.report?.name ? s.name : null
+  return {
+    id: s.id,
+    report: s.report?.name || 'A report that is gone',
+    ...(s.report?.kind === 'starter' ? { starter: true } : {}),
+    ...(title ? { email_title: title } : {}),
+    when: s.timing_text,
+    ...(s.choices?.length ? { choices: s.choices.map(c => c.label + ': ' + c.text) } : {}),
+    sends: s.delivery_text,
+    ...(s.condition?.when && s.condition.when !== 'always' ? { only_when: s.condition_text } : {}),
+    to: (s.recipients || []).map(recipientWords),
+    ...(s.message ? { note: clip(s.message, 300) } : {}),
+    ...(s.enabled
+      ? (s.next_run_at ? { next_send: whenText(s.next_run_at, tz) } : {})
+      : { paused: s.paused_reason || 'Paused' }),
+    ...(s.last_run_at ? {
+      last_try: whenText(s.last_run_at, tz) + ': ' + (STATUS_WORDS[s.last_status] || s.last_status || 'Tried')
+        + (s.last_error ? ' (' + clip(s.last_error, 200) + ')' : ''),
+    } : {}),
+    ...(s.sending ? { sending_now: true } : {}),
+    ...(everyone || !s.mine ? { owner: s.mine ? 'you' : (s.owner_email || 'someone') } : {}),
+    ...(s.personal_outside ? { peoples_details_go_outside_the_team: true } : {}),
+  }
+}
+
 // ── The tools ─────────────────────────────────────────────────
 
-const PeriodInput = z.object({
+export const PeriodInput = z.object({
   relative: z.enum(RELATIVE_PERIODS).optional(),
   n: z.number().int().min(1).max(3660).optional().describe('With last_n_days and next_n_days'),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -377,8 +461,8 @@ const PeriodInput = z.object({
 })
 const Rows = z.number().int().min(1).max(MAX_ROWS).optional()
   .describe('How many rows to read back (' + SHOWN_ROWS + ' unless asked; ' + MAX_ROWS + ' at most)')
-const ReportRef = z.string().trim().min(1).max(200).describe('The report\'s name, or its id from list_reports')
-const Pinned = z.record(z.any()).optional().describe('Leave out: the confirm card pins it')
+export const ReportRef = z.string().trim().min(1).max(200).describe('The report\'s name, or its id from list_reports')
+export const Pinned = z.record(z.any()).optional().describe('Leave out: the confirm card pins it')
 
 export const reportTools = [
   {
@@ -537,7 +621,8 @@ export const reportTools = [
     title: 'Reports: what one shows and asks',
     description:
       'One report in full: what it shows in a sentence, the choices it asks for (period, venues, others) and what they are set to, ' +
-      'whose it is and who can change it, and its plan: the report written the way ask_data, build_report and change_report take it. ' +
+      'whose it is and who can change it, its plan (the report written the way ask_data, build_report and change_report take it) ' +
+      'and its schedules: when it is emailed, to whom, and the next send. ' +
       'To run a report with other choices than its period and venues, change them in the plan and use ask_data.',
     input: z.object({ report: ReportRef }),
     readOnly: true,
@@ -554,6 +639,9 @@ export const reportTools = [
       const venues = venueNames(await tenantVenueList(ctx))
       const { plan, kept } = planOf(cat, r.spec, venues, r.name)
       const choices = paramInputs(cat, r.spec).map(i => i.label + ': ' + (paramWords(cat, i, i.default, { venues }) || 'anything'))
+      // Its schedules: the person's own, everyone's with Manage (as the route lists them).
+      const sched = await callApi(ctx, 'GET', '/api/reports/' + encodeURIComponent(r.id) + '/schedules').catch(() => null)
+      const schedules = (sched?.schedules || []).map(s => scheduleLine(ctx, s, { everyone: !!sched?.can_manage }))
       return {
         name: r.name,
         id: r.id,
@@ -566,6 +654,7 @@ export const reportTools = [
         ...(r.can_share ? { can_share: true } : {}),
         plan,
         ...(kept.length ? { kept_when_changed: kept } : {}),
+        ...(schedules.length ? { schedules } : sched ? { schedules: sched.can_use ? 'None: schedule_report emails it on a schedule' : 'None' } : {}),
         ...linkTo(ctx, r.name, reportPath(r.id)),
       }
     },
@@ -852,12 +941,13 @@ export const reportTools = [
   {
     name: 'report_runs',
     section: 'reports',
-    title: 'Reports: past runs and kept files',
+    title: 'Reports: past runs, kept files and schedules',
     description:
-      'The reports the person ran, downloaded, printed or kept as a file, newest first, with the choices each was made with and ' +
-      'the files they kept (until when, and a link to Past runs, where they download it). Narrow it to one report or to kept files. ' +
-      'everyone: true lists everyone\'s in the group (needs Manage on Reports). A kept file can only be downloaded by the person ' +
-      'who made it; export_report keeps a new one.',
+      'The reports the person ran, downloaded, printed, emailed or kept as a file, newest first, with the choices each was made with, ' +
+      'the files they kept (until when, and a link to Past runs, where they download it) and what each send reached (counts, ' +
+      'addresses masked); then what is scheduled to be emailed (when, to whom, the next send, how the last one went). Narrow it ' +
+      'to one report or to kept files. everyone: true lists everyone\'s in the group (needs Manage on Reports). A kept file can ' +
+      'only be downloaded by the person who made it; export_report keeps a new one.',
     input: z.object({
       report: ReportRef.optional().describe('One report\'s runs: its name, or its id from list_reports'),
       files_only: z.boolean().optional().describe('Only the runs that kept a file'),
@@ -876,12 +966,22 @@ export const reportTools = [
       }
       const out = await callApi(ctx, 'GET', '/api/reports/runs?' + new URLSearchParams({ ...q, limit: String(input.limit ?? RUNS_SHOWN) }).toString())
       const runs = (out.runs || []).map(r => runLine(ctx, r, !!input.everyone))
+      // What is scheduled (not with files_only: that asks for kept files).
+      const sched = input.files_only ? null : await callApi(ctx, 'GET', '/api/reports/schedules?' + new URLSearchParams({
+        scope: input.everyone ? 'all' : 'mine', ...(report ? { report: report.id } : {}),
+      }).toString())
+      const scheduled = (sched?.schedules || []).map(s => scheduleLine(ctx, s, { everyone: !!input.everyone }))
       return {
         ...(report ? { report: report.name } : {}),
         whose: input.everyone ? 'everyone\'s in the group' : 'the person\'s own',
         runs,
         ...(!runs.length ? { note: input.files_only ? 'No kept files.' : 'Nothing run yet.' } : {}),
         ...(out.next ? { more: 'There are older runs: Past runs lists them all.' } : {}),
+        ...(sched ? {
+          scheduled: scheduled.length ? scheduled.slice(0, RUNS_SHOWN) : 'Nothing scheduled',
+          ...(scheduled.length > RUNS_SHOWN ? { more_scheduled: scheduled.length - RUNS_SHOWN + ' more on the Schedules page' } : {}),
+          schedules_page: linkText(ctx, 'Schedules', schedulesPath(input.everyone ? { scope: 'all' } : {})),
+        } : {}),
         ...linkTo(ctx, 'Past runs', runsPath({ ...q, scope: input.everyone ? 'all' : null })),
       }
     },

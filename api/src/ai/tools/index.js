@@ -27,8 +27,9 @@
 // opening times, tables, booking rules), tools/site.js (website,
 // promotions, reviews, menu screens, booking emails, support) and
 // tools/general.js (open_page, how_do_i), tools/briefing.js (day_briefing),
-// tools/locations.js (opening a new location), tools/localInfo.js and
-// tools/reports.js (the report builder: figures from the data, saved reports).
+// tools/locations.js (opening a new location), tools/localInfo.js,
+// tools/reports.js (the report builder: figures from the data, saved reports,
+// past runs) and tools/reportSchedules.js (report schedules and sends).
 
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { ZodError } from 'zod'
@@ -49,6 +50,7 @@ import { briefingTools } from './briefing.js'
 import { locationTools } from './locations.js'
 import { localInfoTools } from './localInfo.js'
 import { reportTools } from './reports.js'
+import { scheduleTools } from './reportSchedules.js'
 
 // The areas Pepper covers, in the order its prompt lists them.
 export const SECTIONS = {
@@ -118,6 +120,7 @@ const staffTools = [
   ...rotaTools, ...cashTools, ...orderTools, ...venueTools, ...siteTools, ...locationTools,
   ...localInfoTools,
   ...reportTools,
+  ...scheduleTools,
 ]
 const BY_AUDIENCE = { guest: guestTools, staff: staffTools }
 

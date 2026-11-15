@@ -583,8 +583,6 @@ export default async function reportScheduleRoutes(app) {
   app.post('/:id/send', sending, async req => {
     const body = SendBody.parse(req.body || {})
     const p = await requestPerson(req)
-    const via = viaPepper(req)
-    if (via) await limitPepperRuns(p)
     const target = await loadTarget(req.params.id, p)
     const params = ownParams(target.spec, body.params)
     const plan = await prepareSend(p, target, {
@@ -599,6 +597,9 @@ export default async function reportScheduleRoutes(app) {
       })
       return { dry_run: true, send: sendView(await draftView(p, draft)), skipped: plan.skipped }
     }
+    // A dry run sends nothing, so only a real send counts towards Pepper's runs.
+    const via = viaPepper(req)
+    if (via) await limitPepperRuns(p)
     return sendAnswer(await deliver(p, target, plan, { log: req.log, via, ignoreCondition: true }))
   })
 }
