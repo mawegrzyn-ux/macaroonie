@@ -96,6 +96,10 @@ jobs:
               # proxies to the API: tills, kitchen screens, kiosks, screens.
               sudo bash $APP/scripts/ensure-nginx-ws.sh \
                 || echo "WARN: nginx /ws patch failed (devices fall back to asking every few seconds)"
+              # A browser for report PDFs (Google Chrome's package when none
+              # is there). Never fails: without one, PDFs say they're off.
+              sudo bash $APP/scripts/ensure-pdf-browser.sh \
+                || echo "WARN: PDF browser check failed (report PDFs stay off)"
               # Custom domains switch on by themselves (systemd timer); see
               # scripts/custom-domains-sync.sh.
               sudo bash $APP/scripts/install-domain-sync.sh \
