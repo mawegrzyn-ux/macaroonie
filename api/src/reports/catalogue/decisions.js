@@ -16,15 +16,8 @@
 // table with no decision, with two, or a name here that is no longer a table
 // fails it. A new table needs one line here (or a subject in the catalogue).
 
-/** Reported on later. { area: { happen: [...], group: [...] } }, all in phase 3 unless `phase` says otherwise. */
-export const PLANNED = {
-  reports: {
-    // Who ran which report, and when (with schedules and past runs).
-    phase: 4,
-    happen: ['report_runs'],
-    group: [],
-  },
-}
+/** Reported on later. { area: { happen: [...], group: [...] } }, all in phase 3 unless `phase` says otherwise. Nothing waits now. */
+export const PLANNED = {}
 
 /** How something is set up: a few named fields offered later, the rest left out. */
 export const SETTINGS = [
@@ -71,6 +64,8 @@ export const LEFT_OUT = {
   ],
   'Conversations and files': [
     'ai_messages', 'ai_attachments', 'ai_pending_actions',
+    // Report files kept to download: counted on their run (Report runs' Files kept).
+    'report_files',
   ],
   'Layouts and designs with nothing to count': [
     'print_design_variations', 'menu_print_designs', 'menu_callouts', 'menu_allergen_notice', 'screen_playlist_items',

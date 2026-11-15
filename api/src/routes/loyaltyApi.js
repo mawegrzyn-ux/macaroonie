@@ -38,6 +38,7 @@ import {
 import { applePass, googleSaveUrl, walletStatus, appleAccount } from '../services/walletSvc.js'
 import { makeLink, readLink } from '../services/previewLinks.js'
 import { seal, unseal } from '../services/vault.js'
+import { forgetPersonalFiles, removeStored } from '../reports/fileErasure.js'
 
 const uuid = z.string().uuid()
 const QR_JS = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../shared/qr.js'), 'utf8')
@@ -240,7 +241,12 @@ export default async function loyaltyApiRoutes(app) {
     const tenantId = await tenantBySlug(req.params.slug)
     const { member } = await signedIn(req, tenantId)
     z.object({ confirm: z.literal('DELETE', { errorMap: () => ({ message: 'Type DELETE to confirm' }) }) }).parse(req.body || {})
-    await withTenant(tenantId, tx => eraseMember(tx, tenantId, member.id))
+    const files = await withTenant(tenantId, async tx => {
+      await eraseMember(tx, tenantId, member.id)
+      // Kept report files with people's details in them (migration 250) go too.
+      return forgetPersonalFiles(tx, tenantId)
+    })
+    await removeStored(files)
     return { ok: true }
   })
 

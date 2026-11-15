@@ -9663,7 +9663,7 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
             <H3>Pepper&apos;s report tools</H3>
             <P>
               <Mono>api/src/ai/tools/reports.js</Mono>, section <Mono>reports</Mono> (module{' '}
-              <Mono>reports</Mono>): eleven tools in the chat and on the staff connector. Each goes through the
+              <Mono>reports</Mono>): thirteen tools in the chat and on the staff connector. Each goes through the
               report routes as the person with <Mono>callApi()</Mono>, so the role&apos;s subjects, fields and
               venues, the tenant filters and the venue checks are the routes&apos; own; a plan never carries SQL
               or a table name.
@@ -9682,6 +9682,8 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
                 ['copy_report', 'Use, card', 'A copy of a report or a starter as the person\'s own (POST /:id/copy).'],
                 ['delete_report', 'Use, card', 'Deletes a saved report the person may delete (DELETE /:id); the card says who loses it.'],
                 ['share_report', 'Manage, card', 'Only its owner, some roles (by name; the card pins their ids) or everyone, and offered among the starters or not (PATCH /:id/sharing).'],
+                ['report_runs', 'View', 'Past runs (GET /runs): the person\'s own, or everyone\'s with Manage (everyone: true), one report\'s, or kept files only; 20 unless asked, 50 at most; each run\'s what, report, choices, rows, time, by Pepper, failed, and its file with a link to download it from Past runs (only its maker can).'],
+                ['export_report', 'Use, card', 'Keeps a CSV or Excel file of a report for the person (POST /:id/files), for the period and venues asked; the card says the choices and how long it is kept, and pins the report and its choices. The answer is a link to Past runs: Pepper never sees the file\'s rows.'],
               ]}
             />
             <P>

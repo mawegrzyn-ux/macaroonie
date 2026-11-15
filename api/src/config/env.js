@@ -43,6 +43,10 @@ const schema = z.object({
 
   // Website CMS — file uploads + subdomain serving
   UPLOAD_DIR:            z.string().default('/home/ubuntu/app/uploads'),
+  // Files only signed-in routes hand out (services/privateStore.js): report
+  // files kept for past runs and schedules. Outside the app's folder, so the
+  // deploy's clean-up never touches it and nginx never serves it.
+  PRIVATE_DIR:           z.string().default('/home/ubuntu/macaroonie-private'),
   PUBLIC_ROOT_DOMAIN:    z.string().default('macaroonie.com'),
   PUBLIC_SITE_SCHEME:    z.enum(['http', 'https']).default('https'),
 

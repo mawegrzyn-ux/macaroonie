@@ -42,6 +42,7 @@ import {
 } from '../services/loyaltySvc.js'
 import { loyaltyOrigin } from '../services/platformHost.js'
 import { walletStatus, saveTenantWallet, platformWalletStatus, savePlatformWallet, removePlatformWallet } from '../services/walletSvc.js'
+import { forgetPersonalFiles, removeStored } from '../reports/fileErasure.js'
 
 const uuid = z.string().uuid()
 const PERM = {
@@ -481,10 +482,14 @@ export default async function loyaltyRoutes(app) {
 
   app.post('/members/:id/erase', { preHandler: [PERM.membersManage, requireRole('admin', 'owner')] }, async req => {
     z.object({ confirm: z.literal('ERASE', { errorMap: () => ({ message: 'Type ERASE to confirm' }) }) }).parse(req.body || {})
-    return withTenant(req.tenantId, async tx => {
+    const out = await withTenant(req.tenantId, async tx => {
       const m = await ownMember(tx, req.tenantId, req.params.id)
-      return memberRow(await eraseMember(tx, req.tenantId, m.id))
+      const member = memberRow(await eraseMember(tx, req.tenantId, m.id))
+      // Kept report files with people's details in them (migration 250) go too.
+      return { member, files: await forgetPersonalFiles(tx, req.tenantId) }
     })
+    await removeStored(out.files)
+    return out.member
   })
 
   // ── Wallet accounts ─────────────────────────────────────────────────────

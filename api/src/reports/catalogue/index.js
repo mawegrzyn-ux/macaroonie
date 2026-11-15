@@ -28,6 +28,7 @@ import screens from './screens.js'
 import website from './website.js'
 import pepper from './pepper.js'
 import group from './group.js'
+import runsSubjects from './runs.js'
 import { templateRefs } from './define.js'
 import { MODULE_KEYS, permissionAtLeast } from '../../config/modules.js'
 import { ASSISTANT_NAME } from '../../../../shared/assistant.js'
@@ -155,7 +156,9 @@ function build(lists) {
   return { subjects }
 }
 
-export const CATALOGUE = build([common, till, online, bookings, cash, staff, kitchen, kiosks, loyalty, purchasing, safety, menus, website, local, screens, pepper, group])
+const LISTS = [common, till, online, bookings, cash, staff, kitchen, kiosks, loyalty, purchasing, safety, menus, website, local, screens, pepper, group]
+// Report runs name every other subject in its own words (runs.js), so it comes last.
+export const CATALOGUE = build([...LISTS, runsSubjects(LISTS.flat(), AREAS)])
 
 /** Every module a subject, field, figure or link of the catalogue asks for. */
 export const CATALOGUE_MODULES = [...new Set(Object.values(CATALOGUE.subjects).flatMap(s => [

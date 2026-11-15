@@ -40,6 +40,7 @@ jobs:
       # The default (/home/ubuntu/app/uploads) is the server's; the runner
       # can't write there.
       UPLOAD_DIR: /tmp/macaroonie-uploads
+      PRIVATE_DIR: /tmp/macaroonie-private
 
     steps:
       - uses: actions/checkout@v4
@@ -109,6 +110,7 @@ jobs:
       STRIPE_SECRET_KEY: sk_test_ci
       NODE_ENV: test
       UPLOAD_DIR: /tmp/macaroonie-uploads
+      PRIVATE_DIR: /tmp/macaroonie-private
 
     steps:
       - uses: actions/checkout@v4

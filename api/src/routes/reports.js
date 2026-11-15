@@ -26,6 +26,13 @@
 //                            reportPrintRoutes, its own plugin)
 //   POST   /:id/copy         a copy of it, or of a starter, as the person's own (Use)
 //   POST   /:id/star         star it       DELETE /:id/star   take the star off
+//   GET    /runs             Past runs: the person's runs, downloads, prints
+//                            and kept files, newest first; everyone's with
+//                            Manage (View; src/reports/runs.js)
+//   POST   /:id/files        keep a CSV or Excel file of it for the person who
+//                            makes it (Use; src/reports/files.js, Past runs)
+//   GET    /files/:fileId    a kept file, to the person who made it (Use)
+//   DELETE /files/:fileId    take a kept file off before its time (its maker)
 //
 // `:id` is a saved report's id, or 'starter:<key>' for a starter report in
 // code (src/reports/starters). A drill-down is made by the server from the
@@ -44,19 +51,20 @@ import { withTenant, systemSql } from '../config/db.js'
 import { requireAuth, requirePermission, INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { ownRoleIds } from '../services/roles.js'
-import { AREAS, CATALOGUE, catalogueView, listColumns } from '../reports/catalogue/index.js'
+import { AREAS, CATALOGUE, catalogueView } from '../reports/catalogue/index.js'
 import { STARTERS, STARTER_PREFIX, starterByKey } from '../reports/starters/index.js'
 import { ReportError } from '../reports/compile.js'
-import { runReport, currencyPath } from '../reports/run.js'
+import { runReport } from '../reports/run.js'
 import { reportPerson, rightsOn, openTo, runsFor, checkedSpec, recordRun, refuseOtherVenues, groupVenues, limitPepperRuns, PEPPER_HEADER } from '../reports/access.js'
 import { PLAN, planReport } from '../reports/plan.js'
-import { csvExport } from '../reports/export/csv.js'
-import { xlsxExport } from '../reports/export/xlsx.js'
-import { fileName } from '../reports/export/table.js'
+import { drillSteps, drilled } from '../reports/drilled.js'
+import { prepareFile, makeReportFile, errorText } from '../reports/export/file.js'
+import { keepReportFile, openFile, countDownload, removeFile, fileView } from '../reports/files.js'
+import { pastRuns, RUNS_MAX } from '../reports/runs.js'
+import { readStream, sizeOf } from '../services/privateStore.js'
 import { printHtml, messageHtml } from '../reports/export/print.js'
 import { brandColours } from '../services/themeColours.js'
 import { normaliseReport, reportProblems, resolveParams, LIMITS } from '../../../shared/reports/spec.js'
-import { cleanDrill, drillSpec } from '../../../shared/reports/drill.js'
 import { paramInputs, paramWords } from '../../../shared/reports/build.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -65,7 +73,6 @@ const MAX_LIST = 1000      // saved reports listed
 const MAX_DRILL = 10       // drill steps in one request
 const PREVIEW_ROWS = 200
 const PRINT_MINUTES = 15   // how long a print link works
-const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 const Name = z.string().trim().min(1).max(LIMITS.name)
 const Description = z.string().trim().max(1000).nullable()
@@ -112,6 +119,14 @@ const Format = z.enum(['csv', 'xlsx'])
 const ExportBody = z.object({ format: Format, params: Params.optional(), drill: Drill.optional() })
 const ExportUnsaved = ExportBody.extend({ spec: Spec, name: Name.optional() })
 const CopyBody = z.object({ name: Name.optional() })
+const RunsQuery = z.object({
+  scope: z.enum(['mine', 'all']).optional(),
+  report: z.string().max(80).optional(),
+  file: z.string().max(40).optional(),
+  files: z.enum(['1', '0', 'true', 'false']).optional(),
+  before: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(RUNS_MAX).optional(),
+})
 // What is on the person's screen: their choices, the rows they opened up
 // (with the trail's words for the page's heading), whether the table is
 // showing under a chart, and the series switched off in the chart's legend.
@@ -242,60 +257,26 @@ const isStarred = (tx, p, ref) => tx`
 
 // ── Running ──────────────────────────────────────────────────
 
-const drillSteps = raw => (raw || []).map(step => {
-  const d = cleanDrill(step)
-  if (!d) throw new ReportError('That isn\'t something this report can open')
-  return d
-})
-
-// The definition a chain of drill steps leads to, each made from the one before.
-function drilled(spec, steps, levels) {
-  let cur = spec
-  for (const step of steps) {
-    const next = drillSpec(cur, step, { catalogue: CATALOGUE, listColumns: subject => listColumns(subject, levels), extra: [currencyPath(cur.subject)] })
-    if (next.problem) throw new ReportError(next.problem)
-    cur = next.spec
-  }
-  return cur
-}
-
-const errorText = e => (e?.statusCode && e.statusCode < 500 ? e.message : 'The report failed')
-
-// The venues a run was for, in words (for a file's About sheet).
-async function venuesText(p, spec, params) {
-  const param = spec.params.find(x => x.type === 'venues')
-  if (!param) return null
-  const ids = params[param.key]
-  if (!Array.isArray(ids) || !ids.length) return 'All venues'
-  const rows = await withTenant(p.tenantId, tx => tx`
-    SELECT name FROM venues WHERE tenant_id = ${p.tenantId} AND id = ANY(${ids}::uuid[]) ORDER BY name`)
-  return rows.length ? rows.map(r => r.name).join(', ') : 'All venues'
-}
-
+// A download: the file made as a kept one would be (src/reports/export/file.js),
+// sent to the browser. Refusals found before the report runs (a drill step,
+// another group's venue) aren't recorded; anything after is, as a failed run.
 async function sendFile(req, reply, p, target, body) {
   const started = Date.now()
-  const steps = drillSteps(body.drill)
-  const given = body.params || {}
-  await refuseOtherVenues(p, target.spec, given)
-  const base = { kind: 'export', format: body.format, saved: target.saved, starter: target.starter, name: target.name, spec: target.spec, drill: steps }
-  const record = extra => recordRun(p, { ...base, params: resolveParams(target.spec, given), ms: Date.now() - started, ...extra }, req.log)
-  const attach = ext => reply.header('content-disposition', 'attachment; filename="' + fileName(target.name, ext) + '"')
+  const prep = await prepareFile(p, target, body)
+  const base = {
+    kind: 'export', format: prep.format, saved: target.saved, starter: target.starter,
+    name: target.name, spec: target.spec, drill: prep.steps, params: prep.params,
+  }
+  const record = extra => recordRun(p, { ...base, ms: Date.now() - started, ...extra }, req.log)
   try {
-    const spec = drilled(target.spec, steps, p.levels)
-    if (body.format === 'xlsx') {
-      const out = await xlsxExport(p.ctx, spec, given, {
-        name: target.name,
-        description: target.description,
-        by: p.email,
-        venues: await venuesText(p, target.spec, resolveParams(target.spec, given)),
-      })
-      await record({ rows: out.rows })
-      return attach('xlsx').header('content-type', XLSX_TYPE).send(out.buffer)
+    const file = await makeReportFile(p, target, prep, { finish: r => record({ rows: r.rows }) })
+    reply.header('content-disposition', 'attachment; filename="' + file.name + '"').header('content-type', file.type)
+    if (file.stream) {
+      file.done.catch(e => record({ error: errorText(e) }))
+      return reply.send(file.stream)
     }
-    const out = await csvExport(p.ctx, spec, given, { finish: r => record({ rows: r.rows }) })
-    if (out.stream) out.done.catch(e => record({ error: errorText(e) }))
-    else await record({ rows: (await out.done).rows })
-    return attach('csv').header('content-type', 'text/csv; charset=utf-8').send(out.stream || out.text)
+    await record({ rows: (await file.done).rows })
+    return reply.send(file.buffer ?? file.text)
   } catch (e) {
     await record({ error: errorText(e) })
     throw e
@@ -431,6 +412,13 @@ export default async function reportRoutes(app) {
   app.get('/catalogue', view, async req => {
     const p = await reportPerson(req)
     return { level: p.level, can_use: p.canUse, can_manage: p.canManage, ...catalogueView(p.levels) }
+  })
+
+  // Past runs (src/reports/runs.js). A static path, so it is never taken for a report's id.
+  app.get('/runs', view, async req => {
+    const q = RunsQuery.parse(req.query || {})
+    const p = await reportPerson(req)
+    return pastRuns(p, { ...q, files: q.files === '1' || q.files === 'true' })
   })
 
   app.get('/', view, async req => {
@@ -620,6 +608,42 @@ export default async function reportRoutes(app) {
     const body = ExportBody.parse(req.body)
     const p = await reportPerson(req)
     return sendFile(req, reply, p, await loadTarget(req.params.id, p), body)
+  })
+
+  // Keep a file of it for the person who makes it, to download later from
+  // Past runs (src/reports/files.js). Made as a download would be.
+  app.post('/:id/files', use, async (req, reply) => {
+    const body = ExportBody.parse(req.body)
+    const p = await reportPerson(req)
+    const target = await loadTarget(req.params.id, p)
+    const via = viaPepper(req)
+    if (via) await limitPepperRuns(p)
+    const row = await keepReportFile(p, target, body, { log: req.log, via })
+    return reply.code(201).send({ file: fileView(row, p) })
+  })
+
+  // A kept file, to the person who made it, while their role still sees the
+  // report the same way (openFile() says why not, else).
+  app.get('/files/:fileId', use, async (req, reply) => {
+    const p = await reportPerson(req)
+    const row = await openFile(p, req.params.fileId)
+    const bytes = await sizeOf(row.storage_key)
+    if (bytes == null) throw httpError(410, 'This file isn\'t kept any more. Run the report again for a new one')
+    await countDownload(p, row.id)
+    return reply
+      .header('content-type', row.content_type)
+      .header('content-disposition', 'attachment; filename="' + row.file_name + '"')
+      .header('cache-control', 'private, no-store')
+      .header('content-length', bytes)
+      .send(readStream(row.storage_key))
+  })
+
+  // Its maker takes a file off before its time. View is enough: someone who
+  // has lost Use can still clear away files they made.
+  app.delete('/files/:fileId', view, async (req, reply) => {
+    const p = await reportPerson(req)
+    await removeFile(p, req.params.fileId)
+    return reply.code(204).send()
   })
 
   // A link to the report's print page, as it is on the person's screen.
