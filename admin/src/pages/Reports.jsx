@@ -11,7 +11,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { FileBarChart, Search, Lock, X, Plus, History } from 'lucide-react'
+import { FileBarChart, Search, Lock, X, Plus, History, CalendarDays } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { PageHeader, inputCls, ErrorNote } from '@/components/staff/shared'
 import { StarButton, reportPath, retryUnlessRefused } from '@/components/reports/shared'
@@ -117,9 +117,13 @@ export default function Reports() {
   return (
     <div className="flex flex-col h-full overflow-hidden" data-testid="reports-page">
       <PageHeader icon={FileBarChart} title="Reports">
-        <Link to="/reports/runs" data-testid="reports-runs" title="What you ran, downloaded, printed or kept a file of"
-          className="inline-flex items-center gap-2 h-12 px-3 rounded-lg border bg-background text-sm font-medium touch-manipulation hover:bg-muted shrink-0">
-          <History className="w-4 h-4" /> Past runs
+        <Link to="/reports/schedules" data-testid="reports-schedules" title="Reports emailed on a schedule"
+          className="inline-flex items-center justify-center gap-2 h-12 min-w-[48px] px-3 rounded-lg border bg-background text-sm font-medium touch-manipulation hover:bg-muted shrink-0">
+          <CalendarDays className="w-4 h-4" /> <span className="max-sm:sr-only">Schedules</span>
+        </Link>
+        <Link to="/reports/runs" data-testid="reports-runs" title="What you ran, downloaded, printed, kept a file of or emailed"
+          className="inline-flex items-center justify-center gap-2 h-12 min-w-[48px] px-3 rounded-lg border bg-background text-sm font-medium touch-manipulation hover:bg-muted shrink-0">
+          <History className="w-4 h-4" /> <span className="max-sm:sr-only">Past runs</span>
         </Link>
         {data?.can_use && (
           <Link to="/reports/new" data-testid="reports-new"
