@@ -11,6 +11,7 @@ export const publishQueue       = new Queue('website-publish',  { connection })
 export const gloriafoodQueue    = new Queue('gloriafood-poll',  { connection })
 export const aiCleanupQueue     = new Queue('ai-cleanup',       { connection })
 export const localInfoQueue     = new Queue('local-info',       { connection })
+export const reportScheduleQueue = new Queue('report-schedules', { connection })
 
 // ── Notification worker ───────────────────────────────────────
 // Routes booking emails through the new pluggable email system
@@ -140,6 +141,32 @@ export function startLocalInfoWorker(log) {
     removeOnComplete: true,
     removeOnFail: 20,
   }).catch(err => log.warn({ err: err?.message }, 'Local info sweep not scheduled (Redis?)'))
+
+  return worker
+}
+
+// ── Report schedules worker ───────────────────────────────────
+// Every minute (migration 251, reports/schedules.js): send the report
+// schedules that are due, each as its owner. The repeat job runs across all
+// API processes; each schedule is claimed with running_until (SKIP LOCKED),
+// so two processes never send one at once.
+
+export function startReportScheduleWorker(log) {
+  const worker = new Worker('report-schedules', async () => {
+    const { sweepSchedules } = await import('../reports/schedules.js')
+    const r = await sweepSchedules(log)
+    if (r.claimed) log.info(r, 'Report schedules sent')
+  }, { connection })
+
+  worker.on('failed', (job, err) => {
+    log.error({ jobId: job?.id, err }, 'Report schedules job failed')
+  })
+
+  reportScheduleQueue.add('sweep', {}, {
+    repeat: { every: 60_000 },
+    removeOnComplete: true,
+    removeOnFail: 20,
+  }).catch(err => log.warn({ err: err?.message }, 'Report schedules not scheduled (Redis?)'))
 
   return worker
 }

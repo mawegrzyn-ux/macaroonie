@@ -6,6 +6,24 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-15 — Reports: sent by email on a schedule, or now]
+
+Migration 251 (`report_schedules`; scheduled and emailed runs on `report_runs`).
+
+**Added**
+- **Schedule this report** (a report's More → Schedule this report; Use or Manage on Reports): every day, the weekdays you tick or once a month, at a time on the venue's clock. It sends every time, only when the report has rows, or only when a figure is over or under an amount. The figures go in the message (the first 100 rows), as a CSV or Excel file, or both, and the file can be kept in Past runs.
+- **Who gets it**: yourself with Use, people on the team with Manage, outside addresses only when an owner or admin adds them. People's details stay out of messages to outside addresses unless an owner or admin allows it.
+- **Email it now** (a report's More): the report as it is on screen, sent once.
+- **Schedules** (Reports → Schedules, or a report's More → Schedules of this report): yours, or everyone's with Manage, with the next send, what happened last time, Edit, Pause / Resume, Send now, Past runs and delete.
+- **Past runs** show Sent by a schedule, Skipped by a schedule and Emailed, with how many people each went to.
+- Pepper can schedule a report, change or pause a schedule and email a report now, each after you confirm.
+
+**Notes**
+- A schedule runs as the person who set it up, checked at every run: the people it is sent to see what that person may see. When they leave or lose access, or the report needs changing, it pauses and emails them and the group's owners.
+- A failed send is tried again for up to about six hours. A run more than six hours late is skipped. Five failures in a row pause the schedule.
+- Emails go through the venue's own email settings. Periods must be moving ones (last week), never fixed dates.
+- Tested with unit and API tests and one short browser pass; the mutation run and the full browser re-run wait for the end of the report work. Not yet run through a real email provider.
+
 ## [2026-11-15 — Reports: past runs, and files kept to download later]
 
 Migration 250 (`report_files`).

@@ -630,6 +630,25 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
       if (viewerRole) await step('report shared', () => patch(`/api/reports/${rid}/sharing`, { shared: 'roles', role_ids: [viewerRole.id] }))
       await step('report copy', () => post(`/api/reports/${rid}/copy`, { name: mark + ' Bookings by week (copy)' }))
       await step('report star', () => post(`/api/reports/${rid}/star`, {}))
+      // A schedule (migration 251) to the person themselves, over a period
+      // that moves, changed, paused and started again. Nothing is sent: the
+      // sweep sends only what is due, and these tests don't run it.
+      const me = await step('report recipients', () => get('/api/reports/recipients'))
+      if (me?.me?.user_id) {
+        const made = await step('report schedule', () => post(`/api/reports/${rid}/schedules`, {
+          name: mark + ' Monday bookings', timing: { every: 'week', days: [1], time: '07:30' },
+          params: { period: { relative: 'last_week' }, venues: [V] },
+          delivery: { in_message: true, attach: 'csv' }, condition: { when: 'rows' },
+          recipients: [{ user_id: me.me.user_id }],
+        }))
+        const scheduleId = made?.schedule?.id
+        if (scheduleId) {
+          ids.reportSchedule = scheduleId
+          await step('report schedule changed', () => patch(`/api/reports/schedules/${scheduleId}`, { message: mark + ' for the Monday meeting' }))
+          await step('report schedule paused', () => post(`/api/reports/schedules/${scheduleId}/pause`, {}))
+          await step('report schedule resumed', () => post(`/api/reports/schedules/${scheduleId}/resume`, {}))
+        }
+      }
     }
   }
 

@@ -35,7 +35,7 @@
 // 'name', 'check.number', 'check.venue.name'. `date` is the subject's own
 // report date and `venue` its venue, whichever columns hold them.
 
-import { normalisePeriod } from './period.js'
+import { normalisePeriod, todayIn } from './period.js'
 import { parseExpr, exprRefs, exprProblem, ExprError, MAX_EXPR_LENGTH } from './expr.js'
 import { MOMENT_BUCKETS } from './format.js'
 
@@ -506,6 +506,26 @@ export function resolveParams(spec, given) {
     else { const x = cleanScalar(v); out[p.key] = x === '' ? null : x }
   }
   return out
+}
+
+/**
+ * The venues a report is for, from its venues choice (`params` resolved),
+ * out of the group's venues in the order they were made: `ids` (null = every
+ * venue), `chosen`, `scope` (every venue when none chosen is left) and `tz`,
+ * the time zone of the first venue in scope, the one its days are counted
+ * in. The run, the schedule routes and the schedule window (its next send)
+ * all decide it here.
+ */
+export function venueScope(venues, spec, params) {
+  let ids = null
+  for (const p of spec.params) {
+    if (p.type === 'venues' && Array.isArray(params[p.key])) { ids = new Set(params[p.key]); break }
+  }
+  const chosen = ids ? venues.filter(v => ids.has(v.id)) : venues
+  const scope = chosen.length ? chosen : venues
+  let tz = scope[0]?.timezone || 'Europe/London'
+  try { todayIn(tz) } catch { tz = 'Europe/London' }
+  return { ids, chosen, scope, tz }
 }
 
 /** A new, empty definition about a subject, with the usual period and venues to ask for. */

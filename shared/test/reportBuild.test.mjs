@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { normaliseReport, reportProblems, rowId, LIMITS } from '../reports/spec.js'
 import {
-  pathUses, dataTree, treeNodes, searchTree, rowName, valueName, valueKindText, linkTrail,
+  pathUses, dataTree, treeNodes, searchTree, rowName, valueName, valueKindText, valueType, linkTrail,
   filterShape, filterOps, filterValueKind, filterValueOk, blankValue, shownNumber, storedNumber, filterWords, filterParts, paramWords,
   usedParams, paramInputs, paramKeyFor,
   roomLeft, addRow, addColumn, removeRow, removeColumn, moveRow, moveColumn, updateRow,
@@ -275,6 +275,33 @@ test('what the shelves say', () => {
 
   assert.deepEqual([{ measure: 'x' }, { calc: 'a' }, { agg: 'sum', of: 'a' }, { agg: 'count' }, { agg: 'count', field: 'a' }, { agg: 'avg', field: 'a' }, { agg: 'count_distinct', field: 'a' }].map(valueKindText),
     ['Figure', 'Calculation', 'Total of a calculation', 'How many rows', 'How many', 'Average', 'How many different'])
+
+  // What kind of value each one is, as the engine heads its column (a
+  // schedule watches only the number kinds, and says its line in them).
+  const type = v => valueType(CAT, 'checks', v)
+  assert.equal(type({ measure: 'net_sales' }), 'money')
+  assert.equal(type({ measure: 'checks' }), 'number')
+  assert.equal(type({ measure: 'lines.net_sales' }), 'money', 'a figure of linked rows keeps its own type')
+  assert.equal(type({ agg: 'sum', field: 'net' }), 'money')
+  assert.equal(type({ agg: 'avg', field: 'share' }), 'percent')
+  assert.equal(type({ agg: 'max', field: 'time_open' }), 'duration')
+  assert.equal(type({ agg: 'max', field: 'opened_at' }), 'moment', 'the latest moment is a moment, not a number')
+  assert.equal(type({ agg: 'count', field: 'net' }), 'number')
+  assert.equal(type({ agg: 'count_distinct', field: 'server' }), 'number')
+  assert.equal(type({ agg: 'count' }), 'number')
+  assert.equal(type({ calc: 'net_sales / checks' }), 'number', 'a calculation is a plain number')
+  assert.equal(type({ calc: 'net_sales / checks', format: 'money' }), 'money', 'until a format is chosen')
+  assert.equal(type({ agg: 'sum', of: 'net * 2' }), 'money', 'a total of money per row is money')
+  assert.equal(type({ agg: 'sum', of: 'net - covers' }), 'number', 'money and guests together are a plain number')
+  assert.equal(type({ agg: 'sum', of: '2 * 3' }), 'number')
+  assert.equal(type({ agg: 'count', of: 'net * 2' }), 'number', 'a count of a calculation is a count')
+  assert.equal(type({ agg: 'sum', of: 'net +' }), 'number', 'a calculation that doesn\'t read is a plain number')
+  assert.equal(type({ measure: 'nothing' }), 'number')
+  assert.equal(type(null), 'number')
+  // A figure from another subject is looked up in that subject.
+  const both = { subject: 'checks', also: [{ key: 's2', subject: 'payments' }] }
+  assert.equal(valueType(CAT, both, { measure: 'taken', from: 's2' }), 'money')
+  assert.equal(valueType(CAT, both, { measure: 'taken' }), 'number', 'without its subject the figure isn\'t found')
 
   // How a field is reached, for "how this is linked".
   assert.deepEqual(linkTrail(CAT, 'lines', 'check.server.name'), ['Dishes sold', 'Check', 'Server'])

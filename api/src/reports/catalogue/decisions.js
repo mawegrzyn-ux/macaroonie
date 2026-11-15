@@ -70,8 +70,9 @@ export const LEFT_OUT = {
   'Layouts and designs with nothing to count': [
     'print_design_variations', 'menu_print_designs', 'menu_callouts', 'menu_allergen_notice', 'screen_playlist_items',
     'nav_items', 'dashboard_tiles', 'hs_dashboards', 'hs_dashboard_widgets',
-    // The reports themselves and who starred them.
-    'reports', 'report_stars',
+    // The reports themselves, who starred them and their schedules (each
+    // send is a report run: Report runs' Sent by a schedule).
+    'reports', 'report_stars', 'report_schedules',
   ],
   'Working state that changes from minute to minute': [
     'pos_venue_state', 'kds_flow_edges', 'kds_balance_turns', 'booking_holds', 'table_occupancy', 'review_scrape_jobs',

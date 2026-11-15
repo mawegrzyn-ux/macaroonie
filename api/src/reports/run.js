@@ -19,9 +19,9 @@
 // database once. `fresh: true` asks again.
 
 import crypto from 'node:crypto'
-import { withReport } from '../config/db.js'
+import { withReport, withTenant } from '../config/db.js'
 import { env } from '../config/env.js'
-import { normaliseReport, reportProblems, resolveParams, rowId, valueSubject, LIMITS } from '../../../shared/reports/spec.js'
+import { normaliseReport, reportProblems, resolveParams, rowId, valueSubject, venueScope, LIMITS } from '../../../shared/reports/spec.js'
 import { todayIn, addDays } from '../../../shared/reports/period.js'
 import { drillSpec, countedBy, readsFrom } from '../../../shared/reports/drill.js'
 import { CATALOGUE, CATALOGUE_MODULES, listColumns } from './catalogue/index.js'
@@ -40,10 +40,19 @@ export const EXPORT_ROWS = 250000
 
 const cache = new Map()
 
+// The moment a run is for: now, or a schedule's due time (ctx.at), so a send
+// the sweep makes late still means the days it was due for ("yesterday" at
+// 23:00, sent at 01:00 after the server was down, is still the day before
+// 23:00).
+function atOf(ctx) {
+  const at = ctx?.at instanceof Date ? ctx.at : ctx?.at ? new Date(ctx.at) : null
+  return at && Number.isFinite(at.getTime()) ? at : null
+}
+
 function cacheKey(ctx, spec, params, mode, cap) {
   const levels = CATALOGUE_MODULES.map(k => k + ':' + (ctx.levels?.[k] || 'none')).sort().join(',')
   return crypto.createHash('sha1')
-    .update(JSON.stringify([ctx.tenantId, ctx.userKey || '', levels, spec, params, mode, cap ?? null]))
+    .update(JSON.stringify([ctx.tenantId, ctx.userKey || '', levels, spec, params, mode, cap ?? null, atOf(ctx)?.toISOString() ?? null]))
     .digest('hex')
 }
 
@@ -63,28 +72,33 @@ async function takeSlot(tx, tenantId) {
   }
 }
 
+
 // What the run needs to know about the group's venues: the day it is there
 // (the first venue in scope), the time zone for rows with no venue, and
 // whether money comes in more than one currency.
-async function scopeOf(tx, tenantId, spec, params) {
+async function scopeOf(tx, tenantId, spec, params, at = null) {
   const venues = await tx`
     SELECT id::text AS id, COALESCE(NULLIF(timezone, ''), 'Europe/London') AS timezone,
            COALESCE(NULLIF(btrim(currency::text), ''), 'GBP') AS currency
       FROM venues WHERE tenant_id = ${tenantId} ORDER BY created_at, id`
-  let ids = null
-  for (const p of spec.params) {
-    if (p.type === 'venues' && Array.isArray(params[p.key])) { ids = new Set(params[p.key]); break }
-  }
-  const chosen = ids ? venues.filter(v => ids.has(v.id)) : venues
-  const scope = chosen.length ? chosen : venues
-  let tz = scope[0]?.timezone || 'Europe/London'
-  let today
-  try { today = todayIn(tz) } catch { tz = 'Europe/London'; today = todayIn(tz) }
+  const { ids, chosen, scope, tz } = venueScope(venues, spec, params)
+  const today = todayIn(tz, at || new Date())
   return {
     tz, today, currencies: [...new Set(scope.map(v => v.currency))],
     // The venues asked for, for rows worked out in code (null = every venue).
     venueIds: ids ? chosen.map(v => v.id) : null,
   }
+}
+
+/**
+ * The time zone a report's days are counted in (the first venue it is for,
+ * as scopeOf() decides): a schedule's times are at that venue's own clock.
+ */
+export async function reportZone(tenantId, rawSpec, given = {}) {
+  const spec = normaliseReport(rawSpec)
+  const params = resolveParams(spec, given)
+  const scope = await withTenant(tenantId, tx => scopeOf(tx, tenantId, spec, params))
+  return scope.tz
 }
 
 // The statements a plan runs straight away (the rows for "everything else"
@@ -155,7 +169,7 @@ const HEAVY = 'This report would read too much at once. Narrow the period or add
  */
 async function prepare(tx, ctx, spec0, params, { listLimit, costFactor = 1, open = true }) {
   await takeSlot(tx, ctx.tenantId)
-  const scope = await scopeOf(tx, ctx.tenantId, spec0, params)
+  const scope = await scopeOf(tx, ctx.tenantId, spec0, params, atOf(ctx))
   const envc = { tenantId: ctx.tenantId, levels: ctx.levels, params, today: scope.today, tz: scope.tz }
   let spec = spec0
   let plan = compileReport(spec, envc, { listLimit, open })
@@ -269,8 +283,10 @@ function metaOf(p, shaped, started) {
 /**
  * Run a definition as a person.
  *
- *   ctx    { tenantId, userKey, levels }   levels: the person's level on each
- *                                          module the catalogue asks for
+ *   ctx    { tenantId, userKey, levels, at }   levels: the person's level on
+ *                                          each module the catalogue asks for;
+ *                                          at: the moment the run is for (a
+ *                                          schedule's due time), else now
  *   given  the choices for the definition's parameters (period, venues)
  *   opts   { mode: 'screen' | 'export', cap, fresh }
  *

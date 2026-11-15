@@ -26,11 +26,16 @@
 // were scrolled to) is kept on this page's place in the browser's history
 // first, so Back (the browser's, or the bar above the record:
 // components/reports/FromReport.jsx) comes back to the report as it was left.
+//
+// More also emails the report: once, now, with the choices picked here, or on
+// a schedule (components/reports/ScheduleWindow.jsx; api routes/
+// reportSchedules.js). Both need Use on Reports; sending to other people
+// needs Manage.
 
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { ChevronLeft, Download, Lock, Pencil, Copy, Share2, Trash2, MoreHorizontal, Type, Printer, History, FileSpreadsheet, CheckCircle2, X } from 'lucide-react'
+import { ChevronLeft, Download, Lock, Pencil, Copy, Share2, Trash2, MoreHorizontal, Type, Printer, History, FileSpreadsheet, CheckCircle2, X, CalendarClock, Mail, CalendarDays } from 'lucide-react'
 import { paramInputs } from '@shared/reports/build.js'
 import { normaliseReport, LIMITS } from '@shared/reports/spec.js'
 import { useApi } from '@/lib/api'
@@ -41,6 +46,7 @@ import ResultCard from '@/components/reports/ResultCard'
 import ParamInputs, { showsInputs } from '@/components/reports/ParamInputs'
 import { DrillTrail, DrillWindow, drillBody, drillChoices, stepOf } from '@/components/reports/drill'
 import { StarButton, Problems, retryUnlessRefused, reportPath, editPath, customisePath } from '@/components/reports/shared'
+import { ScheduleWindow, SendWindow, whenText } from '@/components/reports/ScheduleWindow'
 import { cn } from '@/lib/utils'
 
 const btn = 'inline-flex items-center gap-2 h-12 px-3 rounded-lg border bg-background text-sm font-medium touch-manipulation hover:bg-muted disabled:opacity-50 shrink-0'
@@ -290,8 +296,11 @@ export default function ReportView() {
     }
   }
 
+  // ── Email it: on a schedule, or now ──
+  const [scheduled, setScheduled] = useState(null)   // the schedule just saved
+
   // ── More: copy, rename, share, delete ──
-  const [win, setWin] = useState(null)          // 'more' | 'rename' | 'share'
+  const [win, setWin] = useState(null)          // 'more' | 'rename' | 'share' | 'schedule' | 'send'
   const [asking, setAsking] = useState(false)   // delete: are you sure?
   const [busy, setBusy] = useState(null)
   const [failed, setFailed] = useState(null)    // { title, error }
@@ -336,9 +345,12 @@ export default function ReportView() {
   const canShare = saved && report.can_share
   const canDelete = saved && report.can_delete
   const canKeep = !!report?.runs && canUse
-  // Past runs of this report is there for anyone who can open it.
+  // Emailing it, now or on a schedule: Use, as a file is (sending to others
+  // needs Manage, which the window works out).
+  const canEmail = !!report?.runs && canUse
+  // Past runs and the schedules of this report are there for anyone who can open it.
   const hasMore = !!report
-  const moreLabel = 'More: ' + ['past runs', canKeep && 'keep a file', canCopy && 'copy', canEdit && 'rename', canShare && 'share', canDelete && 'delete'].filter(Boolean).join(', ')
+  const moreLabel = 'More: ' + [canEmail && 'schedule', canEmail && 'email it now', 'schedules', 'past runs', canKeep && 'keep a file', canCopy && 'copy', canEdit && 'rename', canShare && 'share', canDelete && 'delete'].filter(Boolean).join(', ')
 
   const values = Object.fromEntries((spec?.params || []).map(p => [p.key, p.key in given ? given[p.key] : p.default]))
   const set = (key, value) => setGiven(g => ({ ...g, [key]: value }))
@@ -421,6 +433,25 @@ export default function ReportView() {
               </button>
             </div>
           )}
+          {scheduled && (
+            <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900 flex flex-wrap items-center gap-x-3 gap-y-2" role="status" data-testid="report-scheduled">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span className="flex-1 min-w-[12rem]">
+                Scheduled: {scheduled.timing_text}.{' '}
+                {scheduled.enabled && scheduled.next_run_at
+                  ? 'Next email ' + whenText(scheduled.next_run_at, scheduled.time_zone) + '.'
+                  : scheduled.enabled ? '' : 'It is paused, so nothing is sent until it is resumed.'}
+              </span>
+              <Link to={'/reports/schedules?report=' + encodeURIComponent(id)} data-testid="report-scheduled-open"
+                className="inline-flex items-center gap-2 h-12 px-3 rounded-lg border border-green-300 bg-white text-sm font-medium touch-manipulation hover:bg-green-100 shrink-0">
+                <CalendarDays className="w-4 h-4" /> Its schedules
+              </Link>
+              <button type="button" onClick={() => setScheduled(null)} aria-label="Close this note" data-testid="report-scheduled-close"
+                className="w-12 h-12 flex items-center justify-center rounded-lg text-green-900 hover:bg-green-100 touch-manipulation shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
           <Problems error={failed?.error} title={failed?.title} />
 
           {report && (
@@ -483,6 +514,31 @@ export default function ReportView() {
       {win === 'more' && report && (
         <Modal title={report.name} onClose={closeWin}>
           <div className="space-y-2" data-testid="report-more-list">
+            {canEmail && (
+              <button type="button" onClick={() => { setAsking(false); setWin('schedule') }} data-testid="more-schedule" className={rowBtn}>
+                <CalendarClock className="w-4 h-4 text-muted-foreground shrink-0" />
+                <span>
+                  <span className="block text-sm font-medium">Schedule this report</span>
+                  <span className="block text-[11px] text-muted-foreground">Emailed by itself every day, on chosen days or every month.</span>
+                </span>
+              </button>
+            )}
+            {canEmail && (
+              <button type="button" onClick={() => { setAsking(false); setWin('send') }} data-testid="more-send" className={rowBtn}>
+                <Mail className="w-4 h-4 text-muted-foreground shrink-0" />
+                <span>
+                  <span className="block text-sm font-medium">Email it now</span>
+                  <span className="block text-[11px] text-muted-foreground">Once, with the choices picked here.</span>
+                </span>
+              </button>
+            )}
+            <Link to={'/reports/schedules?report=' + encodeURIComponent(id)} data-testid="more-schedules" className={rowBtn}>
+              <CalendarDays className="w-4 h-4 text-muted-foreground shrink-0" />
+              <span>
+                <span className="block text-sm font-medium">Schedules of this report</span>
+                <span className="block text-[11px] text-muted-foreground">When it is emailed and who gets it.</span>
+              </span>
+            </Link>
             {canKeep && (
               <div className="rounded-lg border bg-background px-3 py-2" data-testid="more-keep">
                 <div className="flex items-start gap-3">
@@ -567,6 +623,11 @@ export default function ReportView() {
       )}
       {win === 'rename' && report && <RenameWindow report={report} onSaved={changed} onClose={closeWin} />}
       {win === 'share' && report && <ShareWindow report={report} onSaved={changed} onClose={closeWin} />}
+      {win === 'schedule' && report && (
+        <ScheduleWindow reportId={id} given={given} onClose={closeWin}
+          onSaved={s => { setScheduled(s); closeWin() }} />
+      )}
+      {win === 'send' && report && <SendWindow reportId={id} given={given} drilled={steps.length > 0} onClose={closeWin} />}
     </div>
   )
 }

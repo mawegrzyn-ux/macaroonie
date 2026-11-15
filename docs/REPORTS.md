@@ -741,6 +741,20 @@ Each phase ships with its Help and Docs sections, a changelog entry and its test
 - Pepper never reads a kept file: `export_report` answers with a link to Past runs, and `report_runs` lists runs and files without their rows.
 - The Report runs subject (`group.report_runs`, Manage on Reports) reads `report_runs`, so every table now has its decision (`{ subject: 128, planned: 0, settings: 57, out: 50 }` over 235 tables; `report_files` is counted on its run, as Files kept). What a run was about and its area are worked out as text in SQL, never offered as choices, since choice words go into the smart builder's word index and would make this subject the best fit for nearly every request.
 
+**As built (15 Nov 2026): phase 4b.** Schedules and emailed reports (migration 251), as section 14 has them, with these details and differences:
+
+- A schedule runs every day, on chosen weekdays, or once a month (a day, the last day, or a weekday such as the first Monday), at a time on the clock of the first venue in the report's scope (`venueScope()`). Periods must be relative.
+- Conditions: every time, only when there are rows, or only when one of the report's figures is over, at least, under, at most or more than an amount either way, in total or on any row.
+- Delivery: the figures in the message (the first 100 rows), a CSV or Excel file, or both; the file can be kept in Past runs under 4a's rules. PDFs wait for 4d.
+- Who it goes to: yourself with Use, the team with Manage, outside addresses only by an owner or admin, who also decides whether people's details may go to them (held back otherwise). Messages to outside addresses carry no link into the app.
+- Not in the plan: a send that fails for a passing reason is tried again 5, 20, 50, 110, 230 and 350 minutes after it was due, while under 6 hours late and before the next regular run; five failures in a row pause the schedule; every pause emails the owner and the group's owners.
+- Not in the plan as its own thing: **Email it now**, the report on screen sent once and recorded as an emailed run.
+- Nothing goes to Slack, Teams or a web address (push is phase 5).
+- Pepper: `schedule_report`, `change_schedule`, `pause_schedule`, `send_report`, each behind a Confirm card made from the route's dry run.
+- Tested lean, as the user asked on 15 Nov 2026: unit and API tests in full and one short browser pass; the mutation run and the full browser re-run wait for the very end (after phase 5).
+
+**Decision 3 (PDFs): the facts for 4d**, from the deploy log after 4a. The Lightsail machine has 2 cores, 3,832 MB of memory (about 2,780 MB available), no swap, and a 77 GB disk with 7.8 GB used; the API runs as two PM2 processes of about 205 MB each. A headless Chromium needs about 300 MB while it makes a PDF, so there is room for one at a time, queued, and never two. On Ubuntu 24.04 apt's Chromium is a snap, so how it is installed needs choosing with care. The fallback stays the plain writer (`services/pdfDoc.js`).
+
 ## 21. Risks
 
 | Risk | Why it matters | What the plan does |

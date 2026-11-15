@@ -551,6 +551,10 @@ function changeDetail(r) {
     case 'delete_report':         return x.deleted || null
     case 'share_report':          return [x.report, x.shared_with].filter(Boolean).join(', ') || null
     case 'export_report':         return [x.report, x.kept].filter(Boolean).join(', ') || null
+    case 'schedule_report':       return [x.report, x.when].filter(Boolean).join(', ') || null
+    case 'change_schedule':       return [x.report, x.changed].filter(Boolean).join(': ') || null
+    case 'pause_schedule':        return [x.report, x.resumed ? 'resumed' : x.paused ? 'paused' : null].filter(Boolean).join(', ') || null
+    case 'send_report':           return [x.report, x.sent != null ? x.sent + ' of ' + x.to + ' sent' : null].filter(Boolean).join(', ') || null
     case 'create_menu':
     case 'update_menu':
     case 'duplicate_menu':        return x.name

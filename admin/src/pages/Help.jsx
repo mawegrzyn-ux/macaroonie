@@ -2451,6 +2451,46 @@ export default function Help() {
               them, and the <strong>Report runs</strong> subject under Your group counts them in a
               report of your own.
             </P>
+            <H3>Scheduling a report</H3>
+            <P>
+              Open a report, tap <strong>More</strong>, then <strong>Schedule this report</strong> (you need
+              Use or Manage on Reports). Choose <strong>when</strong>: every day, the weekdays you tick, or
+              once a month (a day such as the 1st, the last day, or the first Monday), at a time on the
+              venue&apos;s clock; the window shows when it next sends. Choose <strong>whether it sends</strong>:
+              every time, only when the report has rows, or only when a figure is over or under an amount
+              you set (net sales under £500 on any row, say). Choose <strong>what is sent</strong>: the
+              figures in the message (the first 100 rows), a CSV or Excel file attached, or both, and
+              whether the file is also kept in Past runs. Choose <strong>who gets it</strong>: with Use,
+              just you; with Manage, people on your team; an owner or admin can also add outside
+              addresses, and decide whether people&apos;s details may go to them (they are left out
+              otherwise). Give it a name and a line to go with it, then <strong>Save</strong>.
+            </P>
+            <P>
+              A schedule always covers a moving period (yesterday, last week, this month so far), never
+              fixed dates, and it runs as the person who set it up: the people it is sent to see what
+              that person may see, so think before sending pay or people&apos;s details. If that person
+              leaves, loses access to the report or the report needs changing, the schedule pauses, and
+              they and your owners get an email saying why. A send that fails is tried again for up to
+              about six hours; one that is more than six hours late is skipped rather than sent late.
+              Emails go out through the venue&apos;s own email settings (the Emails page, Settings tab).
+            </P>
+            <P>
+              <strong>Schedules</strong> (top of the Reports page, or More on a report, then{' '}
+              <strong>Schedules of this report</strong>) lists yours, or everyone&apos;s with Manage: when
+              each next sends, what happened last time, and <strong>Edit</strong>, <strong>Pause</strong> or{' '}
+              <strong>Resume</strong>, <strong>Send now</strong> (once, whatever its condition),{' '}
+              <strong>Past runs</strong> and delete. Changing someone else&apos;s schedule makes it yours
+              from then on. Past runs marks each one <strong>Sent by a schedule</strong> or{' '}
+              <strong>Skipped by a schedule</strong>, with how many people it went to. Pepper can do all
+              of this too: ask it to email you a report every Monday morning.
+            </P>
+            <H3>Emailing a report now</H3>
+            <P>
+              <strong>More</strong>, then <strong>Email it now</strong>, sends the report once as it is on
+              screen, with the period, venues and other choices you picked and any rows you opened up:
+              in the message, as a CSV or Excel file, or both, to the same people a schedule could go
+              to. It shows in Past runs as <strong>Emailed</strong>.
+            </P>
             <H3>The starter reports</H3>
             <DataTable
               head={['Area', 'Reports']}
@@ -2705,9 +2745,8 @@ export default function Help() {
               and a guest's customer record needs Customers access as well.
             </P>
             <InfoBox>
-              Still to come: PDFs, page layouts and reports sent by email on a schedule, reports on
-              dashboards and the phone, and links other apps can read a report from. Kept files are
-              CSV or Excel for now. The builder has no undo (leaving without
+              Still to come: PDFs, page layouts, reports on dashboards and the phone, and links other
+              apps can read a report from. Kept and emailed files are CSV or Excel for now. The builder has no undo (leaving without
               saving goes back to the last save), and filters made of several parts, which a few
               starter reports use, can be taken off but not changed on screen. The Till reports page,
               the Online orders report and the Kitchen report stay where they are.
