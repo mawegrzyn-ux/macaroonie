@@ -40,6 +40,9 @@ const alsoOf = (items, title) => (entry(items, title)?.also || []).map(a => a.ti
 const stamp = async id => (await sql`SELECT flags_at FROM local_info_sources WHERE id = ${id}`)[0].flags_at
 const flagsOn = async id => Object.fromEntries((await sql`
   SELECT user_sub, relevant FROM local_info_feedback WHERE item_id = ${id}`).map(r => [r.user_sub, r.relevant]))
+// The note each person left with their flag (migration 252).
+const notesOn = async id => Object.fromEntries((await sql`
+  SELECT user_sub, note FROM local_info_feedback WHERE item_id = ${id}`).map(r => [r.user_sub, r.note]))
 // Every events row at the venue, by title (the titles here are all different).
 const db = async () => Object.fromEntries((await sql`
   SELECT id, title, source_id, merged_into, keep_separate, hidden, merge_checked_at
@@ -115,7 +118,7 @@ test('a run puts the same event found by two captures into one entry, and its fl
   // Two people flag the lights; then the second capture finds them again
   // under other words, a day later too, and the panto.
   await ok(viewer.put(FLAG(t['Christmas lights switch on'].id), { relevant: true }))
-  await ok(owner.put(FLAG(t['Christmas lights switch on'].id), { relevant: false }))
+  await ok(owner.put(FLAG(t['Christmas lights switch on'].id), { relevant: false, note: 'Too far from us' }))
   const s1Before = await stamp(S1)
   assert.equal(await stamp(S2), null)
 
@@ -183,7 +186,10 @@ test('a run puts the same event found by two captures into one entry, and its fl
   // The flags went to the entry, and both captures learn again.
   assert.deepEqual(await flagsOn(lightsId), { [A.viewer]: true, [A.owner]: false })
   assert.deepEqual(await flagsOn(t['Christmas lights switch on'].id), {})
-  assert.deepEqual(entry(items, 'Christmas lights switch on in Ware').feedback, { mine: false, relevant: 1, not_relevant: 1 })
+  // ... each with the note left with it.
+  assert.deepEqual(await notesOn(lightsId), { [A.viewer]: null, [A.owner]: 'Too far from us' })
+  assert.deepEqual(entry(items, 'Christmas lights switch on in Ware').feedback, { mine: false, mine_note: 'Too far from us', relevant: 1, not_relevant: 1,
+    notes: [{ relevant: false, note: 'Too far from us', mine: true, by: 'a-owner' }] })
   assert.ok(await stamp(S1) > s1Before, 'the first capture learns again')
   assert.ok(await stamp(S2), 'the second capture learns from the entry\'s flags too')
   const [r1, r2] = [await sourceRow(S1), await sourceRow(S2)]
@@ -250,10 +256,10 @@ test('two people\'s flags on two reports of one event: each person\'s newest fla
   assert.equal(t['Fun run in Ware'].merged_into, null, 'Pepper said they aren\'t the same')
   assert.ok(t['Fun run in Ware'].merge_checked_at)
 
-  await ok(owner.put(FLAG(run2), { relevant: false }))   // the owner's older flag
+  await ok(owner.put(FLAG(run2), { relevant: false, note: 'An older reason' }))   // the owner's older flag
   await ok(owner.put(FLAG(run1), { relevant: true }))    // ... and newer, on the entry
-  await ok(viewer.put(FLAG(run1), { relevant: true }))   // the viewer's older flag
-  await ok(viewer.put(FLAG(run2), { relevant: false }))  // ... and newer, on the other report
+  await ok(viewer.put(FLAG(run1), { relevant: true, note: 'Good for lunch trade' }))   // the viewer's older flag
+  await ok(viewer.put(FLAG(run2), { relevant: false, note: 'Roads closed all day' }))  // ... and newer, on the other report
   const [s1b, s2b] = [await stamp(S1), await stamp(S2)]
 
   asks = await runWith(S2, [found('Ware charity fun run', 15)],
@@ -263,6 +269,7 @@ test('two people\'s flags on two reports of one event: each person\'s newest fla
   assert.equal(t['Fun run in Ware'].merged_into, run1)
   assert.equal(t['Ware charity fun run'].merged_into, run1)
   assert.deepEqual(await flagsOn(run1), { [A.owner]: true, [A.viewer]: false })
+  assert.deepEqual(await notesOn(run1), { [A.owner]: null, [A.viewer]: 'Roads closed all day' }, 'a note goes with its flag: the newest flag\'s, whole')
   assert.deepEqual(await flagsOn(run2), {})
   assert.ok(await stamp(S1) > s1b && await stamp(S2) > s2b, 'the entry\'s flags changed: every capture in it learns again')
   // Each capture counts the flags of the entries its findings are in.

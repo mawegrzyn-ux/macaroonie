@@ -382,6 +382,19 @@ export default function Help() {
               road closure across town that five people marked not relevant probably isn't. A flag changes nothing
               on the calendar (hide an item to take it out of view); it tells Pepper what your venue finds useful.
             </P>
+            <H3>Saying why you flagged it</H3>
+            <P>
+              When you flag something, a box opens under the buttons asking why. Type a short reason (up to 200
+              characters) and press <strong>Save note</strong>, or <strong>No note</strong> to leave it at the flag.{' '}
+              <strong>Say why</strong> opens the box again later, and once you have a note the button reads{' '}
+              <strong>Change your note</strong>: change the words, or empty the box and press{' '}
+              <strong>Take the note off</strong>. Your note shows under the buttons as <strong>Your note</strong>;
+              other people's notes show under it with their names. A note belongs to its flag: switch to the other
+              thumb and the old note goes (the box opens again for the new reason), and taking your flag off takes
+              the note with it. Like a flag, a note changes nothing on the calendar. Pepper reads the notes when it
+              learns from the flags and gives a reason more weight than a thumb alone, so "too far away" or "our
+              regulars go every year" tunes the search better than a flag with nothing said.
+            </P>
             <H3>Pepper learns from the flags</H3>
             <P>
               For a <strong>Traffic</strong>, <strong>Events</strong> or <strong>Incidents</strong> capture, Pepper reads

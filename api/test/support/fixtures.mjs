@@ -316,14 +316,15 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
   const liSource = await step('local info source', () => post(`/api/local-info/venues/${V}/sources`, { kind: 'weather', place: mark + ' Ware', enabled: false }))
   await step('local info event', () => post('/api/local-info/items', { venue_id: V, title: mark + ' street fair', starts_on: '2027-01-15', severity: 'notice' }))
   // What a capture found (written here: findings only come from runs) and a
-  // flag on it (migration 248), so the sweep tries the flag as the other tenant.
+  // flag on it with a note saying why (migrations 248, 252), so the sweep
+  // tries the flag as the other tenant.
   const found = liSource?.source && await step('local info finding', async () => (await sql`
     INSERT INTO local_info_items (tenant_id, venue_id, source_id, kind, title, starts_on, severity, external_key)
     VALUES (${tenantId}, ${V}, ${liSource.source.id}, 'weather', ${mark + ' sunny spell'}, '2027-01-16', 'info', 'weather:2027-01-16')
     RETURNING id`)[0])
   if (found) {
     ids.localInfoItem = found.id
-    await step('local info flag', () => put('/api/local-info/items/' + found.id + '/feedback', { relevant: true }))
+    await step('local info flag', () => put('/api/local-info/items/' + found.id + '/feedback', { relevant: true, note: mark + ' beer garden weather' }))
   }
   // A bulk delete's dry run (14 Nov 2026: from today on, nothing written), so
   // the sweep sends it again with another group's capture and venue.
