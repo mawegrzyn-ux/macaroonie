@@ -36,6 +36,12 @@
 // says so beforehand). A send that went to nobody answers 422 (code
 // not_sent) with why; one that reached anyone answers its status and counts.
 // Every send is recorded in Past runs either way.
+//
+// Saving, changing, resuming and both sends take `dry_run: true`: every
+// check runs as for real and the answer is what would be saved or sent
+// (`{ dry_run: true, schedule }`, or `{ dry_run: true, send }` for Email it
+// now), so a confirm card (Pepper's) can name who it goes to. Nothing is
+// written or sent, and a dry run of Send now takes no hold.
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
@@ -69,7 +75,9 @@ const Part = z.record(z.any())
 const Name = z.string().trim().max(120).nullable().optional()
 const Message = z.string().max(1000).nullable().optional()
 const Recipients = z.array(Part).max(200)
+const DryRun = z.boolean().optional()
 const ScheduleBody = z.object({
+  dry_run: DryRun,
   name: Name,
   message: Message,
   timing: Part,
@@ -81,6 +89,7 @@ const ScheduleBody = z.object({
 })
 const ScheduleEdit = ScheduleBody.partial()
 const SendBody = z.object({
+  dry_run: DryRun,
   name: Name,
   message: Message,
   params: Part.optional(),
@@ -88,6 +97,7 @@ const SendBody = z.object({
   recipients: Recipients,
   personal_outside: z.boolean().optional(),
 })
+const ActionBody = z.object({ dry_run: DryRun })
 const ListQuery = z.object({
   scope: z.enum(['mine', 'all']).optional(),
   report: z.string().max(80).optional(),
@@ -258,6 +268,25 @@ async function views(p, rows) {
 
 const viewOf = async (p, sid) => (await views(p, [await visibleRow(p, sid)]))[0]
 
+// A schedule row as it would be saved: what a dry run shows, through the
+// same view as a saved one.
+function draftRow(base, fields) {
+  return {
+    id: null, report_id: null, starter_key: null, report_name: null, report_spec: null,
+    name: null, message: null, timing: null, params: {}, delivery: null, condition: null, recipients: [],
+    personal_outside: false, enabled: true, paused_reason: null, next_run_at: null, running_until: null,
+    last_run_at: null, last_sent_at: null, last_status: null, last_error: null, failures: 0,
+    owner_sub: null, owner_email: null, created_at: null, updated_at: null,
+    ...base, ...fields,
+  }
+}
+const targetRow = target => ({ ...refOfTarget(target), report_name: target.saved?.name ?? null, report_spec: target.saved?.spec ?? null })
+const draftView = async (p, row) => (await views(p, [row]))[0]
+
+// What Email it now would send, in the schedule view's words.
+const SEND_KEYS = ['report', 'name', 'message', 'params', 'choices', 'delivery', 'delivery_text', 'recipients', 'personal_outside', 'time_zone']
+const sendView = v => Object.fromEntries(SEND_KEYS.map(k => [k, v[k]]))
+
 // The person saving a schedule, as it will run: the sweep runs it as its
 // owner's users row, so a schedule saved by someone without one (a platform
 // admin outside the group) would pause at its first run.
@@ -281,6 +310,25 @@ function sendAnswer(r) {
     throw httpError(422, 'It wasn\'t sent: ' + lowerFirst(r.error || 'the email service refused it'), { code: 'not_sent', run_id: r.runId })
   }
   return { status: r.status, to: r.to, sent: r.sent, failed: r.failed, held: r.held, kept: r.kept, error: r.error, run_id: r.runId }
+}
+
+// A schedule's send as its owner, checked as the sweep checks it: { owner, target, plan }.
+async function sendPlan(row, p) {
+  const owner = await ownerPerson(p.tenantId, row.owner_sub)
+  if (!owner) {
+    throw httpError(422, (row.owner_sub === p.sub ? 'You aren\'t' : (row.owner_email || 'Its owner') + ' is no longer')
+      + ' on the team, so it can\'t send. Save the schedule to make it yours first')
+  }
+  try {
+    const target = await loadTarget(refOfRow(row), owner)
+    const plan = await prepareSend(owner, target, {
+      kind: 'scheduled', recipients: row.recipients, delivery: row.delivery, condition: row.condition,
+      params: row.params, personalOutside: !!row.personal_outside, name: row.name, message: row.message,
+    })
+    return { owner, target, plan }
+  } catch (e) {
+    throw asTheirs(e, row, owner, p)
+  }
 }
 
 export default async function reportScheduleRoutes(app) {
@@ -355,9 +403,15 @@ export default async function reportScheduleRoutes(app) {
     const next = nextRunAt(timing, new Date(), await reportZone(p.tenantId, target.spec, params))
     if (!next) throw httpError(422, 'Pick at least one day of the week')
     const ref = refOfTarget(target)
+    const fields = {
+      owner_sub: me.sub, owner_email: me.email, name: plan.name, message: plan.message, timing, params,
+      delivery: plan.delivery, condition: plan.condition, recipients: normaliseRecipients(body.recipients),
+      personal_outside: plan.personalOutside, next_run_at: next,
+    }
     const row = await withTenant(p.tenantId, async tx => {
       const [{ n }] = await tx`SELECT count(*)::int AS n FROM report_schedules WHERE tenant_id = ${p.tenantId} AND owner_sub = ${me.sub}`
       if (n >= MAX_SCHEDULES) throw httpError(422, 'You have ' + MAX_SCHEDULES + ' schedules. Delete one you no longer need first')
+      if (body.dry_run) return null
       const [r] = await tx`
         INSERT INTO report_schedules (tenant_id, report_id, starter_key, owner_sub, owner_email, name, message,
                                       timing, params, delivery, condition, recipients, personal_outside, next_run_at)
@@ -367,6 +421,9 @@ export default async function reportScheduleRoutes(app) {
         RETURNING id`
       return r
     })
+    if (body.dry_run) {
+      return { dry_run: true, schedule: await draftView(p, draftRow(targetRow(target), fields)), skipped: plan.skipped }
+    }
     return reply.code(201).send({ schedule: await viewOf(p, row.id) })
   })
 
@@ -398,6 +455,14 @@ export default async function reportScheduleRoutes(app) {
     })
     const next = nextRunAt(timing, new Date(), await reportZone(p.tenantId, target.spec, params))
     if (!next) throw httpError(422, 'Pick at least one day of the week')
+    if (body.dry_run) {
+      const after = draftRow(row, {
+        owner_sub: me.sub, owner_email: me.email, name: plan.name, message: plan.message, timing, params,
+        delivery: plan.delivery, condition: plan.condition, recipients: normaliseRecipients(recipients),
+        personal_outside: plan.personalOutside, next_run_at: next, failures: 0,
+      })
+      return { dry_run: true, schedule: await draftView(p, after), takes_over: row.owner_sub !== me.sub, skipped: plan.skipped }
+    }
     // Not while the sweep or a Send now holds it: that send would finish with the old settings.
     const [done] = await withTenant(p.tenantId, tx => tx`
       UPDATE report_schedules
@@ -441,9 +506,10 @@ export default async function reportScheduleRoutes(app) {
 
   // Start it again: checked as its owner, as the sweep will run it.
   app.post('/schedules/:scheduleId/resume', use, async req => {
+    const body = ActionBody.parse(req.body || {})
     const p = await requestPerson(req)
     const row = await visibleRow(p, req.params.scheduleId)
-    if (row.enabled) return { schedule: await viewOf(p, row.id) }
+    if (row.enabled) return body.dry_run ? { dry_run: true, schedule: await draftView(p, row) } : { schedule: await viewOf(p, row.id) }
     const owner = await ownerPerson(p.tenantId, row.owner_sub)
     if (!owner) {
       throw httpError(422, (row.owner_sub === p.sub ? 'You aren\'t' : (row.owner_email || 'Its owner') + ' is no longer')
@@ -462,6 +528,10 @@ export default async function reportScheduleRoutes(app) {
     }
     const next = nextRunAt(row.timing, new Date(), await reportZone(p.tenantId, target.spec, plan.params))
     if (!next) throw httpError(422, 'Its timing has no day to run on. Change it first')
+    if (body.dry_run) {
+      const after = draftRow(row, { enabled: true, paused_reason: null, failures: 0, next_run_at: next })
+      return { dry_run: true, schedule: await draftView(p, after), skipped: plan.skipped }
+    }
     await withTenant(p.tenantId, tx => tx`
       UPDATE report_schedules
          SET enabled = true, paused_reason = NULL, failures = 0, retry_of = NULL, next_run_at = ${next}, updated_at = now()
@@ -473,8 +543,14 @@ export default async function reportScheduleRoutes(app) {
   // as the sweep holds one, so the two never send it at once; its next run
   // stays where it was.
   app.post('/schedules/:scheduleId/send', sending, async req => {
+    const body = ActionBody.parse(req.body || {})
     const p = await requestPerson(req)
     const seen = await visibleRow(p, req.params.scheduleId)
+    if (body.dry_run) {
+      if (seen.running_until && new Date(seen.running_until).getTime() > Date.now()) throw httpError(409, BUSY)
+      const plan = await sendPlan(seen, p)
+      return { dry_run: true, schedule: await draftView(p, seen), skipped: plan.skipped }
+    }
     const via = viaPepper(req)
     if (via) await limitPepperRuns(p)
     const [row] = await withTenant(p.tenantId, tx => tx`
@@ -485,22 +561,7 @@ export default async function reportScheduleRoutes(app) {
     if (!row) throw httpError(409, BUSY)
     let r
     try {
-      const owner = await ownerPerson(p.tenantId, row.owner_sub)
-      if (!owner) {
-        throw httpError(422, (row.owner_sub === p.sub ? 'You aren\'t' : (row.owner_email || 'Its owner') + ' is no longer')
-          + ' on the team, so it can\'t send. Save the schedule to make it yours first')
-      }
-      let target
-      let plan
-      try {
-        target = await loadTarget(refOfRow(row), owner)
-        plan = await prepareSend(owner, target, {
-          kind: 'scheduled', recipients: row.recipients, delivery: row.delivery, condition: row.condition,
-          params: row.params, personalOutside: !!row.personal_outside, name: row.name, message: row.message,
-        })
-      } catch (e) {
-        throw asTheirs(e, row, owner, p)
-      }
+      const { owner, target, plan } = await sendPlan(row, p)
       r = await deliver(owner, target, plan, { schedule: row, log: req.log, ignoreCondition: true, via })
       const sent = r.status === 'sent' || r.status === 'partly'
       await withTenant(p.tenantId, tx => tx`
@@ -530,6 +591,14 @@ export default async function reportScheduleRoutes(app) {
       kind: 'emailed', recipients: body.recipients, delivery: body.delivery, condition: { when: 'always' },
       params, personalOutside: body.personal_outside === true, name: body.name, message: body.message,
     })
+    if (body.dry_run) {
+      const draft = draftRow(targetRow(target), {
+        owner_sub: p.sub, owner_email: p.email || null, name: plan.name, message: plan.message, params,
+        delivery: plan.delivery, condition: plan.condition, recipients: normaliseRecipients(body.recipients),
+        personal_outside: plan.personalOutside,
+      })
+      return { dry_run: true, send: sendView(await draftView(p, draft)), skipped: plan.skipped }
+    }
     return sendAnswer(await deliver(p, target, plan, { log: req.log, via, ignoreCondition: true }))
   })
 }

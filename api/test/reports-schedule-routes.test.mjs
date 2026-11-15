@@ -570,3 +570,115 @@ test('deleting, and who the schedule window offers to send to', async () => {
   // The operator role views reports by default: no recipients for them either.
   assert.equal((await operator.get('/api/reports/recipients')).status, 403)
 })
+
+test('dry runs: every check runs and the answer is what would be saved or sent; nothing is written, held or sent', async () => {
+  const countOf = async () => (await sql`SELECT count(*)::int AS n FROM report_schedules WHERE tenant_id = ${ids.a}`)[0].n
+  const runsOf = async () => (await sql`SELECT count(*)::int AS n FROM report_runs WHERE tenant_id = ${ids.a}`)[0].n
+  const runsBefore = await runsOf()
+
+  // Saving: the schedule as it would be, with who it goes to by name; nothing stored.
+  const dry = await ok(owner.post(schedulesOf(STARTER), scheduleBody([{ user_id: userId[A.operator] }, { email: OUTSIDE }], { dry_run: true })))
+  assert.equal(dry.dry_run, true)
+  assert.equal(dry.schedule.id, null)
+  assert.equal(dry.schedule.report.name, 'Sales by day')
+  assert.equal(dry.schedule.timing_text, 'Every Monday at 07:30')
+  assert.equal(dry.schedule.delivery_text, 'The report in the email and a CSV file attached')
+  assert.deepEqual(dry.schedule.recipients.map(r => [r.email, r.on_team, r.outside]),
+    [[A.operator + '@test.local', true, false], [OUTSIDE, false, true]])
+  assert.equal(atVenue(dry.schedule.next_run_at, dry.schedule.time_zone), 'Mon 07:30')
+  assert.equal(dry.schedule.mine, true)
+  assert.equal(dry.skipped, 0)
+  assert.equal(await countOf(), 0, 'a dry run saves nothing')
+  // Its refusals are the save's own.
+  const others = await builder.post(schedulesOf(STARTER), scheduleBody([{ user_id: userId[A.operator] }], { dry_run: true }))
+  assert.equal(others.status, 403)
+  assert.match(others.json.error, /needs Manage on Reports/)
+  const fixed = await owner.post(schedulesOf(STARTER), scheduleBody(me(A.owner), { dry_run: true, params: { period: { from: today, to: today }, venues: [V] } }))
+  assert.equal(fixed.status, 422)
+  // Someone no longer on the team is counted, not listed as getting it.
+  await sql`UPDATE users SET is_active = false WHERE tenant_id = ${ids.a} AND auth0_user_id = ${A.viewer}`
+  try {
+    const gone = await ok(owner.post(schedulesOf(STARTER), scheduleBody([...me(A.owner), { user_id: userId[A.viewer] }], { dry_run: true })))
+    assert.equal(gone.skipped, 1)
+    assert.equal(gone.schedule.recipients.find(r => r.user_id === userId[A.viewer]).on_team, false)
+  } finally {
+    await sql`UPDATE users SET is_active = true WHERE tenant_id = ${ids.a} AND auth0_user_id = ${A.viewer}`
+  }
+
+  // Changing: the schedule after the change, and that it becomes the changer's; the row as it was.
+  const { schedule: s } = await ok(builder.post(schedulesOf(STARTER), scheduleBody(me(BUILDER))))
+  const change = await ok(owner.patch(one(s.id), { dry_run: true, timing: { every: 'day', time: '06:15' } }))
+  assert.equal(change.dry_run, true)
+  assert.equal(change.takes_over, true)
+  assert.equal(change.schedule.id, s.id)
+  assert.equal(change.schedule.timing_text, 'Every day at 06:15')
+  assert.equal(change.schedule.owner_email, A.owner + '@test.local')
+  assert.equal(change.schedule.mine, true)
+  const own = await ok(builder.patch(one(s.id), { dry_run: true, name: 'Monday sales' }))
+  assert.equal(own.takes_over, false)
+  assert.equal(own.schedule.name, 'Monday sales')
+  let row = await rowOf(s.id)
+  assert.equal(row.owner_sub, BUILDER)
+  assert.equal(row.timing.every, 'week')
+  assert.equal(row.name, null)
+  const badChange = await owner.patch(one(s.id), { dry_run: true, timing: { every: 'week', days: [], time: '06:15' } })
+  assert.equal(badChange.status, 422)
+
+  // Resuming: what it would be once started again; still paused.
+  await ok(builder.post(one(s.id) + '/pause'))
+  const paused = await rowOf(s.id)
+  const resume = await ok(builder.post(one(s.id) + '/resume', { dry_run: true }))
+  assert.equal(resume.dry_run, true)
+  assert.equal(resume.schedule.enabled, true)
+  assert.equal(resume.schedule.paused_reason, null)
+  assert.ok(resume.schedule.next_run_at)
+  row = await rowOf(s.id)
+  assert.equal(row.enabled, false)
+  assert.match(row.paused_reason, /^Paused by /)
+  assert.equal(String(row.updated_at), String(paused.updated_at), 'the row untouched')
+
+  // Send now: checked as its owner; nothing sent, held or recorded.
+  const send = await ok(builder.post(one(s.id) + '/send', { dry_run: true }))
+  assert.equal(send.dry_run, true)
+  assert.equal(send.schedule.id, s.id)
+  assert.deepEqual(send.schedule.recipients.map(r => r.email), [BUILDER + '@test.local'])
+  assert.equal(mails.length, 0)
+  assert.equal((await rowOf(s.id)).running_until, null)
+  // One a send holds says so, as the real one would.
+  await sql`UPDATE report_schedules SET running_until = now() + interval '5 minutes' WHERE id = ${s.id}`
+  try {
+    assert.equal((await builder.post(one(s.id) + '/send', { dry_run: true })).status, 409)
+  } finally {
+    await sql`UPDATE report_schedules SET running_until = NULL WHERE id = ${s.id}`
+  }
+  // The owner moved to a role that can't schedule: refused, saying whose it is.
+  await sql`UPDATE users SET custom_role_id = ${floorRole.id} WHERE tenant_id = ${ids.a} AND auth0_user_id = ${BUILDER}`
+  try {
+    const theirs = await owner.post(one(s.id) + '/send', { dry_run: true })
+    assert.equal(theirs.status, 403)
+    assert.match(theirs.json.error, /^a-sched-builder@test\.local can't send it/)
+  } finally {
+    await sql`UPDATE users SET custom_role_id = ${builderRole.id} WHERE tenant_id = ${ids.a} AND auth0_user_id = ${BUILDER}`
+  }
+
+  // Email it now: what would be sent, in words; nothing sent or recorded.
+  const e = await ok(owner.post(path(STARTER) + '/send', {
+    dry_run: true, recipients: [{ email: OUTSIDE }, ...me(A.owner)], message: 'For the meeting',
+    params: { period: { from: today, to: today }, venues: [V] }, delivery: { in_message: true, attach: 'xlsx' },
+  }))
+  assert.equal(e.dry_run, true)
+  assert.equal(e.send.report.name, 'Sales by day')
+  assert.deepEqual(e.send.recipients.map(r => [r.email, r.outside]), [[OUTSIDE, true], [A.owner + '@test.local', false]])
+  assert.equal(e.send.message, 'For the meeting')
+  assert.equal(e.send.delivery_text, 'The report in the email and an Excel file attached')
+  assert.deepEqual(e.send.choices.map(c => c.key), ['period', 'venues'])
+  assert.equal(e.send.choices[1].text, venueName)
+  assert.equal(e.send.timing, undefined, 'no timing on a send')
+  assert.equal(e.skipped, 0)
+  assert.equal(mails.length, 0)
+  assert.equal(await runsOf(), runsBefore, 'nothing recorded on Past runs')
+  // Its refusals are the send's own.
+  assert.equal((await builder.post(path(STARTER) + '/send', { dry_run: true, recipients: [{ email: OUTSIDE }] })).status, 403)
+  assert.equal((await floor.post(path(STARTER) + '/send', { dry_run: true, recipients: me(FLOOR) })).status, 403)
+  assert.equal((await ownerB.post(path(STARTER) + '/send', { dry_run: true, recipients: [{ user_id: userId[A.owner] }] })).status, 422)
+})
