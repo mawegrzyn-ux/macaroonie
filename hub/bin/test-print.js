@@ -9,7 +9,8 @@
 //   node hub/bin/test-print.js --preview            no printer: show the tickets as text
 //
 // Options: --port 9100, --cols 42 (TM-T88) / 48 (TM-m30), --only kitchen|receipt,
-//          --drawer, --preview, --status (just ask the printer how it is)
+//          --drawer, --preview, --status (just ask the printer how it is),
+//          --star (a Star printer in Star Line Mode)
 
 import { kitchenTicket, receipt, toText, billSubtotal, DEFAULT_COLS } from '../../shared/pos/tickets.js'
 import { render } from '../src/escpos.js'
@@ -25,6 +26,7 @@ const host = args.find(a => !a.startsWith('--') && !/^\d+$/.test(a) && !['kitche
 const port = Number(option('port', 9100))
 const cols = Number(option('cols', DEFAULT_COLS))
 const only = option('only', null)
+const language = flag('star') ? 'star' : 'escpos'
 
 const now = new Date()
 const kitchen = kitchenTicket({
@@ -76,7 +78,7 @@ if (flag('preview') || !host) {
 }
 
 try {
-  const status = await printerStatus({ host, port })
+  const status = await printerStatus({ host, port, language })
   if (!status) console.log(`Printer ${host}:${port} is reachable but didn't send a status (fine for some models).`)
   else {
     console.log(`Printer ${host}:${port}: ${status.online ? 'online' : 'OFFLINE'}`
@@ -84,7 +86,7 @@ try {
   }
   if (flag('status')) process.exit(0)
   for (const [name, ops] of jobs) {
-    const data = render(ops, { cols })
+    const data = render(ops, { cols, language })
     const { attempts } = await print({ host, port, data })
     console.log(`${name}: sent (${data.length} bytes${attempts > 1 ? `, after ${attempts} tries` : ''})`)
   }

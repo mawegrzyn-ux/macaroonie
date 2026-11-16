@@ -72,7 +72,7 @@ export const LEFT_OUT = {
     'nav_items', 'dashboard_tiles', 'hs_dashboards', 'hs_dashboard_widgets',
     // The reports themselves, who starred them and their schedules (each
     // send is a report run: Report runs' Sent by a schedule).
-    'reports', 'report_stars', 'report_schedules',
+    'reports', 'report_stars', 'report_schedules', 'report_layouts',
   ],
   'Working state that changes from minute to minute': [
     'pos_venue_state', 'kds_flow_edges', 'kds_balance_turns', 'booking_holds', 'table_occupancy', 'review_scrape_jobs',

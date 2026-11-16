@@ -20,8 +20,14 @@
 //   DELETE /:id              delete it (the same)
 //   PATCH  /:id/sharing      who it is shared with; a starter for the team (Manage)
 //   POST   /:id/run          run it, or a drill-down of it (View)
-//   POST   /:id/export       a CSV or Excel file of it (Use)
-//   POST   /:id/print-link   a link to its print page that lasts a few minutes (View)
+//   POST   /:id/blocks/:blockId/run
+//                            one report of a page, run with the page's period
+//                            and venues or the visitor's own (View)
+//   POST   /:id/export       a CSV, Excel or PDF file of it (Use); a page
+//                            takes PDF only
+//   POST   /:id/print-link   a link to its print page that lasts a few minutes
+//                            (View). With `layout` (a layout being tried out)
+//                            or `preview`: the Layouts page's preview (Manage)
 //   GET    /print/:linkId    the print page (no login: the link is the key;
 //                            reportPrintRoutes, its own plugin)
 //   POST   /:id/copy         a copy of it, or of a starter, as the person's own (Use)
@@ -29,13 +35,19 @@
 //   GET    /runs             Past runs: the person's runs, downloads, prints
 //                            and kept files, newest first; everyone's with
 //                            Manage (View; src/reports/runs.js)
-//   POST   /:id/files        keep a CSV or Excel file of it for the person who
-//                            makes it (Use; src/reports/files.js, Past runs)
+//   POST   /:id/files        keep a CSV, Excel or PDF file of it for the person
+//                            who makes it (Use; src/reports/files.js, Past runs)
 //   GET    /files/:fileId    a kept file, to the person who made it (Use)
 //   DELETE /files/:fileId    take a kept file off before its time (its maker)
 //
 // `:id` is a saved report's id, or 'starter:<key>' for a starter report in
-// code (src/reports/starters). A drill-down is made by the server from the
+// code (src/reports/starters). A saved report may be a page (migration 253:
+// subject 'page', its blocks in `spec`; shared/reports/page.js and
+// src/reports/pages.js): it is listed, shared, starred, renamed, copied and
+// deleted like any report, read block by block, and printed or made into a
+// PDF as one; running, keeping a file of and scheduling it are refused (its
+// reports are run one by one). Layout templates are src/routes/reportLayouts.js.
+// A drill-down is made by the server from the
 // report's own definition (shared/reports/drill.js), so someone who may only
 // run a report can drill into it without running a definition of their own.
 //
@@ -44,6 +56,8 @@
 // what is on the person's screen (the definition, their choices, the rows
 // they opened up, what their role may see), and the page it opens runs the
 // report as that person. The same way a draft menu's print preview works.
+// The page is put together by src/reports/export/printPage.js, which a PDF
+// (src/services/pdfBrowser.js: a browser on the server) is made from too.
 
 import crypto from 'node:crypto'
 import { z } from 'zod'
@@ -61,11 +75,16 @@ import { prepareFile, makeReportFile, errorText } from '../reports/export/file.j
 import { keepReportFile, openFile, countDownload, removeFile, fileView } from '../reports/files.js'
 import { pastRuns, RUNS_MAX } from '../reports/runs.js'
 import { starterOf, savedRow, loadTarget, checkedForRun } from '../reports/target.js'
+import { checkedPage, pageReports, resolveBlocks, runBlock } from '../reports/pages.js'
+import { layoutFor } from '../reports/layouts.js'
 import { readStream, sizeOf } from '../services/privateStore.js'
-import { printHtml, messageHtml } from '../reports/export/print.js'
-import { brandColours } from '../services/themeColours.js'
+import { pdfAvailable, needPdf, htmlToPdf } from '../services/pdfBrowser.js'
+import { messageHtml } from '../reports/export/print.js'
+import { groupAbout, reportPrint, pagePrint } from '../reports/export/printPage.js'
+import { fileName } from '../reports/export/table.js'
 import { normaliseReport, resolveParams, LIMITS } from '../../../shared/reports/spec.js'
-import { paramInputs, paramWords } from '../../../shared/reports/build.js'
+import { isPage, normalisePage, PAGE_SUBJECT } from '../../../shared/reports/page.js'
+import { normaliseLayout } from '../../../shared/reports/layout.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MAX_OWN = 300        // saved reports per person
@@ -115,8 +134,26 @@ const PlanBody = z.object({
   report: Spec.nullable().optional(),
   rows: z.number().int().min(1).max(PREVIEW_ROWS).optional(),
 })
-const Format = z.enum(['csv', 'xlsx'])
-const ExportBody = z.object({ format: Format, params: Params.optional(), drill: Drill.optional() })
+const Format = z.enum(['csv', 'xlsx', 'pdf'])
+// What is on the person's screen, for paper: the trail's words for the rows
+// they opened up, whether the table is showing under a chart, and the series
+// switched off in the chart's legend.
+const Shown = {
+  trail: z.array(z.object({
+    label: z.string().max(200).optional(),
+    by: z.string().max(80).optional(),
+    of: z.string().max(80).optional(),
+  })).max(MAX_DRILL).optional(),
+  table: z.boolean().optional(),
+  hidden: z.array(z.string().min(1).max(200)).max(40).optional(),
+}
+// A page's period and venues as the visitor has them (tidied by pageChoice()).
+const PageChoice = {
+  period: z.record(z.any()).nullable().optional(),
+  venues: z.union([z.literal('all'), z.array(z.string().uuid()).max(500)]).nullable().optional(),
+}
+const ExportBody = z.object({ format: Format, params: Params.optional(), drill: Drill.optional(), ...Shown, ...PageChoice })
+const BlockRunBody = z.object({ ...PageChoice, fresh: z.boolean().optional() })
 const ExportUnsaved = ExportBody.extend({ spec: Spec, name: Name.optional() })
 const CopyBody = z.object({ name: Name.optional() })
 const RunsQuery = z.object({
@@ -128,19 +165,16 @@ const RunsQuery = z.object({
   before: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(RUNS_MAX).optional(),
 })
-// What is on the person's screen: their choices, the rows they opened up
-// (with the trail's words for the page's heading), whether the table is
-// showing under a chart, and the series switched off in the chart's legend.
+// What is on the person's screen: their choices and the rows they opened up,
+// or a page's period and venues. `layout` is a layout being tried out and
+// `preview` a page for the Layouts page's frame (both Manage).
 const PrintBody = z.object({
   params: Params.optional(),
   drill: Drill.optional(),
-  trail: z.array(z.object({
-    label: z.string().max(200).optional(),
-    by: z.string().max(80).optional(),
-    of: z.string().max(80).optional(),
-  })).max(MAX_DRILL).optional(),
-  table: z.boolean().optional(),
-  hidden: z.array(z.string().min(1).max(200)).max(40).optional(),
+  ...Shown,
+  ...PageChoice,
+  layout: z.record(z.any()).optional(),
+  preview: z.boolean().optional(),
 })
 
 const cleanTags = tags => [...new Set((tags || []).map(t => t.toLowerCase()))]
@@ -157,16 +191,18 @@ export const viaPepper = req => (req.headers[INTERNAL_CALL_HEADER] === INTERNAL_
 
 function savedView(row, p, starred, withSpec = false) {
   const rights = rightsOn(row, p)
-  const spec = withSpec ? normaliseReport(row.spec) : null
+  const page = row.subject === PAGE_SUBJECT
+  const spec = !withSpec ? null : page ? normalisePage(row.spec) : normaliseReport(row.spec)
   return {
     id: row.id,
     kind: 'saved',
     name: row.name,
     description: row.description,
     subject: row.subject,
-    area: CATALOGUE.subjects[row.subject]?.area || null,
-    report_kind: spec ? spec.kind : row.report_kind,
-    view: spec ? spec.view.kind : row.view_kind || 'table',
+    area: page ? null : CATALOGUE.subjects[row.subject]?.area || null,
+    report_kind: page ? 'page' : spec ? spec.kind : row.report_kind,
+    view: page ? 'table' : spec ? spec.view.kind : row.view_kind || 'table',
+    layout_id: row.layout_id || null,
     mine: row.owner_sub === p.sub,
     owner_email: row.owner_email,
     shared: row.shared,
@@ -181,9 +217,18 @@ function savedView(row, p, starred, withSpec = false) {
     can_edit: rights.edit,
     can_delete: rights.edit,
     can_share: rights.share,
-    ...runsFor(row.subject, p.levels),
-    ...(spec ? { spec } : {}),
+    // A page is open to whoever it is shared with: each report on it says for itself whether it runs.
+    ...(page ? { runs: true, needs: null } : runsFor(row.subject, p.levels)),
+    ...(spec ? { spec, can_pdf: pdfAvailable() } : {}),
   }
+}
+
+// One saved report with its definition. A page also says what it knows of
+// each report on it, for the person looking.
+async function fullView(row, p, starred) {
+  const report = savedView(row, p, starred, true)
+  if (row.subject === PAGE_SUBJECT) report.reports = await pageReports(report.spec, p)
+  return report
 }
 
 function starterView(s, p, starred, withSpec = false) {
@@ -196,6 +241,7 @@ function starterView(s, p, starred, withSpec = false) {
     area: s.area,
     report_kind: s.spec.kind,
     view: s.spec.view.kind,
+    layout_id: null,
     mine: false,
     owner_email: null,
     shared: 'everyone',
@@ -211,7 +257,7 @@ function starterView(s, p, starred, withSpec = false) {
     can_delete: false,
     can_share: false,
     ...runsFor(s.subject, p.levels),
-    ...(withSpec ? { spec: s.spec } : {}),
+    ...(withSpec ? { spec: s.spec, can_pdf: pdfAvailable() } : {}),
   }
 }
 
@@ -259,53 +305,53 @@ async function sendFile(req, reply, p, target, body) {
   }
 }
 
+// One run recorded for each report a page's print or PDF ran: the reports
+// are what ran, never the page.
+async function recordBlocks(p, runs, format, log, failed = null) {
+  for (const r of runs) {
+    await recordRun(p, {
+      kind: 'export', format, name: r.name, spec: r.spec, drill: [], params: r.params,
+      saved: UUID_RE.test(String(r.ref)) ? { id: r.ref } : null, starter: starterOf(r.ref),
+      rows: r.rows, ms: r.ms, error: r.error || (failed ? errorText(failed) : null),
+    }, log)
+  }
+}
+
+// A page as a PDF: its print page, made into a file by a browser on the
+// server. Every report on it is run as the person asking.
+async function sendPagePdf(req, reply, p, target, body) {
+  needPdf()
+  const { blocks, choice } = await resolveBlocks(p, target.spec, body)
+  const [about, layout] = await Promise.all([groupAbout(p, { pdf: true }), layoutFor(p, target.saved)])
+  const out = await pagePrint(p, about, { name: target.name, description: target.description, blocks, choice },
+    { layout, by: p.email, byLabel: 'Made by', pdf: true })
+  let buffer = null, failed = null
+  try {
+    buffer = await htmlToPdf(out.html)
+  } catch (e) {
+    failed = e
+  }
+  await recordBlocks(p, out.runs, 'pdf', req.log, failed)
+  if (failed) throw failed
+  return reply
+    .header('content-disposition', 'attachment; filename="' + fileName(target.name, 'pdf') + '"')
+    .header('content-type', 'application/pdf')
+    .send(buffer)
+}
+
 // ── Printing ─────────────────────────────────────────────────
 
-const lowerFirst = s => (s && /^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s || '')
-const upperFirst = s => (s ? s[0].toUpperCase() + s.slice(1) : '')
-
-// Where the person had got to, as the trail on the page says it: "All, then
-// Mains (by dish), then Pad Thai (dishes sold behind Net sales)".
-function trailText(steps, trail) {
-  if (!steps.length) return null
-  return ['All', ...steps.map((s, i) => {
-    const t = trail[i] || {}
-    const how = s.to === 'rows' ? lowerFirst(t.by) || 'the rows' : 'by ' + (lowerFirst(t.by) || 'another field')
-    return (t.label || 'A row') + ' (' + how + (s.to === 'rows' && t.of ? ' behind ' + t.of : '') + ')'
-  })].join(', then ')
-}
-
-// What the page says the report was run for: its period, what it is
-// compared with, its venues and other choices, and the rows opened up.
-function printFacts({ base, result, levels, values, venues, steps, trail }) {
-  const meta = result.meta || {}
-  const facts = [['Period', meta.period?.text || 'Every date']]
-  if (meta.compare?.text) facts.push(['Compared with', meta.compare.text])
-  // The report's own period is said above with its dates: not again as a choice.
-  let own = !!meta.period
-  const catalogue = catalogueView(levels)
-  for (const input of paramInputs(catalogue, base)) {
-    if (own && input.type === 'period' && input.path === 'date' && !input.bucket && input.subject === base.subject) { own = false; continue }
-    const words = paramWords(catalogue, input, values[input.key], { venues, currency: meta.currency })
-    // The words are made to follow the choice's name in a sentence ("every venue"): here they stand alone.
-    if (words) facts.push([input.label, upperFirst(words)])
-  }
-  const opened = trailText(steps, trail)
-  if (opened) facts.push(['Opened up', opened])
-  const rows = meta.row_count ?? result.rows.length
-  facts.push(['Rows', rows.toLocaleString('en-GB')])
-  return facts
-}
-
 // A page nobody should keep, pass on or put in a frame, that loads nothing
-// but its own logo and runs nothing but its own print button.
-function printHeaders(reply, nonce = null) {
+// but its own logo and runs nothing but its own print button. The Layouts
+// page's preview is the one page that may sit in a frame, of the admin's own.
+function printHeaders(reply, nonce = null, framed = false) {
   return reply
     .header('Cache-Control', 'private, no-store')
     .header('Referrer-Policy', 'no-referrer')
     .header('X-Robots-Tag', 'noindex, nofollow')
     .header('Content-Security-Policy', 'default-src \'none\'; style-src \'unsafe-inline\'; '
-      + (nonce ? 'script-src \'nonce-' + nonce + '\'; ' : '') + 'img-src \'self\' https: data:; base-uri \'none\'; form-action \'none\'; frame-ancestors \'none\'')
+      + (nonce ? 'script-src \'nonce-' + nonce + '\'; ' : '') + 'img-src \'self\' https: data:; base-uri \'none\'; form-action \'none\'; frame-ancestors '
+      + (framed ? '\'self\'' : '\'none\''))
     .type('text/html; charset=utf-8')
 }
 
@@ -329,43 +375,38 @@ export async function reportPrintRoutes(app) {
       tenantId: link.tenant_id, sub: link.user_sub, email: link.user_email, levels: link.levels || {},
       ctx: { tenantId: link.tenant_id, userKey: link.user_sub, levels: link.levels || {} },
     }
+    // A layout's preview (the Layouts page's frame) has no bar and no script, and isn't a run to record.
+    const preview = !!link.preview
+    const nonce = preview ? null : crypto.randomBytes(16).toString('base64')
+    const opts = { layout: link.layout || null, by: link.user_email, expires: link.expires_at, nonce, preview }
+
+    // A page: each report on it, as it was found for the person when the link was made.
+    if (Array.isArray(link.blocks)) {
+      const out = await pagePrint(p, await groupAbout(p),
+        { name: link.name, description: link.description, blocks: link.blocks, choice: link.params || {} }, opts)
+      if (!preview) await recordBlocks(p, out.runs, 'print', req.log)
+      return printHeaders(reply, nonce, preview).send(out.html)
+    }
+
     const started = Date.now()
     const base = normaliseReport(link.spec)
     const steps = Array.isArray(link.drill) ? link.drill : []
     const given = link.params || {}
     const values = resolveParams(base, given)
-    const record = extra => recordRun(p, {
+    const record = extra => (preview ? null : recordRun(p, {
       kind: 'export', format: 'print', name: link.name, spec: base, drill: steps, params: values,
       saved: UUID_RE.test(link.report_ref) ? { id: link.report_ref } : null, starter: starterOf(link.report_ref),
       ms: Date.now() - started, ...extra,
-    }, req.log)
+    }, req.log))
     try {
       const result = await runReport(p.ctx, drilled(base, steps, p.levels), given)
-      const about = await withTenant(p.tenantId, async tx => {
-        const [group] = await tx`
-          SELECT t.name, ts.brand_name, ts.logo_url
-            FROM tenants t LEFT JOIN tenant_site ts ON ts.tenant_id = t.id
-           WHERE t.id = ${p.tenantId}`
-        const venues = await tx`SELECT id, name FROM venues WHERE tenant_id = ${p.tenantId} ORDER BY name`
-        return { group, venues, colours: await brandColours(tx, p.tenantId) }
-      })
-      const nonce = crypto.randomBytes(16).toString('base64')
-      const html = printHtml({
-        group: about.group?.brand_name || about.group?.name || '',
-        logo: about.group?.logo_url || null,
-        brand: about.colours.primary,
-        name: link.name,
-        description: link.description,
-        facts: printFacts({ base, result, levels: p.levels, values, venues: about.venues, steps, trail: Array.isArray(link.trail) ? link.trail : [] }),
-        result,
-        table: link.show_table,
-        hidden: Array.isArray(link.hidden) ? link.hidden : [],
-        by: link.user_email,
-        expires: link.expires_at,
-        nonce,
-      })
+      const html = reportPrint(await groupAbout(p), {
+        name: link.name, description: link.description, base, result, values, steps,
+        trail: Array.isArray(link.trail) ? link.trail : [], levels: p.levels,
+        table: link.show_table, hidden: Array.isArray(link.hidden) ? link.hidden : [],
+      }, opts)
       await record({ rows: result.meta.row_count })
-      return printHeaders(reply, nonce).send(html)
+      return printHeaders(reply, nonce, preview).send(html)
     } catch (e) {
       await record({ error: errorText(e) })
       if (e?.statusCode && e.statusCode < 500) {
@@ -403,7 +444,7 @@ export default async function reportRoutes(app) {
       const rows = await tx`
         SELECT r.id, r.name, r.description, r.subject, r.spec->>'kind' AS report_kind, r.spec->'view'->>'kind' AS view_kind,
                r.owner_sub, r.owner_email, r.shared, r.shared_role_ids, r.is_starter, r.starter_key, r.tags,
-               r.last_run_at, r.created_at, r.updated_at
+               r.layout_id, r.last_run_at, r.created_at, r.updated_at
           FROM reports r
          WHERE r.tenant_id = ${p.tenantId} AND ${openTo(tx, p)}
          ORDER BY r.updated_at DESC, r.id
@@ -415,6 +456,7 @@ export default async function reportRoutes(app) {
       level: p.level,
       can_use: p.canUse,
       can_manage: p.canManage,
+      can_pdf: pdfAvailable(),
       areas: AREAS,
       reports: rows.map(r => savedView(r, p, stars.has(r.id))),
       starters: STARTERS.map(s => starterView(s, p, stars.has(s.ref))),
@@ -424,20 +466,21 @@ export default async function reportRoutes(app) {
   app.post('/', use, async (req, reply) => {
     const body = NewReport.parse(req.body)
     const p = await reportPerson(req)
-    const { spec } = checkedSpec(body.spec, p, { strict: true })
-    await refuseOtherVenues(p, spec)
-    const starterKey = body.starter_key && starterByKey(body.starter_key) ? body.starter_key : null
+    const page = isPage(body.spec)
+    const spec = page ? await checkedPage(body.spec, p) : checkedSpec(body.spec, p, { strict: true }).spec
+    if (!page) await refuseOtherVenues(p, spec)
+    const starterKey = !page && body.starter_key && starterByKey(body.starter_key) ? body.starter_key : null
     const row = await withTenant(p.tenantId, async tx => {
       const [{ n }] = await tx`SELECT count(*)::int AS n FROM reports WHERE tenant_id = ${p.tenantId} AND owner_sub = ${p.sub}`
       if (n >= MAX_OWN) throw httpError(422, 'You have ' + MAX_OWN + ' reports. Delete one you no longer need first')
       const [r] = await tx`
         INSERT INTO reports (tenant_id, name, description, subject, spec, owner_sub, owner_email, starter_key, tags)
-        VALUES (${p.tenantId}, ${body.name}, ${body.description || null}, ${spec.subject}, ${tx.json(spec)},
+        VALUES (${p.tenantId}, ${body.name}, ${body.description || null}, ${page ? PAGE_SUBJECT : spec.subject}, ${tx.json(spec)},
                 ${p.sub}, ${p.email}, ${starterKey}, ${cleanTags(body.tags)}::text[])
         RETURNING *`
       return r
     })
-    return reply.code(201).send({ report: savedView(row, p, false, true) })
+    return reply.code(201).send({ report: await fullView(row, p, false) })
   })
 
   app.post('/preview', use, async req => {
@@ -498,7 +541,7 @@ export default async function reportRoutes(app) {
       return row ? { row, starred: await isStarred(tx, p, row.id) } : null
     })
     if (!out) throw notFound()
-    return { report: savedView(out.row, p, out.starred, true) }
+    return { report: await fullView(out.row, p, out.starred) }
   })
 
   app.put('/:id', use, async req => {
@@ -506,14 +549,19 @@ export default async function reportRoutes(app) {
     const p = await reportPerson(req)
     const before = await loadSaved(req.params.id, p)
     if (!rightsOn(before, p).edit) throw httpError(403, 'Only the person who made this report, or someone with Manage on Reports, can change it')
-    const spec = body.spec ? checkedSpec(body.spec, p, { strict: true }).spec : null
-    if (spec) await refuseOtherVenues(p, spec)
+    const page = before.subject === PAGE_SUBJECT
+    if (body.spec && isPage(body.spec) !== page) {
+      throw httpError(422, page ? 'A page of reports can\'t be turned into a single report. Make a new report instead'
+        : 'A report can\'t be turned into a page. Make a new page and put this report on it')
+    }
+    const spec = !body.spec ? null : page ? await checkedPage(body.spec, p) : checkedSpec(body.spec, p, { strict: true }).spec
+    if (spec && !page) await refuseOtherVenues(p, spec)
     const out = await withTenant(p.tenantId, async tx => {
       const [row] = await tx`
         UPDATE reports
            SET name = ${body.name ?? before.name},
                description = ${body.description === undefined ? before.description : body.description || null},
-               subject = ${spec ? spec.subject : before.subject},
+               subject = ${spec && !page ? spec.subject : before.subject},
                spec = ${spec ? tx.json(spec) : tx.json(before.spec)},
                tags = ${body.tags ? cleanTags(body.tags) : before.tags}::text[],
                updated_at = now()
@@ -522,7 +570,7 @@ export default async function reportRoutes(app) {
       return row ? { row, starred: await isStarred(tx, p, row.id) } : null
     })
     if (!out) throw notFound()
-    return { report: savedView(out.row, p, out.starred, true) }
+    return { report: await fullView(out.row, p, out.starred) }
   })
 
   app.delete('/:id', use, async (req, reply) => {
@@ -556,7 +604,7 @@ export default async function reportRoutes(app) {
       return row ? { row, starred: await isStarred(tx, p, row.id) } : null
     })
     if (!out) throw notFound()
-    return { report: savedView(out.row, p, out.starred, true) }
+    return { report: await fullView(out.row, p, out.starred) }
   })
 
   app.post('/:id/run', view, async req => {
@@ -580,10 +628,32 @@ export default async function reportRoutes(app) {
     }
   })
 
+  // One report of a page, run for the screen with the page's period and
+  // venues, or the visitor's own. Recorded as a run of that report.
+  app.post('/:id/blocks/:blockId/run', view, async req => {
+    const body = BlockRunBody.parse(req.body || {})
+    const p = await reportPerson(req)
+    const page = await loadTarget(req.params.id, p, { page: true })
+    if (!page.page) throw httpError(404, 'That isn\'t a page of reports')
+    const { target, given, run } = await runBlock(p, page.spec, String(req.params.blockId), body, { fresh: !!body.fresh })
+    const started = Date.now()
+    const base = { kind: 'run', saved: target.saved, starter: target.starter, name: target.name, spec: target.spec, drill: [], params: resolveParams(target.spec, given) }
+    try {
+      const result = await run()
+      await recordRun(p, { ...base, rows: result.meta.row_count, ms: Date.now() - started }, req.log)
+      return { report: { id: target.ref, name: target.name }, ...result }
+    } catch (e) {
+      await recordRun(p, { ...base, ms: Date.now() - started, error: errorText(e) }, req.log)
+      throw e
+    }
+  })
+
   app.post('/:id/export', use, async (req, reply) => {
     const body = ExportBody.parse(req.body)
     const p = await reportPerson(req)
-    return sendFile(req, reply, p, await loadTarget(req.params.id, p), body)
+    // A page is one file only as a PDF: its reports' own files are theirs to download.
+    const target = await loadTarget(req.params.id, p, { page: body.format === 'pdf' })
+    return target.page ? sendPagePdf(req, reply, p, target, body) : sendFile(req, reply, p, target, body)
   })
 
   // Keep a file of it for the person who makes it, to download later from
@@ -626,26 +696,44 @@ export default async function reportRoutes(app) {
   app.post('/:id/print-link', view, async req => {
     const body = PrintBody.parse(req.body || {})
     const p = await reportPerson(req)
-    const target = await loadTarget(req.params.id, p)
-    const steps = drillSteps(body.drill)
-    const given = body.params || {}
-    await refuseOtherVenues(p, target.spec, given)
-    // Refused here, in the app, not on a page in a new tab: rows that can't
-    // be opened that way, a report the person's role can't run.
-    checkedSpec(drilled(target.spec, steps, p.levels), p)
-    const trail = body.trail?.length === steps.length ? body.trail : []
+    // Trying a layout out is part of making layouts.
+    if ((body.layout || body.preview) && !p.canManage) throw httpError(403, 'Trying a layout out needs Manage on Reports')
+    const preview = !!body.preview
+    const target = await loadTarget(req.params.id, p, { page: true })
+    // The layout as it is now: the one being tried, else the report's own, else the group's default.
+    const layout = body.layout ? normaliseLayout(body.layout) : await layoutFor(p, target.saved)
+    let on
+    if (target.page) {
+      // Each report on the page is found and checked for the person now; the page runs them with the levels kept on the link.
+      const { blocks, choice } = await resolveBlocks(p, target.spec, body)
+      on = { params: choice, steps: [], trail: [], table: null, hidden: [], blocks }
+    } else {
+      const steps = drillSteps(body.drill)
+      const given = body.params || {}
+      await refuseOtherVenues(p, target.spec, given)
+      // Refused here, in the app, not on a page in a new tab: rows that can't
+      // be opened that way, a report the person's role can't run.
+      checkedSpec(drilled(target.spec, steps, p.levels), p)
+      on = {
+        params: given, steps, trail: body.trail?.length === steps.length ? body.trail : [],
+        table: body.table ?? null, hidden: [...new Set(body.hidden || [])], blocks: null,
+      }
+    }
     const [link] = await withTenant(p.tenantId, async tx => {
       // Links that ran out go: the person's own at once, anyone's after a day.
+      // A new preview takes the person's earlier previews with it.
       await tx`
         DELETE FROM report_print_links
          WHERE tenant_id = ${p.tenantId}
-           AND (expires_at < now() - interval '1 day' OR (user_sub = ${p.sub} AND expires_at < now()))`
+           AND (expires_at < now() - interval '1 day'
+                OR (user_sub = ${p.sub} AND (expires_at < now() OR (${preview} AND preview))))`
       return tx`
         INSERT INTO report_print_links (tenant_id, report_ref, name, description, spec, params, drill, trail, show_table, hidden,
-                                        user_sub, user_email, levels, expires_at)
+                                        user_sub, user_email, levels, layout, preview, blocks, expires_at)
         VALUES (${p.tenantId}, ${target.ref}, ${target.name}, ${target.description || null}, ${tx.json(target.spec)},
-                ${tx.json(given)}, ${tx.json(steps)}, ${tx.json(trail)}, ${body.table ?? null}, ${tx.json([...new Set(body.hidden || [])])},
-                ${p.sub}, ${p.email}, ${tx.json(p.levels)}, now() + make_interval(mins => ${PRINT_MINUTES}))
+                ${tx.json(on.params)}, ${tx.json(on.steps)}, ${tx.json(on.trail)}, ${on.table}, ${tx.json(on.hidden)},
+                ${p.sub}, ${p.email}, ${tx.json(p.levels)}, ${layout ? tx.json(layout) : null}, ${preview},
+                ${on.blocks ? tx.json(on.blocks) : null}, now() + make_interval(mins => ${PRINT_MINUTES}))
         RETURNING id, expires_at`
     })
     return { path: '/api/reports/print/' + link.id, expires_at: link.expires_at }
@@ -654,27 +742,27 @@ export default async function reportRoutes(app) {
   app.post('/:id/copy', use, async (req, reply) => {
     const body = CopyBody.parse(req.body || {})
     const p = await reportPerson(req)
-    const target = await loadTarget(req.params.id, p)
+    const target = await loadTarget(req.params.id, p, { page: true })
     // Checked as the person copying: it becomes theirs to run and change.
-    const { spec } = checkedSpec(target.spec, p)
+    const spec = target.page ? await checkedPage(target.spec, p) : checkedSpec(target.spec, p).spec
     const name = (body.name || (target.starter ? target.name : target.name + ' (copy)')).slice(0, LIMITS.name)
     const row = await withTenant(p.tenantId, async tx => {
       const [{ n }] = await tx`SELECT count(*)::int AS n FROM reports WHERE tenant_id = ${p.tenantId} AND owner_sub = ${p.sub}`
       if (n >= MAX_OWN) throw httpError(422, 'You have ' + MAX_OWN + ' reports. Delete one you no longer need first')
       const [r] = await tx`
         INSERT INTO reports (tenant_id, name, description, subject, spec, owner_sub, owner_email, starter_key, tags)
-        VALUES (${p.tenantId}, ${name}, ${target.description || null}, ${spec.subject}, ${tx.json(spec)},
+        VALUES (${p.tenantId}, ${name}, ${target.description || null}, ${target.page ? PAGE_SUBJECT : spec.subject}, ${tx.json(spec)},
                 ${p.sub}, ${p.email}, ${target.starter?.key ?? target.saved?.starter_key ?? null},
                 ${target.saved?.tags || []}::text[])
         RETURNING *`
       return r
     })
-    return reply.code(201).send({ report: savedView(row, p, false, true) })
+    return reply.code(201).send({ report: await fullView(row, p, false) })
   })
 
   app.post('/:id/star', view, async req => {
     const p = await reportPerson(req)
-    const target = await loadTarget(req.params.id, p)
+    const target = await loadTarget(req.params.id, p, { page: true })
     await withTenant(p.tenantId, tx => tx`
       INSERT INTO report_stars (tenant_id, user_sub, report_ref) VALUES (${p.tenantId}, ${p.sub}, ${target.ref})
       ON CONFLICT DO NOTHING`)

@@ -6,6 +6,19 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-16 — Star printers print properly]
+
+Migration 254 (`pos_printers.language`).
+
+**Fixed**
+- Star printers (TSP650, SP700 and others in Star's own mode) printed a stray **!** and **B** on every line and the wrong £ sign: the venue hub only sent Epson's ESC/POS commands. Store tech → Printers → a printer → **Printer language**: **Epson / ESC/POS** (the default) or **Star**. With Star, the hub sends Star's own commands. A USB printer the hub found with Star in its name starts on Star.
+- The hub no longer asks a Star printer Epson's status question; it only checks the printer answers.
+
+**Notes**
+- The hub updates itself at its next quiet moment (or press **Update now** on Store tech → Venue hub). Then set each Star printer to Star and print a ticket again from **Tickets**.
+- Tested with the hub's tests (the bytes sent in Star mode) and the API tests; not yet on a real Star printer.
+- Also deployed with this, with no screens yet: the server side of report layout templates, page reports and PDFs (migration 253). The deploy installs Google Chrome on the server for the PDFs.
+
 ## [2026-11-15 — Local info: say why something is relevant or not]
 
 Migration 252 (`local_info_feedback.note`).

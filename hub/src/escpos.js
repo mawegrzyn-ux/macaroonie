@@ -1,8 +1,13 @@
 // hub/src/escpos.js
 //
-// Turns a ticket (print operations from shared/pos/tickets.js) into ESC/POS
-// bytes for Epson printers and ESC/POS clones. Text goes out in code page
-// WPC1252 (ESC t 16), so £ is the single byte 0xA3.
+// Turns a ticket (print operations from shared/pos/tickets.js) into the bytes
+// a printer understands, in one of two printer languages (pos_printers.language):
+//   'escpos'  Epson's ESC/POS: Epson printers, clones, and Star printers set to
+//             ESC/POS emulation. Code page WPC1252 (ESC t 16).
+//   'star'    Star Line Mode: Star printers as they come (TSP, SP700, mC-Print).
+//             Code page 1252 (ESC GS t 32). It has no GS commands: ESC/POS sent
+//             to it prints them as stray characters (a ! and a B on every line).
+// In both, £ is the single byte 0xA3.
 
 import { DEFAULT_COLS, wrap, pairLines } from '../../shared/pos/tickets.js'
 
@@ -20,6 +25,21 @@ export const CMD = {
   cut:       [GS, 0x56, 0x42, 0x00],      // feed to the cutter, partial cut
   drawer:    [ESC, 0x70, 0x00, 0x19, 0xfa], // pin 2, 50ms on, 500ms off
 }
+
+// Star Line Mode. Alignment is done with spaces (render() pads the line), so
+// it works on every Star model, old ones included.
+export const STAR = {
+  init:      [ESC, 0x40],
+  codePage:  [ESC, GS, 0x74, 32],         // Windows-1252
+  bold:      on => on ? [ESC, 0x45] : [ESC, 0x46],
+  size:      (wide, tall) => [ESC, 0x69, tall ? 1 : 0, wide ? 1 : 0],
+  invert:    on => on ? [ESC, 0x34] : [ESC, 0x35],
+  feed:      n => [ESC, 0x61, Math.max(1, Math.min(127, n))],
+  cut:       [ESC, 0x64, 0x03],           // feed to the cutter, partial cut
+  drawer:    [0x07],                      // drawer 1
+}
+
+export const LANGUAGES = ['escpos', 'star']
 
 // Windows-1252 bytes 0x80-0x9F that differ from Latin-1.
 const CP1252 = {
@@ -43,13 +63,33 @@ export function encode(text) {
 
 const ALIGN = { left: 0, center: 1, right: 2 }
 
-/** Render print operations to a Buffer. `cols` = characters per line in normal width. */
-export function render(ops, { cols = DEFAULT_COLS } = {}) {
-  const b = [...CMD.init, ...CMD.codePage]
+/** Spaces in front of a line so it sits centred or on the right of `width` characters. */
+export function padFor(text, align, width) {
+  const room = width - [...String(text)].length
+  if (room <= 0 || align === 'left' || !ALIGN[align]) return ''
+  return ' '.repeat(align === 'center' ? Math.floor(room / 2) : room)
+}
+
+/**
+ * Render print operations to a Buffer. `cols` = characters per line in normal
+ * width; `language` = 'escpos' (the usual) or 'star' (Star Line Mode).
+ */
+export function render(ops, { cols = DEFAULT_COLS, language = 'escpos' } = {}) {
+  const star = language === 'star'
+  const C = star ? STAR : CMD
+  const b = [...C.init, ...C.codePage]
   const line = (text, { align = 'left', bold = false, wide = false, tall = false, invert = false } = {}) => {
-    b.push(...CMD.align(ALIGN[align] ?? 0), ...CMD.bold(bold), ...CMD.size(wide, tall), ...CMD.invert(invert))
+    if (star) {
+      b.push(...C.bold(bold), ...C.size(wide, tall), ...C.invert(invert))
+      b.push(...encode(padFor(text, align, wide ? Math.floor(cols / 2) : cols) + text), 0x0a)
+      if (bold) b.push(...C.bold(false))
+      if (wide || tall) b.push(...C.size(false, false))
+      if (invert) b.push(...C.invert(false))
+      return
+    }
+    b.push(...C.align(ALIGN[align] ?? 0), ...C.bold(bold), ...C.size(wide, tall), ...C.invert(invert))
     b.push(...encode(text), 0x0a)
-    b.push(...CMD.bold(false), ...CMD.size(false, false), ...CMD.invert(false), ...CMD.align(0))
+    b.push(...C.bold(false), ...C.size(false, false), ...C.invert(false), ...C.align(0))
   }
   for (const op of ops) {
     const width = op.wide ? Math.floor(cols / 2) : cols
@@ -61,11 +101,11 @@ export function render(ops, { cols = DEFAULT_COLS } = {}) {
     } else if (op.t === 'rule') {
       line((op.char || '-').repeat(cols))
     } else if (op.t === 'feed') {
-      b.push(...CMD.feed(op.lines || 1))
+      b.push(...C.feed(op.lines || 1))
     } else if (op.t === 'cut') {
-      b.push(...CMD.feed(3), ...CMD.cut)
+      b.push(...(star ? C.cut : [...C.feed(3), ...C.cut]))
     } else if (op.t === 'drawer') {
-      b.push(...CMD.drawer)
+      b.push(...C.drawer)
     }
   }
   return Buffer.from(b)

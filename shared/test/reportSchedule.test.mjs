@@ -136,14 +136,16 @@ test('a timing in words', () => {
 test('how a report is sent', () => {
   assert.deepEqual(normaliseDelivery(null), { in_message: true, attach: 'none', keep_file: false })
   assert.deepEqual(normaliseDelivery({ in_message: false, attach: 'csv', keep_file: true }), { in_message: false, attach: 'csv', keep_file: true })
-  // A file is kept only when there is one.
-  assert.deepEqual(normaliseDelivery({ attach: 'pdf', keep_file: true }), { in_message: true, attach: 'none', keep_file: false })
+  // A file is kept only when there is one, and only a kind of file there is.
+  assert.deepEqual(normaliseDelivery({ attach: 'doc', keep_file: true }), { in_message: true, attach: 'none', keep_file: false })
+  assert.deepEqual(normaliseDelivery({ attach: 'pdf', keep_file: true }), { in_message: true, attach: 'pdf', keep_file: true })
   assert.equal(deliveryProblem({ in_message: true }), null)
   assert.equal(deliveryProblem({ in_message: false, attach: 'xlsx' }), null)
   assert.match(deliveryProblem({ in_message: false, attach: 'none' }), /in the email, attach a file, or both/)
   assert.equal(deliveryText({ in_message: true }), 'The report in the email')
   assert.equal(deliveryText({ in_message: false, attach: 'csv' }), 'A CSV file attached')
   assert.equal(deliveryText({ in_message: true, attach: 'xlsx', keep_file: true }), 'The report in the email and an Excel file attached, kept in Past runs')
+  assert.equal(deliveryText({ in_message: false, attach: 'pdf' }), 'A PDF attached')
 })
 
 // A summary by venue of net sales (money) and voids (a count), with totals.

@@ -4,7 +4,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import net from 'node:net'
-import { render, encode, CMD } from '../src/escpos.js'
+import { render, encode, CMD, STAR } from '../src/escpos.js'
 import { print, printerStatus } from '../src/printer.js'
 import { kitchenTicket, receipt, toText, pairLines, billSubtotal } from '../../shared/pos/tickets.js'
 
@@ -134,4 +134,36 @@ test('printerStatus: decodes online, paper and cover; null when the printer says
 
   // Nothing at that address (it never connects): not answering, never "reachable".
   await assert.rejects(printerStatus({ host: '10.255.255.1', port: 9100, timeoutMs: 500 }), /Printer 10\.255\.255\.1:9100/)
+})
+
+test('render star: Star Line Mode commands, no GS byte, alignment by spaces', () => {
+  const buf = render([
+    { t: 'text', text: 'BILL', align: 'center', bold: true },
+    { t: 'pair', left: 'Subtotal', right: '£51.40' },
+    { t: 'text', text: 'HOLD', invert: true, wide: true, tall: true },
+    { t: 'drawer' },
+    { t: 'cut' },
+  ], { cols: 20, language: 'star' })
+  assert.ok(buf.subarray(0, 6).equals(Buffer.from([...STAR.init, ...STAR.codePage])))
+  assert.equal([...buf].filter(b => b === 0x1d).length, 1, 'no ESC/POS GS commands')
+  const text = buf.toString('latin1')
+  assert.ok(text.includes('        BILL\n'), 'centred with spaces')
+  assert.ok(includes(buf, [0x1b, 0x45]) && includes(buf, [0x1b, 0x46]), 'bold on and off')
+  assert.ok(includes(buf, [...encode(pairLines('Subtotal', '£51.40', 20)[0]), 0x0a]), '£ as 0xA3 on one line')
+  assert.ok(includes(buf, [0x53, 0x75, 0x62]) && includes(buf, [0xa3, 0x35, 0x31]), 'Subtotal and £51')
+  assert.ok(includes(buf, [0x1b, 0x34]) && includes(buf, [0x1b, 0x35]), 'highlight on and off')
+  assert.ok(includes(buf, [0x1b, 0x69, 1, 1]) && includes(buf, [0x1b, 0x69, 0, 0]), 'double size on and off')
+  assert.ok(includes(buf, [0x07]), 'drawer')
+  assert.ok(buf.subarray(-3).equals(Buffer.from(STAR.cut)), 'ends with the cut')
+  assert.ok(!includes(buf, CMD.cut) && !includes(buf, CMD.codePage), 'no ESC/POS cut or code page')
+  // The ESC/POS render is unchanged by default.
+  assert.ok(render([{ t: 'cut' }]).subarray(0, 5).equals(Buffer.from([...CMD.init, ...CMD.codePage])))
+})
+
+test('printerStatus star: connects but never sends the Epson DLE EOT question', async () => {
+  const p = await fakePrinter({ reply: [0x16, 0x12, 0x12] })
+  assert.equal(await printerStatus({ host: '127.0.0.1', port: p.port, timeoutMs: 500, language: 'star' }), null)
+  await new Promise(r => setTimeout(r, 50))
+  assert.ok(!p.jobs.some(j => j.includes(0x10)), 'no DLE sent')
+  p.server.close()
 })

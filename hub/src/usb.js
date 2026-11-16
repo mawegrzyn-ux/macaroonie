@@ -307,9 +307,11 @@ export function printLocal({ id, data, sys = usbSystem(), attempts = 2, find = f
  * How a plugged-in printer is: { online, paperNearEnd, paperOut, coverOpen, error },
  * or null when it can't say (still printable). Throws when it isn't there.
  */
-export async function localStatus({ id, sys = usbSystem(), found }) {
+export async function localStatus({ id, sys = usbSystem(), found, language = 'escpos' }) {
   const p = (found || await findPrinters(sys)).find(x => x.id === id)
   if (!p) throw new Error('Not plugged into the hub (or switched off)')
   if (sys.platform === 'win32') return windowsStatus(p.win_status)
+  // A Star printer in Star Line Mode isn't asked Epson's DLE EOT: plugged in, state unknown.
+  if (language === 'star') return null
   return queued(id, () => linuxStatus(p.path))
 }

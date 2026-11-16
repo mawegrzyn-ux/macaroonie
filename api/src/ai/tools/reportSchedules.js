@@ -36,7 +36,7 @@ import { valueName, valueType, storedNumber } from '../../../../shared/reports/b
 import { isEmail, WEEKS, OPS, ATTACH, MAX_RECIPIENTS } from '../../../../shared/reports/schedule.js'
 import { RELATIVE_PERIODS } from '../../../../shared/reports/period.js'
 import {
-  loadReport, runParams, linkTo, runsPath, AS_PEPPER, ReportRef, Pinned, PeriodInput, clip, lowerFirst,
+  loadReport, notAPage, runParams, linkTo, runsPath, AS_PEPPER, ReportRef, Pinned, PeriodInput, clip, lowerFirst,
   scheduleLine, schedulesPath, whenText, recipientWords, STATUS_WORDS,
 } from './reports.js'
 
@@ -79,7 +79,7 @@ const ScheduleRef = z.string().trim().min(1).max(200)
 
 const DeliveryFields = {
   in_email: z.boolean().optional().describe('The report in the email itself (yes unless said)'),
-  attach: z.enum(ATTACH).optional().describe('A file attached: csv, xlsx (Excel) or none (none unless said)'),
+  attach: z.enum(ATTACH).optional().describe('A file attached: csv, xlsx (Excel), pdf (the report as it prints) or none (none unless said)'),
   keep_file: z.boolean().optional()
     .describe('Also keep the attached file in Past runs for the person it sends as (30 days, 7 when it holds people\'s details)'),
 }
@@ -137,7 +137,7 @@ function deliveryOf(input, current = null) {
   const base = current || NO_DELIVERY
   const attach = input.attach ?? base.attach
   if (input.keep_file === true && attach === 'none') {
-    throw new ToolError('A file is kept only when one is attached: give attach csv or xlsx too.', 422)
+    throw new ToolError('A file is kept only when one is attached: give attach csv, xlsx or pdf too.', 422)
   }
   return {
     in_message: input.in_email ?? base.in_message,
@@ -321,6 +321,8 @@ async function newScheduleBody(ctx, r, input) {
 async function scheduleTarget(ctx, input) {
   await requireStaffPermission(ctx, 'reports', 'use')
   const r = await loadReport(ctx, input.report)
+  // A page has nothing of its own to send: its reports go one by one.
+  notAPage(r, 'its reports are scheduled and emailed one by one.')
   if (r.runs === false) throw cantRun(r)
   return r
 }

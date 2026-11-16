@@ -398,7 +398,7 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
   if (stream && orderType && chargeSvc && chargePack) {
     await step('charge rules', () => put(`/api/pos/venues/${V}/charge-rules`, { rules: [chargeSvc, chargePack, chargeCup].filter(Boolean).map(x => ({ charge_id: x.id, revenue_stream_id: stream.id, order_type_id: orderType.id })) }))
   }
-  const printer = await step('printer', () => post(`/api/pos/venues/${V}/printers`, { name: mark + ' Kitchen', host: '192.168.1.50' }))
+  const printer = await step('printer', () => post(`/api/pos/venues/${V}/printers`, { name: mark + ' Kitchen', host: '192.168.1.50', language: 'star' }))
   // Devices show a code of their own and are linked by it (migration 184):
   // a till from Store tech, a kitchen screen from the installer.
   const tillDevice = await step('till device', async () => {
@@ -649,6 +649,42 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
           await step('report schedule paused', () => post(`/api/reports/schedules/${scheduleId}/pause`, {}))
           await step('report schedule resumed', () => post(`/api/reports/schedules/${scheduleId}/resume`, {}))
         }
+      }
+      // A layout (migration 253) and a page of two reports with words
+      // between them, for this tenant's venue: one of its reports run for
+      // the screen, its print link made, and the layout picked for it. The
+      // layout isn't the group's default, so other reports print as before.
+      const laid = await step('report layout', () => post('/api/reports/layouts', {
+        name: mark + ' Board pack',
+        settings: { page: { size: 'a4', way: 'landscape' }, footer: { text: mark + ' in confidence' } },
+      }))
+      const layoutId = laid?.layout?.id
+      if (layoutId) {
+        ids.reportLayout = layoutId
+        await step('report layout changed', () => put(`/api/reports/layouts/${layoutId}`, {
+          settings: { page: { size: 'a4', way: 'landscape' }, footer: { text: mark + ' in confidence' }, style: { density: 'compact' } },
+        }))
+      }
+      const page = await step('report page', () => post('/api/reports', {
+        name: mark + ' Monday pack', description: mark + ' for the Monday meeting',
+        spec: {
+          kind: 'page', period: { from: MONDAY, to: '2026-10-25' }, venues: [V],
+          blocks: [
+            { type: 'text', title: mark + ' This week', text: mark + ' read before the meeting' },
+            { type: 'report', ref: rid, show: 'table' },
+            { type: 'break' },
+            { type: 'report', ref: 'starter:bookings_by_source', title: mark + ' Where bookings came from' },
+          ],
+        },
+      }))
+      const pageId = page?.report?.id
+      if (pageId) {
+        ids.reportPage = pageId
+        const first = page.report.spec.blocks.find(b => b.type === 'report')
+        await step('report page block', () => post(`/api/reports/${pageId}/blocks/${first.id}/run`, { venues: [V] }))
+        await step('report page print link', () => post(`/api/reports/${pageId}/print-link`, { venues: [V] }))
+        await step('report page changed', () => put(`/api/reports/${pageId}`, { description: mark + ' for Monday at ten' }))
+        if (layoutId) await step('report page layout', () => put(`/api/reports/${pageId}/layout`, { layout_id: layoutId }))
       }
     }
   }

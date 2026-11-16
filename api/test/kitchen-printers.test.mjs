@@ -114,6 +114,15 @@ test('the venue hub: its own config, printing and reporting only', async () => {
   assert.ok(names.includes('Grill printer'))
   assert.ok(!names.includes('Bar printer'), 'a printer plugged into a till isn\'t the hub\'s')
   assert.equal(cfg.json.printers.find(p => p.id === net.id).host, '10.0.0.20')
+  assert.equal(cfg.json.printers.find(p => p.id === net.id).language, 'escpos', 'ESC/POS unless set')
+  // Migration 254: a Star printer in Star Line Mode. Saved, refused when wrong, in the hub's config.
+  const star = { name: 'Grill printer', host: '10.0.0.20', port: 9100, columns: 42, language: 'star' }
+  assert.equal((await ok(owner.patch(`/api/pos/printers/${net.id}`, star))).language, 'star')
+  assert.equal((await owner.patch(`/api/pos/printers/${net.id}`, { ...star, language: 'zpl' })).status, 400)
+  const cfg2 = await device(hub, 'GET', '/pos-api/config')
+  assert.equal(cfg2.json.printers.find(p => p.id === net.id).language, 'star')
+  assert.notEqual(cfg2.json.version, cfg.json.version, 'a new config version, so the hub takes it')
+  assert.equal((await ok(owner.patch(`/api/pos/printers/${net.id}`, { ...star, language: 'escpos' }))).language, 'escpos')
   assert.equal((await device(hub, 'GET', '/pos-api/kitchen/sync')).status, 403)
   assert.equal((await device(hub, 'POST', '/pos-api/events', { events: [] })).status, 403)
   const st = await device(hub, 'POST', '/pos-api/hub/status', { app_version: '1.0.0', printers: [

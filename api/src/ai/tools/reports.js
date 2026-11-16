@@ -45,7 +45,8 @@ import { dataTree, treeNodes, paramInputs, paramWords } from '../../../../shared
 import { describeReport } from '../../../../shared/reports/describe.js'
 import { tableModel } from '../../../../shared/reports/table.js'
 import { LIMITS } from '../../../../shared/reports/spec.js'
-import { RELATIVE_PERIODS } from '../../../../shared/reports/period.js'
+import { RELATIVE_PERIODS, periodName } from '../../../../shared/reports/period.js'
+import { pageWords } from '../../../../shared/reports/page.js'
 
 const SHOWN_ROWS = 40          // rows of a result Pepper is given, unless it asks for more
 const MAX_ROWS = 200
@@ -210,6 +211,33 @@ function venueNames(venues) {
   return venues.map(v => ({ id: v.id, name: v.name }))
 }
 
+// A page of several reports (shared/reports/page.js). It has no plan: its
+// reports are run, kept and scheduled one by one, and what is on it is
+// changed on its own page.
+const isPageReport = r => r.report_kind === 'page'
+const pageEditPath = id => '/reports/pages/' + encodeURIComponent(id) + '/edit'
+
+function pageReportsOf(r) {
+  return (r.spec?.blocks || []).filter(b => b.type === 'report').map(b => {
+    const about = r.reports?.[b.ref]
+    if (!about || about.missing) return { gone: 'A report that was deleted, or isn\'t shared with you' }
+    return {
+      name: about.name,
+      id: b.ref,
+      ...(b.title && b.title !== about.name ? { titled: b.title } : {}),
+      ...(about.runs === false ? { cant_run: 'Needs ' + (about.needs || 'another area') } : {}),
+      ...(about.problem ? { problem: about.problem } : {}),
+    }
+  })
+}
+
+export function notAPage(r, instead) {
+  if (!isPageReport(r)) return
+  const names = pageReportsOf(r).filter(x => x.name).map(x => '"' + x.name + '"')
+  throw new ToolError('"' + r.name + '" is a page of several reports: ' + instead
+    + (names.length ? ' Its reports: ' + names.join(', ') + '.' : ''), 422)
+}
+
 // A result as Pepper reads it: the headings, then each row's cells in words.
 function tableOf(result, max) {
   const t = tableModel(result)
@@ -313,6 +341,11 @@ function somethingToChange(input) {
     throw new ToolError('Say what to change: the plan (from get_report, changed), the name or the description.', 422)
   }
 }
+
+const PAGE_CHANGE = 'what is on it is changed on its own page. Its name and description can be changed here.'
+const PAGE_FILE = 'it is printed, or downloaded as a PDF, from its own page. A file can be kept of each of its reports.'
+const FILE_WORDS = { csv: 'a CSV file', xlsx: 'an Excel file', pdf: 'a PDF' }
+const NO_PDF = 'This server can\'t make PDFs yet. Keep a CSV or Excel file instead, or print the report from its page.'
 
 // A saved report the person may change (or delete), else why not.
 async function editable(ctx, text, what = 'change') {
@@ -575,7 +608,8 @@ export const reportTools = [
     description:
       'The saved reports the person can open (their own, the team\'s shared with them) and the starter reports that come with ' +
       'Macaroonie, with a link to each. Filter by words in the name or description, by area (till, online, bookings), or to ' +
-      'starred, yours or the starters only. run_report runs one; get_report says what it shows.',
+      'starred, yours or the starters only. run_report runs one; get_report says what it shows. A page (several reports to read ' +
+      'and print as one) is marked as one.',
     input: z.object({
       search: z.string().trim().max(120).optional(),
       area: z.string().trim().max(40).optional().describe('An area\'s name or key: till, online, bookings'),
@@ -603,7 +637,7 @@ export const reportTools = [
           name: r.name,
           id: r.id,
           whose: ownerWords(r),
-          area: areaLabel({ areas }, r.area),
+          ...(isPageReport(r) ? { kind: 'A page of several reports, to read and print as one' } : { area: areaLabel({ areas }, r.area) }),
           ...(r.description ? { about: clip(r.description, 200) } : {}),
           ...(r.starred ? { starred: true } : {}),
           ...(r.runs === false ? { cant_run: 'Needs ' + (r.needs || 'another area') } : {}),
@@ -629,6 +663,27 @@ export const reportTools = [
     async run(ctx, input) {
       const cat = await catalogueFor(ctx)
       const r = await loadReport(ctx, input.report)
+      if (isPageReport(r)) {
+        const all = venueNames(await tenantVenueList(ctx))
+        const picked = Array.isArray(r.spec.venues) ? r.spec.venues.map(id => all.find(v => v.id === id)?.name).filter(Boolean) : null
+        return {
+          name: r.name,
+          id: r.id,
+          whose: ownerWords(r),
+          ...(r.description ? { about: r.description } : {}),
+          shows: pageWords(r.spec) + ', to read and print as one',
+          reports: pageReportsOf(r),
+          period: r.spec.period ? periodName(r.spec.period) + ' for every report on it (changed on the page for a visit)' : 'Each report over its own period',
+          venues: r.spec.venues == null ? 'Each report for its own venues' : picked ? picked.join(', ') : 'Every venue',
+          shared_with: SHARED_WORDS[r.shared] || r.shared,
+          can_change: !!r.can_edit,
+          ...(r.can_share ? { can_share: true } : {}),
+          note: 'A page has no plan. run_report, export_report and schedule_report take its reports one by one; the page itself is '
+            + 'printed, or downloaded as a PDF, from its own page, and what is on it is changed there'
+            + (r.can_edit ? ' (' + linkText(ctx, 'edit the page', pageEditPath(r.id)) + ')' : '') + '.',
+          ...linkTo(ctx, r.name, reportPath(r.id)),
+        }
+      }
       if (r.runs === false) {
         return {
           name: r.name, id: r.id, whose: ownerWords(r),
@@ -678,6 +733,7 @@ export const reportTools = [
     async run(ctx, input) {
       await requireStaffPermission(ctx, 'reports', 'view')
       const r = await loadReport(ctx, input.report)
+      notAPage(r, 'open it to read or print it, or run its reports one by one.')
       if (r.runs === false) throw new ToolError('Your role can\'t run "' + r.name + '": it needs ' + (r.needs || 'another area') + '. Ask an owner or admin.', 403)
       const params = await runParams(ctx, r.spec, input)
       const result = await callApi(ctx, 'POST', '/api/reports/' + encodeURIComponent(r.id) + '/run', { body: { params }, headers: AS_PEPPER })
@@ -783,6 +839,7 @@ export const reportTools = [
       somethingToChange(input)
       const cat = await catalogueFor(ctx, 'use')
       const r = await editable(ctx, input.report)
+      if (input.plan) notAPage(r, PAGE_CHANGE)
       const venues = venueNames(await tenantVenueList(ctx))
       const out = input.plan ? await runPlan(ctx, input.plan, { report: r.spec, rows: CARD_ROWS }) : null
       if (out && !out.result) throw new ToolError(out.problem || 'The changed report couldn\'t be run, so it isn\'t changed', 422)
@@ -805,6 +862,7 @@ export const reportTools = [
       somethingToChange(input)
       await requireStaffPermission(ctx, 'reports', 'use')
       const r = await editable(ctx, input.report)
+      if (input.plan || input.spec) notAPage(r, PAGE_CHANGE)
       const spec = input.spec || (input.plan ? await plannedSpec(ctx, input.plan, r.spec) : null)
       const body = {
         ...(spec ? { spec } : {}),
@@ -992,12 +1050,13 @@ export const reportTools = [
     section: 'reports',
     title: 'Reports: keep a file of one',
     description:
-      'Keeps a CSV or Excel file of a saved report or a starter, as it is or for another period and other venues, for the person ' +
-      'to download from Past runs: only they can download it. Kept for 30 days, or 7 when it holds people\'s details (names, ' +
-      'emails, phone numbers). Use when the person asks for a file, a spreadsheet or a download of a report. Give them the link.',
+      'Keeps a CSV, Excel or PDF file of a saved report or a starter, as it is or for another period and other venues, for the ' +
+      'person to download from Past runs: only they can download it. Kept for 30 days, or 7 when it holds people\'s details ' +
+      '(names, emails, phone numbers). Use when the person asks for a file, a spreadsheet, a PDF or a download of a report. ' +
+      'Give them the link.',
     input: z.object({
       report: ReportRef,
-      format: z.enum(['csv', 'xlsx']).optional().describe('csv (the usual) or xlsx for Excel'),
+      format: z.enum(['csv', 'xlsx', 'pdf']).optional().describe('csv (the usual), xlsx for Excel, or pdf: the report as it prints'),
       period: PeriodInput.optional().describe('Another period: relative (last_week, last_n_days with n) or from and to'),
       venues: z.array(z.string().trim().min(1).max(120)).max(50).optional().describe('Venue names; leave out to keep the report\'s own'),
       params: Pinned,
@@ -1007,14 +1066,16 @@ export const reportTools = [
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'reports', 'use')
       const r = await loadReport(ctx, input.report)
+      notAPage(r, PAGE_FILE)
       if (r.runs === false) throw new ToolError('Your role can\'t run "' + r.name + '": it needs ' + (r.needs || 'another area') + '. Ask an owner or admin.', 403)
+      if (input.format === 'pdf' && r.can_pdf === false) throw new ToolError(NO_PDF, 422)
       const params = await runParams(ctx, r.spec, input)
       const cat = await catalogueFor(ctx, 'use')
       const venues = venueNames(await tenantVenueList(ctx))
       const choices = paramInputs(cat, r.spec)
         .map(i => i.label + ': ' + (paramWords(cat, i, params[i.key] ?? i.default, { venues }) || 'anything'))
       return {
-        title: 'Keep ' + (input.format === 'xlsx' ? 'an Excel' : 'a CSV') + ' file of "' + r.name + '"?',
+        title: 'Keep ' + (FILE_WORDS[input.format] || FILE_WORDS.csv) + ' of "' + r.name + '"?',
         lines: [
           ...choices,
           'Kept for 30 days (7 if it holds people\'s details) to download from Past runs. Only you can download it.',
@@ -1026,6 +1087,7 @@ export const reportTools = [
     async run(ctx, input) {
       await requireStaffPermission(ctx, 'reports', 'use')
       const r = await loadReport(ctx, input.report)
+      notAPage(r, PAGE_FILE)
       if (r.runs === false) throw new ToolError('Your role can\'t run "' + r.name + '": it needs ' + (r.needs || 'another area') + '. Ask an owner or admin.', 403)
       const params = input.params || await runParams(ctx, r.spec, input)
       const format = input.format || 'csv'

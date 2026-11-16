@@ -258,6 +258,10 @@ const PrinterBody = z.object({
   host:              z.string().trim().max(120).nullable().optional(),
   port:              z.number().int().min(1).max(65535).default(9100),
   columns:           z.number().int().min(24).max(64).default(42),
+  // Migration 254: the commands the hub sends. 'escpos' (Epson and most), or
+  // 'star' (Star printers in Star Line Mode). Device printers print through
+  // the browser and ignore it.
+  language:          z.enum(['escpos', 'star']).default('escpos'),
   backup_printer_id: UUID.nullable().optional(),
   is_active:         z.boolean().default(true),
 })
@@ -812,7 +816,7 @@ export default async function posSetupRoutes(app) {
       const [streams, orderTypes, printers, devices, areas, tables, staff, roles, courses, menus, kdsStations, kdsFlows, kioskDesigns, jobCounts] = await Promise.all([
         loadStreams(tx, tenantId, venueId),
         loadOrderTypes(tx, tenantId),
-        tx`SELECT id, name, kind, connection, device_id, local_id, host, port, columns, backup_printer_id, sort_order, is_active, status, status_at
+        tx`SELECT id, name, kind, connection, device_id, local_id, host, port, columns, language, backup_printer_id, sort_order, is_active, status, status_at
              FROM pos_printers WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
         tx`SELECT * FROM pos_devices WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY revoked_at NULLS FIRST, created_at`,
         tx`SELECT id, name, width, height, revenue_stream_id, decor, sort_order FROM floor_areas
@@ -1083,10 +1087,10 @@ export default async function posSetupRoutes(app) {
       const { deviceId, localId } = await checkPrinterDevice(tx, req.tenantId, venueId, body)
       const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM pos_printers WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
       const [p] = await tx`
-        INSERT INTO pos_printers (tenant_id, venue_id, name, kind, connection, device_id, local_id, host, port, columns, backup_printer_id, sort_order, is_active)
+        INSERT INTO pos_printers (tenant_id, venue_id, name, kind, connection, device_id, local_id, host, port, columns, language, backup_printer_id, sort_order, is_active)
         VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.kind}, ${body.connection}, ${deviceId}, ${localId},
                 ${body.connection === 'hub' ? body.host || null : null}, ${body.port},
-                ${body.columns}, ${backup}, ${n}, ${body.is_active})
+                ${body.columns}, ${body.language}, ${backup}, ${n}, ${body.is_active})
         RETURNING *`
       return p
     })
@@ -1106,7 +1110,7 @@ export default async function posSetupRoutes(app) {
         UPDATE pos_printers
            SET name = ${body.name}, kind = ${body.kind}, connection = ${body.connection}, device_id = ${deviceId}, local_id = ${localId},
                host = ${body.connection === 'hub' ? body.host || null : null}, port = ${body.port},
-               columns = ${body.columns}, backup_printer_id = ${backup}, is_active = ${body.is_active},
+               columns = ${body.columns}, language = ${body.language}, backup_printer_id = ${backup}, is_active = ${body.is_active},
                status = CASE WHEN ${moved} THEN NULL ELSE status END,
                status_at = CASE WHEN ${moved} THEN NULL ELSE status_at END
          WHERE id = ${id} AND tenant_id = ${req.tenantId}
