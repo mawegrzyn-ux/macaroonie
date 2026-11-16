@@ -206,3 +206,14 @@ test('box problems: names must be there and differ; flow problems still apply to
   const g = box('Grill'), p = box('Pass', 'expo')
   assert.match(flowProblems([g, p], [{ from: g.id, to: p.id, targets: [] }, { from: p.id, to: g.id, targets: [] }])[0], /circle/)
 })
+
+test('Always on a link is kept when a flow is shared and when a shared flow is read at a location', () => {
+  const st = [{ id: uuid(), name: 'Grill', kind: 'prep' }, { id: uuid(), name: 'Pass', kind: 'expo' }]
+  const out = shareFlow([
+    { id: uuid(), from: null, to: st[0].id, targets: [], always: true },
+    { id: uuid(), from: st[0].id, to: st[1].id, targets: [] },
+  ], st)
+  assert.deepEqual(out.links.map(l => l.always), [true, false])
+  const r = resolveSharedFlow(out, { stations: st, devices: [], streams: [] })
+  assert.deepEqual(r.links.map(l => l.always), [true, false])
+})

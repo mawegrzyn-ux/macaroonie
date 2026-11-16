@@ -49,7 +49,7 @@ import { cn } from '@/lib/utils'
 import {
   flowProblems, flowWarnings, itemRoute, KIND_LABELS, START, isBumpKind, resolveSharedFlow, boxProblems, flowName,
 } from '@shared/pos/kitchen.js'
-import { Section, Btn, ErrorNote, ConfirmDelete, inputCls, Modal, Field, SortableRows, Segmented } from './shared'
+import { Section, Btn, ErrorNote, ConfirmDelete, inputCls, Modal, Field, SortableRows, Segmented, Toggle } from './shared'
 
 const NODE_W = 196
 const NODE_H = 72
@@ -107,7 +107,7 @@ function stationsByName(stations) {
 }
 
 // A saved link as the designer edits it (key = its id while unsaved).
-const linkDraft = l => ({ key: l.id, from: l.from || null, to: l.to, targets: l.targets || [], exclude: !!l.exclude })
+const linkDraft = l => ({ key: l.id, from: l.from || null, to: l.to, targets: l.targets || [], exclude: !!l.exclude, always: !!l.always })
 
 function seedDraft(setup, flow) {
   if (flow?.shared) {
@@ -220,10 +220,11 @@ const targetKey = t => t.kind + ':' + (t.name != null ? 'n:' + flowName(t.name) 
 const isExcept = link => !!link.exclude && link.targets.length > 0
 
 function linkSummary(link, lk) {
-  if (!link.targets.length) return 'Every dish'
+  const always = link.always ? 'Always: ' : ''
+  if (!link.targets.length) return always ? always + 'every dish' : 'Every dish'
   const names = link.targets.map(t => targetName(t, lk))
   const list = names.length <= 2 ? names.join(', ') : names[0] + ' +' + (names.length - 1)
-  return isExcept(link) ? 'Except ' + list : list
+  return always + (isExcept(link) ? (always ? 'except ' : 'Except ') + list : list)
 }
 
 export default function KitchenFlow({ venueId, setup, canManage, onStation }) {
@@ -360,7 +361,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
     const existing = draft.links.find(l => (l.from || null) === f && l.to === to)
     if (existing) { setSelected({ link: existing.key }); return }
     const key = newKey()
-    changeLinks(links => [...links, { key, from: f, to, targets: [], exclude: false }])
+    changeLinks(links => [...links, { key, from: f, to, targets: [], exclude: false, always: false }])
     setSelected({ link: key })
   }
   const updateLink = (key, patch) => change(d => ({ ...d, links: d.links.map(l => (l.key === key ? { ...l, ...patch } : l)) }))
@@ -491,11 +492,11 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
     mutationFn: () => api.put(`/pos/kds-flows/${flow.id}`, shared
       ? {
         boxes: draft.boxes.map(b => ({ id: b.id, name: tidyName(b.name), kind: b.kind })),
-        links: draft.links.map(l => ({ from: l.from, to: l.to, targets: l.targets, exclude: isExcept(l) })),
+        links: draft.links.map(l => ({ from: l.from, to: l.to, targets: l.targets, exclude: isExcept(l), always: !!l.always })),
         layout: pos,
       }
       : {
-        links: draft.links.map(l => ({ from: l.from, to: l.to, targets: l.targets, exclude: isExcept(l) })),
+        links: draft.links.map(l => ({ from: l.from, to: l.to, targets: l.targets, exclude: isExcept(l), always: !!l.always })),
         layout: pos,
         off_station_ids: draft.off,
       }),
@@ -559,7 +560,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
           const sel = selLink?.key === l.key
           return (
             <div key={l.key} role="button" tabIndex={0} data-testid="flow-link" data-from={nodeKey(l.from)} data-to={l.to}
-              data-except={isExcept(l) ? 'yes' : undefined}
+              data-except={isExcept(l) ? 'yes' : undefined} data-always={l.always ? 'yes' : undefined}
               onClick={() => { setSelected({ link: l.key }); setConnectFrom(null) }}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected({ link: l.key }) } }}
               title={nameOf(l.from) + ' to ' + nameOf(l.to) + ': ' + (byId[l.from]?.kind === 'balance' ? 'shared' : linkSummary(l, lk))}
@@ -1109,10 +1110,18 @@ function LinkPanel({ link, lk, setup, shared, canManage, nameOf, fromBalance, bo
               options={[{ value: 'only', label: 'Only these' }, { value: 'except', label: 'All except these' }]} />
           </div>
         )}
+        {canManage
+          ? (
+            <div className="mt-1.5">
+              <Toggle label="Always take this arrow" testid="flow-link-always" checked={!!link.always} onChange={v => onChange({ always: v })}
+                hint={'Every dish it takes goes this way too, whatever the other links from ' + nameOf(link.from) + ' decide.'} />
+            </div>
+          )
+          : link.always && <p className="mt-1.5 font-medium" data-testid="flow-link-always-on">Always taken, whatever the other links from {nameOf(link.from)} decide.</p>}
         {!link.targets.length
           ? (
             <p className="text-muted-foreground mt-1.5">
-              Every dish{siblings.length ? ' that no other link from ' + nameOf(link.from) + ' names more closely' : ''}.
+              Every dish{siblings.length && !link.always ? ' that no other link from ' + nameOf(link.from) + ' names more closely' : ''}.
               {canManage && except ? ' Pick below the dishes that don\'t go this way.' : ''}
             </p>
           )
@@ -1132,7 +1141,7 @@ function LinkPanel({ link, lk, setup, shared, canManage, nameOf, fromBalance, bo
                   </span>
                 ))}
               </div>
-              {except && siblings.length > 0 && (
+              {except && !link.always && siblings.length > 0 && (
                 <p className="text-xs text-muted-foreground mt-1.5">A link from {nameOf(link.from)} that names a dish takes it instead.</p>
               )}
             </>
