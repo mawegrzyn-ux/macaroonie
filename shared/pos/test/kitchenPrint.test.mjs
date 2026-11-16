@@ -267,3 +267,30 @@ test('a printer taking every dish gets them beside more specific links to statio
   const other = itemRoute({ item_id: BURGER, section_id: uuid() }, c)
   assert.deepEqual(Object.keys(other).sort(), [GOT, MAIN].sort())
 })
+
+test('an Always link takes every dish it matches beside the most specific links; Always out of a Splitter is refused', () => {
+  const CURRY = uuid(), GRILL = uuid(), BAR = uuid(), SPLIT = uuid()
+  const st = byId([
+    { id: CURRY, name: 'Curry station', kind: 'prep', settings: {} },
+    { id: GRILL, name: 'Grill', kind: 'prep', settings: {} },
+    { id: BAR, name: 'Bar', kind: 'prep', settings: {} },
+  ])
+  const flow = [
+    link(null, CURRY, ['section', FOOD]),
+    link(null, BAR, ['section', DRINKS]),
+    { ...link(null, GRILL), always: true },
+  ]
+  const c = { stations: st, flow }
+  const curry = itemRoute({ item_id: PAD_THAI, section_id: FOOD }, c)
+  assert.deepEqual(Object.keys(curry).sort(), [CURRY, GRILL].sort(), 'a curry goes to its station and the Always link')
+  const drink = itemRoute({ item_id: COLA, section_id: DRINKS }, c)
+  assert.deepEqual(Object.keys(drink).sort(), [BAR, GRILL].sort())
+  const plain = itemRoute({ item_id: PAD_THAI, section_id: FOOD }, { stations: st, flow: flow.map(l => ({ ...l, always: false })) })
+  assert.deepEqual(Object.keys(plain), [CURRY], 'without Always the more specific link wins as before')
+  const onlyDrinks = itemRoute({ item_id: PAD_THAI, section_id: FOOD }, { stations: st, flow: [link(null, CURRY, ['section', FOOD]), { ...link(null, BAR, ['section', DRINKS]), always: true }] })
+  assert.deepEqual(Object.keys(onlyDrinks), [CURRY], 'an Always link only takes the dishes it matches')
+
+  const st2 = byId([{ id: SPLIT, name: 'Split', kind: 'balance', settings: {} }, { id: CURRY, name: 'C', kind: 'prep', settings: {} }, { id: GRILL, name: 'G', kind: 'prep', settings: {} }])
+  const probs = flowProblems(Object.values(st2), [link(null, SPLIT), { ...link(SPLIT, CURRY), always: true }, link(SPLIT, GRILL)])
+  assert.ok(probs.some(p => /can't be set to Always/.test(p)), probs.join('; '))
+})

@@ -662,3 +662,46 @@ test('an Except link: every dish but the ones it names; saved, shared, copied an
   for (const f of [copy, back, everywhere, flow]) await ok(owner.delete(`/api/pos/kds-flows/${f.id}`))
   await ok(owner.delete(`/api/pos/kds-stations/${box.id}`))
 })
+
+test('an Always link: saved, read back, routed beside the most specific link, kept by copies, refused out of a Splitter', async () => {
+  const flow = await ok(owner.post(`/api/pos/venues/${V}/kds-flows`, { name: 'Always test' }))
+  // The dish's section goes to the wok; the grill's link for every dish is Always, so it goes there too.
+  const links = [
+    { from: null, to: wok.id, targets: [{ kind: 'section', id: dish.section_id }] },
+    { from: null, to: grill.id, targets: [], always: true },
+    { from: wok.id, to: pass.id, targets: [] },
+    { from: grill.id, to: pass.id, targets: [] },
+  ]
+  const toGrill = list => list.find(l => l.to === grill.id && !l.from)
+  const saved = await ok(owner.put(`/api/pos/kds-flows/${flow.id}`, { links, layout: {} }))
+  assert.equal(toGrill(saved.links).always, true)
+  assert.equal(saved.links.find(l => l.to === wok.id && !l.from).always, false)
+  const setup = await ok(owner.get(`/api/pos/venues/${V}/setup`))
+  assert.equal(toGrill(setup.kds_flows.find(f => f.id === flow.id).links).always, true, 'the setup page has it')
+
+  const box = await ok(owner.post(`/api/pos/venues/${V}/kds-stations`, { name: 'Always box', kind: 'balance', settings: {} }))
+  const fromBox = await owner.put(`/api/pos/kds-flows/${flow.id}`, { links: [
+    { from: null, to: box.id, targets: [] }, { from: box.id, to: grill.id, targets: [], always: true }, { from: box.id, to: wok.id, targets: [] },
+  ], layout: {} })
+  assert.equal(fromBox.status, 422)
+  assert.match(fromBox.json.error, /can't be set to Always/)
+
+  await ok(owner.put(`/api/pos/venues/${V}/kds-flows/active`, { flow_id: flow.id }))
+  const config = await device(screen, 'GET', '/pos-api/config')
+  assert.equal(toGrill(config.json.flow).always, true)
+  assert.ok((await sequencer(ids.a, V).submit(orderIn(801))).ok)
+  assert.deepEqual(await wayOf(801), sorted([wok.id, grill.id, pass.id]), 'the wok by its section and the grill by Always')
+
+  const copy = await ok(owner.post(`/api/pos/venues/${V}/kds-flows`, { name: 'Always copy', copy_from: flow.id }))
+  assert.equal(toGrill(copy.links).always, true)
+  const everywhere = await ok(owner.post(`/api/pos/venues/${V}/kds-flows`, { name: 'Always everywhere', copy_from: flow.id, shared: true }))
+  assert.equal(everywhere.links.find(l => !l.from && l.to === grill.id).always, true)
+  const sharedSave = await ok(owner.put(`/api/pos/kds-flows/${everywhere.id}`, { boxes: everywhere.boxes, links: everywhere.links, layout: {} }))
+  assert.equal(sharedSave.links.find(l => !l.from && l.to === grill.id).always, true)
+  const back = await ok(owner.post(`/api/pos/venues/${V}/kds-flows`, { name: 'Always back', copy_from: everywhere.id }))
+  assert.equal(toGrill(back.links).always, true)
+
+  await ok(owner.put(`/api/pos/venues/${V}/kds-flows/active`, { flow_id: main.id }))
+  for (const f of [copy, back, everywhere, flow]) await ok(owner.delete(`/api/pos/kds-flows/${f.id}`))
+  await ok(owner.delete(`/api/pos/kds-stations/${box.id}`))
+})

@@ -110,7 +110,7 @@ export async function flowPlace(tx, tenantId, venueId, stations) {
 }
 
 /**
- * A flow's links between the given stations: [{ id, from, to, targets, exclude }].
+ * A flow's links between the given stations: [{ id, from, to, targets, exclude, always }].
  * flow is a row from loadFlows() (or an id of the venue's own flow). A shared
  * flow is resolved at the venue: place = flowPlace() (loaded when not given).
  */
@@ -123,7 +123,7 @@ export async function loadFlow(tx, tenantId, flow, stations, { venueId = null, p
       .filter(l => live.has(l.to) && (!l.from || live.has(l.from)))
   }
   const rows = await tx`
-    SELECT id, from_station_id AS "from", to_station_id AS "to", targets, exclude
+    SELECT id, from_station_id AS "from", to_station_id AS "to", targets, exclude, always
       FROM kds_flow_edges WHERE tenant_id = ${tenantId} AND flow_id = ${flow.id || flow}
      ORDER BY sort_order, created_at`
   return rows.filter(l => live.has(l.to) && (!l.from || live.has(l.from)))

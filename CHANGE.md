@@ -6,6 +6,15 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-16 — Always take this arrow in the kitchen flow]
+
+A kitchen flow link can be set to **Always take this arrow** (tap its label in the Kitchen flow designer). An Always link is followed by every dish it matches, beside whatever the other links out of that box decide: Curries to the Curry station and every dish to the Grill (Always) sends a curry to both. Links without it keep the most-specific rule; saved flows don't change. Its label starts *Always:*, and Check a dish shows both ways. Links out of a Splitter can't be Always. The venue hub updates itself to the new rules.
+
+Migration: `255_flow_link_always.sql` (`kds_flow_edges.always`).
+
+---
+
+
 ## [2026-11-16 — Kitchen printers in the flow get every dish they should]
 
 A kitchen printer box linked from Orders in for every dish printed nothing when other links from Orders in named sections or left some out (Curries to the Curry station, All except Curries to a Setter): from each box a dish takes only the most specific links, and the printer's link for every dish never won. Links to kitchen printers are now compared only with other links to kitchen printers (`nextStations()` in `shared/pos/kitchen.js`). The venue hub updates itself to the new rules. No migration.

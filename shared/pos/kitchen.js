@@ -353,10 +353,12 @@ export function kitchenOrdersForCheckEvent(e) {
 // ── The flow ───────────────────────────────────────────────────
 //
 // cfg.stations  { [id]: { id, name, kind, settings } }  (stations in use)
-// cfg.flow      [{ id, from: stationId | null, to: stationId, targets: [{ kind, id }], exclude }]
+// cfg.flow      [{ id, from: stationId | null, to: stationId, targets: [{ kind, id }], exclude, always }]
 //               from null = Orders in; targets [] = everything. exclude: the
 //               link takes every dish but the ones its targets name (Except);
-//               with no targets it means nothing (every dish). A shared flow
+//               with no targets it means nothing (every dish). always: every
+//               dish the link takes follows it, whatever the other links out
+//               of the same box decide (migration 255). A shared flow
 //               (resolveSharedFlow()) arrives here already in this shape.
 
 /** Does one filter entry name the dish? */
@@ -392,13 +394,16 @@ export function linkRank(link, target) {
 
 /**
  * The stations a dish goes on to from `from` (null = Orders in): the most
- * specific links that take it (ties all apply). Links to kitchen printers are
- * ranked only against other links to kitchen printers, so a printer taking
- * every dish still gets the dishes a more specific link sends to a station.
+ * specific links that take it (ties all apply), and every Always link that
+ * takes it. Links to kitchen printers are ranked only against other links to
+ * kitchen printers, so a printer taking every dish still gets the dishes a
+ * more specific link sends to a station.
  */
 export function nextStations(from, target, cfg) {
-  const links = (cfg.flow || []).filter(l => (l.from || null) === (from || null) && cfg.stations?.[l.to])
+  const all = (cfg.flow || []).filter(l => (l.from || null) === (from || null) && cfg.stations?.[l.to])
   const out = new Set()
+  for (const l of all) if (l.always && linkRank(l, target) !== Infinity) out.add(l.to)
+  const links = all.filter(l => !l.always)
   for (const printer of [false, true]) {
     let best = Infinity
     const ranked = links.filter(l => (cfg.stations[l.to].kind === 'printer') === printer).map(l => {
@@ -786,6 +791,7 @@ export function flowProblems(stations, links) {
     if (l.from && byId[l.from].kind === 'balance') {
       if (!isBumpKind(byId[l.to].kind)) out.push(name(l.from) + ' shares dishes between kitchen stations: link it to prep stations, an expo or runners')
       if ((l.targets || []).length) out.push('Links out of ' + name(l.from) + ' take every dish it gets: remove their filters')
+      if (l.always) out.push('Links out of ' + name(l.from) + ' share its dishes: they can\'t be set to Always')
     }
     const key = (l.from || START) + '>' + l.to
     if (pairs.has(key)) out.push(name(l.from) + ' links to ' + name(l.to) + ' twice')
@@ -861,7 +867,7 @@ export function flowWarnings(stations, links) {
 // dishes, sections and order types by id (the company's) and revenue streams
 // and tills / kiosks by name (each location has its own).
 //   flow.boxes  [{ id, name, kind }]
-//   flow.links  [{ id, from: boxId | null, to: boxId, targets: [{ kind, id } | { kind, name }], exclude }]
+//   flow.links  [{ id, from: boxId | null, to: boxId, targets: [{ kind, id } | { kind, name }], exclude, always }]
 
 /** A station, stream or till name as matched across locations. */
 export const flowName = v => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase()
@@ -908,7 +914,7 @@ export function resolveSharedFlow(flow, place = {}) {
     const to = matches[l.to]
     const from = l.from ? matches[l.from] : null
     if (!to || (l.from && !from)) continue
-    links.push({ id: l.id, from, to, targets: targets(l.targets), exclude: isExcept(l) })
+    links.push({ id: l.id, from, to, targets: targets(l.targets), exclude: isExcept(l), always: !!l.always })
   }
   return { links, matches, missing, differs }
 }
@@ -944,7 +950,7 @@ export function shareFlow(links, stations, names = {}) {
     // A link whose every filter has gone took only those dishes: it goes too
     // (an Except link took the rest: it now takes every dish).
     if ((l.targets || []).length && !targets.length && !isExcept(l)) continue
-    out.push({ id: l.id, from: l.from || null, to: l.to, targets, exclude: isExcept(l) && targets.length > 0 })
+    out.push({ id: l.id, from: l.from || null, to: l.to, targets, exclude: isExcept(l) && targets.length > 0, always: !!l.always })
   }
   return { boxes, links: out }
 }
