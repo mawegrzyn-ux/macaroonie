@@ -390,17 +390,26 @@ export function linkRank(link, target) {
   return best
 }
 
-/** The stations a dish goes on to from `from` (null = Orders in). */
+/**
+ * The stations a dish goes on to from `from` (null = Orders in): the most
+ * specific links that take it (ties all apply). Links to kitchen printers are
+ * ranked only against other links to kitchen printers, so a printer taking
+ * every dish still gets the dishes a more specific link sends to a station.
+ */
 export function nextStations(from, target, cfg) {
   const links = (cfg.flow || []).filter(l => (l.from || null) === (from || null) && cfg.stations?.[l.to])
-  let best = Infinity
-  const ranked = links.map(l => {
-    const r = linkRank(l, target)
-    if (r < best) best = r
-    return [l, r]
-  })
-  if (best === Infinity) return []
-  return [...new Set(ranked.filter(([, r]) => r === best).map(([l]) => l.to))]
+  const out = new Set()
+  for (const printer of [false, true]) {
+    let best = Infinity
+    const ranked = links.filter(l => (cfg.stations[l.to].kind === 'printer') === printer).map(l => {
+      const r = linkRank(l, target)
+      if (r < best) best = r
+      return [l, r]
+    })
+    if (best === Infinity) continue
+    for (const [l, r] of ranked) if (r === best) out.add(l.to)
+  }
+  return [...out]
 }
 
 /**

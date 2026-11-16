@@ -5457,7 +5457,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               one target; with none it is a link for every dish, and the API saves it as one). From each node a
               dish takes every link whose filter names it most specifically (<Mono>linkRank()</Mono>: item 0,
               section 1, device 2, revenue stream 3, order type 4, an Except link that doesn&apos;t leave the dish
-              out 5, every dish 6; ties all apply;{' '}
+              out 5, every dish 6; ties all apply; links to kitchen printers are ranked only against other links to kitchen printers, so a printer for every dish still gets the dishes a more specific link sends to a station;{' '}
               <Mono>nextStations()</Mono>). When a dish is sent, <Mono>itemRoute()</Mono> works out its whole way
               and stores it on the item as <Mono>{'route: { [node]: [the nodes before it, \'start\' = Orders in] }'}</Mono>{' '}
               (combo parts each get their own way, merged for the item), so a flow change only affects

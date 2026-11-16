@@ -11,7 +11,7 @@ import assert from 'node:assert/strict'
 import { ulid } from '../ids.js'
 import { applyEvent } from '../checks.js'
 import { createSequencer } from '../sequencer.js'
-import { kitchenForCheckEvent, applyKitchenEvent, flowProblems, onlineOrderId, nodeState } from '../kitchen.js'
+import { kitchenForCheckEvent, applyKitchenEvent, flowProblems, onlineOrderId, nodeState, itemRoute } from '../kitchen.js'
 import { kitchenPrintJobs, printsDue, hasPrinters } from '../kitchenPrint.js'
 import { toText } from '../tickets.js'
 import { defaultLayout } from '../ticketLayout.js'
@@ -243,4 +243,27 @@ test('a Sleeper before a printer: the ticket prints once the wait is over (the m
   assert.equal(printsDue(t.orders, kcfg, wake), true)
   const due = kitchenPrintJobs(structuredClone(t.orders), kcfg, wake)
   assert.deepEqual(due.jobs.map(j => [j.printer_id, j.kind]), [['pK', 'kitchen']])
+})
+
+test('a printer taking every dish gets them beside more specific links to stations; printers rank among themselves', () => {
+  const CURRY = uuid(), GOT = uuid(), MAIN = uuid(), BARP = uuid()
+  const st = byId([
+    { id: CURRY, name: 'Curry station', kind: 'prep', settings: {} },
+    { id: GOT, name: 'We got it', kind: 'setter', settings: {} },
+    { id: MAIN, name: 'Main kitchen printer', kind: 'printer', settings: { printer_id: 'pM' } },
+    { id: BARP, name: 'Bar printer', kind: 'printer', settings: { printer_id: 'pB' } },
+  ])
+  const flow = [
+    link(null, CURRY, ['section', FOOD]),
+    { ...link(null, GOT, ['section', FOOD]), exclude: true },
+    link(null, MAIN),
+    link(null, BARP, ['section', DRINKS]),
+  ]
+  const c = { stations: st, flow }
+  const curry = itemRoute({ item_id: PAD_THAI, section_id: FOOD }, c)
+  assert.deepEqual(Object.keys(curry).sort(), [CURRY, MAIN].sort(), 'a curry: its station and the main printer')
+  const drink = itemRoute({ item_id: COLA, section_id: DRINKS }, c)
+  assert.deepEqual(Object.keys(drink).sort(), [GOT, BARP].sort(), 'a drink: the setter, and the bar printer over the every-dish printer')
+  const other = itemRoute({ item_id: BURGER, section_id: uuid() }, c)
+  assert.deepEqual(Object.keys(other).sort(), [GOT, MAIN].sort())
 })
