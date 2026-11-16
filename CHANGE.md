@@ -6,6 +6,11 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-16 — Kitchen printers in the flow get every dish they should]
+
+A kitchen printer box linked from Orders in for every dish printed nothing when other links from Orders in named sections or left some out (Curries to the Curry station, All except Curries to a Setter): from each box a dish takes only the most specific links, and the printer's link for every dish never won. Links to kitchen printers are now compared only with other links to kitchen printers (`nextStations()` in `shared/pos/kitchen.js`). The venue hub updates itself to the new rules. No migration.
+
+
 ## [2026-11-16 — Star printers print properly]
 
 Migration 254 (`pos_printers.language`).
