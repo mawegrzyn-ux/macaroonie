@@ -25,6 +25,14 @@ const KINDS = [
   { value: 'station', label: 'Kitchen / bar' },
   { value: 'receipt', label: 'Receipts' },
 ]
+// The commands the venue hub sends (pos_printers.language, migration 254).
+const LANGUAGES = [
+  { value: 'escpos', label: 'Epson / ESC/POS' },
+  { value: 'star', label: 'Star' },
+]
+// A name that sounds like a Star printer (a USB printer the hub found).
+const looksStar = name => /\bstar\b|\btsp ?\d|\bsp ?7\d\d|mc-?print/i.test(name || '')
+
 // 'hub_usb' is the form's own word for connection 'device' + a venue hub.
 const CONNECTIONS = [
   { value: 'hub', label: 'On the network' },
@@ -90,6 +98,7 @@ export function PrinterModal({ venueId, setup, printer, preset, onClose }) {
     device_id: printer?.device_id || preset?.device_id || (startOnHub ? defaultHub(hubs) : ''),
     local_id: printer?.local_id || preset?.local_id || '',
     host: printer?.host || '', port: printer?.port ?? 9100, columns: printer?.columns ?? 42,
+    language: printer?.language || (looksStar(preset?.name) ? 'star' : 'escpos'),
     backup_printer_id: printer?.backup_printer_id || '', is_active: printer ? printer.is_active : true,
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
@@ -103,7 +112,7 @@ export function PrinterModal({ venueId, setup, printer, preset, onClose }) {
     host: onNetwork ? (form.host.trim() || null) : null,
     device_id: onNetwork ? null : usb ? hubId || null : (form.device_id || null),
     local_id: usb ? form.local_id || null : null,
-    port: form.port || 9100, columns: form.columns || 42,
+    port: form.port || 9100, columns: form.columns || 42, language: form.language,
     backup_printer_id: onNetwork || usb ? (form.backup_printer_id || null) : null,
   })
   const save = useMutation({
@@ -130,7 +139,7 @@ export function PrinterModal({ venueId, setup, printer, preset, onClose }) {
       </Field>
       {onNetwork && (
         <>
-          <p className="text-xs text-muted-foreground">An Epson (or other ESC/POS) printer with a network cable or Wi-Fi. The venue hub prints to it: link one on the Venue hub page (Store tech).</p>
+          <p className="text-xs text-muted-foreground">A receipt or kitchen printer (Epson, Star and others) with a network cable or Wi-Fi. The venue hub prints to it: link one on the Venue hub page (Store tech).</p>
           <div className="flex flex-wrap gap-4">
             <Field label="IP address" hint="Give the printer a fixed address on the router.">
               <input className={cn(inputCls, 'w-48')} value={form.host} maxLength={120} onChange={e => set({ host: e.target.value })} placeholder="192.168.1.50" inputMode="decimal" data-testid="printer-host" />
@@ -140,7 +149,12 @@ export function PrinterModal({ venueId, setup, printer, preset, onClose }) {
         </>
       )}
       {usb && <HubPrinterPick setup={setup} hubs={hubs} hubId={hubId} localId={form.local_id}
-        selfId={printer?.id} onHub={id => set({ device_id: id, local_id: '' })} onPick={(id, name) => set({ local_id: id, ...(!form.name.trim() && name ? { name } : {}) })} />}
+        selfId={printer?.id} onHub={id => set({ device_id: id, local_id: '' })} onPick={(id, name) => set({ local_id: id, ...(!form.name.trim() && name ? { name } : {}), ...(looksStar(name) ? { language: 'star' } : {}) })} />}
+      {(onNetwork || usb) && (
+        <Field group label="Printer language" hint="Star printers (TSP, SP700, mC-Print) speak Star unless they were switched to ESC/POS. Stray ! and B characters on every line, or a wrong £ sign, mean the other one.">
+          <Segmented value={form.language} options={LANGUAGES} onChange={v => set({ language: v })} testid="printer-language" />
+        </Field>
+      )}
       {(onNetwork || usb) && (
         <Field label="Backup printer" hint="The hub prints here when this one doesn't answer.">
           <select className={inputCls} value={form.backup_printer_id} onChange={e => set({ backup_printer_id: e.target.value })}>
@@ -285,7 +299,7 @@ export default function PrintersSection({ venueId, setup, canManage }) {
                   <div className="flex-1 min-w-[160px]">
                     <p className={cn('text-sm font-medium', !p.is_active && 'line-through text-muted-foreground')}>{p.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      {p.kind === 'receipt' ? 'Receipts' : 'Kitchen / bar'} · {where(p)} · {p.columns} characters
+                      {p.kind === 'receipt' ? 'Receipts' : 'Kitchen / bar'} · {where(p)} · {p.columns} characters{p.connection === 'hub' || onHub(p, setup) ? (p.language === 'star' ? ' · Star' : '') : ''}
                       {p.backup_printer_id && ' · backup ' + (setup.printers.find(x => x.id === p.backup_printer_id)?.name || '')}
                     </p>
                     <p className={cn('text-xs', TONE[tone])} data-testid="printer-state">{text}</p>

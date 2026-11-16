@@ -465,7 +465,7 @@ export async function hubConfig(tx, tenantId, venueId, hubId) {
   const venue = await ownVenue(tx, tenantId, venueId)
   const [printers, [hub]] = await Promise.all([
     tx`
-      SELECT id, name, kind, connection, host, port, columns, backup_printer_id, local_id FROM pos_printers
+      SELECT id, name, kind, connection, host, port, columns, language, backup_printer_id, local_id FROM pos_printers
        WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active
          AND (connection = 'hub' OR connection = 'device' AND device_id = ${hubId})
        ORDER BY sort_order, name`,
@@ -482,7 +482,7 @@ export async function hubConfig(tx, tenantId, venueId, hubId) {
     printers: printers.map(p => ({
       id: p.id, name: p.name, kind: p.kind,
       interface: p.connection === 'device' ? 'usb' : 'network',
-      host: p.connection === 'device' ? null : p.host, port: p.port, columns: p.columns,
+      host: p.connection === 'device' ? null : p.host, port: p.port, columns: p.columns, language: p.language,
       local_id: p.connection === 'device' ? p.local_id : null,
       backup_printer_id: p.backup_printer_id,
     })),

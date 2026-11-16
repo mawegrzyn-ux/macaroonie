@@ -52,8 +52,11 @@ export function print({ host, port = 9100, data, attempts = 3, timeoutMs = 5000 
 /**
  * Ask the printer for its status. Resolves to
  * { online, paperNearEnd, paperOut, coverOpen } or null when the printer doesn't answer.
+ * A Star printer in Star Line Mode (`language` 'star') isn't asked: DLE EOT is
+ * an Epson question it would misread. It is only checked for a connection
+ * (null = reachable, state unknown).
  */
-export function printerStatus({ host, port = 9100, timeoutMs = 3000 }) {
+export function printerStatus({ host, port = 9100, timeoutMs = 3000, language = 'escpos' }) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ host, port })
     const replies = []
@@ -78,6 +81,7 @@ export function printerStatus({ host, port = 9100, timeoutMs = 3000 }) {
     // DLE EOT 1 (printer), 2 (offline cause), 4 (paper roll sensor)
     socket.on('connect', () => {
       connected = true
+      if (language === 'star') return finish(null, null)
       socket.write(Buffer.from([0x10, 0x04, 1, 0x10, 0x04, 2, 0x10, 0x04, 4]))
     })
   })

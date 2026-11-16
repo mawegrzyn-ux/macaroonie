@@ -398,7 +398,7 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
   if (stream && orderType && chargeSvc && chargePack) {
     await step('charge rules', () => put(`/api/pos/venues/${V}/charge-rules`, { rules: [chargeSvc, chargePack, chargeCup].filter(Boolean).map(x => ({ charge_id: x.id, revenue_stream_id: stream.id, order_type_id: orderType.id })) }))
   }
-  const printer = await step('printer', () => post(`/api/pos/venues/${V}/printers`, { name: mark + ' Kitchen', host: '192.168.1.50' }))
+  const printer = await step('printer', () => post(`/api/pos/venues/${V}/printers`, { name: mark + ' Kitchen', host: '192.168.1.50', language: 'star' }))
   // Devices show a code of their own and are linked by it (migration 184):
   // a till from Store tech, a kitchen screen from the installer.
   const tillDevice = await step('till device', async () => {

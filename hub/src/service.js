@@ -129,7 +129,7 @@ export function startHub({
   const ready = p => p && (p.interface === 'usb' ? !!p.local_id : !!p.host)
 
   function send(p, job) {
-    const data = render(job.ops, { cols: p.columns || 42 })
+    const data = render(job.ops, { cols: p.columns || 42, language: p.language || 'escpos' })
     return p.interface === 'usb'
       ? local.print({ id: p.local_id, data, sys: local.sys })
       : print({ host: p.host, port: p.port || 9100, data })
@@ -281,8 +281,8 @@ export function startHub({
         let entry
         try {
           const s = p.interface === 'usb'
-            ? await local.status({ id: p.local_id, sys: local.sys, found })
-            : await printerStatus({ host: p.host, port: p.port || 9100 })
+            ? await local.status({ id: p.local_id, sys: local.sys, found, language: p.language })
+            : await printerStatus({ host: p.host, port: p.port || 9100, language: p.language })
           // No answer to the status question (some clones, some USB links): reachable, state unknown.
           entry = s
             ? { id: p.id, online: !!s.online, paper_low: !!s.paperNearEnd, paper_out: !!s.paperOut, cover_open: !!s.coverOpen, error: s.error || null }

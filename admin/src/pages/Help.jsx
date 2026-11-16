@@ -6849,10 +6849,17 @@ export default function Help() {
               the kitchen or bar or for receipts, and how it is connected:
             </P>
             <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li><strong>On the network</strong>: an Epson (or other ESC/POS) printer with a network cable or Wi-Fi. Give it a fixed address on the router and type it here (port 9100). The <strong>venue hub</strong> prints to it, and can use a <strong>backup printer</strong> when it doesn&apos;t answer.</li>
+              <li><strong>On the network</strong>: a receipt or kitchen printer (Epson, Star and others) with a network cable or Wi-Fi. Give it a fixed address on the router and type it here (port 9100). The <strong>venue hub</strong> prints to it, and can use a <strong>backup printer</strong> when it doesn&apos;t answer.</li>
               <li><strong>USB on the hub</strong>: a USB receipt printer plugged into the venue hub&apos;s mini PC. Pick it from the printers the hub found (it lists them every minute). The hub prints to it like a network printer, can use a backup printer, and says how it is.</li>
               <li><strong>Plugged into a till or screen</strong>: a USB or Bluetooth printer set up as the printer of a till, kitchen screen or kiosk. That device prints its tickets through Chrome. Start Chrome with <strong>--kiosk-printing</strong> so it prints without asking each time. A kiosk&apos;s printer prints that kiosk&apos;s receipts only.</li>
             </ul>
+            <P>
+              For printers the hub prints to, pick the <strong>Printer language</strong>: <strong>Epson / ESC/POS</strong>{' '}
+              (Epson and most others) or <strong>Star</strong> (Star printers such as the TSP650 and SP700, which speak Star
+              unless someone switched them to ESC/POS). If tickets come out with a stray <strong>!</strong> and{' '}
+              <strong>B</strong> on every line, or the £ sign is wrong, the language is the wrong one: change it and print the
+              ticket again from <strong>Tickets</strong>. The hub picks the change up within a minute.
+            </P>
             <P>
               The <strong>venue hub</strong> is a small program on a mini PC on the venue&apos;s network, next to the printers.
               It has its own page, Store tech → <strong>Venue hub</strong> (see Set up the venue hub on a mini PC below); the

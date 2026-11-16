@@ -5149,8 +5149,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>printsHere()</Mono>: no job is queued then). A kiosk&apos;s printer prints its own receipts only (refused as a
               printer box). Failed jobs: <Mono>POST /api/pos/print-jobs/:id/again</Mono>. Browser printing: a hidden iframe
               (<Mono>pos/src/lib/print.js</Mono>, HTML from <Mono>opsHtml()</Mono> in <Mono>shared/pos/ticketHtml.js</Mono>);
-              the hub turns the same operations into ESC/POS (<Mono>hub/src/escpos.js</Mono>) and tries the printer&apos;s
-              backup when it doesn&apos;t answer.
+              the hub turns the same operations into printer bytes (<Mono>render()</Mono> in <Mono>hub/src/escpos.js</Mono>) and
+              tries the printer&apos;s backup when it doesn&apos;t answer. Migration 254: <Mono>pos_printers.language</Mono>{' '}
+              <Mono>escpos</Mono> (the default) or <Mono>star</Mono> (Star Line Mode: <Mono>ESC GS t 32</Mono> for code page
+              1252, <Mono>ESC E</Mono> / <Mono>ESC F</Mono> bold, <Mono>ESC i</Mono> size, <Mono>ESC 4</Mono> /{' '}
+              <Mono>ESC 5</Mono> highlight, alignment by spaces, <Mono>ESC d 3</Mono> cut, <Mono>BEL</Mono> drawer; no GS
+              command, which Star prints as text). It goes to the hub in <Mono>hubConfig()</Mono>; the hub never asks a Star
+              printer Epson&apos;s DLE EOT status question (a connection check only).
             </P>
             <H3>The venue hub on a mini PC</H3>
             <P>
