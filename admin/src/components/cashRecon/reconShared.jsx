@@ -40,13 +40,13 @@ export function money(n, currency = 'GBP') {
   }
 }
 
-/** Cash Recon permissions for these links: fill = manage; setup = manage + owner/admin. */
+/** Cash Recon permissions for these links: fill = Use or Manage; setup = Manage + owner/admin. */
 export function useReconLinkPerms() {
   const api = useApi()
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 60_000 })
   const level = me?.is_platform_admin ? 'manage' : (me?.permissions?.cash_recon ?? 'none')
-  const canFill = level === 'manage'
-  const canSetup = canFill && (!!me?.is_platform_admin || ['owner', 'admin'].includes(me?.role))
+  const canFill = level === 'use' || level === 'manage'
+  const canSetup = level === 'manage' && (!!me?.is_platform_admin || ['owner', 'admin'].includes(me?.role))
   return { canFill, canSetup, ready: !!me }
 }
 

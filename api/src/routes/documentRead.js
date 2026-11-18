@@ -176,7 +176,7 @@ export default async function documentReadRoutes(app) {
 
   app.post('/receipts/read', {
     bodyLimit: b64(MAX_PDF) + 16 * 1024,
-    preHandler: [requirePermission('cash_recon', 'manage'), requirePermission('ai_assistant', 'view')],
+    preHandler: [requirePermission('cash_recon', 'use'), requirePermission('ai_assistant', 'view')],
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
   }, async req => {
     const body = ReceiptBody.parse(req.body)

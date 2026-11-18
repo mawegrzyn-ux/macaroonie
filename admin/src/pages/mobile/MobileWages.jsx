@@ -21,7 +21,7 @@ import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 
 export default function MobileWages() {
   const api = useApi()
-  const { canManage } = usePermission('cash_recon')
+  const { canUse, canManage } = usePermission('cash_recon')
   const [venueId,   setVenueId]   = useState('')
   const [weekStart, setWeekStart] = useState(getMonday(new Date()))
 
@@ -57,8 +57,8 @@ export default function MobileWages() {
         </button>
       )}
 
-      {venueId && !canManage && <ReadOnlyNotice what="the wages" />}
-      {venueId && <WeekWagesEditor venueId={venueId} weekStart={weekStart} layout="cards" showWeekNotes showBank={false} hidePaidOnForAll readOnly={!canManage} />}
+      {venueId && !canUse && <ReadOnlyNotice what="the wages" />}
+      {venueId && <WeekWagesEditor venueId={venueId} weekStart={weekStart} layout="cards" showWeekNotes showBank={false} hidePaidOnForAll readOnly={!canUse} canSetDefault={canManage} />}
     </div>
   )
 }

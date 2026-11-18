@@ -36,24 +36,24 @@ test('the levels: Use only where a module offers it, ranked between View and Man
   assert.deepEqual(levelsOf('checklists'), ['none', 'view', 'use', 'manage'])
   assert.deepEqual(levelsOf('food_safety'), ['none', 'view', 'use', 'manage'])
   assert.deepEqual(levelsOf('hs_action_log'), ['none', 'view', 'use', 'manage'])
-  assert.deepEqual(levelsOf('cash_recon'), ['none', 'view', 'manage'])
+  assert.deepEqual(levelsOf('menus'), ['none', 'view', 'manage'])
   assert.equal(workLevel('checklists'), 'use')
-  assert.equal(workLevel('cash_recon'), 'manage')
+  assert.equal(workLevel('menus'), 'manage')
   assert.ok(permissionAtLeast('use', 'view') && permissionAtLeast('manage', 'use') && !permissionAtLeast('view', 'use') && !permissionAtLeast('use', 'manage'))
   assert.ok(!permissionAtLeast(undefined, 'view') && !permissionAtLeast('nonsense', 'view'), 'an unknown level passes nothing')
   // A 'use' stored where it isn't offered counts as view, never more.
-  assert.equal(resolvePermission('cash_recon', { cash_recon: 'use' }, null), 'view')
+  assert.equal(resolvePermission('menus', { menus: 'use' }, null), 'view')
   assert.equal(resolvePermission('checklists', { checklists: 'use' }, null), 'use')
 
   const mods = await ok(owner.get('/api/access/modules'))
   assert.deepEqual(mods.find(m => m.key === 'checklists').levels, ['none', 'view', 'use', 'manage'])
-  assert.deepEqual(mods.find(m => m.key === 'cash_recon').levels, ['none', 'view', 'manage'])
+  assert.deepEqual(mods.find(m => m.key === 'menus').levels, ['none', 'view', 'manage'])
   assert.match(mods.find(m => m.key === 'food_safety').use, /Log and correct/)
 
   // The role routes refuse Use where it isn't offered.
-  const bad = await owner.post('/api/access/roles', { key: 'cashier', label: 'Cashier', permissions: { cash_recon: 'use' } })
+  const bad = await owner.post('/api/access/roles', { key: 'cashier', label: 'Cashier', permissions: { menus: 'use' } })
   assert.equal(bad.status, 400)
-  assert.match(bad.json.error, /Cash reconciliation has no use level/)
+  assert.match(bad.json.error, /Menus has no use level/)
   const bad2 = await owner.patch(`/api/access/roles/${supRole.id}`, { permissions: { checklists: 'use', menus: 'use' } })
   assert.equal(bad2.status, 400)
   const fine = await owner.patch(`/api/access/roles/${role('viewer').id}`, { permissions: { ...role('viewer').permissions, checklists: 'view' } })
@@ -130,9 +130,9 @@ test('Pepper: the H&S change tools need Use, the connector lists them for Use', 
   const viewLevels = { checklists: 'view', food_safety: 'view', hs_action_log: 'view' }
   assert.ok(hsChange.every(t => toolAllowed(t, useLevels)), 'listed for Use')
   assert.ok(hsChange.every(t => !toolAllowed(t, viewLevels)), 'not for View')
-  const cashChange = staff.find(t => t.section === 'cash' && t.confirm)
-  assert.ok(!toolAllowed(cashChange, { cash_recon: 'use' }), 'a stored use elsewhere doesn\'t open change tools')
-  assert.ok(toolAllowed(cashChange, { cash_recon: 'manage' }))
+  const menuChange = staff.find(t => t.section === 'menus' && t.confirm)
+  assert.ok(!toolAllowed(menuChange, { menus: 'use' }), 'a stored use elsewhere doesn\'t open change tools')
+  assert.ok(toolAllowed(menuChange, { menus: 'manage' }))
 })
 
 test('dashboards: hidden from roles, every dashboard while editing the layout', async () => {

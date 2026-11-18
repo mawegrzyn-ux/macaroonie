@@ -71,6 +71,7 @@ import { z } from 'zod'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission, permissionLevel } from '../middleware/auth.js'
+import { permissionAtLeast } from '../config/modules.js'
 import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import {
@@ -2445,7 +2446,7 @@ export default async function posSetupRoutes(app) {
   app.post('/venues/:venueId/days/:dayId/fill-recon', { preHandler: canReportsManage }, async req => {
     const venueId = UUID.parse(req.params.venueId)
     const dayId = UUID.parse(req.params.dayId)
-    if ((await permissionLevel(req, 'cash_recon')) !== 'manage') throw httpError(403, 'Filling Cash Recon needs Cash reconciliation manage')
+    if (!permissionAtLeast(await permissionLevel(req, 'cash_recon'), 'use')) throw httpError(403, 'Filling Cash Recon needs Use on Cash reconciliation')
     await withTenant(req.tenantId, tx => ownVenue(tx, req.tenantId, venueId))
     return fillReconFromDay(req.tenantId, venueId, dayId, by(req))
   })
