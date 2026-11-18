@@ -6,6 +6,11 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-18 — Use level on Cash reconciliation]
+
+- Roles can have **Use** on Cash reconciliation: fill in and submit days, expenses and receipts, fills from the till, Loyverse or GloriaFood, and the week's wages paid. Settings, Set as default and unsubmitting still need Manage. Pepper's cash change tools and Today's cash-up follow it. No migration.
+
+
 ## [2026-11-16 — Always take this arrow in the kitchen flow]
 
 A kitchen flow link can be set to **Always take this arrow** (tap its label in the Kitchen flow designer). An Always link is followed by every dish it matches, beside whatever the other links out of that box decide: Curries to the Curry station and every dish to the Grill (Always) sends a curry to both. Links without it keep the most-specific rule; saved flows don't change. Its label starts *Always:*, and Check a dish shows both ways. Links out of a Splitter can't be Always. The venue hub updates itself to the new rules.

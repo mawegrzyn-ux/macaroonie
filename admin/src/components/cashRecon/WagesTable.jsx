@@ -141,6 +141,8 @@ function useWidth() {
  * @param paidOnly            just Name and Paid per person (Cash Dashboard options)
  * @param showBank            show the Bank transfer column (off in widgets
  *                            unless their option is on)
+ * @param canSetDefault       show Set as default (Cash reconciliation Manage:
+ *                            the default list shapes every new week)
  * @param readOnly            Cash reconciliation = View: every field disabled,
  *                            no list changes, pay-all or Save
  * @param onStateChange       told { dirty, saving, save } whenever changes wait
@@ -150,7 +152,7 @@ function useWidth() {
 export function WeekWagesEditor({
   venueId, weekStart, defaultPaidDay, showWeekNotes = false, layout = 'auto',
   hideManage = false, hideBulk = false, paidOnly = false, showBank = true, hidePaidOnForAll = false,
-  readOnly = false, onStateChange,
+  readOnly = false, canSetDefault = false, onStateChange,
 }) {
   if (readOnly) { hideManage = true; hideBulk = true }
   const api = useApi()
@@ -617,12 +619,14 @@ export function WeekWagesEditor({
             </button>
           </>
         )}
-        <button type="button" onClick={() => setDefault.mutate()}
+        {canSetDefault && (
+          <button type="button" onClick={() => setDefault.mutate()}
           disabled={setDefault.isPending || !rows.some(r => r.staff_id)}
           title="Use this list (who is on it) for new weeks"
           className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted disabled:opacity-50 flex items-center gap-1.5">
           {setDefault.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Star className="w-4 h-4" />} Set as default
-        </button>
+          </button>
+        )}
       </div>}
 
       {canSave && !readOnly && (

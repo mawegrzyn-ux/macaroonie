@@ -889,7 +889,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               and <Mono>PERMISSION_RANK</Mono> its order, shared by <Mono>auth.js</Mono>,{' '}
               <Mono>ai/context.js</Mono> and <Mono>routes/installer.js</Mono>. Only a module whose{' '}
               <Mono>MODULES</Mono> entry has a <Mono>use</Mono> text offers it: checklists,
-              food_safety, hs_action_log. <Mono>levelsOf(key)</Mono> lists a module&apos;s levels
+              food_safety, hs_action_log, cash_recon (Use: the day PUT, submit, expenses and receipts,
+              the wages PUT, Loyverse / GloriaFood fills, receipt reading, the till&apos;s fill-recon; Pepper&apos;s
+              cash change tools carry <Mono>needs: &apos;use&apos;</Mono>; Set as default needs Manage,
+              <Mono>canSetDefault</Mono> on <Mono>WeekWagesEditor</Mono>). <Mono>levelsOf(key)</Mono> lists a module&apos;s levels
               (<Mono>GET /api/access/modules</Mono> sends them as <Mono>levels</Mono>, with the{' '}
               <Mono>use</Mono> text for the Access page), <Mono>workLevel(key)</Mono> is the level that
               does its everyday work (<Mono>use</Mono> where offered, else <Mono>manage</Mono>), and{' '}

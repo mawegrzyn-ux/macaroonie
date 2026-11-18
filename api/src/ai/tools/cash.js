@@ -7,12 +7,12 @@
 //                        variance and status                          view
 //   cash_week            the week's days and the week's variance         view
 //   record_cash_day      enter income / takings / service charge figures
-//                        for a day (only the fields named change)       manage
-//   add_expense          a petty cash (or card-paid) expense             manage
-//   submit_cash_day      submit a day's declaration                      manage
+//                        for a day (only the fields named change)       use
+//   add_expense          a petty cash (or card-paid) expense             use
+//   submit_cash_day      submit a day's declaration                      use
 //   wages_week           the week's wages: total, bank, cash paid        view
-//   mark_wages_paid      record cash wages handed out                    manage
-//   fill_cash_from_till  fill days from Loyverse or GloriaFood           manage
+//   mark_wages_paid      record cash wages handed out                    use
+//   fill_cash_from_till  fill days from Loyverse or GloriaFood           use
 //
 // Figures come from the Cash Recon routes: variance is the /week route's
 // own per-day figure (Takings + cash paid out of the till - (Income + SC
@@ -341,8 +341,9 @@ export const cashTools = [
       note: z.string().max(2000).optional(),
     }),
     confirm: true,
+    needs: 'use',
     async describe(ctx, input) {
-      await requireStaffPermission(ctx, 'cash_recon', 'manage')
+      await requireStaffPermission(ctx, 'cash_recon', 'use')
       const p = await recordPlan(ctx, input)
       return {
         title: 'Enter these figures?',
@@ -353,7 +354,7 @@ export const cashTools = [
       }
     },
     async run(ctx, input) {
-      await requireStaffPermission(ctx, 'cash_recon', 'manage')
+      await requireStaffPermission(ctx, 'cash_recon', 'use')
       return audited(ctx, 'record_cash_day', input, async () => {
         const p = await recordPlan(ctx, input)
         await callApi(ctx, 'PUT', base(p.venue) + '/daily/' + p.date, { body: p.body })
@@ -382,8 +383,9 @@ export const cashTools = [
       notes: z.string().max(1000).optional(),
     }),
     confirm: true,
+    needs: 'use',
     async describe(ctx, input) {
-      await requireStaffPermission(ctx, 'cash_recon', 'manage')
+      await requireStaffPermission(ctx, 'cash_recon', 'use')
       const p = await expensePlan(ctx, input)
       return {
         title: 'Add this expense?', lines: p.lines, ...(p.warnings.length ? { warningTitle: 'Check', warnings: p.warnings } : {}),
@@ -391,7 +393,7 @@ export const cashTools = [
       }
     },
     async run(ctx, input) {
-      await requireStaffPermission(ctx, 'cash_recon', 'manage')
+      await requireStaffPermission(ctx, 'cash_recon', 'use')
       return audited(ctx, 'add_expense', input, async () => {
         const p = await expensePlan(ctx, input)
         const row = await callApi(ctx, 'POST', base(p.venue) + '/expenses', { body: p.body })
@@ -409,8 +411,9 @@ export const cashTools = [
       'The card shows the day\'s totals and variance and what is not entered.',
     input: z.object({ venue: VenueText, date: DayDate }),
     confirm: true,
+    needs: 'use',
     async describe(ctx, input) {
-      await requireStaffPermission(ctx, 'cash_recon', 'manage')
+      await requireStaffPermission(ctx, 'cash_recon', 'use')
       const p = await submitPlan(ctx, input)
       const cur = p.venue.currency
       const warnings = [
@@ -428,7 +431,7 @@ export const cashTools = [
       }
     },
     async run(ctx, input) {
-      await requireStaffPermission(ctx, 'cash_recon', 'manage')
+      await requireStaffPermission(ctx, 'cash_recon', 'use')
       return audited(ctx, 'submit_cash_day', input, async () => {
         const p = await submitPlan(ctx, input)
         await callApi(ctx, 'POST', base(p.venue) + '/daily/' + p.date + '/submit', { body: {} })
@@ -484,8 +487,9 @@ export const cashTools = [
       paid_on: DateStr.optional(),
     }),
     confirm: true,
+    needs: 'use',
     async describe(ctx, input) {
-      await requireStaffPermission(ctx, 'cash_recon', 'manage')
+      await requireStaffPermission(ctx, 'cash_recon', 'use')
       const p = await wagesPlan(ctx, input)
       return {
         title: 'Mark these wages paid?',
@@ -496,7 +500,7 @@ export const cashTools = [
       }
     },
     async run(ctx, input) {
-      await requireStaffPermission(ctx, 'cash_recon', 'manage')
+      await requireStaffPermission(ctx, 'cash_recon', 'use')
       return audited(ctx, 'mark_wages_paid', input, async () => {
         const p = await wagesPlan(ctx, input)
         await callApi(ctx, 'PUT', base(p.venue) + '/wages/' + p.monday, { body: p.body })
@@ -520,8 +524,9 @@ export const cashTools = [
       to: DateStr.optional(),
     }),
     confirm: true,
+    needs: 'use',
     async describe(ctx, input) {
-      await requireStaffPermission(ctx, 'cash_recon', 'manage')
+      await requireStaffPermission(ctx, 'cash_recon', 'use')
       const p = await fillPlan(ctx, input)
       return {
         title: 'Fill from ' + SOURCES[input.source] + '?',
@@ -532,7 +537,7 @@ export const cashTools = [
       }
     },
     async run(ctx, input) {
-      await requireStaffPermission(ctx, 'cash_recon', 'manage')
+      await requireStaffPermission(ctx, 'cash_recon', 'use')
       return audited(ctx, 'fill_cash_from_till', input, async () => {
         const p = await fillPlan(ctx, input)
         const res = await callApi(ctx, 'POST', `/api/${input.source}/venues/${p.venue.id}/apply`, { body: { dates: p.dates } })

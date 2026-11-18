@@ -87,7 +87,7 @@ const DENIED = {
   rota:          { view: 'see the rota',              manage: 'change the rota' },
   rota_pay:      { view: 'see rota pay',              manage: 'change rota pay or fill wages' },
   rota_tips:     { view: 'see tips',                  manage: 'change tips' },
-  cash_recon:    { view: 'see cash reconciliation',   manage: 'change cash reconciliation' },
+  cash_recon:    { view: 'see cash reconciliation',   use: 'fill in cash reconciliation',   manage: 'change how cash reconciliation is set up' },
   web_orders:    { view: 'see online orders',         manage: 'change online orders' },
   pos_reports:   { view: 'see till reports',          manage: 'change till reports' },
   pos_setup:     { view: 'see till setup',            manage: 'change till setup' },

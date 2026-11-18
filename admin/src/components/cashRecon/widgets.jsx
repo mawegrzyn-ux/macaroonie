@@ -634,11 +634,11 @@ function WeekSummaryGridWidget({ venueId, ctx }) {
 // A payment entered here is recorded on the day selected on the dashboard.
 
 function WeekWagesWidget({ venueId, ctx, settings }) {
-  const { canManage } = usePermission('cash_recon')
+  const { canUse, canManage } = usePermission('cash_recon')
   return (
     <WeekWagesEditor venueId={venueId} weekStart={ctx.weekStart} defaultPaidDay={ctx.selectedDay}
       hideManage={!!settings?.hide_manage} hideBulk={!!settings?.hide_bulk} paidOnly={!!settings?.paid_only}
-      showBank={!!settings?.show_bank} readOnly={!canManage} />
+      showBank={!!settings?.show_bank} readOnly={!canUse} canSetDefault={canManage} />
   )
 }
 

@@ -37,7 +37,7 @@ const MAX_DAYS = 31
 
 const by = req => req.user?.email ?? null
 const canView   = [requirePermission('cash_recon', 'view')]
-const canFill   = [requirePermission('cash_recon', 'manage')]
+const canFill   = [requirePermission('cash_recon', 'use')]
 const canSetup  = [requireRole('admin', 'owner'), requirePermission('cash_recon', 'manage')]
 
 const ConnectionBody = z.object({

@@ -63,6 +63,9 @@ import { cashWeek }                     from '../../../shared/cashRecon.js'
 // unsubmitting a day also stay owner / admin (operators have manage by default).
 const PERM = {
   view:        requirePermission('cash_recon', 'view'),
+  // Use: the everyday work (a day's figures, submitting it, expenses and
+  // receipts, the week's wage list and what was paid). Setup needs Manage.
+  use:         requirePermission('cash_recon', 'use'),
   manage:      requirePermission('cash_recon', 'manage'),
   adminManage: [requireRole('admin', 'owner'), requirePermission('cash_recon', 'manage')],
 }
@@ -1162,7 +1165,7 @@ export default async function cashReconRoutes(app) {
   // PUT /:venueId/cash-recon/daily/:date
   // Upsert full daily report.
   app.put('/:venueId/cash-recon/daily/:date', {
-    preHandler: PERM.manage,
+    preHandler: PERM.use,
   }, async (req) => {
     const { venueId, date } = req.params
     parseDate(date)
@@ -1315,7 +1318,7 @@ export default async function cashReconRoutes(app) {
 
   // POST /:venueId/cash-recon/daily/:date/submit
   app.post('/:venueId/cash-recon/daily/:date/submit', {
-    preHandler: PERM.manage,
+    preHandler: PERM.use,
   }, async (req) => {
     const { venueId, date } = req.params
     parseDate(date)
@@ -1392,7 +1395,7 @@ export default async function cashReconRoutes(app) {
   // without risk of clobbering that day's income/takings/SC entries (unlike
   // PUT daily/:date, which replaces those wholesale from the request body).
   app.post('/:venueId/cash-recon/expenses', {
-    preHandler: PERM.manage,
+    preHandler: PERM.use,
   }, async (req, reply) => {
     const { venueId } = req.params
     const { date, description, category, category_id, amount, vat_amount, paid_by_card, notes } = z.object({
@@ -1434,7 +1437,7 @@ export default async function cashReconRoutes(app) {
 
   // PUT /:venueId/cash-recon/expenses/:expenseId
   app.put('/:venueId/cash-recon/expenses/:expenseId', {
-    preHandler: PERM.manage,
+    preHandler: PERM.use,
   }, async (req) => {
     const { venueId, expenseId } = req.params
     const { description, category, category_id, amount, vat_amount, paid_by_card, notes } = z.object({
@@ -1479,7 +1482,7 @@ export default async function cashReconRoutes(app) {
   // DELETE /:venueId/cash-recon/expenses/:expenseId
   // Only allowed when no receipt is attached.
   app.delete('/:venueId/cash-recon/expenses/:expenseId', {
-    preHandler: PERM.manage,
+    preHandler: PERM.use,
   }, async (req, reply) => {
     const { venueId, expenseId } = req.params
 
@@ -1505,7 +1508,7 @@ export default async function cashReconRoutes(app) {
 
   // POST /:venueId/cash-recon/expenses/:expenseId/receipt
   app.post('/:venueId/cash-recon/expenses/:expenseId/receipt', {
-    preHandler: PERM.manage,
+    preHandler: PERM.use,
   }, async (req, reply) => {
     const { venueId, expenseId } = req.params
 
@@ -1556,7 +1559,7 @@ export default async function cashReconRoutes(app) {
 
   // DELETE /:venueId/cash-recon/expenses/:expenseId/receipt
   app.delete('/:venueId/cash-recon/expenses/:expenseId/receipt', {
-    preHandler: PERM.manage,
+    preHandler: PERM.use,
   }, async (req) => {
     const { venueId, expenseId } = req.params
 
@@ -1616,7 +1619,7 @@ export default async function cashReconRoutes(app) {
 
   // PUT /:venueId/cash-recon/wages/:week_start
   app.put('/:venueId/cash-recon/wages/:week_start', {
-    preHandler: PERM.manage,
+    preHandler: PERM.use,
   }, async (req) => {
     const { venueId, week_start } = req.params
     const mondayStr = toMondayStr(week_start)

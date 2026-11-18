@@ -134,6 +134,7 @@ export const MODULES = [
     label:  'Cash reconciliation',
     group:  'cash_recon',
     description: 'Daily reconciliation, weekly grid, SC sources.',
+    use: 'Fill in and submit days, add expenses and receipts, fill a day from the till, Loyverse or GloriaFood, and record the wages paid. The settings (sources, channels, categories, staff) and setting a wage list as the default need Manage.',
     default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'none' },
   },
   {

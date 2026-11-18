@@ -8695,10 +8695,10 @@ export default function Help() {
 
             <H3>Use: the checks without the setup</H3>
             <P>
-              Checklists, Food safety logs and the H&amp;S Action Log have a fourth level between View
+              Checklists, Food safety logs, the H&amp;S Action Log and Cash reconciliation have a fourth level between View
               and Manage: <strong>Use</strong>. It is for people who do the everyday work but
               shouldn&apos;t change how it is set up, such as a supervisor who completes the checklists
-              and logs the temperature checks. In Access → Roles those three modules show{' '}
+              and logs the temperature checks, or a manager who does the cash-up. In Access → Roles those modules show{' '}
               <strong>Use</strong> between View and Manage, with a line saying what it allows; the
               other modules stay None, View or Manage.
             </P>
@@ -8708,6 +8708,7 @@ export default function Help() {
                 ['Checklists', 'Tick checklists (Tick all too) and write their notes, wherever they show: the Checklists page, dashboards, Today and the phone', 'Making and changing the checklists and their tasks'],
                 ['Food safety logs', 'Log and correct temperature, hold, cooking and delivery checks, and write corrective actions', 'Everything in H&S settings (the units, check times, hold stations, cooking sessions and dishes), and deleting a cooking reading'],
                 ['H&S Action Log', 'Log actions, change them and tick them off', 'Deleting an action and changing the categories'],
+                ['Cash reconciliation', 'Fill in and submit days, add, change and delete expenses and receipts, fill a day from the till, Loyverse or GloriaFood, and change the week\'s wage list and what was paid, wherever they show: Cash Recon, the Cash dashboard, Today and the phone', 'Cash Recon settings (sources, channels, categories, staff), Set as default on a wage list, unsubmitting a day (also owner or admin) and linking Loyverse or GloriaFood'],
               ]}
             />
             <P>

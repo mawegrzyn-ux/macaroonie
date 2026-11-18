@@ -562,7 +562,7 @@ export function useReconWeek(venueId, weekStart) {
 export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSelectDay, onSelectWages, onSettings, onToggleMode, hideHeader }) {
   const api = useApi()
   const qc  = useQueryClient()
-  const { canManage } = usePermission('cash_recon')
+  const { canUse } = usePermission('cash_recon')
 
   const { data: config } = useQuery({
     queryKey: ['cash-recon-config', venueId],
@@ -602,7 +602,7 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
   } = reconCalc({ config, detail, weekStart, getCellVal })
 
   function startEdit(date, cat, id) {
-    if (!canManage || detail?.days?.[date]?.status === 'submitted') return
+    if (!canUse || detail?.days?.[date]?.status === 'submitted') return
     setEditCell({ date, cat, id })
     setEditVal(getCellVal(date, cat, id))
   }
@@ -719,7 +719,7 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
   function EditableCell({ date, cat, id }) {
     const isEdit = editCell?.date === date && editCell?.cat === cat && editCell?.id === id
     const submitted = detail?.days?.[date]?.status === 'submitted'
-    const locked = submitted || !canManage
+    const locked = submitted || !canUse
     const val = getCellVal(date, cat, id)
     const num = parseNum(val)
 
@@ -813,7 +813,7 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
           <div className="ml-auto flex items-center gap-1.5">
             <LoyverseFillButton compact venueId={venueId} dates={isoWeekDates(weekStart)} onApplied={() => setOverrides({})} />
             <GloriaFoodFillButton compact venueId={venueId} dates={isoWeekDates(weekStart)} onApplied={() => setOverrides({})} />
-            {canManage && pendingCount > 0 && (
+            {canUse && pendingCount > 0 && (
               <button
                 type="button"
                 onClick={handleSubmitAll}
@@ -840,7 +840,7 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
 
       {/* Table */}
       <div className="flex-1 overflow-auto bg-background">
-        {!canManage && <ReadOnlyNotice what="the reconciliation" className="m-3 w-fit" />}
+        {!canUse && <ReadOnlyNotice what="the reconciliation" className="m-3 w-fit" />}
         <table className="w-max border-collapse text-sm">
           {/* Column headers */}
           <thead className="sticky top-0 z-10 bg-background shadow-[0_1px_0_hsl(var(--border))]">
@@ -1184,7 +1184,7 @@ function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSele
 export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
   const api = useApi()
   const qc  = useQueryClient()
-  const { canManage, isOwnerOrAdmin } = usePermission('cash_recon')
+  const { canUse, canManage, isOwnerOrAdmin } = usePermission('cash_recon')
   // Unsubmitting also stays owner / admin on the API.
   const canUnsubmit = canManage && isOwnerOrAdmin
 
@@ -1391,13 +1391,13 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
       ready,
       saving, saved, saveErr,
       isSubmitted,
-      canSubmit: canManage && ready,
+      canSubmit: canUse && ready,
       canUnsubmit,
       submitPending: submitMutation.isPending,
       submit:   () => submitMutation.mutate('submit'),
       unsubmit: () => submitMutation.mutate('unsubmit'),
     })
-  }, [currentStatus, ready, saving, saved, saveErr, isSubmitted, canManage, canUnsubmit, submitMutation.isPending, onStateChange])
+  }, [currentStatus, ready, saving, saved, saveErr, isSubmitted, canUse, canUnsubmit, submitMutation.isPending, onStateChange])
 
   if (configLoading || dailyLoading) {
     return (
@@ -1424,7 +1424,7 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
             <GloriaFoodOrdersButton venueId={venueId} date={date} />
             {!isSubmitted && <LoyverseFillButton venueId={venueId} dates={[date]} />}
             {!isSubmitted && <GloriaFoodFillButton venueId={venueId} dates={[date]} />}
-            {canManage && !isSubmitted && (
+            {canUse && !isSubmitted && (
               <button
                 type="button"
                 disabled={submitMutation.isPending}
@@ -1448,9 +1448,9 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
         </div>
       )}
 
-      <CashReadOnly.Provider value={!canManage}>
+      <CashReadOnly.Provider value={!canUse}>
       <div className="p-4 space-y-4 pb-32">
-        {!canManage && <ReadOnlyNotice what="this day" />}
+        {!canUse && <ReadOnlyNotice what="this day" />}
 
         {hideHeader && (
           <div className="flex flex-wrap justify-end gap-2 empty:hidden">
@@ -2007,7 +2007,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
 // on, Notes, explicit Save), the same editor the Cash Dashboard wage widgets
 // and /mobile/wages use. Wages aren't submitted; the days are.
 function WagesView({ venueId, weekStart, onBack }) {
-  const { canManage } = usePermission('cash_recon')
+  const { canUse, canManage } = usePermission('cash_recon')
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       <div className="sticky top-0 z-10 bg-background border-b px-4 max-lg:notouch:pl-14 py-3 flex items-center gap-3">
@@ -2020,8 +2020,8 @@ function WagesView({ venueId, weekStart, onBack }) {
             Cash wages come out of the till on the <strong>Paid on</strong> day, so that day's variance counts them.
             Anything not paid in full carries to next week's rota pay.
           </p>
-          {!canManage && <ReadOnlyNotice what="the wages" className="mb-3" />}
-          <WeekWagesEditor venueId={venueId} weekStart={weekStart} showWeekNotes readOnly={!canManage} />
+          {!canUse && <ReadOnlyNotice what="the wages" className="mb-3" />}
+          <WeekWagesEditor venueId={venueId} weekStart={weekStart} showWeekNotes readOnly={!canUse} canSetDefault={canManage} />
         </SectionCard>
       </div>
     </div>

@@ -401,7 +401,7 @@ function formTitle(form, meta) {
 /** F1-F9: the form for a task, the same panel its page uses, saving through the same routes. */
 export function FormSheet({ form, venueId, date, onClose, linkFor }) {
   const qc = useQueryClient()
-  const { canManage: cashManage } = usePermission('cash_recon')
+  const { canUse: cashUse, canManage: cashManage } = usePermission('cash_recon')
   const meta = FORMS[form.form] || { title: form.task.title, path: '/' }
   const title = formTitle(form, meta)
   // The full page: on the phone a form may have a phone page of its own.
@@ -441,7 +441,7 @@ export function FormSheet({ form, venueId, date, onClose, linkFor }) {
           {form.form === 'checklist' && <ChecklistRunPanel template={form.ref.template} date={date} />}
           {form.form === 'cash_up' && <DayView venueId={venueId} date={form.ref.date} hideHeader onStateChange={setDay} />}
           {form.form === 'wages' && (
-            <WeekWagesEditor venueId={venueId} weekStart={form.ref.week} readOnly={!cashManage}
+            <WeekWagesEditor venueId={venueId} weekStart={form.ref.week} readOnly={!cashUse} canSetDefault={cashManage}
               showBank={!linkFor} hidePaidOnForAll={!!linkFor} onStateChange={setWages} />
           )}
         </div>
