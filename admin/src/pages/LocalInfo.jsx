@@ -24,7 +24,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   CloudSun, Plus, Settings2, ChevronLeft, ChevronRight, Play, Loader2,
-  Eye, EyeOff, Pencil, AlertTriangle, Sparkles, ThumbsUp, ThumbsDown, CalendarX,
+  Eye, EyeOff, Pencil, AlertTriangle, Sparkles, ThumbsUp, ThumbsDown, CalendarX, CalendarDays,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
@@ -40,6 +40,12 @@ import { webLink } from '@shared/links.js'
 
 const VENUE_KEY = 'maca_local_info_venue'
 const VIEW_KEY = 'maca_local_info_view'
+// For the visit only (sessionStorage): the month shown and where the page was
+// scrolled to, so coming back from another page lands where you were.
+const MONTH_KEY = 'maca_local_info_month'
+const SCROLL_KEY = 'maca_local_info_scroll'
+const readSession = k => { try { return sessionStorage.getItem(k) } catch { return null } }
+const writeSession = (k, v) => { try { sessionStorage.setItem(k, v) } catch { /* private mode */ } }
 const errText = e => e?.body?.error || e?.message || 'Something went wrong'
 const today = () => new Date().toISOString().slice(0, 10)
 
@@ -58,7 +64,7 @@ const btnPrimary = 'inline-flex items-center justify-center gap-1.5 min-h-[44px]
 export default function LocalInfo() {
   const api = useApi()
   const qc = useQueryClient()
-  const { canManage } = usePermission('local_info')
+  const { canManage, loaded: permLoaded } = usePermission('local_info')
 
   const { data: venues = [] } = useQuery({ queryKey: ['venues'], queryFn: () => api.get('/venues') })
   const venueNames = useMemo(() => Object.fromEntries(venues.map(v => [v.id, v.name])), [venues])
@@ -70,7 +76,11 @@ export default function LocalInfo() {
 
   const [view, setView] = useState(() => { try { return localStorage.getItem(VIEW_KEY) || 'calendar' } catch { return 'calendar' } })
   const pickView = v => { setView(v); try { localStorage.setItem(VIEW_KEY, v) } catch { /* private mode */ } }
-  const [month, setMonth] = useState(() => today().slice(0, 7))
+  const [month, setMonthState] = useState(() => {
+    const kept = readSession(MONTH_KEY)
+    return /^\d{4}-\d{2}$/.test(kept || '') ? kept : today().slice(0, 7)
+  })
+  const setMonth = m => { setMonthState(m); writeSession(MONTH_KEY, m) }
   const [showHidden, setShowHidden] = useState(false)
   const [dayOpen, setDayOpen] = useState(null)         // 'YYYY-MM-DD'
   const [eventOpen, setEventOpen] = useState(null)     // { item? } | null
@@ -86,6 +96,68 @@ export default function LocalInfo() {
     const [y, m] = month.split('-').map(Number)
     const d = new Date(Date.UTC(y, m - 1 + n, 1))
     setMonth(d.toISOString().slice(0, 7))
+    scrollTo.current = 'top'
+  }
+
+  // Where the page lands: the place kept for this visit (same month and view),
+  // else today in the list of this month. `scrollTo` says what the next
+  // render with items should do; 'kept' is done once per visit to the page.
+  const pane = useRef(null)
+  const scrollTo = useRef('kept')     // 'kept' | 'today' | 'top' | null
+  const scrollToday = () => {
+    const el = pane.current
+    if (!el) return
+    const now = today()
+    const days = [...el.querySelectorAll('[data-testid="li-day"]')]
+    const target = days.find(d => d.dataset.date >= now) || days[days.length - 1]
+    if (!target) { el.scrollTop = 0; return }
+    el.scrollTop += target.getBoundingClientRect().top - el.getBoundingClientRect().top - 8
+  }
+  // While a kept place is being put back, scrolling isn't saved: the page
+  // can still be growing, and a scroll the browser clamps would overwrite
+  // the place being restored. It waits for the permissions too: the View
+  // notice above the list goes once they load, and the browser's scroll
+  // anchoring would move the place by its height.
+  const restoring = useRef(false)
+  useEffect(() => {
+    if (!itemsQ.isSuccess || !permLoaded || !scrollTo.current || !pane.current) return
+    const want = scrollTo.current
+    scrollTo.current = null
+    if (want === 'kept') {
+      let kept = null
+      try { kept = JSON.parse(readSession(SCROLL_KEY) || 'null') } catch { kept = null }
+      if (kept && kept.month === month && kept.view === view) {
+        restoring.current = true
+        let tries = 0
+        const put = () => {
+          const el = pane.current
+          if (!el) { restoring.current = false; return }
+          el.scrollTop = kept.top
+          if (Math.abs(el.scrollTop - kept.top) > 2 && ++tries < 30) requestAnimationFrame(put)
+          else restoring.current = false
+        }
+        put()
+        return
+      }
+      if (view === 'list' && month === today().slice(0, 7)) scrollToday()
+      return
+    }
+    if (want === 'today') scrollToday()
+    else pane.current.scrollTop = 0
+  }, [itemsQ.isSuccess, permLoaded, items, month, view])
+  const keepPlace = () => {
+    if (!pane.current || restoring.current) return
+    writeSession(SCROLL_KEY, JSON.stringify({ month, view, top: Math.round(pane.current.scrollTop) }))
+  }
+  const goToday = () => {
+    setMonth(today().slice(0, 7))
+    scrollTo.current = view === 'list' ? 'today' : 'top'
+    // Already on this month's list: nothing re-renders, so scroll now.
+    if (view === 'list' && month === today().slice(0, 7)) { scrollTo.current = null; scrollToday() }
+  }
+  const pickViewHere = v => {
+    pickView(v)
+    scrollTo.current = v === 'list' && month === today().slice(0, 7) ? 'today' : 'top'
   }
 
   const changeItem = useMutation({
@@ -123,7 +195,7 @@ export default function LocalInfo() {
   const monthLabel = format(new Date(month + '-01T12:00:00'), 'MMMM yyyy')
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="h-full overflow-y-auto" ref={pane} onScroll={keepPlace} data-testid="li-pane">
       <div className="p-4 sm:p-6 max-lg:notouch:pl-14 max-w-6xl mx-auto space-y-4" data-testid="local-info-page">
         <div className="flex flex-wrap items-center gap-2">
           <div className="min-w-0 flex-1 basis-[14rem]">
@@ -163,8 +235,10 @@ export default function LocalInfo() {
             <span className="text-sm font-semibold w-36 text-center tabular-nums" data-testid="li-month">{monthLabel}</span>
             <button type="button" aria-label="Next month" data-testid="li-next" onClick={() => moveMonth(1)} className={cn(btn, 'px-2.5')}><ChevronRight className="w-4 h-4" /></button>
           </div>
-          {month !== today().slice(0, 7) && (
-            <button type="button" className={cn(btn, 'min-h-[40px]')} data-testid="li-this-month" onClick={() => setMonth(today().slice(0, 7))}>This month</button>
+          {(view === 'list' || month !== today().slice(0, 7)) && (
+            <button type="button" className={cn(btn, 'min-h-[40px]')} data-testid="li-today" onClick={goToday}>
+              <CalendarDays className="w-4 h-4" /> Today
+            </button>
           )}
           <div className="ml-auto flex items-center gap-2">
             {canManage && (
@@ -174,7 +248,7 @@ export default function LocalInfo() {
               </button>
             )}
             <span data-testid="li-view" data-view={view}>
-              <Segmented value={view} onChange={pickView}
+              <Segmented value={view} onChange={pickViewHere}
                 options={[{ value: 'calendar', label: 'Calendar' }, { value: 'list', label: 'List' }]} />
             </span>
           </div>
