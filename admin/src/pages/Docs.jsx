@@ -120,7 +120,7 @@ export default function Docs() {
 ├── migrations/   PostgreSQL migration files (001–021, run in order)
 ├── setup.sh      One-shot Lightsail server setup
 ├── deploy.sh     Subsequent deployments
-└── CLAUDE.md     Developer context and outstanding items`}</Code>
+└── CLAUDE.md     Developer context: the index and rules (notes per area in docs/claude/)`}</Code>
           </section>
 
           {/* ── ARCHITECTURE ──────────────────────────────── */}
@@ -11945,7 +11945,7 @@ GET /robots.txt`}</Code>
             <ul className="list-disc ml-5 space-y-1.5 text-sm text-muted-foreground mb-4">
               <li>Nginx: wildcard server block for <Mono>*.macaroonie.com</Mono> proxying to the API.</li>
               <li>DNS: wildcard A record for <Mono>*.macaroonie.com</Mono> → app IP.</li>
-              <li>SSL: wildcard cert via Certbot DNS-01 (Lightsail DNS hook scripts; see CLAUDE.md).</li>
+              <li>SSL: wildcard cert via Certbot DNS-01 (Lightsail DNS hook scripts; see docs/claude/areas/infra.md).</li>
             </ul>
           </section>
 

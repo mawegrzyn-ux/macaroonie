@@ -378,3 +378,14 @@ native rebuild of the phone pages.
 | 9 | Phone app | A native shell around the existing phone pages (C), not a rebuild |
 | 10 | iPhone as well as Android | Both, if staff use their own phones |
 | 11 | Notices | Late tasks only at first, each once, with quiet hours |
+
+## 11. The user's answers (21 Nov 2026)
+
+Given after reading this plan and the notes on the other items. Nothing is built yet: the user asked for analysis only and will do the dev work on a cheaper model.
+
+- Item 5 (Today not showing current): dropped, it works now.
+- Item 4 (loyalty themes): each member picks their own.
+- Item 7 (Tech board): the venue's board needs only one indicator that the platform's servers are up. A separate platform board is wanted too: backlog for now.
+- Item 8 (till and kitchen screen analytics): by person as well as by till and layout.
+- Item 13 (ops app), in the user's words: "push, voice, scanner, offline not needed, android for now, but plan for both". Read as: push, voice and a scanner wanted, offline not, Android first with iOS planned for. Confirm before building.
+- Item 11 (Pepper-first back office): parked. It is looked at next and needs design mockups first.
