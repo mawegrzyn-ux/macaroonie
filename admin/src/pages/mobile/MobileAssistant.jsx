@@ -3,8 +3,11 @@
 // The staff AI assistant on a phone (/mobile/assistant): the same ChatView
 // as the admin's Ask AI drawer and the AI assistant page, full screen, with
 // earlier chats behind a button. Shares the remembered conversation
-// (maca_ai_conversation) with the drawer.
-import { useState } from 'react'
+// (maca_ai_conversation) with the drawer. A question asked on the phone's
+// home (AskPepperBar) arrives in the address's state and is sent in this
+// chat once.
+import { useEffect, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Plus, History, Sparkles } from 'lucide-react'
 import ChatView, { useAiStatus } from '@/components/ai/ChatView'
 import { opsLink } from '@/mobile/today'
@@ -16,6 +19,13 @@ export default function MobileAssistant() {
   const { data: status } = useAiStatus()
   const [conversationId, setConversationId] = useRememberedConversation()
   const [showList, setShowList] = useState(false)
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [ask, setAsk] = useState(() => location.state?.ask || null)
+  // Taken off the address at once, so Back or a reload doesn't send it again.
+  useEffect(() => {
+    if (location.state?.ask) navigate(location.pathname, { replace: true, state: null })
+  }, [])   // eslint-disable-line react-hooks/exhaustive-deps
 
   if (status && !status.can_chat) {
     return (
@@ -48,7 +58,8 @@ export default function MobileAssistant() {
           <ConversationList activeId={conversationId} onPick={id => { setConversationId(id); setShowList(false) }} />
         </div>
       ) : (
-        <ChatView key={conversationId || 'new'} conversationId={conversationId} onConversationId={setConversationId} className="flex-1" linkFor={opsLink} talkMode />
+        <ChatView key={conversationId || 'new'} conversationId={conversationId} onConversationId={setConversationId} className="flex-1" linkFor={opsLink} talkMode
+          ask={ask} onAsked={() => setAsk(null)} />
       )}
     </div>
   )

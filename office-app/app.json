@@ -32,7 +32,7 @@
       ["expo-splash-screen", { "image": "./assets/splash-icon.png", "imageWidth": 200, "resizeMode": "contain", "backgroundColor": "#1f2a44" }],
       ["expo-notifications", { "color": "#1f2a44" }],
       ["expo-camera", { "cameraPermission": "Macaroonie Office uses the camera to scan barcodes and take photos for Pepper.", "recordAudioAndroid": false }],
-      ["expo-speech-recognition", { "microphonePermission": "Macaroonie Office listens only while you hold the talk button or tap the microphone.", "speechRecognitionPermission": "Macaroonie Office turns what you say to Pepper into text." }],
+      ["expo-speech-recognition", { "microphonePermission": "Macaroonie Office listens only while you hold the microphone, or after you tap it until you tap again.", "speechRecognitionPermission": "Macaroonie Office turns what you say to Pepper into text." }],
       "expo-secure-store",
       "expo-web-browser"
     ],

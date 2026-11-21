@@ -2573,7 +2573,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>admin/src/mobile/registry.js</Mono> exports <Mono>MOBILE_MODULES</Mono> — the
               same "one array drives a picker" pattern as <Mono>modules.js</Mono> /{' '}
               <Mono>defaultNav.js</Mono>. <Mono>MobileHub.jsx</Mono> (the <Mono>/mobile</Mono>{' '}
-              index route) renders one tile per entry, in a two-column grid. Shipping a new mobile-optimised page is:
+              index route) renders one tile per entry, in a two-column grid, and <Mono>AskPepperBar</Mono>{' '}
+              (<Mono>components/ai/AskPepperBar.jsx</Mono>) at the bottom when <Mono>/api/ai/status</Mono> says{' '}
+              <Mono>can_chat</Mono>: a question (typed, or a held mic) goes to <Mono>/mobile/assistant</Mono> in the
+              address&apos;s state (<Mono>{"{ ask: { text, voice } }"}</Mono>), which takes it off the address and hands it
+              to <Mono>ChatView</Mono>&apos;s <Mono>ask</Mono> prop: sent once in the remembered chat. Shipping a new mobile-optimised page is:
               add an entry here, add the route in <Mono>main.jsx</Mono>, build the page — no
               changes to the shell or hub. An entry&apos;s <Mono>areas</Mono> (the Today feed&apos;s task
               areas, or <Mono>'all'</Mono>) give its tile a badge: <Mono>tileBadge()</Mono> in{' '}
@@ -8350,15 +8354,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>admin/src/lib/speech.js</Mono>: <Mono>listen()</Mono> / <Mono>speak()</Mono> over the browser&apos;s
               SpeechRecognition and speechSynthesis, or the Macaroonie Office app&apos;s bridge;{' '}
               <Mono>spokenText()</Mono> drops markdown and links and never reads out an email or phone number;{' '}
-              <Mono>yesOrNo()</Mono>. <Mono>ChatView</Mono>: the mic takes a tap (dictation into the box, tap again or a pause
+              <Mono>yesOrNo()</Mono>. The mic is <Mono>useMic()</Mono> and <Mono>MicButton</Mono> in{' '}
+              <Mono>components/ai/mic.jsx</Mono>, shared by <Mono>ChatView</Mono> and the phone home&apos;s{' '}
+              <Mono>AskPepperBar</Mono>: it takes a tap (dictation into the box, tap again or a pause
               stops) or a hold (<Mono>MIC_HOLD_MS</Mono> 350; listening starts on the press, goes on through pauses while
-              the button is down, and on release the words are sent as a spoken turn: <Mono>micDown()</Mono> /{' '}
-              <Mono>micUp()</Mono> / <Mono>micCancel()</Mono>, Enter or Space toggles dictation), and with{' '}
-              <Mono>talkMode</Mono> (<Mono>MobileAssistant</Mono>) hold to talk (<Mono>talkListen()</Mono>: the same hold,
-              through pauses, sent on release; a pointercancel or a failure puts the words in the box instead). Both
-              ask <Mono>listen()</Mono> for <Mono>continuous</Mono>: the Office app then keeps one listening open through
-              pauses (Android 13 and up); a browser still ends on a pause and the page starts it again while the
-              button is down. Both buttons are <Mono>touch-none</Mono>, so a web view never takes a hold for a scroll. Read aloud per device
+              the button is down, and on release the words are sent as a spoken turn (<Mono>onSend</Mono>); a
+              pointercancel sends nothing and a failure keeps the words in the box; Enter or Space toggles dictation).
+              It asks <Mono>listen()</Mono> for <Mono>continuous</Mono>: the Office app then keeps one listening open through
+              pauses (Android 13 and up); a browser still ends on a pause and the mic starts it again while the
+              button is down. The button is <Mono>touch-none</Mono>, so a web view never takes a hold for a scroll. With{' '}
+              <Mono>talkMode</Mono> (<Mono>MobileAssistant</Mono>) the mic is filled (<Mono>prominent</Mono>), with a hint and
+              the read-aloud switch above the box (there is no separate talk button). Read aloud per device
               (<Mono>maca_voice_read_aloud</Mono>), and after a spoken turn a check card read back and confirmed by a
               spoken yes. Server: <Mono>POST /api/ai/chat</Mono> <Mono>voice: true</Mono> adds <Mono>VOICE_NOTE</Mono> as a
               hidden <Mono>_context</Mono> block; <Mono>POST /actions/:id/confirm</Mono> <Mono>{"{ via: 'voice' }"}</Mono>{' '}

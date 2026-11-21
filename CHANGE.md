@@ -6,6 +6,11 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-21 — Pepper on the phone's home; one microphone]
+
+- The phone's home screen has **Pepper** in a bar at the bottom: type a question and tap Send, or hold the microphone, speak and let go. The Pepper page opens with the question sent in your current chat.
+- The separate **Hold to talk** button on the phone's Pepper page is gone: the microphone does both (tap to dictate into the box, hold to talk and let go to send), and on the phone it is filled in so it stands out. **Read answers aloud** stays. No migration.
+
 ## [2026-11-21 — Macaroonie Office: clear of Android's buttons; Hold to talk through pauses]
 
 - In the Macaroonie Office app the pages no longer sit under the phone's status bar, navigation buttons or keyboard, and the status bar's icons show over the white pages. The barcode scanner's Cancel sits above the buttons too. Needs the next Office build.

@@ -3273,7 +3273,10 @@ export default function Help() {
             </P>
             <P>
               More mobile-optimised pages will appear on the <strong>/mobile</strong> hub screen
-              over time — it's a home screen of tiles, two to a row, one per available mobile module.
+              over time — it's a home screen of tiles, two to a row, one per available mobile module,
+              with <strong>Pepper</strong> in a bar at the bottom (for people who can use it): type a
+              question and tap Send, or hold the microphone, speak and let go. The Pepper page opens with your
+              question sent in your current chat.
               <strong> Expenses</strong> is the second one: it shows a whole week (Monday to
               Sunday) of petty cash expenses, with the week's cash, card and VAT totals at the top.
               Use the arrows to move a week back or forward, tap the week to jump to any date, or
@@ -6340,10 +6343,9 @@ export default function Help() {
               The <strong>microphone</strong> next to the message box works two ways. <strong>Tap</strong> it to start,
               speak, and tap again to stop (or just pause): the words go into the box for you to read and send.{' '}
               <strong>Hold</strong> it instead and it records for as long as you hold, pauses included; let go and
-              what you said is sent straight away. On the phone&apos;s Pepper page there is also a big{' '}
-              <strong>Hold to talk</strong> button that does the same: hold the button,
-              speak (pausing is fine, it keeps listening while you hold), and let go to send. If the phone takes
-              the press away (a call, say), nothing is sent and the words go into the box instead. Pepper answers in a sentence or two, with the detail on screen, and{' '}
+              what you said is sent straight away. If the phone takes the press away (a call, say), nothing is
+              sent and the words stay in the box. On the phone the microphone is filled in, and the same one is in
+              the Pepper bar at the bottom of the phone&apos;s home screen. Pepper answers in a sentence or two, with the detail on screen, and{' '}
               <strong>Read answers aloud</strong> (a switch on that page, for that phone) reads its answers out. It
               never reads out a guest&apos;s phone number or email.
             </P>
