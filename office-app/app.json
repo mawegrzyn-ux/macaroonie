@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "Macaroonie Office",
+    "slug": "macaroonie-office",
+    "owner": "gomono-london",
+    "scheme": "macaroonie-office",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "backgroundColor": "#1f2a44",
+    "platforms": ["android"],
+    "android": {
+      "package": "com.macaroonie.office",
+      "adaptiveIcon": {
+        "backgroundColor": "#1f2a44",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "blockedPermissions": ["android.permission.SYSTEM_ALERT_WINDOW"]
+    },
+    "ios": {
+      "bundleIdentifier": "com.macaroonie.office",
+      "supportsTablet": false
+    },
+    "plugins": [
+      ["expo-splash-screen", { "image": "./assets/splash-icon.png", "imageWidth": 200, "resizeMode": "contain", "backgroundColor": "#1f2a44" }],
+      ["expo-notifications", { "color": "#1f2a44" }],
+      ["expo-camera", { "cameraPermission": "Macaroonie Office uses the camera to scan barcodes and take photos for Pepper.", "recordAudioAndroid": false }],
+      ["expo-speech-recognition", { "microphonePermission": "Macaroonie Office listens only while you hold the talk button or tap the microphone.", "speechRecognitionPermission": "Macaroonie Office turns what you say to Pepper into text." }],
+      "expo-secure-store",
+      "expo-web-browser"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "acb817a5-4faa-4df1-aacf-e5a341627eb7"
+      }
+    }
+  }
+}

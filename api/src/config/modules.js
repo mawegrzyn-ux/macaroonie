@@ -101,6 +101,13 @@ export const MODULES = [
     default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'view' },
   },
   {
+    key:    'allergens',
+    label:  'Allergen lookup',
+    group:  'menus',
+    description: 'Look up which dishes contain an allergen or are free from one, from the published menus. Read only: setting a dish\'s allergens is in Menus.',
+    default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'view' },
+  },
+  {
     key:    'screens',
     label:  'Menu screens',
     group:  'screens',
@@ -414,7 +421,7 @@ export const MODULE_GROUPS = [
     key:    'menus',
     label:  'Menus',
     description: 'Structured menu manager — sections, dishes, variants, dietary tags, printable PDFs.',
-    moduleKeys: ['menus'],
+    moduleKeys: ['menus', 'allergens'],
   },
   {
     key:    'screens',

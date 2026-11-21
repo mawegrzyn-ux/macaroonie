@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     # The Android app is built by EAS (Expo), not on the server.
-    paths-ignore: ['android-app/**']
+    paths-ignore: ['android-app/**', 'office-app/**']
 
 jobs:
   deploy:

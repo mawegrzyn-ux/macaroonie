@@ -57,6 +57,11 @@ const verify = createVerifier({
 export const ACCESS_TOKEN_PREFIX = 'mcp_'
 export const INTERNAL_CALL_HEADER = 'x-maca-internal'
 export const INTERNAL_CALL_SECRET = randomBytes(24).toString('hex')
+// Background work acting as one person (the task notices, migration 262):
+// "Bearer internal-as:<users.id>" with X-Tenant-Id, accepted only on the
+// server's own in-process calls (INTERNAL_CALL_SECRET, random per process,
+// never sent anywhere), so nothing outside the process can use it.
+export const INTERNAL_AS_PREFIX = 'internal-as:'
 
 export function newAccessToken() {
   const token = ACCESS_TOKEN_PREFIX + randomBytes(20).toString('hex')
@@ -105,6 +110,25 @@ async function authenticateAccessToken(req, reply, token) {
   req.auth0OrgId      = null
   req.isPlatformAdmin = false
   systemSql`UPDATE ai_access_tokens SET last_used_at = now() WHERE id = ${row.id} AND tenant_id = ${row.tenant_id}`.catch(() => {})
+}
+
+/** An in-process call acting as one person (INTERNAL_AS_PREFIX). */
+async function authenticateInternalAs(req, reply, userId) {
+  if (req.headers[INTERNAL_CALL_HEADER] !== INTERNAL_CALL_SECRET) {
+    return reply.code(401).send({ error: 'Missing authorization header' })
+  }
+  const tenantId = requestedTenantHeader(req)
+  if (!tenantId || !UUID_RE.test(userId)) return reply.code(401).send({ error: 'Missing authorization header' })
+  const [user] = await withTenant(tenantId, tx => tx`
+    SELECT auth0_user_id, email, role, is_active FROM users
+     WHERE id = ${userId} AND tenant_id = ${tenantId}
+     LIMIT 1
+  `)
+  if (!user || !user.is_active || !user.auth0_user_id) return reply.code(403).send({ error: 'No such person' })
+  req.user = { sub: user.auth0_user_id, email: user.email, role: user.role, isPlatformAdmin: false }
+  req.tenantId        = tenantId
+  req.auth0OrgId      = null
+  req.isPlatformAdmin = false
 }
 
 function requestedTenantHeader(req) {
@@ -162,6 +186,7 @@ export async function requireAuth(req, reply) {
 
     const token = authHeader.slice(7)
     if (token.startsWith(ACCESS_TOKEN_PREFIX)) return authenticateAccessToken(req, reply, token)
+    if (token.startsWith(INTERNAL_AS_PREFIX)) return authenticateInternalAs(req, reply, token.slice(INTERNAL_AS_PREFIX.length))
 
     // Verify signature + expiry via JWKS (RS256)
     const payload = await verify(token)

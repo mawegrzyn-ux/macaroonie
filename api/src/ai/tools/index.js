@@ -46,6 +46,7 @@ import { orderTools } from './orders.js'
 import { venueTools } from './venue.js'
 import { siteTools } from './site.js'
 import { generalTools } from './general.js'
+import { formTools } from './forms.js'
 import { briefingTools } from './briefing.js'
 import { locationTools } from './locations.js'
 import { localInfoTools } from './localInfo.js'
@@ -101,7 +102,8 @@ const OPEN_TOOLS = new Set(['list_venues', 'open_page', 'how_do_i'])
  *  or the level it names itself (`needs: 'use'`: the everyday H&S work). */
 export function toolAllowed(tool, levels) {
   if (OPEN_TOOLS.has(tool.name) || tool.section === 'general') return true
-  const modules = SECTION_MODULES[tool.section]
+  // A tool may name its own modules (find_dishes: Menus or the Allergen lookup).
+  const modules = tool.modules ?? SECTION_MODULES[tool.section]
   if (!modules) return true
   const need = tool.needs ?? (tool.confirm ? 'manage' : 'view')
   return modules.some(m => permissionAtLeast(levels[m], need))
@@ -112,6 +114,7 @@ const withSection = (tools, section) => tools.map(t => (t.section ? t : { ...t, 
 // Pepper's tools, every area. Older files don't tag their tools; their file is their area.
 const staffTools = [
   ...generalTools,
+  ...formTools,
   ...briefingTools,
   ...withSection(bookingTools, 'bookings'),
   ...withSection(hsTools, 'hs'),
@@ -129,7 +132,7 @@ const BY_AUDIENCE = { guest: guestTools, staff: staffTools }
 // what is due, where a page is.
 export const CORE_TOOLS = new Set([
   'list_venues', 'find_bookings', 'day_overview', 'check_availability', 'hs_status', 'whos_working', 'open_page', 'how_do_i',
-  'day_briefing',
+  'day_briefing', 'open_form',
 ])
 
 for (const t of staffTools) {
@@ -139,6 +142,15 @@ for (const t of staffTools) {
 for (const m of Object.values(SECTION_MODULES).flat()) {
   if (!MODULE_KEYS.includes(m)) throw new Error('SECTION_MODULES names an unknown module: ' + m)
 }
+for (const t of staffTools) {
+  for (const m of t.modules || []) if (!MODULE_KEYS.includes(m)) throw new Error('Tool ' + t.name + ' names an unknown module: ' + m)
+}
+
+/** Every module a staff tool's permission can depend on (the connector reads these levels). */
+export const TOOL_MODULE_KEYS = [...new Set([
+  ...Object.values(SECTION_MODULES).flat(),
+  ...staffTools.flatMap(t => t.modules || []),
+])]
 {
   const names = staffTools.map(t => t.name)
   const dup = names.find((n, i) => names.indexOf(n) !== i)

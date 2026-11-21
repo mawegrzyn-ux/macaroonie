@@ -7,6 +7,7 @@
 import { useState } from 'react'
 import { Plus, History, Sparkles } from 'lucide-react'
 import ChatView, { useAiStatus } from '@/components/ai/ChatView'
+import { opsLink } from '@/mobile/today'
 import { ConversationList, useRememberedConversation } from '@/components/ai/AssistantDrawer'
 import { cn } from '@/lib/utils'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
@@ -47,7 +48,7 @@ export default function MobileAssistant() {
           <ConversationList activeId={conversationId} onPick={id => { setConversationId(id); setShowList(false) }} />
         </div>
       ) : (
-        <ChatView key={conversationId || 'new'} conversationId={conversationId} onConversationId={setConversationId} className="flex-1" />
+        <ChatView key={conversationId || 'new'} conversationId={conversationId} onConversationId={setConversationId} className="flex-1" linkFor={opsLink} talkMode />
       )}
     </div>
   )

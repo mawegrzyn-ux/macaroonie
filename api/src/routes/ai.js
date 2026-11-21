@@ -77,6 +77,8 @@ const ChatBody = z.object({
       venue_ids: z.array(z.string().uuid()).max(50).optional(),
     }).optional().catch(undefined),
   }).optional().catch(undefined),
+  // Said aloud (talk mode, migration 261): Pepper answers in a sentence or two.
+  voice: z.boolean().optional(),
 }).refine(b => b.message || b.attachments.length, { message: 'Type a message or attach a file' })
 
 // Largest single upload (the PDF limit); detectFile() then applies the
@@ -90,6 +92,7 @@ const SettingsBody = z.object({
   web_search:          z.boolean().optional(),
   person_daily_pct:    z.number().int().min(1).max(100).nullable().optional(),
   chat_retention_days: z.union([z.literal(30), z.literal(90), z.literal(180), z.literal(365)]).optional(),
+  voice_confirm:       z.boolean().optional(),
 })
 
 /** ToolError -> httpError, so the admin gets the message. */
@@ -147,6 +150,8 @@ export default async function aiRoutes(app) {
       can_chat:     configured && settings.staff_enabled && level !== 'none',
       // Web search is on for the group's staff chats (Settings; migration 242).
       web_search:   settings.staff_enabled && settings.web_search,
+      // A spoken yes confirms check cards (migration 261; VOICE_CONFIRM_TOOLS).
+      voice_confirm: settings.staff_enabled && settings.voice_confirm,
       units_left:   level === 'none' ? null : Math.max(0, await chatUnitsLeft(req.tenantId)),
       share_left:   share === null ? null : Math.max(0, share),
     }
@@ -207,10 +212,10 @@ export default async function aiRoutes(app) {
       }
     }
     if (!stream) {
-      return done(await run(() => runTurn(chatContext(app, conv, { req }), conv, body.message, { attachments: body.attachments, page: body.page })))
+      return done(await run(() => runTurn(chatContext(app, conv, { req }), conv, body.message, { attachments: body.attachments, page: body.page, voice: !!body.voice })))
     }
     try {
-      const out = await runTurn(chatContext(app, conv, { req }), conv, body.message, { attachments: body.attachments, page: body.page, emit: stream.send })
+      const out = await runTurn(chatContext(app, conv, { req }), conv, body.message, { attachments: body.attachments, page: body.page, voice: !!body.voice, emit: stream.send })
       stream.send({ type: 'done', ...(await done(out)) })
     } catch (err) {
       if (!stream.open) throw err instanceof ToolError ? httpError(err.status || 400, err.message) : err
@@ -261,8 +266,11 @@ export default async function aiRoutes(app) {
 
   app.post('/actions/:id/confirm', async req => {
     await staffChatAllowed(req)
+    // via: 'voice' = a spoken yes (talk mode): only check cards, only when the
+    // group allows it (confirmAction() checks both).
+    const via = z.object({ via: z.enum(['tap', 'voice']).optional() }).catch({}).parse(req.body ?? {}).via ?? 'tap'
     const conv = await actionConversation(req, req.params.id)
-    await run(() => confirmAction(chatContext(app, conv, { req }), conv, req.params.id))
+    await run(() => confirmAction(chatContext(app, conv, { req }), conv, req.params.id, { via }))
     // An anonymise card closes the chat it ran in (ai/erase.js).
     return { conversation_id: conv.id, closed: await closedNow(req, conv), items: await displayItems(conv) }
   })

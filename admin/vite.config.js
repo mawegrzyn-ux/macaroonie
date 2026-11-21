@@ -59,6 +59,9 @@ export default defineConfig({
         // so it never installs. Page loads always come from nginx, which
         // already sends index.html for app routes.
         globPatterns: ['**/*.{js,css,ico,png,svg,woff,woff2}'],
+        // Push notices for the Today tasks (migration 262): the push and
+        // notification click handlers, a plain file in public/.
+        importScripts: ['push-sw.js'],
         navigateFallback: null,
         runtimeCaching: [
           {

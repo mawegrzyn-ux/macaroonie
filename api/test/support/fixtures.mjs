@@ -711,5 +711,18 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
   await sql`INSERT INTO ai_pending_actions (tenant_id, conversation_id, tool_use_id, tool, input, card, expires_at)
             VALUES (${tenantId}, ${conv.id}, 'toolu_x', 'set_rota', ${sql.json({})}, ${sql.json({ title: mark + ' card', lines: [] })}, now() + interval '30 minutes')`
 
+  // ── Push notices (migration 262) ──
+  await step('notice settings', () => put('/api/notices/settings', {
+    enabled: true, venue_ids: [V], areas: ['food_safety', 'cash'], due_soon: true, late: true, quiet_from: '23:00', quiet_to: '06:00',
+  }))
+  const device = await step('notice device', () => post('/api/notices/devices', {
+    kind: 'web', label: mark + ' browser',
+    token: { endpoint: 'https://push.example.invalid/' + mark.toLowerCase() + '-' + tenantId.slice(0, 8), keys: { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' } },
+  }))
+  if (device?.id) ids.push_device = device.id
+  await sql`INSERT INTO task_notices (tenant_id, venue_id, task_key, day, kind, title)
+            VALUES (${tenantId}, ${V}, ${'temps:' + mark}, current_date, 'late', ${mark + ' fridge checks'})
+            ON CONFLICT DO NOTHING`
+
   return { ids, failed, writes }
 }

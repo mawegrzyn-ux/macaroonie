@@ -71,7 +71,7 @@ export function sortTasks(tasks) {
 
 // Areas, the module each needs, and how it is read. A source returns tasks
 // or throws; a 403 means the person can't see that area.
-const AREAS = {
+export const AREAS = {
   food_safety: 'food_safety',
   checklists: 'checklists',
   hs_actions: 'hs_action_log',
@@ -263,6 +263,9 @@ const SOURCES = {
   // the venue closes; yesterday's; and earlier days of the last week that
   // were never submitted, once the venue uses Cash Recon (a cash-up on any
   // day of these two weeks). Closed days need none. Each opens in place.
+  // A venue that submits once a week (migration 259): a day is done once it
+  // has figures, and last week's days still to submit are one task, from
+  // the Monday (late from the Tuesday).
   async cash(ctx, v, s) {
     const days = Array.from({ length: CASH_DAYS_BACK + 1 }, (_, i) => addDays(s.date, i - CASH_DAYS_BACK))
     const open = await withTenant(ctx.tenantId, tx => openDatesOrNull(tx, ctx.tenantId, v.id, days))
@@ -272,10 +275,26 @@ const SOURCES = {
       callApi(ctx, 'GET', `/api/venues/${v.id}/cash-recon/week/${w}`)))
     const status = new Map(weeks.flatMap(w => w.days || []).map(x => [x.date, x.status]))
     const inUse = [...status.values()].some(Boolean)
+    const weekly = weeks[1]?.submit_mode === 'weekly'
     const yesterday = addDays(s.date, -1)
     const tasks = []
+    if (weekly) {
+      const lastMonday = addDays(monday, -7)
+      const toSubmit = (weeks[0]?.days || []).filter(x => x.status === 'draft')
+      if (toSubmit.length && s.date >= monday && monday <= s.today) {
+        tasks.push({
+          key: 'cash_week:' + lastMonday, area: 'cash', kind: 'cash_week', compliance: false,
+          title: 'Submit last week\'s cash-up',
+          detail: plural(toSubmit.length, 'day') + ' to submit, week of ' + shortDate(lastMonday),
+          due: null, group: s.date > monday ? 'late' : 'now',
+          action: { path: '/cash-recon', label: 'Open the week', ref: { week: lastMonday } },
+        })
+      }
+    }
     for (const day of days) {
       if (!isOpen(day) || status.get(day) === 'submitted') continue
+      // Weekly: a day with figures is done until the week is submitted.
+      if (weekly && status.get(day)) continue
       // A day before the feed's is missed only once it has passed (a feed
       // for tomorrow doesn't count today as missed).
       if (day !== s.date && day >= s.today) continue
@@ -290,14 +309,14 @@ const SOURCES = {
         tasks.push({
           key: 'cash_up:' + day, area: 'cash', kind: 'cash_up', compliance: false,
           title: s.date === s.today ? 'Today\'s cash-up' : 'Cash-up for ' + weekday(day),
-          detail: started ? 'Started, not submitted' : 'Not started',
+          detail: started ? 'Started, not submitted' : weekly ? 'Not started (the week is submitted on Monday)' : 'Not started',
           due, group: past ? 'late' : due ? groupFor(due, s.now) : 'later',
           action,
         })
       } else {
         tasks.push({
           key: 'cash_up:' + day, area: 'cash', kind: 'cash_up', compliance: false,
-          title: 'Cash-up for ' + (day === yesterday ? weekday(day) : shortDate(day)) + ' not submitted',
+          title: 'Cash-up for ' + (day === yesterday ? weekday(day) : shortDate(day)) + (weekly ? ' not done' : ' not submitted'),
           detail: started ? 'Started, not submitted' : 'Not started',
           due: null, group: 'late',
           action,

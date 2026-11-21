@@ -308,6 +308,11 @@ const SWITCHES = [
     'message, and the pages it reads count like the rest of the chat. What it searches for leaves the app, so it is told never to ' +
     'search for a guest\'s or a staff member\'s details. Off, it answers from this app and what it knows.',
     'staff_enabled'],
+  ['voice_confirm', 'Confirm checks by voice',
+    'In talk mode on the phone, ' + ASSISTANT_NAME + ' reads a check back (a fridge, hold or cooking reading, a checklist tick) and a spoken "yes" ' +
+    'saves it, so busy hands needn\'t tap. Only checks: money, orders, bookings, the rota and anything deleted always need a tap. ' +
+    'Off, every card needs a tap.',
+    'staff_enabled'],
   ['guest_mcp_enabled', 'Guests book through their AI apps', 'Your restaurants can be found and booked through Macaroonie\'s public connector.'],
   ['guest_chat_enabled', 'Chat on your website', 'The AI chat block on your website answers guests and takes bookings. Add the block in the website builder.'],
 ]
@@ -578,6 +583,7 @@ function changeDetail(r) {
     case 'remove_time_off':       return x.name
     case 'record_cash_day':
     case 'submit_cash_day':       return [x.venue, x.date].filter(Boolean).join(', ')
+    case 'submit_cash_week':      return [x.venue, x.week].filter(Boolean).join(', ')
     case 'add_expense':           return [x.date, x.amount].filter(Boolean).join(', ')
     case 'update_online_order':
     case 'refund_online_order':   return x.order

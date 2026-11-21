@@ -37,7 +37,7 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 import { sql } from '../config/db.js'
 import { requireAuth, permissionLevel, permissionLevels, ACCESS_TOKEN_PREFIX } from '../middleware/auth.js'
 import { makeContext, addUsage, ToolError } from '../ai/context.js'
-import { audienceTools, jsonSchemaOf, parseInput, errorText, toolAllowed, SECTION_MODULES } from '../ai/tools/index.js'
+import { audienceTools, jsonSchemaOf, parseInput, errorText, toolAllowed, TOOL_MODULE_KEYS } from '../ai/tools/index.js'
 import { getAiSettings } from '../ai/settings.js'
 import { guestInstructions, staffInstructions } from '../ai/prompts.js'
 import { ASSISTANT_NAME } from '../../../shared/assistant.js'
@@ -190,7 +190,7 @@ export default async function mcpRoutes(app) {
       // check each tool makes when it runs), and only the reading ones for a
       // read-only access token (migration 179).
       listed: async tools => {
-        const levels = await permissionLevels(req, Object.values(SECTION_MODULES).flat())
+        const levels = await permissionLevels(req, TOOL_MODULE_KEYS)
         return tools.filter(t => toolAllowed(t, levels) && !(readOnly && t.confirm))
       },
       refuse: tool => (readOnly && tool.confirm

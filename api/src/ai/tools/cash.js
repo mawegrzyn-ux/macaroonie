@@ -10,6 +10,8 @@
 //                        for a day (only the fields named change)       use
 //   add_expense          a petty cash (or card-paid) expense             use
 //   submit_cash_day      submit a day's declaration                      use
+//   submit_cash_week     submit a week in one go (the only way at a
+//                        venue that submits weekly, migration 259)        use
 //   wages_week           the week's wages: total, bank, cash paid        view
 //   mark_wages_paid      record cash wages handed out                    use
 //   fill_cash_from_till  fill days from Loyverse or GloriaFood           use
@@ -441,6 +443,45 @@ export const cashTools = [
   },
 
   {
+    name: 'submit_cash_week',
+    section: 'cash',
+    title: 'Submit a Cash Recon week',
+    description:
+      'Submits a week\'s cash declarations in one go (Monday to Sunday; default last week): every day with figures that ' +
+      'isn\'t submitted, up to today. A venue that submits once a week can only submit this way. The card lists the days ' +
+      'and the week\'s variance, and which days have no figures.',
+    input: z.object({ venue: VenueText, week: WeekDate.describe('Any date in the week (Monday to Sunday). Defaults to last week.') }),
+    confirm: true,
+    needs: 'use',
+    async describe(ctx, input) {
+      await requireStaffPermission(ctx, 'cash_recon', 'use')
+      const p = await weekSubmitPlan(ctx, input)
+      const cur = p.venue.currency
+      const warnings = [
+        ...(p.notStarted.length ? ['No figures for ' + p.notStarted.join(', ') + (p.bulk ? ': an empty day is submitted for each.' : ': left out.')] : []),
+        ...(Math.abs(p.variance) >= 0.005 ? ['Week variance ' + varianceText(p.variance, cur) + '.'] : []),
+      ]
+      return {
+        title: 'Submit the week of ' + shortDate(p.monday) + '?',
+        lines: [p.venue.name + ', ' + shortDate(p.monday) + ' to ' + shortDate(addDays(p.monday, 6)),
+          'To submit: ' + [...p.toSubmit.map(d => shortDate(d.date)), ...(p.bulk ? p.notStarted : [])].join(', '),
+          ...(p.already.length ? ['Already submitted: ' + p.already.join(', ')] : [])],
+        ...(warnings.length ? { warningTitle: 'Check', warnings } : {}),
+        confirmLabel: 'Submit the week',
+        pin: { week: p.monday },
+      }
+    },
+    async run(ctx, input) {
+      await requireStaffPermission(ctx, 'cash_recon', 'use')
+      return audited(ctx, 'submit_cash_week', input, async () => {
+        const p = await weekSubmitPlan(ctx, input)
+        const res = await callApi(ctx, 'POST', base(p.venue) + '/week/' + p.monday + '/submit', { body: {} })
+        return { venue: p.venue.name, week: shortDate(p.monday), submitted: res.submitted.map(shortDate), message: 'Submitted.' }
+      })
+    },
+  },
+
+  {
     name: 'wages_week',
     section: 'cash',
     title: 'Wages for a week',
@@ -585,9 +626,38 @@ async function submitPlan(ctx, input) {
   const venue = await venueFor(ctx, input.venue)
   const date = input.date || venueToday(venue)
   const { config, report, summary } = await dayData(ctx, venue, date)
+  if (config.venue_settings?.submit_mode === 'weekly') {
+    throw new ToolError(venue.name + ' submits Cash Recon once a week: use submit_cash_week for the week of ' + shortDate(mondayOf(date)) + '.', 422)
+  }
   if (!report) throw new ToolError('Nothing is entered for ' + longDate(date) + ' yet.', 422)
   if (report.status === 'submitted') throw new ToolError(longDate(date) + ' is already submitted.', 422)
   const amounts = currentAmounts(report)
   const missing = fieldsOf(config).filter(f => amounts[f.id] == null).map(f => f.full)
   return { venue, date, summary, missing }
+}
+
+// What submit_cash_week would do: the days with figures not yet submitted
+// (up to today), those already submitted, and the open days with none.
+async function weekSubmitPlan(ctx, input) {
+  const venue = await venueFor(ctx, input.venue)
+  const today = venueToday(venue)
+  const monday = mondayOf(input.week || addDays(today, -7))
+  if (monday > today) throw new ToolError('The week of ' + shortDate(monday) + ' hasn\'t started yet.', 422)
+  const [week, detail, config] = await Promise.all([
+    callApi(ctx, 'GET', base(venue) + '/week/' + monday),
+    callApi(ctx, 'GET', base(venue) + '/week-detail/' + monday),
+    callApi(ctx, 'GET', base(venue) + '/config'),
+  ])
+  const open = detail.open_dates ? new Set(detail.open_dates) : null
+  const days = week.days.filter(d => d.date <= today)
+  const toSubmit = days.filter(d => d.status === 'draft')
+  const already = days.filter(d => d.status === 'submitted').map(d => shortDate(d.date))
+  const notStarted = days.filter(d => !d.status && (!open || open.has(d.date))).map(d => shortDate(d.date))
+  const bulk = !!config.venue_settings?.allow_bulk_submit
+  if (!toSubmit.length && !(bulk && notStarted.length)) {
+    throw new ToolError(already.length ? 'Every day of the week of ' + shortDate(monday) + ' with figures is already submitted.'
+      : 'No day of the week of ' + shortDate(monday) + ' has figures yet.', 422)
+  }
+  const variance = r2(toSubmit.reduce((s, d) => s + num(d.variance), 0))
+  return { venue, monday, toSubmit, already, notStarted, bulk, variance }
 }

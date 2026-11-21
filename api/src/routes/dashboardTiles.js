@@ -31,6 +31,10 @@ export const TILE_CATALOG = [
 ]
 const TILE_TYPES = TILE_CATALOG.map(t => t.tile_type)
 
+// The module a tile's data needs, for the tiles that have one: /api/me leaves
+// a tile out for someone without it (the other tiles are for everyone).
+export const TILE_MODULE = { allergen_lookup: 'allergens' }
+
 const TileBody = z.object({
   tile_type:  z.enum(TILE_TYPES),
   col_span:   z.number().int().min(1).max(4).optional(),

@@ -1,6 +1,9 @@
 # Pepper-first back office: implementation plan
 
-Status: plan, 21 Nov 2026. Nothing here is built. It answers the brief
+Status: plan, 21 Nov 2026. Parts built the same day (section 12): form cards
+(open_form), voice (all three steps), the task notices and the Macaroonie
+Office app. The shell, shortcuts, suggestions, deep links and the usage log
+(phases 1, 3 and 4) are not built. It answers the brief
 "Back-office UI rework" (the user, 21 Nov 2026) and three asks of the same
 day that belong with it: Pepper opening forms ("do today's cash-up"), a voice
 interface, and a React Native ops app. It continues `docs/CHAT_FIRST.md`,
@@ -389,3 +392,27 @@ Given after reading this plan and the notes on the other items. Nothing is built
 - Item 8 (till and kitchen screen analytics): by person as well as by till and layout.
 - Item 13 (ops app), in the user's words: "push, voice, scanner, offline not needed, android for now, but plan for both". Read as: push, voice and a scanner wanted, offline not, Android first with iOS planned for. Confirm before building.
 - Item 11 (Pepper-first back office): parked. It is looked at next and needs design mockups first.
+
+## 12. Built 21 Nov 2026
+
+The user picked items 3, 12 and 13 of OUTSTANDING 44 with the quick wins, and
+answered: all three voice steps now (the kitchen trial before talk mode didn't
+happen), notices for late and due-soon tasks, ten forms, and the app named
+Macaroonie Office.
+
+- **Form cards** (phase 2's `open_form`, no shell needed): `api/src/ai/tools/forms.js`,
+  the six Today forms plus delivery checks, expenses, sold out and a rota day.
+  The card is built from the tool's result (`display()`), never the model's text.
+  No `nav` or `data` cards and no deep links yet; no "once saved" summary line.
+- **Voice** (phase 5): dictation in Pepper's box, hold to talk on the phone with
+  answers read aloud per device, and a spoken yes for checks behind
+  `ai_settings.voice_confirm` (migration 261). Browser recognition, or the
+  phone's inside the Office app.
+- **Notices** (phase 6a): late and due soon, each once, to the people who can do
+  it, with venues, areas and quiet hours; Web Push and the app's push
+  (migration 262). Not the `push_devices` / `task_notices` / `user_notify`
+  shapes in section 5 exactly: `user_notify` also has due_soon / late switches,
+  and `task_notices` a kind.
+- **The phone app** (phase 6b, way C): `office-app/`, Android first, never built
+  or run on a phone yet (it needs the owner's Auth0, EAS and Firebase set-up).
+

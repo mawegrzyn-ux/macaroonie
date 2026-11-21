@@ -75,6 +75,7 @@ import documentReadRoutes    from './routes/documentRead.js'
 import navAiRoutes           from './routes/navAi.js'
 import reportAiRoutes        from './routes/reportAi.js'
 import opsRoutes             from './routes/ops.js'
+import noticesRoutes         from './routes/notices.js'
 import localInfoRoutes       from './routes/localInfo.js'
 import reportRoutes, { reportPrintRoutes } from './routes/reports.js'
 import reportScheduleRoutes from './routes/reportSchedules.js'
@@ -306,6 +307,7 @@ export async function buildApp() {
   await app.register(navAiRoutes, { prefix: '/api/ai' })
   await app.register(reportAiRoutes, { prefix: '/api/ai/reports' })
   await app.register(opsRoutes,          { prefix: '/api/ops' })
+  await app.register(noticesRoutes,      { prefix: '/api/notices' })
   await app.register(localInfoRoutes,    { prefix: '/api/local-info' })
   await app.register(reportRoutes,       { prefix: '/api/reports' })
   // Schedules and Email it now (src/reports/send.js sends).

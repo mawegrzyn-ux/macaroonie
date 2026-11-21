@@ -22,7 +22,8 @@
 // pos_receipts.email_to (a guest's address waiting for a counter order to be
 // paid, migration 210; cleared once the receipt is sent),
 // report_schedules.push_secret (a schedule's signing key for posting to a
-// web address, migration 256).
+// web address, migration 256), push_devices.token (a browser's push
+// subscription or the Office app's push token, migration 262).
 // Hints (last 4 characters) are kept beside them in plain text for display.
 
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from 'node:crypto'
@@ -40,6 +41,7 @@ export const SEALED = [
   { table: 'pos_card_accounts',     column: 'secret',           key: 'id' },
   { table: 'pos_receipts',          column: 'email_to',         key: 'id' },
   { table: 'report_schedules',      column: 'push_secret',      key: 'id' },
+  { table: 'push_devices',          column: 'token',            key: 'id' },
 ]
 
 /** The master key from SECRETS_KEY (base64 or hex of 32 bytes), or null when unset. */

@@ -25,13 +25,14 @@ export const DEFAULTS = {
   monthly_token_limit: 2_000_000,
   person_daily_pct:    25,
   chat_retention_days: 90,
+  voice_confirm:       false,
 }
 
 export async function getAiSettings(tenantId) {
   if (!tenantId) return { ...DEFAULTS }
   const [row] = await withTenant(tenantId, tx => tx`
     SELECT guest_mcp_enabled, guest_chat_enabled, staff_enabled, web_search, monthly_token_limit, person_daily_pct,
-           chat_retention_days
+           chat_retention_days, voice_confirm
       FROM ai_settings WHERE tenant_id = ${tenantId}
   `)
   return row ? { ...row, monthly_token_limit: Number(row.monthly_token_limit) } : { ...DEFAULTS }
@@ -42,10 +43,10 @@ export async function saveAiSettings(tenantId, fields) {
   const merged = { ...(await getAiSettings(tenantId)), ...fields }
   await withTenant(tenantId, tx => tx`
     INSERT INTO ai_settings (tenant_id, guest_mcp_enabled, guest_chat_enabled, staff_enabled, web_search,
-                             monthly_token_limit, person_daily_pct, chat_retention_days)
+                             monthly_token_limit, person_daily_pct, chat_retention_days, voice_confirm)
     VALUES (${tenantId}, ${merged.guest_mcp_enabled}, ${merged.guest_chat_enabled},
             ${merged.staff_enabled}, ${merged.web_search}, ${merged.monthly_token_limit}, ${merged.person_daily_pct},
-            ${merged.chat_retention_days})
+            ${merged.chat_retention_days}, ${merged.voice_confirm})
     ON CONFLICT (tenant_id) DO UPDATE SET
       guest_mcp_enabled   = EXCLUDED.guest_mcp_enabled,
       guest_chat_enabled  = EXCLUDED.guest_chat_enabled,
@@ -54,6 +55,7 @@ export async function saveAiSettings(tenantId, fields) {
       monthly_token_limit = EXCLUDED.monthly_token_limit,
       person_daily_pct    = EXCLUDED.person_daily_pct,
       chat_retention_days = EXCLUDED.chat_retention_days,
+      voice_confirm       = EXCLUDED.voice_confirm,
       updated_at          = now()
   `)
   return getAiSettings(tenantId)

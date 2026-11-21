@@ -7,16 +7,23 @@ import { cn } from '@/lib/utils'
 import { MOBILE_MODULES } from '@/mobile/registry'
 import { readVenue } from '@/pages/OpsToday'
 import { useTodayFeed, tileBadge, todayLine } from '@/mobile/today'
+import { useQuery } from '@tanstack/react-query'
+import { useApi } from '@/lib/api'
 
 export default function MobileHub() {
   const { data: feed } = useTodayFeed(readVenue())
+  const api = useApi()
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 60_000 })
+  // A tile with a module shows once /me says the role has it.
+  const shown = MOBILE_MODULES.filter(m => !m.module || me?.is_platform_admin
+    || (me?.permissions?.[m.module] ?? 'none') !== 'none')
   return (
     <div className="p-4 space-y-3">
       <p className="text-sm text-muted-foreground px-0.5">
         Mobile-optimised tools. Add this page to your home screen for quick access.
       </p>
       <div className="grid grid-cols-2 gap-3">
-        {MOBILE_MODULES.map(m => {
+        {shown.map(m => {
           const Icon = m.icon
           const badge = tileBadge(feed, m.areas)
           const line = m.key === 'today' && feed ? todayLine(feed) : m.description

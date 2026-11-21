@@ -39,6 +39,7 @@ import {
   Hourglass, Scissors, Undo2, Copy, Clock, Phone, Pencil, ShoppingBasket, PackagePlus,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { canScan, scanBarcode } from '@/lib/officeApp'
 import { cn } from '@/lib/utils'
 import { Modal, Field, inputCls, ErrorNote, Segmented, ConfirmDelete } from '@/components/staff/shared'
 import { TempKeypadModal } from '@/components/foodSafety/shared'
@@ -872,10 +873,20 @@ function AddItemModal({ order, prices, onClose, onAdd }) {
   const have = new Set(order.items.map(i => i.item_id))
   return (
     <Modal title="Add an item" onClose={onClose}>
-      <div className="relative">
-        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <input className={cn(inputCls, 'pl-9')} value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or code"
-          aria-label="Search the inventory by name or code" autoFocus={!IS_TOUCH} />
+      <div className="flex gap-2">
+        <div className="relative flex-1 min-w-0">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input className={cn(inputCls, 'pl-9')} value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or code"
+            aria-label="Search the inventory by name or code" autoFocus={!IS_TOUCH} />
+        </div>
+        {canScan() && (
+          // In the Macaroonie Office app: the camera reads a barcode into the search (a supplier's code).
+          <button type="button" data-testid="add-item-scan" aria-label="Scan a barcode"
+            onClick={async () => { const code = await scanBarcode().catch(() => null); if (code) setSearch(code) }}
+            className="shrink-0 min-h-[48px] min-w-[48px] px-3 rounded-lg border text-sm font-medium touch-manipulation hover:bg-muted">
+            Scan
+          </button>
+        )}
       </div>
       {isFetching && <Loader2 className="w-4 h-4 animate-spin" />}
       <div className="rounded-xl border divide-y">

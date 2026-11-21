@@ -608,6 +608,20 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Use <Mono>requireRole('admin', 'owner')</Mono> as a route <Mono>preHandler</Mono> for
               destructive or configuration operations.
             </P>
+            <H3>Internal act-as (migration 262) and the Office app</H3>
+            <P>
+              <Mono>Bearer internal-as:&lt;users.id&gt;</Mono> with <Mono>X-Tenant-Id</Mono> signs a request in as that
+              person, only when it carries <Mono>INTERNAL_CALL_SECRET</Mono> (random per process, sent only by{' '}
+              <Mono>app.inject</Mono>): background work that reads routes as someone (the task notices) uses it through{' '}
+              <Mono>callApi()</Mono>. Without the header it is a 401.
+            </P>
+            <P>
+              Inside the Macaroonie Office app (see Android app) the pages sign in through the app:{' '}
+              <Mono>lib/officeApp.jsx</Mono>&apos;s <Mono>OfficeAuthProvider</Mono> replaces <Mono>Auth0Provider</Mono>{' '}
+              when <Mono>window.MacaroonieOffice</Mono> is there and fills Auth0&apos;s own context from the bridge
+              (token, person, sign out), so <Mono>useAuth0()</Mono> everywhere works unchanged. The app&apos;s access token
+              is for the same audience and issuer, so the API checks it like any other.
+            </P>
           </section>
 
           {/* ── TEAM & PLATFORM ADMIN ───────────────────── */}
@@ -922,6 +936,21 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>level !== &apos;none&apos;</Mono> (or the rank), never{' '}
               <Mono>level === &apos;view&apos; || level === &apos;manage&apos;</Mono>, which hides it
               from Use (the dashboards&apos; <Mono>canUseWidget()</Mono> did).
+            </P>
+            <H3>Allergen lookup (migration 258)</H3>
+            <P>
+              Module <Mono>allergens</Mono> (label Allergen lookup, group Menus; defaults owner / admin manage,
+              operator / viewer view): the read-only lookup over the live menus without Menus access. Migration 258
+              adds its <Mono>tenant_modules</Mono> row, gives every custom role <Mono>allergens: view</Mono> where it
+              names none (custom roles have no module defaults, so they would otherwise lose the lookup they had
+              through Menus) and puts the <Mono>/allergens</Mono> link after Online orders. It gates{' '}
+              <Mono>GET /api/menus/:id/allergens?version=live</Mono> (<Mono>requireAnyPermission(['menus', 'allergens'])</Mono>;
+              the draft, the matrix, still needs Menus view), the <Mono>allergen_lookup</Mono> dashboard widget
+              (<Mono>WIDGET_MODULE</Mono>), the Overview tile (<Mono>TILE_MODULE</Mono> in{' '}
+              <Mono>routes/dashboardTiles.js</Mono>, applied by <Mono>/api/me</Mono>), the phone tile
+              (<Mono>module</Mono> in <Mono>mobile/registry.js</Mono>) and Pepper&apos;s <Mono>find_dishes</Mono>{' '}
+              (a tool may name its own <Mono>modules</Mono>; <Mono>TOOL_MODULE_KEYS</Mono> for the connector). With
+              the lookup alone, find_dishes reads live menus only.
             </P>
           </section>
 
@@ -1729,6 +1758,45 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>paid_by_card</Mono> (they were reset to 0 / false on every grid save).{' '}
               <Mono>GET .../week-detail/:week_start</Mono> uses <Mono>openDatesOrNull()</Mono>, so a venue
               with no booking schedule shows every day (it showed none).
+            </P>
+            <H3>Submitting once a week (migration 259)</H3>
+            <P>
+              <Mono>cash_venue_settings.submit_mode</Mono> <Mono>daily | weekly</Mono> over the per-day status, which
+              stays the store. <Mono>PATCH .../cash-recon/settings</Mono> takes any of the venue settings, a field left out
+              kept (COALESCE). Weekly: <Mono>POST .../daily/:date/submit</Mono> answers 422.{' '}
+              <Mono>POST .../week/:week_start/submit</Mono> (Use, every mode) runs <Mono>submitWeek()</Mono>: one
+              transaction, the week&apos;s days up to the venue&apos;s today, a draft submitted, a day with no report
+              made and submitted only with <Mono>allow_bulk_submit</Mono> and an open day (<Mono>openDatesOrNull()</Mono>);
+              422 when nothing is left. <Mono>POST .../week/:week_start/unsubmit</Mono> (owner / admin + Manage).{' '}
+              <Mono>GET .../week/:week_start</Mono> returns <Mono>submit_mode</Mono>. Admin: <Mono>WeekSubmitButton</Mono>{' '}
+              (exported from <Mono>CashRecon.jsx</Mono>; the grid flushes its unsaved cells first), on the grid, the week
+              cards and <Mono>MobileCashUp</Mono>; <Mono>DayView</Mono> passes <Mono>weekly</Mono> and{' '}
+              <Mono>canSubmit</Mono> false. Today feed (<Mono>cash</Mono> source): a day with a report is done; task{' '}
+              <Mono>cash_week:&lt;monday&gt;</Mono> for last week&apos;s drafts from the Monday, late from the Tuesday.
+              Pepper: <Mono>submit_cash_week</Mono>; <Mono>submit_cash_day</Mono> refuses at a weekly venue.
+            </P>
+            <H3>Retrieve and the scheduled fill (migration 260)</H3>
+            <P>
+              <Mono>services/reconRetrieve.js</Mono>: <Mono>RETRIEVE_SOURCES</Mono> (Loyverse, GloriaFood),{' '}
+              <Mono>linkedSources()</Mono>, <Mono>retrieveDays()</Mono> (each linked system&apos;s own fill,{' '}
+              <Mono>applyLoyverseDays()</Mono> / <Mono>applyGloriaFoodDays()</Mono> exported from their routes; one
+              failing doesn&apos;t stop the other; over several days <Mono>onlyWithSales</Mono> leaves out days with no
+              sales and days after the venue&apos;s today, as the preview leaves them unticked).{' '}
+              <Mono>GET / POST .../cash-recon/retrieve</Mono> (View / Use). Settings: <Mono>retrieve_skip_preview</Mono>,{' '}
+              <Mono>auto_fill</Mono>, <Mono>auto_fill_at</Mono> (venue time), and the last
+              run (<Mono>auto_fill_ran_at</Mono>, <Mono>auto_fill_result</Mono>, <Mono>auto_fill_error</Mono>).{' '}
+              <Mono>sweepAutoFill()</Mono> (worker <Mono>cash-autofill</Mono>, every five minutes) claims each venue&apos;s
+              day with one UPDATE of <Mono>auto_fill_last_on</Mono> and fills <Mono>autoFillDates()</Mono>: the day just
+              ended and two before, with <Mono>keepHandEdits</Mono>.
+            </P>
+            <P>
+              <Mono>cash_fill_values</Mono> (forced RLS, one row per report and field) holds the amount each fill last
+              wrote: <Mono>fillReconDay()</Mono> writes it on every fill (the till&apos;s Z too) and, with{' '}
+              <Mono>keepHandEdits</Mono>, skips a field where <Mono>changedByHand(current, lastFilled)</Mono>: not empty
+              or zero and not what the last fill wrote (zero counts as empty: the day view saves untouched fields as 0).
+              Admin: <Mono>components/cashRecon/Retrieve.jsx</Mono> (<Mono>RetrieveButton</Mono> in place of the two fill
+              buttons: each system&apos;s window in turn, or straight away with a result panel;{' '}
+              <Mono>RetrieveSettings</Mono> in Settings → General).
             </P>
           </section>
 
@@ -2769,6 +2837,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               bottom padding so the Standard view pill doesn&apos;t cover the last rows. Menu choice in
               localStorage <Mono>maca_allergen_lookup_mobile</Mono>. Read-only, same{' '}
               <Mono>GET /api/menus/:id/allergens</Mono> as the dashboard widget; no new API.
+            </P>
+            <H3>Notices and the Office app (migration 262)</H3>
+            <P>
+              <Mono>/mobile/notices</Mono> (<Mono>MobileNotices</Mono>, tile <Mono>notices</Mono>): the person&apos;s push
+              notices (see Today: Task notices). Inside the Macaroonie Office app the phone pages use its bridge for
+              sign-in, the push token, speech (<Mono>ChatView</Mono> <Mono>talkMode</Mono> on <Mono>/mobile/assistant</Mono>)
+              and the order form&apos;s Scan button (<Mono>canScan()</Mono> / <Mono>scanBarcode()</Mono>). The hub hides a
+              tile with a <Mono>module</Mono> the role has none of (the Allergens tile).
             </P>
           </section>
 
@@ -6819,6 +6895,23 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               ticket printers belong on the venue hub), locking a kiosk in (use Android&apos;s app pinning or a
               device manager), and an iPhone / iPad build (<Mono>platforms</Mono> is android only).
             </InfoBox>
+            <H3>Macaroonie Office (office-app/)</H3>
+            <P>
+              A second Expo app (SDK 58, <Mono>com.macaroonie.office</Mono>): the staff app for phones, around the phone
+              pages of <Mono>ops.&lt;root&gt;/mobile</Mono>. <Mono>auth.js</Mono>: Auth0 in the phone&apos;s browser
+              (expo-auth-session, PKCE, <Mono>offline_access</Mono>), the refresh token in expo-secure-store;{' '}
+              <Mono>authCore.js</Mono> the rules. <Mono>bridge.js</Mono>: <Mono>bridgeScript()</Mono> put on each page
+              before it loads (<Mono>window.MacaroonieOffice</Mono>: <Mono>auth.token/user/signIn/signOut</Mono>,{' '}
+              <Mono>push.token</Mono>, <Mono>speech.listen/speak/stopSpeaking</Mono>, <Mono>scanner.scan</Mono>) and{' '}
+              <Mono>makeHandler()</Mono> on the app&apos;s side, answering only pages of ours (<Mono>bridgeAllowed()</Mono>).{' '}
+              <Mono>links.js</Mono>: what stays in the app (ops. and office., https), where a tapped notice opens.{' '}
+              <Mono>Scanner.js</Mono> (expo-camera); push by expo-notifications (channel <Mono>tasks</Mono>), speech by
+              expo-speech-recognition and expo-speech. Build settings in <Mono>app.config.js</Mono> (root domain, Auth0
+              native client id, audience; the EAS project id is in <Mono>app.json</Mono>). Every <Mono>eas.json</Mono> profile builds
+              an APK for now. Checked by <Mono>.github/workflows/office-app.yml</Mono> (npm ci, tests, expo config and export);
+              <Mono>deploy.yml</Mono> ignores <Mono>office-app/**</Mono>. Tests: <Mono>office-app/test</Mono> (Node, in CI with the device
+              app&apos;s). Set-up the owner does once (Auth0 native application, EAS, Firebase for push): its README.
+            </P>
           </section>
 
           <section id="web-ordering" data-doc="">
@@ -8231,6 +8324,34 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               connects with an access token, for example:
             </P>
             <Code>{'claude mcp add --transport http macaroonie https://macaroonie.com/mcp/staff/<slug> \\\n  --header "Authorization: Bearer mcp_..."'}</Code>
+            <H3>Form cards: open_form</H3>
+            <P>
+              <Mono>ai/tools/forms.js</Mono> (core tool): <Mono>open_form</Mono> picks a form of{' '}
+              <Mono>OPEN_FORMS</Mono> (temps, holds, cooking, delivery, checklist, cash_up, wages, expense, sold_out,
+              rota_day; keep in step with <Mono>FORMS</Mono> in <Mono>components/forms/FormSheet.jsx</Mono>), a venue and a
+              day; it needs View on the form&apos;s module, and the card says <Mono>read_only</Mono> below Use (Manage for
+              the rota and sold out). In the staff chat it returns <Mono>form_card</Mono>; elsewhere a link. A tool with{' '}
+              <Mono>display(out)</Mono> shows a card of its own: <Mono>handleToolUse()</Mono> streams it as a{' '}
+              <Mono>card</Mono> event and <Mono>displayItems()</Mono> rebuilds it from the stored tool result
+              (<Mono>DISPLAY_TOOLS</Mono>), so it is never built from the model&apos;s text. <Mono>ChatView</Mono>&apos;s{' '}
+              <Mono>FormCard</Mono> opens <Mono>FormOpener</Mono> (the Today sheet, or <Mono>AvailabilityModal</Mono> for
+              sold out).
+            </P>
+            <H3>Voice (migration 261)</H3>
+            <P>
+              <Mono>admin/src/lib/speech.js</Mono>: <Mono>listen()</Mono> / <Mono>speak()</Mono> over the browser&apos;s
+              SpeechRecognition and speechSynthesis, or the Macaroonie Office app&apos;s bridge;{' '}
+              <Mono>spokenText()</Mono> drops markdown and links and never reads out an email or phone number;{' '}
+              <Mono>yesOrNo()</Mono>. <Mono>ChatView</Mono>: the mic (dictation into the box), and with{' '}
+              <Mono>talkMode</Mono> (<Mono>MobileAssistant</Mono>) hold to talk, read aloud per device
+              (<Mono>maca_voice_read_aloud</Mono>), and after a spoken turn a check card read back and confirmed by a
+              spoken yes. Server: <Mono>POST /api/ai/chat</Mono> <Mono>voice: true</Mono> adds <Mono>VOICE_NOTE</Mono> as a
+              hidden <Mono>_context</Mono> block; <Mono>POST /actions/:id/confirm</Mono> <Mono>{"{ via: 'voice' }"}</Mono>{' '}
+              is refused unless the tool is in <Mono>VOICE_CONFIRM_TOOLS</Mono> (log_temperature, log_hold_check,
+              log_cooking_check, tick_checklist; 422) and <Mono>ai_settings.voice_confirm</Mono> is on (403); the chat note
+              says it was said. Action items carry <Mono>voice_ok</Mono>; <Mono>/api/ai/status</Mono>{' '}
+              <Mono>voice_confirm</Mono>.
+            </P>
           </section>
 
           <section id="ops-today" data-doc="">
@@ -8358,6 +8479,39 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               switch (G1). Adding a source: a function in <Mono>SOURCES</Mono> with its module in <Mono>AREAS</Mono>,
               reading through the routes with <Mono>callApi()</Mono>, and a row in this table.
             </InfoBox>
+            <H3>The form sheet</H3>
+            <P>
+              <Mono>components/forms/FormSheet.jsx</Mono>: <Mono>FORMS</Mono> (with each form&apos;s module and phone page),{' '}
+              <Mono>Go</Mono>, <Mono>formTitle()</Mono>, <Mono>FormSheet</Mono> and <Mono>FormOpener</Mono>, moved out of{' '}
+              <Mono>OpsToday.jsx</Mono> (which re-exports <Mono>FormSheet</Mono>) so Pepper&apos;s form cards open the
+              same sheet. New forms: delivery (<Mono>DeliveryChecksPanel</Mono>), expense (<Mono>PettyCashPanel</Mono>),
+              rota_day (<Mono>RotaDayList</Mono> and the week&apos;s <Mono>RotaGrid</Mono> on that day), sold_out
+              (<Mono>AvailabilityModal</Mono>).
+            </P>
+            <H3>Task notices (migration 262)</H3>
+            <P>
+              <Mono>services/notices.js</Mono>, worker <Mono>task-notices</Mono> every five minutes
+              (<Mono>startTaskNoticeWorker(app, log)</Mono>): for each group with a device, each venue&apos;s feed is
+              worked out as the group&apos;s first owner through the internal act-as sign-in (see Authentication), so it
+              holds every area. <Mono>noticeKind()</Mono>: <Mono>late</Mono> for a late task, <Mono>due_soon</Mono> for
+              one due within <Mono>DUE_SOON_MINUTES</Mono> (30). <Mono>wants()</Mono>: the person&apos;s{' '}
+              <Mono>user_notify</Mono> (on, venues, areas, kinds, <Mono>inQuietHours()</Mono> in venue time) and the
+              feed&apos;s can_act rule on their own levels. Each notice is claimed in <Mono>task_notices</Mono> (PK venue,
+              task key, day, kind) before it is sent, so it goes once. Delivery: <Mono>pushSenders.web</Mono>{' '}
+              (web-push with VAPID keys made once and sealed in <Mono>platform_secrets</Mono> as{' '}
+              <Mono>web_push_vapid</Mono>) and <Mono>pushSenders.app</Mono> (Expo&apos;s push service, channel{' '}
+              <Mono>tasks</Mono>); a device the service calls gone is deleted, another failure kept in{' '}
+              <Mono>last_error</Mono>. Old <Mono>task_notices</Mono> go after 30 days (hourly clean-up).
+            </P>
+            <P>
+              <Mono>routes/notices.js</Mono> (<Mono>/api/notices</Mono>, anyone signed in, their own rows only):{' '}
+              <Mono>GET/PUT /settings</Mono> (a whole save; venues checked to be the group&apos;s), <Mono>POST /devices</Mono>{' '}
+              (<Mono>web</Mono>: a PushSubscription, https endpoint; <Mono>app</Mono>: an Expo push token; sealed, one row
+              per <Mono>token_hash</Mono>), <Mono>DELETE /devices/:id</Mono>, <Mono>POST /test</Mono>. Admin:{' '}
+              <Mono>components/notices/NoticeSettings.jsx</Mono> (on <Mono>/mobile/notices</Mono> and Settings),{' '}
+              <Mono>lib/push.js</Mono>, and <Mono>public/push-sw.js</Mono> loaded into the service worker
+              (<Mono>workbox.importScripts</Mono>): it shows a notice and opens its page on a tap.
+            </P>
           </section>
 
           <section id="local-info" data-doc="">
@@ -8635,6 +8789,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               sit inside another capture&apos;s entry. Merging is tested only against a stand-in Claude: first live
               use, run two captures of one kind at a venue and look at what was put together.
             </InfoBox>
+            <H3>The list: Today and the kept place</H3>
+            <P>
+              <Mono>LocalInfo.jsx</Mono> keeps the month (<Mono>maca_local_info_month</Mono>) and the scroll place
+              (<Mono>maca_local_info_scroll</Mono>, with its month and view) in sessionStorage: the visit only. The pane{' '}
+              (<Mono>li-pane</Mono>) is restored once per mount, after the items and the permissions load (the View
+              notice above the list goes when they do, and scroll anchoring would move the place by its height); a
+              clamp is retried a few frames while saving is held off. <Mono>li-today</Mono> goes to this month and, in
+              the list, scrolls to the first day on or after today; another month starts at the top.
+            </P>
           </section>
 
           <section id="reports" data-doc="">
@@ -10859,6 +11022,13 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
               and the real One Thai Ware export (round trip, Windows-1252, xlsx in and out, permissions),
               and the page in Chromium at 1280, 1015 and 390 px (match, skip, keep, typed prices, code
               map, save, download and reload).
+            </P>
+            <H3>The Allergens page (migration 258)</H3>
+            <P>
+              <Mono>pages/Allergens.jsx</Mono> (<Mono>/allergens</Mono>): <Mono>AllergenLookup</Mono> as a page, for the{' '}
+              <Mono>allergens</Mono> module (see RBAC: Allergen lookup). The live read (<Mono>?version=live</Mono>) takes
+              Menus or Allergen lookup; the draft and every write stay Menus. Search words in{' '}
+              <Mono>NAV_KEYWORDS</Mono> include allergy and free from.
             </P>
           </section>
 

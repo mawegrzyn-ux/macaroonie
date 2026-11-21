@@ -14,6 +14,7 @@ import {
 } from '@/contexts/SettingsContext'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { cn } from '@/lib/utils'
+import NoticeSettings from '@/components/notices/NoticeSettings'
 
 // ── Shared layout primitives ───────────────────────────────────
 
@@ -334,6 +335,12 @@ export default function Settings() {
       </div>
 
       <div className="flex-1 p-5 max-w-xl space-y-5">
+
+        {/* ── Notices (migration 262): this person's own push notices ── */}
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold">Notices</h2>
+          <NoticeSettings />
+        </div>
 
         {/* ── Interface ────────────────────────────────────── */}
         <SectionCard title="Interface">

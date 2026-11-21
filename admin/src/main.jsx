@@ -78,6 +78,7 @@ import Menus          from '@/pages/Menus'
 import MenuVariantGroups from '@/pages/MenuVariantGroups'
 import MenuDietaryTags from '@/pages/MenuDietaryTags'
 import MenuAllergenMatrix from '@/pages/MenuAllergenMatrix'
+import Allergens from '@/pages/Allergens'
 import MenuTax from '@/pages/MenuTax'
 import MenuTimes from '@/pages/MenuTimes'
 import MenuDeliveroo from '@/pages/MenuDeliveroo'
@@ -126,6 +127,7 @@ import OrderFlowDesigner from '@/pages/OrderFlowDesigner'
 import Promotions from '@/pages/Promotions'
 import MobileOrders    from '@/pages/mobile/MobileOrders'
 import MobileAllergens from '@/pages/mobile/MobileAllergens'
+import MobileNotices from '@/pages/mobile/MobileNotices'
 import MobileAssistant from '@/pages/mobile/MobileAssistant'
 const MobileReportList = React.lazy(() => import('@/pages/mobile/MobileReports').then(m => ({ default: m.MobileReportList })))
 const MobileReport = React.lazy(() => import('@/pages/mobile/MobileReports').then(m => ({ default: m.MobileReport })))
@@ -135,6 +137,7 @@ import NavDesigner     from '@/pages/NavDesigner'
 import Launcher        from '@/pages/Launcher'
 import './index.css'
 import { IS_OPS_HOST, IS_INSTALLER_HOST } from '@/lib/hosts'
+import { inOfficeApp, OfficeAuthProvider } from '@/lib/officeApp'
 import InstallerShell  from '@/components/installer/InstallerShell'
 import InstallerHome   from '@/pages/installer/InstallerHome'
 import InstallerLink   from '@/pages/installer/InstallerLink'
@@ -146,6 +149,12 @@ const queryClient = new QueryClient({
     queries: { staleTime: 30_000, retry: 1 },
   },
 })
+
+// Inside the Macaroonie Office app, sign-in is the app's (lib/officeApp.jsx):
+// its bridge fills Auth0's context, so the pages work unchanged.
+const AuthProvider = inOfficeApp()
+  ? ({ children }) => <OfficeAuthProvider>{children}</OfficeAuthProvider>
+  : Auth0Provider
 
 // Invitation links still need the Auth0 organization param so the invite
 // can be accepted. Everyday login does NOT pass an organization — after
@@ -211,7 +220,7 @@ const Placeholder = ({ title }) => (
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <Auth0Provider
+    <AuthProvider
       domain={import.meta.env.VITE_AUTH0_DOMAIN}
       clientId={import.meta.env.VITE_AUTH0_CLIENT_ID}
       authorizationParams={{
@@ -264,6 +273,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="customers" element={<Customers />} />
                 <Route path="loyalty" element={<Loyalty />} />
                 <Route path="orders" element={<Orders />} />
+                <Route path="allergens" element={<Allergens />} />
                 <Route path="orders/settings" element={<OrderingSettings />} />
                 <Route path="pos" element={<PosSetup />} />
                 <Route path="pos/:tab" element={<PosSetup />} />
@@ -354,6 +364,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="wages"        element={<MobileWages />} />
                 <Route path="orders"       element={<MobileOrders />} />
                 <Route path="allergens"    element={<MobileAllergens />} />
+                <Route path="notices"      element={<MobileNotices />} />
                 <Route path="assistant"    element={<MobileAssistant />} />
                 <Route path="reports"      element={<React.Suspense fallback={<LoadingPage />}><MobileReportList /></React.Suspense>} />
                 <Route path="reports/:ref" element={<React.Suspense fallback={<LoadingPage />}><MobileReport /></React.Suspense>} />
@@ -367,6 +378,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         </TimelineSettingsProvider>
         </SettingsProvider>
       </QueryClientProvider>
-    </Auth0Provider>
+    </AuthProvider>
   </React.StrictMode>
 )

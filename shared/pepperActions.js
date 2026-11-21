@@ -44,7 +44,7 @@ export const ACTION_LABELS = {
   fill_wages_from_rota: 'Filled wages from the rota', adjust_tips: 'Moved or adjusted tips', set_tip_pot_amounts: 'Entered tip amounts',
   add_staff_member: 'Added a staff member', update_staff_member: 'Changed a staff member', set_staff_leaving: 'Set a leaving date',
   add_time_off: 'Took someone off the rota', remove_time_off: 'Removed time off the rota',
-  record_cash_day: 'Entered Cash Recon figures', add_expense: 'Added an expense', submit_cash_day: 'Submitted a cash day',
+  record_cash_day: 'Entered Cash Recon figures', add_expense: 'Added an expense', submit_cash_day: 'Submitted a cash day', submit_cash_week: 'Submitted a cash week',
   mark_wages_paid: 'Marked wages paid', fill_cash_from_till: 'Filled Cash Recon from a till system',
   update_online_order: 'Moved an online order', refund_online_order: 'Refunded an online order',
   pause_online_orders: 'Paused or restarted online orders', set_sold_out: 'Changed sold out dishes',

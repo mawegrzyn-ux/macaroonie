@@ -21,7 +21,7 @@
 //   H&S:   'checklist' (one checklist_templates row, ChecklistRunPanel),
 //          'temp_checks', 'delivery_checks', 'hold_checks', 'cooking_checks'
 //          (food safety logs), 'action_log' (H&S Action Log)
-//   Menus: 'allergen_lookup'
+//   Allergen lookup: 'allergen_lookup'
 //   Cash:  'cash_wages_paid', 'cash_petty_cash', 'cash_recon_grid',
 //          'cash_week_balance', 'cash_day_balance', 'cash_day_tiles',
 //          'cash_week_expenses', 'cash_week_summary_grid', 'cash_week_staff',
@@ -78,7 +78,7 @@ export const WIDGET_MODULE = {
   hold_checks:            'food_safety',
   cooking_checks:         'food_safety',
   action_log:             'hs_action_log',
-  allergen_lookup:        'menus',
+  allergen_lookup:        'allergens',
   local_info:             'local_info',
   report:                 'reports',
   cash_wages_paid:        'cash_recon',
