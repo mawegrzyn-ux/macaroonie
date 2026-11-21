@@ -755,6 +755,8 @@ Each phase ships with its Help and Docs sections, a changelog entry and its test
 
 **Decision 3 (PDFs): the facts for 4d**, from the deploy log after 4a. The Lightsail machine has 2 cores, 3,832 MB of memory (about 2,780 MB available), no swap, and a 77 GB disk with 7.8 GB used; the API runs as two PM2 processes of about 205 MB each. A headless Chromium needs about 300 MB while it makes a PDF, so there is room for one at a time, queued, and never two. On Ubuntu 24.04 apt's Chromium is a snap, so how it is installed needs choosing with care. The fallback stays the plain writer (`services/pdfDoc.js`).
 
+**As built (21 Nov 2026): phases 4c and 4d** (migration 253; server on 15 Nov, screens on 21 Nov). Layout templates are settings, not a canvas (`shared/reports/layout.js`): paper, way round, margins, header parts, footer numbers and words, brand colour, density, stripes, negatives, a front page; one per group can be the default, a report picks one (`reports.layout_id`), the editor previews a real report in a frame. Page reports are rows of `reports` with subject `page` (`shared/reports/page.js`): report, text and break blocks that point at reports, each run as the person looking, with the page's own period and venues or each report's own; they print and export as PDF only and can't be run, kept or scheduled yet (differences from the plan). PDFs come from a headless Chrome on the server (`services/pdfBrowser.js`, one at a time on the machine, as decision 3's facts allowed), with no remote fetches; the plain writer is not used for reports.
+
 ## 21. Risks
 
 | Risk | Why it matters | What the plan does |

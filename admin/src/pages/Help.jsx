@@ -2504,6 +2504,42 @@ export default function Help() {
               in the message, as a CSV or Excel file, or both, to the same people a schedule could go
               to. It shows in Past runs as <strong>Emailed</strong>.
             </P>
+            <H3>How reports look on paper</H3>
+            <P>
+              <strong>Reports</strong>, then <strong>Layouts</strong>, lists your group&apos;s layouts. A layout
+              says how a report prints and how its PDF looks: the paper (the printer&apos;s own, A4 or Letter),
+              which way round, the margins, what goes at the top of the first sheet (logo, group name, the
+              report&apos;s description, the period, venues and rows, when it was read), the foot of every sheet
+              (page numbers and your own words), the style (your brand colour, compact or roomy rows, stripes,
+              how negative figures show) and a front page with a paragraph of your own. Tick{' '}
+              <strong>The group&apos;s default</strong> and every report prints with it unless it picks
+              another. <strong>Show the preview</strong> draws one of your reports with the layout before you
+              save. Making and changing layouts needs Manage on Reports.
+            </P>
+            <P>
+              A report picks its layout in <strong>More</strong>, <strong>How it looks on paper</strong> (anyone
+              who can change the report).
+            </P>
+            <H3>A page of reports</H3>
+            <P>
+              <strong>New page</strong> on the Reports page puts several saved or starter reports on one page,
+              in the order you drag them into, with headings, words of your own and page breaks between them.
+              Each report can show its chart and table, the chart only or the table only. A page can have its
+              own period and venues, which every report on it then uses (people looking can change them for
+              their visit), or leave each report its own.
+            </P>
+            <P>
+              Each report on the page is worked out for the person looking, with what their role may see: a
+              report they can&apos;t open says so in its place. <strong>Print</strong> and{' '}
+              <strong>PDF</strong> give the whole page, a new sheet at each break. A page can&apos;t be kept as a
+              file, scheduled or emailed yet; its reports can. A break at the very end is left off.
+            </P>
+            <H3>PDFs</H3>
+            <P>
+              <strong>PDF</strong> beside CSV and Excel downloads the report as it prints, with its layout. More,{' '}
+              <strong>Keep a PDF</strong> keeps one in Past runs, and a schedule can attach one. The server
+              makes one PDF at a time, so at a busy moment it can take a little longer.
+            </P>
             <H3>The starter reports</H3>
             <DataTable
               head={['Area', 'Reports']}
@@ -2758,8 +2794,8 @@ export default function Help() {
               and a guest's customer record needs Customers access as well.
             </P>
             <InfoBox>
-              Still to come: PDFs, page layouts, reports on dashboards and the phone, and links other
-              apps can read a report from. Kept and emailed files are CSV or Excel for now. The builder has no undo (leaving without
+              Still to come: reports on dashboards and the phone, and links other apps can read a report
+              from. A page of reports can&apos;t be kept as a file or scheduled yet. The builder has no undo (leaving without
               saving goes back to the last save), and filters made of several parts, which a few
               starter reports use, can be taken off but not changed on screen. The Till reports page,
               the Online orders report and the Kitchen report stay where they are.

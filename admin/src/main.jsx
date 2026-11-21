@@ -63,6 +63,8 @@ const ReportView = React.lazy(() => import('@/pages/ReportView'))
 const ReportBuilder = React.lazy(() => import('@/pages/ReportBuilder'))
 const ReportRuns = React.lazy(() => import('@/pages/ReportRuns'))
 const ReportSchedules = React.lazy(() => import('@/pages/ReportSchedules'))
+const ReportLayouts = React.lazy(() => import('@/pages/ReportLayouts'))
+const ReportPageEditor = React.lazy(() => import('@/pages/ReportPageEditor'))
 const LoadingPage = () => <div className="p-6 text-sm text-muted-foreground">Loading…</div>
 import Settings    from '@/pages/Settings'
 import Website     from '@/pages/Website'
@@ -248,6 +250,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="reports/new" element={<React.Suspense fallback={<LoadingPage />}><ReportBuilder /></React.Suspense>} />
                 <Route path="reports/runs" element={<React.Suspense fallback={<LoadingPage />}><ReportRuns /></React.Suspense>} />
                 <Route path="reports/schedules" element={<React.Suspense fallback={<LoadingPage />}><ReportSchedules /></React.Suspense>} />
+                <Route path="reports/layouts" element={<React.Suspense fallback={<LoadingPage />}><ReportLayouts /></React.Suspense>} />
+                <Route path="reports/new-page" element={<React.Suspense fallback={<LoadingPage />}><ReportPageEditor /></React.Suspense>} />
+                <Route path="reports/:id/page" element={<React.Suspense fallback={<LoadingPage />}><ReportPageEditor /></React.Suspense>} />
                 <Route path="reports/:id" element={<React.Suspense fallback={<LoadingPage />}><ReportView /></React.Suspense>} />
                 <Route path="reports/:id/edit" element={<React.Suspense fallback={<LoadingPage />}><ReportBuilder /></React.Suspense>} />
                 <Route path="today"      element={<OpsToday />} />

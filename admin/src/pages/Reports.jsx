@@ -11,13 +11,13 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { FileBarChart, Search, Lock, X, Plus, History, CalendarDays } from 'lucide-react'
+import { FileBarChart, Search, Lock, X, Plus, History, CalendarDays, LayoutTemplate, Files } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { PageHeader, inputCls, ErrorNote } from '@/components/staff/shared'
 import { StarButton, reportPath, retryUnlessRefused } from '@/components/reports/shared'
 import { cn } from '@/lib/utils'
 
-const KIND_NAMES = { list: 'List', summary: 'Summary', matrix: 'Table across' }
+const KIND_NAMES = { list: 'List', summary: 'Summary', matrix: 'Table across', page: 'Page of reports' }
 // Who a saved report is shared with. Someone with Manage sees other people's
 // private reports too: those aren't "only you".
 const sharedName = r => (r.shared === 'private' ? (r.mine ? 'Only you' : 'Not shared') : r.shared === 'roles' ? 'Some roles' : 'Everyone')
@@ -125,6 +125,16 @@ export default function Reports() {
           className="inline-flex items-center justify-center gap-2 h-12 min-w-[48px] px-3 rounded-lg border bg-background text-sm font-medium touch-manipulation hover:bg-muted shrink-0">
           <History className="w-4 h-4" /> <span className="max-sm:sr-only">Past runs</span>
         </Link>
+        <Link to="/reports/layouts" data-testid="reports-layouts" title="How reports look on paper and in a PDF"
+          className="inline-flex items-center justify-center gap-2 h-12 min-w-[48px] px-3 rounded-lg border bg-background text-sm font-medium touch-manipulation hover:bg-muted shrink-0">
+          <LayoutTemplate className="w-4 h-4" /> <span className="max-sm:sr-only">Layouts</span>
+        </Link>
+        {data?.can_use && (
+          <Link to="/reports/new-page" data-testid="reports-new-page" title="Several reports on one page, to read and print as one"
+            className="inline-flex items-center justify-center gap-2 h-12 min-w-[48px] px-3 rounded-lg border bg-background text-sm font-medium touch-manipulation hover:bg-muted shrink-0">
+            <Files className="w-4 h-4" /> <span className="max-sm:sr-only">New page</span>
+          </Link>
+        )}
         {data?.can_use && (
           <Link to="/reports/new" data-testid="reports-new"
             className="inline-flex items-center gap-2 h-12 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation shrink-0">
