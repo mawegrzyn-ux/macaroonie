@@ -116,7 +116,7 @@ test('an APK link is copied and downloaded from every device address', async () 
     const dl = await onHost(sub, '/android')
     assert.equal(dl.statusCode, 200, sub)
     assert.equal(dl.headers['content-type'], 'application/vnd.android.package-archive')
-    assert.equal(dl.headers['content-disposition'], 'attachment; filename="macaroonie.apk"')
+    assert.equal(dl.headers['content-disposition'], 'attachment; filename="macaroonie-player.apk"')
     assert.match(dl.headers['cache-control'], /no-store/)
     assert.deepEqual(dl.rawPayload, APK1, sub)
   }

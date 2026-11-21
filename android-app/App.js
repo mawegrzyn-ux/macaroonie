@@ -1,4 +1,4 @@
-// Macaroonie: one Android app for the till, the kitchen screen, the
+// Macaroonie Player: one Android app for the till, the kitchen screen, the
 // self-order kiosk and menu screens. The apps themselves are the web apps on
 // pos., kitchen., kiosk. (pos/ in the repository) and screens.<root domain>
 // (screen/), so they change with every deploy and never need a new build of
@@ -165,7 +165,7 @@ function Picker({ current, onChoose, onBack, onReload, autoBack }) {
   useEffect(() => { if (autoBack && focused) setLeft(AUTO_BACK_SECS) }, [autoBack, focused])
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.pickerWrap} onTouchStart={stay}>
-      <Text style={styles.brand}>Macaroonie</Text>
+      <Text style={styles.brand}>Macaroonie Player</Text>
       <Text style={styles.heading}>What is this device?</Text>
       <Text style={styles.lead}>
         {current

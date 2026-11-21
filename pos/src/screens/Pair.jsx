@@ -89,8 +89,8 @@ function AndroidApp({ app }) {
   if (!ON_ANDROID) {
     return (
       <div className="text-sm text-muted" data-testid="pair-android-app">
-        Android device? Get the Macaroonie app: open{' '}
-        <a className="underline font-semibold text-ink" href={app.path || '/android'} download="macaroonie.apk" data-testid="pair-android-link">{address}</a> on it.
+        Android device? Get Macaroonie Player: open{' '}
+        <a className="underline font-semibold text-ink" href={app.path || '/android'} download="macaroonie-player.apk" data-testid="pair-android-link">{address}</a> on it.
       </div>
     )
   }
@@ -98,14 +98,14 @@ function AndroidApp({ app }) {
     <div className="rounded-xl border border-line p-4 space-y-2" data-testid="pair-android-app">
       <a
         href={app.path || '/android'}
-        download="macaroonie.apk"
+        download="macaroonie-player.apk"
         className="btn btn-primary w-full sm:w-auto"
         data-testid="pair-android-download"
       >
-        <Download size={18} /> Get the Android app{mb ? ` (${mb} MB)` : ''}
+        <Download size={18} /> Get Macaroonie Player{mb ? ` (${mb} MB)` : ''}
       </a>
       <p className="text-sm text-muted">
-        The Macaroonie app runs this {HOST_APP ? APP_NAMES[HOST_APP] : 'device'} full screen, keeps the screen on and prints through Android.
+        Macaroonie Player runs this {HOST_APP ? APP_NAMES[HOST_APP] : 'device'} full screen, keeps the screen on and prints through Android.
         When it has downloaded, open it and tap Install (Android may ask you to allow installs from this browser first).
         Then link the app with the code it shows.
       </p>

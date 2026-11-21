@@ -48,7 +48,7 @@ export default function AndroidAppCard() {
   return (
     <section className="rounded-lg border bg-background overflow-hidden" data-testid="android-app-card">
       <div className="px-5 py-3 section-head font-semibold text-sm flex items-center gap-2">
-        <Smartphone className="w-4 h-4" /> Android app download
+        <Smartphone className="w-4 h-4" /> Macaroonie Player download
       </div>
       <div className="p-5 space-y-4">
         {isLoading ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /> : app ? (

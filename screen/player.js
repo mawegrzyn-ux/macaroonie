@@ -53,7 +53,7 @@ const KEYS = { device: 'mcrn_screen_device', config: 'mcrn_screen_config', pairi
 const PULL_DEFAULT = { screen: 60, board: 15 }
 const PULL_LIMITS = { screen: [30, 3600], board: [5, 300] }
 const HEARTBEAT_MS = 60_000
-// Inside the Macaroonie Android app (android-app/), a WebView with a bridge.
+// Inside Macaroonie Player, the Android app (android-app/), a WebView with a bridge.
 const IN_APP = typeof window !== 'undefined' && !!window.ReactNativeWebView
 function tellApp(msg) {
   try { window.ReactNativeWebView?.postMessage(JSON.stringify(msg)); return true } catch { return false }
@@ -235,7 +235,7 @@ function showCode(p) {
   )
 }
 
-// The Macaroonie Android app's question again, from the pairing screen.
+// Macaroonie Player's question again, from the pairing screen.
 document.addEventListener('click', e => {
   if (e.target.closest?.('[data-app-choose]')) tellApp({ type: 'macaroonie:choose-app' })
 })
@@ -485,7 +485,7 @@ function cacheVideos() {
 
 // Hub first (docs/POS.md section 11): at a location with a venue hub the
 // numbers come from the hub on the venue network, so a board keeps working
-// with the internet down. Plain http, so only inside the Macaroonie Android
+// with the internet down. Plain http, so only inside the Macaroonie Player Android
 // app (or a player served over http); a hub that doesn't answer is asked
 // again after 30 s, the cloud meanwhile.
 const HUB_TIMEOUT_MS = 2500
@@ -900,7 +900,7 @@ function openSettings(confirm = false) {
       ? '<p class="note"><b>Disconnect this screen?</b> It stops showing boards and shows a new code. In Macaroonie, Screens keeps its name and boards: use New device for this screen to link it again.</p>' +
         '<div class="row"><button data-act="disconnect" class="bad">Yes, disconnect</button><button data-act="back">Cancel</button></div>'
       : '<div class="row"><button data-act="close">Close</button><button data-act="reload">Reload</button>' +
-        // In the Macaroonie Android app: back to its What is this device? question.
+        // In Macaroonie Player: back to its What is this device? question.
         (IN_APP ? '<button data-act="app">Change device type</button>' : '') +
         '<button data-act="ask" class="bad">Disconnect this screen</button></div>')
   settingsEl.classList.add('on')

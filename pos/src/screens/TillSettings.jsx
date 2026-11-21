@@ -118,7 +118,7 @@ function Toggle({ on, label, hint, onChange }) {
 // Hub first (docs/POS.md section 11): which venue hub this till sends to.
 function HubLine({ on }) {
   const st = server.hubStatus()
-  const text = !st.configured ? 'not used here (it needs the Macaroonie app)'
+  const text = !st.configured ? 'not used here (it needs the Macaroonie Player app)'
     : on === true ? 'in use' + (st.url ? ' (' + st.url.replace(/^https?:\/\//, '') + ')' : '')
     : on === false ? 'not answering: the cloud instead, asked again every 30 s' : 'checking'
   return <div data-testid="till-hub">Venue hub: <b>{text}</b></div>

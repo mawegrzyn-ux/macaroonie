@@ -80,7 +80,7 @@ export default function Platform() {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-6 space-y-6">
           <div className="inline-flex rounded-lg border overflow-hidden">
-            {[['tenants', 'Tenants'], ['interest', 'Registered interest'], ['ai', 'AI usage'], ['payments', 'Payments'], ['wallet', 'Loyalty wallets'], ['android', 'Android app']].map(([v, l]) => (
+            {[['tenants', 'Tenants'], ['interest', 'Registered interest'], ['ai', 'AI usage'], ['payments', 'Payments'], ['wallet', 'Loyalty wallets'], ['android', 'Macaroonie Player']].map(([v, l]) => (
               <button key={v} type="button" onClick={() => setTab(v)}
                 className={cn('h-11 px-4 text-sm font-medium touch-manipulation inline-flex items-center gap-2',
                   tab === v ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted')}>
