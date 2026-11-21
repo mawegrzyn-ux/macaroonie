@@ -12,6 +12,7 @@ export const gloriafoodQueue    = new Queue('gloriafood-poll',  { connection })
 export const aiCleanupQueue     = new Queue('ai-cleanup',       { connection })
 export const localInfoQueue     = new Queue('local-info',       { connection })
 export const reportScheduleQueue = new Queue('report-schedules', { connection })
+export const cashAutoFillQueue  = new Queue('cash-autofill',    { connection })
 
 // ── Notification worker ───────────────────────────────────────
 // Routes booking emails through the new pluggable email system
@@ -167,6 +168,33 @@ export function startReportScheduleWorker(log) {
     removeOnComplete: true,
     removeOnFail: 20,
   }).catch(err => log.warn({ err: err?.message }, 'Report schedules not scheduled (Redis?)'))
+
+  return worker
+}
+
+// ── Cash Recon scheduled fill ─────────────────────────────────
+// Every five minutes (migration 260, services/reconRetrieve.js): each venue
+// with the scheduled fill on fills the day just ended and the two before
+// from Loyverse and GloriaFood, once a day from its time. The repeat job
+// runs across all API processes; each venue's day is claimed with one
+// UPDATE (auto_fill_last_on), so it never runs twice.
+
+export function startCashAutoFillWorker(log) {
+  const worker = new Worker('cash-autofill', async () => {
+    const { sweepAutoFill } = await import('../services/reconRetrieve.js')
+    const ran = await sweepAutoFill(log)
+    if (ran) log.info({ ran }, 'Scheduled Cash Recon fills run')
+  }, { connection })
+
+  worker.on('failed', (job, err) => {
+    log.error({ jobId: job?.id, err }, 'Scheduled Cash Recon fill job failed')
+  })
+
+  cashAutoFillQueue.add('sweep', {}, {
+    repeat: { every: 300_000 },
+    removeOnComplete: true,
+    removeOnFail: 20,
+  }).catch(err => log.warn({ err: err?.message }, 'Scheduled Cash Recon fill not scheduled (Redis?)'))
 
   return worker
 }

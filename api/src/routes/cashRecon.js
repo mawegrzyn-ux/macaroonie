@@ -33,6 +33,10 @@
 //   POST   /:venueId/cash-recon/daily/:date/submit     (refused when the venue submits weekly)
 //   POST   /:venueId/cash-recon/daily/:date/unsubmit
 //
+// Retrieve from every linked till system (migration 260):
+//   GET    /:venueId/cash-recon/retrieve
+//   POST   /:venueId/cash-recon/retrieve
+//
 // Week submission (migration 259):
 //   POST   /:venueId/cash-recon/week/:week_start/submit
 //   POST   /:venueId/cash-recon/week/:week_start/unsubmit
@@ -60,6 +64,7 @@ import path                             from 'node:path'
 import { randomUUID }                   from 'node:crypto'
 import { openDatesOrNull }              from '../services/openDays.js'
 import { reconLinks }                   from '../services/reconLinks.js'
+import { linkedSources, retrieveDays, AUTO_FILL_DAYS } from '../services/reconRetrieve.js'
 import { loadCashDays }                 from '../services/cashReconSvc.js'
 import { cashWeek }                     from '../../../shared/cashRecon.js'
 
@@ -256,10 +261,15 @@ async function assertVenueOwnership(tx, tenantId, venueId) {
 // Per-venue Cash Recon settings (cash_venue_settings), with the defaults for
 // a venue that has no row yet.
 export const SUBMIT_MODES = ['daily', 'weekly']
-const DEFAULT_VENUE_SETTINGS = { allow_bulk_submit: false, submit_mode: 'daily' }
+const DEFAULT_VENUE_SETTINGS = {
+  allow_bulk_submit: false, submit_mode: 'daily',
+  retrieve_skip_preview: false, auto_fill: false, auto_fill_at: '06:00',
+}
 export async function venueSettings(tx, tenantId, venueId) {
   const [row] = await tx`
-    SELECT allow_bulk_submit, submit_mode FROM cash_venue_settings
+    SELECT allow_bulk_submit, submit_mode, retrieve_skip_preview, auto_fill,
+           to_char(auto_fill_at, 'HH24:MI') AS auto_fill_at
+      FROM cash_venue_settings
      WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`
   return row ?? { ...DEFAULT_VENUE_SETTINGS }
 }
@@ -510,7 +520,8 @@ export default async function cashReconRoutes(app) {
            ORDER BY sort_order, created_at
         `,
         tx`
-          SELECT allow_bulk_submit, submit_mode
+          SELECT allow_bulk_submit, submit_mode, retrieve_skip_preview, auto_fill,
+                 to_char(auto_fill_at, 'HH24:MI') AS auto_fill_at
             FROM cash_venue_settings
            WHERE venue_id  = ${venueId}
              AND tenant_id = ${req.tenantId}
@@ -539,8 +550,11 @@ export default async function cashReconRoutes(app) {
   }, async (req) => {
     const { venueId } = req.params
     const body = z.object({
-      allow_bulk_submit: z.boolean().optional(),
-      submit_mode:       z.enum(SUBMIT_MODES).optional(),
+      allow_bulk_submit:     z.boolean().optional(),
+      submit_mode:           z.enum(SUBMIT_MODES).optional(),
+      retrieve_skip_preview: z.boolean().optional(),
+      auto_fill:             z.boolean().optional(),
+      auto_fill_at:          z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'A time like 06:00').optional(),
     }).parse(req.body)
 
     const [row] = await withTenant(req.tenantId, async tx => {
@@ -552,9 +566,15 @@ export default async function cashReconRoutes(app) {
       `
       return tx`
         UPDATE cash_venue_settings
-           SET allow_bulk_submit = COALESCE(${body.allow_bulk_submit ?? null}::boolean, allow_bulk_submit),
-               submit_mode       = COALESCE(${body.submit_mode ?? null}::text, submit_mode),
-               updated_at        = now()
+           SET allow_bulk_submit     = COALESCE(${body.allow_bulk_submit ?? null}::boolean, allow_bulk_submit),
+               submit_mode           = COALESCE(${body.submit_mode ?? null}::text, submit_mode),
+               retrieve_skip_preview = COALESCE(${body.retrieve_skip_preview ?? null}::boolean, retrieve_skip_preview),
+               auto_fill             = COALESCE(${body.auto_fill ?? null}::boolean, auto_fill),
+               auto_fill_at          = COALESCE(${body.auto_fill_at ?? null}::time, auto_fill_at),
+               -- A new time or switching it on runs again today if the time has come.
+               auto_fill_last_on     = CASE WHEN ${body.auto_fill_at ?? null}::time IS NOT NULL OR ${body.auto_fill ?? null}::boolean
+                                            THEN NULL ELSE auto_fill_last_on END,
+               updated_at            = now()
          WHERE venue_id = ${venueId} AND tenant_id = ${req.tenantId}
         RETURNING *
       `
@@ -1454,6 +1474,44 @@ export default async function cashReconRoutes(app) {
 
       return loadDailyReport(tx, req.tenantId, report.id)
     })
+  })
+
+  // ── Retrieve: every linked till system at once (migration 260) ──────────
+  // GET: which systems the venue is linked to, how Retrieve behaves and what
+  // the scheduled fill last did. POST { dates }: fills them from each.
+  app.get('/:venueId/cash-recon/retrieve', {
+    preHandler: PERM.view,
+  }, async (req) => {
+    const { venueId } = req.params
+    return withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+      const settings = await venueSettings(tx, req.tenantId, venueId)
+      const [last] = await tx`
+        SELECT auto_fill_ran_at, auto_fill_result, auto_fill_error FROM cash_venue_settings
+         WHERE venue_id = ${venueId} AND tenant_id = ${req.tenantId}`
+      return {
+        sources: await linkedSources(tx, req.tenantId, venueId),
+        skip_preview: settings.retrieve_skip_preview,
+        auto_fill: settings.auto_fill, auto_fill_at: settings.auto_fill_at,
+        auto_fill_days: AUTO_FILL_DAYS,
+        last_auto_fill: last?.auto_fill_ran_at
+          ? { at: last.auto_fill_ran_at, result: last.auto_fill_result, error: last.auto_fill_error } : null,
+      }
+    })
+  })
+
+  app.post('/:venueId/cash-recon/retrieve', {
+    preHandler: PERM.use,
+  }, async (req) => {
+    const { venueId } = req.params
+    const body = z.object({ dates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).min(1).max(31) }).parse(req.body)
+    for (const d of body.dates) parseDate(d)
+    const linked = await withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+      return linkedSources(tx, req.tenantId, venueId)
+    })
+    if (!linked.length) throw httpError(422, 'This venue isn\'t linked to Loyverse or GloriaFood. Set one up in Cash Recon settings.')
+    return retrieveDays(req.tenantId, venueId, body.dates, { by: req.user?.email ?? req.user?.sub ?? null })
   })
 
   // POST /:venueId/cash-recon/week/:week_start/submit (migration 259)

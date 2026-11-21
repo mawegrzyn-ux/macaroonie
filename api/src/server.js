@@ -10,7 +10,8 @@ import { startNotificationWorker,
          startGloriaFoodPollWorker,
          startAiCleanupWorker,
          startLocalInfoWorker,
-         startReportScheduleWorker }         from './jobs/queues.js'
+         startReportScheduleWorker,
+         startCashAutoFillWorker }           from './jobs/queues.js'
 import { startReviewScrapeWorker }           from './jobs/reviewScrapeWorker.js'
 import { startPublishWorker }                from './jobs/publishWorker.js'
 import jwksClient                            from 'jwks-rsa'
@@ -47,6 +48,7 @@ const gfWorker      = startGloriaFoodPollWorker(app.log)
 const aiWorker      = startAiCleanupWorker(app.log)
 const infoWorker    = startLocalInfoWorker(app.log)
 const reportWorker  = startReportScheduleWorker(app.log)
+const fillWorker    = startCashAutoFillWorker(app.log)
 
 // ── Graceful shutdown ────────────────────────────────────────
 const shutdown = async (signal) => {
@@ -60,6 +62,7 @@ const shutdown = async (signal) => {
   await aiWorker.close()
   await infoWorker.close()
   await reportWorker.close()
+  await fillWorker.close()
   await sql.end()
   await systemSql.end()
   await reportSql.end()

@@ -76,6 +76,9 @@ export const LEFT_OUT = {
   ],
   'Working state that changes from minute to minute': [
     'pos_venue_state', 'kds_flow_edges', 'kds_balance_turns', 'booking_holds', 'table_occupancy', 'review_scrape_jobs',
+    // What each fill last wrote into a Cash Recon field (migration 260): the
+    // scheduled fill's memory of hand changes, not a figure of its own.
+    'cash_fill_values',
   ],
   'Filled in until placed, then copied onto the purchase order lines reports read': [
     'supply_order_lines',

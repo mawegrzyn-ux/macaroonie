@@ -9,6 +9,9 @@
 //   - each mapped field's entry is replaced, keeping its notes
 //   - income is split into net and VAT like the day view does
 //   - the day records who filled it and when (<source>_filled_at / _by)
+//   - each field's amount is kept in cash_fill_values (migration 260), so
+//     the scheduled fill (keepHandEdits) can tell a figure someone changed
+//     by hand since the last fill, and leave it alone
 
 const round2 = n => Math.round(n * 100) / 100
 
@@ -31,12 +34,37 @@ const STAMPS = {
   gloriafood: ['gloriafood_filled_at', 'gloriafood_filled_by'],
 }
 
+/** The amount a day's field holds now, or null when it has no entry. */
+async function currentAmount(tx, tenantId, reportId, group, id) {
+  const [row] = group === 'income'
+    ? await tx`SELECT gross_amount::float8 AS amount FROM cash_income_entries
+                WHERE tenant_id = ${tenantId} AND report_id = ${reportId} AND source_id = ${id}`
+    : group === 'takings'
+      ? await tx`SELECT amount::float8 AS amount FROM cash_takings_entries
+                  WHERE tenant_id = ${tenantId} AND report_id = ${reportId} AND channel_id = ${id}`
+      : await tx`SELECT amount::float8 AS amount FROM cash_sc_entries
+                  WHERE tenant_id = ${tenantId} AND report_id = ${reportId} AND source_id = ${id}`
+  return row ? row.amount : null
+}
+
+/**
+ * Whether a field holds a figure changed by hand: not empty or zero, and not
+ * what the last fill wrote (or never filled). Zero counts as empty: the day
+ * view saves every field, so an untouched one holds 0.
+ */
+export function changedByHand(current, lastFilled) {
+  if (current == null || Math.abs(current) < 0.005) return false
+  return lastFilled == null || Math.abs(current - lastFilled) >= 0.005
+}
+
 /**
  * fields: [{ group: 'income' | 'takings' | 'sc', id, amount (pounds),
  *            source: { vat_rate, vat_inclusive } for income }]
- * Returns { filled: true } or { skipped: 'submitted' }.
+ * keepHandEdits: leave a field changed by hand since the last fill as it is
+ * (the scheduled fill); a person's own fill writes every field.
+ * Returns { filled: true, kept: [{ group, id }] } or { skipped: 'submitted' }.
  */
-export async function fillReconDay(tx, { tenantId, venueId, date, fields, source, by }) {
+export async function fillReconDay(tx, { tenantId, venueId, date, fields, source, by, keepHandEdits = false }) {
   await tx`
     INSERT INTO cash_daily_reports (tenant_id, venue_id, report_date)
     VALUES (${tenantId}, ${venueId}, ${date}::date)
@@ -49,8 +77,21 @@ export async function fillReconDay(tx, { tenantId, venueId, date, fields, source
   `
   if (report.status === 'submitted') return { skipped: 'submitted' }
 
+  const lastFilled = new Map((await tx`
+    SELECT field_group, field_id, amount::float8 AS amount FROM cash_fill_values
+     WHERE tenant_id = ${tenantId} AND report_id = ${report.id}`).map(r => [r.field_group + ':' + r.field_id, r.amount]))
+  const kept = []
   for (const f of fields) {
     const amount = round2(Number(f.amount) || 0)
+    if (keepHandEdits) {
+      const now = await currentAmount(tx, tenantId, report.id, f.group, f.id)
+      if (changedByHand(now, lastFilled.get(f.group + ':' + f.id))) { kept.push({ group: f.group, id: f.id }); continue }
+    }
+    await tx`
+      INSERT INTO cash_fill_values (tenant_id, report_id, field_group, field_id, amount, source)
+      VALUES (${tenantId}, ${report.id}, ${f.group}, ${f.id}, ${amount}, ${source})
+      ON CONFLICT (report_id, field_group, field_id)
+        DO UPDATE SET amount = EXCLUDED.amount, source = EXCLUDED.source, filled_at = now()`
     if (f.group === 'income') {
       const { vat, net } = splitIncome(amount, f.source)
       const [old] = await tx`
@@ -85,7 +126,7 @@ export async function fillReconDay(tx, { tenantId, venueId, date, fields, source
        SET ${tx(atCol)} = now(), ${tx(byCol)} = ${by ?? null}, updated_at = now()
      WHERE id = ${report.id} AND tenant_id = ${tenantId}
   `
-  return { filled: true }
+  return { filled: true, kept }
 }
 
 /** A venue's active Cash Recon fields: { income, sc, takings }. */

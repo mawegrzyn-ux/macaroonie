@@ -26,8 +26,9 @@ import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { cn } from '@/lib/utils'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { WeekWagesEditor } from '@/components/cashRecon/WagesTable'
-import { LoyverseSettings, LoyverseFillButton } from '@/components/cashRecon/Loyverse'
-import { GloriaFoodSettings, GloriaFoodFillButton, GloriaFoodOrdersButton } from '@/components/cashRecon/GloriaFood'
+import { LoyverseSettings } from '@/components/cashRecon/Loyverse'
+import { GloriaFoodSettings, GloriaFoodOrdersButton } from '@/components/cashRecon/GloriaFood'
+import { RetrieveButton, RetrieveSettings } from '@/components/cashRecon/Retrieve'
 import { ReadReceiptButton, ReceiptNote, applyReceipt } from '@/components/cashRecon/ReceiptRead'
 import { splitPay } from '@shared/payMethod.js'
 import { reconSetup, cashDay, cashWeek } from '@shared/cashRecon.js'
@@ -819,8 +820,7 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
               className="flex items-center justify-center w-8 h-8 rounded-lg touch-manipulation hover:bg-muted"><ChevronRight className="w-4 h-4" /></button>
           </div>
           <div className="ml-auto flex items-center gap-1.5">
-            <LoyverseFillButton compact venueId={venueId} dates={isoWeekDates(weekStart)} onApplied={() => setOverrides({})} />
-            <GloriaFoodFillButton compact venueId={venueId} dates={isoWeekDates(weekStart)} onApplied={() => setOverrides({})} />
+            <RetrieveButton compact venueId={venueId} dates={isoWeekDates(weekStart)} onApplied={() => setOverrides({})} />
             <WeekSubmitButton compact venueId={venueId} weekStart={weekStart} settings={config?.venue_settings}
               days={visibleDates.map(date => ({ date, status: detail?.days?.[date]?.status ?? null }))}
               beforeSubmit={flushOverrides} />
@@ -1087,8 +1087,7 @@ function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSele
           </button>
         )}
         <WeekSubmitButton venueId={venueId} weekStart={weekStart} days={weekData?.days} settings={config?.venue_settings} />
-        <LoyverseFillButton venueId={venueId} dates={days} />
-        <GloriaFoodFillButton venueId={venueId} dates={days} />
+        <RetrieveButton venueId={venueId} dates={days} />
         <button type="button" onClick={onToggleMode} title="Spreadsheet view"
           className="flex items-center justify-center w-10 h-10 rounded-xl touch-manipulation hover:bg-muted transition-colors">
           <Table2 className="w-5 h-5" />
@@ -1430,8 +1429,7 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
           </div>
           <div className="ml-auto flex flex-wrap justify-end items-center gap-2">
             <GloriaFoodOrdersButton venueId={venueId} date={date} />
-            {!isSubmitted && <LoyverseFillButton venueId={venueId} dates={[date]} />}
-            {!isSubmitted && <GloriaFoodFillButton venueId={venueId} dates={[date]} />}
+            {!isSubmitted && <RetrieveButton venueId={venueId} dates={[date]} />}
             {canUse && !isSubmitted && weekly && (
               <span className="text-xs text-muted-foreground max-w-[12rem] text-right" data-testid="cash-day-weekly-note">
                 Saved as you go. This venue submits the whole week from the week view.
@@ -1468,8 +1466,7 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
         {hideHeader && (
           <div className="flex flex-wrap justify-end gap-2 empty:hidden">
             <GloriaFoodOrdersButton venueId={venueId} date={date} />
-            {!isSubmitted && <LoyverseFillButton venueId={venueId} dates={[date]} />}
-            {!isSubmitted && <GloriaFoodFillButton venueId={venueId} dates={[date]} />}
+            {!isSubmitted && <RetrieveButton venueId={venueId} dates={[date]} />}
           </div>
         )}
 
@@ -2198,6 +2195,7 @@ function GeneralTab({ venueId, venueSettings, onRefetch, api }) {
           {modeError && <p className="text-xs text-destructive">{modeError}</p>}
         </div>
       </SectionCard>
+      <RetrieveSettings venueId={venueId} onSaved={onRefetch} SectionCard={SectionCard} Toggle={Toggle} />
       <SectionCard title="Week Submission">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">

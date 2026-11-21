@@ -526,24 +526,7 @@ export default async function gloriafoodRoutes(app) {
   app.post('/venues/:venueId/apply', { preHandler: canFill }, async req => {
     const venueId = UUID.parse(req.params.venueId)
     const body = ApplyBody.parse(req.body)
-    const wanted = [...new Set(body.dates)].sort()
-    const dates = spanOf(wanted[0], wanted[wanted.length - 1])
-    const { fields, figures } = await readDays(req.tenantId, venueId, dates)
-    if (!fields.length) throw httpError(422, 'Nothing is mapped yet. Map fields in Cash reconciliation settings > GloriaFood.')
-
-    return withTenant(req.tenantId, async tx => {
-      const filled = [], skipped = []
-      for (const date of wanted) {
-        const day = figures[date]
-        const r = await fillReconDay(tx, {
-          tenantId: req.tenantId, venueId, date, source: 'gloriafood', by: by(req),
-          fields: fields.map(f => ({ group: f.group, id: f.id, source: f.source, amount: pounds(sumTerms(day, f.terms)) })),
-        })
-        if (r.skipped) skipped.push({ date, reason: r.skipped })
-        else filled.push(date)
-      }
-      return { filled, skipped }
-    })
+    return applyGloriaFoodDays(req.tenantId, venueId, body.dates, { by: by(req) })
   })
 }
 
@@ -578,5 +561,48 @@ export async function gloriafoodWebhookRoutes(app) {
     if (!orders.length) return { ok: true, stored: 0, updated: 0 }
     const r = await ingestOrders({ tenantId: link.tenant_id, venueId: link.venue_id, orders, via: 'push' })
     return { ok: true, stored: r.stored, updated: r.updated, refused: r.refused }
+  })
+}
+
+/**
+ * Fills Cash Recon days from GloriaFood (the apply route, the one Retrieve
+ * button and the scheduled fill, services/reconRetrieve.js): each day's
+ * mapped fields through fillReconDay(), submitted days skipped. With
+ * keepHandEdits a field changed by hand since the last fill is left alone
+ * and listed in `kept`. With onlyWithSales (Retrieve over several days, the
+ * scheduled fill) a day with no sales is left out, as the preview leaves it
+ * unticked, and a day after the venue's today is never filled that way.
+ * Returns { filled, skipped, kept }.
+ */
+export async function applyGloriaFoodDays(tenantId, venueId, dates, { by = null, keepHandEdits = false, onlyWithSales = false } = {}) {
+  let wanted = [...new Set(dates)].sort()
+  const span = spanOf(wanted[0], wanted[wanted.length - 1])
+  const { venue, fields, figures } = await readDays(tenantId, venueId, span)
+  const early = []
+  if (onlyWithSales) {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: venue?.timezone || 'Europe/London' }).format(new Date())
+    const hasSales = d => (d?.orders || 0) > 0
+    for (const d of wanted) {
+      if (d > today) early.push({ date: d, reason: 'not_yet' })
+      else if (!hasSales(figures[d])) early.push({ date: d, reason: 'no_sales' })
+    }
+    wanted = wanted.filter(d => !early.some(e => e.date === d))
+  }
+  if (!fields.length) throw httpError(422, 'Nothing is mapped yet. Map fields in Cash reconciliation settings > GloriaFood.')
+  return withTenant(tenantId, async tx => {
+    const filled = [], skipped = [...early], kept = []
+    for (const date of wanted) {
+      const day = figures[date]
+      const r = await fillReconDay(tx, {
+        tenantId, venueId, date, source: 'gloriafood', by, keepHandEdits,
+        fields: fields.map(f => ({ group: f.group, id: f.id, source: f.source, amount: pounds(sumTerms(day, f.terms)) })),
+      })
+      if (r.skipped) skipped.push({ date, reason: r.skipped })
+      else {
+        filled.push(date)
+        for (const k of r.kept || []) kept.push({ date, ...k, name: fields.find(f => f.group === k.group && f.id === k.id)?.name ?? null })
+      }
+    }
+    return { filled, skipped, kept }
   })
 }
