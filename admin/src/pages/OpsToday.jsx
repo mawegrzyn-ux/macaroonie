@@ -47,7 +47,7 @@ const GROUPS = [
 const KIND_ICON = {
   fridge_check: Thermometer, hold_check: Thermometer, cooking_check: Flame, corrective_action: AlertTriangle,
   checklist: ListChecks, hs_action: ClipboardList, po_to_send: Send, delivery_due: Truck, delivery_not_booked: Truck,
-  orders_to_approve: ClipboardList, cash_up: Wallet, wages_to_pay: Users, online_orders: ShoppingBag,
+  orders_to_approve: ClipboardList, cash_up: Wallet, cash_week: Wallet, wages_to_pay: Users, online_orders: ShoppingBag,
   report_alert: BarChart3,
 }
 
@@ -468,6 +468,9 @@ export function FormSheet({ form, venueId, date, onClose, linkFor }) {
                   <StatusBadge status={day.status} />
                   <SaveIndicator saving={day.saving} saved={day.saved} error={day.saveErr} />
                 </div>
+              )}
+              {cashUp && !day.isSubmitted && day.weekly && (
+                <span className="text-xs text-muted-foreground" data-testid="today-cash-weekly">Saved. The week is submitted in one go.</span>
               )}
               {cashUp && !day.isSubmitted && day.canSubmit && (
                 <button type="button" onClick={day.submit} disabled={day.submitPending} data-testid="today-cash-submit"

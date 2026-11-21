@@ -553,6 +553,63 @@ export function useReconWeek(venueId, weekStart) {
   return { config, detail, isLoading, calc }
 }
 
+// ── WEEK SUBMIT ───────────────────────────────────────────────────────────────
+//
+// Submits the week in one go (POST .../week/:monday/submit, migration 259):
+// the days up to today with figures, and with "Allow bulk week submission"
+// the open days with none. At a venue that submits weekly it is the only
+// submit there is; owners and admins can unsubmit the week there too.
+// `days` is [{ date, status }], `settings` the config's venue_settings,
+// `beforeSubmit` saves what the host still holds (the grid's edited cells).
+
+export function WeekSubmitButton({ venueId, weekStart, days, settings, beforeSubmit, compact = false, className }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const { canUse, canManage, isOwnerOrAdmin } = usePermission('cash_recon')
+  const [error, setError] = useState(null)
+  const weekly = settings?.submit_mode === 'weekly'
+  const bulk = !!settings?.allow_bulk_submit
+  const today = todayStr()
+  const upToToday = (days || []).filter(d => d.date <= today)
+  const pending = upToToday.filter(d => d.status === 'draft' || (bulk && !d.status)).length
+  const submitted = upToToday.filter(d => d.status === 'submitted').length
+  const m = useMutation({
+    mutationFn: async action => {
+      if (action === 'submit') await beforeSubmit?.()
+      return api.post(`/venues/${venueId}/cash-recon/week/${weekStart}/${action}`, {})
+    },
+    onSuccess: () => {
+      setError(null)
+      qc.invalidateQueries({ queryKey: ['cash-recon-week'] })
+      qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId, weekStart] })
+      qc.invalidateQueries({ queryKey: ['cash-recon-daily'] })
+      qc.invalidateQueries({ queryKey: ['ops-today'] })
+    },
+    onError: e => setError(e?.body?.error || e?.message || 'Something went wrong'),
+  })
+  const size = compact ? 'h-8 px-3 text-xs rounded-lg' : 'min-h-[48px] px-4 text-sm rounded-xl'
+  const canUnsubmitWeek = weekly && canManage && isOwnerOrAdmin && submitted > 0 && pending === 0
+  if (!canUse || (pending === 0 && !canUnsubmitWeek)) return null
+  return (
+    <span className={cn('inline-flex flex-col items-end gap-1', className)}>
+      {pending > 0 ? (
+        <button type="button" onClick={() => m.mutate('submit')} disabled={m.isPending} data-testid="cash-week-submit"
+          className={cn(size, 'bg-primary text-primary-foreground font-semibold touch-manipulation hover:bg-primary/90 disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap')}>
+          {m.isPending
+            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Submitting…</>
+            : <><Check className="w-3.5 h-3.5" /> Submit week</>}
+        </button>
+      ) : (
+        <button type="button" onClick={() => m.mutate('unsubmit')} disabled={m.isPending} data-testid="cash-week-unsubmit"
+          className={cn(size, 'border font-medium touch-manipulation hover:bg-muted disabled:opacity-50 whitespace-nowrap')}>
+          {m.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Unsubmit week'}
+        </button>
+      )}
+      {error && <span className="text-xs text-destructive max-w-[16rem] text-right" data-testid="cash-week-error">{error}</span>}
+    </span>
+  )
+}
+
 // ── SPREADSHEET VIEW ──────────────────────────────────────────────────────────
 //
 // `hideHeader` drops the venue/week/submit toolbar so the grid can be
@@ -582,9 +639,6 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
   const [editCell,      setEditCell]      = useState(null)   // { date, cat, id }
   const [editVal,       setEditVal]       = useState('')
   const [saving,        setSaving]        = useState({})      // { date: bool }
-  const [submittingAll, setSubmittingAll] = useState(false)
-
-  const allowBulkSubmit = config?.venue_settings?.allow_bulk_submit ?? false
 
   useEffect(() => { setOverrides({}); setEditCell(null) }, [weekStart])
 
@@ -658,61 +712,15 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
     setSaving(p => ({ ...p, [date]: false }))
   }
 
-  // Submit all open days in one shot
-  async function handleSubmitAll() {
-    if (submittingAll) return
-    setSubmittingAll(true)
-    try {
-      for (const date of visibleDates) {
-        const day = detail?.days?.[date]
-        if (day?.status === 'submitted') continue          // already done
-        if (!day && !allowBulkSubmit) continue             // no data + bulk not enabled
-
-        // Build full payload (same logic as saveDay, no intermediate invalidation)
-        const getV = (cat, id) => parseNum(overrides[date]?.[cat]?.[id] ?? getCellVal(date, cat, id))
-
-        const income = activeSources.map(s => {
-          const gross = getV('income', s.id)
-          const vr    = parseNum(s.vat_rate ?? 0) / 100
-          let vat = 0, net = gross
-          if (vr > 0) {
-            if (s.vat_inclusive) { vat = gross - gross / (1 + vr); net = gross / (1 + vr) }
-            else                 { vat = gross * vr }
-          }
-          return { source_id: s.id, gross_amount: gross, vat_amount: +(vat.toFixed(2)), net_amount: +(net.toFixed(2)), notes: day?.income.find(r => r.source_id === s.id)?.notes ?? '' }
-        })
-        const sc = activeSc.map(s => ({
-          source_id: s.id, amount: getV('sc', s.id),
-          notes: day?.sc.find(r => r.source_id === s.id)?.notes ?? '',
-        }))
-        const takings = activeChannels.map(c => ({
-          channel_id: c.id, amount: getV('takings', c.id),
-          notes: day?.takings.find(r => r.channel_id === c.id)?.notes ?? '',
-        }))
-        const expenses = (day?.expenses ?? []).map(e => ({
-          id: e.id, description: e.description, category: e.category ?? null,
-          category_id: e.category_id ?? null, amount: parseFloat(e.amount ?? 0),
-          vat_amount: parseFloat(e.vat_amount ?? 0), paid_by_card: !!e.paid_by_card, notes: e.notes ?? null,
-        }))
-
-        // PUT creates the report if it doesn't exist yet; also flushes any overrides
-        if (overrides[date] || !day) {
-          await api.put(`/venues/${venueId}/cash-recon/daily/${date}`, { income, sc, takings, expenses })
-        }
-        await api.post(`/venues/${venueId}/cash-recon/daily/${date}/submit`)
-      }
-      setOverrides({})
-      qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId, weekStart] })
-    } catch { /* individual day failures are silently skipped */ }
-    setSubmittingAll(false)
+  // Before the week is submitted (WeekSubmitButton): save the cells edited
+  // here and not saved yet, each day's whole payload as saveDay() builds it.
+  async function flushOverrides() {
+    for (const date of Object.keys(overrides)) {
+      if (detail?.days?.[date]?.status === 'submitted') continue
+      await saveDay(date, overrides)
+    }
+    setOverrides({})
   }
-
-  // Days still needing submission (used to disable the button when done)
-  const pendingCount = visibleDates.filter(date => {
-    const day = detail?.days?.[date]
-    if (day?.status === 'submitted') return false
-    return allowBulkSubmit ? true : !!day
-  }).length
 
   // ── Cell renderers ────────────────────────────────────────────────────────
 
@@ -813,19 +821,9 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
           <div className="ml-auto flex items-center gap-1.5">
             <LoyverseFillButton compact venueId={venueId} dates={isoWeekDates(weekStart)} onApplied={() => setOverrides({})} />
             <GloriaFoodFillButton compact venueId={venueId} dates={isoWeekDates(weekStart)} onApplied={() => setOverrides({})} />
-            {canUse && pendingCount > 0 && (
-              <button
-                type="button"
-                onClick={handleSubmitAll}
-                disabled={submittingAll}
-                className="h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold touch-manipulation hover:bg-primary/90 disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap"
-              >
-                {submittingAll
-                  ? <><Loader2 className="w-3 h-3 animate-spin" /> Submitting…</>
-                  : <><Check className="w-3 h-3" /> Submit Week</>
-                }
-              </button>
-            )}
+            <WeekSubmitButton compact venueId={venueId} weekStart={weekStart} settings={config?.venue_settings}
+              days={visibleDates.map(date => ({ date, status: detail?.days?.[date]?.status ?? null }))}
+              beforeSubmit={flushOverrides} />
             <button type="button" onClick={onToggleMode} title="Card view"
               className="flex items-center justify-center w-9 h-9 rounded-xl touch-manipulation hover:bg-muted">
               <ChevronDown className="w-4 h-4 rotate-0" />
@@ -1034,6 +1032,11 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
 
 function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSelectDay, onSelectWages, onSettings, onToggleMode }) {
   const api = useApi()
+  const { data: config } = useQuery({
+    queryKey: ['cash-recon-config', venueId],
+    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/config`),
+    enabled:  !!venueId,
+  })
 
   const { data: weekData } = useQuery({
     queryKey: ['cash-recon-week', venueId, weekStart],
@@ -1083,6 +1086,7 @@ function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSele
             This week
           </button>
         )}
+        <WeekSubmitButton venueId={venueId} weekStart={weekStart} days={weekData?.days} settings={config?.venue_settings} />
         <LoyverseFillButton venueId={venueId} dates={days} />
         <GloriaFoodFillButton venueId={venueId} dates={days} />
         <button type="button" onClick={onToggleMode} title="Spreadsheet view"
@@ -1376,6 +1380,9 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
 
   const currentStatus = daily?.status ?? 'none'
   const isSubmitted = currentStatus === 'submitted'
+  // A venue that submits once a week (migration 259): the day is saved, and
+  // submitted with its week (the week grid, the phone's Cash Up list, Pepper).
+  const weekly = config?.venue_settings?.submit_mode === 'weekly'
   // Submitting saves the form first, so it waits until the day has loaded: a
   // Submit before then would save an empty day over the real figures. (The
   // form is filled from the day in an effect above, which runs before the one
@@ -1391,13 +1398,14 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
       ready,
       saving, saved, saveErr,
       isSubmitted,
-      canSubmit: canUse && ready,
+      weekly,
+      canSubmit: canUse && ready && !weekly,
       canUnsubmit,
       submitPending: submitMutation.isPending,
       submit:   () => submitMutation.mutate('submit'),
       unsubmit: () => submitMutation.mutate('unsubmit'),
     })
-  }, [currentStatus, ready, saving, saved, saveErr, isSubmitted, canUse, canUnsubmit, submitMutation.isPending, onStateChange])
+  }, [currentStatus, ready, saving, saved, saveErr, isSubmitted, weekly, canUse, canUnsubmit, submitMutation.isPending, onStateChange])
 
   if (configLoading || dailyLoading) {
     return (
@@ -1424,7 +1432,12 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
             <GloriaFoodOrdersButton venueId={venueId} date={date} />
             {!isSubmitted && <LoyverseFillButton venueId={venueId} dates={[date]} />}
             {!isSubmitted && <GloriaFoodFillButton venueId={venueId} dates={[date]} />}
-            {canUse && !isSubmitted && (
+            {canUse && !isSubmitted && weekly && (
+              <span className="text-xs text-muted-foreground max-w-[12rem] text-right" data-testid="cash-day-weekly-note">
+                Saved as you go. This venue submits the whole week from the week view.
+              </span>
+            )}
+            {canUse && !isSubmitted && !weekly && (
               <button
                 type="button"
                 disabled={submitMutation.isPending}
@@ -2137,6 +2150,9 @@ function GeneralTab({ venueId, venueSettings, onRefetch, api }) {
   // Cash Recon settings are owner / admin on the API, as well as manage.
   const { isOwnerOrAdmin } = usePermission('cash_recon')
   const allowBulk = venueSettings?.allow_bulk_submit ?? false
+  const submitMode = venueSettings?.submit_mode ?? 'daily'
+  const [modeSaving, setModeSaving] = useState(false)
+  const [modeError, setModeError] = useState(null)
 
   async function toggle(val) {
     setSaving(true)
@@ -2147,14 +2163,47 @@ function GeneralTab({ venueId, venueSettings, onRefetch, api }) {
     setSaving(false)
   }
 
+  async function pickMode(mode) {
+    if (mode === submitMode) return
+    setModeSaving(true)
+    setModeError(null)
+    try {
+      await api.patch(`/venues/${venueId}/cash-recon/settings`, { submit_mode: mode })
+      onRefetch()
+    } catch (e) { setModeError(e?.body?.error || e?.message || 'Something went wrong') }
+    setModeSaving(false)
+  }
+
   return (
     <div className="space-y-4">
+      <SectionCard title="How days are submitted">
+        <div className="space-y-3" data-testid="cash-submit-mode" data-mode={submitMode}>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            <strong>Each day</strong>: every day is submitted on its own when it is counted.{' '}
+            <strong>Once a week</strong>: days are filled in and saved as you go, and the whole week is
+            submitted in one go from the week (or the phone&apos;s Cash Up list, or Pepper). A day can&apos;t be
+            submitted by itself, and the Today page asks for last week from the Monday.
+          </p>
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="How days are submitted">
+            {[['daily', 'Each day'], ['weekly', 'Once a week']].map(([value, label]) => (
+              <button key={value} type="button" disabled={!isOwnerOrAdmin || modeSaving} onClick={() => pickMode(value)}
+                aria-pressed={submitMode === value} data-testid={'cash-submit-mode-' + value}
+                className={cn('min-h-[48px] px-4 rounded-xl border text-sm font-medium touch-manipulation disabled:opacity-60',
+                  submitMode === value ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted')}>
+                {label}
+              </button>
+            ))}
+            {modeSaving && <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />}
+          </div>
+          {modeError && <p className="text-xs text-destructive">{modeError}</p>}
+        </div>
+      </SectionCard>
       <SectionCard title="Week Submission">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-sm font-medium">Allow bulk week submission</p>
             <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-              When <strong>on</strong>, the "Submit Week" button submits every open day — including days
+              When <strong>on</strong>, Submit week submits every open day up to today, including days
               with no data yet (creates an empty report and marks it submitted).
               When <strong>off</strong>, only days that already have draft data are submitted.
             </p>

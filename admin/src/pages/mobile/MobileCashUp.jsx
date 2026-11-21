@@ -16,7 +16,7 @@ import { format, addWeeks, subWeeks, parseISO } from 'date-fns'
 import { ArrowLeft, ChevronLeft, ChevronRight, Check, Loader2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { fmt, getMonday, isoWeekDates, StatusBadge, SaveIndicator, DayView } from '@/pages/CashRecon'
+import { fmt, getMonday, isoWeekDates, StatusBadge, SaveIndicator, DayView, WeekSubmitButton } from '@/pages/CashRecon'
 import { useHideMobileHeader, MobileLogoutButton } from '@/components/mobile/MobileShell'
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -44,6 +44,9 @@ function MobileDayDeclaration({ venueId, date, onBack }) {
           <h1 className="text-base font-semibold truncate">{format(parseISO(date), 'EEE, dd MMM')}</h1>
           <SaveIndicator saving={dayState.saving} saved={dayState.saved} error={dayState.saveErr} />
         </div>
+        {!dayState.isSubmitted && dayState.weekly && (
+          <span className="text-xs text-muted-foreground shrink-0 max-w-[7rem] leading-tight text-right">Submitted with the week</span>
+        )}
         {!dayState.isSubmitted ? (dayState.canSubmit && (
           <button type="button" disabled={dayState.submitPending} onClick={dayState.submit}
             className="h-12 px-3 rounded-lg bg-green-600 text-white text-sm font-medium touch-manipulation hover:bg-green-700 disabled:opacity-50 shrink-0">
@@ -125,6 +128,14 @@ export default function MobileCashUp() {
           className="w-full h-10 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation">
           This week
         </button>
+      )}
+
+      {weekData?.submit_mode === 'weekly' && (
+        <div className="flex items-center justify-between gap-2 rounded-lg border bg-background p-2.5" data-testid="mobile-cash-weekly">
+          <p className="text-xs text-muted-foreground">This venue submits the whole week in one go.</p>
+          <WeekSubmitButton venueId={venueId} weekStart={weekStart} days={weekData?.days}
+            settings={{ submit_mode: 'weekly' }} />
+        </div>
       )}
 
       <div className="space-y-2">

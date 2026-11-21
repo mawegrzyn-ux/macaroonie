@@ -30,8 +30,12 @@
 // Daily reports:
 //   GET    /:venueId/cash-recon/daily/:date
 //   PUT    /:venueId/cash-recon/daily/:date
-//   POST   /:venueId/cash-recon/daily/:date/submit
+//   POST   /:venueId/cash-recon/daily/:date/submit     (refused when the venue submits weekly)
 //   POST   /:venueId/cash-recon/daily/:date/unsubmit
+//
+// Week submission (migration 259):
+//   POST   /:venueId/cash-recon/week/:week_start/submit
+//   POST   /:venueId/cash-recon/week/:week_start/unsubmit
 //
 // Individual expenses:
 //   POST   /:venueId/cash-recon/expenses
@@ -249,6 +253,63 @@ async function assertVenueOwnership(tx, tenantId, venueId) {
   return venue
 }
 
+// Per-venue Cash Recon settings (cash_venue_settings), with the defaults for
+// a venue that has no row yet.
+export const SUBMIT_MODES = ['daily', 'weekly']
+const DEFAULT_VENUE_SETTINGS = { allow_bulk_submit: false, submit_mode: 'daily' }
+export async function venueSettings(tx, tenantId, venueId) {
+  const [row] = await tx`
+    SELECT allow_bulk_submit, submit_mode FROM cash_venue_settings
+     WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`
+  return row ?? { ...DEFAULT_VENUE_SETTINGS }
+}
+
+/**
+ * Submits a week (Mon-Sun) in one go: every day with figures that isn't
+ * submitted, and with allow_bulk_submit also the days with none (an empty
+ * day is made and submitted), up to `lastDay` (the venue's today: a day
+ * that hasn't happened isn't submitted). Days the venue is closed with no
+ * figures are left alone. One transaction: all or nothing.
+ */
+async function submitWeek(tx, tenantId, venueId, monday, { by, lastDay }) {
+  const settings = await venueSettings(tx, tenantId, venueId)
+  const dates = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + i)
+    return d.toISOString().slice(0, 10)
+  }).filter(d => d <= lastDay)
+  if (!dates.length) throw httpError(422, 'This week hasn\'t started yet.')
+  const rows = await tx`
+    SELECT id, report_date::text AS date, status FROM cash_daily_reports
+     WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}
+       AND report_date BETWEEN ${dates[0]}::date AND ${dates[dates.length - 1]}::date
+     FOR UPDATE`
+  const byDate = Object.fromEntries(rows.map(r => [r.date, r]))
+  const open = settings.allow_bulk_submit ? await openDatesOrNull(tx, tenantId, venueId, dates) : null
+  const submitted = [], already = [], skipped = []
+  for (const date of dates) {
+    const r = byDate[date]
+    if (r?.status === 'submitted') { already.push(date); continue }
+    let id = r?.id
+    if (!id) {
+      if (!settings.allow_bulk_submit || (open && !open.includes(date))) { skipped.push(date); continue }
+      ;[{ id }] = await tx`
+        INSERT INTO cash_daily_reports (tenant_id, venue_id, report_date)
+        VALUES (${tenantId}, ${venueId}, ${date}::date)
+        ON CONFLICT (tenant_id, venue_id, report_date) DO UPDATE SET updated_at = now()
+        RETURNING id`
+    }
+    await tx`
+      UPDATE cash_daily_reports
+         SET status = 'submitted', submitted_at = now(), submitted_by = ${by}, updated_at = now()
+       WHERE id = ${id} AND tenant_id = ${tenantId}`
+    submitted.push(date)
+  }
+  if (!submitted.length) {
+    throw httpError(422, already.length ? 'Every day of this week with figures is already submitted.' : 'No day of this week has figures to submit yet.')
+  }
+  return { week_start: monday, submitted, already_submitted: already, skipped }
+}
+
 // Ids a day or a wage week points at must be this venue's own: income
 // sources, payment channels, SC sources, staff.
 async function assertVenueRows(tx, tenantId, venueId, table, ids, what) {
@@ -449,7 +510,7 @@ export default async function cashReconRoutes(app) {
            ORDER BY sort_order, created_at
         `,
         tx`
-          SELECT allow_bulk_submit
+          SELECT allow_bulk_submit, submit_mode
             FROM cash_venue_settings
            WHERE venue_id  = ${venueId}
              AND tenant_id = ${req.tenantId}
@@ -465,29 +526,36 @@ export default async function cashReconRoutes(app) {
         `,
       ])
 
-      const venue_settings = venueSettingsRows[0] ?? { allow_bulk_submit: false }
+      const venue_settings = venueSettingsRows[0] ?? { ...DEFAULT_VENUE_SETTINGS }
       return { income_sources, payment_channels, sc_sources, staff, expense_categories, venue_settings, wage_defaults }
     })
   })
 
   // ── PATCH /:venueId/cash-recon/settings ───────────────────────────────────
-  // Upserts per-venue cash recon settings (allow_bulk_submit, etc.)
+  // Per-venue cash recon settings (allow_bulk_submit, submit_mode): a field
+  // left out keeps what the venue has.
   app.patch('/:venueId/cash-recon/settings', {
     preHandler: PERM.adminManage,
   }, async (req) => {
     const { venueId } = req.params
     const body = z.object({
-      allow_bulk_submit: z.coerce.boolean().optional(),
+      allow_bulk_submit: z.boolean().optional(),
+      submit_mode:       z.enum(SUBMIT_MODES).optional(),
     }).parse(req.body)
 
     const [row] = await withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
+      await tx`
+        INSERT INTO cash_venue_settings (venue_id, tenant_id)
+        VALUES (${venueId}, ${req.tenantId})
+        ON CONFLICT (venue_id) DO NOTHING
+      `
       return tx`
-        INSERT INTO cash_venue_settings (venue_id, tenant_id, allow_bulk_submit)
-        VALUES (${venueId}, ${req.tenantId}, ${body.allow_bulk_submit ?? false})
-        ON CONFLICT (venue_id) DO UPDATE
-           SET allow_bulk_submit = EXCLUDED.allow_bulk_submit,
+        UPDATE cash_venue_settings
+           SET allow_bulk_submit = COALESCE(${body.allow_bulk_submit ?? null}::boolean, allow_bulk_submit),
+               submit_mode       = COALESCE(${body.submit_mode ?? null}::text, submit_mode),
                updated_at        = now()
+         WHERE venue_id = ${venueId} AND tenant_id = ${req.tenantId}
         RETURNING *
       `
     })
@@ -1019,7 +1087,10 @@ export default async function cashReconRoutes(app) {
           }
         : { total_wages: 0, total_cash_wages: 0, unassigned_cash_wages: 0 }
 
-      return { days, wages }
+      // How the venue submits (migration 259): the Today feed and the phone's
+      // Cash Up list read it here.
+      const { submit_mode } = await venueSettings(tx, req.tenantId, venueId)
+      return { days, wages, submit_mode }
     })
   })
 
@@ -1334,6 +1405,9 @@ export default async function cashReconRoutes(app) {
       `
       if (!report) throw httpError(404, 'Daily report not found')
       if (report.status === 'submitted') throw httpError(422, 'Report is already submitted')
+      if ((await venueSettings(tx, req.tenantId, venueId)).submit_mode === 'weekly') {
+        throw httpError(422, 'This venue submits Cash Recon once a week: submit the week instead.')
+      }
 
       await tx`
         UPDATE cash_daily_reports
@@ -1379,6 +1453,44 @@ export default async function cashReconRoutes(app) {
       `
 
       return loadDailyReport(tx, req.tenantId, report.id)
+    })
+  })
+
+  // POST /:venueId/cash-recon/week/:week_start/submit (migration 259)
+  // The week in one go (submitWeek()): every mode; the only way to submit
+  // when the venue submits weekly.
+  app.post('/:venueId/cash-recon/week/:week_start/submit', {
+    preHandler: PERM.use,
+  }, async (req) => {
+    const { venueId } = req.params
+    parseDate(req.params.week_start)
+    const monday = toMondayStr(req.params.week_start)
+    return withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+      const [venue] = await tx`SELECT timezone FROM venues WHERE id = ${venueId} AND tenant_id = ${req.tenantId}`
+      const lastDay = new Intl.DateTimeFormat('en-CA', { timeZone: venue?.timezone || 'Europe/London' }).format(new Date())
+      return submitWeek(tx, req.tenantId, venueId, monday, { by: req.user.sub, lastDay })
+    })
+  })
+
+  // POST /:venueId/cash-recon/week/:week_start/unsubmit (admin/owner only)
+  // Every submitted day of the week back to draft.
+  app.post('/:venueId/cash-recon/week/:week_start/unsubmit', {
+    preHandler: PERM.adminManage,
+  }, async (req) => {
+    const { venueId } = req.params
+    parseDate(req.params.week_start)
+    const monday = toMondayStr(req.params.week_start)
+    return withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+      const rows = await tx`
+        UPDATE cash_daily_reports
+           SET status = 'draft', submitted_at = NULL, submitted_by = NULL, updated_at = now()
+         WHERE venue_id = ${venueId} AND tenant_id = ${req.tenantId} AND status = 'submitted'
+           AND report_date BETWEEN ${monday}::date AND (${monday}::date + 6)
+        RETURNING report_date::text AS date`
+      if (!rows.length) throw httpError(422, 'No day of this week is submitted.')
+      return { week_start: monday, unsubmitted: rows.map(r => r.date).sort() }
     })
   })
 

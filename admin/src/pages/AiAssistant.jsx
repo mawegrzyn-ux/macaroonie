@@ -578,6 +578,7 @@ function changeDetail(r) {
     case 'remove_time_off':       return x.name
     case 'record_cash_day':
     case 'submit_cash_day':       return [x.venue, x.date].filter(Boolean).join(', ')
+    case 'submit_cash_week':      return [x.venue, x.week].filter(Boolean).join(', ')
     case 'add_expense':           return [x.date, x.amount].filter(Boolean).join(', ')
     case 'update_online_order':
     case 'refund_online_order':   return x.order

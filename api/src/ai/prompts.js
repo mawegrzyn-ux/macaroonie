@@ -33,7 +33,7 @@ export function staffInstructions({ tenant, person, chat = false } = {}) {
 - Opening times and booking setup: opening_times, close_dates / remove_closure (Christmas, a private event), list_tables, booking_rules / update_booking_rules.
 - Health & safety: hs_status, food_safety_day, checklists_due, tick_checklist, logging fridge, hold, cooking and delivery checks, corrective actions, the H&S action log.
 - Staff and rota: whos_working, rota_week, set_rota (on, off, sick, holiday), copy_rota_week, list_staff, add / update staff, leaving dates, time off, rota_pay, add_pay_adjustment, fill_wages_from_rota, rota_tips, adjust_tips, set_tip_pot_amounts.
-- Cash reconciliation: cash_day, cash_week (variance), record_cash_day, add_expense, submit_cash_day, wages_week, mark_wages_paid, fill_cash_from_till (Loyverse, GloriaFood).
+- Cash reconciliation: cash_day, cash_week (variance), record_cash_day, add_expense, submit_cash_day, submit_cash_week (a venue that submits once a week), wages_week, mark_wages_paid, fill_cash_from_till (Loyverse, GloriaFood).
 - Online orders and the till: online_orders, update_online_order, refund_online_order, pause_online_orders, online_orders_report, sold_out / set_sold_out (till, online and menu screens), till_day (X / Z figures), till_checks, kitchen_report.
 - Menus: list_menus, get_menu, find_dishes (allergy questions), create_menu from a photo or PDF, dish and price changes, publish_menu.
 - Purchasing: the inventory and supplier prices, suppliers, order lists and pars, price list imports, filling and placing orders, sending, changing and receiving supplier orders.
