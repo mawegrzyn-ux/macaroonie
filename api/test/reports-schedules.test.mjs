@@ -233,14 +233,15 @@ test('a refused send waits for the next run, and pauses after five in a row', as
   assert.equal(row.failures, 1)
   assert.equal(row.retry_of, null, 'not retried: the key was refused')
   assert.ok(row.next_run_at > new Date(Date.now() + 60 * MIN))
-  for (let i = 2; i <= MAX_FAILURES; i++) {
+  assert.equal(MAX_FAILURES, 5, 'Help says it pauses after five in a row')
+  for (let i = 2; i <= 5; i++) {
     await sql`UPDATE report_schedules SET next_run_at = now() - interval '1 minute' WHERE id = ${s.id}`
     await sweep()
   }
   row = await scheduleRow(s.id)
   assert.equal(row.enabled, false)
   assert.equal(row.last_status, 'paused')
-  assert.match(row.paused_reason, new RegExp('failed ' + MAX_FAILURES + ' times in a row'))
+  assert.match(row.paused_reason, /failed 5 times in a row/)
 })
 
 test('a run missed by more than six hours isn\'t sent, and the schedule moves on', async () => {
@@ -346,4 +347,46 @@ test('a schedule only sees its own group\'s rows and venues', async () => {
     assert.equal(mails.filter(m => toOf(m)[0] === A.operator + '@test.local').length, 0)
     assert.match((await scheduleRow(s2.id)).paused_reason, /Venue not found/)
   }
+})
+
+test('too many requests (429) is a passing reason: tried again, not counted as a failed run', async () => {
+  const s = await addSchedule()
+  refuse = { status: 429, times: 1 }
+  await sweep()
+  const row = await scheduleRow(s.id)
+  assert.equal(row.failures, 0)
+  assert.ok(row.retry_of, 'a retry is planned')
+})
+
+test('a schedule another sweep holds isn\'t claimed until its hold runs out', async () => {
+  const s = await addSchedule()
+  await sql`UPDATE report_schedules SET running_until = now() + interval '5 minutes' WHERE id = ${s.id}`
+  const out = await sweep()
+  assert.equal(out.claimed, 0)
+  assert.equal(mails.length, 0)
+  await sql`UPDATE report_schedules SET running_until = now() - interval '1 second' WHERE id = ${s.id}`
+  assert.equal((await sweep()).claimed, 1)
+  assert.equal(mails.length, 1)
+})
+
+test('a list whose every column is a person\'s detail has no outside copy at all', async () => {
+  const { outsideCopy, PII_HELD } = await import('../src/reports/send.js')
+  const result = { kind: 'list', spec: { kind: 'list', rows: [{ field: 'guest_name' }] }, columns: [{ key: 'c0', pii: true }], rows: [{ cells: ['Zqx Bob'] }], totals: null, meta: {} }
+  const out = outsideCopy(result)
+  assert.equal(out.result, null)
+  assert.equal(out.note, PII_HELD)
+})
+
+test('what counts as a passing failure, for every provider', async () => {
+  const { transientSend } = await import('../src/reports/send.js')
+  assert.equal(transientSend({ message: 'SendGrid 429: busy' }), true)
+  assert.equal(transientSend({ message: 'Postmark 401: bad key' }), false)
+  assert.equal(transientSend({ status: 429 }), true)
+  assert.equal(transientSend({ statusCode: 503 }), true)
+  assert.equal(transientSend({ $metadata: { httpStatusCode: 400 } }), false)
+  assert.equal(transientSend({ responseCode: 421 }), true)
+  assert.equal(transientSend({ responseCode: 550 }), false)
+  assert.equal(transientSend({ code: 'ECONNRESET' }), true)
+  assert.equal(transientSend({ timeout: true }), true)
+  assert.equal(transientSend(null), false)
 })

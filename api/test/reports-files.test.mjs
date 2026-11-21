@@ -21,7 +21,7 @@ const { sellTwoDays } = await import('./support/tillDays.mjs')
 const { runner, LEVELS, refused: reportRefused, rowsOf } = await import('./support/reports.mjs')
 const { forgetReportResults } = await import('../src/reports/run.js')
 const { cleanUpReportFiles, GROUP_MB, FILE_DAYS, PERSONAL_DAYS } = await import('../src/reports/files.js')
-const { sizeOf } = await import('../src/services/privateStore.js')
+const { sizeOf, removeDaysBefore } = await import('../src/services/privateStore.js')
 const { PEPPER_RUNS_PER_MINUTE } = await import('../src/reports/access.js')
 const { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } = await import('../src/middleware/auth.js')
 const { officeOrigin } = await import('../src/services/platformHost.js')
@@ -180,7 +180,8 @@ test('a list with people\'s details is kept 7 days; an Excel file is the downloa
   assert.equal(file.personal, true, 'guest names are people\'s details')
   assert.equal(file.format, 'xlsx')
   const days = (new Date(file.expires_at) - new Date(file.made_at)) / DAY_MS
-  assert.ok(Math.abs(days - PERSONAL_DAYS) < 0.01, 'kept ' + PERSONAL_DAYS + ' days: ' + days)
+  assert.equal(PERSONAL_DAYS, 7, 'Help says a file with people\'s details is kept 7 days')
+  assert.ok(Math.abs(days - 7) < 0.01, 'kept 7 days: ' + days)
 
   const got = await raw(A.owner, ids.a, 'GET', file.path)
   assert.equal(got.status, 200)
@@ -506,4 +507,22 @@ test('the Report runs subject counts what Past runs lists, and needs Manage on R
   // View on Reports isn't enough: the subject is everyone's runs.
   const no = await reportRefused(run({ subject: 'group.report_runs', values: [{ measure: 'runs' }] }, {}, { levels: { ...LEVELS, reports: 'view' } }))
   assert.equal(no.status, 403)
+})
+
+test('Past runs says Printed for a print, and the clean-up keeps the day it is given', async () => {
+  const link = await ok(owner.post('/api/reports/' + STARTER + '/print-link', { params: { period: today() } }))
+  const app = await getApp()
+  const page = await app.inject({ method: 'GET', url: link.path })
+  assert.equal(page.statusCode, 200, page.body.slice(0, 200))
+  const { runs } = await ok(owner.get('/api/reports/runs?report=' + STARTER))
+  assert.equal(runs[0].what, 'printed')
+
+  const area = path.join(process.env.PRIVATE_DIR, 'reports')
+  for (const d of ['2020-02-01', '2020-02-02', '2020-02-03']) fs.mkdirSync(path.join(area, d), { recursive: true })
+  const removed = await removeDaysBefore('reports', '2020-02-02')
+  assert.ok(removed >= 1)
+  assert.equal(fs.existsSync(path.join(area, '2020-02-01')), false, 'a day before goes')
+  assert.equal(fs.existsSync(path.join(area, '2020-02-02')), true, 'the day given stays')
+  assert.equal(fs.existsSync(path.join(area, '2020-02-03')), true)
+  for (const d of ['2020-02-02', '2020-02-03']) fs.rmSync(path.join(area, d), { recursive: true, force: true })
 })

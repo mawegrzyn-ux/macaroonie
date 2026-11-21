@@ -682,3 +682,25 @@ test('dry runs: every check runs and the answer is what would be saved or sent; 
   assert.equal((await floor.post(path(STARTER) + '/send', { dry_run: true, recipients: me(FLOOR) })).status, 403)
   assert.equal((await ownerB.post(path(STARTER) + '/send', { dry_run: true, recipients: [{ user_id: userId[A.owner] }] })).status, 422)
 })
+
+test('a report of nothing but people\'s details can\'t go only outside the team, unless people\'s details may', async () => {
+  const spec = {
+    subject: 'bookings.bookings', kind: 'list',
+    rows: [{ field: 'guest_name' }],
+    params: [{ key: 'period', type: 'period', label: 'Period', default: { relative: 'next_n_days', n: 60 } }],
+    filters: [{ field: 'date', op: 'in_period', param: 'period' }],
+  }
+  const [saved] = await sql`
+    INSERT INTO reports (tenant_id, owner_sub, owner_email, name, subject, spec)
+    VALUES (${ids.a}, ${A.owner}, ${A.owner + '@test.local'}, 'Names only', 'bookings.bookings', ${sql.json(spec)})
+    RETURNING id`
+  const body = extra => ({ ...scheduleBody([{ email: OUTSIDE }], { params: { period: { relative: 'next_n_days', n: 60 } }, dry_run: true }), ...extra })
+  const outside = await owner.post(schedulesOf(saved.id), body())
+  assert.equal(outside.status, 422, outside.body)
+  assert.match(outside.json.error, /people's details/)
+  const withTeam = await owner.post(schedulesOf(saved.id), body({ recipients: [{ email: OUTSIDE }, ...me(A.operator)] }))
+  assert.ok(withTeam.status < 300, withTeam.body)
+  const allowed = await owner.post(schedulesOf(saved.id), body({ personal_outside: true }))
+  assert.ok(allowed.status < 300, allowed.body)
+  await sql`DELETE FROM reports WHERE id = ${saved.id}`
+})

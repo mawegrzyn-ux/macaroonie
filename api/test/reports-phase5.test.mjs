@@ -142,3 +142,28 @@ test('Email it now never raises a task on Today', async () => {
   }))
   assert.equal(r.send.delivery?.today ?? false, false)
 })
+
+test('an alert is for its own day, only for people who can run its report, and is due now', async () => {
+  const V = filled.ids.venue
+  const s = await ok(owner.post(`/api/reports/${START}/schedules`, {
+    name: 'Day check', timing: { every: 'day', time: '23:59' }, params: { period: { relative: 'today' } },
+    delivery: { in_message: true, attach: 'none', today: true }, condition: { when: 'always' }, recipients: [],
+  }))
+  await dueNow(s.schedule.id)
+  await sweep()
+  const yesterday = new Date(Date.parse(today() + 'T12:00:00Z') - 86400000).toISOString().slice(0, 10)
+  assert.equal((await ok(owner.get(`/api/reports/alerts?venue_id=${V}&date=${yesterday}`))).alerts.length, 0, 'a send today is no alert yesterday')
+  assert.equal((await ok(owner.get(`/api/reports/alerts?venue_id=${V}&date=${today()}`))).alerts.length, 1)
+
+  const feed = await ok(owner.get(`/api/ops/today?venue_id=${V}&date=${today()}`))
+  assert.equal(feed.tasks.find(t => t.kind === 'report_alert')?.group, 'now')
+
+  // Reports View without Till reports: the report doesn't run for them, so no alert.
+  const [role] = await sql`SELECT id, permissions FROM tenant_roles WHERE tenant_id = ${ids.a} AND key = 'operator'`
+  await sql`UPDATE tenant_roles SET permissions = ${sql.json({ ...role.permissions, pos_reports: 'none' })} WHERE id = ${role.id}`
+  try {
+    assert.equal((await ok(operator.get(`/api/reports/alerts?venue_id=${V}&date=${today()}`))).alerts.length, 0)
+  } finally {
+    await sql`UPDATE tenant_roles SET permissions = ${sql.json(role.permissions)} WHERE id = ${role.id}`
+  }
+})
