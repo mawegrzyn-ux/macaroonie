@@ -8342,7 +8342,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>admin/src/lib/speech.js</Mono>: <Mono>listen()</Mono> / <Mono>speak()</Mono> over the browser&apos;s
               SpeechRecognition and speechSynthesis, or the Macaroonie Office app&apos;s bridge;{' '}
               <Mono>spokenText()</Mono> drops markdown and links and never reads out an email or phone number;{' '}
-              <Mono>yesOrNo()</Mono>. <Mono>ChatView</Mono>: the mic (dictation into the box), and with{' '}
+              <Mono>yesOrNo()</Mono>. <Mono>ChatView</Mono>: the mic takes a tap (dictation into the box, tap again or a pause
+              stops) or a hold (<Mono>MIC_HOLD_MS</Mono> 350; listening starts on the press, goes on through pauses while
+              the button is down, and on release the words are sent as a spoken turn: <Mono>micDown()</Mono> /{' '}
+              <Mono>micUp()</Mono> / <Mono>micCancel()</Mono>, Enter or Space toggles dictation), and with{' '}
               <Mono>talkMode</Mono> (<Mono>MobileAssistant</Mono>) hold to talk, read aloud per device
               (<Mono>maca_voice_read_aloud</Mono>), and after a spoken turn a check card read back and confirmed by a
               spoken yes. Server: <Mono>POST /api/ai/chat</Mono> <Mono>voice: true</Mono> adds <Mono>VOICE_NOTE</Mono> as a

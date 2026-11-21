@@ -38,6 +38,9 @@ import { ASSISTANT_NAME } from '@shared/assistant.js'
 import { FORMS, FormOpener } from '@/components/forms/FormSheet'
 import { canListen, canSpeak, listen, speak, stopSpeaking, readAloudOn, setReadAloud, yesOrNo } from '@/lib/speech'
 
+// How long a press on the mic must last to be a hold (record, let go to send) rather than a tap (dictation).
+const MIC_HOLD_MS = 350
+
 const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 
 const SUGGESTIONS = [
@@ -146,7 +149,7 @@ export default function ChatView({ conversationId, onConversationId, className, 
   // Voice (OUTSTANDING 44 item 12): dictation into the box (the mic), talk
   // mode on the phone (hold to talk, answers read aloud on this device if
   // switched on), and a spoken yes for check cards when the group allows it.
-  const [hearing, setHearing] = useState(null)   // null | 'dictate' | 'talk' | 'confirm'
+  const [hearing, setHearing] = useState(null)   // null | 'dictate' | 'hold' | 'talk' | 'confirm'
   const [heard, setHeard] = useState('')         // talk mode: the words so far
   const [aloud, setAloud] = useState(() => readAloudOn())
   const stopHearing = useRef(null)
@@ -283,17 +286,76 @@ export default function ChatView({ conversationId, onConversationId, className, 
   }
 
   // ── Voice ──────────────────────────────────────────────
-  // Dictation: a tap starts, the next tap (or a pause) stops; the words go
-  // into the box after what is typed, for the person to read and send.
-  function toggleDictation() {
-    if (hearing) { stopHearing.current?.(); return }
-    const before = draft.trim()
-    setHearing('dictate'); setError(null)
+  // The mic takes a tap or a hold:
+  //   tap  dictation: a tap starts, the next tap (or a pause) stops; the words
+  //        go into the box after what is typed, for the person to read and send
+  //   hold record while held, through pauses; let go to send it (a spoken turn)
+  // Listening starts on the press either way, so no words are lost while the
+  // press is still too short to tell which it is (MIC_HOLD_MS).
+  const mic = useRef({ down: false, hold: false, released: false, failed: false, stopOnUp: false, text: '', timer: null })
+  function micListen(base) {
     stopHearing.current = listen({
-      onText: t => setDraft((before ? before + ' ' : '') + t),
-      onEnd: () => { setHearing(null); stopHearing.current = null },
-      onError: m => setError(m),
+      onText: t => { const text = (base ? base + ' ' : '') + t; mic.current.text = text; setDraft(text) },
+      onEnd: () => {
+        stopHearing.current = null
+        const m = mic.current
+        // A pause while the button is still pressed (a hold, or a press not
+        // yet long enough to be one): listen on, after the words so far.
+        if (m.down && !m.failed) { micListen(m.text.trim()); return }
+        if (m.hold) { micSend(); return }
+        setHearing(null)
+      },
+      onError: e => { mic.current.failed = true; setError(e) },
     })
+  }
+  function micSend() {
+    const text = mic.current.text.trim()
+    mic.current.hold = false
+    setHearing(null)
+    if (text && !mic.current.failed) submit(text, { voice: true })
+  }
+  function micDown(e) {
+    if (e.button != null && e.button !== 0) return
+    if (working || hearing === 'talk' || hearing === 'confirm') return
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* not every pointer */ }
+    // Dictating already: this tap stops it (on its release).
+    if (hearing === 'dictate') { mic.current.stopOnUp = true; return }
+    stopSpeaking()
+    mic.current = { down: true, hold: false, released: false, failed: false, stopOnUp: false, text: draft.trim(), timer: null }
+    setHearing('dictate'); setError(null)
+    micListen(draft.trim())
+    mic.current.timer = setTimeout(() => { mic.current.hold = true; setHearing('hold') }, MIC_HOLD_MS)
+  }
+  function micUp() {
+    const m = mic.current
+    m.down = false
+    clearTimeout(m.timer)
+    if (m.stopOnUp) { m.stopOnUp = false; stopHearing.current?.(); return }
+    if (!m.hold) {
+      // A tap: dictation carries on until the next tap or a pause, unless
+      // the recognition already ended while the button was down.
+      if (!stopHearing.current) setHearing(null)
+      return
+    }
+    m.released = true
+    if (stopHearing.current) stopHearing.current()   // its end sends
+    else micSend()
+  }
+  // A press the browser took away (a scroll, a call): stop, keep the words in the box, send nothing.
+  function micCancel() {
+    const m = mic.current
+    clearTimeout(m.timer)
+    m.down = false; m.hold = false; m.stopOnUp = false
+    stopHearing.current?.()
+  }
+  // Enter or Space on the focused mic: dictation on and off, as a tap.
+  function micKey(e) {
+    if (e.detail !== 0) return   // a pointer's click: handled by down and up
+    if (hearing === 'dictate') { stopHearing.current?.(); return }
+    if (hearing) return
+    mic.current = { down: false, hold: false, released: false, failed: false, stopOnUp: false, text: draft.trim(), timer: null }
+    setHearing('dictate'); setError(null)
+    micListen(draft.trim())
   }
   // Talk mode: hold to talk, let go to send. The words show as they come.
   function startTalking(e) {
@@ -457,7 +519,7 @@ export default function ChatView({ conversationId, onConversationId, className, 
                   </button>
                 )}
               </div>
-              <button type="button" disabled={working || hearing === 'dictate' || hearing === 'confirm'} data-testid="chat-talk-button"
+              <button type="button" disabled={working || hearing === 'dictate' || hearing === 'hold' || hearing === 'confirm'} data-testid="chat-talk-button"
                 onPointerDown={startTalking} onPointerUp={stopTalking} onPointerLeave={stopTalking} onPointerCancel={stopTalking}
                 onContextMenu={e => e.preventDefault()}
                 className={cn('w-full min-h-[64px] rounded-xl text-base font-semibold flex items-center justify-center gap-2 touch-manipulation select-none disabled:opacity-50',
@@ -466,6 +528,11 @@ export default function ChatView({ conversationId, onConversationId, className, 
                 <Mic className="w-5 h-5" /> {hearing === 'talk' ? 'Listening' : 'Hold to talk'}
               </button>
             </div>
+          )}
+          {hearing === 'hold' && (
+            <p className="px-3 pt-2 text-xs font-medium text-red-700" aria-live="polite" data-testid="chat-mic-hold">
+              Recording: let go to send.
+            </p>
           )}
           <PendingFiles files={att.files} onRemove={att.remove} />
           {att.notice && <p className="px-3 pt-1 text-xs text-amber-700">{att.notice}</p>}
@@ -483,11 +550,14 @@ export default function ChatView({ conversationId, onConversationId, className, 
               <Paperclip className="w-4 h-4" />
             </button>
             {listenable && (
-              <button type="button" onClick={toggleDictation} disabled={working || hearing === 'talk' || hearing === 'confirm'}
-                aria-pressed={hearing === 'dictate'} data-testid="chat-mic"
-                className={cn('w-12 h-12 shrink-0 rounded-md border flex items-center justify-center touch-manipulation disabled:opacity-40',
-                  hearing === 'dictate' ? 'bg-red-600 text-white border-red-600' : 'text-muted-foreground hover:text-foreground')}
-                aria-label={hearing === 'dictate' ? 'Stop dictating' : 'Dictate'} title={hearing === 'dictate' ? 'Stop dictating' : 'Dictate: speak and the words go in the box'}>
+              <button type="button" disabled={working || hearing === 'talk' || hearing === 'confirm'}
+                onPointerDown={micDown} onPointerUp={micUp} onPointerCancel={micCancel} onClick={micKey}
+                onContextMenu={e => e.preventDefault()} style={{ WebkitTouchCallout: 'none' }}
+                aria-pressed={hearing === 'dictate' || hearing === 'hold'} data-testid="chat-mic" data-state={hearing || 'off'}
+                className={cn('w-12 h-12 shrink-0 rounded-md border flex items-center justify-center touch-manipulation select-none disabled:opacity-40',
+                  hearing === 'dictate' || hearing === 'hold' ? 'bg-red-600 text-white border-red-600' : 'text-muted-foreground hover:text-foreground')}
+                aria-label={hearing === 'hold' ? 'Recording: let go to send' : hearing === 'dictate' ? 'Stop dictating' : 'Dictate (tap), or hold to talk and let go to send'}
+                title={hearing === 'hold' ? 'Recording: let go to send' : hearing === 'dictate' ? 'Stop dictating' : 'Tap to dictate into the box; hold to talk and let go to send'}>
                 {hearing === 'dictate' ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
               </button>
             )}

@@ -6,6 +6,12 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-21 — Hold the mic to talk to Pepper]
+
+- Pepper's microphone takes a tap or a hold. A tap works as before (tap to start, tap again or pause to stop; the words go into the box). Holding it records for as long as it is held, pauses included, and letting go sends what was said, as a spoken message (a short answer). No migration.
+
+---
+
 ## [2026-11-21 — Allergens for everyone, the weekly cash-up, Retrieve, Pepper's forms and voice, notices, Macaroonie Office]
 
 - **Allergens** (main menu, under Service; migration 258): the allergen lookup as a page, with its own permission, Allergen lookup, so front-of-house can answer allergy questions without Menus. Every built-in role has it and custom roles were given View; it also decides the dashboard widget, the Overview tile, the phone's Allergens tile and Pepper's allergy answers. The matrix stays Menus.

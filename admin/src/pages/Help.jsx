@@ -6337,8 +6337,11 @@ export default function Help() {
             </InfoBox>
             <H3>Talking to Pepper</H3>
             <P>
-              The <strong>microphone</strong> next to the message box turns what you say into text in the box, for
-              you to read and send. On the phone&apos;s Pepper page, <strong>Hold to talk</strong>: hold the button,
+              The <strong>microphone</strong> next to the message box works two ways. <strong>Tap</strong> it to start,
+              speak, and tap again to stop (or just pause): the words go into the box for you to read and send.{' '}
+              <strong>Hold</strong> it instead and it records for as long as you hold, pauses included; let go and
+              what you said is sent straight away. On the phone&apos;s Pepper page there is also a big{' '}
+              <strong>Hold to talk</strong> button that does the same: hold the button,
               speak, and let go to send. Pepper answers in a sentence or two, with the detail on screen, and{' '}
               <strong>Read answers aloud</strong> (a switch on that page, for that phone) reads its answers out. It
               never reads out a guest&apos;s phone number or email.
