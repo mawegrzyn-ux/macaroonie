@@ -31,7 +31,8 @@ module.exports = ({ config }) => ({
   extra: {
     ...config.extra,
     rootDomain: process.env.MACAROONIE_ROOT_DOMAIN || 'macaroonie.com',
-    auth0Domain: process.env.MACAROONIE_AUTH0_DOMAIN || 'macaroonie.eu.auth0.com',
+    // The live Auth0 tenant (the API's AUTH0_DOMAIN, setup.sh).
+    auth0Domain: process.env.MACAROONIE_AUTH0_DOMAIN || 'obscurekitty.uk.auth0.com',
     auth0ClientId: process.env.MACAROONIE_AUTH0_CLIENT_ID || '',
     auth0Audience: process.env.MACAROONIE_AUTH0_AUDIENCE || 'https://api.macaroonie.com',
     scheme: config.scheme || 'macaroonie-office',

@@ -6,9 +6,9 @@ import { discoveryFor, claimsOf, needsRefresh, userOf, SCOPES, EARLY_SECS } from
 const jwt = claims => 'h.' + Buffer.from(JSON.stringify(claims)).toString('base64url') + '.s'
 
 test('Auth0\'s endpoints, and offline access for a refresh token', () => {
-  const d = discoveryFor('https://macaroonie.eu.auth0.com/')
-  assert.equal(d.authorizationEndpoint, 'https://macaroonie.eu.auth0.com/authorize')
-  assert.equal(d.tokenEndpoint, 'https://macaroonie.eu.auth0.com/oauth/token')
+  const d = discoveryFor('https://obscurekitty.uk.auth0.com/')
+  assert.equal(d.authorizationEndpoint, 'https://obscurekitty.uk.auth0.com/authorize')
+  assert.equal(d.tokenEndpoint, 'https://obscurekitty.uk.auth0.com/oauth/token')
   assert.ok(SCOPES.includes('offline_access'))
 })
 
