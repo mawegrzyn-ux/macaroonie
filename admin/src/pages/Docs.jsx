@@ -6907,6 +6907,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>push.token</Mono>, <Mono>speech.listen/speak/stopSpeaking</Mono>, <Mono>scanner.scan</Mono>) and{' '}
               <Mono>makeHandler()</Mono> on the app&apos;s side, answering only pages of ours (<Mono>bridgeAllowed()</Mono>).{' '}
               <Mono>links.js</Mono>: what stays in the app (ops. and office., https), where a tapped notice opens.{' '}
+              <Mono>speechCore.js</Mono>: one listening&apos;s rules (continuous pieces joined; Android&apos;s{' '}
+              <Mono>client</Mono>, <Mono>no-speech</Mono>, <Mono>speech-timeout</Mono> and <Mono>aborted</Mono> endings never shown;
+              continuous dropped for the run if the recogniser can&apos;t do it). Android draws the app edge to edge (always,
+              from SDK 54): <Mono>App.js</Mono> keeps the web view inside the safe area
+              (react-native-safe-area-context) and above the keyboard (<Mono>keyboardDidShow</Mono>&apos;s height, which is the
+              keyboard less the navigation bar), with dark status bar icons over the white pages.{' '}
               <Mono>Scanner.js</Mono> (expo-camera); push by expo-notifications (channel <Mono>tasks</Mono>), speech by
               expo-speech-recognition and expo-speech. Build settings in <Mono>app.config.js</Mono> (root domain, Auth0
               native client id, audience; the EAS project id is in <Mono>app.json</Mono>). Every <Mono>eas.json</Mono> profile builds
@@ -8348,7 +8354,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               stops) or a hold (<Mono>MIC_HOLD_MS</Mono> 350; listening starts on the press, goes on through pauses while
               the button is down, and on release the words are sent as a spoken turn: <Mono>micDown()</Mono> /{' '}
               <Mono>micUp()</Mono> / <Mono>micCancel()</Mono>, Enter or Space toggles dictation), and with{' '}
-              <Mono>talkMode</Mono> (<Mono>MobileAssistant</Mono>) hold to talk, read aloud per device
+              <Mono>talkMode</Mono> (<Mono>MobileAssistant</Mono>) hold to talk (<Mono>talkListen()</Mono>: the same hold,
+              through pauses, sent on release; a pointercancel or a failure puts the words in the box instead). Both
+              ask <Mono>listen()</Mono> for <Mono>continuous</Mono>: the Office app then keeps one listening open through
+              pauses (Android 13 and up); a browser still ends on a pause and the page starts it again while the
+              button is down. Both buttons are <Mono>touch-none</Mono>, so a web view never takes a hold for a scroll. Read aloud per device
               (<Mono>maca_voice_read_aloud</Mono>), and after a spoken turn a check card read back and confirmed by a
               spoken yes. Server: <Mono>POST /api/ai/chat</Mono> <Mono>voice: true</Mono> adds <Mono>VOICE_NOTE</Mono> as a
               hidden <Mono>_context</Mono> block; <Mono>POST /actions/:id/confirm</Mono> <Mono>{"{ via: 'voice' }"}</Mono>{' '}

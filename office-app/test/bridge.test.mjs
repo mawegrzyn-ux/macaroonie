@@ -46,6 +46,19 @@ test('speech: words as they come, then the end; stop() reaches the app', async (
   assert.deepEqual(heard, [['hello', false], ['hello there', true]])
 })
 
+test('speech: continuous listening is asked for through the bridge, and stop() reaches that listening', async () => {
+  const asked = []
+  let stopped = 0
+  const { window } = wire({ ...services, speech: { ...services.speech, listen(o) { asked.push(o.continuous); return () => { stopped++; o.onEnd() } } } })
+  await new Promise(resolve => {
+    const stop = window.MacaroonieOffice.speech.listen({ continuous: true, onEnd: resolve })
+    setTimeout(stop, 5)
+  })
+  await new Promise(resolve => window.MacaroonieOffice.speech.listen({ onEnd: resolve }).call())
+  assert.deepEqual(asked, [true, false])
+  assert.equal(stopped, 2)
+})
+
 test('a failure comes back as the page\'s error; an unknown call is refused', async () => {
   const { window } = wire({ ...services, scanner: { scan: async () => { throw new Error('No camera') } } })
   await assert.rejects(window.MacaroonieOffice.scanner.scan(), /No camera/)

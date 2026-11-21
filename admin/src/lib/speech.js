@@ -12,7 +12,7 @@
 // only the words, which go into Pepper's box or the chat as text.
 //
 //   canListen()                     whether this device can turn speech into text
-//   listen({ onText, onEnd, onError, lang })  starts; returns stop()
+//   listen({ onText, onEnd, onError, lang, continuous })  starts; returns stop()
 //   canSpeak(), speak(text), stopSpeaking()
 //   spokenText(markdown)            an answer cleaned for reading aloud
 //   readAloudOn() / setReadAloud()  this device's "read answers aloud" switch
@@ -33,13 +33,16 @@ export function canSpeak() {
 /**
  * Starts listening. onText(text, final) gets the words so far (final when the
  * device is sure); onEnd() once it stops; onError(message). Returns stop().
+ * continuous: keep listening through pauses until stop(), where the device
+ * can (the Office app on Android 13 and up). Elsewhere listening still ends
+ * on a pause, so a caller that wants to listen on starts again from onEnd.
  */
-export function listen({ onText, onEnd, onError, lang } = {}) {
+export function listen({ onText, onEnd, onError, lang, continuous = false } = {}) {
   const language = lang || (typeof navigator !== 'undefined' && navigator.language) || 'en-GB'
   const native = bridge()?.speech
   if (native?.listen) {
     // The app calls back with the same shape; it returns its own stop().
-    return native.listen({ lang: language, onText, onEnd, onError }) || (() => native.stop?.())
+    return native.listen({ lang: language, continuous, onText, onEnd, onError }) || (() => native.stop?.())
   }
   const R = Recognition()
   if (!R) { onError?.('This browser can\'t turn speech into text. Use the keyboard\'s microphone key instead.'); onEnd?.(); return () => {} }

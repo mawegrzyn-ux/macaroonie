@@ -59,7 +59,7 @@ export function bridgeScript(version) {
         o = o || {};
         var id = 'l' + (++seq);
         listeners[id] = { onText: o.onText, onEnd: o.onEnd, onError: o.onError };
-        post({ id: id, type: 'speech.listen', args: { lang: o.lang } });
+        post({ id: id, type: 'speech.listen', args: { lang: o.lang, continuous: !!o.continuous } });
         return function () { post({ id: id, type: 'speech.stop', args: {} }); };
       },
       speak: function (o) { return call('speech.speak', o); },
@@ -76,7 +76,8 @@ export const eventScript = (id, name, value) => `window.__macaOffice && window._
 
 /**
  * The app's side. services: { auth, push, speech, scanner } (speech.listen
- * takes { lang, onText, onEnd, onError } and returns stop()); run(script)
+ * takes { lang, continuous, onText, onEnd, onError } and returns stop());
+ * run(script)
  * runs JavaScript in the page; allowed(url) says whether the page the
  * message came from may use the bridge. Returns handle(data, url).
  */
@@ -90,6 +91,7 @@ export function makeHandler({ services, run, allowed }) {
     if (msg.type === 'speech.listen') {
       const stop = services.speech.listen({
         lang: msg.args?.lang,
+        continuous: !!msg.args?.continuous,
         onText: (text, final) => run(eventScript(msg.id, 'text', { text, final: !!final })),
         onError: message => run(eventScript(msg.id, 'error', String(message || 'Couldn\'t hear that.'))),
         onEnd: () => { stops.delete(msg.id); run(eventScript(msg.id, 'end', null)) },

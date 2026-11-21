@@ -295,6 +295,7 @@ export default function ChatView({ conversationId, onConversationId, className, 
   const mic = useRef({ down: false, hold: false, released: false, failed: false, stopOnUp: false, text: '', timer: null })
   function micListen(base) {
     stopHearing.current = listen({
+      continuous: true,
       onText: t => { const text = (base ? base + ' ' : '') + t; mic.current.text = text; setDraft(text) },
       onEnd: () => {
         stopHearing.current = null
@@ -357,24 +358,45 @@ export default function ChatView({ conversationId, onConversationId, className, 
     setHearing('dictate'); setError(null)
     micListen(draft.trim())
   }
-  // Talk mode: hold to talk, let go to send. The words show as they come.
-  function startTalking(e) {
-    e.preventDefault()
-    if (hearing || working) return
-    stopSpeaking()
-    let said = ''
-    setHeard(''); setHearing('talk'); setError(null)
+  // Talk mode: hold to talk, through pauses; let go to send. The words show
+  // as they come. A press the browser takes away (a scroll, a call) or a
+  // failure sends nothing: the words heard go into the box instead.
+  const talk = useRef({ down: false, cancelled: false, failed: false, text: '' })
+  function talkListen(base) {
     stopHearing.current = listen({
-      onText: t => { said = t; setHeard(t) },
+      continuous: true,
+      onText: t => { const text = (base ? base + ' ' : '') + t; talk.current.text = text; setHeard(text) },
       onEnd: () => {
-        setHearing(null); stopHearing.current = null
-        if (said.trim()) submit(said, { voice: true })
-        setHeard('')
+        stopHearing.current = null
+        const t = talk.current
+        // A pause while still held: listen on, after the words so far.
+        if (t.down && !t.failed) { talkListen(t.text.trim()); return }
+        setHearing(null); setHeard('')
+        const said = t.text.trim()
+        if (!said) return
+        if (t.failed || t.cancelled) setDraft(said)
+        else submit(said, { voice: true })
       },
-      onError: m => setError(m),
+      onError: m => { talk.current.failed = true; setError(m) },
     })
   }
-  function stopTalking() { if (hearing === 'talk') stopHearing.current?.() }
+  function startTalking(e) {
+    e.preventDefault()
+    if (e.button != null && e.button !== 0) return
+    if (hearing || working) return
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* not every pointer */ }
+    stopSpeaking()
+    talk.current = { down: true, cancelled: false, failed: false, text: '' }
+    setHeard(''); setHearing('talk'); setError(null)
+    talkListen('')
+  }
+  function stopTalking(cancelled) {
+    const t = talk.current
+    if (!t.down) return
+    t.down = false
+    t.cancelled = cancelled === true
+    stopHearing.current?.()   // its end sends
+  }
   // After a spoken turn: read the answer aloud (if on for this device), then
   // offer a check card to be confirmed by a spoken yes (if the group allows).
   async function afterSpokenTurn(list) {
@@ -401,7 +423,7 @@ export default function ChatView({ conversationId, onConversationId, className, 
       onError: m => setError(m),
     })
   }
-  useEffect(() => () => { stopHearing.current?.(); stopSpeaking() }, [])
+  useEffect(() => () => { mic.current.down = false; talk.current.down = false; stopHearing.current?.(); stopSpeaking() }, [])
 
 
   const hasFiles = e => Array.from(e.dataTransfer?.types || []).includes('Files')
@@ -520,9 +542,9 @@ export default function ChatView({ conversationId, onConversationId, className, 
                 )}
               </div>
               <button type="button" disabled={working || hearing === 'dictate' || hearing === 'hold' || hearing === 'confirm'} data-testid="chat-talk-button"
-                onPointerDown={startTalking} onPointerUp={stopTalking} onPointerLeave={stopTalking} onPointerCancel={stopTalking}
+                onPointerDown={startTalking} onPointerUp={() => stopTalking()} onPointerCancel={() => stopTalking(true)}
                 onContextMenu={e => e.preventDefault()}
-                className={cn('w-full min-h-[64px] rounded-xl text-base font-semibold flex items-center justify-center gap-2 touch-manipulation select-none disabled:opacity-50',
+                className={cn('w-full min-h-[64px] rounded-xl text-base font-semibold flex items-center justify-center gap-2 touch-none select-none disabled:opacity-50',
                   hearing === 'talk' ? 'bg-red-600 text-white' : 'bg-primary text-primary-foreground')}
                 style={{ WebkitTouchCallout: 'none' }}>
                 <Mic className="w-5 h-5" /> {hearing === 'talk' ? 'Listening' : 'Hold to talk'}
@@ -554,7 +576,7 @@ export default function ChatView({ conversationId, onConversationId, className, 
                 onPointerDown={micDown} onPointerUp={micUp} onPointerCancel={micCancel} onClick={micKey}
                 onContextMenu={e => e.preventDefault()} style={{ WebkitTouchCallout: 'none' }}
                 aria-pressed={hearing === 'dictate' || hearing === 'hold'} data-testid="chat-mic" data-state={hearing || 'off'}
-                className={cn('w-12 h-12 shrink-0 rounded-md border flex items-center justify-center touch-manipulation select-none disabled:opacity-40',
+                className={cn('w-12 h-12 shrink-0 rounded-md border flex items-center justify-center touch-none select-none disabled:opacity-40',
                   hearing === 'dictate' || hearing === 'hold' ? 'bg-red-600 text-white border-red-600' : 'text-muted-foreground hover:text-foreground')}
                 aria-label={hearing === 'hold' ? 'Recording: let go to send' : hearing === 'dictate' ? 'Stop dictating' : 'Dictate (tap), or hold to talk and let go to send'}
                 title={hearing === 'hold' ? 'Recording: let go to send' : hearing === 'dictate' ? 'Stop dictating' : 'Tap to dictate into the box; hold to talk and let go to send'}>

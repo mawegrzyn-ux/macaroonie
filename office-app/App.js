@@ -15,8 +15,14 @@
 // Links off our two hosts open in the phone's browser; the back button goes
 // back in the pages. Android first; nothing here is Android-only except the
 // notice channel, so an iPhone build is the same code (see README.md).
+//
+// Android draws the app edge to edge, under the status bar, the navigation
+// buttons and the keyboard (always, from Expo SDK 54). The pages are kept
+// clear of all three: the web view sits inside the safe area, and while the
+// keyboard is up it ends where the keyboard starts.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, BackHandler, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, BackHandler, Keyboard, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView } from 'react-native-webview'
 import Constants from 'expo-constants'
 import { StatusBar } from 'expo-status-bar'
@@ -27,6 +33,7 @@ import { createAuth } from './auth'
 import { bridgeScript, makeHandler } from './bridge'
 import { opsUrl, staysInApp, bridgeAllowed, noticeUrl } from './links'
 import Scanner from './Scanner'
+import { createSession } from './speechCore'
 
 const EXTRA = Constants.expoConfig?.extra || {}
 const ROOT = String(EXTRA.rootDomain || 'macaroonie.com').toLowerCase()
@@ -57,32 +64,72 @@ async function pushToken() {
   return data
 }
 
-// One recognition at a time: the callbacks of the one listening now.
+// One recognition at a time: the callbacks and the session (speechCore.js)
+// of the one listening now. continuous (a hold, dictation) keeps listening
+// through pauses until stop(); it is dropped for the rest of this run if the
+// phone's recogniser turns out not to manage it.
 let hearing = null
+let continuousWorks = true
 ExpoSpeechRecognitionModule.addListener('result', e => {
-  const text = e.results?.[0]?.transcript || ''
-  hearing?.onText?.(text, !!e.isFinal)
+  const h = hearing
+  if (!h) return
+  const final = !!e.isFinal
+  h.onText?.(h.session.text(e.results?.[0]?.transcript, final), final)
 })
 ExpoSpeechRecognitionModule.addListener('error', e => {
-  if (e.error === 'no-speech' || e.error === 'aborted') return
-  hearing?.onError?.(e.message || e.error)
+  const h = hearing
+  if (h && h.session.error(e.error)) h.onError?.(e.message || e.error)
 })
-ExpoSpeechRecognitionModule.addListener('end', () => { const h = hearing; hearing = null; h?.onEnd?.() })
+ExpoSpeechRecognitionModule.addListener('end', () => {
+  const h = hearing
+  hearing = null
+  if (h?.session.end()) continuousWorks = false
+  h?.onEnd?.()
+})
 
 const speech = {
-  listen({ lang, onText, onEnd, onError }) {
-    hearing = { onText, onEnd, onError }
+  listen({ lang, continuous, onText, onEnd, onError }) {
+    const session = createSession({ continuous: !!continuous && continuousWorks })
+    const mine = { onText, onEnd, onError, session, started: false, stopped: false }
+    hearing = mine
     ExpoSpeechRecognitionModule.requestPermissionsAsync().then(p => {
-      if (!p.granted) { onError?.('Macaroonie Office needs the microphone. Allow it in the phone\'s settings.'); const h = hearing; hearing = null; h?.onEnd?.(); return }
-      ExpoSpeechRecognitionModule.start({ lang: lang || 'en-GB', interimResults: true, continuous: false })
+      if (hearing !== mine) return
+      if (!p.granted) { onError?.('Macaroonie Office needs the microphone. Allow it in the phone\'s settings.'); hearing = null; onEnd?.(); return }
+      // Let go before the microphone opened: nothing to listen to.
+      if (mine.stopped) { hearing = null; onEnd?.(); return }
+      mine.started = true
+      ExpoSpeechRecognitionModule.start({ lang: lang || 'en-GB', interimResults: true, continuous: session.continuous })
     })
-    return () => ExpoSpeechRecognitionModule.stop()
+    return () => {
+      if (hearing !== mine || mine.stopped) return
+      mine.stopped = true
+      session.stop()
+      if (mine.started) ExpoSpeechRecognitionModule.stop()
+    }
   },
   speak: ({ text, lang } = {}) => new Promise(resolve => Speech.speak(String(text || ''), { language: lang || 'en-GB', onDone: resolve, onStopped: resolve, onError: resolve })),
   stopSpeaking: () => Speech.stop(),
 }
 
 export default function App() {
+  return <SafeAreaProvider><Office /></SafeAreaProvider>
+}
+
+/** How much of the screen the keyboard takes above the navigation buttons (0 when it is down). */
+function useKeyboardHeight() {
+  const [height, setHeight] = useState(0)
+  useEffect(() => {
+    // React Native gives the keyboard's height less the navigation bar's.
+    const shown = Keyboard.addListener('keyboardDidShow', e => setHeight(e.endCoordinates?.height || 0))
+    const hidden = Keyboard.addListener('keyboardDidHide', () => setHeight(0))
+    return () => { shown.remove(); hidden.remove() }
+  }, [])
+  return height
+}
+
+function Office() {
+  const insets = useSafeAreaInsets()
+  const keyboard = useKeyboardHeight()
   const [user, setUser] = useState(undefined)   // undefined while the kept sign-in is checked
   const [signingIn, setSigningIn] = useState(false)
   const [problem, setProblem] = useState(null)
@@ -141,12 +188,13 @@ export default function App() {
     return () => sub.remove()
   }, [scanning])
 
+  const clear = { paddingTop: insets.top, paddingBottom: insets.bottom }
   if (user === undefined) {
-    return <View style={[s.screen, s.center]}><ActivityIndicator color={PINK} size="large" /><StatusBar style="light" /></View>
+    return <View style={[s.screen, s.center, clear]}><ActivityIndicator color={PINK} size="large" /><StatusBar style="light" /></View>
   }
   if (!user) {
     return (
-      <View style={[s.screen, s.center]}>
+      <View style={[s.screen, s.center, clear]}>
         <StatusBar style="light" />
         <Text style={s.title}>Macaroonie Office</Text>
         <Text style={s.lead}>Today&apos;s tasks, the cash-up, orders and Pepper, with notices when something is due or late.</Text>
@@ -160,27 +208,30 @@ export default function App() {
   }
   return (
     <View style={s.screen}>
-      <StatusBar style="light" />
-      <WebView
-        key={webKey}
-        ref={web}
-        source={{ uri: startUrl }}
-        style={s.web}
-        injectedJavaScriptBeforeContentLoaded={bridgeScript(VERSION)}
-        onMessage={e => handle(e.nativeEvent.data, e.nativeEvent.url)}
-        onNavigationStateChange={n => { canGoBack.current = n.canGoBack }}
-        onShouldStartLoadWithRequest={req => {
-          if (staysInApp(req.url, ROOT)) return true
-          Linking.openURL(req.url).catch(() => {})
-          return false
-        }}
-        setSupportMultipleWindows={false}
-        allowsBackForwardNavigationGestures
-        mediaPlaybackRequiresUserAction={false}
-        webviewDebuggingEnabled={!!EXTRA.webDebug}
-        startInLoadingState
-        renderLoading={() => <View style={[s.screen, s.center, StyleSheet.absoluteFill]}><ActivityIndicator color={PINK} size="large" /></View>}
-      />
+      {/* The pages are white: dark icons in the status bar. */}
+      <StatusBar style="dark" />
+      <View style={[s.page, { paddingTop: insets.top, paddingBottom: insets.bottom + keyboard }]}>
+        <WebView
+          key={webKey}
+          ref={web}
+          source={{ uri: startUrl }}
+          style={s.web}
+          injectedJavaScriptBeforeContentLoaded={bridgeScript(VERSION)}
+          onMessage={e => handle(e.nativeEvent.data, e.nativeEvent.url)}
+          onNavigationStateChange={n => { canGoBack.current = n.canGoBack }}
+          onShouldStartLoadWithRequest={req => {
+            if (staysInApp(req.url, ROOT)) return true
+            Linking.openURL(req.url).catch(() => {})
+            return false
+          }}
+          setSupportMultipleWindows={false}
+          allowsBackForwardNavigationGestures
+          mediaPlaybackRequiresUserAction={false}
+          webviewDebuggingEnabled={!!EXTRA.webDebug}
+          startInLoadingState
+          renderLoading={() => <View style={[s.screen, s.center, StyleSheet.absoluteFill]}><ActivityIndicator color={PINK} size="large" /></View>}
+        />
+      </View>
       {scanning && <Scanner onDone={code => { scanning(code); setScanning(null) }} />}
     </View>
   )
@@ -189,6 +240,7 @@ export default function App() {
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: NAVY },
   center: { alignItems: 'center', justifyContent: 'center', padding: 28 },
+  page: { flex: 1, backgroundColor: '#ffffff' },
   web: { flex: 1, backgroundColor: '#ffffff' },
   title: { color: '#fff', fontSize: 28, fontWeight: '700', marginBottom: 12 },
   lead: { color: '#dbe1ee', fontSize: 16, textAlign: 'center', marginBottom: 28, lineHeight: 22 },

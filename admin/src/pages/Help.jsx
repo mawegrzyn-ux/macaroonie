@@ -6342,7 +6342,8 @@ export default function Help() {
               <strong>Hold</strong> it instead and it records for as long as you hold, pauses included; let go and
               what you said is sent straight away. On the phone&apos;s Pepper page there is also a big{' '}
               <strong>Hold to talk</strong> button that does the same: hold the button,
-              speak, and let go to send. Pepper answers in a sentence or two, with the detail on screen, and{' '}
+              speak (pausing is fine, it keeps listening while you hold), and let go to send. If the phone takes
+              the press away (a call, say), nothing is sent and the words go into the box instead. Pepper answers in a sentence or two, with the detail on screen, and{' '}
               <strong>Read answers aloud</strong> (a switch on that page, for that phone) reads its answers out. It
               never reads out a guest&apos;s phone number or email.
             </P>
