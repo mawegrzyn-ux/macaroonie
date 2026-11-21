@@ -4,11 +4,13 @@
 import { useEffect, useRef } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { CameraView, useCameraPermissions } from 'expo-camera'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 const TYPES = ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128', 'code39', 'qr', 'datamatrix', 'itf14']
 
 export default function Scanner({ onDone }) {
   const [permission, requestPermission] = useCameraPermissions()
+  const insets = useSafeAreaInsets()   // Cancel clear of the navigation buttons
   const done = useRef(false)
   useEffect(() => { if (permission && !permission.granted && permission.canAskAgain) requestPermission() }, [permission, requestPermission])
   const finish = code => { if (done.current) return; done.current = true; onDone(code) }
@@ -28,7 +30,7 @@ export default function Scanner({ onDone }) {
         barcodeScannerSettings={{ barcodeTypes: TYPES }}
         onBarcodeScanned={({ data }) => { if (data) finish(String(data)) }} />
       <View style={s.frame} pointerEvents="none" />
-      <View style={s.bottom}>
+      <View style={[s.bottom, { paddingBottom: 24 + insets.bottom }]}>
         <Text style={s.text}>Point the camera at the barcode.</Text>
         <Pressable style={s.button} onPress={() => finish(null)} accessibilityRole="button">
           <Text style={s.buttonText}>Cancel</Text>

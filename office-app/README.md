@@ -10,15 +10,21 @@ do well inside an app, through a bridge (`bridge.js`, the page's side is
 |---|---|---|
 | `auth.token()`, `auth.user()`, `auth.signOut()` | Sign-in (Google refuses sign-in inside a web view) | `lib/officeApp.jsx` fills Auth0's context |
 | `push.token()` | The Today task notices (due soon, late) | `lib/push.js`, `components/notices/NoticeSettings.jsx` |
-| `speech.listen()`, `speech.speak()` | Pepper's dictation and talk mode | `lib/speech.js` |
+| `speech.listen()`, `speech.speak()` | Pepper's dictation and talk mode (`continuous`: one listening through pauses until stopped, Android 13 and up; rules in `speechCore.js`) | `lib/speech.js` |
 | `scanner.scan()` | Barcodes into the order form's search | `components/purchasing/ordering.jsx` |
 
 It is a different app from `android-app/` (Macaroonie Player: the till, kitchen
 screen, kiosk and menu screen shell): that one keeps the screen awake, hides the bars and has no
 sign-in.
 
+Android draws the app edge to edge (always, from Expo SDK 54), under the
+status bar, the navigation buttons and the keyboard. `App.js` keeps the web
+view inside the safe area (`react-native-safe-area-context`) and, while the
+keyboard is up, above it; the scanner's Cancel sits above the buttons too.
+
 The pages themselves change with every deploy; a new build of the app is only
-needed when the app's own code changes (the bridge, sign-in, the scanner).
+needed when the app's own code changes (the bridge, sign-in, the scanner, the
+layout, speech).
 
 ## Setting it up (once, by the owner)
 
@@ -92,4 +98,5 @@ voice, the scanner and native sign-in are what make it more.
 
 `npm test` (Node only, no phone): the bridge both ways (`test/bridge.test.mjs`),
 which addresses stay in the app and where a tapped notice opens
-(`test/links.test.mjs`), and the sign-in rules (`test/authCore.test.mjs`).
+(`test/links.test.mjs`), the sign-in rules (`test/authCore.test.mjs`), and
+one listening's rules (`test/speechCore.test.mjs`).

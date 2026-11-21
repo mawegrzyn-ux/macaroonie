@@ -6,6 +6,11 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-21 — Macaroonie Office: clear of Android's buttons; Hold to talk through pauses]
+
+- In the Macaroonie Office app the pages no longer sit under the phone's status bar, navigation buttons or keyboard, and the status bar's icons show over the white pages. The barcode scanner's Cancel sits above the buttons too. Needs the next Office build.
+- Pepper's **Hold to talk** keeps listening through pauses while the button is held and sends once you let go, like holding the microphone. In the Office app listening stays open through pauses (Android 13 and up), and Android's "Other client side errors." no longer shows or loses what you said. If the phone takes the press away, the words go into the message box and nothing is sent. No migration.
+
 ## [2026-11-21 — The device app is now Macaroonie Player]
 
 - The Android app for tills, kitchen screens, kiosks and menu screens is called **Macaroonie Player** (it was Macaroonie). The setup screen offers Get Macaroonie Player, the file downloads as macaroonie-player.apk, and the Platform page's tab says Macaroonie Player. Installed devices take the new name with the next build of the app, as an ordinary update. No migration.
