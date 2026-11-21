@@ -14,7 +14,7 @@ const schema = z.object({
   REDIS_URL:             z.string().default('redis://localhost:6379'),
 
   // Auth0
-  AUTH0_DOMAIN:          z.string(),           // e.g. macaroonie.eu.auth0.com
+  AUTH0_DOMAIN:          z.string(),           // e.g. obscurekitty.uk.auth0.com
   AUTH0_AUDIENCE:        z.string(),           // API identifier in Auth0
 
   // Auth0 Management API (for team invites). All optional —
