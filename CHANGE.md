@@ -6,6 +6,13 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-21 — Report layouts, pages of reports and PDFs]
+
+- **Layouts** (Reports → Layouts, Manage on Reports): how reports print and how their PDFs look: paper, which way round, margins, what the first sheet's top shows, page numbers and footer words, brand colour, row size, stripes, negatives, a front page. One can be the group's default; Show the preview draws one of your reports with it. A report picks its own in More → How it looks on paper.
+- **A page of reports** (Reports → New page): several reports in order with headings, words and page breaks, with their own period and venues or each report's own. Each is worked out for the person looking; Print and PDF give the whole page.
+- **PDFs** beside CSV and Excel, as a kept file (Keep a PDF) and as a schedule attachment, made one at a time by a headless browser on the server.
+- Migration 253 (shipped with the server side on 15 Nov 2026).
+
 ## [2026-11-18 — Use level on Cash reconciliation]
 
 - Roles can have **Use** on Cash reconciliation: fill in and submit days, expenses and receipts, fills from the till, Loyverse or GloriaFood, and the week's wages paid. Settings, Set as default and unsubmitting still need Manage. Pepper's cash change tools and Today's cash-up follow it. No migration.

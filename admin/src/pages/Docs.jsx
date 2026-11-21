@@ -9273,6 +9273,49 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               address (push is phase 5).
             </P>
 
+            <H3>Layout templates, Page reports and PDFs (phase 4c and 4d, migration 253)</H3>
+            <P>
+              <strong>Layouts.</strong> <Mono>report_layouts</Mono> (forced RLS; name unique per group, at most one{' '}
+              <Mono>is_default</Mono>, 20 a group) holds settings, not a canvas: <Mono>shared/reports/layout.js</Mono>{' '}
+              (<Mono>normaliseLayout()</Mono>, <Mono>BUILT_IN</Mono> = the print page as it was, <Mono>paperBox()</Mono>,{' '}
+              <Mono>pageRule()</Mono>, <Mono>negativeText()</Mono>, <Mono>cssString()</Mono>, <Mono>layoutWords()</Mono>).{' '}
+              <Mono>reports.layout_id</Mono> picks one (null: the default, else built-in). Routes{' '}
+              <Mono>routes/reportLayouts.js</Mono>: <Mono>GET /api/reports/layouts</Mono> (View),{' '}
+              <Mono>POST</Mono> / <Mono>PUT</Mono> / <Mono>DELETE /api/reports/layouts/:layoutId</Mono> (Manage),{' '}
+              <Mono>PUT /api/reports/:id/layout</Mono> (whoever may edit the report). The print page and PDFs draw by
+              it (<Mono>api/src/reports/export/print.js</Mono>); <Mono>report_print_links.layout</Mono> keeps the
+              layout as it was when Print was pressed, <Mono>preview</Mono> marks the editor&apos;s framable preview
+              (<Mono>POST /api/reports/:id/print-link</Mono> with <Mono>{'{ layout, preview: true }'}</Mono>, Manage;
+              never recorded).
+            </P>
+            <P>
+              <strong>Page reports.</strong> A row of <Mono>reports</Mono> with subject <Mono>page</Mono> and its
+              blocks in <Mono>spec</Mono> (<Mono>shared/reports/page.js</Mono>: report, text, break;{' '}
+              <Mono>normalisePage()</Mono> drops a break first, two in a row and at the end). Blocks are references:{' '}
+              <Mono>api/src/reports/pages.js</Mono> (<Mono>checkedPage()</Mono>, <Mono>pageReports()</Mono>,{' '}
+              <Mono>pageChoice()</Mono>, <Mono>resolveBlocks()</Mono>) finds and runs each as the person looking.{' '}
+              <Mono>GET /api/reports/:id</Mono> gives a page <Mono>report_kind: &apos;page&apos;</Mono> and{' '}
+              <Mono>reports</Mono> by ref; <Mono>POST /api/reports/:id/blocks/:blockId/run</Mono> runs one block with
+              the visitor&apos;s period and venues; Print and export (PDF only) take the page&apos;s choice;{' '}
+              <Mono>report_print_links.blocks</Mono> keeps the resolved blocks. A page can&apos;t be run, kept or
+              scheduled. Admin: <Mono>pages/ReportPageEditor.jsx</Mono> (<Mono>/reports/new-page</Mono>,{' '}
+              <Mono>/reports/:id/page</Mono>), <Mono>components/reports/PageBody.jsx</Mono> (<Mono>pageChoiceOf()</Mono>,
+              the blocks in the viewer).
+            </P>
+            <P>
+              <strong>PDFs.</strong> <Mono>services/pdfBrowser.js</Mono> prints the print page with a headless Chrome
+              (<Mono>--print-to-pdf</Mono>; <Mono>PDF_BROWSER_PATH</Mono>, else Chrome or Chromium where their
+              packages put them; <Mono>scripts/ensure-pdf-browser.sh</Mono> installs Google Chrome on deploy). One at a
+              time on the machine (a lock file plus a queue per process), every host name resolving to nothing, the
+              page made with <Mono>printHtml({'{ pdf: true }'})</Mono> (no scripts, pictures as data).{' '}
+              <Mono>pdfAvailable()</Mono> gives <Mono>can_pdf</Mono> on report views; without a browser PDFs are
+              refused (422). Format <Mono>pdf</Mono> on export, kept files (<Mono>report_files.format</Mono>) and
+              schedule attachments. Admin: <Mono>pages/ReportLayouts.jsx</Mono> (<Mono>/reports/layouts</Mono>),{' '}
+              <Mono>components/reports/LayoutPick.jsx</Mono> (More, How it looks on paper), the PDF button and Keep a PDF
+              in <Mono>pages/ReportView.jsx</Mono>. Tests: <Mono>api/test/reports-layouts.test.mjs</Mono>,{' '}
+              <Mono>reports-pages.test.mjs</Mono>.
+            </P>
+
             <H3>Starter reports</H3>
             <P>
               <Mono>api/src/reports/starters/</Mono>: 88 definitions in code (<Mono>till.js</Mono> 17,{' '}
@@ -9951,7 +9994,7 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
             </P>
 
             <InfoBox>
-              <strong>Not built yet.</strong> Layout templates, Page reports and PDFs (phase 4c and 4d); data links, push, a dashboard widget, the
+              <strong>Not built yet.</strong> Data links, push, a dashboard widget, the
               phone viewer, saved reports in the menu search and Today alerts (phase 5). Limits of the builder: no undo; filters made of several parts (<Mono>any</Mono>,{' '}
               <Mono>all</Mono>, <Mono>has</Mono>) are said in words and can be taken off, never made or edited on
               screen; tags aren&apos;t edited; the Data panel walks two links deep (a deeper path a starter uses

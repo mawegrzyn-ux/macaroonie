@@ -31,11 +31,17 @@
 // a schedule (components/reports/ScheduleWindow.jsx; api routes/
 // reportSchedules.js). Both need Use on Reports; sending to other people
 // needs Manage.
+//
+// A saved report may be a Page report (several reports on one page:
+// components/reports/PageBody.jsx), opened here too: it has Edit (the page
+// editor), Print, a PDF and the More a report has, but no run, file or
+// schedule of its own. A PDF and a report's layout (how it looks on paper:
+// More → Layout) come with phase 4 (docs/REPORTS.md 11, 13).
 
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { ChevronLeft, Download, Lock, Pencil, Copy, Share2, Trash2, MoreHorizontal, Type, Printer, History, FileSpreadsheet, CheckCircle2, X, CalendarClock, Mail, CalendarDays } from 'lucide-react'
+import { ChevronLeft, Download, Lock, Pencil, Copy, Share2, Trash2, MoreHorizontal, Type, Printer, History, FileSpreadsheet, CheckCircle2, X, CalendarClock, Mail, CalendarDays, LayoutTemplate } from 'lucide-react'
 import { paramInputs } from '@shared/reports/build.js'
 import { normaliseReport, LIMITS } from '@shared/reports/spec.js'
 import { useApi } from '@/lib/api'
@@ -47,6 +53,8 @@ import ParamInputs, { showsInputs } from '@/components/reports/ParamInputs'
 import { DrillTrail, DrillWindow, drillBody, drillChoices, stepOf } from '@/components/reports/drill'
 import { StarButton, Problems, retryUnlessRefused, reportPath, editPath, customisePath } from '@/components/reports/shared'
 import { ScheduleWindow, SendWindow, whenText } from '@/components/reports/ScheduleWindow'
+import PageBody, { pageChoiceOf } from '@/components/reports/PageBody'
+import { LayoutPickWindow } from '@/components/reports/LayoutPick'
 import { cn } from '@/lib/utils'
 
 const btn = 'inline-flex items-center gap-2 h-12 px-3 rounded-lg border bg-background text-sm font-medium touch-manipulation hover:bg-muted disabled:opacity-50 shrink-0'
@@ -179,7 +187,11 @@ export default function ReportView() {
 
   const reportQ = useQuery({ queryKey: ['report', id], queryFn: () => api.get('/reports/' + ref), retry: retryUnlessRefused })
   const report = reportQ.data?.report
-  const spec = useMemo(() => (report?.spec ? normaliseReport(report.spec) : null), [report])
+  const isPage = report?.report_kind === 'page'
+  const spec = useMemo(() => (report?.spec && !isPage ? normaliseReport(report.spec) : null), [report, isPage])
+  // A page's period and venues as picked here for the visit (null: the page's own).
+  const [choice, setChoice] = useState({ period: null, venues: null })
+  const pageAsked = isPage ? pageChoiceOf(report.spec, choice) : null
 
   // The catalogue says how a filter that asks each time is typed in; a
   // report that only asks for its period and venues doesn't need it.
@@ -197,7 +209,7 @@ export default function ReportView() {
   const runQ = useQuery({
     queryKey: ['report-run', id, given, drill],
     queryFn: () => api.post('/reports/' + ref + '/run', { params: given, ...(drill.length ? { drill } : {}), ...(fresh.current ? { fresh: true } : {}) }),
-    enabled: !!report?.runs,
+    enabled: !!report?.runs && !isPage,
     placeholderData: keepPreviousData,
     retry: false,
     gcTime: 60_000,
@@ -246,7 +258,8 @@ export default function ReportView() {
   const download = async format => {
     setFile({ busy: format, error: null })
     try {
-      await api.postDownload('/reports/' + ref + '/export', { format, params: given, ...(drill.length ? { drill } : {}) }, 'report.' + format)
+      const body = isPage ? { format, ...pageAsked } : { format, params: given, ...(drill.length ? { drill } : {}) }
+      await api.postDownload('/reports/' + ref + '/export', body, 'report.' + format)
       setFile({ busy: null, error: null })
     } catch (error) {
       setFile({ busy: null, error })
@@ -279,7 +292,7 @@ export default function ReportView() {
     const tab = window.open('', '_blank')
     setPrinting({ busy: true, error: null })
     try {
-      const out = await api.post('/reports/' + ref + '/print-link', {
+      const out = await api.post('/reports/' + ref + '/print-link', isPage ? pageAsked : {
         params: given,
         // The trail's words (a row's name can be long: the page says the start of it).
         ...(drill.length ? { drill, trail: steps.map(s => ({ label: String(s.label ?? '').slice(0, 200), by: String(s.by ?? '').slice(0, 80), ...(s.of ? { of: String(s.of).slice(0, 80) } : {}) })) } : {}),
@@ -340,17 +353,22 @@ export default function ReportView() {
 
   const saved = report?.kind === 'saved'
   const canEdit = saved && report.can_edit && canUse
-  const canCustomise = !!report?.runs && canUse && !canEdit
+  const canCustomise = !!report?.runs && canUse && !canEdit && !isPage
   const canCopy = saved && report.runs && canUse
   const canShare = saved && report.can_share
   const canDelete = saved && report.can_delete
-  const canKeep = !!report?.runs && canUse
+  const canKeep = !!report?.runs && canUse && !isPage
   // Emailing it, now or on a schedule: Use, as a file is (sending to others
   // needs Manage, which the window works out).
-  const canEmail = !!report?.runs && canUse
+  const canEmail = !!report?.runs && canUse && !isPage
+  // PDFs need a browser on the server (can_pdf); a page downloads as a PDF only.
+  const formats = isPage ? (report?.can_pdf ? ['pdf'] : []) : report?.can_pdf ? ['csv', 'xlsx', 'pdf'] : ['csv', 'xlsx']
+  const keepFormats = formats.filter(f => f !== 'pdf' || report?.can_pdf)
+  // How it looks on paper: whoever may change it picks its layout.
+  const canLayout = canEdit
   // Past runs and the schedules of this report are there for anyone who can open it.
   const hasMore = !!report
-  const moreLabel = 'More: ' + [canEmail && 'schedule', canEmail && 'email it now', 'schedules', 'past runs', canKeep && 'keep a file', canCopy && 'copy', canEdit && 'rename', canShare && 'share', canDelete && 'delete'].filter(Boolean).join(', ')
+  const moreLabel = 'More: ' + [canEmail && 'schedule', canEmail && 'email it now', !isPage && 'schedules', !isPage && 'past runs', canKeep && 'keep a file', canLayout && 'layout', canCopy && 'copy', canEdit && 'rename', canShare && 'share', canDelete && 'delete'].filter(Boolean).join(', ')
 
   const values = Object.fromEntries((spec?.params || []).map(p => [p.key, p.key in given ? given[p.key] : p.default]))
   const set = (key, value) => setGiven(g => ({ ...g, [key]: value }))
@@ -378,7 +396,7 @@ export default function ReportView() {
         </h1>
         {report && <StarButton report={report} />}
         {canEdit && (
-          <Link to={editPath(id)} data-testid="report-edit" className={btn} title="Change this report in the builder">
+          <Link to={isPage ? '/reports/' + ref + '/page' : editPath(id)} data-testid="report-edit" className={btn} title="Change this report in the builder">
             <Pencil className="w-4 h-4" /> Edit
           </Link>
         )}
@@ -388,7 +406,7 @@ export default function ReportView() {
           </Link>
         )}
         {report?.runs && (
-          <button type="button" onClick={print} disabled={printing.busy || !result || !!runQ.error || runQ.isPlaceholderData} data-testid="report-print" className={btn}
+          <button type="button" onClick={print} disabled={printing.busy || (!isPage && (!result || !!runQ.error || runQ.isPlaceholderData))} data-testid="report-print" className={btn}
             title="Open this report as a page to print, as it is shown here">
             <Printer className="w-4 h-4" />
             {printing.busy ? 'Opening…' : 'Print'}
@@ -396,10 +414,10 @@ export default function ReportView() {
         )}
         {report?.runs && canUse && (
           <>
-            {['csv', 'xlsx'].map(format => (
+            {formats.map(format => (
               <button key={format} type="button" onClick={() => download(format)} disabled={!!file.busy} data-testid={'report-download-' + format} className={btn}>
                 <Download className="w-4 h-4" />
-                {file.busy === format ? 'Making the file…' : format === 'csv' ? 'CSV' : 'Excel'}
+                {file.busy === format ? 'Making the file…' : format === 'csv' ? 'CSV' : format === 'pdf' ? 'PDF' : 'Excel'}
               </button>
             ))}
           </>
@@ -459,13 +477,14 @@ export default function ReportView() {
               <div className="max-w-4xl">
                 {report.description && <p className="text-sm text-muted-foreground" data-testid="report-about">{report.description}</p>}
                 <p className="text-[11px] text-muted-foreground mt-1" data-testid="report-whose">
-                  {report.kind === 'starter' ? 'Starter report. It comes with Macaroonie and stays as it is.'
+                  {isPage ? (report.mine ? 'Your page of reports. ' : 'A page of reports by ' + (report.owner_email || 'someone in your team') + '. ') + 'Each report on it shows what your role may see.'
+                    : report.kind === 'starter' ? 'Starter report. It comes with Macaroonie and stays as it is.'
                     : report.mine ? 'Your report.' : 'By ' + (report.owner_email || 'someone in your team') + '.'}
                   {canCustomise ? ' Customise makes a report of your own from it.' : ''}
                 </p>
               </div>
 
-              {!report.runs && (
+              {!report.runs && !isPage && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex gap-2" data-testid="report-needs">
                   <Lock className="w-4 h-4 mt-0.5 shrink-0" />
                   <span>
@@ -475,7 +494,9 @@ export default function ReportView() {
                 </div>
               )}
 
-              {report.runs && (
+              {isPage && <PageBody report={report} choice={choice} onChoice={setChoice} />}
+
+              {report.runs && !isPage && (
                 <>
                   {showsInputs(inputs, venues) && (
                     <div className="flex flex-wrap items-center gap-2" data-testid="report-choices">
@@ -532,13 +553,13 @@ export default function ReportView() {
                 </span>
               </button>
             )}
-            <Link to={'/reports/schedules?report=' + encodeURIComponent(id)} data-testid="more-schedules" className={rowBtn}>
+            {!isPage && <Link to={'/reports/schedules?report=' + encodeURIComponent(id)} data-testid="more-schedules" className={rowBtn}>
               <CalendarDays className="w-4 h-4 text-muted-foreground shrink-0" />
               <span>
                 <span className="block text-sm font-medium">Schedules of this report</span>
                 <span className="block text-[11px] text-muted-foreground">When it is emailed and who gets it.</span>
               </span>
-            </Link>
+            </Link>}
             {canKeep && (
               <div className="rounded-lg border bg-background px-3 py-2" data-testid="more-keep">
                 <div className="flex items-start gap-3">
@@ -551,23 +572,32 @@ export default function ReportView() {
                   </span>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {['csv', 'xlsx'].map(format => (
+                  {keepFormats.map(format => (
                     <button key={format} type="button" onClick={() => keep(format)} disabled={!!keeping.busy} data-testid={'more-keep-' + format} className={btn}>
                       <FileSpreadsheet className="w-4 h-4" />
-                      {keeping.busy === format ? 'Keeping the file…' : (format === 'csv' ? 'Keep a CSV file' : 'Keep an Excel file')}
+                      {keeping.busy === format ? 'Keeping the file…' : (format === 'csv' ? 'Keep a CSV file' : format === 'pdf' ? 'Keep a PDF' : 'Keep an Excel file')}
                     </button>
                   ))}
                 </div>
                 <Problems error={keeping.error} title="The file wasn't kept" className="mt-2" />
               </div>
             )}
-            <Link to={'/reports/runs?report=' + encodeURIComponent(id)} data-testid="more-runs" className={rowBtn}>
+            {!isPage && <Link to={'/reports/runs?report=' + encodeURIComponent(id)} data-testid="more-runs" className={rowBtn}>
               <History className="w-4 h-4 text-muted-foreground shrink-0" />
               <span>
                 <span className="block text-sm font-medium">Past runs of this report</span>
                 <span className="block text-[11px] text-muted-foreground">When you ran, downloaded, printed or kept a file of it.</span>
               </span>
-            </Link>
+            </Link>}
+            {canLayout && (
+              <button type="button" onClick={() => { setAsking(false); setWin('layout') }} data-testid="more-layout" className={rowBtn}>
+                <LayoutTemplate className="w-4 h-4 text-muted-foreground shrink-0" />
+                <span>
+                  <span className="block text-sm font-medium">How it looks on paper</span>
+                  <span className="block text-[11px] text-muted-foreground">The layout it prints and makes PDFs with.</span>
+                </span>
+              </button>
+            )}
             {canCopy && (
               <button type="button" onClick={copy} disabled={!!busy} data-testid="more-copy" className={rowBtn}>
                 <Copy className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -621,6 +651,7 @@ export default function ReportView() {
           </div>
         </Modal>
       )}
+      {win === 'layout' && report && <LayoutPickWindow report={report} onSaved={changed} onClose={closeWin} />}
       {win === 'rename' && report && <RenameWindow report={report} onSaved={changed} onClose={closeWin} />}
       {win === 'share' && report && <ShareWindow report={report} onSaved={changed} onClose={closeWin} />}
       {win === 'schedule' && report && (
