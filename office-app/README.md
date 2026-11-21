@@ -46,9 +46,19 @@ needed when the app's own code changes (the bridge, sign-in, the scanner).
    install by hand. Every profile builds an APK for now, like the device app;
    switch `production` to an app bundle when the app goes on Google Play.
 
+## Building from GitHub (expo.dev)
+
+Connect the repository with base directory **`office-app`** (the device app
+uses `android-app`). Build from GitHub uses the `production` profile and every
+platform in `app.json`, which is Android only for now. A GitHub build has no
+shell environment: set `MACAROONIE_AUTH0_CLIENT_ID` (and any other
+`MACAROONIE_*` that isn't the default) as EAS environment variables on the
+project, for the production environment.
+
 ## iPhone later
 
-The code is the same (nothing here is Android-only except the notice channel).
+Add `"ios"` back to `platforms` in `app.json` when it is time. The code is the
+same (nothing here is Android-only except the notice channel).
 It needs an Apple developer account, an APNs key in the EAS project, and
 `npx eas build -p ios`. Apple may refuse an app that is mostly a website: push,
 voice, the scanner and native sign-in are what make it more.

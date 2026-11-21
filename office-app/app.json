@@ -7,7 +7,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "backgroundColor": "#1f2a44",
-    "platforms": ["android", "ios"],
+    "platforms": ["android"],
     "android": {
       "package": "com.macaroonie.office",
       "adaptiveIcon": {
