@@ -27,6 +27,8 @@ const PUBLIC = [
   /^\/api\/menus\/public\//, /^\/api\/menus\/:id\/print$/, /^\/api\/menus\/preview\//,
   // A report's print page: its link (a random id that lasts 15 minutes) is the key.
   /^\/api\/reports\/print\//,
+  // A data link's address: its own key (migration 256).
+  /^\/api\/report-data\//,
 ]
 // Changes another tenant may make on purpose, with why.
 const ALLOWED_CHANGES = {
@@ -47,7 +49,7 @@ const KINDS = {
   designId: ['menu_print_designs', 'screen_designs'], releaseId: ['menu_releases'], widgetId: ['hs_dashboard_widgets'],
   expenseId: ['cash_expenses'], holdId: ['booking_holds'], paymentId: ['payments', 'order_payments'], periodId: ['staff_rota_off'],
   dayId: ['pos_days'], tenantId: ['tenants'], userId: ['users'], sid: ['venue_sittings', 'override_sittings', 'exception_sittings'],
-  eid: ['schedule_exceptions'], oid: ['schedule_date_overrides'], fileId: ['report_files'], scheduleId: ['report_schedules'], layoutId: ['report_layouts'],
+  eid: ['schedule_exceptions'], oid: ['schedule_date_overrides'], fileId: ['report_files'], scheduleId: ['report_schedules'], layoutId: ['report_layouts'], linkId: ['report_data_links'],
 }
 const IDS_PER_TABLE = 1
 const CONCURRENCY = 8

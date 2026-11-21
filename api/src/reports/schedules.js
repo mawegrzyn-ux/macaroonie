@@ -36,7 +36,7 @@ import { ReportError } from './compile.js'
 import { STARTER_PREFIX } from './starters/index.js'
 import { loadTarget } from './target.js'
 import { reportZone } from './run.js'
-import { ownerPerson, prepareSend, deliver, tellPaused } from './send.js'
+import { ownerPerson, prepareSend, deliver, tellPaused, pushOf } from './send.js'
 import { nextRunAt, isLate, LATE_HOURS } from '../../../shared/reports/schedule.js'
 
 export const RETRY_MINUTES = [5, 20, 50, 110, 230, 350]
@@ -134,6 +134,7 @@ async function runOne(row, log) {
     plan = await prepareSend(owner, target, {
       kind: 'scheduled', recipients: row.recipients, delivery: row.delivery, condition: row.condition,
       params: row.params, personalOutside: row.personal_outside, name: row.name, message: row.message,
+      push: pushOf(row),
     })
   } catch (e) {
     if (e?.statusCode && e.statusCode < 500) {

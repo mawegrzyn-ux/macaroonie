@@ -28,7 +28,7 @@ const SECONDS = '({t}.ms::numeric / 1000)'
 const KEPT = '(EXISTS (SELECT 1 FROM report_files f WHERE f.tenant_id = {t}.tenant_id AND f.run_id = {t}.id))'
 const NOT_MET = "(COALESCE({t}.delivery->>'not_met', '') = 'true')"
 const WHAT = "(CASE WHEN {t}.kind = 'scheduled' AND " + NOT_MET + " THEN 'skipped' WHEN {t}.kind = 'scheduled' THEN 'scheduled'" +
-  " WHEN {t}.kind = 'emailed' THEN 'emailed' WHEN {t}.kind = 'run' THEN 'ran' WHEN {t}.format = 'print' THEN 'printed'" +
+  " WHEN {t}.kind = 'emailed' THEN 'emailed' WHEN {t}.kind = 'link' THEN 'link' WHEN {t}.kind = 'run' THEN 'ran' WHEN {t}.format = 'print' THEN 'printed'" +
   " WHEN " + KEPT + " THEN 'kept' ELSE 'downloaded' END)"
 const EMAILS_SENT = "COALESCE(NULLIF({t}.delivery->>'sent', '')::int, 0)"
 const BY_PEPPER = "(COALESCE({t}.params->>'via', '') = 'pepper')"
@@ -63,7 +63,7 @@ export default function runsSubjects(others, areas) {
       name: 'report',
       // The schedule a run was sent by: What was done says Sent by a schedule;
       // schedules themselves are settings, not counted.
-      skip: ['schedule_id'],
+      skip: ['schedule_id', 'link_id'],
       date: { sql: DAY, bound: '{t}.created_at', label: 'Day' },
       fields: {
         at: moment('created_at', { label: 'When' }),
@@ -72,12 +72,12 @@ export default function runsSubjects(others, areas) {
         area: text({ sql: areaSql }, { label: 'Area' }),
         what: choice({ sql: WHAT }, {
           ran: 'Ran', downloaded: 'Downloaded', kept: 'File kept', printed: 'Printed',
-          scheduled: 'Sent by a schedule', skipped: 'Skipped by a schedule', emailed: 'Emailed',
+          scheduled: 'Sent by a schedule', skipped: 'Skipped by a schedule', emailed: 'Emailed', link: 'Read by a data link',
         }, {
           label: 'What was done',
-          about: 'Ran on screen (the builder\'s preview isn\'t counted), downloaded as a file, kept as a file to download later, printed, sent by a schedule, skipped by a schedule because its condition wasn\'t met, or emailed by someone.',
+          about: 'Ran on screen (the builder\'s preview isn\'t counted), downloaded as a file, kept as a file to download later, printed, sent by a schedule, skipped by a schedule because its condition wasn\'t met, emailed by someone, or read by another app through a data link.',
         }),
-        format: choice('format', { csv: 'CSV', xlsx: 'Excel', print: 'Print', email: 'In the email' }, { label: 'Format', empty: 'On screen' }),
+        format: choice('format', { csv: 'CSV', xlsx: 'Excel', pdf: 'PDF', json: 'JSON', print: 'Print', email: 'In the email' }, { label: 'Format', empty: 'On screen' }),
         kind_of_report: choice({ sql: "(CASE WHEN {t}.report_id IS NOT NULL THEN 'saved' WHEN {t}.starter_key IS NOT NULL THEN 'starter' ELSE 'unsaved' END)" },
           { saved: 'Saved report', starter: 'Starter report', unsaved: 'Not saved, or deleted since' }, { label: 'Kind of report' }),
         who: text('user_email', { label: 'Who', pii: true }),

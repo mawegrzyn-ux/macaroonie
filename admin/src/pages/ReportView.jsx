@@ -41,7 +41,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { ChevronLeft, Download, Lock, Pencil, Copy, Share2, Trash2, MoreHorizontal, Type, Printer, History, FileSpreadsheet, CheckCircle2, X, CalendarClock, Mail, CalendarDays, LayoutTemplate } from 'lucide-react'
+import { ChevronLeft, Download, Lock, Pencil, Copy, Share2, Trash2, MoreHorizontal, Type, Printer, History, FileSpreadsheet, CheckCircle2, X, CalendarClock, Mail, CalendarDays, LayoutTemplate, Link2 } from 'lucide-react'
 import { paramInputs } from '@shared/reports/build.js'
 import { normaliseReport, LIMITS } from '@shared/reports/spec.js'
 import { useApi } from '@/lib/api'
@@ -55,6 +55,7 @@ import { StarButton, Problems, retryUnlessRefused, reportPath, editPath, customi
 import { ScheduleWindow, SendWindow, whenText } from '@/components/reports/ScheduleWindow'
 import PageBody, { pageChoiceOf } from '@/components/reports/PageBody'
 import { LayoutPickWindow } from '@/components/reports/LayoutPick'
+import { DataLinksWindow } from '@/components/reports/DataLinks'
 import { cn } from '@/lib/utils'
 
 const btn = 'inline-flex items-center gap-2 h-12 px-3 rounded-lg border bg-background text-sm font-medium touch-manipulation hover:bg-muted disabled:opacity-50 shrink-0'
@@ -180,7 +181,7 @@ export default function ReportView() {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const location = useLocation()
-  const { canUse } = usePermission('reports')
+  const { canUse, canManage, isOwnerOrAdmin } = usePermission('reports')
   const { data: venues = [] } = useVenues()
   // Back from a record a row opened: the visit as it was left (openRecord()).
   const visit = location.state?.visit?.id === id ? location.state.visit : null
@@ -366,9 +367,11 @@ export default function ReportView() {
   const keepFormats = formats.filter(f => f !== 'pdf' || report?.can_pdf)
   // How it looks on paper: whoever may change it picks its layout.
   const canLayout = canEdit
+  // Data links: owners and admins with Manage on Reports (the API decides again).
+  const canLink = !!report?.runs && canManage && isOwnerOrAdmin && !isPage
   // Past runs and the schedules of this report are there for anyone who can open it.
   const hasMore = !!report
-  const moreLabel = 'More: ' + [canEmail && 'schedule', canEmail && 'email it now', !isPage && 'schedules', !isPage && 'past runs', canKeep && 'keep a file', canLayout && 'layout', canCopy && 'copy', canEdit && 'rename', canShare && 'share', canDelete && 'delete'].filter(Boolean).join(', ')
+  const moreLabel = 'More: ' + [canEmail && 'schedule', canEmail && 'email it now', !isPage && 'schedules', !isPage && 'past runs', canKeep && 'keep a file', canLayout && 'layout', canLink && 'data links', canCopy && 'copy', canEdit && 'rename', canShare && 'share', canDelete && 'delete'].filter(Boolean).join(', ')
 
   const values = Object.fromEntries((spec?.params || []).map(p => [p.key, p.key in given ? given[p.key] : p.default]))
   const set = (key, value) => setGiven(g => ({ ...g, [key]: value }))
@@ -598,6 +601,15 @@ export default function ReportView() {
                 </span>
               </button>
             )}
+            {canLink && (
+              <button type="button" onClick={() => { setAsking(false); setWin('links') }} data-testid="more-links" className={rowBtn}>
+                <Link2 className="w-4 h-4 text-muted-foreground shrink-0" />
+                <span>
+                  <span className="block text-sm font-medium">Data links</span>
+                  <span className="block text-[11px] text-muted-foreground">An address other apps read its figures from.</span>
+                </span>
+              </button>
+            )}
             {canCopy && (
               <button type="button" onClick={copy} disabled={!!busy} data-testid="more-copy" className={rowBtn}>
                 <Copy className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -651,6 +663,7 @@ export default function ReportView() {
           </div>
         </Modal>
       )}
+      {win === 'links' && report && <DataLinksWindow reportId={id} reportName={report.name} spec={spec} given={given} onClose={closeWin} />}
       {win === 'layout' && report && <LayoutPickWindow report={report} onSaved={changed} onClose={closeWin} />}
       {win === 'rename' && report && <RenameWindow report={report} onSaved={changed} onClose={closeWin} />}
       {win === 'share' && report && <ShareWindow report={report} onSaved={changed} onClose={closeWin} />}

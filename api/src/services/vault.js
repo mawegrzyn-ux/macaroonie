@@ -20,7 +20,9 @@
 // venue_email_settings.provider_api_key / provider_secret / smtp_pass,
 // pos_card_accounts.secret (card machine provider keys, migration 193),
 // pos_receipts.email_to (a guest's address waiting for a counter order to be
-// paid, migration 210; cleared once the receipt is sent).
+// paid, migration 210; cleared once the receipt is sent),
+// report_schedules.push_secret (a schedule's signing key for posting to a
+// web address, migration 256).
 // Hints (last 4 characters) are kept beside them in plain text for display.
 
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from 'node:crypto'
@@ -37,6 +39,7 @@ export const SEALED = [
   { table: 'venue_email_settings',  column: 'smtp_pass',        key: 'id' },
   { table: 'pos_card_accounts',     column: 'secret',           key: 'id' },
   { table: 'pos_receipts',          column: 'email_to',         key: 'id' },
+  { table: 'report_schedules',      column: 'push_secret',      key: 'id' },
 ]
 
 /** The master key from SECRETS_KEY (base64 or hex of 32 bytes), or null when unset. */

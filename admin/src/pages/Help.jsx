@@ -2504,6 +2504,28 @@ export default function Help() {
               in the message, as a CSV or Excel file, or both, to the same people a schedule could go
               to. It shows in Past runs as <strong>Emailed</strong>.
             </P>
+            <H3>Data links: figures for other apps</H3>
+            <P>
+              Owners and admins with Manage on Reports can give a report an address other apps read its
+              current figures from (Power BI, Google Sheets, a system of your own): <strong>More</strong>,{' '}
+              <strong>Data links</strong>, <strong>Make a data link</strong>. The choices picked on the page
+              are the link&apos;s own; tick any the reading app may change (usually the period). The key is
+              shown once: copy it then. The app sends it in an <Mono>Authorization: Bearer</Mono> header and
+              gets JSON, or CSV with <Mono>?format=csv</Mono>. A link runs with its maker&apos;s access every
+              time it is read, stops when they leave or lose Manage, keeps to its calls an hour, and can
+              stop on a last day. People&apos;s details are left out unless an owner allows them. Switch a
+              link off, give it a <strong>New key</strong> (the old one stops) or delete it from the same
+              window. Past runs shows each read as <strong>Read by a data link</strong>.
+            </P>
+            <H3>Posting a report to a web address</H3>
+            <P>
+              A schedule can also post the report, as JSON, to a web address of your own each time it
+              sends (owners and admins with Manage): fill in <strong>Post to a web address</strong> in the
+              schedule window. With nobody to email, the post is the whole send. After saving, the window
+              shows a signing secret once: the receiving app checks each post&apos;s{' '}
+              <Mono>X-Macaroonie-Signature</Mono> header with it. Addresses must start with https:// and be
+              on the public internet.
+            </P>
             <H3>How reports look on paper</H3>
             <P>
               <strong>Reports</strong>, then <strong>Layouts</strong>, lists your group&apos;s layouts. A layout

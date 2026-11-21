@@ -6,6 +6,12 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-21 — Data links and posting reports to a web address]
+
+- **Data links** (a report's More → Data links, owners and admins with Manage on Reports): an address other apps read the report's current figures from, as JSON or CSV, with a key shown once. Runs with its maker's access each time, keeps to a number of calls an hour, can stop on a last day, leaves people's details out unless an owner allows them; switch off, new key, delete.
+- **Post to a web address**: a schedule can post the report as signed JSON to an https address of your own each time it sends; the signing secret is shown once.
+- Migration 256.
+
 ## [2026-11-21 — Report layouts, pages of reports and PDFs]
 
 - **Layouts** (Reports → Layouts, Manage on Reports): how reports print and how their PDFs look: paper, which way round, margins, what the first sheet's top shows, page numbers and footer words, brand colour, row size, stripes, negatives, a front page. One can be the group's default; Show the preview draws one of your reports with it. A report picks its own in More → How it looks on paper.
