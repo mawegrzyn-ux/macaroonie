@@ -331,7 +331,9 @@ export default function Help() {
               weather first, then incidents, traffic and events, loudest first. Switch to <strong>List</strong> for
               the same items day by day. Pick a venue at the top right, or <strong>Every venue</strong> to see
               the whole group; an item saved for every venue shows everywhere. Use the arrows to move
-              between months and <strong>This month</strong> to come back.
+              between months and <strong>Today</strong> to come back: in the list it also scrolls to today.
+              The list opens at today, and while you use the app the page remembers the month and where you
+              had scrolled to, so coming back from another page lands where you were.
             </P>
             <H3>Captures</H3>
             <P>
@@ -1708,6 +1710,31 @@ export default function Help() {
               factored into the Variance line. You can always come back and set the effects once
               you've worked out how that particular charge flows through your till.
             </InfoBox>
+            <H3>Submitting once a week</H3>
+            <P>
+              In <strong>Settings → General → How days are submitted</strong> (owners and admins) a venue can
+              choose <strong>Once a week</strong> instead of <strong>Each day</strong>. Days are then filled in
+              and saved as you go, and the whole week is submitted in one go with <strong>Submit week</strong> on
+              the week (the grid or the cards) or the phone&apos;s Cash Up list; a day can&apos;t be submitted on
+              its own. Submit week takes every day up to today that has figures (and, with Allow bulk week
+              submission on, the open days with none). The Today page counts a day with figures as done and,
+              from the Monday, asks for last week to be submitted (late from the Tuesday). Owners and admins can
+              <strong> Unsubmit week</strong>. Pepper can submit a week too (&ldquo;submit last week&rsquo;s cash-up&rdquo;).
+            </P>
+            <H3>Retrieve from your till systems</H3>
+            <P>
+              When a venue is linked to Loyverse, GloriaFood or both, a day and a week show one{' '}
+              <strong>Retrieve</strong> button for all of them. It opens each system&apos;s fill window in turn
+              (see below). In <strong>Settings → General → Retrieve from till systems</strong> you can choose{' '}
+              <strong>Fill straight away, without the preview</strong>: Retrieve then fills at once and says what
+              it did, leaving out submitted days and, over a week, days with no sales and days still to come.
+            </P>
+            <P>
+              The <strong>Scheduled fill</strong> (same card) fills the day just ended and the two days before it
+              every morning at the time you set (venue time), from every linked system. It never touches a
+              submitted day, and it leaves alone any figure someone changed by hand since the last fill: the
+              card below the switch says when it last ran and what it filled, skipped or kept.
+            </P>
             <H3>Fill from Loyverse</H3>
             <P>
               If the venue sells through a <strong>Loyverse</strong> till, Cash Recon can fill a day's
@@ -1744,7 +1771,7 @@ export default function Help() {
               payment type.
             </P>
             <P>
-              Then tap <strong>Fill from Loyverse</strong> on a day (top of the day) or a week (top of
+              Then tap <strong>Retrieve</strong> on a day (top of the day) or a week (top of
               the week grid or week cards), or use the <strong>Import from Loyverse / GloriaFood</strong>{' '}
               widget on a dashboard (see Cash Dashboard). A window shows each mapped line with the Loyverse figure and
               what Cash Recon has now ("same now", "empty now" or the current amount), plus the
@@ -1792,7 +1819,7 @@ export default function Help() {
             <P>
               A typical setup: income <em>GloriaFood sales</em> = Order totals minus Tips; service charge
               <em> Tips</em> = Tips; a <em>GloriaFood online</em> takings channel = Payment: Paid online.
-              Then tap <strong>Fill from GloriaFood</strong> on a day or a week. The window works like the
+              Then tap <strong>Retrieve</strong> on a day or a week. The window works like the
               Loyverse one, and also lists payments that aren&apos;t mapped, cancelled orders and test orders
               (left out). Only accepted orders count; an order cancelled in GloriaFood later drops out the
               next time you fill.
@@ -3223,6 +3250,27 @@ export default function Help() {
               signing in again opens the restaurant you sign in to. The office and the phone app each
               remember their own choice, so switching on one doesn&apos;t switch the other.
             </P>
+            <H3>Notices for tasks due and late</H3>
+            <P>
+              The <strong>Notices</strong> tile (and Settings → Notices in the office) turns on notices for the
+              phone or computer you are using: <strong>Turn on notices here</strong>, then allow them when the
+              browser asks. You get a notice when one of today&apos;s tasks is <strong>due soon</strong> (half an
+              hour before a task with a time, like a fridge check) and when it goes <strong>late</strong> (a check
+              missed, yesterday&apos;s cash-up not done), each once, and only for tasks you can do. Choose which
+              venues and areas, switch due soon or late off, and set quiet hours (venue time) when nothing is
+              sent; then <strong>Save</strong>. <strong>Send a test</strong> checks it works, and Your devices lists
+              where notices go. Tapping a notice opens the Today page. On an iPhone, add the app to the home screen
+              first: Safari only shows notices for an app on the home screen.
+            </P>
+            <H3>The Macaroonie Office app</H3>
+            <P>
+              <strong>Macaroonie Office</strong> is the phone app for Android (an iPhone version is planned). It
+              shows the same phone pages, signs you in through the phone&apos;s browser (Google sign-in works),
+              and adds what a web page can&apos;t do well: notices that always arrive, Pepper listening through the
+              phone&apos;s own speech recognition, and a barcode scanner (the <strong>Scan</strong> button in a
+              supplier order&apos;s Add an item). Turn notices on in its Notices page as above. It is a different
+              app from the Macaroonie app on tills, kitchen screens and kiosks.
+            </P>
             <P>
               More mobile-optimised pages will appear on the <strong>/mobile</strong> hub screen
               over time — it's a home screen of tiles, two to a row, one per available mobile module.
@@ -3325,6 +3373,11 @@ export default function Help() {
               Go to <strong>Settings</strong> in the sidebar to customise the look and default behaviour
               of the admin portal. All changes apply immediately and are saved to your browser — they
               persist across sessions without needing to log out or refresh.
+            </P>
+            <P>
+              <strong>Notices</strong>, at the top, are your own push notices for tasks due soon and late (see
+              Mobile App, Notices for tasks due and late). Unlike the rest of this page they are kept on the
+              server, with their own Save.
             </P>
 
             <H3>Theme colour</H3>
@@ -4808,6 +4861,16 @@ export default function Help() {
               same menu is open in the menu editor, save one before changing the other, or the later
               save puts back the tags it loaded.
             </P>
+            <H3>The Allergens page and who can look things up</H3>
+            <P>
+              <strong>Allergens</strong> (main menu, under Service) is the allergen lookup as a page of its own,
+              over the menus guests are served. It has its own permission, <strong>Allergen lookup</strong>, in
+              Modules &amp; Roles, so front-of-house staff can answer a guest&apos;s allergy question without
+              access to Menus: every built-in role has it, and custom roles were given View. The same permission
+              decides who sees the dashboard widget, the Overview tile, the phone&apos;s Allergens tile and
+              Pepper&apos;s answers to allergy questions. Changing a dish&apos;s allergens stays on the Allergen
+              matrix, which needs Menus.
+            </P>
             <InfoBox type="tip">
               Add an <strong>Allergen lookup</strong> widget to an H&amp;S dashboard, or the Allergen
               lookup tile to the Overview, so front-of-house staff can answer allergy questions
@@ -5968,6 +6031,17 @@ export default function Help() {
               booking emails that failed and menu screens that are offline. A part your role
               can&apos;t see is left out, and Pepper says which ones.
             </P>
+            <H3>Opening a form from Pepper</H3>
+            <P>
+              Ask Pepper to open a form and it puts a card in the chat with an <strong>Open</strong> button:{' '}
+              <em>&ldquo;do today&apos;s cash-up&rdquo;</em>, <em>&ldquo;log the fridge temps&rdquo;</em>,{' '}
+              <em>&ldquo;open the closing checklist&rdquo;</em>, <em>&ldquo;add an expense&rdquo;</em>,{' '}
+              <em>&ldquo;who&apos;s on Saturday&rdquo;</em>. Open shows the same form the Today page opens, over the
+              chat, and you fill it in yourself: Pepper never fills a form&apos;s fields. The forms: fridge and
+              freezer, hot and cold hold, cooking and delivery checks; a checklist; the cash-up; the week&apos;s
+              wages; the day&apos;s expenses with receipts; sold out dishes; and the rota for a day. Each needs
+              access to its area, and shows read only when your role can look but not change.
+            </P>
             <H3>How do I...? questions</H3>
             <P>
               Ask how to do something in the app (<em>"How do I set up tip pots?"</em>,{' '}
@@ -6261,6 +6335,24 @@ export default function Help() {
               if one is refused, take a screenshot of it instead. If a file can't be read, the
               message and the file go back into the message box so you can try again.
             </InfoBox>
+            <H3>Talking to Pepper</H3>
+            <P>
+              The <strong>microphone</strong> next to the message box turns what you say into text in the box, for
+              you to read and send. On the phone&apos;s Pepper page, <strong>Hold to talk</strong>: hold the button,
+              speak, and let go to send. Pepper answers in a sentence or two, with the detail on screen, and{' '}
+              <strong>Read answers aloud</strong> (a switch on that page, for that phone) reads its answers out. It
+              never reads out a guest&apos;s phone number or email.
+            </P>
+            <P>
+              <strong>Confirm checks by voice</strong> (Pepper → Settings, owners and admins, off to begin with):
+              in talk mode Pepper reads a check back, such as a fridge reading with its unit and whether it is in
+              range, and a spoken <em>yes</em> saves it, <em>no</em> cancels it. Only checks (fridge, hold and
+              cooking readings, checklist ticks) can be confirmed this way; money, orders, bookings, the rota and
+              anything deleted always need a tap. Nothing listens in the background: listening starts only when
+              you tap the microphone or hold the button, or just after Pepper asks yes or no. The sound isn&apos;t
+              kept, only the words. Speech uses the browser&apos;s own recognition (Chrome and Edge have it), or the
+              phone&apos;s in the Macaroonie Office app.
+            </P>
             <H3>Looking things up on the web</H3>
             <P>
               Pepper can search the web when an answer needs something from outside the app, or newer

@@ -6,6 +6,20 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-21 — Allergens for everyone, the weekly cash-up, Retrieve, Pepper's forms and voice, notices, Macaroonie Office]
+
+- **Allergens** (main menu, under Service; migration 258): the allergen lookup as a page, with its own permission, Allergen lookup, so front-of-house can answer allergy questions without Menus. Every built-in role has it and custom roles were given View; it also decides the dashboard widget, the Overview tile, the phone's Allergens tile and Pepper's allergy answers. The matrix stays Menus.
+- **Local info list**: a Today button that goes back to this month and scrolls to today; the list opens at today and remembers the month and where you were for the visit.
+- **Submit Cash Recon once a week** (migration 259): a venue setting (Each day / Once a week). Weekly, days are saved as you go and Submit week submits them together (week grid, week cards, the phone's Cash Up, or Pepper's new submit_cash_week); the Today page asks for last week from the Monday. Owners and admins can Unsubmit week.
+- **Retrieve** (migration 260): one button for Loyverse and GloriaFood together; optionally straight away without the preview; and a **scheduled fill** each morning of the day just ended and the two before, never a submitted day or a figure changed by hand since the last fill.
+- **Pepper opens forms**: "do today's cash-up", "log the fridge temps", "who's on Saturday" give a card with Open, showing the same form the Today page opens: fridge, hold, cooking and delivery checks, a checklist, the cash-up, wages, expenses, sold out and the rota for a day.
+- **Talking to Pepper** (migration 261): a microphone for dictation; on the phone, Hold to talk with answers read aloud if you switch it on; and, when the group allows it, a spoken yes confirms a check (readings and checklist ticks only).
+- **Notices** (migration 262): push notices when a Today task is due soon or goes late, each once, to the people who can do it, with your own venues, areas and quiet hours. Turn them on in the phone app's Notices tile or in Settings.
+- **Macaroonie Office**: an Android app for staff around the phone pages, with sign-in through the phone's browser, notices, Pepper with the phone's own speech recognition, and a barcode scanner in the supplier order form. Needs a one-time Auth0, EAS and Firebase set-up before the first build (office-app/README.md).
+- Migrations 258 to 262.
+
+---
+
 ## [2026-11-21 — Reports on dashboards, the phone, the menu search and Today]
 
 - **A report on any dashboard** (migration 257): Add widget, then A report, and pick it in the widget; it shows the chart and table as you would see them, with Open the report. Chart only and Table only options.

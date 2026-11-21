@@ -168,6 +168,7 @@ App-wide defaults — assume these on every new screen unless documented otherwi
 | `screen/` | The menu screens' player (plain files, no build), served on screens. |
 | `hub/` | The venue hub (Node, no dependencies) for a mini PC: printing and hub-first trading on the venue network |
 | `android-app/` | The Android shell app (Expo) around the till, kitchen screen, kiosk and menu screen web apps |
+| `office-app/` | Macaroonie Office, the staff phone app (Expo) around the phone pages: native sign-in, push, speech, scanner |
 | `docs/` | Design documents, and `docs/claude/` (these notes) |
 | `scripts/` | Server scripts the deploy runs (nginx, the domain sync) |
 | `setup.sh`, `deploy.sh` | One-shot server setup; a fallback deploy script that isn't part of the normal flow |
@@ -352,7 +353,7 @@ npm run dev                                        # :5173, proxies /api to :300
 Tests:
 - `npm test` in `api/` (rule 27; CI runs it as the `api-tests` job).
 - `node --test shared/test/*.test.mjs shared/pos/test/*.test.mjs` from the repo root.
-- `node --test hub/test/*.test.mjs` for the venue hub, `npm test` in `android-app/` for the Android app's rules.
+- `node --test hub/test/*.test.mjs` for the venue hub, `npm test` in `android-app/` and `office-app/` for the two phone apps' rules.
 - `npx vite build` in `admin/` (and in `pos/` for the device apps) before shipping UI changes.
 
 ---
