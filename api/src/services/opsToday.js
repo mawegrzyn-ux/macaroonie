@@ -71,7 +71,7 @@ export function sortTasks(tasks) {
 
 // Areas, the module each needs, and how it is read. A source returns tasks
 // or throws; a 403 means the person can't see that area.
-const AREAS = {
+export const AREAS = {
   food_safety: 'food_safety',
   checklists: 'checklists',
   hs_actions: 'hs_action_log',

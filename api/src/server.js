@@ -11,7 +11,8 @@ import { startNotificationWorker,
          startAiCleanupWorker,
          startLocalInfoWorker,
          startReportScheduleWorker,
-         startCashAutoFillWorker }           from './jobs/queues.js'
+         startCashAutoFillWorker,
+         startTaskNoticeWorker }             from './jobs/queues.js'
 import { startReviewScrapeWorker }           from './jobs/reviewScrapeWorker.js'
 import { startPublishWorker }                from './jobs/publishWorker.js'
 import jwksClient                            from 'jwks-rsa'
@@ -49,6 +50,7 @@ const aiWorker      = startAiCleanupWorker(app.log)
 const infoWorker    = startLocalInfoWorker(app.log)
 const reportWorker  = startReportScheduleWorker(app.log)
 const fillWorker    = startCashAutoFillWorker(app.log)
+const noticeWorker  = startTaskNoticeWorker(app, app.log)
 
 // ── Graceful shutdown ────────────────────────────────────────
 const shutdown = async (signal) => {
@@ -63,6 +65,7 @@ const shutdown = async (signal) => {
   await infoWorker.close()
   await reportWorker.close()
   await fillWorker.close()
+  await noticeWorker.close()
   await sql.end()
   await systemSql.end()
   await reportSql.end()

@@ -127,6 +127,7 @@ import OrderFlowDesigner from '@/pages/OrderFlowDesigner'
 import Promotions from '@/pages/Promotions'
 import MobileOrders    from '@/pages/mobile/MobileOrders'
 import MobileAllergens from '@/pages/mobile/MobileAllergens'
+import MobileNotices from '@/pages/mobile/MobileNotices'
 import MobileAssistant from '@/pages/mobile/MobileAssistant'
 const MobileReportList = React.lazy(() => import('@/pages/mobile/MobileReports').then(m => ({ default: m.MobileReportList })))
 const MobileReport = React.lazy(() => import('@/pages/mobile/MobileReports').then(m => ({ default: m.MobileReport })))
@@ -356,6 +357,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="wages"        element={<MobileWages />} />
                 <Route path="orders"       element={<MobileOrders />} />
                 <Route path="allergens"    element={<MobileAllergens />} />
+                <Route path="notices"      element={<MobileNotices />} />
                 <Route path="assistant"    element={<MobileAssistant />} />
                 <Route path="reports"      element={<React.Suspense fallback={<LoadingPage />}><MobileReportList /></React.Suspense>} />
                 <Route path="reports/:ref" element={<React.Suspense fallback={<LoadingPage />}><MobileReport /></React.Suspense>} />

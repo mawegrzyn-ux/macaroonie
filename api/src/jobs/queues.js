@@ -13,6 +13,7 @@ export const aiCleanupQueue     = new Queue('ai-cleanup',       { connection })
 export const localInfoQueue     = new Queue('local-info',       { connection })
 export const reportScheduleQueue = new Queue('report-schedules', { connection })
 export const cashAutoFillQueue  = new Queue('cash-autofill',    { connection })
+export const taskNoticeQueue    = new Queue('task-notices',     { connection })
 
 // ── Notification worker ───────────────────────────────────────
 // Routes booking emails through the new pluggable email system
@@ -199,6 +200,32 @@ export function startCashAutoFillWorker(log) {
   return worker
 }
 
+// ── Task notices ──────────────────────────────────────────────
+// Every five minutes (migration 262, services/notices.js): late and
+// due-soon Today tasks pushed to the people who can do them, each once
+// (task_notices is claimed before sending, so overlapping runs or several
+// API processes never send one twice). `app` runs the routes the feed reads.
+
+export function startTaskNoticeWorker(app, log) {
+  const worker = new Worker('task-notices', async () => {
+    const { sweepNotices } = await import('../services/notices.js')
+    const r = await sweepNotices(app, log)
+    if (r.sent) log.info(r, 'Task notices sent')
+  }, { connection })
+
+  worker.on('failed', (job, err) => {
+    log.error({ jobId: job?.id, err }, 'Task notices job failed')
+  })
+
+  taskNoticeQueue.add('sweep', {}, {
+    repeat: { every: 300_000 },
+    removeOnComplete: true,
+    removeOnFail: 20,
+  }).catch(err => log.warn({ err: err?.message }, 'Task notices not scheduled (Redis?)'))
+
+  return worker
+}
+
 // ── AI clean-up worker ────────────────────────────────────────
 // Every hour (migration 174, ai/erase.js cleanUpAi()): delete Pepper and
 // website chats idle longer than the tenant's chat_retention_days, clear
@@ -232,6 +259,9 @@ export function startAiCleanupWorker(log) {
     const { cleanUpReportFiles } = await import('../reports/files.js')
     const rf = await cleanUpReportFiles()
     if (rf.removed || rf.folders) log.info(rf, 'Report file clean-up')
+    // Sent task notices (migration 262) after 30 days.
+    const { cleanUpNotices } = await import('../services/notices.js')
+    await cleanUpNotices()
   }, { connection })
 
   worker.on('failed', (job, err) => {

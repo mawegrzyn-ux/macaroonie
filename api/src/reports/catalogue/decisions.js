@@ -79,6 +79,9 @@ export const LEFT_OUT = {
     // What each fill last wrote into a Cash Recon field (migration 260): the
     // scheduled fill's memory of hand changes, not a figure of its own.
     'cash_fill_values',
+    // Push notices (migration 262): where a person's notices go, their own
+    // settings, and which task notices were sent (each once).
+    'push_devices', 'user_notify', 'task_notices',
   ],
   'Filled in until placed, then copied onto the purchase order lines reports read': [
     'supply_order_lines',
