@@ -2,6 +2,7 @@
   "expo": {
     "name": "Macaroonie Office",
     "slug": "macaroonie-office",
+    "owner": "gomono-london",
     "scheme": "macaroonie-office",
     "version": "1.0.0",
     "orientation": "portrait",

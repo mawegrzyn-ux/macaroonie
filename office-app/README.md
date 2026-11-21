@@ -29,31 +29,56 @@ needed when the app's own code changes (the bridge, sign-in, the scanner).
    - APIs: allow it the Macaroonie API (the same audience the office uses)
    - Login Experience → Types of Users = **Business Users**, as the office's
      application has: this is what keeps it invitation-only.
-2. **EAS project**: done. Its id (`acb817a5-...`) is in `app.json`
-   (`extra.eas.projectId`), as `eas init --id` writes it; push tokens need it.
-   Run `eas init --id acb817a5-4faa-4df1-aacf-e5a341627eb7` once while signed
-   in to Expo if EAS asks for the project's `owner` (the account it belongs to).
-3. **Push on Android**: Expo's push service sends through Firebase Cloud
-   Messaging. Make a Firebase project, add an Android app with package
-   `com.macaroonie.office`, and upload its FCM V1 service account key to the
-   EAS project (`npx eas credentials`). The API needs nothing: it sends to
-   Expo's push service (`api/src/services/notices.js`).
-4. **Build** (environment for the build: `MACAROONIE_AUTH0_CLIENT_ID`, and
+2. **EAS project**: `gomono-london/macaroonie-office`. `app.json` has its id
+   (`extra.eas.projectId`, as `eas init --id` writes it) and `"owner":
+   "gomono-london"`; push tokens need the id.
+3. **Firebase for push.** Expo's push service sends to Android through Firebase
+   Cloud Messaging, and the app needs two things from the Firebase project
+   (`macaroonie-office`, Android app `com.macaroonie.office`):
+   - **`google-services.json`** (Firebase console → Project settings → Your
+     apps → the Android app → download), needed when the app is built. Don't
+     commit it. On expo.dev → the project → Environment variables, add a
+     variable named **`GOOGLE_SERVICES_JSON`**, type **File**, upload the
+     file, visibility Sensitive or Secret, for production, preview and
+     development. `app.config.js` passes it to the build as
+     `android.googleServicesFile`. For a build on your own computer, put the file
+     at `office-app/google-services.json` instead (git-ignored). Without it the
+     app still builds but can't get a push token, so Turn on notices says
+     notifications are off.
+   - **The FCM V1 service account key** (Firebase console → Project settings →
+     Service accounts → Generate new private key), uploaded to the EAS project:
+     expo.dev → the project → Credentials → Android → `com.macaroonie.office` →
+     FCM V1 service account key (or `eas credentials`). Expo's push service uses
+     it to deliver. The API needs nothing: it sends to Expo
+     (`api/src/services/notices.js`).
+4. **Auth0 client id for the build**: `MACAROONIE_AUTH0_CLIENT_ID` as an EAS
+   environment variable (production, preview, development). The domain,
+   audience and root domain default to the live ones in `app.config.js`; set
    `MACAROONIE_ROOT_DOMAIN` / `MACAROONIE_AUTH0_DOMAIN` /
-   `MACAROONIE_AUTH0_AUDIENCE` when they aren't the defaults in
-   `app.config.js`):
-   `npx eas build -p android --profile preview` (or `production`) gives an APK to
-   install by hand. Every profile builds an APK for now, like the device app;
-   switch `production` to an app bundle when the app goes on Google Play.
+   `MACAROONIE_AUTH0_AUDIENCE` only for a build pointed elsewhere.
+5. **The signing keystore**: nothing to do. The first build makes one if the
+   project has none: a build from GitHub runs EAS non-interactively, and in
+   that mode eas-cli generates a keystore and saves it on the EAS project
+   (checked in eas-cli 27.11's source: `SetUpBuildCredentials` and
+   `CreateKeystore`). After that first build, download a backup from expo.dev →
+   Credentials → Android: every later version must be signed with the same key,
+   or phones refuse it as an update. If you'd rather make it before any build,
+   `eas credentials` (Android → production → Keystore → Set up a new keystore)
+   does it interactively.
 
-## Building from GitHub (expo.dev)
+## Building
 
-Connect the repository with base directory **`office-app`** (the device app
-uses `android-app`). Build from GitHub uses the `production` profile and every
-platform in `app.json`, which is Android only for now. A GitHub build has no
-shell environment: set `MACAROONIE_AUTH0_CLIENT_ID` (and any other
-`MACAROONIE_*` that isn't the default) as EAS environment variables on the
-project, for the production environment.
+Every profile builds an APK to install by hand, like the device app; switch
+`production` to an app bundle when the app goes on Google Play.
+
+- **From GitHub (expo.dev)**: connect the repository with base directory
+  **`office-app`** (the device app uses `android-app`). Build from GitHub uses
+  the `production` profile and every platform in `app.json`, which is Android
+  only for now. A GitHub build has no shell environment, so everything it needs
+  comes from the EAS environment variables above.
+- **From your computer**: `npx eas build -p android --profile preview` in
+  `office-app/` (signed in with `eas login`), with `google-services.json` in the
+  folder or the EAS variable.
 
 ## iPhone later
 
