@@ -48,7 +48,7 @@ export default function MobileAssistant() {
           <ConversationList activeId={conversationId} onPick={id => { setConversationId(id); setShowList(false) }} />
         </div>
       ) : (
-        <ChatView key={conversationId || 'new'} conversationId={conversationId} onConversationId={setConversationId} className="flex-1" linkFor={opsLink} />
+        <ChatView key={conversationId || 'new'} conversationId={conversationId} onConversationId={setConversationId} className="flex-1" linkFor={opsLink} talkMode />
       )}
     </div>
   )

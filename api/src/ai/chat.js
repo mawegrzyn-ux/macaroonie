@@ -86,6 +86,16 @@ import {
 // Tools whose calls show a card of their own (display()), by name.
 const DISPLAY_TOOLS = new Map(audienceTools('staff').filter(t => t.display).map(t => [t.name, t]))
 
+// Voice (migration 261, docs/PEPPER_FIRST.md 4.7). A turn said aloud (talk
+// mode) gets VOICE_NOTE so the answer reads well aloud. A spoken yes may
+// confirm only these cards, checks, and only when the group switches
+// ai_settings.voice_confirm on: money, orders, bookings, the rota and
+// anything deleted keep a tap.
+export const VOICE_CONFIRM_TOOLS = new Set(['log_temperature', 'log_hold_check', 'log_cooking_check', 'tick_checklist'])
+const VOICE_NOTE = '[Said aloud in talk mode, and your answer is read aloud: answer in one or two short sentences, ' +
+  'with any detail left to the screen. No tables, lists or links in the answer. Never read out a guest\'s phone number or email. ' +
+  'For a reading, say it back with its unit, and say so when it is out of range.]'
+
 const MAX_STEPS      = 12
 const MAX_TOKENS     = 32000
 const ACTION_MINUTES = 30
@@ -645,8 +655,8 @@ async function handleToolUse(ctx, conv, block, emit) {
  * { stopReason, notice }: notice is a line to show the person that isn't
  * part of the conversation (the turn stopped early, or was refused).
  */
-export async function runTurn(ctx, conv, text, { attachments = [], emit = null, page = null } = {}) {
-  return withHold(conv, BUSY_TURN, () => turn(ctx, conv, text, attachments, emit, page))
+export async function runTurn(ctx, conv, text, { attachments = [], emit = null, page = null, voice = false } = {}) {
+  return withHold(conv, BUSY_TURN, () => turn(ctx, conv, text, attachments, emit, page, voice))
 }
 
 // What a listening browser hears while the model writes: its text as it
@@ -707,7 +717,7 @@ const NOTICES = {
   no_web:    'Web search wasn\'t available for this one, so I answered without it.',
 }
 
-async function turn(ctx, conv, text, attachments, emit, page) {
+async function turn(ctx, conv, text, attachments, emit, page, voice = false) {
   const started = Date.now()
   const budget = emit ? STREAM_TURN_MS : TURN_MS
   if (conv.closed_at) {
@@ -738,6 +748,7 @@ async function turn(ctx, conv, text, attachments, emit, page) {
   const userBlocks = () => [
     ...attachmentBlocks(files),
     ...(note ? [{ type: 'text', text: note, _context: true }] : []),
+    ...(staff && voice ? [{ type: 'text', text: VOICE_NOTE, _context: true }] : []),
     ...(staff ? webNoteBlocks(told, web) : []),
     ...(text ? [{ type: 'text', text }] : []),
   ]
@@ -913,18 +924,27 @@ async function settle(conv, action, status, result, note) {
 }
 
 /** Runs the card's tool with the stored input. Returns the updated card. */
-export async function confirmAction(ctx, conv, actionId) {
-  return withHold(conv, BUSY_CARD, () => confirmCard(ctx, conv, actionId))
+export async function confirmAction(ctx, conv, actionId, { via = 'tap' } = {}) {
+  return withHold(conv, BUSY_CARD, () => confirmCard(ctx, conv, actionId, via))
 }
 
 export async function cancelAction(ctx, conv, actionId) {
   return withHold(conv, BUSY_CARD, () => cancelCard(ctx, conv, actionId))
 }
 
-async function confirmCard(ctx, conv, actionId) {
+async function confirmCard(ctx, conv, actionId, via = 'tap') {
   const action = await loadAction(conv, actionId)
   if (action.status !== 'pending') throw new ToolError('This card has already been ' + (action.status === 'done' ? 'confirmed' : action.status) + '.', 409)
+  if (via === 'voice') {
+    if (conv.channel !== 'staff_chat' || !VOICE_CONFIRM_TOOLS.has(action.tool)) {
+      throw new ToolError('Only checks (a reading or a checklist tick) can be confirmed by voice. Tap Confirm for this one.', 422)
+    }
+    if (!(await getAiSettings(conv.tenant_id)).voice_confirm) {
+      throw new ToolError('Confirming by voice is switched off for this group. Tap Confirm.', 403)
+    }
+  }
   const who = ctx.channel === 'guest_chat' ? 'The guest' : 'The staff member'
+  const pressed = via === 'voice' ? 'said yes to' : 'pressed Confirm on'
   if (new Date(action.expires_at).getTime() <= Date.now()) {
     await settle(conv, action, 'cancelled', { error: 'expired' },
       `[${who} pressed Confirm on "${action.card.title}" too late: the card had expired and nothing was changed.]`)
@@ -948,14 +968,14 @@ async function confirmCard(ctx, conv, actionId) {
       UPDATE ai_pending_actions SET status = 'failed', result = ${tx.json({ error: message })} WHERE id = ${action.id}
     `)
     await appendMessage(conv, 'user', [{ type: 'text', _note: 'action',
-      text: `[${who} pressed Confirm on "${await titleNow(conv, action)}" but it failed: ${message}]` }])
+      text: `[${who} ${pressed} "${await titleNow(conv, action)}" but it failed: ${message}]` }])
     return { ...(await cardView(conv, action.id)), error: message }
   }
   await withTenant(conv.tenant_id, tx => tx`
     UPDATE ai_pending_actions SET status = 'done', result = ${tx.json(result)} WHERE id = ${action.id}
   `)
   await appendMessage(conv, 'user', [{ type: 'text', _note: 'action',
-    text: `[${who} pressed Confirm on "${await titleNow(conv, action)}". Done: ${JSON.stringify(result)}]` }])
+    text: `[${who} ${pressed} "${await titleNow(conv, action)}". Done: ${JSON.stringify(result)}]` }])
   return cardView(conv, action.id)
 }
 
@@ -994,6 +1014,8 @@ function actionView(a) {
     type:   'action',
     id:     a.id,
     tool:   a.tool,
+    // A spoken yes may confirm it, when the group allows (VOICE_CONFIRM_TOOLS).
+    voice_ok: VOICE_CONFIRM_TOOLS.has(a.tool),
     ...a.card,
     status: expired ? 'expired' : a.status,
     result: a.status === 'done' ? (a.result?.message || 'Done.') : null,

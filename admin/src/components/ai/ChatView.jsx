@@ -29,13 +29,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
-import { Send, Loader2, Check, X, Sparkles, Search, CircleAlert, Paperclip, Camera, Upload, MapPin, Globe, ExternalLink, ClipboardCheck } from 'lucide-react'
+import { Send, Loader2, Check, X, Sparkles, Search, CircleAlert, Paperclip, Camera, Upload, MapPin, Globe, ExternalLink, ClipboardCheck, Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { usePepperPageContext } from '@/lib/pepperPage'
 import { useAttachments, PendingFiles, MessageFiles, ACCEPT } from './attachments'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 import { FORMS, FormOpener } from '@/components/forms/FormSheet'
+import { canListen, canSpeak, listen, speak, stopSpeaking, readAloudOn, setReadAloud, yesOrNo } from '@/lib/speech'
 
 const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 
@@ -120,7 +121,7 @@ export function useAiStatus() {
   return useQuery({ queryKey: ['ai-status'], queryFn: () => api.get('/ai/status'), staleTime: 60_000 })
 }
 
-export default function ChatView({ conversationId, onConversationId, className, pageAware = false, suggestions = SUGGESTIONS, linkFor = null }) {
+export default function ChatView({ conversationId, onConversationId, className, pageAware = false, suggestions = SUGGESTIONS, linkFor = null, talkMode = false }) {
   const api = useApi()
   const qc  = useQueryClient()
   const [draft, setDraft]     = useState('')
@@ -142,6 +143,14 @@ export default function ChatView({ conversationId, onConversationId, className, 
   const pageCtx = usePageContext(pageAware)
   const sentPage = usePage ? pageCtx?.page : undefined
   const { data: status } = useAiStatus()
+  // Voice (OUTSTANDING 44 item 12): dictation into the box (the mic), talk
+  // mode on the phone (hold to talk, answers read aloud on this device if
+  // switched on), and a spoken yes for check cards when the group allows it.
+  const [hearing, setHearing] = useState(null)   // null | 'dictate' | 'talk' | 'confirm'
+  const [heard, setHeard] = useState('')         // talk mode: the words so far
+  const [aloud, setAloud] = useState(() => readAloudOn())
+  const stopHearing = useRef(null)
+  const listenable = canListen()
 
   const { data: conv, isLoading } = useQuery({
     queryKey: ['ai-conversation', conversationId],
@@ -199,9 +208,10 @@ export default function ChatView({ conversationId, onConversationId, className, 
   }
 
   const send = useMutation({
-    mutationFn: ({ message, files, page }) => api.stream('/ai/chat', {
+    mutationFn: ({ message, files, page, voice }) => api.stream('/ai/chat', {
       conversation_id: conversationId || undefined, message, attachments: files.map(f => f.id),
       ...(page ? { page } : {}),
+      ...(voice ? { voice: true } : {}),
     }, onEvent),
     onMutate:   ({ message, files }) => {
       sending.current = true
@@ -209,12 +219,13 @@ export default function ChatView({ conversationId, onConversationId, className, 
       stick.current = true
       setPending({ text: message, files }); setError(null); setNotice(null)
     },
-    onSuccess:  (res, { files }) => {
+    onSuccess:  (res, { files, voice }) => {
       endTurn()
       att.discard(files)
       setNotice(res.notice || null)
       if (res.notice && res.conversation_id && res.conversation_id !== conversationId) carried.set(res.conversation_id, { notice: res.notice })
       apply(res)
+      if (voice) afterSpokenTurn(res.items || [])
     },
     onError:    (err, { message, files }) => {
       endTurn()
@@ -245,7 +256,7 @@ export default function ChatView({ conversationId, onConversationId, className, 
   })
 
   const decide = useMutation({
-    mutationFn: ({ id, how }) => api.post(`/ai/actions/${id}/${how}`, {}),
+    mutationFn: ({ id, how, via }) => api.post(`/ai/actions/${id}/${how}`, via ? { via } : {}),
     onSuccess:  res => { setError(null); apply(res) },
     onError:    err => {
       setError(err.message || 'Something went wrong')
@@ -263,13 +274,73 @@ export default function ChatView({ conversationId, onConversationId, className, 
     stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
   }
 
-  function submit(text) {
+  function submit(text, { voice = false } = {}) {
     const message = (text ?? draft).trim()
     if ((!message && !att.ready.length) || send.isPending || running || att.uploading) return
     const files = att.take().filter(f => f.status === 'ready')
     setDraft('')
-    send.mutate({ message, files, page: sentPage })
+    send.mutate({ message, files, page: sentPage, voice })
   }
+
+  // ── Voice ──────────────────────────────────────────────
+  // Dictation: a tap starts, the next tap (or a pause) stops; the words go
+  // into the box after what is typed, for the person to read and send.
+  function toggleDictation() {
+    if (hearing) { stopHearing.current?.(); return }
+    const before = draft.trim()
+    setHearing('dictate'); setError(null)
+    stopHearing.current = listen({
+      onText: t => setDraft((before ? before + ' ' : '') + t),
+      onEnd: () => { setHearing(null); stopHearing.current = null },
+      onError: m => setError(m),
+    })
+  }
+  // Talk mode: hold to talk, let go to send. The words show as they come.
+  function startTalking(e) {
+    e.preventDefault()
+    if (hearing || working) return
+    stopSpeaking()
+    let said = ''
+    setHeard(''); setHearing('talk'); setError(null)
+    stopHearing.current = listen({
+      onText: t => { said = t; setHeard(t) },
+      onEnd: () => {
+        setHearing(null); stopHearing.current = null
+        if (said.trim()) submit(said, { voice: true })
+        setHeard('')
+      },
+      onError: m => setError(m),
+    })
+  }
+  function stopTalking() { if (hearing === 'talk') stopHearing.current?.() }
+  // After a spoken turn: read the answer aloud (if on for this device), then
+  // offer a check card to be confirmed by a spoken yes (if the group allows).
+  async function afterSpokenTurn(list) {
+    const lastUser = list.map(i => i.type).lastIndexOf('user')
+    const turnItems = list.slice(lastUser + 1)
+    const answer = turnItems.filter(i => i.type === 'assistant').map(i => i.text).join(' ')
+    const card = turnItems.find(i => i.type === 'action' && i.status === 'pending' && i.voice_ok)
+    if (readAloudOn() && answer) await speak(answer)
+    if (!card || !status?.voice_confirm || !canListen()) return
+    // Each part a sentence of its own, without doubling a full stop or a question mark.
+    const read = [card.title, ...(card.lines || []), ...(card.warnings || []), 'Say yes to save it, or no.']
+      .map(p => String(p).trim()).filter(Boolean).map(p => (/[.?!]$/.test(p) ? p : p + '.')).join(' ')
+    if (canSpeak()) await speak(read)
+    setHearing('confirm'); setHeard('')
+    let said = ''
+    stopHearing.current = listen({
+      onText: t => { said = t; setHeard(t) },
+      onEnd: () => {
+        setHearing(null); stopHearing.current = null; setHeard('')
+        const answerIs = yesOrNo(said)
+        if (answerIs === 'yes') decide.mutate({ id: card.id, how: 'confirm', via: 'voice' })
+        else if (answerIs === 'no') decide.mutate({ id: card.id, how: 'cancel' })
+      },
+      onError: m => setError(m),
+    })
+  }
+  useEffect(() => () => { stopHearing.current?.(); stopSpeaking() }, [])
+
 
   const hasFiles = e => Array.from(e.dataTransfer?.types || []).includes('Files')
   const dropProps = {
@@ -368,6 +439,34 @@ export default function ChatView({ conversationId, onConversationId, className, 
               </button>
             </div>
           )}
+          {talkMode && listenable && (
+            <div className="px-2 sm:px-3 pt-2 space-y-2" data-testid="chat-talk">
+              <div className="flex items-center gap-2">
+                <p className="flex-1 min-w-0 text-xs text-muted-foreground" aria-live="polite" data-testid="chat-talk-heard">
+                  {hearing === 'talk' ? (heard || 'Listening... let go to send.')
+                    : hearing === 'confirm' ? (heard || 'Listening for yes or no...')
+                      : 'Hold the button and speak; let go to send.'}
+                </p>
+                {canSpeak() && (
+                  <button type="button" aria-pressed={aloud} data-testid="chat-read-aloud"
+                    onClick={() => { setReadAloud(!aloud); setAloud(!aloud); if (aloud) stopSpeaking() }}
+                    className={cn('shrink-0 inline-flex items-center gap-1.5 min-h-[48px] px-3 rounded-full border text-xs touch-manipulation',
+                      aloud ? 'border-primary/40 bg-primary/5' : 'text-muted-foreground')}>
+                    {aloud ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                    {aloud ? 'Reading answers aloud' : 'Read answers aloud'}
+                  </button>
+                )}
+              </div>
+              <button type="button" disabled={working || hearing === 'dictate' || hearing === 'confirm'} data-testid="chat-talk-button"
+                onPointerDown={startTalking} onPointerUp={stopTalking} onPointerLeave={stopTalking} onPointerCancel={stopTalking}
+                onContextMenu={e => e.preventDefault()}
+                className={cn('w-full min-h-[64px] rounded-xl text-base font-semibold flex items-center justify-center gap-2 touch-manipulation select-none disabled:opacity-50',
+                  hearing === 'talk' ? 'bg-red-600 text-white' : 'bg-primary text-primary-foreground')}
+                style={{ WebkitTouchCallout: 'none' }}>
+                <Mic className="w-5 h-5" /> {hearing === 'talk' ? 'Listening' : 'Hold to talk'}
+              </button>
+            </div>
+          )}
           <PendingFiles files={att.files} onRemove={att.remove} />
           {att.notice && <p className="px-3 pt-1 text-xs text-amber-700">{att.notice}</p>}
           <form
@@ -383,6 +482,15 @@ export default function ChatView({ conversationId, onConversationId, className, 
               aria-label="Attach a photo, screenshot or file" title="Attach a photo, screenshot or file">
               <Paperclip className="w-4 h-4" />
             </button>
+            {listenable && (
+              <button type="button" onClick={toggleDictation} disabled={working || hearing === 'talk' || hearing === 'confirm'}
+                aria-pressed={hearing === 'dictate'} data-testid="chat-mic"
+                className={cn('w-12 h-12 shrink-0 rounded-md border flex items-center justify-center touch-manipulation disabled:opacity-40',
+                  hearing === 'dictate' ? 'bg-red-600 text-white border-red-600' : 'text-muted-foreground hover:text-foreground')}
+                aria-label={hearing === 'dictate' ? 'Stop dictating' : 'Dictate'} title={hearing === 'dictate' ? 'Stop dictating' : 'Dictate: speak and the words go in the box'}>
+                {hearing === 'dictate' ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              </button>
+            )}
             {IS_TOUCH && (
               <button type="button" onClick={() => camInput.current?.click()} disabled={working}
                 className="w-12 h-12 shrink-0 rounded-md border flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-40 touch-manipulation"
