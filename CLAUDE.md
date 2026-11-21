@@ -167,7 +167,7 @@ App-wide defaults — assume these on every new screen unless documented otherwi
 | `pos/` | The till, kitchen screen and self-order kiosk apps (React PWA, own package.json), served by the API on pos. / kitchen. / kiosk. |
 | `screen/` | The menu screens' player (plain files, no build), served on screens. |
 | `hub/` | The venue hub (Node, no dependencies) for a mini PC: printing and hub-first trading on the venue network |
-| `android-app/` | The Android shell app (Expo) around the till, kitchen screen, kiosk and menu screen web apps |
+| `android-app/` | Macaroonie Player, the Android shell app (Expo) around the till, kitchen screen, kiosk and menu screen web apps |
 | `office-app/` | Macaroonie Office, the staff phone app (Expo) around the phone pages: native sign-in, push, speech, scanner |
 | `docs/` | Design documents, and `docs/claude/` (these notes) |
 | `scripts/` | Server scripts the deploy runs (nginx, the domain sync) |

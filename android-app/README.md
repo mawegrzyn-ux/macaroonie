@@ -1,4 +1,8 @@
-# Macaroonie Android app
+# Macaroonie Player (Android)
+
+The Android app for tills, kitchen screens, self-order kiosks and menu screens
+(package `com.macaroonie.app`, EAS project `@gomono-london/macaroonie`; named
+Macaroonie until 21 Nov 2026).
 
 One app (`com.macaroonie.app`) for every device in a restaurant: the till, the
 kitchen screen, the self-order kiosk and menu screens (menu boards and order

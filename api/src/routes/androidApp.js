@@ -1,6 +1,6 @@
 // src/routes/androidApp.js
 //
-// The Macaroonie Android app's download (services/androidAppSvc.js,
+// Macaroonie Player's download (services/androidAppSvc.js,
 // migration 213). Registered without a prefix:
 //
 //   GET    /api/platform/android-app   platform admin: what is offered, and the device addresses

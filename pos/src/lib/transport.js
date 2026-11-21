@@ -13,7 +13,7 @@
 //
 // The hub serves plain http on the venue network, which an https page in a
 // browser may not call (mixed content): hub first works inside the
-// Macaroonie Android app (its WebView allows it), or on a device served over
+// Macaroonie Player, the Android app (its WebView allows it), or on a device served over
 // http; anywhere else the device simply uses the cloud.
 
 import { IN_APP } from './nativeApp.js'

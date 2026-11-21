@@ -6,6 +6,12 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-21 — The device app is now Macaroonie Player]
+
+- The Android app for tills, kitchen screens, kiosks and menu screens is called **Macaroonie Player** (it was Macaroonie). The setup screen offers Get Macaroonie Player, the file downloads as macaroonie-player.apk, and the Platform page's tab says Macaroonie Player. Installed devices take the new name with the next build of the app, as an ordinary update. No migration.
+
+---
+
 ## [2026-11-21 — Hold the mic to talk to Pepper]
 
 - Pepper's microphone takes a tap or a hold. A tap works as before (tap to start, tap again or pause to stop; the words go into the box). Holding it records for as long as it is held, pauses included, and letting go sends what was said, as a spoken message (a short answer). No migration.

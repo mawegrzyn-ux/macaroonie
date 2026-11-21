@@ -34,7 +34,7 @@ const SECTIONS = [
   { id: 'kiosks', label: 'Self-order kiosks' },
   { id: 'kiosk-analytics', label: 'Kiosk analytics & journeys' },
   { id: 'installer', label: 'Installer app & link codes' },
-  { id: 'android-app', label: 'Android app' },
+  { id: 'android-app', label: 'Macaroonie Player (Android app)' },
   { id: 'web-ordering', label: 'Web Ordering' },
   { id: 'loyalty', label: 'Loyalty' },
   { id: 'ai-assistant', label: 'Pepper (AI assistant) & MCP' },
@@ -6862,9 +6862,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           </section>
 
           <section id="android-app" data-doc="">
-            <H2>Android app</H2>
+            <H2>Macaroonie Player (Android app)</H2>
             <P>
-              <Mono>android-app/</Mono> (27 Oct 2026) is one Android app, <Mono>com.macaroonie.app</Mono>, for the
+              <Mono>android-app/</Mono> (27 Oct 2026) is one Android app, Macaroonie Player (named Macaroonie until 21 Nov
+              2026; <Mono>app.json</Mono> <Mono>name</Mono> only: the package, the EAS slug and the user agent's{' '}
+              <Mono>MacaroonieApp/&lt;version&gt;</Mono> stay, so installed devices update in place), <Mono>com.macaroonie.app</Mono>, for the
               till, the kitchen screen, the self-order kiosk and (version 1.2, 29 Oct 2026) menu screens: an Expo
               (SDK 58) shell around the <Mono>pos/</Mono> web apps and the <Mono>screen/</Mono> player, built and signed by EAS (project{' '}
               <Mono>@gomono-london/macaroonie</Mono>, GitHub base directory <Mono>android-app</Mono>). The apps
@@ -6885,7 +6887,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['WebView settings', 'domStorageEnabled, textZoom 100 (the phone\'s font size never resizes the till), no zoom controls, overScrollMode never, mediaPlaybackRequiresUserAction false (kiosk start videos), setSupportMultipleWindows false, mixedContentMode never, allowFileAccess false, user agent + MacaroonieApp/<version>. scalesPageToFit (default) keeps the viewport tag working, so the kiosk\'s zoom (useKioskViewport()) works as in Chrome.'],
                 ['app.json / app.config.js', 'Package com.macaroonie.app, orientation default (the device\'s mount decides), CAMERA permission (QR scanning; the WebView asks at runtime), RECORD_AUDIO and SYSTEM_ALERT_WINDOW blocked, splash and adaptive icons from the till icon\'s macaroon. app.config.js adds extra.rootDomain (MACAROONIE_ROOT_DOMAIN, default macaroonie.com) and extra.webDebug (MACAROONIE_WEB_DEBUG=1: chrome://inspect).'],
                 ['eas.json', 'development: APK with web debugging. preview: APK for installing by hand. production: also an APK for installing by hand (distribution internal), autoIncrement, because Build from GitHub on expo.dev builds every platform with production and asks nothing; switch it to an app bundle when the app goes on Google Play. appVersionSource remote: EAS keeps the version code.'],
-                ['Download (migration 213)', "platform_settings (global, no RLS) row android_app holds the copy: { url, key, bytes, sha256, source_url, file_url }. services/androidAppSvc.js: saveAndroidApp(link) fetches the pasted link (https; http too outside production) with one 45 s budget (under nginx's 60 s on /api/), reads a web page (expo.dev's build page) for the first .apk address in it (apkLinkIn(), JSON escapes undone), caps the file at 250 MB, checks it is an APK (apkProblem(): zip with AndroidManifest.xml, no BundleConfig.pb, so an .aab is refused), puts it through storageSvc (platform/android/<uuid>.apk) and removes the previous copy. routes/androidApp.js: GET / PUT { link } / DELETE /api/platform/android-app (platform admins; the Platform page's Android app tab, components/platform/AndroidAppCard.jsx) and public GET /pos-api/android-app ({ available, path, bytes, updated_at }, nothing else). routes/posSite.js: /android on pos., kitchen. and kiosk. streams the local copy as macaroonie.apk (no-store) or redirects to an S3 copy; 404 page when there is none or the file is missing. Pair.jsx (useAndroidApp(), AndroidApp): not in the app, a button on an Android browser, elsewhere \"Android device? ... open <address> on it\" with the address as a download link. pos/vite.config.js: /android in navigateFallbackDenylist, so the service worker never answers it with the app."],
+                ['Download (migration 213)', "platform_settings (global, no RLS) row android_app holds the copy: { url, key, bytes, sha256, source_url, file_url }. services/androidAppSvc.js: saveAndroidApp(link) fetches the pasted link (https; http too outside production) with one 45 s budget (under nginx's 60 s on /api/), reads a web page (expo.dev's build page) for the first .apk address in it (apkLinkIn(), JSON escapes undone), caps the file at 250 MB, checks it is an APK (apkProblem(): zip with AndroidManifest.xml, no BundleConfig.pb, so an .aab is refused), puts it through storageSvc (platform/android/<uuid>.apk) and removes the previous copy. routes/androidApp.js: GET / PUT { link } / DELETE /api/platform/android-app (platform admins; the Platform page's Macaroonie Player tab, components/platform/AndroidAppCard.jsx) and public GET /pos-api/android-app ({ available, path, bytes, updated_at }, nothing else). routes/posSite.js: /android on pos., kitchen. and kiosk. streams the local copy as macaroonie-player.apk (no-store) or redirects to an S3 copy; 404 page when there is none or the file is missing. Pair.jsx (useAndroidApp(), AndroidApp): not in the app, a button on an Android browser, elsewhere \"Android device? Get Macaroonie Player: open <address> on it\" with the address as a download link. pos/vite.config.js: /android in navigateFallbackDenylist, so the service worker never answers it with the app."],
                 ['Checks', '.github/workflows/android-app.yml on pull requests touching android-app/: npm ci, npm test (the corner\'s tests), expo config, expo export --platform android. deploy.yml ignores android-app/**. android-app/package-lock.json is tracked (the root .gitignore ignores lockfiles; !android-app/package-lock.json) so EAS installs what was tested.'],
               ]}
             />

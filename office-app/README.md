@@ -13,8 +13,8 @@ do well inside an app, through a bridge (`bridge.js`, the page's side is
 | `speech.listen()`, `speech.speak()` | Pepper's dictation and talk mode | `lib/speech.js` |
 | `scanner.scan()` | Barcodes into the order form's search | `components/purchasing/ordering.jsx` |
 
-It is a different app from `android-app/` (the till, kitchen screen, kiosk and
-menu screen shell): that one keeps the screen awake, hides the bars and has no
+It is a different app from `android-app/` (Macaroonie Player: the till, kitchen
+screen, kiosk and menu screen shell): that one keeps the screen awake, hides the bars and has no
 sign-in.
 
 The pages themselves change with every deploy; a new build of the app is only

@@ -48,7 +48,7 @@ const SECTIONS = [
   { id: 'kiosks',              label: 'Self-order kiosks' },
   { id: 'kiosk-analytics',     label: 'Kiosk analytics' },
   { id: 'installer',           label: 'Installer app' },
-  { id: 'android-app',         label: 'Android app' },
+  { id: 'android-app',         label: 'Macaroonie Player (Android)' },
   { id: 'emails',              label: 'Booking Emails' },
   { id: 'team',                label: 'Team Management' },
   { id: 'access',              label: 'Modules & Roles' },
@@ -3269,7 +3269,7 @@ export default function Help() {
               and adds what a web page can&apos;t do well: notices that always arrive, Pepper listening through the
               phone&apos;s own speech recognition, and a barcode scanner (the <strong>Scan</strong> button in a
               supplier order&apos;s Add an item). Turn notices on in its Notices page as above. It is a different
-              app from the Macaroonie app on tills, kitchen screens and kiosks.
+              app from Macaroonie Player, the app on tills, kitchen screens, kiosks and menu screens.
             </P>
             <P>
               More mobile-optimised pages will appear on the <strong>/mobile</strong> hub screen
@@ -7140,7 +7140,7 @@ export default function Help() {
               head={['What', 'How']}
               rows={[
                 ['Switch it on or off', 'Store tech → Venue hub: Hub first, then Save. It is on as standard once a hub is linked. Off, every device uses Macaroonie directly and the hub only prints.'],
-                ['What devices need', 'The Macaroonie Android app (version 1.3 or later) on each till, kiosk, kitchen screen and menu screen. A device in a web browser can\'t reach the hub (browsers block it from a secure page) and simply keeps using Macaroonie.'],
+                ['What devices need', 'Macaroonie Player, the Android app (version 1.3 or later), on each till, kiosk, kitchen screen and menu screen. A device in a web browser can\'t reach the hub (browsers block it from a secure page) and simply keeps using Macaroonie.'],
                 ['How to tell it is working', 'The till\'s dot at the top says Live · venue hub, or Venue hub · internet down (still green). The kitchen screen\'s bar says the same. On the till, Settings shows the hub\'s address. In Store tech, the hub\'s row says how many devices use it and whether everything has gone to Macaroonie.'],
                 ['What needs the internet', 'Card machine payments and refunds, loyalty rewards, receipts by email or QR code, online and GloriaFood orders, and changes made in the admin (a new price, a new PIN) until the hub picks them up (within half a minute).'],
                 ['A change Macaroonie refused', 'Rare: two tills changed the same order at once, one through the hub, one straight to Macaroonie. The hub\'s row in Store tech counts them; the till that made the change lists it under Not saved, as for a till that was offline.'],
@@ -8352,9 +8352,9 @@ export default function Help() {
           </section>
 
           <section id="android-app" data-help="">
-            <H2>Android app</H2>
+            <H2>Macaroonie Player (Android app)</H2>
             <P>
-              The <strong>Macaroonie</strong> Android app runs a till, a kitchen screen, a self-order kiosk or a
+              <strong>Macaroonie Player</strong>, the Android app (called Macaroonie until November 2026), runs a till, a kitchen screen, a self-order kiosk or a
               menu screen on an Android tablet, TV box or smart TV. It opens the same apps as Chrome does at pos.,
               kitchen., kiosk. and screens.macaroonie.com, but straight away and full screen: no address bar, no Android bars at the top or bottom, the screen
               stays on and the back button does nothing, so staff and guests can&apos;t leave it by accident. The
@@ -8364,7 +8364,7 @@ export default function Help() {
             <H3>Getting the app on a tablet</H3>
             <P>
               On the tablet, open Chrome at pos.macaroonie.com, kitchen.macaroonie.com or kiosk.macaroonie.com
-              (any of the three). The setup screen has a <strong>Get the Android app</strong> button: tap it, and
+              (any of the three). The setup screen has a <strong>Get Macaroonie Player</strong> button: tap it, and
               when the file has downloaded open it and tap <strong>Install</strong>. Android may ask you to allow
               installing apps from Chrome first. You can also type the address with /android on the end (for
               example kiosk.macaroonie.com/android) to download it straight away. On a computer the setup screen
@@ -8452,7 +8452,7 @@ export default function Help() {
 
             <H3>Adding a new build of the app (platform admins)</H3>
             <P>
-              The <strong>Platform</strong> page&apos;s <strong>Android app</strong> tab decides what the setup
+              The <strong>Platform</strong> page&apos;s <strong>Macaroonie Player</strong> tab decides what the setup
               screens offer. After a build on expo.dev, open the Android internal distribution build, copy its
               Install or Download link (or the build page&apos;s own address) and paste it in, then press
               <strong> Copy and offer it</strong>. Macaroonie keeps its own copy of the app, so the download keeps

@@ -1,6 +1,6 @@
 // src/services/androidAppSvc.js
 //
-// The Macaroonie Android app's download (android-app/ in the repository).
+// Macaroonie Player's download (the Android app, android-app/ in the repository).
 // The APK is built by EAS (expo.dev) and its links there change with every
 // build and don't last for ever, so a platform admin pastes the newest link
 // on the Platform page and the server keeps a copy of the file
