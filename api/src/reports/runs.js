@@ -64,6 +64,7 @@ function readCursor(s) {
 function whatOf(run, file) {
   if (run.kind === 'scheduled') return run.delivery?.not_met ? 'skipped' : 'scheduled'
   if (run.kind === 'emailed') return 'emailed'
+  if (run.kind === 'link') return 'link'
   if (run.kind === 'run') return 'ran'
   if (run.format === 'print') return 'printed'
   return file ? 'kept' : 'downloaded'

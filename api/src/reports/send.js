@@ -56,7 +56,10 @@ import { groupAbout, reportPrint } from './export/printPage.js'
 import { pdfAvailable, htmlToPdf } from '../services/pdfBrowser.js'
 import { csvOf, hasPersonal } from './export/csv.js'
 import { xlsxOf, XLSX_CELLS } from './export/xlsx.js'
-import { fileName } from './export/table.js'
+import { fileName, resultTable } from './export/table.js'
+import { resultJson } from './export/json.js'
+import { postSigned, pushUrlProblem } from '../services/webPush.js'
+import { unseal } from '../services/vault.js'
 import { CSV_TYPE, XLSX_TYPE, PDF_TYPE, errorText, venuesText } from './export/file.js'
 import { keepMadeFile } from './files.js'
 import { sendEmail, emailCredentials } from '../services/emailSvc.js'
@@ -76,12 +79,17 @@ import {
 export const EMAIL_ROWS = 100
 export const LIST_CAP = 20000
 export const MAX_ATTACH_MB = 5
+// Rows a push carries (the rest: total_rows says how many there were).
+export const PUSH_ROWS = 1000
+
+/** A schedule row's push: { url, secret } (the secret unsealed), or null. */
+export const pushOf = row => (row?.push_url ? { url: row.push_url, secret: unseal(row.push_secret) } : null)
 const SEND_BATCH = 5
 const SEND_MS = 20000
 const OWNER_ADMIN = new Set(['owner', 'admin'])
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const REF_RE = /^[A-Za-z0-9:_-]+$/
-const PII_HELD = 'This report shows people\'s details, which aren\'t sent to addresses outside the team'
+export const PII_HELD = 'This report shows people\'s details, which aren\'t sent to addresses outside the team'
 
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 const plural = (n, one, many) => n.toLocaleString('en-GB') + ' ' + (n === 1 ? one : many)
@@ -115,9 +123,9 @@ async function member(tenantId, sub) {
 /** The person asking, as a report sender: reportPerson() and isOwnerOrAdmin. */
 export async function requestPerson(req) {
   const p = await reportPerson(req)
-  if (req.isPlatformAdmin) return { ...p, isOwnerOrAdmin: true }
+  if (req.isPlatformAdmin) return { ...p, isOwnerOrAdmin: true, isOwner: true }
   const m = await member(req.tenantId, req.user?.sub)
-  return { ...p, isOwnerOrAdmin: !!m && OWNER_ADMIN.has(m.role_key) }
+  return { ...p, isOwnerOrAdmin: !!m && OWNER_ADMIN.has(m.role_key), isOwner: m?.role_key === 'owner' }
 }
 
 /**
@@ -129,7 +137,7 @@ export async function ownerPerson(tenantId, sub) {
   const m = await member(tenantId, sub)
   if (!m) return null
   const p = await reportPerson({ tenantId, user: { sub, email: m.email }, isPlatformAdmin: false })
-  return { ...p, isOwnerOrAdmin: OWNER_ADMIN.has(m.role_key) }
+  return { ...p, isOwnerOrAdmin: OWNER_ADMIN.has(m.role_key), isOwner: m.role_key === 'owner' }
 }
 
 // Who a list of recipients is now: team members by their user id or their
@@ -191,13 +199,23 @@ export async function prepareSend(p, target, opts = {}) {
   }
   const delivery = normaliseDelivery(opts.delivery)
   const condition = normaliseCondition(opts.condition)
-  const bad = deliveryProblem(delivery) || conditionProblem(condition, spec.kind, watchable(spec)) || recipientsProblem(opts.recipients)
+  // A push: a schedule can also post the report to a web address (owners
+  // and admins with Manage); with nobody to email, the push is the send.
+  const pushUrl = opts.push?.url ? String(opts.push.url).trim() : null
+  if (pushUrl) {
+    if (kind !== 'scheduled') throw httpError(422, 'Only a schedule can post a report to a web address')
+    const why = pushUrlProblem(pushUrl)
+    if (why) throw httpError(422, why)
+    if (!(p.canManage && p.isOwnerOrAdmin)) throw httpError(403, 'Only an owner or an admin with Manage on Reports can post reports to a web address')
+  }
+  const pushOnly = !!pushUrl && !normaliseRecipients(opts.recipients).length
+  const bad = deliveryProblem(delivery) || conditionProblem(condition, spec.kind, watchable(spec)) || (pushOnly ? null : recipientsProblem(opts.recipients))
   if (bad) throw httpError(422, bad)
   if (delivery.attach === 'pdf' && !pdfAvailable()) {
     throw httpError(422, 'This server can\'t make PDFs yet. Attach a CSV or Excel file instead')
   }
-  const { to, skipped } = await resolveRecipients(p.tenantId, opts.recipients)
-  if (!to.length) throw httpError(422, 'None of the people picked are on the team any more')
+  const { to, skipped } = pushOnly ? { to: [], skipped: 0 } : await resolveRecipients(p.tenantId, opts.recipients)
+  if (!to.length && !pushOnly) throw httpError(422, 'None of the people picked are on the team any more')
   if (to.some(r => !isSelf(p, r)) && !p.canManage) {
     throw httpError(403, 'Sending a report to other people needs Manage on Reports. You can send it to yourself')
   }
@@ -208,7 +226,10 @@ export async function prepareSend(p, target, opts = {}) {
   if (personalOutside && !p.isOwnerOrAdmin) {
     throw httpError(403, 'Only an owner or an admin can send people\'s details outside the team')
   }
-  if (to.every(r => r.outside) && !personalOutside && heldOutside(spec)) {
+  if (pushUrl && !personalOutside && heldOutside(spec)) {
+    throw httpError(422, 'This report shows people\'s details, which aren\'t posted to a web address unless you let people\'s details go outside the team')
+  }
+  if (!pushOnly && to.every(r => r.outside) && !personalOutside && heldOutside(spec)) {
     throw httpError(422, PII_HELD + '. Send it to someone on the team as well, or let people\'s details go outside the team')
   }
   const params = opts.params && typeof opts.params === 'object' ? opts.params : {}
@@ -219,6 +240,7 @@ export async function prepareSend(p, target, opts = {}) {
   }
   return {
     kind, to, skipped, delivery, condition, params, personalOutside,
+    push: pushUrl ? { url: pushUrl, secret: opts.push.secret || null } : null,
     name: typeof opts.name === 'string' ? opts.name.trim().slice(0, 120) || null : null,
     message: typeof opts.message === 'string' ? opts.message.trim().slice(0, 1000) || null : null,
   }
@@ -265,9 +287,10 @@ function capOf(spec, delivery) {
   return Math.min(LIST_CAP, Math.max(1000, Math.floor(XLSX_CELLS / Math.max(1, spec.rows.length + 1))))
 }
 
-// The copy for addresses outside the team: a list without the columns with
-// people's details; a summary grouped by them can't go at all.
-function outsideCopy(result) {
+// The copy for addresses outside the team (and data links without people's
+// details): a list without the columns with people's details; a summary
+// grouped by them can't go at all.
+export function outsideCopy(result) {
   const spec = result.spec
   if (result.kind === 'list') {
     const keep = result.columns.map((c, i) => (c.pii ? -1 : i)).filter(i => i >= 0)
@@ -448,6 +471,36 @@ export async function deliver(p, target, plan, { schedule = null, due = null, lo
     }
   }
 
+  // The push: the figures as a data link gives them, signed, to the
+  // schedule's web address; people's details only when its owner let them
+  // go outside the team. With nobody to email, it is the whole send.
+  let push = null
+  if (plan.push?.url) {
+    const copy = plan.personalOutside ? { result } : outsideCopy(result)
+    if (!copy.result) push = { ok: false, status: null, error: PII_HELD, transient: false }
+    else if (!plan.push.secret) push = { ok: false, status: null, error: 'The web address has no secret: make a new one on the schedule', transient: false }
+    else {
+      const table = resultTable(copy.result)
+      push = await postSigned(plan.push.url, {
+        schedule: schedule ? { id: schedule.id, name: schedule.name || null } : null,
+        ...resultJson(copy.result, table, { name: plan.name || target.name, end: Math.min(table.rows.length, PUSH_ROWS) }),
+      }, plan.push.secret)
+      if (!push.ok) log?.warn({ status: push.status }, 'A report push wasn\'t taken')
+    }
+  }
+  const pushRec = push ? { push: { ok: push.ok, status: push.status } } : {}
+  if (!plan.to.length) {
+    const runId = await record({
+      ...base, format: 'json', rows, ms: Date.now() - started, error: push?.ok ? null : push?.error || 'Nothing was sent',
+      delivery: { ...counts, sent: 0, failed: 0, ...pushRec },
+    })
+    return {
+      status: push?.ok ? 'sent' : 'failed', error: push?.ok ? null : push?.error || 'Nothing was sent',
+      transient: !!push && !push.ok && push.transient, refused: false,
+      runId, to: 0, sent: 0, failed: 0, held: 0, kept: false, why: null, pushed: !!push?.ok,
+    }
+  }
+
   // What is sent: the team's copy, and the copy for addresses outside the team.
   const sender = await mailSender(p.tenantId, spec, plan.params)
   const title = plan.name || target.name || 'Report'
@@ -584,6 +637,10 @@ export async function deliver(p, target, plan, { schedule = null, due = null, lo
   } else {
     status = 'sent'
   }
+  if (push && !push.ok && status === 'sent') {
+    status = 'partly'
+    error = 'Emailed, but the web address didn\'t take it: ' + push.error
+  }
   const transient = status === 'failed' && !!targets.length && failures.every(f => transientSend(f.err))
 
   const deliveryRec = {
@@ -598,6 +655,7 @@ export async function deliver(p, target, plan, { schedule = null, due = null, lo
     kept: false,
     notes: [...sendNotes, ...team.fileNotes].slice(0, 10),
     ...(forced ? { forced: true } : {}),
+    ...pushRec,
   }
   const run = { ...base, rows, ms: Date.now() - started, error: status === 'sent' ? null : error }
 
@@ -625,7 +683,7 @@ export async function deliver(p, target, plan, { schedule = null, due = null, lo
     status, error: status === 'sent' ? null : error, transient,
     // Nothing could go to anyone: it won't go next time either.
     refused: !targets.length,
-    runId, to: plan.to.length, sent, failed: failures.length, held: held.length, kept, why: null,
+    runId, to: plan.to.length, sent, failed: failures.length, held: held.length, kept, why: null, pushed: !!push?.ok,
   }
 }
 

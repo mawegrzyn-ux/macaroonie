@@ -9269,8 +9269,43 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               sees, taking over a schedule, the outside-address refusal, a skipped run, a failed send and
               the time zone hint are covered by API tests only. Limits: one time zone per schedule; a run
               over 6 hours late is skipped; a send is known only as far as the provider taking the
-              message; files are CSV or Excel until PDFs (phase 4d); nothing goes to Slack, Teams or a web
-              address (push is phase 5).
+              message; files are CSV or Excel until PDFs (phase 4d); nothing goes to Slack or Teams.
+            </P>
+
+            <H3>Data links and posting to a web address (phase 5, migration 256)</H3>
+            <P>
+              <strong>Data links.</strong> <Mono>report_data_links</Mono> (forced RLS; a saved report or a
+              starter, name, <Mono>key_hash</Mono> = sha256 of the key and <Mono>key_hint</Mono> its last 4,{' '}
+              <Mono>params</Mono>, <Mono>open_params</Mono>, <Mono>personal</Mono>, <Mono>rate_per_hour</Mono>,{' '}
+              <Mono>expires_at</Mono>, <Mono>enabled</Mono>, its maker, uses and the rate window). Rules in{' '}
+              <Mono>api/src/reports/dataLinks.js</Mono> (<Mono>LINK_LIMITS</Mono>, <Mono>newKey()</Mono> = <Mono>mrd_</Mono>{' '}
+              + 24 random bytes, <Mono>makeLink()</Mono>, <Mono>serveLink()</Mono>, <Mono>assertLinkMaker()</Mono>: owners and
+              admins with Manage). Routes <Mono>routes/reportDataLinks.js</Mono>: <Mono>GET /api/reports/data-links?report=</Mono>,{' '}
+              <Mono>POST /api/reports/:id/data-links</Mono> (answers the key once), <Mono>PATCH</Mono> /{' '}
+              <Mono>DELETE /api/reports/data-links/:linkId</Mono>, <Mono>POST .../new-key</Mono>; public{' '}
+              <Mono>GET /api/report-data/:linkId</Mono> (no login; the key in <Mono>Authorization: Bearer</Mono>,{' '}
+              <Mono>X-Report-Key</Mono> or <Mono>?key=</Mono>; logged at warn only). Each read runs as the maker,
+              loaded afresh (<Mono>ownerPerson()</Mono>), with <Mono>outsideCopy()</Mono> unless <Mono>personal</Mono> and
+              the maker is an owner; <Mono>?period=</Mono> / <Mono>?venues=</Mono> only when open; JSON pages
+              (<Mono>?cursor=</Mono> of offset and the result&apos;s fingerprint, 409 when the figures changed; ETag
+              and 304) through <Mono>export/json.js</Mono> (<Mono>resultJson()</Mono>), CSV whole; 429 with Retry-After
+              over the rate. Each read is a run, kind <Mono>link</Mono> with <Mono>link_id</Mono>. Admin:{' '}
+              <Mono>components/reports/DataLinks.jsx</Mono> (<Mono>DataLinksWindow</Mono>, the viewer&apos;s{' '}
+              <Mono>more-links</Mono>).
+            </P>
+            <P>
+              <strong>Push.</strong> <Mono>report_schedules.push_url</Mono> and <Mono>push_secret</Mono> (sealed,{' '}
+              <Mono>mps_</Mono> + 32 random bytes, answered once by save as <Mono>push_secret</Mono>; a new one when the
+              address changes or <Mono>new_push_secret</Mono>). <Mono>services/webPush.js</Mono>: <Mono>pushUrlProblem()</Mono>{' '}
+              (https, no user name, no private host), <Mono>isPrivateAddress()</Mono> (checked again on every address the
+              host resolves to before each post, the connection made to the address checked, no redirects),{' '}
+              <Mono>postSigned()</Mono> with <Mono>X-Macaroonie-Signature: t=&lt;secs&gt;,v1=&lt;hex HMAC-SHA256 of
+              &quot;t.body&quot;&gt;</Mono>. <Mono>deliver()</Mono> posts <Mono>resultJson()</Mono> (1,000 rows) after the
+              emails; a push-only schedule has no recipients; a failed post is tried again like a failed email.
+              Owners and admins with Manage only (<Mono>can_push</Mono> on <Mono>/reports/recipients</Mono>); a report
+              showing people&apos;s details needs <Mono>personal_outside</Mono>. Admin: the Post to a web address part of{' '}
+              <Mono>ScheduleWindow.jsx</Mono> (<Mono>sched-push-url</Mono>, <Mono>sched-secret</Mono>). Tests:{' '}
+              <Mono>api/test/reports-data-links.test.mjs</Mono> (6).
             </P>
 
             <H3>Layout templates, Page reports and PDFs (phase 4c and 4d, migration 253)</H3>

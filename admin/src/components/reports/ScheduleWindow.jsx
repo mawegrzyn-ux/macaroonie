@@ -586,8 +586,13 @@ function ScheduleForm({ report, catalogue, rec, venues, title, reportId, schedul
   })
   const [people, setPeople] = useState(() => start.list)
   const [personal, setPersonal] = useState(() => !!schedule?.personal_outside)
+  const [pushUrl, setPushUrl] = useState(() => schedule?.push_url || '')
+  const [newSecret, setNewSecret] = useState(false)
+  const [secret, setSecret] = useState(null)   // { value, schedule }: shown once after saving
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const pushOn = !!pushUrl.trim()
+  const pushProblem = pushOn && !/^https:\/\/[^\s/]+/i.test(pushUrl.trim()) ? 'The web address must start with https://' : null
 
   const values = Object.fromEntries(spec.params.map(p => [p.key, p.key in picked ? picked[p.key] : p.default]))
   const scope = venueScope(ordered, spec, resolveParams(spec, picked))
@@ -606,9 +611,11 @@ function ScheduleForm({ report, catalogue, rec, venues, title, reportId, schedul
     periodProblem(spec, picked, today),
     conditionProblem(fullCondition, spec.kind, watch),
     deliveryProblem(delivery),
-    recipientsProblem(people),
+    !(pushOn && !people.length) && recipientsProblem(people),
     outside.length > 0 && !rec.can_outside && 'Only an owner or an admin can send reports to addresses outside the team',
     outside.length > 0 && personal && !rec.can_personal_outside && 'Only an owner or an admin can send people\'s details outside the team',
+    pushProblem,
+    pushOn && !rec.can_push && 'Only an owner or an admin with Manage on Reports can post a report to a web address',
   ].filter(Boolean)
 
   const save = async () => {
@@ -623,18 +630,37 @@ function ScheduleForm({ report, catalogue, rec, venues, title, reportId, schedul
         delivery: normaliseDelivery(delivery),
         condition: fullCondition,
         recipients: people,
-        personal_outside: outside.length > 0 && personal,
+        personal_outside: (outside.length > 0 || pushOn) && personal,
+        ...(rec.can_push || schedule?.push_url ? { push_url: pushUrl.trim() || null } : {}),
+        ...(newSecret && pushOn ? { new_push_secret: true } : {}),
       }
       const out = schedule
         ? await api.patch('/reports/schedules/' + encodeURIComponent(schedule.id), body)
         : await api.post('/reports/' + encodeURIComponent(reportId) + '/schedules', body)
       qc.invalidateQueries({ queryKey: ['report-schedules'] })
       setSaving(false)
-      onSaved?.(out.schedule)
+      if (out.push_secret) setSecret({ value: out.push_secret, schedule: out.schedule })
+      else onSaved?.(out.schedule)
     } catch (e) {
       setError(e)
       setSaving(false)
     }
+  }
+
+  if (secret) {
+    return (
+      <Modal title={title} onClose={() => onSaved?.(secret.schedule)}
+        footer={<button type="button" onClick={() => onSaved?.(secret.schedule)} data-testid="sched-secret-done" className={primaryBtn}>Done</button>}>
+        <div className="space-y-3" data-testid="sched-secret">
+          <p className="text-sm font-medium">Saved. Copy the signing secret now: it isn't shown again.</p>
+          <p className="text-xs text-muted-foreground">
+            Each post carries an X-Macaroonie-Signature header: t=the time,v1=an HMAC-SHA256 of the time, a dot and the body, made with this secret. Check it before trusting a post.
+          </p>
+          <code className="block break-all rounded border bg-background px-2 py-1 text-xs" data-testid="sched-secret-text">{secret.value}</code>
+          <button type="button" onClick={() => navigator.clipboard?.writeText(secret.value).catch(() => {})} data-testid="sched-secret-copy" className={plainBtn}>Copy the secret</button>
+        </div>
+      </Modal>
+    )
   }
 
   const footer = (
@@ -693,6 +719,30 @@ function ScheduleForm({ report, catalogue, rec, venues, title, reportId, schedul
         <DeliveryPicker delivery={delivery} onChange={setDelivery} tid="sched" />
 
         <RecipientsPicker rec={rec} people={people} setPeople={setPeople} personal={personal} setPersonal={setPersonal} known={known} tid="sched" />
+
+        {(rec.can_push || schedule?.push_url) && (
+          <Part title="Post to a web address" testid="sched-push">
+            <Field label="Web address (optional)" hint="Another app gets the figures as JSON each time it sends, signed so it can check they came from here. Left blank, nothing is posted.">
+              <input type="url" value={pushUrl} onChange={e => setPushUrl(e.target.value)} maxLength={500} placeholder="https://"
+                disabled={!rec.can_push} data-testid="sched-push-url" className={cn(inputCls, 'h-12')} />
+            </Field>
+            {schedule?.push_url && pushOn && rec.can_push && (
+              <label className={checkRow}>
+                <input type="checkbox" checked={newSecret} onChange={e => setNewSecret(e.target.checked)} data-testid="sched-push-new-secret" className="w-5 h-5" />
+                <span className="text-sm">Make a new signing secret (the old one stops working)</span>
+              </label>
+            )}
+            {pushOn && !people.length && <p className="text-[11px] text-muted-foreground" data-testid="sched-push-only">Nobody is emailed: the post is the whole send.</p>}
+            {pushOn && outside.length === 0 && (
+              <label className={cn(checkRow, !rec.can_personal_outside && !personal && 'opacity-50')}>
+                <input type="checkbox" checked={personal} disabled={!rec.can_personal_outside && !personal} onChange={e => setPersonal(e.target.checked)}
+                  data-testid="sched-push-personal" className="w-5 h-5" />
+                <span className="text-sm">Include people's details (names, emails, phones) in the post. A report that shows them can only be posted with this on.</span>
+              </label>
+            )}
+            {pushProblem && <Note testid="sched-push-problem">{pushProblem}</Note>}
+          </Part>
+        )}
 
         <Part title="The email" testid="sched-email">
           <Field label="Title of the email" hint="Left blank, it is the report's name.">

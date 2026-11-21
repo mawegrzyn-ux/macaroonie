@@ -199,7 +199,7 @@ export async function recordRun(p, run, log) {
 }
 
 // The kinds of run report_runs holds (the CHECK of migration 251).
-export const RUN_KINDS = ['run', 'export', 'scheduled', 'emailed']
+export const RUN_KINDS = ['run', 'export', 'scheduled', 'emailed', 'link']
 
 /** recordRun()'s row, inside the caller's transaction; returns its id. Throws. */
 export async function insertRun(tx, p, run) {
@@ -210,14 +210,14 @@ export async function insertRun(tx, p, run) {
   }
   const [row] = await tx`
     INSERT INTO report_runs (tenant_id, report_id, starter_key, report_name, subject, kind, format,
-                             user_sub, user_email, params, row_count, ms, error, schedule_id, delivery)
+                             user_sub, user_email, params, row_count, ms, error, schedule_id, delivery, link_id)
     VALUES (${p.tenantId}, ${run.saved?.id ?? null}, ${run.starter?.key ?? run.saved?.starter_key ?? null},
             ${String(run.name || '').slice(0, 120) || null}, ${run.spec?.subject ?? null},
             ${RUN_KINDS.includes(run.kind) ? run.kind : 'run'}, ${run.format ?? null},
             ${p.sub}, ${p.email}, ${tx.json(params)},
             ${Number.isFinite(run.rows) ? Math.round(run.rows) : null}, ${Number.isFinite(run.ms) ? Math.round(run.ms) : null},
             ${run.error ? String(run.error).slice(0, 300) : null},
-            ${run.schedule_id ?? null}, ${run.delivery ? tx.json(run.delivery) : null})
+            ${run.schedule_id ?? null}, ${run.delivery ? tx.json(run.delivery) : null}, ${run.link_id ?? null})
     RETURNING id`
   if (run.saved?.id && !run.error) {
     await tx`UPDATE reports SET last_run_at = now() WHERE tenant_id = ${p.tenantId} AND id = ${run.saved.id}`

@@ -52,7 +52,9 @@ import { STARTER_PREFIX, starterByKey } from '../reports/starters/index.js'
 import { limitPepperRuns } from '../reports/access.js'
 import { loadTarget } from '../reports/target.js'
 import { reportZone } from '../reports/run.js'
-import { requestPerson, ownerPerson, prepareSend, deliver } from '../reports/send.js'
+import { requestPerson, ownerPerson, prepareSend, deliver, pushOf } from '../reports/send.js'
+import { seal } from '../services/vault.js'
+import { newPushSecret } from '../services/webPush.js'
 import { pdfAvailable } from '../services/pdfBrowser.js'
 import { viaPepper } from './reports.js'
 import { normaliseReport, resolveParams, venueScope } from '../../../shared/reports/spec.js'
@@ -87,6 +89,8 @@ const ScheduleBody = z.object({
   condition: Part.optional(),
   recipients: Recipients,
   personal_outside: z.boolean().optional(),
+  push_url: z.string().trim().max(500).nullable().optional(),
+  new_push_secret: z.boolean().optional(),
 })
 const ScheduleEdit = ScheduleBody.partial()
 const SendBody = z.object({
@@ -220,6 +224,7 @@ function scheduleView(row, p, { venues, byId, byEmail, catalogue }) {
         : { email: r.email, user_id: null, name: null, on_team: false, outside: true }
     }),
     personal_outside: !!row.personal_outside,
+    push_url: row.push_url || null,
     enabled: !!row.enabled,
     paused_reason: row.enabled ? null : row.paused_reason,
     // A paused schedule has no next run until it is resumed.
@@ -275,7 +280,7 @@ function draftRow(base, fields) {
   return {
     id: null, report_id: null, starter_key: null, report_name: null, report_spec: null,
     name: null, message: null, timing: null, params: {}, delivery: null, condition: null, recipients: [],
-    personal_outside: false, enabled: true, paused_reason: null, next_run_at: null, running_until: null,
+    personal_outside: false, push_url: null, enabled: true, paused_reason: null, next_run_at: null, running_until: null,
     last_run_at: null, last_sent_at: null, last_status: null, last_error: null, failures: 0,
     owner_sub: null, owner_email: null, created_at: null, updated_at: null,
     ...base, ...fields,
@@ -325,6 +330,7 @@ async function sendPlan(row, p) {
     const plan = await prepareSend(owner, target, {
       kind: 'scheduled', recipients: row.recipients, delivery: row.delivery, condition: row.condition,
       params: row.params, personalOutside: !!row.personal_outside, name: row.name, message: row.message,
+      push: pushOf(row),
     })
     return { owner, target, plan }
   } catch (e) {
@@ -363,6 +369,7 @@ export default async function reportScheduleRoutes(app) {
       can_others: p.canManage,
       can_outside: p.canManage && p.isOwnerOrAdmin,
       can_personal_outside: p.isOwnerOrAdmin,
+      can_push: p.canManage && p.isOwnerOrAdmin,
       can_pdf: pdfAvailable(),
       max: MAX_RECIPIENTS,
     }
@@ -401,14 +408,17 @@ export default async function reportScheduleRoutes(app) {
     const plan = await prepareSend(me, target, {
       kind: 'scheduled', recipients: body.recipients, delivery: body.delivery, condition: body.condition,
       params, personalOutside: body.personal_outside === true, name: body.name, message: body.message,
+      push: body.push_url ? { url: body.push_url } : null,
     })
     const next = nextRunAt(timing, new Date(), await reportZone(p.tenantId, target.spec, params))
     if (!next) throw httpError(422, 'Pick at least one day of the week')
     const ref = refOfTarget(target)
+    // The push's secret: shown once, in this answer.
+    const pushSecret = plan.push && !body.dry_run ? newPushSecret() : null
     const fields = {
       owner_sub: me.sub, owner_email: me.email, name: plan.name, message: plan.message, timing, params,
       delivery: plan.delivery, condition: plan.condition, recipients: normaliseRecipients(body.recipients),
-      personal_outside: plan.personalOutside, next_run_at: next,
+      personal_outside: plan.personalOutside, next_run_at: next, push_url: plan.push?.url ?? null,
     }
     const row = await withTenant(p.tenantId, async tx => {
       const [{ n }] = await tx`SELECT count(*)::int AS n FROM report_schedules WHERE tenant_id = ${p.tenantId} AND owner_sub = ${me.sub}`
@@ -416,17 +426,19 @@ export default async function reportScheduleRoutes(app) {
       if (body.dry_run) return null
       const [r] = await tx`
         INSERT INTO report_schedules (tenant_id, report_id, starter_key, owner_sub, owner_email, name, message,
-                                      timing, params, delivery, condition, recipients, personal_outside, next_run_at)
+                                      timing, params, delivery, condition, recipients, personal_outside, next_run_at,
+                                      push_url, push_secret)
         VALUES (${p.tenantId}, ${ref.report_id ?? null}, ${ref.starter_key ?? null}, ${me.sub}, ${me.email},
                 ${plan.name}, ${plan.message}, ${tx.json(timing)}, ${tx.json(params)}, ${tx.json(plan.delivery)},
-                ${tx.json(plan.condition)}, ${tx.json(normaliseRecipients(body.recipients))}, ${plan.personalOutside}, ${next})
+                ${tx.json(plan.condition)}, ${tx.json(normaliseRecipients(body.recipients))}, ${plan.personalOutside}, ${next},
+                ${plan.push?.url ?? null}, ${pushSecret ? seal(pushSecret) : null})
         RETURNING id`
       return r
     })
     if (body.dry_run) {
       return { dry_run: true, schedule: await draftView(p, draftRow(targetRow(target), fields)), skipped: plan.skipped }
     }
-    return reply.code(201).send({ schedule: await viewOf(p, row.id) })
+    return reply.code(201).send({ schedule: await viewOf(p, row.id), ...(pushSecret ? { push_secret: pushSecret } : {}) })
   })
 
   // Change it. Someone with Manage changing someone else's makes it their own.
@@ -445,7 +457,9 @@ export default async function reportScheduleRoutes(app) {
     const timing = normaliseTiming(has('timing') ? body.timing : row.timing)
     const params = ownParams(target.spec, has('params') ? body.params : row.params)
     const recipients = has('recipients') ? body.recipients : row.recipients
+    const pushUrl = Object.prototype.hasOwnProperty.call(body, 'push_url') ? body.push_url || null : row.push_url
     const plan = await prepareSend(me, target, {
+      push: pushUrl ? { url: pushUrl } : null,
       kind: 'scheduled',
       recipients,
       delivery: has('delivery') ? body.delivery : row.delivery,
@@ -461,10 +475,13 @@ export default async function reportScheduleRoutes(app) {
       const after = draftRow(row, {
         owner_sub: me.sub, owner_email: me.email, name: plan.name, message: plan.message, timing, params,
         delivery: plan.delivery, condition: plan.condition, recipients: normaliseRecipients(recipients),
-        personal_outside: plan.personalOutside, next_run_at: next, failures: 0,
+        personal_outside: plan.personalOutside, next_run_at: next, failures: 0, push_url: plan.push?.url ?? null,
       })
       return { dry_run: true, schedule: await draftView(p, after), takes_over: row.owner_sub !== me.sub, skipped: plan.skipped }
     }
+    // A new address, or asked for, makes a new secret (shown once); none, none.
+    const freshSecret = plan.push && (plan.push.url !== row.push_url || body.new_push_secret || !row.push_secret) ? newPushSecret() : null
+    const storedSecret = !plan.push ? null : freshSecret ? seal(freshSecret) : row.push_secret
     // Not while the sweep or a Send now holds it: that send would finish with the old settings.
     const [done] = await withTenant(p.tenantId, tx => tx`
       UPDATE report_schedules
@@ -472,12 +489,12 @@ export default async function reportScheduleRoutes(app) {
              timing = ${tx.json(timing)}, params = ${tx.json(params)}, delivery = ${tx.json(plan.delivery)},
              condition = ${tx.json(plan.condition)}, recipients = ${tx.json(normaliseRecipients(recipients))},
              personal_outside = ${plan.personalOutside}, next_run_at = ${next}, retry_of = NULL, failures = 0,
-             updated_at = now()
+             push_url = ${plan.push?.url ?? null}, push_secret = ${storedSecret}, updated_at = now()
        WHERE tenant_id = ${p.tenantId} AND id = ${row.id}
          AND (running_until IS NULL OR running_until < now())
    RETURNING id`)
     if (!done) throw httpError(409, BUSY)
-    return { schedule: await viewOf(p, row.id) }
+    return { schedule: await viewOf(p, row.id), ...(freshSecret ? { push_secret: freshSecret } : {}) }
   })
 
   // Its owner, or Manage. View is enough: someone who has lost Use can still stop their own.
@@ -524,6 +541,7 @@ export default async function reportScheduleRoutes(app) {
       plan = await prepareSend(owner, target, {
         kind: 'scheduled', recipients: row.recipients, delivery: row.delivery, condition: row.condition,
         params: row.params, personalOutside: !!row.personal_outside, name: row.name, message: row.message,
+        push: pushOf(row),
       })
     } catch (e) {
       throw asTheirs(e, row, owner, p)

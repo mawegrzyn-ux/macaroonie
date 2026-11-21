@@ -686,6 +686,17 @@ export async function fillTenant(sub, tenantId, { mark = MARK, slug = 'zqx', loy
         await step('report page changed', () => put(`/api/reports/${pageId}`, { description: mark + ' for Monday at ten' }))
         if (layoutId) await step('report page layout', () => put(`/api/reports/${pageId}/layout`, { layout_id: layoutId }))
       }
+      // A data link (migration 256) with its venue fixed and the period
+      // left open, changed and given a new key.
+      const linked = await step('report data link', () => post(`/api/reports/${rid}/data-links`, {
+        name: mark + ' Accountant sheet', params: { venues: [V] }, open_params: ['period'], rate_per_hour: 120,
+      }))
+      const linkId = linked?.link?.id
+      if (linkId) {
+        ids.reportDataLink = linkId
+        await step('report data link changed', () => patch(`/api/reports/data-links/${linkId}`, { name: mark + ' Accountant sheet (weekly)' }))
+        await step('report data link key', () => post(`/api/reports/data-links/${linkId}/new-key`, {}))
+      }
     }
   }
 

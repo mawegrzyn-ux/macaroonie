@@ -39,6 +39,7 @@ const whatText = r => {
   if (r.what === 'scheduled') return 'Sent by a schedule'
   if (r.what === 'skipped') return 'Skipped by a schedule'
   if (r.what === 'emailed') return 'Emailed'
+  if (r.what === 'link') return 'Read by a data link'
   const f = FORMATS[r.format] || 'a file'
   return r.what === 'kept' ? 'Kept a file (' + f + ')' : 'Downloaded (' + f + ')'
 }
