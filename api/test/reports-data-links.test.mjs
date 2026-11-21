@@ -16,6 +16,7 @@ const { sellTwoDays } = await import('./support/tillDays.mjs')
 const { forgetReportResults } = await import('../src/reports/run.js')
 const { sweepSchedules } = await import('../src/reports/schedules.js')
 const { pushHooks, isPrivateAddress, pushUrlProblem } = await import('../src/services/webPush.js')
+const { LINK_LIMITS } = await import('../src/reports/dataLinks.js')
 
 let ids, filled, owner, admin, operator, viewer, other
 const log = { info() {}, warn() {}, error() {} }
@@ -241,4 +242,59 @@ test('push addresses: private networks are refused', () => {
   assert.ok(pushUrlProblem('https://user:pass@hooks.example.com/x'))
   assert.ok(pushUrlProblem('ftp://hooks.example.com/x'))
   assert.ok(pushUrlProblem('not a url'))
+})
+
+test('Manage on Reports alone isn\'t enough: only owners and admins make links', async () => {
+  const [role] = await sql`SELECT id, permissions FROM tenant_roles WHERE tenant_id = ${ids.a} AND key = 'operator'`
+  await sql`UPDATE tenant_roles SET permissions = ${sql.json({ ...role.permissions, reports: 'manage' })} WHERE id = ${role.id}`
+  try {
+    const res = await operator.post('/api/reports/starter:till_sales_by_day/data-links', { name: 'Not mine to make' })
+    assert.equal(res.status, 403, res.body)
+  } finally {
+    await sql`UPDATE tenant_roles SET permissions = ${sql.json(role.permissions)} WHERE id = ${role.id}`
+  }
+})
+
+test('a cursor from figures that have changed is refused; a list says a link has run out', async () => {
+  const made = await ok(owner.post('/api/reports/starter:till_sales_by_dish/data-links', { name: 'Cursor', params: { period: { relative: 'today' } } }))
+  const base = pathOf(made.link)
+  const p1 = await read(base + '?limit=1', bearer(made.key))
+  assert.ok(p1.json.next_cursor)
+  const offset = Buffer.from(p1.json.next_cursor, 'base64url').toString().split('.')[0]
+  const stale = Buffer.from(offset + '.' + '0'.repeat(16)).toString('base64url')
+  const res = await read(base + '?limit=1&cursor=' + stale, bearer(made.key))
+  assert.equal(res.status, 409, res.body)
+
+  await sql`UPDATE report_data_links SET expires_at = now() - interval '1 minute' WHERE id = ${made.link.id}`
+  const listed = await ok(owner.get('/api/reports/data-links'))
+  const row = (listed.links || listed).find(l => l.id === made.link.id)
+  assert.equal(row.state, 'expired')
+  await ok(owner.delete('/api/reports/data-links/' + made.link.id))
+})
+
+test('a report takes at most the limit of data links', async () => {
+  const made = []
+  try {
+    for (let i = 0; i < LINK_LIMITS.perReport; i++) made.push(await ok(owner.post('/api/reports/starter:till_sales_by_hour_weekday/data-links', { name: 'Link ' + i })))
+    const res = await owner.post('/api/reports/starter:till_sales_by_hour_weekday/data-links', { name: 'One too many' })
+    assert.equal(res.status, 422, res.body)
+  } finally {
+    for (const m of made) await owner.delete('/api/reports/data-links/' + m.link.id)
+  }
+})
+
+test('the real sender refuses a private address when it connects, and a busy receiver is tried again', async () => {
+  const { postSigned } = await import('../src/services/webPush.js')
+  // pushUrlProblem() never sees these: the sender itself must refuse what a name resolves to.
+  for (const url of ['https://127.0.0.1/hook', 'https://localhost/hook']) {
+    await assert.rejects(realSend(url, '{}', {}), e => e.refused === true, url)
+  }
+  try {
+    for (const [status, transient] of [[408, true], [429, true], [503, true], [400, false], [404, false]]) {
+      pushHooks.send = async () => ({ status })
+      const r = await postSigned('https://hooks.example.com/x', { a: 1 }, 'secret')
+      assert.equal(r.ok, false)
+      assert.equal(r.transient, transient, String(status))
+    }
+  } finally { pushHooks.send = realSend }
 })
