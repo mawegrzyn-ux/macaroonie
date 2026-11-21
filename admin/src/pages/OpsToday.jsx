@@ -18,7 +18,7 @@ import {
   Sun, Sunrise, Moon, RefreshCw, Thermometer, Flame, ListChecks, AlertTriangle, Truck, Send,
   Wallet, ShoppingBag, ClipboardList, CheckCircle2, ExternalLink, X, ChevronRight, CalendarDays,
   Users, Plus, Sparkles, Loader2, Info, CloudSun, Cloud, CloudFog, CloudDrizzle, CloudRain, CloudSnow,
-  CloudLightning,
+  CloudLightning, BarChart3,
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { useApi } from '@/lib/api'
@@ -48,6 +48,7 @@ const KIND_ICON = {
   fridge_check: Thermometer, hold_check: Thermometer, cooking_check: Flame, corrective_action: AlertTriangle,
   checklist: ListChecks, hs_action: ClipboardList, po_to_send: Send, delivery_due: Truck, delivery_not_booked: Truck,
   orders_to_approve: ClipboardList, cash_up: Wallet, wages_to_pay: Users, online_orders: ShoppingBag,
+  report_alert: BarChart3,
 }
 
 // The full page behind each form (F8).
@@ -64,11 +65,13 @@ const FORMS = {
 const AREA_ROUTES = {
   food_safety: ['/food-safety', '/hs-dashboard'], checklists: ['/checklists'], hs_actions: ['/hs-action-log'],
   purchasing: ['/purchasing'], cash: ['/cash-recon'], wages: ['/cash-recon'], online_orders: ['/orders'],
+  report_alerts: ['/reports'],
 }
 
 const AREA_NAMES = {
   food_safety: 'food safety', checklists: 'checklists', hs_actions: 'the H&S action log',
   purchasing: 'purchasing', cash: 'cash reconciliation', wages: 'wages', online_orders: 'online orders',
+  report_alerts: 'report alerts',
 }
 
 export function readVenue() { try { return localStorage.getItem(VENUE_KEY) || '' } catch { return '' } }

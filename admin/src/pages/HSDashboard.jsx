@@ -341,7 +341,7 @@ function WidgetCard({
       {/* Fills whatever height the card's row span gives it; scrolls inside. */}
       <div className={cn('flex-1 min-h-0 overflow-auto', !meta.flush && 'p-4')}>
         {!me ? null
-          : allowed ? renderWidget({ widget, venueId, ctx, template, onChecklistState: setChecklistState })
+          : allowed ? renderWidget({ widget, venueId, ctx, template, onChecklistState: setChecklistState, editing, onSetting })
           : <NoAccess meta={meta} />}
       </div>
     </div>

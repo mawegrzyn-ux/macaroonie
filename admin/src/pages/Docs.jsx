@@ -9308,6 +9308,51 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>api/test/reports-data-links.test.mjs</Mono> (6).
             </P>
 
+            <H3>Reports on dashboards, the phone, the menu search and Today (phase 5, migration 257)</H3>
+            <P>
+              <strong>Widget.</strong> Widget type <Mono>report</Mono> (migration 257 widens the
+              <Mono>widget_type</Mono> CHECK; <Mono>WIDGET_MODULE</Mono> <Mono>report: &apos;reports&apos;</Mono>, so adding one
+              needs View on Reports), on every dashboard kind. The report is the widget&apos;s{' '}
+              <Mono>settings.report</Mono> (a saved id or <Mono>starter:&lt;key&gt;</Mono>), options{' '}
+              <Mono>chart_only</Mono> / <Mono>table_only</Mono>. <Mono>components/reports/ReportWidget.jsx</Mono>:{' '}
+              <Mono>useRunnableReports()</Mono> (the <Mono>[&apos;reports&apos;]</Mono> list, saved reports and starters
+              with <Mono>runs</Mono>), <Mono>ReportPicker</Mono>, <Mono>ReportPeek</Mono> (<Mono>POST /reports/:id/run</Mono>{' '}
+              as the person looking, every 5 minutes, <Mono>shownResult()</Mono> then <Mono>ResultCard</Mono>),{' '}
+              <Mono>ReportWidget</Mono> (loaded lazily by <Mono>widgetTypes.jsx</Mono>, so the dashboards don&apos;t
+              carry the report pages&apos; code; on the phone its link opens the phone page).
+            </P>
+            <P>
+              <strong>Phone.</strong> <Mono>pages/mobile/MobileReports.jsx</Mono> (<Mono>MobileReportList</Mono> at{' '}
+              <Mono>/mobile/reports</Mono>: starred, own and the team&apos;s, starters, a search;{' '}
+              <Mono>MobileReport</Mono> at <Mono>/mobile/reports/:ref</Mono>: the period and{' '}
+              <Mono>ReportPeek</Mono>, read only; a page of reports says to open it on the office pages),
+              lazy routes in <Mono>main.jsx</Mono>, the <Mono>reports</Mono> tile in <Mono>mobile/registry.js</Mono>,{' '}
+              <Mono>opsLink()</Mono> mapping <Mono>/reports/:id</Mono> to the phone page.
+            </P>
+            <P>
+              <strong>Menu search.</strong> <Mono>searchReports(list, query)</Mono> in <Mono>shared/navSearch.js</Mono>{' '}
+              (every term in the name or the description, a name hit 2, a description hit 1, a plural half a
+              point less, starred a quarter more, <Mono>REPORT_RESULTS_MAX</Mono> 5);{' '}
+              <Mono>SavedReportResults</Mono> in <Mono>components/layout/NavSearch.jsx</Mono> (from two letters,
+              saved reports that run and starred starters; <Mono>nav-search-reports</Mono>,{' '}
+              <Mono>nav-search-report</Mono> <Mono>data-id</Mono>), drawn under the menu&apos;s matches by{' '}
+              <Mono>AppShell.jsx</Mono> for people with Reports.
+            </P>
+            <P>
+              <strong>Today.</strong> A schedule&apos;s <Mono>delivery.today</Mono> (<Mono>normaliseDelivery()</Mono>{' '}
+              keeps it only when true; never on Email it now). With it a schedule may have no recipients;
+              its runs record <Mono>delivery.today</Mono> when the condition was met (<Mono>deliver()</Mono>, format{' '}
+              <Mono>today</Mono> when nothing else went). <Mono>GET /api/reports/alerts?venue_id=&amp;date=</Mono>{' '}
+              (Reports View; <Mono>routes/reportSchedules.js</Mono>): each schedule&apos;s latest such run on the
+              venue&apos;s day, the report still runnable by the person (<Mono>runsFor()</Mono>) and the venue in its
+              scope (<Mono>venueScope()</Mono>). <Mono>services/opsToday.js</Mono> source <Mono>report_alerts</Mono>{' '}
+              (area module <Mono>reports</Mono>): a <Mono>report_alert</Mono> task in Now, opening the report.
+              Admin: the On Today part of <Mono>ScheduleWindow.jsx</Mono> (<Mono>sched-today</Mono>,{' '}
+              <Mono>sched-today-only</Mono>), <Mono>KIND_ICON</Mono> / <Mono>AREA_ROUTES</Mono> in{' '}
+              <Mono>OpsToday.jsx</Mono>. Tests: <Mono>api/test/reports-phase5.test.mjs</Mono> (4), the
+              report search test in <Mono>shared/test/navSearch.test.mjs</Mono>.
+            </P>
+
             <H3>Layout templates, Page reports and PDFs (phase 4c and 4d, migration 253)</H3>
             <P>
               <strong>Layouts.</strong> <Mono>report_layouts</Mono> (forced RLS; name unique per group, at most one{' '}
@@ -10029,8 +10074,7 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
             </P>
 
             <InfoBox>
-              <strong>Not built yet.</strong> Data links, push, a dashboard widget, the
-              phone viewer, saved reports in the menu search and Today alerts (phase 5). Limits of the builder: no undo; filters made of several parts (<Mono>any</Mono>,{' '}
+              Limits of the builder: no undo; filters made of several parts (<Mono>any</Mono>,{' '}
               <Mono>all</Mono>, <Mono>has</Mono>) are said in words and can be taken off, never made or edited on
               screen; tags aren&apos;t edited; the Data panel walks two links deep (a deeper path a starter uses
               still shows and runs); a top or bottom few ranks by a value that is shown; the question before

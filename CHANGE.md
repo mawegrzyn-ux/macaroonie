@@ -6,6 +6,15 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-21 — Reports on dashboards, the phone, the menu search and Today]
+
+- **A report on any dashboard** (migration 257): Add widget, then A report, and pick it in the widget; it shows the chart and table as you would see them, with Open the report. Chart only and Table only options.
+- **Reports on the phone**: a Reports tile listing your starred reports, your own and your team's, and the starters, each opening with its period.
+- **The menu search lists reports**: typing in the search box shows saved reports and starred starters whose name or description has your words.
+- **A task on Today from a schedule**: tick Also raise a task on Today in a schedule's window; each time it sends (when its condition is met), the venue's Today page shows a task opening the report. A schedule can do just that, with nobody to email.
+
+---
+
 ## [2026-11-21 — Data links and posting reports to a web address]
 
 - **Data links** (a report's More → Data links, owners and admins with Manage on Reports): an address other apps read the report's current figures from, as JSON or CSV, with a key shown once. Runs with its maker's access each time, keeps to a number of calls an hour, can stop on a last day, leaves people's details out unless an owner allows them; switch off, new key, delete.

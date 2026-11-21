@@ -11,7 +11,7 @@ import {
   Eye, EyeOff, RefreshCw, Maximize2, Minimize2, Columns, LayoutList, Layers,
   Shield, ChevronDown, Hand, KanbanSquare, LayoutGrid, Sparkles,
 } from 'lucide-react'
-import { NavSearchInput, NavSearchResults, PepperNavResults, useNavSearchResults, usePepperNavSearch } from '@/components/layout/NavSearch'
+import { NavSearchInput, NavSearchResults, PepperNavResults, SavedReportResults, useNavSearchResults, usePepperNavSearch } from '@/components/layout/NavSearch'
 
 // nav_items.icon is a plain lucide-react component name (string), set by
 // the nav designer's icon picker — resolve it dynamically instead of
@@ -400,7 +400,7 @@ export default function AppShell() {
               onOpenChat={() => { afterNavPick(); openAi() }}
               onShowAll={() => pepperSearch.reset()}
             />
-          ) : navResults ? (
+          ) : navResults ? (<>
             <NavSearchResults
               results={navResults}
               query={navQuery}
@@ -409,7 +409,8 @@ export default function AppShell() {
               canAskAi={canAskAi}
               onAskAi={() => pepperSearch.ask(navQuery)}
             />
-          ) : (<>
+            <SavedReportResults query={navQuery} enabled={(me?.permissions?.reports ?? 'none') !== 'none'} onPick={afterNavPick} />
+          </>) : (<>
           {isLauncherMode ? (
             // Launcher mode: the sidebar tree is switched off tenant-wide
             // (Settings → Navigation) in favour of the quick-access tile

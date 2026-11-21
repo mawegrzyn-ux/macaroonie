@@ -428,3 +428,32 @@ export function searchNavTree(nodes, query) {
   out.sort((a, b) => b.score - a.score || b.labelHits - a.labelHits || a.label.localeCompare(b.label))
   return out
 }
+
+/**
+ * Saved reports the menu search lists below the menu's links (phase 5,
+ * docs/REPORTS.md 15): every term must hit the report's name or its
+ * description, a name hit counting more; starred reports first among equals.
+ * `list` is GET /api/reports' rows (only what the person may open). [] when
+ * not searching.
+ */
+export const REPORT_RESULTS_MAX = 5
+export function searchReports(list, query, max = REPORT_RESULTS_MAX) {
+  const terms = searchTerms(query)
+  if (!terms.length) return []
+  const out = []
+  for (const r of list || []) {
+    const name = searchWords(r.name)
+    const about = searchWords(r.description)
+    let score = 0
+    let ok = true
+    for (const t of terms) {
+      const n = hitKind(t, name)
+      const d = n ? 0 : hitKind(t, about)
+      if (!n && !d) { ok = false; break }
+      score += n ? (n === 2 ? 2 : 2 - FORM_PENALTY) : (d === 2 ? 1 : 1 - FORM_PENALTY)
+    }
+    if (ok) out.push({ report: r, score: score + (r.starred ? 0.25 : 0) })
+  }
+  out.sort((a, b) => b.score - a.score || String(a.report.name).localeCompare(String(b.report.name)))
+  return out.slice(0, max).map(x => x.report)
+}

@@ -611,7 +611,7 @@ function ScheduleForm({ report, catalogue, rec, venues, title, reportId, schedul
     periodProblem(spec, picked, today),
     conditionProblem(fullCondition, spec.kind, watch),
     deliveryProblem(delivery),
-    !(pushOn && !people.length) && recipientsProblem(people),
+    !((pushOn || delivery.today) && !people.length) && recipientsProblem(people),
     outside.length > 0 && !rec.can_outside && 'Only an owner or an admin can send reports to addresses outside the team',
     outside.length > 0 && personal && !rec.can_personal_outside && 'Only an owner or an admin can send people\'s details outside the team',
     pushProblem,
@@ -717,6 +717,20 @@ function ScheduleForm({ report, catalogue, rec, venues, title, reportId, schedul
           watch={watch} kind={spec.kind} hasTotal={hasTotal} currency={currency} />
 
         <DeliveryPicker delivery={delivery} onChange={setDelivery} tid="sched" />
+
+        <Part title="On Today" testid="sched-today-part">
+          <label className={checkRow}>
+            <input type="checkbox" checked={!!delivery.today} onChange={e => setDelivery(d => ({ ...d, today: e.target.checked }))}
+              className={box} data-testid="sched-today" />
+            <span className="text-sm">
+              Also raise a task on Today
+              <span className="block text-[11px] text-muted-foreground">At the report's venues, for everyone who can open the report, until the end of the day it went. With a condition, only when it is met.</span>
+            </span>
+          </label>
+          {delivery.today && !people.length && !pushOn && (
+            <p className="text-[11px] text-muted-foreground" data-testid="sched-today-only">Nobody is emailed: the task on Today is the whole send.</p>
+          )}
+        </Part>
 
         <RecipientsPicker rec={rec} people={people} setPeople={setPeople} personal={personal} setPersonal={setPersonal} known={known} tid="sched" />
 

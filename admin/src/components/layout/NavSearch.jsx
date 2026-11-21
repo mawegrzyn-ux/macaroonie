@@ -22,12 +22,13 @@
 // on Pepper's answer opens its first pick. Without Pepper, Enter opens the
 // best match as before.
 import { useMemo, useState, useRef, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { NavLink, useNavigate } from 'react-router-dom'
 import * as LucideIcons from 'lucide-react'
-import { Search, X, Sparkles, Loader2, MessageCircle } from 'lucide-react'
+import { Search, X, Sparkles, Loader2, MessageCircle, BarChart3, Star } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { searchNavTree } from '@shared/navSearch.js'
+import { searchNavTree, searchReports } from '@shared/navSearch.js'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 function iconOf(name) {
@@ -293,6 +294,41 @@ export function NavSearchResults({ results, query, onPick, canAskAi, onAskAi, ex
           </NavLink>
         )
       })}
+    </div>
+  )
+}
+
+// Saved reports matching the search (phase 5, docs/REPORTS.md 15), below the
+// menu's links: the person's own and their team's, and starters they starred.
+// Read from GET /api/reports only when the person has Reports and is typing.
+export function SavedReportResults({ query, enabled, onPick }) {
+  const api = useApi()
+  const searching = enabled && query.trim().length >= 2
+  const q = useQuery({ queryKey: ['reports'], queryFn: () => api.get('/reports'), enabled: searching, staleTime: 30_000, retry: false })
+  const list = useMemo(() => {
+    const d = q.data
+    if (!d) return []
+    return [...(d.reports || []).filter(r => r.runs), ...(d.starters || []).filter(r => r.runs && r.starred)]
+  }, [q.data])
+  const found = useMemo(() => (searching ? searchReports(list, query) : []), [list, query, searching])
+  if (!found.length) return null
+  return (
+    <div className="space-y-0.5 pt-2" data-testid="nav-search-reports">
+      <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Reports</p>
+      {found.map(r => (
+        <NavLink key={r.id} to={'/reports/' + encodeURIComponent(r.id)} onClick={onPick}
+          data-testid="nav-search-report" data-id={r.id}
+          className={({ isActive }) => cn(
+            'flex items-start gap-3 px-3 py-2 min-h-[44px] rounded-md text-sm font-medium touch-manipulation',
+            isActive ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+          )}>
+          {r.starred ? <Star className="w-4 h-4 shrink-0 mt-0.5" /> : <BarChart3 className="w-4 h-4 shrink-0 mt-0.5" />}
+          <span className="min-w-0 flex-1">
+            <span className="block leading-tight break-words">{r.name}</span>
+            {!!r.description && <span className="text-[11px] font-normal leading-snug opacity-80 mt-0.5 line-clamp-2" title={r.description}>{r.description}</span>}
+          </span>
+        </NavLink>
+      ))}
     </div>
   )
 }

@@ -193,6 +193,10 @@ export function normaliseDelivery(raw) {
     attach,
     // A file is kept only when there is one.
     keep_file: attach !== 'none' && d.keep_file === true,
+    // A schedule's send also raises a task on Today (phase 5): for the
+    // venues in the report's scope, to people who can open the report.
+    // Stored only when on, so schedules saved before it read the same.
+    ...(d.today === true ? { today: true } : {}),
   }
 }
 
@@ -209,7 +213,8 @@ export function deliveryText(raw) {
   if (d.attach !== 'none') parts.push(ATTACH_WORDS[d.attach] + ' attached')
   const words = listWords(parts)
   const text = words ? words[0].toUpperCase() + words.slice(1) : 'Nothing to send'
-  return d.keep_file ? text + ', kept in Past runs' : text
+  const kept = d.keep_file ? text + ', kept in Past runs' : text
+  return d.today ? kept + ', and a task on Today' : kept
 }
 
 /* --------------------------------------------------------------- condition */

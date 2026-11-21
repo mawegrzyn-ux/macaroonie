@@ -49,8 +49,8 @@ import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { CATALOGUE, catalogueView } from '../reports/catalogue/index.js'
 import { STARTER_PREFIX, starterByKey } from '../reports/starters/index.js'
-import { limitPepperRuns } from '../reports/access.js'
-import { loadTarget } from '../reports/target.js'
+import { limitPepperRuns, runsFor } from '../reports/access.js'
+import { loadTarget, loadTargets } from '../reports/target.js'
 import { reportZone } from '../reports/run.js'
 import { requestPerson, ownerPerson, prepareSend, deliver, pushOf } from '../reports/send.js'
 import { seal } from '../services/vault.js'
@@ -78,6 +78,7 @@ const Part = z.record(z.any())
 const Name = z.string().trim().max(120).nullable().optional()
 const Message = z.string().max(1000).nullable().optional()
 const Recipients = z.array(Part).max(200)
+const AlertsQuery = z.object({ venue_id: z.string().uuid(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })
 const DryRun = z.boolean().optional()
 const ScheduleBody = z.object({
   dry_run: DryRun,
@@ -382,6 +383,48 @@ export default async function reportScheduleRoutes(app) {
     if (all && !p.canManage) throw httpError(403, 'Seeing everyone\'s schedules needs Manage on Reports')
     const rows = await listRows(p, { all, ref: q.report ? refFilter(q.report) : null })
     return { schedules: await views(p, rows), can_use: p.canUse, can_manage: p.canManage, max: MAX_SCHEDULES }
+  })
+
+  // Alerts for the Today feed (phase 5, docs/REPORTS.md 15): the venue's
+  // day's scheduled runs that raised a task on Today (delivery.today, the
+  // condition met), of reports the person may open and run, whose venues
+  // include this one. The feed reads it as the person (services/opsToday.js).
+  app.get('/alerts', view, async req => {
+    const q = AlertsQuery.parse(req.query || {})
+    const p = await requestPerson(req)
+    const venues = await withTenant(p.tenantId, tx => tx`
+      SELECT id, timezone FROM venues WHERE tenant_id = ${p.tenantId} AND is_active = true ORDER BY created_at, id`)
+    const venue = venues.find(v => v.id === q.venue_id)
+    if (!venue) throw httpError(404, 'Venue not found')
+    const rows = await withTenant(p.tenantId, tx => tx`
+      SELECT DISTINCT ON (r.schedule_id) r.id, r.created_at, r.row_count, r.report_id, r.starter_key, r.report_name,
+             s.id AS sid, s.name AS schedule_name, s.condition, s.params AS schedule_params
+        FROM report_runs r
+        JOIN report_schedules s ON s.id = r.schedule_id AND s.tenant_id = r.tenant_id
+       WHERE r.tenant_id = ${p.tenantId} AND r.kind = 'scheduled' AND r.error IS NULL
+         AND (r.delivery->>'today')::boolean IS TRUE
+         AND r.created_at >= (${q.date}::date)::timestamp AT TIME ZONE ${venue.timezone || 'Europe/London'}
+         AND r.created_at < (${q.date}::date + 1)::timestamp AT TIME ZONE ${venue.timezone || 'Europe/London'}
+       ORDER BY r.schedule_id, r.created_at DESC
+       LIMIT 200`)
+    const targets = await loadTargets(rows.map(refOfRow), p)
+    const alerts = []
+    for (const r of rows) {
+      const t = targets.get(refOfRow(r))
+      if (!t?.spec || !runsFor(t.spec.subject, p.levels).runs) continue
+      const { ids } = venueScope(venues, t.spec, resolveParams(t.spec, r.schedule_params || {}))
+      if (ids && !ids.has(venue.id)) continue
+      const condition = normaliseCondition(r.condition)
+      const watched = condition.when === 'figure' ? (t.spec.values || []).find(v => v.key === condition.value) : null
+      alerts.push({
+        run_id: r.id, schedule_id: r.sid, at: r.created_at, rows: r.row_count,
+        report: { id: refOfRow(r), name: t.name || r.report_name || 'A report' },
+        name: r.schedule_name || t.name || r.report_name || 'A report',
+        condition_text: conditionText(condition, watched ? { label: valueName(CATALOGUE, t.spec, watched), type: 'number' } : null),
+      })
+    }
+    alerts.sort((a, b) => String(b.at).localeCompare(String(a.at)))
+    return { alerts }
   })
 
   app.get('/schedules/:scheduleId', view, async req => {

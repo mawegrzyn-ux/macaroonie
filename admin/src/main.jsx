@@ -127,6 +127,8 @@ import Promotions from '@/pages/Promotions'
 import MobileOrders    from '@/pages/mobile/MobileOrders'
 import MobileAllergens from '@/pages/mobile/MobileAllergens'
 import MobileAssistant from '@/pages/mobile/MobileAssistant'
+const MobileReportList = React.lazy(() => import('@/pages/mobile/MobileReports').then(m => ({ default: m.MobileReportList })))
+const MobileReport = React.lazy(() => import('@/pages/mobile/MobileReports').then(m => ({ default: m.MobileReport })))
 import AiAssistant     from '@/pages/AiAssistant'
 import NewLocation     from '@/pages/NewLocation'
 import NavDesigner     from '@/pages/NavDesigner'
@@ -353,6 +355,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="orders"       element={<MobileOrders />} />
                 <Route path="allergens"    element={<MobileAllergens />} />
                 <Route path="assistant"    element={<MobileAssistant />} />
+                <Route path="reports"      element={<React.Suspense fallback={<LoadingPage />}><MobileReportList /></React.Suspense>} />
+                <Route path="reports/:ref" element={<React.Suspense fallback={<LoadingPage />}><MobileReport /></React.Suspense>} />
                 {/* A page the phone no longer has (Dashboards): the hub. */}
                 <Route path="*"            element={<Navigate to="/mobile" replace />} />
               </Route>

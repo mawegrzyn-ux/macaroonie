@@ -80,6 +80,7 @@ export const WIDGET_MODULE = {
   action_log:             'hs_action_log',
   allergen_lookup:        'menus',
   local_info:             'local_info',
+  report:                 'reports',
   cash_wages_paid:        'cash_recon',
   cash_petty_cash:        'cash_recon',
   cash_recon_grid:        'cash_recon',
@@ -101,7 +102,7 @@ export const WIDGET_TYPES = Object.keys(WIDGET_MODULE)
 const MODULE_LABEL = {
   checklists: 'Checklists', food_safety: 'Food safety', hs_action_log: 'the H&S Action Log',
   menus: 'Menus', cash_recon: 'Cash reconciliation', rota: 'the Rota',
-  rota_pay: 'Rota pay', rota_tips: 'Rota tips',
+  rota_pay: 'Rota pay', rota_tips: 'Rota tips', local_info: 'Local info', reports: 'Reports',
 }
 
 const DashboardBody = z.object({

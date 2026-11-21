@@ -79,6 +79,7 @@ const AREAS = {
   cash: 'cash_recon',
   wages: 'cash_recon',
   online_orders: 'web_orders',
+  report_alerts: 'reports',
 }
 
 /**
@@ -175,6 +176,19 @@ const SOURCES = {
         action: { form: 'checklist', label: ticked ? 'Carry on' : 'Tick it off', ref: { template: d.template } },
       }
     })
+  },
+
+  // Report alerts (phase 5): a schedule whose condition was met today raised
+  // a task here (delivery.today). Gone the next day; the report is the action.
+  async report_alerts(ctx, v, s) {
+    const { alerts } = await callApi(ctx, 'GET', `/api/reports/alerts?venue_id=${v.id}&date=${s.date}`)
+    return alerts.map(a => ({
+      key: 'report_alert:' + a.schedule_id, area: 'report_alerts', kind: 'report_alert',
+      title: a.name,
+      detail: a.condition_text === 'Every time' ? 'Sent by its schedule' : a.condition_text.replace(/^Only when /, ''),
+      due: null, group: 'now',
+      action: { path: '/reports/' + encodeURIComponent(a.report.id), label: 'Open the report' },
+    }))
   },
 
   async hs_actions(ctx, v, s) {

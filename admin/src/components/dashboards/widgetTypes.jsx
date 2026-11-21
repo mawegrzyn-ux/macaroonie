@@ -18,8 +18,10 @@
 // renderWidget() draws any type's body from { widget, venueId, ctx,
 // template, onChecklistState }.
 
+import { lazy, Suspense } from 'react'
 import {
   ListChecks, Thermometer, Truck, Flame, ChefHat, ClipboardCheck, Grid3x3, CloudSun,
+  BarChart3,
 } from 'lucide-react'
 import { ChecklistRunPanel } from '@/components/checklists/shared'
 import { LocalInfoWidget } from '@/components/localInfo/shared'
@@ -31,12 +33,16 @@ import { AllergenLookup } from '@/components/menus/AllergenMatrix'
 import { CASH_WIDGET_TYPES, renderCashWidget } from '@/components/cashRecon/widgets'
 import { ROTA_WIDGET_TYPES, renderRotaWidget } from '@/components/staff/rotaWidgets'
 
+// The report widget draws charts and tables: its code loads only on a dashboard that has one.
+const ReportWidget = lazy(() => import('@/components/reports/ReportWidget').then(m => ({ default: m.ReportWidget })))
+
 export const WIDGET_GROUPS = [
   { key: 'hs',    label: 'Health & safety' },
   { key: 'menus', label: 'Menus' },
   { key: 'cash',  label: 'Cash' },
   { key: 'rota',  label: 'Rota' },
   { key: 'local', label: 'Local info' },
+  { key: 'reports', label: 'Reports' },
 ]
 
 const HS_TYPES = [
@@ -65,12 +71,22 @@ const LOCAL_TYPES = [
     ] },
 ]
 
+// A saved or starter report, picked in Edit layout (settings.report).
+const REPORT_TYPES = [
+  { key: 'report', label: 'A report', icon: BarChart3, defaultTitle: 'Report', module: 'reports', nav: null, group: 'reports',
+    options: [
+      { key: 'chart_only', label: 'Chart only', hint: 'Leave the table out' },
+      { key: 'table_only', label: 'Table only', hint: 'Leave the chart out' },
+    ] },
+]
+
 const ROTA_MODULE = { rota_grid: 'rota', rota_today: 'rota', rota_week_pay: 'rota_pay', rota_tips: 'rota_tips' }
 
 export const WIDGET_TYPES = [
   ...HS_TYPES,
   ...MENU_TYPES,
   ...LOCAL_TYPES,
+  ...REPORT_TYPES,
   ...CASH_WIDGET_TYPES.map(t => ({
     ...t, group: 'cash', nav: t.nav ?? 'week',
     module: t.key === 'cash_tips_payout' ? 'rota_tips' : 'cash_recon',
@@ -96,7 +112,7 @@ export function hasHsDayWidget(widgets) {
   })
 }
 
-function renderHsWidget({ widget, venueId, ctx, template, onChecklistState }) {
+function renderHsWidget({ widget, venueId, ctx, template, onChecklistState, editing, onSetting, phone }) {
   const { date } = ctx
   switch (widget.widget_type) {
     case 'checklist':       return <ChecklistRunPanel template={template} date={date} hideHeader onStateChange={onChecklistState} />
@@ -107,6 +123,7 @@ function renderHsWidget({ widget, venueId, ctx, template, onChecklistState }) {
     case 'action_log':      return <HSActionLogPanel venueId={venueId} />
     case 'allergen_lookup': return <AllergenLookup storeKey={`maca_allergen_lookup_${widget.id}`} />
     case 'local_info':      return <LocalInfoWidget widget={widget} venueId={venueId} ctx={ctx} />
+    case 'report':          return <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}><ReportWidget widget={widget} editing={editing} onSetting={onSetting} phone={phone} /></Suspense>
     default:                return null
   }
 }
@@ -123,7 +140,7 @@ export function renderWidget(props) {
 export const MODULE_LABEL = {
   checklists: 'Checklists', food_safety: 'Food safety', hs_action_log: 'the H&S Action Log',
   menus: 'Menus', cash_recon: 'Cash reconciliation', rota: 'the Rota',
-  rota_pay: 'Rota pay', rota_tips: 'Rota tips', local_info: 'Local info',
+  rota_pay: 'Rota pay', rota_tips: 'Rota tips', local_info: 'Local info', reports: 'Reports',
 }
 
 /** Shown in place of a widget's body when the viewer lacks its module. */

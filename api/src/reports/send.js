@@ -198,6 +198,8 @@ export async function prepareSend(p, target, opts = {}) {
     throw httpError(403, 'Your role can\'t report on ' + (CATALOGUE.subjects[spec.subject]?.label || 'this'))
   }
   const delivery = normaliseDelivery(opts.delivery)
+  // A task on Today is a schedule's only (Email it now is seen as it is sent).
+  if (kind !== 'scheduled') delete delivery.today
   const condition = normaliseCondition(opts.condition)
   // A push: a schedule can also post the report to a web address (owners
   // and admins with Manage); with nobody to email, the push is the send.
@@ -208,7 +210,8 @@ export async function prepareSend(p, target, opts = {}) {
     if (why) throw httpError(422, why)
     if (!(p.canManage && p.isOwnerOrAdmin)) throw httpError(403, 'Only an owner or an admin with Manage on Reports can post reports to a web address')
   }
-  const pushOnly = !!pushUrl && !normaliseRecipients(opts.recipients).length
+  // With a push or a task on Today, a schedule may email nobody.
+  const pushOnly = (!!pushUrl || delivery.today) && !normaliseRecipients(opts.recipients).length
   const bad = deliveryProblem(delivery) || conditionProblem(condition, spec.kind, watchable(spec)) || (pushOnly ? null : recipientsProblem(opts.recipients))
   if (bad) throw httpError(422, bad)
   if (delivery.attach === 'pdf' && !pdfAvailable()) {
@@ -488,14 +491,18 @@ export async function deliver(p, target, plan, { schedule = null, due = null, lo
       if (!push.ok) log?.warn({ status: push.status }, 'A report push wasn\'t taken')
     }
   }
-  const pushRec = push ? { push: { ok: push.ok, status: push.status } } : {}
+  // A task on Today: the run's record says so, and the Today feed reads it
+  // (reportAlerts() in src/reports/alerts.js).
+  const pushRec = { ...(push ? { push: { ok: push.ok, status: push.status } } : {}), ...(plan.delivery.today ? { today: true } : {}) }
   if (!plan.to.length) {
+    const ok = push ? push.ok : !!plan.delivery.today
+    const nothing = push?.error || 'Nothing was sent'
     const runId = await record({
-      ...base, format: 'json', rows, ms: Date.now() - started, error: push?.ok ? null : push?.error || 'Nothing was sent',
+      ...base, format: push ? 'json' : 'today', rows, ms: Date.now() - started, error: ok ? null : nothing,
       delivery: { ...counts, sent: 0, failed: 0, ...pushRec },
     })
     return {
-      status: push?.ok ? 'sent' : 'failed', error: push?.ok ? null : push?.error || 'Nothing was sent',
+      status: ok ? 'sent' : 'failed', error: ok ? null : nothing,
       transient: !!push && !push.ok && push.transient, refused: false,
       runId, to: 0, sent: 0, failed: 0, held: 0, kept: false, why: null, pushed: !!push?.ok,
     }
