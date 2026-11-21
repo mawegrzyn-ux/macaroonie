@@ -1,0 +1,2 @@
+# Searches (ripgrep) skip the full backup of the old CLAUDE.md
+docs/claude/backup/
