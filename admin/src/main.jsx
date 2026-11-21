@@ -137,6 +137,7 @@ import NavDesigner     from '@/pages/NavDesigner'
 import Launcher        from '@/pages/Launcher'
 import './index.css'
 import { IS_OPS_HOST, IS_INSTALLER_HOST } from '@/lib/hosts'
+import { inOfficeApp, OfficeAuthProvider } from '@/lib/officeApp'
 import InstallerShell  from '@/components/installer/InstallerShell'
 import InstallerHome   from '@/pages/installer/InstallerHome'
 import InstallerLink   from '@/pages/installer/InstallerLink'
@@ -148,6 +149,12 @@ const queryClient = new QueryClient({
     queries: { staleTime: 30_000, retry: 1 },
   },
 })
+
+// Inside the Macaroonie Office app, sign-in is the app's (lib/officeApp.jsx):
+// its bridge fills Auth0's context, so the pages work unchanged.
+const AuthProvider = inOfficeApp()
+  ? ({ children }) => <OfficeAuthProvider>{children}</OfficeAuthProvider>
+  : Auth0Provider
 
 // Invitation links still need the Auth0 organization param so the invite
 // can be accepted. Everyday login does NOT pass an organization — after
@@ -213,7 +220,7 @@ const Placeholder = ({ title }) => (
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <Auth0Provider
+    <AuthProvider
       domain={import.meta.env.VITE_AUTH0_DOMAIN}
       clientId={import.meta.env.VITE_AUTH0_CLIENT_ID}
       authorizationParams={{
@@ -371,6 +378,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         </TimelineSettingsProvider>
         </SettingsProvider>
       </QueryClientProvider>
-    </Auth0Provider>
+    </AuthProvider>
   </React.StrictMode>
 )
