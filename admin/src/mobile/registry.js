@@ -7,7 +7,7 @@
 // areas (api/src/services/opsToday.js) a tile's badge counts; Today counts
 // every task.
 
-import { ListTodo, LayoutGrid, Receipt, ShoppingCart, Wallet, Users, ShoppingBag, Wheat, Sparkles } from 'lucide-react'
+import { ListTodo, LayoutGrid, Receipt, ShoppingCart, Wallet, Users, ShoppingBag, Wheat, Sparkles, BarChart3 } from 'lucide-react'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 export const MOBILE_MODULES = [
@@ -72,6 +72,13 @@ export const MOBILE_MODULES = [
     description: 'Look up a dish\'s allergens, or find dishes free from one',
     icon: Wheat,
     path: '/mobile/allergens',
+  },
+  {
+    key: 'reports',
+    label: 'Reports',
+    description: 'Your reports and the starters: sales, bookings, labour and more',
+    icon: BarChart3,
+    path: '/mobile/reports',
   },
   {
     key: 'assistant',

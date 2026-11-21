@@ -2526,6 +2526,31 @@ export default function Help() {
               <Mono>X-Macaroonie-Signature</Mono> header with it. Addresses must start with https:// and be
               on the public internet.
             </P>
+            <H3>Reports on dashboards, the phone, the menu search and Today</H3>
+            <P>
+              <strong>On a dashboard:</strong> in <strong>Edit layout</strong>, <strong>Add widget</strong>,{' '}
+              <strong>A report</strong> (under Reports), then pick the report in the widget. It shows the
+              report&apos;s chart and table as you would see them, refreshed every few minutes, with{' '}
+              <strong>Open the report</strong> for the rest. Its options <strong>Chart only</strong> and <strong>Table only</strong> leave the other
+              out. People who open the dashboard see it with their own access.
+            </P>
+            <P>
+              <strong>On the phone:</strong> the <strong>Reports</strong> tile lists your starred reports, your
+              own and your team&apos;s, and the starters, with a search. Tap one to see it with its period;
+              building, sharing and schedules stay on the office pages.
+            </P>
+            <P>
+              <strong>In the menu search:</strong> typing in the search box at the top of the menu also lists
+              reports you can run whose name or description has your words, under <strong>Reports</strong>:
+              your own and your team&apos;s, and the starters you have starred.
+            </P>
+            <P>
+              <strong>On Today:</strong> tick <strong>Also raise a task on Today</strong> in a schedule&apos;s window and
+              each time it sends (only when its condition is met, if it has one) the venue&apos;s Today page
+              shows a task with the report&apos;s name, opening the report. A schedule can do just that, with
+              nobody to email. The task shows for the venues the report covers, to people who can open
+              the report.
+            </P>
             <H3>How reports look on paper</H3>
             <P>
               <strong>Reports</strong>, then <strong>Layouts</strong>, lists your group&apos;s layouts. A layout
@@ -2816,8 +2841,7 @@ export default function Help() {
               and a guest's customer record needs Customers access as well.
             </P>
             <InfoBox>
-              Still to come: reports on dashboards and the phone, and links other apps can read a report
-              from. A page of reports can&apos;t be kept as a file or scheduled yet. The builder has no undo (leaving without
+              A page of reports can&apos;t be kept as a file or scheduled yet. The builder has no undo (leaving without
               saving goes back to the last save), and filters made of several parts, which a few
               starter reports use, can be taken off but not changed on screen. The Till reports page,
               the Online orders report and the Kitchen report stay where they are.

@@ -146,6 +146,10 @@ test('how a report is sent', () => {
   assert.equal(deliveryText({ in_message: false, attach: 'csv' }), 'A CSV file attached')
   assert.equal(deliveryText({ in_message: true, attach: 'xlsx', keep_file: true }), 'The report in the email and an Excel file attached, kept in Past runs')
   assert.equal(deliveryText({ in_message: false, attach: 'pdf' }), 'A PDF attached')
+  // A task on Today: kept only when on.
+  assert.deepEqual(normaliseDelivery({ today: true }), { in_message: true, attach: 'none', keep_file: false, today: true })
+  assert.equal('today' in normaliseDelivery({ today: 'yes' }), false)
+  assert.equal(deliveryText({ in_message: true, today: true }), 'The report in the email, and a task on Today')
 })
 
 // A summary by venue of net sales (money) and voids (a count), with totals.

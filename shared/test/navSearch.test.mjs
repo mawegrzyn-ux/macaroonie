@@ -310,3 +310,20 @@ test('every page with keywords has a description, a sentence within the limit', 
     assert.ok(!/\s{2,}|\n/.test(text), key + ' description is one line')
   }
 })
+
+test('searchReports: names before descriptions, every term, starred first among equals, at most five', async () => {
+  const { searchReports } = await import('../navSearch.js')
+  const list = [
+    { id: 'a', name: 'Sales by day', description: 'Net sales each day' },
+    { id: 'b', name: 'Dishes sold', description: 'What sold, with sales and counts' },
+    { id: 'c', name: 'Labour', description: 'Hours and pay' },
+    { id: 'd', name: 'Sales by venue', description: '', starred: true },
+  ]
+  assert.deepEqual(searchReports(list, 'sales').map(r => r.id), ['d', 'a', 'b'])
+  assert.deepEqual(searchReports(list, 'sales day').map(r => r.id), ['a'])
+  assert.deepEqual(searchReports(list, 'pay').map(r => r.id), ['c'])
+  assert.deepEqual(searchReports(list, ''), [])
+  assert.deepEqual(searchReports(list, 'nothing'), [])
+  const many = Array.from({ length: 9 }, (_, i) => ({ id: String(i), name: 'Sales ' + i }))
+  assert.equal(searchReports(many, 'sales').length, 5)
+})

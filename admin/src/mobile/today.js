@@ -33,6 +33,8 @@ const PHONE_PAGES = {
 export function opsLink(path) {
   const [base, query] = String(path || '/').split('?')
   if (PHONE_PAGES[base]) return { to: PHONE_PAGES[base] + (query ? '?' + query : '') }
+  // A report (a Today alert) opens on the phone's own report page.
+  if (/^\/reports\/[^/]+$/.test(base)) return { to: '/mobile' + base }
   const far = standardHref(path)
   return far ? { href: far } : { to: path }
 }

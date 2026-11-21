@@ -55,7 +55,7 @@ function MobileWidgetCard({ widget, venueId, ctx, me }) {
 
       <div className={cn('overflow-x-auto', !meta.flush && 'p-3')}>
         {!me ? null
-          : allowed ? renderWidget({ widget, venueId, ctx, template, onChecklistState: setChecklistState })
+          : allowed ? renderWidget({ widget, venueId, ctx, template, onChecklistState: setChecklistState, phone: true })
           : <NoAccess meta={meta} />}
       </div>
     </div>

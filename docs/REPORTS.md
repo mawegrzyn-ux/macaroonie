@@ -759,6 +759,8 @@ Each phase ships with its Help and Docs sections, a changelog entry and its test
 
 **As built (21 Nov 2026): phase 5, data links and push** (migration 256). Data links as section 15 has them: a key shown once (`mrd_`, only its hash kept), the maker's access checked at every read (owners and admins with Manage), fixed and open choices, a rate per hour on the row, a last day, people's details only when an owner allows them, JSON pages with a cursor and an ETag, CSV whole, each read a run of kind `link`. Push is a schedule's: an https address on the public internet (checked on every post, the connection made to the address checked), JSON signed with a secret shown once. Differences: a link belongs to one report (no link over a page), and its choices are its maker's from the page they made it on.
 
+**As built (21 Nov 2026): phase 5, the rest** (migration 257). A report is a dashboard widget on every dashboard kind (`report` in `WIDGET_MODULE`, the report in the widget's settings), run as the person looking. The phone has `/mobile/reports` (a list and one report with its period, read only). The menu search lists saved reports and starred starters by name and description (`searchReports()`). A schedule can raise a task on Today (`delivery.today`, `GET /api/reports/alerts`, the feed's `report_alerts`), shown at the report's venues to people who can open it, until the end of the venue's day. Differences: Today alerts come only from schedules (no alert rule of their own), the phone viewer has no drill-downs, filters or files, and the menu search lists starters only when starred.
+
 ## 21. Risks
 
 | Risk | Why it matters | What the plan does |
