@@ -31,7 +31,7 @@ const DEL = '/api/local-info/items/delete'
 const dry = (c, body) => ok(c.post(DEL, { ...body, dry_run: true }))
 const counts = r => ({ deleted: r.deleted, hidden: r.hidden, kept: r.kept })
 const searchReply = found => () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ items: found }) }] })
-const allItems = async tenant => (await sql`SELECT id, hidden FROM local_info_items WHERE tenant_id = ${tenant}`)
+const allItems = async tenant => (await sql`SELECT id, hidden FROM local_info_items WHERE tenant_id = ${tenant} ORDER BY id`)
 const hiddenOf = async id => (await sql`SELECT hidden FROM local_info_items WHERE id = ${id}`)[0]?.hidden
 
 const FOUND = [
