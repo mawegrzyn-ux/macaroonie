@@ -29,8 +29,10 @@ needed when the app's own code changes (the bridge, sign-in, the scanner).
    - APIs: allow it the Macaroonie API (the same audience the office uses)
    - Login Experience → Types of Users = **Business Users**, as the office's
      application has: this is what keeps it invitation-only.
-2. **EAS project**: `npx eas init` in `office-app/` makes one; put its id in
-   `MACAROONIE_EAS_PROJECT_ID` (push tokens need it).
+2. **EAS project**: done. Its id (`acb817a5-...`) is in `app.json`
+   (`extra.eas.projectId`), as `eas init --id` writes it; push tokens need it.
+   Run `eas init --id acb817a5-4faa-4df1-aacf-e5a341627eb7` once while signed
+   in to Expo if EAS asks for the project's `owner` (the account it belongs to).
 3. **Push on Android**: Expo's push service sends through Firebase Cloud
    Messaging. Make a Firebase project, add an Android app with package
    `com.macaroonie.office`, and upload its FCM V1 service account key to the
@@ -40,8 +42,9 @@ needed when the app's own code changes (the bridge, sign-in, the scanner).
    `MACAROONIE_ROOT_DOMAIN` / `MACAROONIE_AUTH0_DOMAIN` /
    `MACAROONIE_AUTH0_AUDIENCE` when they aren't the defaults in
    `app.config.js`):
-   `npx eas build -p android --profile preview` gives an APK to install by hand;
-   `--profile production` an app bundle for the Play Store.
+   `npx eas build -p android --profile preview` (or `production`) gives an APK to
+   install by hand. Every profile builds an APK for now, like the device app;
+   switch `production` to an app bundle when the app goes on Google Play.
 
 ## iPhone later
 

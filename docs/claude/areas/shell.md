@@ -53,7 +53,7 @@ The admin portal is **optimised for tablet-sized touch screens** used by front-o
 When adding new UI: always verify interactive elements are finger-sized, add `touch-manipulation`, and test at 1015 px width.
 - `src/components/forms/FormSheet.jsx` (admin) — the form sheet the Today page and Pepper's form cards open: `FORMS`, `Go`, `formTitle()`, `FormSheet`, `FormOpener` (sold out opens `AvailabilityModal`). `OpsToday.jsx` re-exports `FormSheet` for `MobileToday`.
 - Task notices (migration 262): `api/src/services/notices.js` (`sweepNotices()`, worker `task-notices`; `noticeKind()`, `wants()`, `inQuietHours()`, `pushSenders`, VAPID keys in `platform_secrets` `web_push_vapid`), `api/src/routes/notices.js` (`/api/notices`), admin `components/notices/NoticeSettings.jsx` (on `/mobile/notices` and Settings), `lib/push.js`, `public/push-sw.js` (workbox `importScripts`). Test: `api/test/task-notices.test.mjs`.
-- Macaroonie Office: `office-app/` (Expo, its README) and the admin side `lib/officeApp.jsx` (`inOfficeApp()`, `OfficeAuthProvider` in place of `Auth0Provider`, `canScan()` / `scanBarcode()`).
+- Macaroonie Office: `office-app/` (Expo SDK 58, its README; EAS project id `acb817a5-4faa-4df1-aacf-e5a341627eb7` in `app.json`; `eas.json` profiles all build APKs for now, like the device app; checked by `.github/workflows/office-app.yml` (npm ci, npm test, expo config, expo export); `deploy.yml` ignores `office-app/**`; `office-app/package-lock.json` is tracked through `!office-app/package-lock.json` in the root .gitignore) and the admin side `lib/officeApp.jsx` (`inOfficeApp()`, `OfficeAuthProvider` in place of `Auth0Provider`, `canScan()` / `scanBarcode()`).
 
 ## Mistakes to avoid
 

@@ -6907,7 +6907,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>links.js</Mono>: what stays in the app (ops. and office., https), where a tapped notice opens.{' '}
               <Mono>Scanner.js</Mono> (expo-camera); push by expo-notifications (channel <Mono>tasks</Mono>), speech by
               expo-speech-recognition and expo-speech. Build settings in <Mono>app.config.js</Mono> (root domain, Auth0
-              native client id, audience, EAS project). Tests: <Mono>office-app/test</Mono> (Node, in CI with the device
+              native client id, audience; the EAS project id is in <Mono>app.json</Mono>). Every <Mono>eas.json</Mono> profile builds
+              an APK for now. Checked by <Mono>.github/workflows/office-app.yml</Mono> (npm ci, tests, expo config and export);
+              <Mono>deploy.yml</Mono> ignores <Mono>office-app/**</Mono>. Tests: <Mono>office-app/test</Mono> (Node, in CI with the device
               app&apos;s). Set-up the owner does once (Auth0 native application, EAS, Firebase for push): its README.
             </P>
           </section>

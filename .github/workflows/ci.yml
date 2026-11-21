@@ -157,7 +157,3 @@ jobs:
       # The venue hub: printing, USB printers, its page, updates and the launcher.
       - name: hub tests
         run: node --test hub/test/*.test.mjs
-      # The two phone apps' rules (no phone needed): the device shell and
-      # Macaroonie Office (its bridge, addresses and sign-in rules).
-      - name: app tests
-        run: node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test android-app/test/*.test.mjs office-app/test/*.test.mjs
