@@ -1,0 +1,113 @@
+// src/ai/tools/forms.js
+//
+// open_form (OUTSTANDING 44 item 3, docs/PEPPER_FIRST.md 4.2 and phase 2):
+// "do today's cash-up", "log the fridge temps", "who's on Saturday": Pepper
+// opens the form itself in the chat, as a card with an Open button, for the
+// person to fill in. The model only picks the form, the venue and the day;
+// it never writes a form's fields, and the card is built here from what the
+// server found (form_card), never from the model's text.
+//
+// The forms are the Today page's (components/forms/FormSheet.jsx): the six
+// Today forms (fridge and freezer, hot and cold hold, cooking checks, a
+// checklist, the cash-up, the week's wages) and four more: delivery checks,
+// the day's expenses with receipts, sold out dishes, and the rota for a day.
+// Each needs View on its module: the form shows read only below the level
+// that changes it, as on its page.
+//
+// In the staff chat the card opens the form; through the staff connector
+// (another AI app) the answer is a link to the page.
+
+import { z } from 'zod'
+import { ToolError, isStaff, callApi, staffPermissionLevel, levelAtLeast } from '../context.js'
+import { officeOrigin } from '../../services/platformHost.js'
+import { MODULES } from '../../config/modules.js'
+import { DateStr, VenueText, venueFor, venueToday, mondayOf, longDate, pickByName } from './util.js'
+
+// Keep in step with FORMS in admin/src/components/forms/FormSheet.jsx.
+export const OPEN_FORMS = {
+  temps:     { title: 'Fridge and freezer checks', module: 'food_safety', path: '/food-safety', by: 'date' },
+  holds:     { title: 'Hot and cold hold checks',  module: 'food_safety', path: '/food-safety', by: 'date' },
+  cooking:   { title: 'Cooking checks',            module: 'food_safety', path: '/food-safety', by: 'date' },
+  delivery:  { title: 'Delivery checks',           module: 'food_safety', path: '/food-safety', by: 'date' },
+  checklist: { title: 'Checklist',                 module: 'checklists',  path: '/checklists',  by: 'date' },
+  cash_up:   { title: 'Cash-up',                   module: 'cash_recon',  path: '/cash-recon',  by: 'date' },
+  wages:     { title: 'Wages',                     module: 'cash_recon',  path: '/cash-recon',  by: 'week' },
+  expense:   { title: 'Expenses',                  module: 'cash_recon',  path: '/cash-recon',  by: 'date' },
+  sold_out:  { title: 'Sold out',                  module: 'web_orders',  path: '/orders',      by: null },
+  rota_day:  { title: 'Rota',                      module: 'rota',        path: '/rota',        by: 'date' },
+}
+const FORM_KEYS = Object.keys(OPEN_FORMS)
+const MODULE_LABEL = Object.fromEntries(MODULES.map(m => [m.key, m.label]))
+
+/** The card's title: the form, and its day or week. */
+function cardTitle(key, f, { date, monday, template }) {
+  if (key === 'checklist') return template.name
+  if (key === 'wages') return 'Wages, week of ' + longDate(monday)
+  if (key === 'sold_out') return 'Sold out dishes'
+  if (key === 'cash_up') return 'Cash-up for ' + longDate(date)
+  if (key === 'rota_day') return 'Rota for ' + longDate(date)
+  return f.title + ', ' + longDate(date)
+}
+
+export const formTools = [
+  {
+    name: 'open_form',
+    section: 'general',
+    title: 'Open a form',
+    description:
+      'Opens a form in the chat for the staff member to fill in themselves (a card with an Open button; you never fill its ' +
+      'fields). form: temps (fridge and freezer temperature checks), holds (hot and cold hold checks), cooking (cooking ' +
+      'checks), delivery (delivery checks: temperatures and condition on arrival), checklist (a checklist, by name in ' +
+      'checklist; left out = the one due), cash_up (a day\'s cash-up), wages (a week\'s wages; any date in the week), ' +
+      'expense (a day\'s petty cash expenses, with receipt photos), sold_out (mark dishes sold out), rota_day (who is on ' +
+      'and the rota for a day). Use it when they ask to do one of these ("do today\'s cash-up", "log the fridge temps", ' +
+      '"open the closing checklist"). date defaults to today at the venue. Reply in one short line; the card says the rest.',
+    input: z.object({
+      form:      z.enum(FORM_KEYS),
+      venue:     VenueText,
+      date:      DateStr.optional().describe('The day (or any day of the week for wages). Defaults to today at the venue.'),
+      checklist: z.string().trim().max(120).optional().describe('For form checklist: its name. Left out = the one due.'),
+    }),
+    readOnly: true,
+    async run(ctx, input) {
+      if (!isStaff(ctx)) throw new ToolError('Not available here', 403)
+      const f = OPEN_FORMS[input.form]
+      const level = await staffPermissionLevel(ctx, f.module)
+      if (!levelAtLeast(level, 'view')) {
+        throw new ToolError('You don\'t have access to ' + (MODULE_LABEL[f.module] || f.module) + ', so that form can\'t open. Ask an owner or admin.', 403)
+      }
+      const venue = await venueFor(ctx, input.venue)
+      const date = input.date || venueToday(venue)
+      const monday = mondayOf(date)
+      let template = null
+      if (input.form === 'checklist') {
+        const due = await callApi(ctx, 'GET', `/api/checklists/due?venue_id=${venue.id}&date=${date}`)
+        const open = due.filter(d => !d.not_required)
+        if (!open.length) throw new ToolError('No checklist is due at ' + venue.name + ' on ' + longDate(date) + '.', 404)
+        const pick = input.checklist
+          ? pickByName(open, input.checklist, d => d.template.name, 'checklist due', 'No checklist is due that day.')
+          : (open.filter(d => d.instance?.status !== 'completed').length === 1
+            ? open.find(d => d.instance?.status !== 'completed')
+            : null)
+        if (!pick) throw new ToolError('Which checklist? Due: ' + open.map(d => d.template.name).join(', ') + '.', 422)
+        template = pick.template
+      }
+      const ref = f.by === 'week' ? { week: monday } : f.by === 'date' ? { date } : {}
+      if (template) ref.template = template
+      const title = cardTitle(input.form, f, { date, monday, template })
+      const readOnly = !levelAtLeast(level, input.form === 'rota_day' || input.form === 'sold_out' ? 'manage' : 'use')
+      if (ctx.channel !== 'staff_chat') {
+        return { form: title, venue: venue.name, url: officeOrigin() + f.path, message: 'Open the page to fill it in.' }
+      }
+      return {
+        form_card: { form: input.form, title, venue_id: venue.id, venue: venue.name, date, ref, read_only: readOnly },
+        message: 'A card for "' + title + '" with an Open button is in the chat' + (readOnly ? ' (read only for this person)' : '') + '.',
+      }
+    },
+    // The chat's card (chat.js): from the result the server made, never the model's words.
+    display(out) {
+      const c = out?.form_card
+      return c && OPEN_FORMS[c.form] ? { type: 'form', form: c } : null
+    },
+  },
+]

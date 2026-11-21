@@ -71,7 +71,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { sql, withTenant } from '../config/db.js'
 import { env } from '../config/env.js'
 import { ToolError, makeContext, addUsage, searchesIn, callApi, staffPermissionLevels } from './context.js'
-import { toolsFor, findTool, jsonSchemaOf, parseInput, errorText, CORE_TOOLS } from './tools/index.js'
+import { toolsFor, findTool, jsonSchemaOf, parseInput, errorText, CORE_TOOLS, audienceTools } from './tools/index.js'
 import { chatUnitsLeft, personUnitsLeft, getAiSettings } from './settings.js'
 import { activeKey } from './apiKey.js'
 import { longDate, localParts } from './tools/util.js'
@@ -82,6 +82,9 @@ import { rangeText } from '../../../shared/reports/period.js'
 import {
   claimAttachments, releaseAttachments, attachmentBlocks, loadAttachmentData, withFileData, attachmentItems,
 } from './attachments.js'
+
+// Tools whose calls show a card of their own (display()), by name.
+const DISPLAY_TOOLS = new Map(audienceTools('staff').filter(t => t.display).map(t => [t.name, t]))
 
 const MAX_STEPS      = 12
 const MAX_TOKENS     = 32000
@@ -599,7 +602,13 @@ async function handleToolUse(ctx, conv, block, emit) {
   if (!tool) return result('There is no tool called ' + block.name + '.', true)
   try {
     const input = parseInput(tool, block.input)
-    if (!tool.confirm) return result(JSON.stringify(await tool.run(ctx, input)))
+    if (!tool.confirm) {
+      const out = await tool.run(ctx, input)
+      // A tool with a card of its own (open_form): built from its result.
+      const item = tool.display?.(out)
+      if (item) emit?.({ type: 'card', card: item })
+      return result(JSON.stringify(out))
+    }
 
     const card = await tool.describe(ctx, input)
     const expires = card.expiresAt
@@ -1067,6 +1076,18 @@ export async function displayItems(conv) {
     if (r.role !== 'assistant' || !Array.isArray(r.content)) continue
     for (const b of r.content) if (b?.type === 'web_search_tool_result') searchResults.set(b.tool_use_id, b)
   }
+  // Each tool call's result, for the tools that show a card of their own (open_form).
+  const toolResults = new Map()
+  for (const r of rows) {
+    if (r.role !== 'user' || !Array.isArray(r.content)) continue
+    for (const b of r.content) if (b?.type === 'tool_result' && !b.is_error) toolResults.set(b.tool_use_id, b)
+  }
+  const displayOf = b => {
+    const tool = DISPLAY_TOOLS.get(b.name)
+    const res = tool && toolResults.get(b.id)
+    if (!res) return null
+    try { return tool.display(JSON.parse(res.content?.[0]?.text ?? 'null')) } catch { return null }
+  }
   const items = []
   for (const r of rows) {
     const blocks = Array.isArray(r.content) ? r.content : []
@@ -1098,7 +1119,9 @@ export async function displayItems(conv) {
       flush()
       if (b.type === 'tool_use') {
         const a = byToolUse.get(b.id)
+        const shown = a ? null : displayOf(b)
         if (a) items.push(actionView(a))
+        else if (shown) items.push(shown)
         else if (TOOL_LABELS[b.name]) items.push({ type: 'step', text: TOOL_LABELS[b.name] })
       } else if (b.type === 'server_tool_use' && b.name === WEB_SEARCH.name && searchResults.has(b.id)) {
         // A search that never ran (its results never came) isn't shown.

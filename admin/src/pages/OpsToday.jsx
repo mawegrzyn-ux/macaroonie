@@ -26,11 +26,9 @@ import { cn } from '@/lib/utils'
 import { usePepperPage } from '@/lib/pepperPage'
 import ChatView, { useAiStatus } from '@/components/ai/ChatView'
 import { useRememberedConversation } from '@/components/ai/AssistantDrawer'
-import { TempChecksTable, HoldChecksTable, CookingChecksPanel } from '@/components/foodSafety/shared'
-import { ChecklistRunPanel } from '@/components/checklists/shared'
-import { DayView, StatusBadge, SaveIndicator } from '@/pages/CashRecon'
-import { WeekWagesEditor } from '@/components/cashRecon/WagesTable'
-import { usePermission } from '@/hooks/usePermission'
+import { FormSheet, Go } from '@/components/forms/FormSheet'
+
+export { FormSheet }
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 import { addDays } from '@shared/localInfo.js'
 import { KIND_ICONS, SEV_CHIP } from '@/components/localInfo/shared'
@@ -51,15 +49,6 @@ const KIND_ICON = {
   report_alert: BarChart3,
 }
 
-// The full page behind each form (F8).
-const FORMS = {
-  temps:     { title: 'Fridge and freezer checks', path: '/food-safety' },
-  holds:     { title: 'Hot and cold hold checks',  path: '/food-safety' },
-  cooking:   { title: 'Cooking checks',            path: '/food-safety' },
-  checklist: { title: 'Checklist',                 path: '/checklists' },
-  cash_up:   { title: 'Cash-up',                   path: '/cash-recon' },
-  wages:     { title: 'Wages',                     path: '/cash-recon', phone: '/mobile/wages' },
-}
 
 // Which menu pages an area's tasks belong to: tiles with something to do go first.
 const AREA_ROUTES = {
@@ -192,12 +181,6 @@ export default function OpsToday() {
       {form && d && <FormSheet form={form} venueId={d.venue.id} date={d.date} onClose={closeForm} />}
     </div>
   )
-}
-
-/** A page link; linkFor (the phone app) may send it to another path or host. */
-function Go({ to, linkFor, ...rest }) {
-  const dest = linkFor ? linkFor(to) : { to }
-  return dest.href ? <a href={dest.href} {...rest} /> : <Link to={dest.to} {...rest} />
 }
 
 /** H2: bookings, big parties, who's on, closed. */
@@ -390,107 +373,6 @@ function TaskRow({ t, onForm, linkFor }) {
         ? <button type="button" className={btn} onClick={() => onForm(t)} data-testid="today-task-action">{label}<ChevronRight className="w-4 h-4" /></button>
         : <Go to={t.action.path} linkFor={linkFor} className={btn} data-testid="today-task-action">{label}<ChevronRight className="w-4 h-4" /></Go>}
     </li>
-  )
-}
-
-/** The sheet's title: the task's own for a checklist, the day or week for Cash Recon. */
-function formTitle(form, meta) {
-  if (form.form === 'checklist') return form.task.title
-  if (form.form === 'cash_up') return 'Cash-up for ' + format(parseISO(form.ref.date), 'EEEE d MMMM')
-  if (form.form === 'wages') return 'Wages for the week of ' + format(parseISO(form.ref.week), 'd MMMM')
-  return meta.title
-}
-
-/** F1-F9: the form for a task, the same panel its page uses, saving through the same routes. */
-export function FormSheet({ form, venueId, date, onClose, linkFor }) {
-  const qc = useQueryClient()
-  const { canUse: cashUse, canManage: cashManage } = usePermission('cash_recon')
-  const meta = FORMS[form.form] || { title: form.task.title, path: '/' }
-  const title = formTitle(form, meta)
-  // The full page: on the phone a form may have a phone page of its own.
-  const page = linkFor && meta.phone ? { to: meta.phone, linkFor: null } : { to: meta.path, linkFor }
-  // A cash-up's state from DayView (status, saving, Submit): shown in the foot.
-  const [day, setDay] = useState(null)
-  const submitted = !!day?.isSubmitted
-  useEffect(() => { if (submitted) qc.invalidateQueries({ queryKey: ['ops-today'] }) }, [submitted, qc])
-  const cashUp = form.form === 'cash_up' && day?.ready
-  // The wages editor saves only on Save: closing with changes waiting asks
-  // first, so Done never throws a payment away without a word.
-  const [wages, setWages] = useState(null)
-  const unsaved = form.form === 'wages' && !!wages?.dirty
-  const [asking, setAsking] = useState(false)
-  useEffect(() => { if (!unsaved) setAsking(false) }, [unsaved])
-  const close = () => (unsaved ? setAsking(true) : onClose())
-  const saveAndClose = async () => { if (await wages.save()) onClose() }
-  const footBtn = 'min-h-[48px] px-5 rounded-md font-medium touch-manipulation disabled:opacity-50'
-  return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center sm:p-4" onClick={close} data-testid="today-form" data-form={form.form}>
-      <div className="bg-background w-full sm:max-w-4xl max-h-[85vh] overflow-y-auto rounded-t-xl sm:rounded-xl shadow-xl"
-        onClick={e => e.stopPropagation()} role="dialog" aria-label={title}>
-        <div className="sticky top-0 z-10 bg-background border-b px-4 h-14 flex items-center gap-2">
-          <h2 className="font-semibold truncate" data-testid="today-form-title">{title}</h2>
-          <Go to={page.to} linkFor={page.linkFor} className="ml-auto shrink-0 inline-flex items-center gap-1 text-sm text-primary min-h-[48px] px-2 touch-manipulation" data-testid="today-form-page">
-            Open the full page <ExternalLink className="w-3.5 h-3.5" />
-          </Go>
-          <button type="button" onClick={close} aria-label="Close" data-testid="today-form-close"
-            className="w-12 h-12 rounded-md flex items-center justify-center hover:bg-accent touch-manipulation">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        <div className="p-3 sm:p-4">
-          {form.form === 'temps' && <TempChecksTable venueId={venueId} date={date} />}
-          {form.form === 'holds' && <HoldChecksTable venueId={venueId} date={date} />}
-          {form.form === 'cooking' && <CookingChecksPanel venueId={venueId} date={date} />}
-          {form.form === 'checklist' && <ChecklistRunPanel template={form.ref.template} date={date} />}
-          {form.form === 'cash_up' && <DayView venueId={venueId} date={form.ref.date} hideHeader onStateChange={setDay} />}
-          {form.form === 'wages' && (
-            <WeekWagesEditor venueId={venueId} weekStart={form.ref.week} readOnly={!cashUse} canSetDefault={cashManage}
-              showBank={!linkFor} hidePaidOnForAll={!!linkFor} onStateChange={setWages} />
-          )}
-        </div>
-        <div className="sticky bottom-0 bg-background border-t px-4 py-3 flex flex-wrap items-center justify-end gap-2">
-          {asking ? (
-            <>
-              <p className="mr-auto text-sm font-medium" data-testid="today-unsaved">The changes to the wages aren't saved.</p>
-              <button type="button" onClick={() => setAsking(false)} data-testid="today-unsaved-stay"
-                className={cn(footBtn, 'border hover:bg-accent')}>Keep editing</button>
-              <button type="button" onClick={onClose} data-testid="today-unsaved-discard"
-                className={cn(footBtn, 'border text-destructive hover:bg-destructive/10')}>Close without saving</button>
-              <button type="button" onClick={saveAndClose} disabled={wages?.saving} data-testid="today-unsaved-save"
-                className={cn(footBtn, 'bg-primary text-primary-foreground')}>
-                {wages?.saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save and close'}
-              </button>
-            </>
-          ) : (
-            <>
-              {cashUp && (
-                <div className="mr-auto flex items-center gap-2 min-w-0" data-testid="today-cash-state" data-status={day.status}>
-                  <StatusBadge status={day.status} />
-                  <SaveIndicator saving={day.saving} saved={day.saved} error={day.saveErr} />
-                </div>
-              )}
-              {cashUp && !day.isSubmitted && day.weekly && (
-                <span className="text-xs text-muted-foreground" data-testid="today-cash-weekly">Saved. The week is submitted in one go.</span>
-              )}
-              {cashUp && !day.isSubmitted && day.canSubmit && (
-                <button type="button" onClick={day.submit} disabled={day.submitPending} data-testid="today-cash-submit"
-                  className={cn(footBtn, 'bg-green-600 text-white hover:bg-green-700')}>
-                  {day.submitPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Submit'}
-                </button>
-              )}
-              {cashUp && day.isSubmitted && day.canUnsubmit && (
-                <button type="button" onClick={day.unsubmit} disabled={day.submitPending} data-testid="today-cash-unsubmit"
-                  className={cn(footBtn, 'border hover:bg-accent')}>
-                  {day.submitPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Unsubmit'}
-                </button>
-              )}
-              <button type="button" onClick={close} data-testid="today-form-done"
-                className="min-h-[48px] px-6 rounded-md bg-primary text-primary-foreground font-medium touch-manipulation">Done</button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
   )
 }
 

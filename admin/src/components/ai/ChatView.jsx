@@ -29,12 +29,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
-import { Send, Loader2, Check, X, Sparkles, Search, CircleAlert, Paperclip, Camera, Upload, MapPin, Globe, ExternalLink } from 'lucide-react'
+import { Send, Loader2, Check, X, Sparkles, Search, CircleAlert, Paperclip, Camera, Upload, MapPin, Globe, ExternalLink, ClipboardCheck } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { usePepperPageContext } from '@/lib/pepperPage'
 import { useAttachments, PendingFiles, MessageFiles, ACCEPT } from './attachments'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
+import { FORMS, FormOpener } from '@/components/forms/FormSheet'
 
 const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 
@@ -119,7 +120,7 @@ export function useAiStatus() {
   return useQuery({ queryKey: ['ai-status'], queryFn: () => api.get('/ai/status'), staleTime: 60_000 })
 }
 
-export default function ChatView({ conversationId, onConversationId, className, pageAware = false, suggestions = SUGGESTIONS }) {
+export default function ChatView({ conversationId, onConversationId, className, pageAware = false, suggestions = SUGGESTIONS, linkFor = null }) {
   const api = useApi()
   const qc  = useQueryClient()
   const [draft, setDraft]     = useState('')
@@ -324,9 +325,9 @@ export default function ChatView({ conversationId, onConversationId, className, 
             </div>
           </div>
         )}
-        {shown.map((item, i) => <ChatItem key={item.id || i} item={item} decide={decide} busy={working} />)}
+        {shown.map((item, i) => <ChatItem key={item.id || i} item={item} decide={decide} busy={working} linkFor={linkFor} />)}
         {pending && <UserBubble text={pending.text} files={pending.files} local />}
-        {live.map((item, i) => <ChatItem key={item.key || item.id || 'l' + i} item={item} decide={decide} busy />)}
+        {live.map((item, i) => <ChatItem key={item.key || item.id || 'l' + i} item={item} decide={decide} busy linkFor={linkFor} />)}
         {working && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite" data-testid="chat-activity">
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -411,7 +412,7 @@ export default function ChatView({ conversationId, onConversationId, className, 
   )
 }
 
-function ChatItem({ item, decide, busy = false }) {
+function ChatItem({ item, decide, busy = false, linkFor = null }) {
   if (item.type === 'user') return <UserBubble text={item.text} files={item.attachments} />
   if (item.type === 'assistant') {
     if (!item.text.trim()) return null
@@ -431,7 +432,39 @@ function ChatItem({ item, decide, busy = false }) {
     )
   }
   if (item.type === 'action') return <ActionCard card={item} decide={decide} busy={busy} />
+  if (item.type === 'form') return <FormCard card={item.form} linkFor={linkFor} />
   return null
+}
+
+/** Pepper's form card (open_form, OUTSTANDING 44 item 3): the form, its venue
+ *  and day, and Open, which opens the same sheet as the Today page's tasks
+ *  over the chat. Built by the server from what it found, never from the
+ *  model's words. */
+function FormCard({ card, linkFor }) {
+  const [open, setOpen] = useState(false)
+  const [opened, setOpened] = useState(false)
+  const meta = FORMS[card.form]
+  if (!meta) return null
+  return (
+    <div className="rounded-lg border bg-background overflow-hidden" data-testid="chat-form-card" data-form={card.form}>
+      <div className="section-head px-3 py-2 text-sm font-semibold flex items-center gap-2">
+        <ClipboardCheck className="w-4 h-4 shrink-0" /> <span className="min-w-0 truncate">{card.title}</span>
+      </div>
+      <div className="px-3 py-2 text-sm text-muted-foreground">
+        {card.venue}{card.read_only ? ' · read only for you' : ''}
+      </div>
+      <div className="px-3 pb-3">
+        <button type="button" onClick={() => { setOpen(true); setOpened(true) }} data-testid="chat-form-open"
+          className="w-full min-h-[48px] rounded-md bg-primary text-primary-foreground font-medium text-sm flex items-center justify-center gap-2 touch-manipulation">
+          {opened ? 'Open again' : 'Open'}
+        </button>
+      </div>
+      {open && (
+        <FormOpener form={{ form: card.form, ref: card.ref, task: { title: card.title } }} venueId={card.venue_id}
+          date={card.date} onClose={() => setOpen(false)} linkFor={linkFor} />
+      )}
+    </div>
+  )
 }
 
 const hostOf = url => {

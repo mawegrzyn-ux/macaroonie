@@ -46,6 +46,7 @@ import { orderTools } from './orders.js'
 import { venueTools } from './venue.js'
 import { siteTools } from './site.js'
 import { generalTools } from './general.js'
+import { formTools } from './forms.js'
 import { briefingTools } from './briefing.js'
 import { locationTools } from './locations.js'
 import { localInfoTools } from './localInfo.js'
@@ -113,6 +114,7 @@ const withSection = (tools, section) => tools.map(t => (t.section ? t : { ...t, 
 // Pepper's tools, every area. Older files don't tag their tools; their file is their area.
 const staffTools = [
   ...generalTools,
+  ...formTools,
   ...briefingTools,
   ...withSection(bookingTools, 'bookings'),
   ...withSection(hsTools, 'hs'),
@@ -130,7 +132,7 @@ const BY_AUDIENCE = { guest: guestTools, staff: staffTools }
 // what is due, where a page is.
 export const CORE_TOOLS = new Set([
   'list_venues', 'find_bookings', 'day_overview', 'check_availability', 'hs_status', 'whos_working', 'open_page', 'how_do_i',
-  'day_briefing',
+  'day_briefing', 'open_form',
 ])
 
 for (const t of staffTools) {
