@@ -78,6 +78,7 @@ import Menus          from '@/pages/Menus'
 import MenuVariantGroups from '@/pages/MenuVariantGroups'
 import MenuDietaryTags from '@/pages/MenuDietaryTags'
 import MenuAllergenMatrix from '@/pages/MenuAllergenMatrix'
+import Allergens from '@/pages/Allergens'
 import MenuTax from '@/pages/MenuTax'
 import MenuTimes from '@/pages/MenuTimes'
 import MenuDeliveroo from '@/pages/MenuDeliveroo'
@@ -264,6 +265,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="customers" element={<Customers />} />
                 <Route path="loyalty" element={<Loyalty />} />
                 <Route path="orders" element={<Orders />} />
+                <Route path="allergens" element={<Allergens />} />
                 <Route path="orders/settings" element={<OrderingSettings />} />
                 <Route path="pos" element={<PosSetup />} />
                 <Route path="pos/:tab" element={<PosSetup />} />

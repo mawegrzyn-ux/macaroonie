@@ -19,8 +19,9 @@
 
 import { z } from 'zod'
 import { withTenant, sql, systemSql, tenantSql } from '../config/db.js'
-import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { requireAuth, requirePermission, requireAnyPermission, permissionLevel } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
+import { permissionAtLeast } from '../config/modules.js'
 import { SEED_BY_SLUG, ONETHAI_DIETARY_TAGS, ensureStandardAllergens } from '../services/menuSeeds.js'
 import { randomUUID } from 'node:crypto'
 import { notifyTillsOnWrite } from '../services/posNotify.js'
@@ -1524,10 +1525,15 @@ export default async function menusRoutes(app) {
   // publish: true it then publishes every menu's allergens and dietary tags
   // (publishAllergens() in services/menuReleases.js), and nothing else.
 
-  // The draft (Allergen matrix page); ?version=live = what guests are served (Allergen lookup).
-  app.get('/:id/allergens', async (req) => {
+  // The draft (Allergen matrix page); ?version=live = what guests are served
+  // (Allergen lookup). The lookup is open to Allergen lookup or Menus; the
+  // draft only to Menus (OUTSTANDING 44, item 1).
+  app.get('/:id/allergens', { preHandler: requireAnyPermission(['menus', 'allergens'], 'view') }, async (req) => {
     if (!z.string().uuid().safeParse(req.params.id).success) throw httpError(404, 'Menu not found')
     const version = req.query?.version === 'live' ? 'live' : 'draft'
+    if (version === 'draft' && !permissionAtLeast(await permissionLevel(req, 'menus'), 'view')) {
+      throw httpError(403, 'Your role doesn\'t have access to Menus. The Allergens page shows what guests are served.')
+    }
     const data = await withTenant(req.tenantId, tx => loadAllergenMatrix(tx, req.params.id, req.tenantId, { version }))
     if (!data) throw httpError(404, version === 'live' ? 'This menu has not been published yet' : 'Menu not found')
     return data

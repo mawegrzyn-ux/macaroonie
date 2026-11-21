@@ -23,6 +23,7 @@ import {
 import { MODULES, MODULE_KEYS, resolvePermission, seedBuiltinRoles } from '../config/modules.js'
 import { listMemberships } from '../services/membershipSvc.js'
 import { navItemVisible, buildNavTree, pruneNavTree } from '../services/navTree.js'
+import { TILE_MODULE } from './dashboardTiles.js'
 import { seedDefaultNav } from '../config/defaultNav.js'
 import { seedDefaultDashboardTiles } from '../config/defaultDashboardTiles.js'
 import { ensureStandardAllergens } from '../services/menuSeeds.js'
@@ -168,14 +169,15 @@ export default async function platformRoutes(app) {
     }
 
     // Overview page tiles, filtered to this user's role (same visibility
-    // rule as nav items — a tile has no `module` of its own, so only the
-    // hidden_role_ids check applies).
+    // rule as nav items: the tile type's module, TILE_MODULE, then the
+    // hidden_role_ids check).
     let dashboardTiles = []
     if (req.tenantId) {
       const tiles = await withTenant(req.tenantId, tx => tx`
         SELECT * FROM dashboard_tiles WHERE tenant_id = ${req.tenantId} ORDER BY sort_order
       `)
-      dashboardTiles = tiles.filter(t => navItemVisible(t, permissions, effectiveRole?.id ?? null, isPlatformAdmin))
+      dashboardTiles = tiles.filter(t => navItemVisible({ ...t, module: TILE_MODULE[t.tile_type] ?? null },
+        permissions, effectiveRole?.id ?? null, isPlatformAdmin))
     }
 
     // Website brand-theme colours — exposed so the ADMIN portal itself

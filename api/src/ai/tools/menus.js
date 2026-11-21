@@ -47,7 +47,7 @@
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import { withTenant } from '../../config/db.js'
-import { ToolError, callApi, audit, requireStaffPermission } from '../context.js'
+import { ToolError, callApi, audit, requireStaffPermission, staffPermissionLevel, levelAtLeast } from '../context.js'
 import { menuSaveBody } from '../../routes/menus.js'
 import { stepRule } from '../../../../shared/combos.js'
 import { pickByName, DateStr, TimeStr, localParts, whenText, zonedInstant } from './util.js'
@@ -746,6 +746,9 @@ export const menuTools = [
       'included, marked "ask for it without"; "may contain" counts as having it). Searches the live menus (what ' +
       'guests are served) shown to guests, unless include_unpublished (also menus hidden from guests, and drafts of ' +
       'menus never published) or version: "draft". Use it for allergy questions.',
+    // Allergy answers are open to the Allergen lookup as well as Menus
+    // (OUTSTANDING 44, item 1): with the lookup alone, live menus only.
+    modules: ['menus', 'allergens'],
     input: z.object({
       search:    z.string().max(200).optional(),
       has:       z.array(z.string().min(1).max(60)).max(10).optional(),
@@ -756,7 +759,13 @@ export const menuTools = [
     }),
     readOnly: true,
     async run(ctx, input) {
-      await requireRead(ctx)
+      const menusAccess = levelAtLeast(await staffPermissionLevel(ctx, 'menus'), 'view')
+      if (!menusAccess) {
+        await requireStaffPermission(ctx, 'allergens', 'view')
+        if (input.version === 'draft' || input.include_unpublished) {
+          throw new ToolError('Drafts and menus never published need Menus access. The Allergen lookup answers from what guests are served.', 403)
+        }
+      }
       if (!input.search && !input.has?.length && !input.free_from?.length) {
         throw new ToolError('Give a search, has or free_from.', 400)
       }
@@ -776,7 +785,7 @@ export const menuTools = [
       for (const m of pool) {
         if (looked >= 20) break
         let full = useDraft ? await loadMenu(ctx, m.id) : await loadLive(ctx, m.id)
-        if (!full && (input.menu || input.include_unpublished)) full = await loadMenu(ctx, m.id)
+        if (!full && menusAccess && (input.menu || input.include_unpublished)) full = await loadMenu(ctx, m.id)
         if (!full) continue
         if (!full.is_published && !input.menu && !input.include_unpublished) continue
         looked++

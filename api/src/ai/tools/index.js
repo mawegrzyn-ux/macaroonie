@@ -101,7 +101,8 @@ const OPEN_TOOLS = new Set(['list_venues', 'open_page', 'how_do_i'])
  *  or the level it names itself (`needs: 'use'`: the everyday H&S work). */
 export function toolAllowed(tool, levels) {
   if (OPEN_TOOLS.has(tool.name) || tool.section === 'general') return true
-  const modules = SECTION_MODULES[tool.section]
+  // A tool may name its own modules (find_dishes: Menus or the Allergen lookup).
+  const modules = tool.modules ?? SECTION_MODULES[tool.section]
   if (!modules) return true
   const need = tool.needs ?? (tool.confirm ? 'manage' : 'view')
   return modules.some(m => permissionAtLeast(levels[m], need))
@@ -139,6 +140,15 @@ for (const t of staffTools) {
 for (const m of Object.values(SECTION_MODULES).flat()) {
   if (!MODULE_KEYS.includes(m)) throw new Error('SECTION_MODULES names an unknown module: ' + m)
 }
+for (const t of staffTools) {
+  for (const m of t.modules || []) if (!MODULE_KEYS.includes(m)) throw new Error('Tool ' + t.name + ' names an unknown module: ' + m)
+}
+
+/** Every module a staff tool's permission can depend on (the connector reads these levels). */
+export const TOOL_MODULE_KEYS = [...new Set([
+  ...Object.values(SECTION_MODULES).flat(),
+  ...staffTools.flatMap(t => t.modules || []),
+])]
 {
   const names = staffTools.map(t => t.name)
   const dup = names.find((n, i) => names.indexOf(n) !== i)

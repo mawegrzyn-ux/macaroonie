@@ -47,6 +47,7 @@ export const ROUTE_CATALOG = [
   { route: '/customers', label: 'Customers', icon: 'UserRound', module: 'customers' },
   { route: '/loyalty', label: 'Loyalty', icon: 'Gift', module: 'loyalty' },
   { route: '/orders', label: 'Online orders', icon: 'ShoppingBag', module: 'web_orders' },
+  { route: '/allergens', label: 'Allergens', icon: 'Wheat', module: 'allergens' },
   { route: '/orders/settings', label: 'Ordering setup', icon: 'Settings2', module: 'web_ordering_setup' },
   { route: '/promotions', label: 'Promotions', icon: 'BadgePercent', module: 'promotions' },
   { route: '/purchasing', label: 'Purchasing', icon: 'ShoppingCart', module: 'purchasing' },

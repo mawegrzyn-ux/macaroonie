@@ -5,7 +5,7 @@
 // same "one registry drives nav + a picker" pattern as modules.js /
 // defaultNav.js elsewhere in this app. `areas` are the Today feed's task
 // areas (api/src/services/opsToday.js) a tile's badge counts; Today counts
-// every task.
+// every task. `module` hides the tile from someone whose role has none of it.
 
 import { ListTodo, LayoutGrid, Receipt, ShoppingCart, Wallet, Users, ShoppingBag, Wheat, Sparkles, BarChart3 } from 'lucide-react'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
@@ -72,6 +72,7 @@ export const MOBILE_MODULES = [
     description: 'Look up a dish\'s allergens, or find dishes free from one',
     icon: Wheat,
     path: '/mobile/allergens',
+    module: 'allergens',
   },
   {
     key: 'reports',

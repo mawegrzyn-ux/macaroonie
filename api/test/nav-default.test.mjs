@@ -1,4 +1,4 @@
-// The default main menu (migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230 + 231 + 235 + 240 + 241 + 243): the migrations' tree is the
+// The default main menu (migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230 + 231 + 235 + 240 + 241 + 243 + 258): the migrations' tree is the
 // same as DEFAULT_NAV_TREE, every page in the route catalogue is in it once,
 // and a new tenant gets it through /api/me. Migration 241 gave the designers
 // their own links and every entry a description: its SQL is run here on
@@ -53,7 +53,7 @@ async function storedTree(tenantId) {
 
 // Migration 196's tree with 202's change applied: Till setup (and its Floor
 // plan) and Menu screens out, the Store tech section in after Venues.
-test('migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230 + 231 + 235 + 240 + 241 + 243 hold the same tree as DEFAULT_NAV_TREE', () => {
+test('migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230 + 231 + 235 + 240 + 241 + 243 + 258 hold the same tree as DEFAULT_NAV_TREE', () => {
   const read = f => fs.readFileSync(new URL('../../migrations/' + f, import.meta.url), 'utf8').match(/\$nav\$([\s\S]*?)\$nav\$/)[1]
   const drop = nodes => nodes.filter(n => !['/pos', '/pos/floor', '/screens'].includes(n.route))
     .map(n => (n.children ? { ...n, children: drop(n.children) } : n))
@@ -118,6 +118,9 @@ test('migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230
   // 243: Reports after Dashboards.
   home.children.splice(home.children.findIndex(n => n.route === '/dashboards') + 1, 0,
     { label: 'Reports', icon: 'FileBarChart', route: '/reports', module: 'reports' })
+  // 258: Allergens after Online orders.
+  service.children.splice(service.children.findIndex(n => n.route === '/orders') + 1, 0,
+    { label: 'Allergens', icon: 'Wheat', route: '/allergens', module: 'allergens' })
   assert.deepEqual(strip(tree), strip(DEFAULT_NAV_TREE))
 })
 

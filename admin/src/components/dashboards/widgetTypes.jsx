@@ -55,7 +55,7 @@ const HS_TYPES = [
 ].map(t => ({ ...t, group: 'hs' }))
 
 const MENU_TYPES = [
-  { key: 'allergen_lookup', label: 'Allergen lookup', icon: Grid3x3, defaultTitle: 'Allergen lookup', module: 'menus', nav: null, group: 'menus' },
+  { key: 'allergen_lookup', label: 'Allergen lookup', icon: Grid3x3, defaultTitle: 'Allergen lookup', module: 'allergens', nav: null, group: 'menus' },
 ]
 
 // The week from the dashboard's selected day (Look back: the week up to it),
