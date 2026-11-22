@@ -759,6 +759,7 @@
     "api/src/ai/sse.js",
     "api/src/ai/tools/briefing.js",
     "api/src/ai/tools/cash.js",
+    "api/src/ai/tools/files.js",
     "api/src/ai/tools/forms.js",
     "api/src/ai/tools/general.js",
     "api/src/ai/tools/guest.js",
