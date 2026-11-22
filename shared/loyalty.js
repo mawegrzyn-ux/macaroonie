@@ -65,6 +65,65 @@ const text = (v, max, dflt = '') => (typeof v === 'string' ? v.trim().slice(0, m
 const ids = v => [...new Set((Array.isArray(v) ? v : []).filter(isUuid))].slice(0, 500)
 const bool = (v, dflt) => (typeof v === 'boolean' ? v : dflt)
 
+// ── The card's look ─────────────────────────────────────────────────────────
+// The programme's card colours (settings.card: null = the brand's), and up to
+// MAX_CARD_THEMES looks members can pick from for their own card (settings.
+// themes, 22 Nov 2026): each { id, name, background, text, accent }, text and
+// accent null = worked out from the background. A member's pick is
+// loyalty_members.card_theme (null = the standard look); a look taken away
+// later leaves its members on the standard one.
+export const MAX_CARD_THEMES = 8
+const HEX_COLOUR = /^#[0-9a-f]{6}$/i
+const hexColour = v => (typeof v === 'string' && HEX_COLOUR.test(v) ? v.toLowerCase() : null)
+function lum(hex) {
+  const n = parseInt(hex.slice(1), 16)
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(v => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4 })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+/** Words readable on a background: dark on light, white on dark. */
+export const readableOn = bg => (lum(bg) > 0.45 ? '#111111' : '#ffffff')
+
+/** The card's standard colours: the programme's, else the brand's, with readable words. */
+export function cardColours(settings, brandColors = {}) {
+  const c = settings?.card || {}
+  const bg = hexColour(c.background) || hexColour(brandColors.primary) || '#1f2937'
+  const text = hexColour(c.text) || readableOn(bg)
+  const accent = hexColour(c.accent) || hexColour(brandColors.accent) || text
+  return { background: bg, text, accent }
+}
+
+/** A look the programme offers, or null (not offered, or taken away). */
+export const cardTheme = (settings, id) => (id && (settings?.themes || []).find(t => t.id === id)) || null
+
+/** A look's colours, worked out in full (its words readable when left out). */
+export function themeColours(t) {
+  const text = t.text || readableOn(t.background)
+  return { background: t.background, text, accent: t.accent || text }
+}
+
+/** A member's card colours: their look's when it is still offered, else the standard ones. */
+export function memberCardColours(settings, brandColors = {}, themeId = null) {
+  const t = cardTheme(settings, themeId)
+  return t ? themeColours(t) : cardColours(settings, brandColors)
+}
+
+function normaliseThemes(list) {
+  const out = []
+  for (const t of Array.isArray(list) ? list : []) {
+    if (out.length >= MAX_CARD_THEMES) break
+    if (!t || typeof t !== 'object') continue
+    const background = hexColour(t.background)
+    if (!background) continue
+    const name = text(t.name, 30) || 'Look ' + (out.length + 1)
+    // The id members keep: kept as sent; a new look without one gets one from its name.
+    let id = (typeof t.id === 'string' ? t.id : '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24)
+      || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 20) || 'look'
+    for (let n = 2; out.some(x => x.id === id); n++) id = id.slice(0, 20) + '-' + n
+    out.push({ id, name, background, text: hexColour(t.text), accent: hexColour(t.accent) })
+  }
+  return out
+}
+
 export const DEFAULT_TERMS =
   'I agree to join the loyalty programme. My name, email and what I buy are used to keep my points, stamps and rewards. I can leave and delete my account at any time.'
 export const DEFAULT_MARKETING =
@@ -106,6 +165,8 @@ export function normaliseProgramme(raw = {}) {
     },
     // The card's colours; null = the brand's (tenant_site theme).
     card: { background: hex(card.background), text: hex(card.text), accent: hex(card.accent) },
+    // Looks members can pick for their own card (see cardTheme()).
+    themes: normaliseThemes(r.themes),
   }
 }
 

@@ -49,6 +49,12 @@ export const LOYALTY_CSS = `
 .mloy .mloy-err { color: #991b1b; background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin: 12px 0 0; }
 .mloy .mloy-ok { color: #065f46; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin: 12px 0 0; }
 .mloy .mloy-card { background: var(--mloy-card-bg, #1f2937); color: var(--mloy-card-text, #fff); border-radius: 18px; padding: 18px; margin: 14px 0; box-shadow: 0 6px 22px rgba(0,0,0,.12); }
+.mloy .mloy-looks { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin: 6px 0 4px; }
+.mloy .mloy-look { position: relative; display: block; cursor: pointer; }
+.mloy .mloy-look input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.mloy .mloy-look span { display: flex; align-items: flex-end; min-height: 56px; padding: 8px 10px; border-radius: 12px; font-size: 13px; font-weight: 700; border: 3px solid transparent; box-shadow: 0 1px 4px rgba(0,0,0,.15); }
+.mloy .mloy-look input:checked + span { border-color: var(--mloy-primary, #111); }
+.mloy .mloy-look input:focus-visible + span { outline: 2px solid var(--mloy-primary, #111); outline-offset: 2px; }
 .mloy .mloy-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .mloy .mloy-card-label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--mloy-card-accent, currentColor); font-weight: 700; }
 .mloy .mloy-pts { font-size: 34px; font-weight: 800; line-height: 1.05; }
@@ -254,6 +260,21 @@ export function mountLoyalty(root, opts = {}) {
       </li>`).join('') + '</ul></div>'
   }
 
+  // The looks the programme offers for the card (info.card.themes) and the member's pick.
+  const looks = () => info?.card?.themes || []
+  const myLook = () => looks().find(t => t.id === me?.card_theme) || null
+  const lookVars = c => '--mloy-card-bg:' + c.background + ';--mloy-card-text:' + c.text + ';--mloy-card-accent:' + c.accent
+  function looksHtml() {
+    if (!looks().length) return ''
+    const option = (value, name, c, checked) => `<label class="mloy-look"><input type="radio" name="s_theme" value="${esc(value)}" ${checked ? 'checked' : ''} data-testid="loy-look-${esc(value || 'standard')}" />
+        <span style="background:${c.background};color:${c.text}">${esc(name)}</span></label>`
+    return `<label class="mloy-label">Your card&apos;s look</label>
+        <div class="mloy-looks" role="radiogroup" data-testid="loy-looks">
+          ${option('', 'Standard', info.card.standard, !myLook())}
+          ${looks().map(t => option(t.id, t.name, t, myLook()?.id === t.id)).join('')}
+        </div>`
+  }
+
   function settingsHtml(msg = '') {
     return `<form data-form="me" class="mloy-box">
         <h2 class="mloy-h2">Your details</h2>
@@ -262,6 +283,7 @@ export function mountLoyalty(root, opts = {}) {
         <label class="mloy-label" for="mloy-s-phone-${id}">Phone</label>
         <input class="mloy-input" id="mloy-s-phone-${id}" name="s_phone" type="tel" inputmode="tel" value="${esc(me.phone || '')}" maxlength="30" />
         <label class="mloy-check"><input type="checkbox" name="s_marketing" ${me.marketing_opt_in ? 'checked' : ''} data-testid="loy-s-marketing" /> <span>${esc(info.signup.marketing_text)}</span></label>
+        ${looksHtml()}
         <button type="submit" class="mloy-btn" data-testid="loy-save">Save</button>
         ${msg ? '<p class="mloy-ok">' + esc(msg) + '</p>' : ''}
       </form>
@@ -289,7 +311,8 @@ export function mountLoyalty(root, opts = {}) {
         ${info.wallet.apple ? '<button type="button" class="mloy-btn" data-act="apple" data-testid="loy-apple">Add to Apple Wallet</button>' : ''}
         ${info.wallet.google ? '<button type="button" class="mloy-btn" data-act="google" data-testid="loy-google">Add to Google Wallet</button>' : ''}
       </div>` : ''
-    const card = `<div class="mloy-card" data-testid="loy-card">
+    const look = myLook()
+    const card = `<div class="mloy-card" data-testid="loy-card" data-look="${esc(look?.id || 'standard')}"${look ? ' style="' + lookVars(look) + '"' : ''}>
         <div class="mloy-card-top">
           <div><div class="mloy-card-label">Member</div><div class="mloy-name">${esc(me.name)}</div></div>
           ${info.points ? '<div style="text-align:right"><div class="mloy-card-label">' + esc(info.points.label) + '</div><div class="mloy-pts" data-testid="loy-points">' + me.points + '</div></div>' : ''}
@@ -310,8 +333,16 @@ export function mountLoyalty(root, opts = {}) {
     if (fm) {
       fm.addEventListener('submit', async e => {
         e.preventDefault()
-        me = await call('/me', { method: 'PATCH', body: { name: fm.s_name.value.trim(), phone: fm.s_phone.value.trim() || null, marketing: fm.s_marketing.checked } })
-        render('Saved')
+        const picked = fm.querySelector('input[name=s_theme]:checked')
+        try {
+          me = await call('/me', { method: 'PATCH', body: { name: fm.s_name.value.trim(), phone: fm.s_phone.value.trim() || null, marketing: fm.s_marketing.checked,
+            ...(picked ? { theme: picked.value || null } : {}) } })
+          render('Saved')
+        } catch (err) {
+          // A look taken away since the page loaded: load the programme again and say so.
+          info = await call('', { auth: false }).catch(() => info)
+          render(err.message)
+        }
       })
       act('new-card', async () => { me = await call('/me/new-card', { method: 'POST' }); tab = 'card'; render('Your card has a new code') })
       act('export', async () => {

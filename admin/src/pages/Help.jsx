@@ -5890,6 +5890,15 @@ export default function Help() {
               for Google your issuer ID and a service account key file. A wallet card&apos;s balance
               updates within about a minute of a change.
             </P>
+            <H3>Card looks members pick</H3>
+            <P>
+              In Programme, <strong>Card looks members can pick</strong> offers up to eight looks for the card, each a
+              name and its background, words and highlight colours. <strong>Add a look</strong> starts from a ready-made
+              one you can change; drag them into the order members see. Members then choose a look for their own card in
+              the loyalty app&apos;s <strong>Settings</strong> (or keep <strong>Standard</strong>, the card&apos;s colours
+              above), and their card shows it in the app, on your website and in Apple and Google Wallet. Take a look away
+              and the members who picked it go back to the standard look. With no looks set, members see no choice.
+            </P>
 
             <H3>Members</H3>
             <P>

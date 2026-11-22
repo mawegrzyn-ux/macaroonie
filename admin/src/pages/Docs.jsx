@@ -7504,8 +7504,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>wallet_google</Mono>, sealed JSON; <Mono>/api/loyalty/platform/wallet[/:kind]</Mono>). A tenant may
               save its own instead (<Mono>PUT /api/loyalty/wallet/:kind</Mono>, owner or admin;{' '}
               <Mono>loyalty_wallet_settings</Mono>), checked before saving (the key belongs to the certificate, not
-              run out). Cards are always in the tenant&apos;s brand (<Mono>cardColours()</Mono>: the programme&apos;s
-              card colours, else <Mono>tenant_site.theme.colors</Mono>). <Mono>pushWalletUpdates()</Mono> sends an
+              run out). Cards are in the tenant&apos;s brand (<Mono>cardColours()</Mono> in <Mono>shared/loyalty.js</Mono>: the
+              programme&apos;s card colours, else <Mono>tenant_site.theme.colors</Mono>), or the member&apos;s own look
+              (migration 264, 22 Nov 2026): <Mono>settings.themes</Mono> (up to <Mono>MAX_CARD_THEMES</Mono> 8,{' '}
+              <Mono>{'{ id, name, background, text, accent }'}</Mono>, kept by <Mono>normaliseProgramme()</Mono>, ids kept as
+              sent or made from the name), <Mono>loyalty_members.card_theme</Mono> (null = standard), and{' '}
+              <Mono>memberCardColours()</Mono> (the look while it is offered, else the standard colours) for the Apple pass
+              and the Google object&apos;s <Mono>hexBackgroundColor</Mono> (also patched). <Mono>GET /loyalty-api/t/:slug</Mono>{' '}
+              gives <Mono>card.standard</Mono> and <Mono>card.themes</Mono> in full (<Mono>themeColours()</Mono>);{' '}
+              <Mono>PATCH /me {'{ theme }'}</Mono> picks one (422 when not offered) and marks the wallet for an update;{' '}
+              <Mono>memberSummary()</Mono> gives <Mono>card_theme</Mono>; the export includes it; <Mono>mountLoyalty()</Mono>{' '}
+              sets the card&apos;s <Mono>--mloy-card-*</Mono> from it and offers the looks in Settings. Admin: Loyalty →
+              Programme → <Mono>CardLooks</Mono>. <Mono>pushWalletUpdates()</Mono> sends an
               APNs push (HTTP/2, the pass certificate) to the devices of members whose{' '}
               <Mono>wallet_updated_at</Mono> is after <Mono>wallet_pushed_at</Mono>, and patches their Google object.
               Env (only changed for stand-in servers): <Mono>APPLE_APNS_URL</Mono>, <Mono>GOOGLE_WALLET_API_URL</Mono>,{' '}

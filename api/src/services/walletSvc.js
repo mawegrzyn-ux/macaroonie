@@ -31,7 +31,7 @@ import { sql, systemSql, withTenant } from '../config/db.js'
 import { env } from '../config/env.js'
 import { httpError } from '../middleware/error.js'
 import { seal, unseal } from './vault.js'
-import { cardCode, formatMemberNo, pointsText, stampProgress, normaliseProgramme } from '../../../shared/loyalty.js'
+import { cardCode, formatMemberNo, pointsText, stampProgress, normaliseProgramme, memberCardColours, cardColours } from '../../../shared/loyalty.js'
 import { officeOrigin } from './platformHost.js'
 
 const run = promisify(execFile)
@@ -168,23 +168,9 @@ export async function walletStatus(tx, tenantId) {
 
 // ── Colours ─────────────────────────────────────────────────────────────────
 
-const HEX = /^#[0-9a-f]{6}$/i
 function rgb(hex) {
   const n = parseInt(hex.slice(1), 16)
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-}
-function lum(hex) {
-  const [r, g, b] = rgb(hex).map(v => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4 })
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b
-}
-/** The card's colours: the programme's, else the brand's, with readable words. */
-export function cardColours(settings, brandColors = {}) {
-  const bg = (settings?.card?.background && HEX.test(settings.card.background) && settings.card.background)
-    || (HEX.test(brandColors.primary || '') && brandColors.primary) || '#1f2937'
-  const text = (settings?.card?.text && HEX.test(settings.card.text) && settings.card.text) || (lum(bg) > 0.45 ? '#111111' : '#ffffff')
-  const accent = (settings?.card?.accent && HEX.test(settings.card.accent) && settings.card.accent)
-    || (HEX.test(brandColors.accent || '') && brandColors.accent) || text
-  return { background: bg, text, accent }
 }
 const rgbText = hex => 'rgb(' + rgb(hex).join(',') + ')'
 
@@ -315,7 +301,8 @@ export async function applePass(tx, member, programme, site, token) {
   const account = await appleAccount(tx, member.tenant_id)
   if (!account) throw httpError(422, 'Apple Wallet isn\'t set up yet')
   const s = programme.settings
-  const colours = cardColours(s, site?.colors)
+  // The member's own look, when they picked one that is still offered (shared/loyalty.js).
+  const colours = memberCardColours(s, site?.colors, member.card_theme)
   const content = await cardContent(tx, member, programme)
   const origin = site?.origin || officeOrigin()
   const pass = {
@@ -390,6 +377,8 @@ const googleId = s => String(s).replace(/[^A-Za-z0-9._-]/g, '_')
 function googleObjects(account, member, programme, site, content) {
   const s = programme.settings
   const colours = cardColours(s, site?.colors)
+  // The class has the programme's colours; each member's card has their own look.
+  const mine = memberCardColours(s, site?.colors, member.card_theme)
   const origin = site?.origin || officeOrigin()
   const logo = site?.logo_url ? new URL(site.logo_url, origin).href : officeOrigin() + '/pwa-512x512.png'
   const classId = account.issuer_id + '.' + googleId('loyalty-' + member.tenant_id)
@@ -407,6 +396,7 @@ function googleObjects(account, member, programme, site, content) {
     state: 'ACTIVE',
     accountId: member.member_no,
     accountName: member.name || '',
+    hexBackgroundColor: mine.background,
     ...(content.points ? { loyaltyPoints: { label: s.points.label, balance: { int: member.points } } } : {}),
     barcode: { type: 'QR_CODE', value: cardCode(member.card_token), alternateText: formatMemberNo(member.member_no) },
     textModulesData: [
@@ -458,7 +448,7 @@ async function updateGoogleObject(account, member, programme, site, content) {
   const res = await fetch(env.GOOGLE_WALLET_API_URL + '/walletobjects/v1/loyaltyObject/' + encodeURIComponent(loyaltyObject.id), {
     method: 'PATCH',
     headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
-    body: JSON.stringify({ loyaltyPoints: loyaltyObject.loyaltyPoints, textModulesData: loyaltyObject.textModulesData, accountName: loyaltyObject.accountName, barcode: loyaltyObject.barcode }),
+    body: JSON.stringify({ loyaltyPoints: loyaltyObject.loyaltyPoints, textModulesData: loyaltyObject.textModulesData, accountName: loyaltyObject.accountName, barcode: loyaltyObject.barcode, hexBackgroundColor: loyaltyObject.hexBackgroundColor }),
     signal: AbortSignal.timeout(10_000),
   })
   // 404: the member hasn't saved the card yet.

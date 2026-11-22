@@ -6,6 +6,10 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-22 — Loyalty card looks members pick]
+
+- Loyalty → Programme → **Card looks members can pick**: up to eight looks for the card (a name and its colours), in an order you drag. Members choose theirs in the loyalty app's Settings, and their card shows it in the app, on your website and in Apple and Google Wallet. Taking a look away puts its members back on the standard look. Migration 264.
+
 ## [2026-11-22 — The Tech board, and platform status]
 
 - **Store tech → Tech board**: a venue's kit on one page (venue hub, tills, kitchen screens, kiosks, printers, card machines, menu screens), each with a light, whether it is online, the last thing it did and a link to its page, plus a box of what needs looking at and a light for Macaroonie itself. It checks again every minute. Migration 263 adds the link to Store tech.

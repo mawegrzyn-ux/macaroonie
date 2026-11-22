@@ -24,14 +24,14 @@ import { env } from '../config/env.js'
 import { httpError } from '../middleware/error.js'
 import {
   normaliseProgramme, normaliseReward, normaliseStampCard, pointsFor, stampsFor, stampProgress,
-  memberNo, parseCardCode, cardCode, channelOn, rewardSummary, earnText, LOYALTY_CHANNELS,
+  memberNo, parseCardCode, cardCode, channelOn, rewardSummary, earnText, LOYALTY_CHANNELS, cardTheme,
 } from '../../../shared/loyalty.js'
 import { checkTotals, isActiveLine } from '../../../shared/pos/pricing.js'
 import { upsertCustomer } from '../routes/customers.js'
 import { sendEmail, emailCredentials } from './emailSvc.js'
 import { seal, unseal } from './vault.js'
 import { makeLink, readLink } from './previewLinks.js'
-import { cardColours } from './walletSvc.js'
+import { cardColours } from '../../../shared/loyalty.js'
 
 export const CODE_MINUTES = 15
 const MAX_ATTEMPTS = 5
@@ -85,7 +85,7 @@ export async function loadStampCards(tx, tenantId, { activeOnly = false } = {}) 
 
 const MEMBER_COLS = ['id', 'member_no', 'card_token', 'status', 'name', 'email', 'phone', 'points', 'points_earned', 'points_spent',
   'joined_at', 'joined_venue_id', 'joined_channel', 'last_activity_at', 'last_visit_at', 'visits', 'spend_pence',
-  'marketing_opt_in', 'marketing_opt_in_at', 'consent', 'notes', 'tags', 'customer_id', 'created_at', 'updated_at']
+  'marketing_opt_in', 'marketing_opt_in_at', 'consent', 'notes', 'tags', 'customer_id', 'card_theme', 'created_at', 'updated_at']
 
 async function loadMember(tx, tenantId, id, { lock = false } = {}) {
   if (!/^[0-9a-f-]{36}$/i.test(String(id || ''))) return null
@@ -277,6 +277,8 @@ export async function memberSummary(tx, member, programme, { channel = null, wit
     points: member.points,
     joined_at: member.joined_at,
     marketing_opt_in: member.marketing_opt_in,
+    // The look they picked for their card, while the programme still offers it (null = the standard look).
+    card_theme: cardTheme(programme.settings, member.card_theme)?.id ?? null,
     ...(withToken ? { card_code: cardCode(member.card_token) } : {}),
     stamps: stamps.map(x => ({ card_id: x.card.id, name: x.card.name, description: x.card.description, count: x.count, needed: x.needed, reward_id: x.card.reward_id })),
     rewards: rewards.map(x => ({

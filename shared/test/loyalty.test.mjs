@@ -178,3 +178,21 @@ test('earnText: how points are earned, one point or many', () => {
   assert.equal(earnText(normaliseProgramme({ points: { per_pound: 2, welcome: 1500 } })), 'Earn 2 points for every £1 you spend, and 1,500 points when you join.')
   assert.equal(earnText(null), '')
 })
+
+test('card looks: kept valid, at most eight, ids unique; a member\'s colours follow their look while it is offered', async () => {
+  const { normaliseProgramme, memberCardColours, cardColours, MAX_CARD_THEMES, readableOn } = await import('../loyalty.js')
+  const s = normaliseProgramme({ themes: [
+    { id: 'A Look!', name: 'One', background: '#000000' },
+    { id: 'a-look', name: 'Two', background: '#ffffff', accent: '#ff0000' },
+    { name: '', background: '#123456' },
+    { name: 'Bad', background: 'red' },
+    ...Array.from({ length: 10 }, (_, i) => ({ name: 'More ' + i, background: '#111111' })),
+  ] })
+  assert.equal(s.themes.length, MAX_CARD_THEMES)
+  assert.deepEqual(s.themes.slice(0, 3).map(t => t.id), ['alook', 'a-look', 'look-3'])
+  assert.equal(new Set(s.themes.map(t => t.id)).size, s.themes.length, 'ids unique')
+  assert.deepEqual(memberCardColours(s, {}, 'a-look'), { background: '#ffffff', text: '#111111', accent: '#ff0000' })
+  assert.deepEqual(memberCardColours(s, { primary: '#336699' }, 'gone'), cardColours(s, { primary: '#336699' }))
+  assert.equal(readableOn('#000000'), '#ffffff')
+  assert.deepEqual(normaliseProgramme({}).themes, [])
+})
