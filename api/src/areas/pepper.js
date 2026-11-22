@@ -1,0 +1,25 @@
+// src/areas/pepper.js
+//
+// The pepper area's route plugins (docs/claude/areas/pepper.md). app.js
+// registers every area file's routes, each as app.register(plugin, options),
+// after the infrastructure (docs/PARALLEL_WORK.md 3.5). Fastify routes don't
+// depend on their order, so the files need none.
+
+import mcpRoutes from '../routes/mcp.js'
+import mcpOauthRoutes from '../routes/mcpOauth.js'
+import aiRoutes from '../routes/ai.js'
+import storeOpeningRoutes from '../routes/storeOpenings.js'
+import menuImportRoutes from '../routes/menuImport.js'
+import documentReadRoutes from '../routes/documentRead.js'
+import aiApiRoutes from '../routes/aiApi.js'
+
+export const routes = [
+  // AI: MCP connectors (guest + staff) and the chats (migration 148)
+  [mcpRoutes],
+  [mcpOauthRoutes],
+  [aiRoutes, { prefix: '/api/ai' }],
+  [storeOpeningRoutes, { prefix: '/api/ai/store-openings' }],
+  [menuImportRoutes, { prefix: '/api/ai/menus' }],
+  [documentReadRoutes, { prefix: '/api/ai' }],
+  [aiApiRoutes, { prefix: '/ai-api' }],
+]

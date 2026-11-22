@@ -1,4 +1,9 @@
-// src/jobs/publishWorker.js
+// src/jobs/website-publish.js
+//
+// One background job (docs/PARALLEL_WORK.md 3.9): its queue, its row on the
+// Platform page's Status (services/platformStatus.js JOBS), and start(),
+// which server.js calls once per API process for its worker.
+// Gathered from this folder by loadJobs() (jobs/queues.js).
 //
 // BullMQ worker that fires a scheduled website publish. Scheduling itself
 // (delay computation + jobId) lives in the route handler
@@ -7,14 +12,19 @@
 // `publish-{tenantId}` so re-scheduling replaces the pending job rather
 // than stacking a second one (BullMQ dedups adds by jobId).
 
-import { Worker } from 'bullmq'
-import { env } from '../config/env.js'
+import { Queue, Worker } from 'bullmq'
+import { connection, prefix } from './connection.js'
 
-const connection = { url: env.REDIS_URL }
-const prefix = env.QUEUE_PREFIX
+export const name  = 'website-publish'
+export const label = 'Website publishing'
+// How often it repeats (ms); null for a queue that runs only when a job is added.
+export const every = null
+// Its place on the Status (lowest first).
+export const order = 90
+export const queue = new Queue(name, { connection, prefix })
 
-export function startPublishWorker(log) {
-  const worker = new Worker('website-publish', async job => {
+export function start(log) {
+  const worker = new Worker(name, async job => {
     const { tenantId } = job.data
     log.info({ tenantId }, 'Running scheduled website publish')
 
