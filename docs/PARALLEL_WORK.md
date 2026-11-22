@@ -1,7 +1,7 @@
 # Working in parallel: separating the code so several agents can build at once
 
-**Status: a plan for the user to decide on (22 Nov 2026). Nothing in it is built.** The decisions to
-make are section 9.
+**Status: phases 1 and 2 built on 22 Nov 2026** (the user: "do the parallel work first, both phases").
+Phase 3 (section 8) is not. Section 10 says what was decided and where each piece ended up.
 
 The ask (OUTSTANDING 46, 22 Nov 2026): the user agreed with the recommendation not to split the API
 into microservices (one codebase, one database, one deploy), and set the outcome: *"be able to use
@@ -369,3 +369,43 @@ slowing each other down; it doesn't help agents work in parallel, so it waits. 3
 - **D5** GitHub's merge queue (4.7), or "branches must be up to date" (slower), or neither?
 - **D6** How agents will run: cloud sessions (each its own container, nothing more needed) or several
   on one computer (4.5 needed)?
+
+## 10. Built 22 Nov 2026
+
+The decisions as taken (the user asked for both phases at once and left the rest to the plan's
+recommendations): **D1** all at once; **D2** `changes/`, one file per change; **D3** a comment
+only, though a new import into another area's private files does fail CI (4.2); **D4** yes, four
+parts and the sweep; **D5** not set: the merge queue is a repository setting the owner turns on
+(Settings, Branches); **D6** both: cloud sessions need nothing, and `scripts/test-env.sh` is there
+for one computer.
+
+Where each piece is:
+- 3.1, 3.2: `admin/src/pages/help/<id>.jsx` (54) and `docs/<id>.jsx` (47), `parts.jsx` in each;
+  `helpIndex.js` reads `HELP_SOURCE_DIR`. The Docs contents entry "Customers & GDPR", which linked to
+  no section, was dropped.
+- 3.3: `changes/` (`changes/README.md`), `node scripts/changelog.mjs`.
+- 3.4, 3.6: `admin/src/routes/<area>.jsx` (19), `shared/nav/<area>.js` (20) and `shared/nav/index.js`,
+  which imports each area file by name (`shared/` runs in Node and Vite, so no folder reading);
+  `shared/test/navPages.test.mjs`.
+- 3.5, 3.9: `api/src/areas/<area>.js` (19); `api/src/jobs/<queue>.js` (10), `jobs/connection.js`,
+  `loadJobs()`; `api/test/areas-and-jobs.test.mjs`.
+- 3.8: each tool file exports `tools`, `order`, `sections`, `promptLines`, `promptNotes`; tools carry
+  `activity`, `core`, `open`. Four prompt paragraphs moved place once (one cache reset).
+  Still hand-kept: `VOICE_CONFIRM_TOOLS` and `HEAVY_TOOLS` (chat.js), `TOOL_LABELS` and
+  `changeDetail()` (AiAssistant.jsx), `OPEN_FORMS` against FormSheet's `FORMS`.
+- 3.10: `catalogue/gather.js`; each subject file exports `order`, `subjects`, `decisions`; counts
+  printed by `node api/scripts/report-catalogue.js`.
+- 3.11: `api/test/support/fixtures/<area>.mjs` (20) with `order`, `fill`, `kinds`, and three late
+  parts; about 30 of 242 writes run in a new order, the rows made are the same.
+- 3.12: `docs/claude/outstanding/<area>.md`; `OUTSTANDING.md` is the index.
+- 3.13 and 4.6: `CLAUDE.md` rules 8, 21, 23, 27, 28 and 29 to 31.
+- 4.1 to 4.3: `areas.json` (drafted from the notes, file names and the area route files; correct a
+  file's area when you find it misplaced), `areas-baseline.json` (160 crossings), `scripts/check-areas.mjs`,
+  the CI job "Areas".
+- 4.4: the CI job "API tests" as a matrix of five.
+- 4.5: `scripts/test-env.sh`, `QUEUE_PREFIX`, run-named folders in `test/support/register.mjs`.
+
+Every step was checked by comparing its output before and after (rendered pages, route tables, the
+menu lists, queues and workers, the system prompt and tool schemas, the catalogue, the rows the
+fixtures make) and by the API, shared and hub tests.
+
