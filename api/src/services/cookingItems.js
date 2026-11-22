@@ -15,6 +15,7 @@
 // menu_item_id or cooking_item_id respectively.
 
 import { loadMenuVersions } from './menuReleases.js'
+import { isFoodItem } from '../../../shared/catalogue.js'
 
 export const ITEM_SOURCES = ['menus', 'own', 'both']
 export const OWN_TAB = 'Our items'
@@ -37,10 +38,12 @@ export async function loadCookingPicker(tx, tenantId, venueId) {
     const menus = await loadMenuVersions(tx, tenantId, { venueId, publishedOnly: true })
     for (const m of menus) {
       for (const s of m.sections || []) {
-        if (!(s.items || []).length) continue
+        // Only food is cooked: retail goods and services are left out (migration 267).
+        const food = (s.items || []).filter(isFoodItem)
+        if (!food.length) continue
         sections.push({
           id: s.id, title: s.title, kind: 'menu',
-          items: s.items.map(i => ({ id: i.id, name: i.name, kind: 'menu' })),
+          items: food.map(i => ({ id: i.id, name: i.name, kind: 'menu' })),
         })
       }
     }

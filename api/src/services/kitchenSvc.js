@@ -46,6 +46,7 @@
 // Every query filters tenant_id itself.
 
 import { withTenant, systemSql } from '../config/db.js'
+import { itemType, showsInKitchen } from '../../../shared/catalogue.js'
 import { broadcast } from '../config/ws.js'
 import { httpError } from '../middleware/error.js'
 import { ulid } from '../../../shared/pos/ids.js'
@@ -595,10 +596,19 @@ async function onlineSnapshot(tx, order) {
     SELECT id, menu_item_id, name, options, parts, qty, note FROM order_items
      WHERE order_id = ${order.id} AND tenant_id = ${order.tenant_id} ORDER BY sort_order`
   const ids = [...new Set(items.map(i => i.menu_item_id).filter(Boolean))]
+  // Each dish's section, and whether it goes to the kitchen at all: retail
+  // goods and services don't (migration 267, shared/catalogue.js).
   const sections = ids.length
-    ? await tx`SELECT id, section_id FROM menu_items WHERE tenant_id = ${order.tenant_id} AND id = ANY(${ids}::uuid[])`
+    ? await tx`SELECT i.id, i.section_id, i.item_type, s.item_type AS section_type, m.item_type AS menu_type
+                 FROM menu_items i
+                 JOIN menu_sections s ON s.id = i.section_id
+                 JOIN menus m ON m.id = s.menu_id
+                WHERE i.tenant_id = ${order.tenant_id} AND i.id = ANY(${ids}::uuid[])`
     : []
   const sectionOf = Object.fromEntries(sections.map(s => [s.id, s.section_id]))
+  const notKitchen = new Set(sections
+    .filter(s => !showsInKitchen(itemType(s, { item_type: s.section_type }, { item_type: s.menu_type })))
+    .map(s => s.id))
   let fireAt = null
   if (!order.is_asap && order.promised_at) {
     const [s] = await tx`SELECT lead_time_mins FROM ordering_settings WHERE venue_id = ${order.venue_id} AND tenant_id = ${order.tenant_id}`
@@ -625,7 +635,7 @@ async function onlineSnapshot(tx, order) {
     fire_at: fireAt,
     note: order.notes ? String(order.notes).slice(0, 500) : null,
     allergy: order.allergy_note ? String(order.allergy_note).slice(0, 500) : null,
-    items: items.map(i => ({
+    items: items.filter(i => !notKitchen.has(i.menu_item_id)).map(i => ({
       id: String(i.id), item_id: i.menu_item_id || null, section_id: sectionOf[i.menu_item_id] || null,
       revenue_stream_id: order.revenue_stream_id || null,
       name: String(i.name).slice(0, 200), qty: Number(i.qty) || 1,

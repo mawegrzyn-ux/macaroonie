@@ -214,8 +214,14 @@ export function Section() {
         offer them as answers to allergy questions.
       </P>
       <P>
-        Still to come: kitchen screens skipping retail and services, product codes and barcodes,
-        and the word Catalogue for a menu that isn&apos;t food.
+        Retail goods and services never go to the kitchen: on the till and kiosks they are sent
+        with the order and paid for as usual, but no kitchen screen or ticket shows them, they
+        get no course, and an online order&apos;s kitchen copy leaves them out. They aren&apos;t
+        offered for food safety cooking checks either.
+      </P>
+      <P>
+        Still to come: product codes and barcodes, and the word Catalogue for a menu that
+        isn&apos;t food.
       </P>
       <H3>Copying dishes, sections and options</H3>
       <P>
