@@ -132,7 +132,7 @@ function importsReport(write) {
 }
 
 function prReport(base) {
-  const changed = execFileSync('git', ['diff', '--name-only', `${base}...HEAD`], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean)
+  const changed = execFileSync('git', ['diff', '--name-only', '--diff-filter=d', `${base}...HEAD`], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean)
   const by = new Map()
   const shared = []
   for (const f of changed) {
