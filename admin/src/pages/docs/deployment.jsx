@@ -159,8 +159,13 @@ npm install && npm run dev        # :5173, proxies /api → :3000`}</Code>
         migrations a second time expecting "up to date", then starts the API against it with
         Redis and waits for <Mono>/api/health</Mono>; job <Mono>shared-tests</Mono> runs{' '}
         <Mono>node --test shared/test/*.test.mjs shared/pos/test/*.test.mjs</Mono>; job{' '}
-        <Mono>api-tests</Mono> migrates its own empty <Mono>macaroonie_test</Mono> database and
-        runs <Mono>npm test</Mono> in <Mono>api/</Mono> (below). Separate from the deploy
+        <Mono>api-tests</Mono> runs the API tests (below) as five parallel jobs (22 Nov 2026), each
+        with its own Postgres, Redis and empty <Mono>macaroonie_test</Mono> database: parts 1 to 4
+        of the test files (Node&apos;s <Mono>--test-shard=N/4</Mono>, by file) and the cross-tenant
+        sweep on its own; job <Mono>areas</Mono> runs <Mono>scripts/check-areas.mjs</Mono> (files
+        no area in <Mono>areas.json</Mono> claims, imports from one area into another&apos;s private
+        files that aren&apos;t in <Mono>areas-baseline.json</Mono>) and comments on the pull request
+        which areas and shared files it changes. Separate from the deploy
         workflow; a failing check doesn&apos;t block a push to main on its own (set up a branch
         rule in GitHub for that).
       </P>
@@ -172,7 +177,12 @@ npm install && npm run dev        # :5173, proxies /api → :3000`}</Code>
         refuse to run unless the database name in <Mono>DATABASE_URL</Mono> contains{' '}
         <Mono>test</Mono>; migrate it first (<Mono>node scripts/migrate.js</Mono>). They need
         Redis like the API. <Mono>LOG_LEVEL=info npm test</Mono> shows the API&apos;s log (silent
-        otherwise). A run takes about four minutes. It uses the spec reporter, which ends with
+        otherwise). A run takes about four minutes. Two runs on one computer (or a run beside a dev
+        server) each need their own database, Redis and folders:{' '}
+        <Mono>{'eval "$(scripts/test-env.sh <name>)"'}</Mono> makes and migrates{' '}
+        <Mono>{'macaroonie_test_<name>'}</Mono> (owned by the non-superuser <Mono>maca_app</Mono>),
+        and sets a Redis database, <Mono>QUEUE_PREFIX</Mono> and upload and private folders of the
+        run&apos;s own. It uses the spec reporter, which ends with
         every failing test and its error, so the end of the CI job&apos;s log says what failed:
         the job also turns the Postgres service&apos;s log down to FATAL, because GitHub prints
         that log after the tests and the sweep makes thousands of expected errors.
@@ -184,7 +194,8 @@ npm install && npm run dev        # :5173, proxies /api → :3000`}</Code>
           ['test/support/auth-stub.mjs', 'The real auth module with one change: requireAuth takes "Authorization: Bearer test:<auth0 sub>" plus X-Tenant-Id (no Auth0) and checks the person against users / platform_admins like the real one. Permissions, roles and modules are the real code.'],
           ['test/support/app.mjs', 'getApp(), as(sub, tenantId) (a client per person: get / post / put / patch / delete / request, with the internal-call header so tests aren\'t rate limited), ok() (throws with the API\'s message), closeApp().'],
           ['test/support/seed.mjs', 'resetAndSeed(): empties the tenants and the platform tables, makes the platform admin, then two tenants through POST /api/platform/tenants (Thai House = A, Other Co = B) with one person per role in A and an owner in B.'],
-          ['test/support/fixtures.mjs', 'fillTenant(sub, tenantId, { mark, slug }): a tenant\'s data in every area, made through the API as its owner (venues, tables, schedule incl. overrides, exceptions and caps, bookings, holds, customers, menus with options, allergens and a release, rota and tips, Cash Recon days and wages, food safety, checklists, dashboards, purchasing, website, promotions, till, kitchen, screens, Pepper). Returns { ids, failed, writes }: writes is every write that worked (the sweep sends them again as the other tenant). The mark goes in names and notes.'],
+          ['test/support/fixtures.mjs', 'fillTenant(sub, tenantId, { mark, slug }): a tenant\'s data in every area, made through the API as its owner (venues, tables, schedule incl. overrides, exceptions and caps, bookings, holds, customers, menus with options, allergens and a release, rota and tips, Cash Recon days and wages, food safety, checklists, dashboards, purchasing, website, promotions, till, kitchen, screens, Pepper). Returns { ids, failed, writes }: writes is every write that worked (the sweep sends them again as the other tenant). The mark (MARK) goes in names and notes. It gathers the area files below and runs them by order; KINDS, the sweep\'s id kinds, is gathered from their kinds.'],
+          ['test/support/fixtures/<area>.mjs', 'One file per area: order and fill(ctx), the area\'s steps; three also lateOrder and fillLate(ctx) for steps that must come after another area\'s (booking emails after purchasing, till test sales after printers, kitchen, kiosks and screens, the shell\'s push notices last); kinds, each named route parameter and the tables its ids come from. fixtures/parts.mjs: MONDAY and newContext(); ctx has V (the first venue), ids, made (rows a later area needs), step / post / put / patch / get.'],
           ['test/support/fake-claude.mjs', 'A stand-in Claude API: answers POST /v1/messages from a script, as a stream of server-sent events when asked; sets ANTHROPIC_BASE_URL.'],
           ['test/tenant-sweep.test.mjs', 'The cross-tenant sweep (below).'],
           ['test/ai-chat.test.mjs', 'Pepper\'s chat loop against the stand-in Claude: streamed turns, the JSON reply, busy chats, errors after the stream opened, withdrawn and refused messages, model routing.'],
@@ -199,7 +210,7 @@ npm install && npm run dev        # :5173, proxies /api → :3000`}</Code>
       <DataTable
         head={['Test', 'Fails when']}
         rows={[
-          ['Every route that takes a parameter', 'Called with A\'s ids, and with B\'s own ids mixed in (B\'s venue with A\'s sitting): about 53,000 calls. A reply holds A\'s mark or an id of A\'s it wasn\'t sent; any of A\'s rows changes (an md5 per table over A\'s rows after each route); a 500. Ids come from every table with a tenant_id, one per table per tenant; named parameters (KINDS: venueId, sid, ...) get ids from their tables, :id gets all of them.'],
+          ['Every route that takes a parameter', 'Called with A\'s ids, and with B\'s own ids mixed in (B\'s venue with A\'s sitting): about 53,000 calls. A reply holds A\'s mark or an id of A\'s it wasn\'t sent; any of A\'s rows changes (an md5 per table over A\'s rows after each route); a 500. Ids come from every table with a tenant_id, one per table per tenant; named parameters (KINDS: venueId, sid, ..., from each fixture file\'s kinds) get ids from their tables, :id gets all of them.'],
           ['Every write A made, sent again', 'Each write in fixtures\' writes, as A sent it and with each of A\'s ids in the address swapped for B\'s id from the same table (valid bodies, so the route gets past its validation): A\'s rows change, a record of A\'s named in the address is accepted, a reply holds an id of A\'s it wasn\'t sent, or a 500. Accepted with A\'s ids in the body only is listed, and left to the last test.'],
           ['None of B\'s rows point at A\'s', 'Any row of B\'s, as text (jsonb included), holds an id of A\'s; or a link table without a tenant_id (table_combination_members) joins two tenants\' rows.'],
         ]}
@@ -210,8 +221,9 @@ npm install && npm run dev        # :5173, proxies /api → :3000`}</Code>
         <Mono>ALLOWED_CHANGES</Mono> (B upvoting A&apos;s feature request: one shared board) and{' '}
         <Mono>ALLOWED_REFERENCES</Mono> (that upvote&apos;s row). A new table is swept as soon as
         the fixtures make a row in it; a new route as soon as it is registered. When you add a
-        table or a route that takes ids, add a fixture step that makes a row (through the API) so
-        its ids are tried. Statuses 503 (no Auth0 or AI key on the test server) aren&apos;t
+        table or a route that takes ids, add a step to its area&apos;s fixture file that makes a row
+        (through the API) so its ids are tried, and a named id parameter to that file&apos;s{' '}
+        <Mono>kinds</Mono>. Statuses 503 (no Auth0 or AI key on the test server) aren&apos;t
         failures.
       </P>
       <H3>Typical deployment flow</H3>

@@ -1,7 +1,7 @@
 // src/routes/platform.js
 //
 // Platform admin routes + /api/me endpoint.
-// Mounted at /api in app.js (mixed prefixes).
+// Mounted at /api (api/src/areas/core.js; mixed prefixes).
 //
 //   GET  /api/me                          — current user info + available tenants
 //   GET  /api/platform/tenants            — list all tenants (platform admin)

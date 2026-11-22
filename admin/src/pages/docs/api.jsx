@@ -24,6 +24,19 @@ export function Section() {
         warn line (<Mono>Request refused</Mono> with the status, message and code), so refusals
         don&apos;t flood the error log.
       </P>
+      <P>
+        <strong>Where routes are registered.</strong> <Mono>app.js</Mono> keeps the plugins whose
+        place matters: helmet, CORS, rate limits, multipart, JWT, views and static files, the error
+        handler, the <Mono>onRoute</Mono> hook, the host sites (<Mono>platformSite</Mono>,{' '}
+        <Mono>posSite</Mono>, <Mono>screenSite</Mono>, <Mono>installerSite</Mono>,{' '}
+        <Mono>loyaltySite</Mono>: their global <Mono>onRequest</Mono> hooks come before every
+        route), the payment webhooks and the tenant site renderer. Every feature route plugin is
+        registered from its area&apos;s file, <Mono>api/src/areas/&lt;area&gt;.js</Mono>{' '}
+        (<Mono>{"export const routes = [[plugin, { prefix }], ...]"}</Mono>, 22 Nov 2026), which{' '}
+        <Mono>app.js</Mono> reads from the folder with a top-level await and registers after the
+        rest, area by area in name order (Fastify matches by path, so the order doesn&apos;t
+        matter). An area file never imports <Mono>app.js</Mono> or <Mono>server.js</Mono>.
+      </P>
 
       <H3>Holds &amp; Bookings — <span className="font-mono font-normal text-sm">/api/bookings</span></H3>
       <DataTable

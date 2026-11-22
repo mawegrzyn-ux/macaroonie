@@ -147,7 +147,7 @@ export function Section() {
       <H3>Task notices (migration 262)</H3>
       <P>
         <Mono>services/notices.js</Mono>, worker <Mono>task-notices</Mono> every five minutes
-        (<Mono>startTaskNoticeWorker(app, log)</Mono>): for each group with a device, each venue&apos;s feed is
+        (<Mono>jobs/task-notices.js</Mono>): for each group with a device, each venue&apos;s feed is
         worked out as the group&apos;s first owner through the internal act-as sign-in (see Authentication), so it
         holds every area. <Mono>noticeKind()</Mono>: <Mono>late</Mono> for a late task, <Mono>due_soon</Mono> for
         one due within <Mono>DUE_SOON_MINUTES</Mono> (30). <Mono>wants()</Mono>: the person&apos;s{' '}

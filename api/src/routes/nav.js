@@ -12,7 +12,7 @@
 // current parent), both from the frontend computing the right
 // parent_id/index and calling the one endpoint that fits.
 //
-// Mounted at /api/nav in app.js.
+// Mounted at /api/nav (api/src/areas/shell.js).
 
 import { z } from 'zod'
 import { withTenant, sql } from '../config/db.js'

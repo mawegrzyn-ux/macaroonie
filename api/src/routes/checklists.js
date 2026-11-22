@@ -1,7 +1,7 @@
 // src/routes/checklists.js
 //
 // Operator-defined recurring checklists (opening/closing/cleaning etc.),
-// per venue. Mounted at /api/checklists in app.js.
+// per venue. Mounted at /api/checklists (api/src/areas/hs.js).
 //
 // Templates — the checklist definition (name, department, frequency,
 //   advisory due day) — plus their ordered item list:

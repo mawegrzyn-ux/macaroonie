@@ -1,7 +1,7 @@
 // src/routes/changelog.js
 //
 // Platform changelog — admins write, all tenants read.
-// Mounted at /api/changelog in app.js.
+// Mounted at /api/changelog (api/src/areas/core.js).
 
 import { z }          from 'zod'
 import { sql }        from '../config/db.js'

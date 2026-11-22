@@ -142,13 +142,31 @@ export function Section() {
         <Mono>needs</Mono> that isn&apos;t a module, on figures too.
       </P>
       <P>
-        Every table in the database has a decision (<Mono>decisions.js</Mono>): read by a subject, planned for
-        a later phase (things that happen, or things to group by), settings, or left out with a reason.{' '}
+        Each area&apos;s subjects are a file of their own in <Mono>api/src/reports/catalogue/</Mono>{' '}
+        exporting <Mono>order</Mono> (where its subjects come), <Mono>subjects</Mono> and{' '}
+        <Mono>decisions</Mono>; the starters likewise in <Mono>api/src/reports/starters/</Mono>{' '}
+        (<Mono>order</Mono>, <Mono>starters</Mono>). Nothing lists the files:{' '}
+        <Mono>gather(import.meta.url, name)</Mono> (<Mono>catalogue/gather.js</Mono>) reads every file
+        of the asking file&apos;s folder that exports <Mono>name</Mono>, by order, then file name, for{' '}
+        <Mono>catalogue/index.js</Mono>, <Mono>decisions.js</Mono> and <Mono>starters/index.js</Mono>{' '}
+        (22 Nov 2026). <Mono>runs.js</Mono> exports <Mono>subjects</Mono> as a function given the
+        others&apos; subjects and <Mono>AREAS</Mono>, so it comes last. Each of the three reads its
+        folder with a top-level await, so a catalogue or starter file never imports one of them: the
+        API would stop at start with &quot;Detected unsettled top-level await&quot;.
+      </P>
+      <P>
+        Every table in the database has a decision: read by a subject, planned for
+        a later phase (things that happen, or things to group by), settings, or left out with a reason.
+        The table&apos;s area file says it in its <Mono>decisions</Mono> export,{' '}
+        <Mono>{"{ settings: [...], out: { reason: [tables] }, planned? }"}</Mono>, and{' '}
+        <Mono>decisions.js</Mono> gathers them into <Mono>SETTINGS</Mono>, <Mono>LEFT_OUT</Mono> and{' '}
+        <Mono>PLANNED</Mono> (a reason two files give is one reason).{' '}
         <Mono>coverage.js</Mono> works out what the catalogue reads; <Mono>api/test/reports-catalogue.test.mjs</Mono>{' '}
         compares both with <Mono>information_schema</Mono> and fails on a table with no decision and on an id
         column of a catalogue table that no field, link or <Mono>skip</Mono> entry accounts for.{' '}
         <Mono>node api/scripts/report-catalogue.js</Mono> prints where things stand, and with a table name or{' '}
-        <Mono>--area</Mono> drafts subjects from the columns, checks and foreign keys. After phase 3d the
+        <Mono>--area</Mono> drafts subjects from the columns, checks and foreign keys; it also prints the
+        counts below, which the test no longer pins (22 Nov 2026). After phase 3d the
         decisions were <Mono>{'{ subject: 127, planned: 1, settings: 57, out: 49 }'}</Mono> over 234 tables
         (migration 248&apos;s <Mono>local_info_feedback</Mono>, staff flags on local info, is left out: its
         counts are on each item), the one table planned being <Mono>report_runs</Mono>; phase 4a made it the
@@ -593,7 +611,7 @@ export function Section() {
       </P>
       <P>
         <strong>The sweep.</strong> <Mono>sweepSchedules()</Mono> (<Mono>api/src/reports/schedules.js</Mono>)
-        runs every minute from <Mono>startReportScheduleWorker()</Mono> in <Mono>jobs/queues.js</Mono> (BullMQ
+        runs every minute from <Mono>jobs/report-schedules.js</Mono> (BullMQ
         queue <Mono>report-schedules</Mono>). It claims each due schedule with a ten-minute lease
         (<Mono>running_until</Mono>, <Mono>FOR UPDATE SKIP LOCKED</Mono>), writes its next regular time
         before anything is sent, so a crash never sends a run twice, and runs the report as the
@@ -703,7 +721,7 @@ export function Section() {
         <Mono>/mobile/reports</Mono>: starred, own and the team&apos;s, starters, a search;{' '}
         <Mono>MobileReport</Mono> at <Mono>/mobile/reports/:ref</Mono>: the period and{' '}
         <Mono>ReportPeek</Mono>, read only; a page of reports says to open it on the office pages),
-        lazy routes in <Mono>main.jsx</Mono>, the <Mono>reports</Mono> tile in <Mono>mobile/registry.js</Mono>,{' '}
+        lazy routes in <Mono>admin/src/routes/reports.jsx</Mono>, the <Mono>reports</Mono> tile in <Mono>mobile/registry.js</Mono>,{' '}
         <Mono>opsLink()</Mono> mapping <Mono>/reports/:id</Mono> to the phone page.
       </P>
       <P>
@@ -1393,7 +1411,9 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
         <Mono>ask_data</Mono> for figures over a period rather than adding up other tools&apos; answers, to
         read totals, averages and rates from the rows, and to say the period and what was assumed. The
         refusals name the Reports levels (<Mono>DENIED.reports</Mono> in <Mono>ai/context.js</Mono>); chat
-        labels are in <Mono>TOOL_LABELS</Mono> (<Mono>chat.js</Mono>), Activity labels and details in{' '}
+        labels are each tool&apos;s <Mono>activity</Mono> (gathered into <Mono>ACTIVITY</Mono> in{' '}
+        <Mono>chat.js</Mono>), Activity labels and details <Mono>ACTION_LABELS</Mono>{' '}
+        (<Mono>shared/pepperActions.js</Mono>) and <Mono>changeDetail()</Mono> in{' '}
         <Mono>AiAssistant.jsx</Mono>.
       </P>
 

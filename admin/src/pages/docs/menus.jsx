@@ -205,7 +205,7 @@ export function Section() {
           ['loadMenuVersion() / loadMenuVersions()', 'The one way to read what guests see: loadMenuFull()-shaped, version live (default), draft, or a releaseId; with the tenant\'s current tags, notice and print design attached. loadMenuVersions() filters on the version\'s own venue_id and is_published (publishedOnly).'],
           ['publishAllergens() / allergenStatus()', 'Allergens and dietary tags only (the Allergen matrix): a release now from the live content with the draft\'s dish tags (withDraftTags()), for every menu; scheduled releases get a copy with the new tags and are cancelled. See Menus, Allergen matrix.'],
           ['publishMenu()', 'Snapshot the draft. at empty or within 30 seconds = now; at most 400 days ahead. 422 when the hash equals the live one. Immediate publishes set announced_at and the route calls announceMenus().'],
-          ['announceDueReleases()', 'Run every minute by the hold sweep (jobs/queues.js): marks releases that went live since the last run as announced and calls announceMenus(): tillsMayNeedConfig() plus a menus.live broadcast on the menus:<tenantId> room for screens.'],
+          ['announceDueReleases()', 'Run every minute by the hold sweep (jobs/hold-sweep.js): marks releases that went live since the last run as announced and calls announceMenus(): tillsMayNeedConfig() plus a menus.live broadcast on the menus:<tenantId> room for screens.'],
           ['Routes', 'GET /api/menus?status=1 (publish per menu: live_at, scheduled_at, scheduled_count, changed); GET /:id?version=live; GET /:id/publish (live, scheduled, in_sync, changes, history); POST /:id/publish { at?, note? } (manage); DELETE /:id/releases/:releaseId (cancel a future one, manage); POST /:id/releases/:releaseId/restore (copy a release into the draft with restorableBody() + writeMenu(), manage); POST /:id/preview-link { release_id? }; GET /:id/allergens?version=live.'],
           ['Admin (components/menus/MenuPublish.jsx)', 'PublishButton, beside Save in the menu editor\'s top bar: a badge with the number of changes in GET /:id/publish (a dot when there is no live version, a clock when one is scheduled), filled while changes wait and the editor is saved; it opens PublishWindow (portal into document.body: the bar\'s backdrop blur would make a fixed window fixed to the bar), whose PublishContent is the old card: changes, Publish now / Schedule / Preview print / Discard changes, scheduled publishes, history. Both read the query [\'menu-publish\', id], which the editor\'s Save invalidates. PublishBadges on the Menus list.'],
         ]}
@@ -551,8 +551,8 @@ export function Section() {
         and each tag by name, grouped Contains / May contain / Can be removed / Dietary (one open
         at a time). Its free-from filter keeps dishes the allergen can be removed from, flagged
         &quot;Ask for it without ...&quot;; May contain never counts as free from. Admin: <Mono>pages/MenuAllergenMatrix.jsx</Mono> (<Mono>/menus/allergens</Mono>, nav link
-        under Menus, seeded by the migration for existing tenants and by{' '}
-        <Mono>defaultNav.js</Mono>) renders <Mono>AllergenMatrixEditor</Mono>;{' '}
+        under Menus, seeded by the migration for existing tenants and by the standard menu (its record in{' '}
+        <Mono>shared/nav/menus.js</Mono>)) renders <Mono>AllergenMatrixEditor</Mono>;{' '}
         <Mono>AllergenLookup</Mono> is the read-only widget body (search, and a tag filter that
         cycles any / contains / free from; sections with <Mono>visibility = &apos;hidden&apos;</Mono>{' '}
         left out). The tags sit in <Mono>TagFilterModal</Mono>, a pop-up grid (allergens, then

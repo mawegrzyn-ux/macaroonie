@@ -158,7 +158,7 @@ export async function saveVisits(device, rawVisits) {
   return { accepted: visits.map(v => v.id).filter(Boolean), saved, refused }
 }
 
-/** Hourly (jobs/queues.js): playbacks go after 90 days, the visits after 400. */
+/** Hourly (jobs/ai-cleanup.js): playbacks go after 90 days, the visits after 400. */
 export async function cleanUpJourneys(log) {
   try {
     const cleared = await systemSql`

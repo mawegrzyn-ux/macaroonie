@@ -255,7 +255,7 @@ export function Section() {
           ['Payment result', "none: placeOrder() at once. pending: order_payments row + client action. applyPaymentResult() is idempotent; a second success for an already-paid order (a retry and a late earlier attempt both going through) is refunded automatically, never counted twice. A failed payment leaves the order pending_payment; POST /orders/:token/pay starts a new attempt."],
           ['Placed', "placed (or accepted when auto_accept). WS broadcast order.created to the venue room; order_confirmation email."],
           ['Staff', "changeStatus() with TRANSITIONS; accept can push promised_at by prep minutes. Reject/cancel of a paid order refunds through refundOrder(). markPaid() records cash / card_terminal. refundOrder() refunds online payments through their gateway and records counter refunds."],
-          ['Expiry', "expireStaleOrders() runs with the hold sweep (queues.js, every 60 s): pending_payment older than 30 minutes becomes expired, pending payments are cancelled through the gateway."],
+          ['Expiry', "expireStaleOrders() runs with the hold sweep (jobs/hold-sweep.js, every 60 s): pending_payment older than 30 minutes becomes expired, pending payments are cancelled through the gateway."],
           ['Emails', "notificationQueue job order_email -> jobs/orderEmailWorker.js: order_confirmation, order_ready, order_cancelled (built-in templates, same venue email provider as bookings via emailCredentials()). Logged to email_log with order_id."],
         ]}
       />

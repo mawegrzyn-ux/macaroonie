@@ -1,7 +1,7 @@
 // src/routes/reviews.js
 //
 // Customer reviews: list, manual add, approve/reject, scrape trigger, CSV import.
-// Mounted at /api/reviews in app.js.
+// Mounted at /api/reviews (api/src/areas/website.js).
 
 import { z }          from 'zod'
 import { createHash } from 'node:crypto'

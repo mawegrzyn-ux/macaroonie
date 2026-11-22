@@ -3,7 +3,7 @@
 // H&S Action Log — a general facilities/compliance to-do list per venue
 // (migrated from the legacy "ActionLog" spreadsheet tab). Categories are a
 // small tenant-managed reorderable list (same pattern as fs_hold_stations),
-// not a fixed enum. Mounted at /api/hs-action-log in app.js.
+// not a fixed enum. Mounted at /api/hs-action-log (api/src/areas/hs.js).
 //
 // Access: reading needs hs_action_log View; adding, changing and ticking off
 // entries Use; deleting an entry and the categories Manage.

@@ -41,7 +41,7 @@ import {
 import { PlaylistPreview, WallPreview } from '@/components/screens/previews'
 import { isScheduled } from '@shared/menuSchedule.js'
 
-// The key is the page (main.jsx passes it as `page`) and the old ?tab= value.
+// The key is the page (admin/src/routes/screens.jsx passes it as `page`) and the old ?tab= value.
 export const SCREEN_PAGES = [
   { key: 'screens', path: '/screens', label: 'Screens', title: 'Menu screens', icon: Monitor },
   { key: 'boards', path: '/screens/boards', label: 'Board designer', title: 'Screen board designer', icon: Presentation },

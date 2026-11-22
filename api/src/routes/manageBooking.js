@@ -3,7 +3,7 @@
 // Public guest-facing booking management.
 //
 // No auth — the manage_token UUID IS the authentication.
-// Registered at /manage in app.js.
+// Registered at /manage (api/src/areas/bookings.js).
 //
 //   GET  /manage/:token        → SSR page showing booking details
 //   POST /manage/:token/modify → reschedule (date, time, covers)

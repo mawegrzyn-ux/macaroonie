@@ -1,7 +1,7 @@
 // src/routes/rota.js
 //
 // Staff, roles, rota setup, the weekly rota, and rota pay / tips.
-// Mounted at /api/rota in app.js. Maths lives in services/rotaCalc.js.
+// Mounted at /api/rota (api/src/areas/rota.js). Maths lives in services/rotaCalc.js.
 //
 // Setup (tenant-wide; `staff` module):
 //   GET    /setup                               settings + shifts + roles (any signed-in user)

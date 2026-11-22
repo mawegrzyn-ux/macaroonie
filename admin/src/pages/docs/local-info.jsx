@@ -35,8 +35,7 @@ export function Section() {
       </P>
       <H3>Captures</H3>
       <P>
-        <Mono>services/localInfoSvc.js</Mono>. Its own worker (<Mono>startLocalInfoWorker()</Mono> in{' '}
-        <Mono>jobs/queues.js</Mono>, BullMQ queue <Mono>local-info</Mono>, every five minutes) calls{' '}
+        <Mono>services/localInfoSvc.js</Mono>. Its own worker (<Mono>jobs/local-info.js</Mono>, BullMQ queue <Mono>local-info</Mono>, every five minutes) calls{' '}
         <Mono>sweepLocalInfo()</Mono>:
         due, enabled sources are claimed across API processes (<Mono>claimDue()</Mono>,{' '}
         <Mono>running_until</Mono> + FOR UPDATE SKIP LOCKED) and run with <Mono>runClaimed()</Mono>, which

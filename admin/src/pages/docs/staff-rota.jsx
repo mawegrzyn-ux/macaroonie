@@ -191,8 +191,9 @@ export function Section() {
         totals, <Mono>pots</Mono> and <Mono>moves</Mono> without <Mono>rota_tips</Mono>, and adds{' '}
         <Mono>access: {'{'} pay, tips {'}'}</Mono>. <Mono>useRotaPerms()</Mono> exposes{' '}
         <Mono>canSeePay/canEditPay</Mono> and <Mono>canSeeTips/canEditTips</Mono>. The migration adds a "Staff" nav section after "Service"
-        for tenants that already have a nav tree; <Mono>defaultNav.js</Mono> has the same tree
-        for new tenants; <Mono>ROUTE_CATALOG</Mono> lists the five routes. The dashboard is a
+        for tenants that already have a nav tree; the standard menu for new tenants and{' '}
+        <Mono>ROUTE_CATALOG</Mono> have the five routes (since 22 Nov 2026 their page records in{' '}
+        <Mono>shared/nav/rota.js</Mono>). The dashboard is a
         third <Mono>DashboardPage</Mono> config: <Mono>hs_dashboards.kind = 'rota'</Mono>,
         mounted at <Mono>/api/rota-dashboards</Mono>, widget types <Mono>rota_grid</Mono>,{' '}
         <Mono>rota_today</Mono>, <Mono>rota_week_pay</Mono>, <Mono>rota_tips</Mono>{' '}

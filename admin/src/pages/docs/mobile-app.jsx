@@ -26,7 +26,11 @@ export function Section() {
         <Mono>{`<Route path="mobile" element={<MobileShell />}>`}</Mono>, as a sibling of the
         existing <Mono>{`<Route element={<AppShell />}>`}</Mono> tree — both still sit inside
         the same <Mono>RequireAuth</Mono> + <Mono>TenantGate</Mono> wrappers, so login and
-        restaurant selection are identical to the desktop app.
+        restaurant selection are identical to the desktop app. The phone&apos;s pages are the
+        routes with <Mono>shell: &apos;mobile&apos;</Mono> in each area&apos;s{' '}
+        <Mono>admin/src/routes/&lt;area&gt;.jsx</Mono> (paths relative to{' '}
+        <Mono>/mobile</Mono>), gathered by <Mono>main.jsx</Mono>, which keeps the tree and its
+        catch-all to the hub.
         <Mono> admin/src/components/mobile/MobileShell.jsx</Mono> replaces
         <Mono> AppShell</Mono>'s sidebar entirely with a minimal header (back arrow / title /
         sign out, safe-area aware) — there is no shared chrome between the two shells by
@@ -36,14 +40,14 @@ export function Section() {
       <H3>Module registry</H3>
       <P>
         <Mono>admin/src/mobile/registry.js</Mono> exports <Mono>MOBILE_MODULES</Mono> — the
-        same "one array drives a picker" pattern as <Mono>modules.js</Mono> /{' '}
-        <Mono>defaultNav.js</Mono>. <Mono>MobileHub.jsx</Mono> (the <Mono>/mobile</Mono>{' '}
+        same "one array drives a picker" pattern as <Mono>modules.js</Mono>. <Mono>MobileHub.jsx</Mono> (the <Mono>/mobile</Mono>{' '}
         index route) renders one tile per entry, in a two-column grid, and <Mono>AskPepperBar</Mono>{' '}
         (<Mono>components/ai/AskPepperBar.jsx</Mono>) at the bottom when <Mono>/api/ai/status</Mono> says{' '}
         <Mono>can_chat</Mono>: a question (typed, or a held mic) goes to <Mono>/mobile/assistant</Mono> in the
         address&apos;s state (<Mono>{"{ ask: { text, voice } }"}</Mono>), which takes it off the address and hands it
         to <Mono>ChatView</Mono>&apos;s <Mono>ask</Mono> prop: sent once in the remembered chat. Shipping a new mobile-optimised page is:
-        add an entry here, add the route in <Mono>main.jsx</Mono>, build the page — no
+        add an entry here, add the route (<Mono>shell: &apos;mobile&apos;</Mono>) in its area&apos;s{' '}
+        <Mono>admin/src/routes/&lt;area&gt;.jsx</Mono>, build the page — no
         changes to the shell or hub. An entry&apos;s <Mono>areas</Mono> (the Today feed&apos;s task
         areas, or <Mono>'all'</Mono>) give its tile a badge: <Mono>tileBadge()</Mono> in{' '}
         <Mono>mobile/today.js</Mono> counts that area&apos;s tasks from <Mono>GET /api/ops/today</Mono>{' '}

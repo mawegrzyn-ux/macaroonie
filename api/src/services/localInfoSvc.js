@@ -2,7 +2,7 @@
 //
 // Local information around each venue (migration 240): weather, traffic,
 // events and incidents, captured on each source's own schedule by the
-// few-minutes sweep in jobs/queues.js (sweepLocalInfo), or on demand from
+// few-minutes sweep in jobs/local-info.js (sweepLocalInfo), or on demand from
 // the page and Pepper (claimSource + runClaimed).
 //
 // Weather reads Open-Meteo (keyless): the source's place is geocoded once

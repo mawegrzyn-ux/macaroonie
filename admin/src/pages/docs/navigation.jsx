@@ -69,7 +69,7 @@ export function Section() {
         Menus before Menu times, and it is never a prefix: &ldquo;times&rdquo; is the same word
         as &ldquo;time&rdquo;, not the start of &ldquo;timeline&rdquo;.{' '}
         <Mono>NAV_KEYWORDS</Mono>{' '}
-        maps every <Mono>ROUTE_CATALOG</Mono> route to its everyday vocabulary
+        (each page record&apos;s <Mono>keywords</Mono>, below) maps every <Mono>ROUTE_CATALOG</Mono> route to its everyday vocabulary
         (&ldquo;wages&rdquo; for the Rota, &ldquo;allergy&rdquo; for the allergen pages), so a
         link renamed in the designer is still found; <Mono>EXTRA_SEARCH_ROUTES</Mono> covers
         the platform-admin pages that live outside the catalogue.
@@ -133,8 +133,10 @@ export function Section() {
         Every menu entry has a very brief description of what it is for (migration 241, 12 Nov
         2026). The rules are in <Mono>shared/navSearch.js</Mono>:{' '}
         <Mono>NAV_DESCRIPTIONS</Mono> holds the standard description of every{' '}
-        <Mono>ROUTE_CATALOG</Mono> page (one sentence, in the words people would type),{' '}
-        <Mono>NAV_SECTION_DESCRIPTIONS</Mono> the standard menu&apos;s sections by name, and{' '}
+        <Mono>ROUTE_CATALOG</Mono> page (one sentence, in the words people would type; each page
+        record&apos;s <Mono>description</Mono>, below),{' '}
+        <Mono>NAV_SECTION_DESCRIPTIONS</Mono> the standard menu&apos;s sections by name (from{' '}
+        <Mono>shared/nav/sections.js</Mono>), and{' '}
         <Mono>DESCRIPTION_MAX</Mono> is 260. <Mono>navDescription(node)</Mono> is the one reader:
         the entry&apos;s own <Mono>nav_items.description</Mono> when a group wrote one, else its
         page&apos;s standard one, else (a section) the standard one for its name, else nothing.{' '}
@@ -277,15 +279,38 @@ export function Section() {
           ['bg-card', 'Mapped to --background in tailwind.config.js (it was used but never defined).'],
         ]}
       />
+      <H3>Page records: one file per area</H3>
+      <P>
+        Since 22 Nov 2026 every page the menu can link to is one record in its area&apos;s file,{' '}
+        <Mono>shared/nav/&lt;area&gt;.js</Mono> (<Mono>export const pages = [...]</Mono>), so two
+        features in different areas never edit the same list. A record is{' '}
+        <Mono>{'{ path, label, menuLabel?, icon, module?, section, parent?, order, catalogOrder, keywords, description }'}</Mono>:{' '}
+        <Mono>section</Mono> names a section of <Mono>shared/nav/sections.js</Mono> (label, order,
+        standard description), <Mono>parent</Mono> the link it sits under, <Mono>order</Mono> its
+        place among its section&apos;s (or parent&apos;s) links and <Mono>catalogOrder</Mono> its
+        place in the catalogue, both spaced by 10 with ties broken by path;{' '}
+        <Mono>searchOnly</Mono> marks a platform-admin page with search words only.{' '}
+        <Mono>shared/nav/index.js</Mono> imports each area file by name (<Mono>shared/</Mono> runs
+        in Node and in Vite, so it can&apos;t gather the folder; a new area adds its import there)
+        and builds <Mono>ROUTE_CATALOG</Mono>, <Mono>DEFAULT_NAV_TREE</Mono>,{' '}
+        <Mono>NAV_KEYWORDS</Mono>, <Mono>NAV_DESCRIPTIONS</Mono>, <Mono>EXTRA_SEARCH_ROUTES</Mono>{' '}
+        and <Mono>NAV_SECTION_DESCRIPTIONS</Mono> in the shapes they had when written by hand;{' '}
+        <Mono>api/src/routes/nav.js</Mono>, <Mono>api/src/config/defaultNav.js</Mono> and{' '}
+        <Mono>shared/navSearch.js</Mono> re-export them, so every reader is unchanged.{' '}
+        <Mono>shared/test/navPages.test.mjs</Mono> checks the records and that every file in the
+        folder is imported. A new page still needs a migration that adds its link to menus already
+        saved.
+      </P>
       <H3>Seeding</H3>
       <P>
-        <Mono>api/src/config/defaultNav.js</Mono> exports <Mono>DEFAULT_NAV_TREE</Mono> +
+        <Mono>api/src/config/defaultNav.js</Mono> exports <Mono>DEFAULT_NAV_TREE</Mono> (built
+        from the page records) +
         <Mono> seedDefaultNav(tx, tenantId)</Mono>, used both for brand-new tenants
         (<Mono>POST /api/platform/tenants</Mono>) and the designer's <Mono>POST
         /api/nav/reset</Mono>. Migration 091 also seeds this same tree once, directly in
         SQL, for every tenant that existed at migration time — that one-time seed is never
-        re-run, so <Mono>defaultNav.js</Mono> is the only copy that matters going forward;
-        keep them in sync by hand if the default tree ever changes.
+        re-run, so the page records are the only copy that matters going forward; a change to
+        the standard menu needs a migration for menus already saved.
       </P>
       <P>
         Migration 196 (20 Oct 2026) replaced every tenant's menu with the new default tree once: it

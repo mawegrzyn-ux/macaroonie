@@ -5,7 +5,7 @@
 // concept, Overview is tenant-wide, not per-venue. Layout control
 // (col_span/height_px/sort_order) mirrors hs_dashboard_widgets; per-role
 // visibility (hidden_role_ids) mirrors nav_items. Mounted at
-// /api/dashboard-tiles in app.js. Gated by the existing `dashboard`
+// /api/dashboard-tiles (api/src/areas/dashboards.js). Gated by the existing `dashboard`
 // module — no new module needed.
 
 import { z } from 'zod'

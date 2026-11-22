@@ -44,7 +44,7 @@ export function Section() {
         <Mono>server.js</Mono>) and each BullMQ worker its last finish and failure (<Mono>watchWorker()</Mono>,{' '}
         <Mono>mac:status:job:name:done|failed</Mono>). <Mono>GET /api/platform/status</Mono> (platform admin; the
         Platform page&apos;s Services tab, <Mono>PlatformStatusCard</Mono>, every 30 s): Postgres (SELECT, size,
-        connections), Redis (PING, memory), the processes, the ten jobs (interval, last ran, late after three
+        connections), Redis (PING, memory), the processes, the jobs (<Mono>JOBS</Mono>, built from <Mono>loadJobs()</Mono>: each job file&apos;s label and every; interval, last ran, late after three
         intervals and a minute, queue counts, last error), the machine (disk, memory, load) and the deployed
         commit (read from <Mono>.git</Mono>). <Mono>stateOf()</Mono>: down without the database; degraded without
         Redis, with a late repeating job or a disk over 90% full. <Mono>GET /api/status/light</Mono> (anyone

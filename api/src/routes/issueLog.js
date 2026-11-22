@@ -1,7 +1,7 @@
 // src/routes/issueLog.js
 //
 // ITIL-style incident and problem tracking.
-// Mounted at /api/issues in app.js.
+// Mounted at /api/issues (api/src/areas/core.js).
 
 import { z }          from 'zod'
 import { sql, withTenant, systemSql, withSystem } from '../config/db.js'
