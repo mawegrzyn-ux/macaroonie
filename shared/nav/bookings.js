@@ -7,12 +7,14 @@ export const pages = [
   {
     path: '/timeline', label: 'Timeline', icon: 'CalendarDays', module: 'bookings',
     section: 'Service', order: 10, catalogOrder: 60,
-    keywords: 'timeline gantt day view tables drag reservations bookings seat move',
+    accepts: ['venue', 'date'],
+    keywords: 'timeline gantt day view tables drag reservations bookings seat move today floor',
     description: "The day's bookings as bars on the tables through time: drag to move or resize, seat walk-ins and spot clashes.",
   },
   {
     path: '/bookings', label: 'Bookings', icon: 'BookOpen', module: 'bookings',
     section: 'Service', order: 20, catalogOrder: 70,
+    accepts: ['venue', 'date'],
     keywords: 'bookings reservations list guests covers arrivals seated status walk in party no show',
     description: 'Every booking of a day in a list by time: change its status, guest details, table and notes, or add a booking.',
   },
@@ -31,13 +33,13 @@ export const pages = [
   {
     path: '/schedule', label: 'Schedule', icon: 'Clock', module: 'schedule',
     section: 'Venues', order: 20, catalogOrder: 770,
-    keywords: 'schedule sittings sessions opening times slots caps exceptions booking hours doors',
+    keywords: 'schedule sittings sessions opening times slots caps exceptions booking hours doors closures christmas',
     description: 'When each venue takes bookings: sittings for each day, slot limits, one-off days and seasonal changes.',
   },
   {
     path: '/rules', label: 'Booking rules', icon: 'Settings', module: 'rules',
     section: 'Venues', order: 40, catalogOrder: 780,
-    keywords: 'booking rules deposits party size cutoff holds widget hours allocation statuses',
+    keywords: 'booking rules deposits party size cutoff cut off holds widget hours allocation statuses',
     description: 'Booking rules for a venue: party sizes, how far ahead guests can book, holds, deposits and which statuses are used.',
   },
   {

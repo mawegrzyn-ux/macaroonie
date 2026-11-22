@@ -25,6 +25,7 @@ import NewBookingModal from '@/components/bookings/NewBookingModal'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { useSettings, hexToRgba } from '@/contexts/SettingsContext'
 import { usePepperPage } from '@/lib/pepperPage'
+import { useDeepLink } from '@/lib/deepLink'
 
 // ── Constants ────────────────────────────────────────────────
 const HOUR_WIDTH   = 80     // px per hour
@@ -530,9 +531,19 @@ export default function Timeline() {
   }, [nowMs])
 
   // ── Data fetching ────────────────────────────────────────
-  const { data: venues = [] } = useQuery({
+  const { data: venues = [], isSuccess: venuesLoaded } = useQuery({
     queryKey: ['venues'],
     queryFn:  () => api.get('/venues'),
+  })
+
+  // ?venue=&date= from a link (Pepper's open_page, lib/deepLink.js): set once,
+  // a venue only when it is one of the tenant's.
+  useDeepLink('/timeline', {
+    ready: venuesLoaded,
+    apply: l => {
+      if (l.venue && venues.some(v => v.id === l.venue)) tlSettings.setVenueId(l.venue)
+      if (l.date) setDate(l.date)
+    },
   })
 
   // Computed venueId — AppShell venue selector writes to context; fall back to first venue

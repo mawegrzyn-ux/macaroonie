@@ -19,12 +19,12 @@ const AREAS_DIR = new URL('../../docs/claude/areas/', import.meta.url)
 const AREAS = fs.readdirSync(AREAS_DIR).filter(f => f.endsWith('.md')).map(f => f.slice(0, -3))
 
 const FIELDS = new Set(['path', 'label', 'menuLabel', 'icon', 'module', 'section', 'parent', 'order',
-  'catalogOrder', 'keywords', 'description', 'searchOnly'])
+  'catalogOrder', 'keywords', 'description', 'searchOnly', 'accepts', 'tabs'])
 const listed = NAV_PAGES.filter(p => !p.searchOnly)
 const links = nodes => nodes.flatMap(n => [...(n.route ? [n] : []), ...links(n.children || [])])
 
 test('every file in shared/nav is an area of the notes, and the index gathers each one', () => {
-  const files = fs.readdirSync(NAV_DIR).filter(f => f.endsWith('.js') && !['index.js', 'sections.js'].includes(f))
+  const files = fs.readdirSync(NAV_DIR).filter(f => f.endsWith('.js') && !['index.js', 'sections.js', 'links.js'].includes(f))
   for (const f of files) assert.ok(AREAS.includes(f.slice(0, -3)), f + ' is not an area (docs/claude/areas/<area>.md)')
   assert.deepEqual(Object.keys(AREA_PAGES).sort(), files.map(f => f.slice(0, -3)).sort(),
     'shared/nav/index.js imports every area file in shared/nav, and only those')

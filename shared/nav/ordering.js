@@ -7,6 +7,7 @@ export const pages = [
   {
     path: '/orders', label: 'Online orders', icon: 'ShoppingBag', module: 'web_orders',
     section: 'Service', order: 50, catalogOrder: 100,
+    accepts: ['venue', 'date', 'tab'], tabs: ['board', 'report', 'transactions'],
     keywords: 'online orders web ordering board collection takeaway preparing ready refund pause sold out transactions',
     description: 'Online orders as they come in: accept, prepare, mark ready, refund, pause ordering, mark dishes sold out and see every transaction.',
   },

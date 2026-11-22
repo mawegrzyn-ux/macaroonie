@@ -19,7 +19,7 @@ export const pages = [
   {
     path: '/website/builder', label: 'Page builder', icon: 'Blocks', module: 'website',
     section: 'Brand & web', order: 30, catalogOrder: 570,
-    keywords: 'page builder website designer pages blocks home page location pages modals pop ups layout',
+    keywords: 'page builder website designer page designer pages blocks home page location pages modals pop ups layout',
     description: "Build website pages from blocks: the home page, extra pages and pop-ups, and each location's page.",
   },
   {

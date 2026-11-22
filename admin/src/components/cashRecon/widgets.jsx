@@ -99,6 +99,8 @@ function todayStr() {
 }
 
 // ── Week navigator ─────────────────────────────────────────────
+// setWeekStart (a Monday) is also returned for a page opened at a week by
+// its address (the Rota's useDeepLink()).
 
 export function useWeekNav() {
   const [weekStart, setWeekStartRaw] = useState(() => getMonday(new Date()))
@@ -137,7 +139,7 @@ export function useWeekNav() {
     </div>
   )
 
-  return { ctx: { weekStart, selectedDay, setSelectedDay }, element }
+  return { ctx: { weekStart, selectedDay, setSelectedDay }, element, setWeekStart }
 }
 
 // ── Small shared bits ──────────────────────────────────────────

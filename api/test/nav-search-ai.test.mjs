@@ -248,3 +248,116 @@ test('open_page finds a designer by its own name and says what the page is for',
   assert.match(refused.text, /No page called/)
   assert.ok(!/Kiosk designer/.test(refused.text.split('Pages:')[1] || ''), 'and it isn\'t in the list of pages they can open')
 })
+
+// ── open_page: links with context, and the menu search's matcher ─────
+
+const openWith = async (token, args) => {
+  const r = await mcp(token, 'tools/call', { name: 'open_page', arguments: args })
+  const text = r.json?.result?.content?.[0]?.text || ''
+  let out = null
+  try { out = JSON.parse(text) } catch { out = null }
+  return { error: r.json?.result?.isError === true, text, out }
+}
+const pathOf = url => url.replace(/^https?:\/\/[^/]+/, '')
+
+test('open_page opens a page at a venue, a day or a week, and a tab, when the page takes them', async () => {
+  ids = await resetAndSeed()
+  const owner = as(A.owner, ids.a)
+  const hertford = await ok(owner.post('/api/venues', { name: 'Hertford', slug: 'pages-hertford', timezone: 'Europe/London' }))
+  const ware = await ok(owner.post('/api/venues', { name: 'Ware', slug: 'pages-ware', timezone: 'Europe/London' }))
+  const bVenue = await ok(as(B.owner, ids.b).post('/api/venues', { name: 'Bees', slug: 'pages-bees', timezone: 'Europe/London' }))
+  const { token } = await ok(owner.post('/api/ai/tokens', { name: 'Context' }))
+
+  // "The rota for Ware next week": the week is its Monday, whichever day was given.
+  let r = await openWith(token, { page: 'the rota', venue: 'ware', week: '2026-11-25' })
+  assert.equal(r.error, false, r.text)
+  assert.equal(pathOf(r.out.url), '/rota?venue=' + ware.id + '&week=2026-11-23')
+  assert.equal(r.out.opens_at, 'Ware, week of Mon 23 Nov')
+  assert.equal(r.out.page, 'Rota')
+  assert.equal(r.out.note, undefined)
+  // A day for a page that opens at a week: the day's week.
+  r = await openWith(token, { page: 'rota', date: '2026-11-29' })
+  assert.equal(pathOf(r.out.url), '/rota?week=2026-11-23')
+
+  r = await openWith(token, { page: 'timeline', venue: 'Hertford', date: '2026-12-04' })
+  assert.equal(pathOf(r.out.url), '/timeline?venue=' + hertford.id + '&date=2026-12-04')
+  r = await openWith(token, { page: 'food safety', venue: 'Ware', date: '2026-12-04', tab: 'Holds' })
+  assert.equal(pathOf(r.out.url), '/food-safety?venue=' + ware.id + '&date=2026-12-04&tab=holds')
+  r = await openWith(token, { page: 'cash up', venue: 'Hertford', week: '2026-12-09', tab: 'wages' })
+  assert.equal(pathOf(r.out.url), '/cash-recon?venue=' + hertford.id + '&week=2026-12-07&tab=wages')
+  r = await openWith(token, { page: 'online orders', tab: 'transactions' })
+  assert.equal(pathOf(r.out.url), '/orders?tab=transactions')
+
+  // What a page doesn't take is left out, and the answer says so.
+  r = await openWith(token, { page: 'menus', venue: 'Ware', date: '2026-12-04' })
+  assert.equal(pathOf(r.out.url), '/menus')
+  assert.match(r.out.note, /doesn't open at a venue or date/)
+  assert.equal(r.out.opens_at, undefined)
+  r = await openWith(token, { page: 'orders', tab: 'pay' })
+  assert.equal(pathOf(r.out.url), '/orders')
+  assert.match(r.out.note, /tab called "pay".*tabs: board, report, transactions/)
+  r = await openWith(token, { page: 'bookings', date: '2026-02-30' })
+  assert.equal(pathOf(r.out.url), '/bookings', 'a day that doesn\'t exist is left out')
+
+  // A venue that isn't the group's is refused, by name or by another group's id.
+  r = await openWith(token, { page: 'rota', venue: 'Leeds' })
+  assert.equal(r.error, true)
+  assert.match(r.text, /No venue called "Leeds"/)
+  r = await openWith(token, { page: 'rota', venue: bVenue.id })
+  assert.equal(r.error, true)
+  assert.ok(!r.text.includes('venue=' + bVenue.id), 'no link to another group\'s venue')
+
+  // Several pages: each link takes only what its own page accepts.
+  r = await openWith(token, { page: 'holiday', venue: 'Ware', week: '2026-11-23' })
+  const byPage = Object.fromEntries(r.out.choices.map(c => [c.page, pathOf(c.url)]))
+  assert.equal(byPage.Rota, '/rota?venue=' + ware.id + '&week=2026-11-23')
+  assert.equal(byPage.Staff, '/staff')
+})
+
+test('open_page uses the menu search\'s matcher: every word open_page used to keep of its own still finds its page', async () => {
+  const { DEFAULT_NAV_TREE } = await import('../src/config/defaultNav.js')
+  const { searchNavTree } = await import('../../shared/navSearch.js')
+  const { pagesTree, pickPages } = await import('../src/ai/tools/general.js')
+  const tree = pagesTree(DEFAULT_NAV_TREE, () => true)
+  const offered = q => pickPages(searchNavTree(tree, q), q).map(p => p.route)
+  // The synonyms open_page kept beside its own scorer until 22 Nov 2026, now
+  // in the pages' search words (shared/nav/<area>.js).
+  const FORMER = {
+    '/timeline': ['bookings today', 'floor', 'reservations'],
+    '/cash-recon': ['cash up', 'cashing up', 'takings', 'wages', 'expenses', 'petty cash', 'variance'],
+    '/rota': ['shifts', 'who is working', 'schedule staff'],
+    '/staff': ['people', 'employees', 'leaving', 'holiday'],
+    '/food-safety': ['temperatures', 'fridges', 'hot holding', 'cooking checks', 'deliveries'],
+    '/orders': ['takeaway', 'collection', 'sold out'],
+    '/pos/reports': ['z report', 'x report', 'till takings', 'kitchen report'],
+    '/schedule': ['opening times', 'opening hours', 'sittings', 'closures', 'christmas'],
+    '/rules': ['booking rules', 'party size', 'cut off'],
+    '/website': ['site', 'banner', 'publish'],
+    '/menus': ['dishes', 'prices', 'menu'],
+    // "allergens" is the whole name of the Allergens page (/allergens) now.
+    '/menus/allergens': ['allergy'],
+    '/purchasing': ['ordering stock', 'supplier orders', 'deliveries'],
+    '/screens': ['menu boards', 'tv'],
+    '/screens/boards': ['board designer', 'screen designer', 'menu board designer'],
+    '/pos/kiosk-designs': ['kiosk design', 'kiosk designs'],
+    '/pos/kitchen-flow': ['kitchen flow', 'flow designer', 'kds flow'],
+    '/pos/print-designs': ['print designer', 'receipt designer', 'ticket designer', 'print designs'],
+    '/menus/print-designs': ['menu designer', 'printed menu', 'print designer'],
+    '/website/builder': ['website builder', 'website designer', 'page designer'],
+    '/website/reservations-widget': ['booking widget', 'widget designer'],
+    '/ai': ['pepper', 'assistant', 'connect'],
+  }
+  for (const [route, phrases] of Object.entries(FORMER)) {
+    for (const q of phrases) assert.ok(offered(q).includes(route), q + ' offers ' + route + ' (got ' + offered(q).join(', ') + ')')
+  }
+  // One page when it is clearly the one: its whole name or address, or the
+  // phrase word for word in its search words ("up" and "page" are filler).
+  for (const [q, route] of [
+    ['cash up', '/cash-recon'], ['the rota page', '/rota'], ['orders', '/orders'], ['menu', '/menus'],
+    ['page designer', '/website/builder'], ['opening times', '/schedule'], ['x report', '/pos/reports'],
+    ['kiosks', '/pos/kiosks'], ['kiosk designer', '/pos/kiosk-designs'],
+  ]) assert.deepEqual(offered(q), [route], q)
+  // A close second is offered beside the best, best first.
+  assert.deepEqual(offered('print designer'), ['/menus/print-designs', '/pos/print-designs'])
+  assert.deepEqual(offered('nothing like a page'), [])
+})

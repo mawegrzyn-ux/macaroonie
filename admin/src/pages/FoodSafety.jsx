@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
 import { HsSettingsButton, ClosedDayNotice } from '@/components/hs/HsSettings'
 import { usePepperPage } from '@/lib/pepperPage'
+import { useDeepLink } from '@/lib/deepLink'
 import {
   TempChecksTable, DeliveryChecksBoard, HoldChecksTable, CookingChecksPanel, EndOfDayReview,
 } from '@/components/foodSafety/shared'
@@ -47,7 +48,7 @@ export default function FoodSafety() {
   const [date, setDate] = useState(todayStr())
   usePepperPage({ venueId, date })
 
-  const { data: venues = [] } = useQuery({
+  const { data: venues = [], isSuccess: venuesLoaded } = useQuery({
     queryKey: ['venues'],
     queryFn: () => api.get('/venues'),
   })
@@ -55,6 +56,18 @@ export default function FoodSafety() {
   useEffect(() => {
     if (!venueId && venues.length) setVenueId(venues[0].id)
   }, [venues, venueId])
+
+  // ?venue=&date=&tab= from a link (Pepper's open_page, lib/deepLink.js): set
+  // once, a venue only when it is one of the tenant's. After the first-venue
+  // default above, so the link's venue wins.
+  useDeepLink('/food-safety', {
+    ready: venuesLoaded,
+    apply: l => {
+      if (l.venue && venues.some(v => v.id === l.venue)) setVenueId(l.venue)
+      if (l.date) setDate(l.date)
+      if (l.tab) setTab(l.tab)
+    },
+  })
 
   const enabled = !!venueId
 

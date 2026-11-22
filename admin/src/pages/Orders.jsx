@@ -18,6 +18,7 @@ import { cn, openPicker } from '@/lib/utils'
 import { OrderBoard, OrderDetailModal, AvailabilityModal, PauseButton, HoursButton, HoursNotice, useOrders, money, todayIn } from '@/components/orders/shared'
 import { usePermission } from '@/hooks/usePermission'
 import { usePepperPage } from '@/lib/pepperPage'
+import { useDeepLink } from '@/lib/deepLink'
 import { TransactionsReport } from '@/components/orders/TransactionsReport'
 import { useLinked } from '@/lib/linked'
 import { retryUnlessRefused } from '@/components/reports/shared'
@@ -38,7 +39,7 @@ export default function Orders() {
   const [tab, setTab] = useState('board')
   const [soldOut, setSoldOut] = useState(false)
   const { canManage: canManageOrders } = usePermission('web_orders')
-  const { data: venues = [] } = useQuery({ queryKey: ['venues'], queryFn: () => api.get('/venues') })
+  const { data: venues = [], isSuccess: venuesLoaded } = useQuery({ queryKey: ['venues'], queryFn: () => api.get('/venues') })
 
   useEffect(() => {
     if (venues.length && !venues.some(v => v.id === venueId)) setVenueId(venues[0].id)
@@ -50,6 +51,26 @@ export default function Orders() {
   const [date, setDate] = useState(today)
   usePepperPage({ venueId, date })
   useEffect(() => { setDate(todayIn(venue?.timezone)) }, [venue?.timezone])
+
+  // ?venue=&date=&tab= from a link (Pepper's open_page, lib/deepLink.js): set
+  // once, a venue only when it is one of the tenant's. The day waits for the
+  // venue to be on screen: a venue in another time zone resets the day above.
+  const linkDay = useRef(null)
+  useDeepLink('/orders', {
+    ready: venuesLoaded,
+    apply: l => {
+      const v = l.venue && venues.some(x => x.id === l.venue) ? l.venue : null
+      if (v) setVenueId(v)
+      if (l.tab) setTab(l.tab)
+      if (l.date) linkDay.current = { date: l.date, venue: v }
+    },
+  })
+  useEffect(() => {
+    const p = linkDay.current
+    if (!p || !venue || (p.venue && venueId !== p.venue)) return
+    linkDay.current = null
+    setDate(p.date)
+  })
 
   // An order a link asks for: its venue, then its day on the board, then the order open.
   const linked = useLinked('order')

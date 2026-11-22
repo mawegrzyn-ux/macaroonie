@@ -301,6 +301,34 @@ export function Section() {
         folder is imported. A new page still needs a migration that adds its link to menus already
         saved.
       </P>
+      <H3>Deep links: a page at a venue, day or week, and tab</H3>
+      <P>
+        Since 22 Nov 2026 (<Mono>docs/PEPPER_FIRST.md</Mono> 4.6) a page&apos;s record can say what its
+        address opens it at: <Mono>accepts</Mono>, some of <Mono>venue</Mono> (a venue id),{' '}
+        <Mono>date</Mono> (YYYY-MM-DD), <Mono>week</Mono> (its Monday) and <Mono>tab</Mono>, with{' '}
+        <Mono>tabs</Mono> naming the tab keys. <Mono>shared/nav/links.js</Mono> holds the rules:{' '}
+        <Mono>pageLink(path, {'{ venue, date, week, tab }'})</Mono> builds the address keeping only what
+        the page accepts and only values in a good shape (a uuid, a real day, a Monday, a known tab),{' '}
+        <Mono>linkValues(path, params)</Mono> reads one back by the same rules, and{' '}
+        <Mono>pageAccepts(path)</Mono> says what a page takes. In the admin,{' '}
+        <Mono>useDeepLink(path, {'{ ready, apply }'})</Mono> (<Mono>admin/src/lib/deepLink.js</Mono>,
+        beside <Mono>useLinked()</Mono> for records) reads the values when the page opens (and again
+        when a link to the same page is followed while it is open), calls <Mono>apply</Mono> once as soon
+        as <Mono>ready</Mono> is true (the page&apos;s venues have loaded), and takes the values out of
+        the address. Only shapes are checked there: the page ignores a venue that isn&apos;t in its own
+        venue list. Pepper's <Mono>open_page</Mono> builds these links with <Mono>pageLink()</Mono> (Docs, Pepper's tools). Tests: <Mono>shared/test/navLinks.test.mjs</Mono>.
+      </P>
+      <DataTable
+        head={['Page', 'Accepts', 'Tabs']}
+        rows={[
+          ['/timeline', 'venue, date', ''],
+          ['/bookings', 'venue, date', ''],
+          ['/rota', 'venue, week', ''],
+          ['/food-safety', 'venue, date, tab', 'today, deliveries, holds, cooking'],
+          ['/orders', 'venue, date, tab', 'board, report, transactions'],
+          ['/cash-recon', 'venue, date, week, tab', 'week, wages (a date alone opens that day)'],
+        ]}
+      />
       <H3>Seeding</H3>
       <P>
         <Mono>api/src/config/defaultNav.js</Mono> exports <Mono>DEFAULT_NAV_TREE</Mono> (built

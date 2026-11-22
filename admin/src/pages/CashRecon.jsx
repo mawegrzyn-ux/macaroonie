@@ -33,6 +33,7 @@ import { ReadReceiptButton, ReceiptNote, applyReceipt } from '@/components/cashR
 import { splitPay } from '@shared/payMethod.js'
 import { reconSetup, cashDay, cashWeek } from '@shared/cashRecon.js'
 import { usePepperPage } from '@/lib/pepperPage'
+import { useDeepLink } from '@/lib/deepLink'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -2767,7 +2768,7 @@ export default function CashRecon() {
     setTlVenueId(id)
   }
 
-  const { data: venues = [] } = useQuery({
+  const { data: venues = [], isSuccess: venuesLoaded } = useQuery({
     queryKey: ['venues'],
     queryFn:  () => api.get('/venues'),
   })
@@ -2778,6 +2779,22 @@ export default function CashRecon() {
       setVenueId(venues[0].id)
     }
   }, [venues, venueId])
+
+  // ?venue=&date=&week=&tab= from a link (Pepper's open_page, lib/deepLink.js):
+  // set once, a venue only when it is one of the tenant's (after the default
+  // above, so the link's venue wins). A date opens that day; tab=wages the
+  // week's wages, tab=week the week (of the date when there is one).
+  useDeepLink('/cash-recon', {
+    ready: venuesLoaded,
+    apply: l => {
+      if (l.venue && venues.some(v => v.id === l.venue)) setVenueId(l.venue)
+      const week = l.date ? getMonday(parseISO(l.date)) : l.week
+      if (week) setWeekStart(week)
+      if (l.tab === 'wages') setView('wages')
+      else if (l.date && l.tab !== 'week') { setDayDate(l.date); setView('day') }
+      else if (l.tab || l.week) setView('week')
+    },
+  })
 
   function goDay(date) {
     setDayDate(date)

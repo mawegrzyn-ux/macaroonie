@@ -7,7 +7,7 @@ export const pages = [
   {
     path: '/staff', label: 'Staff', icon: 'UsersRound', module: 'staff',
     section: 'People', order: 10, catalogOrder: 460,
-    keywords: 'staff people employees pay wages rates paid by bank cash leaving dates',
+    keywords: 'staff people employees pay wages rates paid by bank cash leaving dates holiday',
     description: 'The people who work at each venue: pay, how they are paid, roles, leaving dates and time off the rota.',
   },
   {
@@ -19,6 +19,7 @@ export const pages = [
   {
     path: '/rota', label: 'Rota', icon: 'CalendarRange', module: 'rota',
     section: 'People', order: 20, catalogOrder: 480,
+    accepts: ['venue', 'week'],
     keywords: 'rota shifts week schedule staffing hours who is working holiday sick time off pay wages tips print',
     description: 'The weekly rota for a venue: who works which shift, time off, hours, pay and tips.',
   },

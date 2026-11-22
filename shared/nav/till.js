@@ -105,7 +105,7 @@ export const pages = [
   {
     path: '/pos/reports', label: 'Till reports', icon: 'BarChart3', module: 'pos_reports',
     section: 'Money', order: 10, catalogOrder: 420,
-    keywords: 'till reports sales z x checks history cancelled kitchen report day',
+    keywords: 'till reports sales z x checks history cancelled kitchen report day takings',
     description: "Sales from the tills: the day's figures, checks and their history, cancelled orders, charges and the kitchen report.",
   },
 ]

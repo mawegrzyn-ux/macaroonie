@@ -29,6 +29,10 @@
 //                 results and the Navigation designer, and searched
 //   searchOnly    true for a platform-admin page that has search words but is
 //                 never offered to the designer (no label, section or order)
+//   accepts       what the page's address may say it opens at (optional): some
+//                 of 'venue', 'date', 'week', 'tab' (shared/nav/links.js,
+//                 pageLink(); the page reads them with admin useDeepLink())
+//   tabs          with 'tab' in accepts: the tab keys the page knows
 // Equal order numbers are broken by path, so two new pages never fight over a
 // place. shared/test/navPages.test.mjs checks the records.
 //

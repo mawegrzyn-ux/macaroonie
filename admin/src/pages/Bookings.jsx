@@ -20,6 +20,7 @@ import NewBookingModal from '@/components/bookings/NewBookingModal'
 import { usePermission } from '@/hooks/usePermission'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { usePepperPage } from '@/lib/pepperPage'
+import { useDeepLink } from '@/lib/deepLink'
 import { useLinked } from '@/lib/linked'
 import { retryUnlessRefused } from '@/components/reports/shared'
 
@@ -98,9 +99,19 @@ export default function Bookings() {
     window.addEventListener('touchend',  onUp)
   }, [])
 
-  const { data: venues = [] } = useQuery({
+  const { data: venues = [], isSuccess: venuesLoaded } = useQuery({
     queryKey: ['venues'],
     queryFn:  () => api.get('/venues'),
+  })
+
+  // ?venue=&date= from a link (Pepper's open_page, lib/deepLink.js): set once,
+  // a venue only when it is one of the tenant's.
+  useDeepLink('/bookings', {
+    ready: venuesLoaded,
+    apply: l => {
+      if (l.venue && venues.some(v => v.id === l.venue)) setVenueId(l.venue)
+      if (l.date) setDate(l.date)
+    },
   })
 
   const venueId = selectedVenueId ?? venues[0]?.id ?? null
