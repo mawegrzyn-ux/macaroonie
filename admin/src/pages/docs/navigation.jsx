@@ -316,7 +316,7 @@ export function Section() {
         when a link to the same page is followed while it is open), calls <Mono>apply</Mono> once as soon
         as <Mono>ready</Mono> is true (the page&apos;s venues have loaded), and takes the values out of
         the address. Only shapes are checked there: the page ignores a venue that isn&apos;t in its own
-        venue list. Tests: <Mono>shared/test/navLinks.test.mjs</Mono>.
+        venue list. Pepper's <Mono>open_page</Mono> builds these links with <Mono>pageLink()</Mono> (Docs, Pepper's tools). Tests: <Mono>shared/test/navLinks.test.mjs</Mono>.
       </P>
       <DataTable
         head={['Page', 'Accepts', 'Tabs']}

@@ -2,7 +2,7 @@
 
 What is not built, known limits and follow-ups now live in one file per area, `docs/claude/outstanding/<area>.md` (split 22 Nov 2026, `docs/PARALLEL_WORK.md` 3.12), so two agents working on different areas never edit the same backlog file. Items that cross areas (architecture, infrastructure plans, a list of asks) are in `general.md`.
 
-- Add a new item to its area's file, numbered one more than the highest number in any file here (48 on 22 Nov 2026). Numbers stay as they are: history and other notes refer to them.
+- Add a new item to its area's file, numbered one more than the highest number in any file here (49 on 22 Nov 2026). Numbers stay as they are: history and other notes refer to them.
 - Don't add items to this file: it is only the index.
 - Check the live code before calling anything pending.
 
@@ -27,6 +27,6 @@ What is not built, known limits and follow-ups now live in one file per area, `d
 | [`reports`](outstanding/reports.md) | 41 |
 | [`rota`](outstanding/rota.md) | - |
 | [`screens`](outstanding/screens.md) | 22 |
-| [`shell`](outstanding/shell.md) | 9, 10, 11, 37, 13 |
+| [`shell`](outstanding/shell.md) | 9, 10, 11, 37, 13, 49 |
 | [`till`](outstanding/till.md) | 18, 24, 27, 30, 39 |
 | [`website`](outstanding/website.md) | 3, 5 |

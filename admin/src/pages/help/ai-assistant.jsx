@@ -410,7 +410,16 @@ export function Section() {
         and Pepper replies with a link to the page; tap it to go there. It only offers pages
         you can open. Quicker still: type it into the search box at the top of the menu and
         press Enter, and Pepper picks the pages for you there (see Asking Pepper to search
-        the menu).
+        the menu). Pepper finds pages by the same names and search words as the menu search
+        box.
+      </P>
+      <P>
+        Say the venue, the day or week and the part of the page you want, and the link opens
+        the page there: <em>"Open the rota for Ware next week"</em> opens the Rota at Ware on
+        next week, <em>"Open food safety on Friday at the Holds tab"</em> opens Food safety on
+        Friday&apos;s Holds tab. This works on the Timeline, Bookings, Rota, Food safety, Online orders and
+        Cash recon (a day, a week, or the week&apos;s wages); other pages open as usual, and Pepper
+        says so when it couldn&apos;t open one where you asked.
       </P>
       <H3>Attaching photos, screenshots and files</H3>
       <P>

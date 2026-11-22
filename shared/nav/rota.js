@@ -7,7 +7,7 @@ export const pages = [
   {
     path: '/staff', label: 'Staff', icon: 'UsersRound', module: 'staff',
     section: 'People', order: 10, catalogOrder: 460,
-    keywords: 'staff people employees pay wages rates paid by bank cash leaving dates',
+    keywords: 'staff people employees pay wages rates paid by bank cash leaving dates holiday',
     description: 'The people who work at each venue: pay, how they are paid, roles, leaving dates and time off the rota.',
   },
   {

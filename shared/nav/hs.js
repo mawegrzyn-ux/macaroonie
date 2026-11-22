@@ -8,7 +8,7 @@ export const pages = [
     path: '/food-safety', label: 'Food safety', icon: 'Thermometer', module: 'food_safety',
     section: 'Health & safety', order: 10, catalogOrder: 510,
     accepts: ['venue', 'date', 'tab'], tabs: ['today', 'deliveries', 'holds', 'cooking'],
-    keywords: 'food safety temperatures fridge freezer checks deliveries hold cooking logs corrective actions haccp sfbb',
+    keywords: 'food safety temperatures fridge freezer checks deliveries hold holding hot cooking logs corrective actions haccp sfbb',
     description: 'Food safety records: fridge and freezer temperatures, deliveries, hot and cold holding and cooking checks, with corrective actions.',
   },
   {

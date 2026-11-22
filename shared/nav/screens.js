@@ -7,7 +7,7 @@ export const pages = [
   {
     path: '/screens', label: 'Menu screens', icon: 'Monitor', module: 'screens',
     section: 'Store tech', order: 90, catalogOrder: 680,
-    keywords: 'menu screens digital signage displays tv order ready link pair code',
+    keywords: 'menu screens digital signage displays tv boards order ready link pair code',
     description: 'Menu screens and order ready boards at each venue: link a screen by its code and choose what it shows.',
   },
   {
