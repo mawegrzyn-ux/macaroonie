@@ -7,12 +7,14 @@ export const pages = [
   {
     path: '/timeline', label: 'Timeline', icon: 'CalendarDays', module: 'bookings',
     section: 'Service', order: 10, catalogOrder: 60,
+    accepts: ['venue', 'date'],
     keywords: 'timeline gantt day view tables drag reservations bookings seat move',
     description: "The day's bookings as bars on the tables through time: drag to move or resize, seat walk-ins and spot clashes.",
   },
   {
     path: '/bookings', label: 'Bookings', icon: 'BookOpen', module: 'bookings',
     section: 'Service', order: 20, catalogOrder: 70,
+    accepts: ['venue', 'date'],
     keywords: 'bookings reservations list guests covers arrivals seated status walk in party no show',
     description: 'Every booking of a day in a list by time: change its status, guest details, table and notes, or add a booking.',
   },

@@ -19,6 +19,7 @@ export const pages = [
   {
     path: '/rota', label: 'Rota', icon: 'CalendarRange', module: 'rota',
     section: 'People', order: 20, catalogOrder: 480,
+    accepts: ['venue', 'week'],
     keywords: 'rota shifts week schedule staffing hours who is working holiday sick time off pay wages tips print',
     description: 'The weekly rota for a venue: who works which shift, time off, hours, pay and tips.',
   },
