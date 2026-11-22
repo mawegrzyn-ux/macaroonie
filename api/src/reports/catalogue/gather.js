@@ -5,29 +5,17 @@
 // catalogue/decisions.js (the tables no subject reads) and
 // starters/index.js (the starter reports).
 //
-//   await gather(import.meta.url, 'subjects')
-//       every .js file in the asking file's folder that exports `subjects`,
+//   gather(FILES, 'subjects')
+//       every file of the folder's list (files.js) that exports `subjects`,
 //       as [{ file, order, module }], by its `order` export (a number; one
-//       without comes last), then by file name. The asking file and the
-//       folder's index.js are never read: each of them gathers, and reading
-//       one from inside the other would wait for itself.
+//       without comes last), then by file name.
 //
 // A file without the export is a helper (define.js, coverage.js ...) and is
 // left alone. Nothing here is a list of files.
 
-import fs from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
-
-export async function gather(from, name) {
-  const self = fileURLToPath(from)
-  const dir = path.dirname(self)
-  const names = fs.readdirSync(dir)
-    .filter(f => f.endsWith('.js') && f !== 'index.js' && f !== path.basename(self))
-    .sort()
+export function gather(files, name) {
   const out = []
-  for (const file of names) {
-    const module = await import(pathToFileURL(path.join(dir, file)).href)
+  for (const [file, module] of files) {
     if (!(name in module)) continue
     out.push({ file, order: module.order, module })
   }

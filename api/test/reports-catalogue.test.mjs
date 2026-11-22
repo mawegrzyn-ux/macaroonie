@@ -28,6 +28,8 @@ import { MODULE_KEYS } from '../src/config/modules.js'
 import { bucketsFor } from '../../shared/reports/paths.js'
 import { EVENT_LABELS, TILL_EVENT_TYPES } from '../src/reports/catalogue/till.js'
 import { gather } from '../src/reports/catalogue/gather.js'
+import { FILES as CATALOGUE_FILES } from '../src/reports/catalogue/files.js'
+import { FILES as STARTER_FILES } from '../src/reports/starters/files.js'
 import { STARTERS } from '../src/reports/starters/index.js'
 
 let ids, columns, tables
@@ -99,23 +101,27 @@ test('every subject and starter file is gathered, in its order', async () => {
     for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.js') && f !== 'index.js')) {
       const mod = await import(new URL(file, dir).href)
       assert.ok(!('default' in mod), folder + '/' + file + ' has a default export: name it `' + name + '`')
-      if (name in mod) assert.ok(Number.isFinite(mod.order), folder + '/' + file + ' needs `export const order = <number>`')
+      if (name in mod) {
+        assert.ok(Number.isFinite(mod.order), folder + '/' + file + ' needs `export const order = <number>`')
+        const list = folder === 'catalogue' ? CATALOGUE_FILES : STARTER_FILES
+        assert.ok(list.some(([f]) => f === file), folder + '/' + file + ' is missing from ' + folder + '/files.js')
+      }
       else assert.ok(!('order' in mod) && !('decisions' in mod), folder + '/' + file + ' has an order or decisions but no `' + name + '`')
     }
   }
   // The catalogue's subjects are the files' subjects, file by file in their
   // order, then those worked out from all the others (Report runs).
-  const files = await gather(new URL('../src/reports/catalogue/index.js', import.meta.url).href, 'subjects')
+  const files = gather(CATALOGUE_FILES, 'subjects')
   const isFn = f => typeof f.module.subjects === 'function'
   const listed = files.filter(f => !isFn(f)).flatMap(f => f.module.subjects)
   const keys = [...listed, ...files.filter(isFn).flatMap(f => f.module.subjects(listed, AREAS))].map(s => s.key)
   assert.deepEqual(keys, Object.keys(CATALOGUE.subjects))
   assert.equal(keys.at(-1), 'group.report_runs')
-  const starterFiles = await gather(new URL('../src/reports/starters/index.js', import.meta.url).href, 'starters')
+  const starterFiles = gather(STARTER_FILES, 'starters')
   assert.deepEqual(starterFiles.flatMap(f => f.module.starters.map(s => s.key)), STARTERS.map(s => s.key))
   // Every file's decisions are gathered: each of its tables has its decision.
   const all = tableDecisions(CATALOGUE)
-  for (const f of await gather(new URL('../src/reports/catalogue/index.js', import.meta.url).href, 'decisions')) {
+  for (const f of gather(CATALOGUE_FILES, 'decisions')) {
     const d = f.module.decisions
     for (const t of d.settings || []) assert.ok(all.some(x => x.table === t && x.kind === 'settings'), f.file + ': ' + t)
     for (const [reason, list] of Object.entries(d.out || {})) for (const t of list) assert.ok(all.some(x => x.table === t && x.kind === 'out' && x.reason === reason), f.file + ': ' + t)

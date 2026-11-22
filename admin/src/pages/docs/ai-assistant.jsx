@@ -69,8 +69,9 @@ export function Section() {
         <Mono>prompts.js</Mono> joins the lines in that order, so the cached system prompt
         changes only when a tool file does. A tool file never imports{' '}
         <Mono>tools/index.js</Mono>, <Mono>chat.js</Mono> or <Mono>prompts.js</Mono>: the
-        registry reads the folder with a top-level await, and a file that led back to it would
-        never finish loading.
+        registry is built while it loads. The tool files are listed by name in{' '}
+        <Mono>tools/files.js</Mono> (a folder read at load time deadlocked against the report
+        catalogue), and a test fails when one is missing.
       </P>
       <P>
         <Mono>section</Mono> is the area (<Mono>SECTIONS</Mono>:

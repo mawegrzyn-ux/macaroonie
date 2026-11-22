@@ -16,6 +16,7 @@
 // the files.
 
 import { gather } from '../catalogue/gather.js'
+import { FILES } from './files.js'
 import { CATALOGUE, CATALOGUE_MODULES, listColumns } from '../catalogue/index.js'
 import { compileReport } from '../compile.js'
 import { normaliseReport, reportProblems, resolveParams, rowId } from '../../../../shared/reports/spec.js'
@@ -112,7 +113,7 @@ function gathered(files) {
   })
 }
 
-export const STARTERS = build(gathered(await gather(import.meta.url, 'starters')))
+export const STARTERS = build(gathered(gather(FILES, 'starters')))
 
 const BY_KEY = new Map(STARTERS.map(s => [s.key, s]))
 export const starterByKey = key => BY_KEY.get(key) || null

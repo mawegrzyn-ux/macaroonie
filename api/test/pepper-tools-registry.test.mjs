@@ -25,6 +25,8 @@ test('a file is a tool file when it exports tools; helpers and the guest tools a
   const gathered = toolFiles.flatMap(f => mods[f].tools.map(t => t.name))
   assert.deepEqual(staff.map(t => t.name), gathered, 'the staff tools, file by file in order')
   for (const f of toolFiles) assert.ok(Number.isFinite(mods[f].order), f + ' has an order')
+  const listed = mods['files.js'].FILES.map(([f]) => f)
+  for (const f of toolFiles) assert.ok(listed.includes(f), f + ' is missing from src/ai/tools/files.js')
 })
 
 test('every staff tool has a known area, and the areas come from the files', () => {

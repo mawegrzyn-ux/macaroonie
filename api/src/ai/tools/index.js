@@ -53,19 +53,17 @@
 // general.js (open_page, how_do_i), forms.js (open_form) and briefing.js
 // (day_briefing).
 
-import fs from 'node:fs'
+import { FILES } from './files.js'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { ZodError } from 'zod'
 import { ToolError, isStaff } from '../context.js'
 import { MODULE_KEYS, permissionAtLeast } from '../../config/modules.js'
 import { guestTools } from './guest.js'
 
-// The staff tool files, in order. A top-level await: nothing a tool file
-// imports may lead back to this file, or it would never finish loading.
-const HERE = new URL('./', import.meta.url)
+// The staff tool files, in order (files.js lists them; a tool file never
+// imports this file, chat.js or prompts.js).
 const toolFiles = []
-for (const file of fs.readdirSync(HERE).filter(f => f.endsWith('.js') && f !== 'index.js').sort()) {
-  const mod = await import(new URL(file, HERE).href)
+for (const [file, mod] of FILES) {
   if (!mod.tools) continue
   if (!Array.isArray(mod.tools)) throw new Error('Tool file ' + file + ': tools is not a list')
   if (!Number.isFinite(mod.order)) throw new Error('Tool file ' + file + ' has no order')

@@ -18,6 +18,7 @@
 // here lists the files; AREAS, the headings, stays here.
 
 import { gather } from './gather.js'
+import { FILES } from './files.js'
 import { templateRefs } from './define.js'
 import { MODULE_KEYS, permissionAtLeast } from '../../config/modules.js'
 import { ASSISTANT_NAME } from '../../../../shared/assistant.js'
@@ -168,7 +169,7 @@ function gathered(files) {
   return lists
 }
 
-export const CATALOGUE = build(gathered(await gather(import.meta.url, 'subjects')))
+export const CATALOGUE = build(gathered(gather(FILES, 'subjects')))
 
 /** Every module a subject, field, figure or link of the catalogue asks for. */
 export const CATALOGUE_MODULES = [...new Set(Object.values(CATALOGUE.subjects).flatMap(s => [

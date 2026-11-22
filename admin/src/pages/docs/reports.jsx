@@ -150,9 +150,10 @@ export function Section() {
         of the asking file&apos;s folder that exports <Mono>name</Mono>, by order, then file name, for{' '}
         <Mono>catalogue/index.js</Mono>, <Mono>decisions.js</Mono> and <Mono>starters/index.js</Mono>{' '}
         (22 Nov 2026). <Mono>runs.js</Mono> exports <Mono>subjects</Mono> as a function given the
-        others&apos; subjects and <Mono>AREAS</Mono>, so it comes last. Each of the three reads its
-        folder with a top-level await, so a catalogue or starter file never imports one of them: the
-        API would stop at start with &quot;Detected unsettled top-level await&quot;.
+        others&apos; subjects and <Mono>AREAS</Mono>, so it comes last. The files are listed by name
+        in <Mono>catalogue/files.js</Mono> and <Mono>starters/files.js</Mono> (a folder read at load time
+        deadlocked against Pepper&apos;s tool list), and a catalogue or starter file never imports one of
+        the three, which would see it half-built.
       </P>
       <P>
         Every table in the database has a decision: read by a subject, planned for

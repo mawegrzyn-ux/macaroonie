@@ -33,6 +33,7 @@
 // api/scripts/report-catalogue.js` prints where things stand.
 
 import { gather } from './gather.js'
+import { FILES } from './files.js'
 
 const KINDS = ['settings', 'out', 'planned']
 
@@ -43,7 +44,7 @@ export const SETTINGS = []
 /** Never reported on. { reason: [tables] } */
 export const LEFT_OUT = {}
 
-for (const { file, module } of await gather(import.meta.url, 'decisions')) {
+for (const { file, module } of gather(FILES, 'decisions')) {
   const d = module.decisions
   const fail = msg => { throw new Error('Report catalogue, ' + file + '\'s decisions: ' + msg) }
   if (!d || typeof d !== 'object') fail('not an object')
