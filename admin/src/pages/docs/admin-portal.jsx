@@ -1,0 +1,244 @@
+// src/pages/docs/admin-portal.jsx
+// The Docs page's "Admin Portal" section. Docs.jsx gathers every file in this
+// folder (except parts.jsx) and shows them by order, then id.
+import { H2, H3, P, Mono, DataTable, InfoBox } from './parts.jsx'
+
+export const id = 'admin-portal'
+export const label = 'Admin Portal'
+export const order = 40
+
+// ── ADMIN PORTAL ────────────────────────────────
+export function Section() {
+  return (
+    <section id="admin-portal" data-doc="">
+      <H2>Admin Portal</H2>
+      <H3>Design principles</H3>
+      <P>
+        The admin portal is optimised for <strong>tablet-sized touch screens</strong> at a host stand
+        or service counter (target width: 1015 px). Every interactive element must be finger-usable.
+      </P>
+      <DataTable
+        head={['Principle', 'Implementation']}
+        rows={[
+          ['Touch targets ≥ 48 × 48 px', 'Cover selector buttons (w-12 h-12), slot tiles (py-2), grip handles'],
+          ['touch-manipulation on all buttons', 'Eliminates 300 ms iOS tap delay. Applied via className on every interactive element.'],
+          ['No hover-only affordances', 'All UI discoverable by tap. Hover states are additive, not primary.'],
+          ['Phone inputs use type="tel"', 'Triggers numeric keypad on iOS/Android without custom code.'],
+          ['Custom numeric keypad', 'IS_TOUCH = navigator.maxTouchPoints > 0 at module load. inputMode="none" suppresses native keyboard; 3×4 grid overlay renders instead.'],
+          ['Date as styled button', 'Invisible <input type="date"> overlays a styled label — OS date picker on mobile, native on desktop.'],
+          ['Modals: max-h-[85vh] overflow-y-auto', 'Content never clips on smaller tablet screens in landscape.'],
+        ]}
+      />
+
+      <H3>Key pages</H3>
+      <DataTable
+        head={['Page', 'Route', 'Purpose']}
+        rows={[
+          ['Timeline', '/timeline', 'Gantt view. Drag-to-reschedule, drag-to-relocate, resize, canvas click → ManualAllocModal. Grey columns = closed or cap=0. Red current-time line (today only). FAB (+ button) bottom-right for new bookings. Two tile modes: compact (configurable S/M/L row height, 3px inner padding) and extensive (3-line). Hour column width: 80 px (standard) or 120 px (wide). Session-start lines: one per sitting (sessionStartXs array), configurable colour, toggleable. Header shading: closed-area background optionally extended to the hours header row. Per-sitting stats bar in top bar (hidden on mobile): shows count, covers, and name per sitting with at least one active booking. Overlap detection: ⛔ badge + red ring-2 ring-red-500 ring-inset on tiles that share a table at the same time (overlappingIds useMemo, frontend-only). Date displayed as full weekday + date (EEEE d MMMM yyyy) via styled button with invisible <input type="date"> overlay. All controlled via TimelineSettingsContext + SettingsContext.'],
+          ['Bookings', '/bookings', 'Guestplan-style time-grouped list. Per-sitting stats bar in top bar (hidden on mobile, mirrors Timeline stats). Date displayed as full weekday + date (EEEE d MMMM yyyy) via styled button with invisible date input overlay. Inline status change. Phone visible. Permanent resizable right panel (BookingDrawer inlineMode).'],
+          ['Customers', '/customers', 'Customer profiles. Search by name/email/phone. GDPR anonymise and export. Auto-populated from booking confirms.'],
+          ['Venues', '/venues', 'Create and manage restaurant locations.'],
+          ['Tables', '/tables', 'Add tables, define sections, create combinations, set sort order, manage disallowed pairs.'],
+          ['Schedule', '/schedule', 'Weekly template sittings, slot caps, date overrides, schedule exceptions.'],
+          ['Rules', '/rules', 'Booking window, covers limits, hold TTL, smart allocation flags, deposit config, unconfirmed/reconfirmed flow toggles, opening hours enforcement.'],
+          ['Settings', '/settings', 'Appearance: theme colour, per-status booking colours (9 statuses, CSS custom properties), timeline background colour, closed-area shading colour, opening hour line (toggle + colour), shade header row toggle, sidebar expanded by default (sidebarExpandedDefault). Timeline defaults: tile mode, compact font size, wide columns toggle, panel mode, section dividers, hide inactive, timeline start/end hour range. All persisted to localStorage.'],
+          ['Team', '/team', 'Invite staff via Auth0 Management API (in development).'],
+          ['Widget test', '/widget-test', 'Runs the full guest booking flow in the portal for testing.'],
+          ['Documentation', '/docs', 'This page.'],
+          ['Help', '/help', 'Operator user guide.'],
+        ]}
+      />
+
+      <H3>The Help and Docs pages: one file per section</H3>
+      <P>
+        Each section of the Help page is a file in <Mono>admin/src/pages/help/</Mono> and each
+        section of this page a file in <Mono>admin/src/pages/docs/</Mono>, named after its id
+        (<Mono>kitchen.jsx</Mono>) and exporting <Mono>id</Mono>, <Mono>label</Mono>,{' '}
+        <Mono>order</Mono> and <Mono>Section</Mono>. The building blocks (<Mono>H2</Mono>,{' '}
+        <Mono>H3</Mono>, <Mono>P</Mono>, <Mono>Mono</Mono>, <Mono>InfoBox</Mono>,{' '}
+        <Mono>DataTable</Mono>, and <Mono>Code</Mono> here) are in each folder&apos;s{' '}
+        <Mono>parts.jsx</Mono>. <Mono>Help.jsx</Mono> and <Mono>Docs.jsx</Mono> keep the page
+        (the contents list, scrolling) and gather the files with{' '}
+        <Mono>{"import.meta.glob('./help/*.jsx', { eager: true })"}</Mono>, leaving out{' '}
+        <Mono>parts.jsx</Mono>, sorted by <Mono>order</Mono> and then id; the contents list comes
+        from the same files. Orders are spaced by 10, so a new section is a new file whose
+        order slots it between two others, and two areas&apos; new sections never edit the same
+        file. Pepper&apos;s help index reads the Help files in the same order.
+      </P>
+
+      <H3>New booking — FAB &amp; two paths</H3>
+      <P>
+        A round <strong>floating action button (FAB)</strong> sits at the bottom-right of the Timeline canvas
+        (<Mono>absolute bottom-6 right-6</Mono>). Tapping it opens the new booking modal.
+        Clicking an empty canvas cell opens <strong>ManualAllocModal</strong> directly with that time and table
+        pre-populated. There are two paths through the modal:
+      </P>
+      <DataTable
+        head={['Path', 'How to trigger', 'Behaviour']}
+        rows={[
+          ['Automatic allocation', 'Select a slot → Continue', 'Slot resolver assigns the best available table/combination. Obeys all schedule, capacity, and booking-window rules.'],
+          ['Manual allocation', 'Click "Manual allocation" button', 'Opens ManualAllocModal. Admin freely picks date, time, and any table(s) — or Unallocated. No schedule or capacity checks. POST /bookings/admin-override.'],
+          ['Walk In', 'Click "Walk In" button in guest step', 'Skips all guest details. Books immediately as "Walk In". No email sent. Useful for same-day walk-up guests.'],
+        ]}
+      />
+      <InfoBox type="warn">
+        Manual allocation bypasses all rules. Use it for walk-ins, VIP overrides, or bookings outside normal hours.
+        The booking is still broadcast to all timeline clients via WebSocket.
+      </InfoBox>
+
+      <H3>Customer search in booking modal</H3>
+      <P>
+        When the admin reaches the guest details step, typing in the name, email, or phone field
+        triggers a debounced search against the customer database (<Mono>GET /customers?q=</Mono>).
+        If matching records are found, a suggestions panel appears to the right of the modal. Clicking
+        a suggestion pre-fills all three fields. The customer database is populated automatically — a
+        customer record is upserted on every booking confirmation.
+      </P>
+
+      <H3>Timeline — grey column overlay</H3>
+      <P>
+        The Timeline fetches <Mono>GET /slots?covers=1</Mono> for the displayed date and renders grey vertical
+        strips behind booking cards. A time column is grey when:
+      </P>
+      <ul className="list-disc list-inside text-sm text-muted-foreground ml-2 space-y-1">
+        <li>No sitting covers that time (before first sitting, between sittings, after last sitting)</li>
+        <li>A slot cap is explicitly set to 0 for that interval (<Mono>reason = 'unavailable'</Mono>)</li>
+      </ul>
+      <P>
+        Fully-booked slots (<Mono>reason = 'full'</Mono>) are <strong>not</strong> greyed — the column
+        stays white so operators can see the time is structurally open even though capacity is used up.
+      </P>
+
+      <H3>Booking statuses</H3>
+      <DataTable
+        head={['Status', 'Colour', 'Meaning']}
+        rows={[
+          ['unconfirmed', 'Orange (#fed7aa / #f97316)', 'Guest booked online; venue must call to confirm (enable_unconfirmed_flow).'],
+          ['confirmed', 'Blue (#bfdbfe / #3b82f6)', 'Booking confirmed.'],
+          ['reconfirmed', 'Indigo (#c7d2fe / #6366f1)', 'Operator has called and re-confirmed (enable_reconfirmed_status).'],
+          ['pending_payment', 'Amber (#fde68a / #d97706)', 'Hold awaiting Stripe payment. Set by webhook — not manually selectable.'],
+          ['arrived', 'Cyan (#a5f3fc / #0891b2)', 'Guest has arrived at the venue.'],
+          ['seated', 'Green (#86efac / #16a34a)', 'Guest is seated at their table.'],
+          ['checked_out', 'Grey (#e5e7eb / #9ca3af)', 'Guest has left. Excluded from capacity (same as cancelled / no_show).'],
+          ['cancelled', 'Red (#fca5a5 / #ef4444, opacity 0.45)', 'Booking cancelled. Excluded from capacity.'],
+          ['no_show', 'Grey (#d1d5db / #9ca3af, opacity 0.45)', 'Guest did not arrive. Excluded from capacity.'],
+        ]}
+      />
+
+      <H3>Timeline current-time indicator</H3>
+      <P>
+        When viewing today's date, a red vertical line spans all table rows at the current time.
+        A dot and time label appear in the header bar above the line. The position updates every 30 seconds.
+        The indicator is hidden when viewing any date other than today.
+      </P>
+
+      <H3>Timeline sidebar controls</H3>
+      <P>
+        All Timeline view controls live in the <strong>AppShell sidebar</strong> above the logout button,
+        only visible when the current route is <Mono>/timeline</Mono>. Controls:
+      </P>
+      <DataTable
+        head={['Control', 'Description']}
+        rows={[
+          ['Venue selector', 'Shown only when the tenant has more than one venue. Stored in TimelineSettingsContext (venueId).'],
+          ['Inactive toggle', 'Hides cancelled/no-show/checked-out bookings from the canvas. Persisted to localStorage.'],
+          ['Sections toggle', 'Shows/hides section divider rows between table groups. Persisted to localStorage.'],
+          ['Panel toggle', 'Switches BookingDrawer between docked right-panel mode and overlay mode. Persisted to localStorage.'],
+          ['Refresh button', 'Triggers an immediate refetch of bookings for the current date.'],
+          ['Fullscreen button', 'Calls document.documentElement.requestFullscreen() / exitFullscreen(). Icon updates on fullscreenchange event.'],
+        ]}
+      />
+
+      <H3>Settings page</H3>
+      <P>
+        Route <Mono>/settings</Mono>. All values persist across sessions via localStorage.
+      </P>
+      <DataTable
+        head={['Setting group', 'Storage', 'Details']}
+        rows={[
+          ['Theme colour', 'maca_settings (SettingsContext)', 'Hex → HSL conversion writes --primary / --primary-foreground CSS vars on :root. Foreground auto-chosen by relative luminance.'],
+          ['Booking status colours', 'maca_settings (SettingsContext)', '9 statuses. Each stores a bg hex. Border auto-derived via deriveBorderFromBg() (HSL lightness −30pp). Written as --status-{name}-bg/bd CSS custom properties. applyStatusColours() called on mount + on every change.'],
+          ['Timeline background colour', 'maca_settings (SettingsContext)', 'Applied as backgroundColor on the Timeline rows wrapper div. Default #ffffff.'],
+          ['Closed/unavailable area colour', 'maca_settings (SettingsContext)', 'Applied at 38% opacity via hexToRgba() inside the greyBackground CSS linear-gradient. Default #8c8c8c.'],
+          ['Default tile mode', 'maca_timeline_prefs (TimelineSettingsContext)', "'compact' | 'extensive'. Compact = single-row tile with configurable font size. Extensive = 3-line tile (name+covers, phone, table). Row height: compact sm=36, md=44, lg=52; extensive=72."],
+          ['Compact tile size', 'maca_timeline_prefs (TimelineSettingsContext)', "'sm' | 'md' | 'lg'. Only applies in compact mode. Controls font sizes and row height via ROW_HEIGHT_MAP."],
+          ['Wide time columns', 'maca_timeline_prefs (TimelineSettingsContext)', 'Boolean. hourWidth = wideColumns ? 120 : 80. All pixel calculations (timeToX, durationToWidth, sittingTimeToX, canvas width, drag/resize deltas) use hourWidth at runtime.'],
+          ['Side panel mode', 'maca_timeline_prefs (TimelineSettingsContext)', 'BookingDrawer rendered as docked panel (inlineMode) vs floating overlay.'],
+          ['Section dividers', 'maca_timeline_prefs (TimelineSettingsContext)', 'Show/hide section label rows in Timeline.'],
+          ['Hide inactive', 'maca_timeline_prefs (TimelineSettingsContext)', 'Filter out cancelled/no_show/checked_out bookings from canvas.'],
+          ['Opening hour line (showStartLine)', 'maca_settings (SettingsContext)', 'Boolean toggle. When true, a 3px vertical line is rendered at firstOpenX + LABEL_WIDTH as a position:absolute full-height overlay on the Timeline wrapper div (z=2, pointer-events:none). Colour configurable via startLineColour. Default: enabled, colour #630812.'],
+          ['Opening hour line colour (startLineColour)', 'maca_settings (SettingsContext)', 'Hex colour for the opening hour line. Applied as backgroundColor on the overlay div. Default #630812 (matches theme default).'],
+          ['Shade header row (headerBgStrips)', 'maca_settings (SettingsContext)', 'Boolean toggle. When true, backgroundStyle (closed-area grey + diagonal stripe CSS backgrounds) is also applied to the TimelineHeader outer div via inline style, replacing bg-background. Sticky label cell keeps its own bg-background. Default: false.'],
+          ['Sidebar expanded by default (sidebarExpandedDefault)', 'maca_settings (SettingsContext)', 'Boolean (default true). Controls the initial open state of the AppShell sidebar on desktop. Mobile always starts collapsed regardless. Applied as the initial value of the useState in AppShell — subsequent manual toggles work normally per-session.'],
+          ['Timeline start hour (timelineStart)', 'maca_timeline_prefs (TimelineSettingsContext)', 'Integer hour (0–23, default 9). Combined with timelineEnd to derive startHour, endHour, totalHours in Timeline component. All pixel calculations (timeToX, sittingTimeToX, nowX, grey strips, drag/resize) use startHour instead of the module constant START_HOUR. Settings → Timeline defaults shows hour dropdowns.'],
+          ['Timeline end hour (timelineEnd)', 'maca_timeline_prefs (TimelineSettingsContext)', 'Integer hour (1–24, default 24). Combined with timelineStart to determine totalHours = endHour − startHour. Drives canvas totalWidth = totalHours * hourWidth. TimelineHeader renders totalHours column labels starting at startHour.'],
+        ]}
+      />
+      <H3>sessionStartXs computation</H3>
+      <P>
+        <Mono>sessionStartXs</Mono> is a useMemo in Timeline.jsx that returns an array of canvas
+        x-pixel positions — one per sitting — at each sitting's <Mono>opens_at</Mono> time for
+        the selected date. Replaces the former scalar <Mono>firstOpenX</Mono>. A 3px vertical
+        line is rendered for each entry so venues with both lunch and dinner sessions each get
+        their own opening-hour line. Depends on <Mono>[sittingsForDate, hourWidth, startHour]</Mono>.
+      </P>
+      <H3>ColourPickerRow sync pattern</H3>
+      <P>
+        <Mono>ColourPickerRow</Mono> uses local <Mono>hexInput</Mono> state for the colour wheel and hex input.
+        A <Mono>useEffect(() =&gt; setHexInput(value), [value])</Mono> syncs it whenever the context value
+        changes externally (e.g. clicking a swatch button rendered outside the component).
+        Without this, external swatch clicks update the context but the picker circle shows the stale colour.
+      </P>
+
+      <H3>startHour threading in Timeline</H3>
+      <P>
+        <Mono>startHour</Mono> and <Mono>endHour</Mono> are derived from{' '}
+        <Mono>TimelineSettingsContext.timelineStart/timelineEnd</Mono> in the Timeline component.
+        They replace the module-level constants <Mono>START_HOUR</Mono> and <Mono>END_HOUR</Mono>{' '}
+        in all runtime calculations. Both <Mono>timeToX(iso, hw, sh)</Mono> and{' '}
+        <Mono>sittingTimeToX(t, hw, sh)</Mono> accept <Mono>sh</Mono> as a third optional param
+        (defaults to <Mono>START_HOUR</Mono>). <Mono>startHour</Mono> is passed as a prop to{' '}
+        <Mono>TableRow</Mono>, <Mono>BookingCard</Mono>, and <Mono>TimelineHeader</Mono> — the same
+        threading pattern as <Mono>hourWidth</Mono>. All useMemos that call these functions include{' '}
+        <Mono>startHour</Mono> in their dep arrays.
+      </P>
+
+      <H3>Session names on sittings</H3>
+      <P>
+        Migration <Mono>023_sitting_names.sql</Mono> adds a nullable <Mono>name text</Mono> column
+        to <Mono>venue_sittings</Mono>, <Mono>override_sittings</Mono>, and{' '}
+        <Mono>exception_sittings</Mono>. Set via the Schedule page sitting editor.
+        Returned by <Mono>sittings-for-date</Mono> and all schedule GET endpoints.
+        Frontend always falls back to the time-range string when name is null:{' '}
+        <Mono>sitting.name ?? `{'${sitting.opens_at.slice(0,5)}–${sitting.closes_at.slice(0,5)}'}`</Mono>.
+      </P>
+
+      <H3>Per-sitting stats bar</H3>
+      <P>
+        <Mono>sittingStats</Mono> useMemo in <Mono>Timeline.jsx</Mono> (and a parallel pattern in{' '}
+        <Mono>Bookings.jsx</Mono>) maps active bookings to their sitting by comparing the booking's
+        local-time HH:MM string against each sitting's <Mono>opens_at</Mono>/<Mono>closes_at</Mono>.
+        Returns <Mono>{'{ totalCount, totalCovers, bySitting }'}</Mono>.
+        Rendered as a <Mono>hidden sm:flex</Mono> row in the top bar alongside the date navigator.
+        Only sittings with at least one active booking are shown.
+      </P>
+      <InfoBox type="warn">
+        The HH:MM comparison uses <Mono>new Date(b.starts_at).getHours()</Mono> (local browser time).
+        If the server timezone differs from the browser, bookings near sitting boundaries may be
+        assigned to the wrong sitting in the stats display. This is cosmetic — no business logic depends on it.
+      </InfoBox>
+
+      <H3>Overlap detection</H3>
+      <P>
+        <Mono>overlappingIds</Mono> useMemo performs an O(n²) pairwise scan of all active bookings.
+        Two bookings overlap when they share at least one table (checking both{' '}
+        <Mono>member_table_ids</Mono> and <Mono>table_id</Mono>) and their time windows intersect
+        (<Mono>aStart {'<'} bEnd && bStart {'<'} aEnd</Mono>).
+        Overlapping tiles receive a red <Mono>ring-2 ring-red-500 ring-inset</Mono> border and a{' '}
+        <Mono>⛔</Mono> badge in the top-right corner.
+        Detection is frontend-only — it operates on the in-memory <Mono>bookingsRes</Mono> array
+        and does not call the API.
+      </P>
+    </section>
+  )
+}
