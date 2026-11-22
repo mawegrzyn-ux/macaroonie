@@ -46,7 +46,8 @@ lives in that area's file, which is read only when a task touches the area.
 |---|---|
 | `docs/claude/areas/<area>.md` | The area's key files and its mistakes to avoid. **Read the file for every area a task touches before changing code there.** |
 | `docs/claude/history/<area>.md` | What shipped in the area and when (the old Completed items). Reference only. |
-| `docs/claude/OUTSTANDING.md` | What isn't built, known limits and follow-ups. |
+| `docs/claude/outstanding/<area>.md` | What isn't built, known limits and follow-ups, one file per area (`OUTSTANDING.md` is only the index). |
+| `areas.json` | Which files belong to which area; checked by `scripts/check-areas.mjs` (see Working in parallel). |
 | `docs/*.md` | Design documents: `POS.md`, `REPORTS.md`, `CHAT_FIRST.md`, `PEPPER_FIRST.md`, `ORDERING_APP.md`, `ANDROID_HUB.md`, `SALES_IMPORT.md`, `CATALOGUE.md`, `PARALLEL_WORK.md`. |
 | `docs/claude/backup/` | The whole CLAUDE.md as it was on 21 Nov 2026, before it was split. Never loaded; searches skip it (the root `.ignore`). |
 
@@ -99,7 +100,7 @@ When a new session begins:
 
 **3. Read the notes for the task:**
 - The area file for every area the task touches (table above).
-- `docs/claude/OUTSTANDING.md` when the task is a follow-up or something listed as not built.
+- `docs/claude/outstanding/<area>.md` when the task is a follow-up or something listed as not built.
 
 **4. Establish session context:**
 - Ask the user what they want to work on; don't assume.
@@ -117,11 +118,11 @@ When the user signals end of session ("wrap up", "eos", "that's all", or natural
 **1. Update all docs** affected by this session:
 - The area file (`docs/claude/areas/<area>.md`) — new key files, new mistakes to avoid (append-only).
 - The history file (`docs/claude/history/<area>.md`) — one short entry per shipped feature: what shipped, the migration number, the date, where the code is. A few lines, no test tallies.
-- `docs/claude/OUTSTANDING.md` — limits, follow-ups, anything left unfinished.
+- `docs/claude/outstanding/<area>.md` — limits, follow-ups, anything left unfinished (a new item takes the next number after the highest in any file there).
 - This file — only when a rule that applies everywhere changes, or an area is added.
-- In-app Help.jsx — **always** add/update the operator-facing section for any new or changed feature. This is the most user-visible doc and must never lag behind shipped code.
-- In-app Docs.jsx — **always** add/update the technical section for any new API routes, DB tables, services, or architectural changes.
-- CHANGE.md — prepend a changelog entry for shipped features.
+- In-app Help — **always** add/update the operator-facing section (`admin/src/pages/help/<id>.jsx`, one file per section; a new section is a new file whose `order` slots it in) for any new or changed feature. This is the most user-visible doc and must never lag behind shipped code.
+- In-app Docs — **always** add/update the technical section (`admin/src/pages/docs/<id>.jsx`) for any new API routes, DB tables, services, or architectural changes.
+- The changelog — add a file `changes/YYYY-MM-DD-<area>-<slug>.md` for shipped features (`changes/README.md`; `CHANGE.md` is the history before 22 Nov 2026).
 
 **2. Impact analysis:**
 - Files modified / created this session.
@@ -130,7 +131,7 @@ When the user signals end of session ("wrap up", "eos", "that's all", or natural
 
 **3. Risk + gap assessment:**
 - Untested edge cases.
-- Incomplete bits left behind (mark them clearly in `docs/claude/OUTSTANDING.md`).
+- Incomplete bits left behind (mark them clearly in `docs/claude/outstanding/<area>.md`).
 - Recommended next actions for the user.
 
 **4. Hand off for commit.** The **user commits and pushes via GitHub Desktop**. Claude must NOT print `git add` / `git commit` / `git push` command blocks for the user to run — they don't use the CLI for this. The GitHub Actions workflow on the server auto-deploys on push. After making code changes, just say "ready to commit" with a short list of files changed and a suggested commit-message subject line — let the user drive the rest in GitHub Desktop. Same goes for any time you'd otherwise tell them to "push from your laptop" — drop that phrase, the user knows their own workflow.
@@ -197,15 +198,15 @@ The full listing, file by file for `shared/` and `docs/`, is in `docs/claude/are
 
 - `api/src/config/db.js`: `withTenant()`, `tenantSql()`, system mode (`systemSql`, `withSystem()`), the report builder's pool. Touch this carefully.
 - `api/src/config/env.js`: Zod-validated env. The API won't start with a missing var.
-- `api/src/app.js`: plugins, the error handler (set before the routes) and route registration.
+- `api/src/app.js`: plugins, the error handler (set before the routes), the host sites, and loading every area's routes from `api/src/areas/<area>.js`. Background jobs: one file each in `api/src/jobs/`, started from `loadJobs()`.
 - `api/src/middleware/auth.js`: JWT validation, tenant resolution per request, `requirePermission()` and the other guards.
 - `api/src/middleware/error.js`: the global error handler (PG error codes mapped to HTTP codes).
 - `api/src/middleware/venue.js`: `requireOwnVenue()`, `refuseOtherTenantsVenues`.
 - `api/src/config/modules.js`: the module registry and permission levels, the single source of truth for both.
 - `api/scripts/migrate.js`: the migration runner (`schema_migrations`).
-- `admin/src/main.jsx`: every route. `admin/src/components/layout/AppShell.jsx`: the office shell. `admin/src/components/mobile/MobileShell.jsx`: the phone app's shell.
+- `admin/src/main.jsx`: the providers, the sign-in gate and the shells; each area's routes are in `admin/src/routes/<area>.jsx`, the menu records in `shared/nav/<area>.js`. `admin/src/components/layout/AppShell.jsx`: the office shell. `admin/src/components/mobile/MobileShell.jsx`: the phone app's shell.
 - `admin/src/lib/api.js`: `useApi()`, which every API call goes through (it adds the Auth0 token and `X-Tenant-Id`). `admin/src/hooks/usePermission.js`: `usePermission(module)`.
-- `admin/src/pages/Help.jsx` and `admin/src/pages/Docs.jsx`: the in-app operator guide and technical documentation.
+- `admin/src/pages/Help.jsx` and `admin/src/pages/Docs.jsx`: the in-app operator guide and technical documentation, gathered from one file per section in `pages/help/` and `pages/docs/`.
 
 ---
 
@@ -279,7 +280,7 @@ The detail and the reasons are in the area files. These are the ones that bite i
 
 **Database**
 
-8. One numbered file per change in `migrations/` (check the highest number first). No `BEGIN` / `COMMIT` in the file: the runner wraps it. Seeds are idempotent. It must build on an empty Postgres without pg_cron (CI checks). Never change what an applied migration does.
+8. One numbered file per change in `migrations/` (check the highest number first). No `BEGIN` / `COMMIT` in the file: the runner wraps it. Seeds are idempotent. It must build on an empty Postgres without pg_cron (CI checks). Never change what an applied migration does. Name it `NNN_<area>_<slug>.sql`, NNN one more than the highest on `main` when the branch starts: two branches with the same number both apply (the runner tracks names), and a migration never depends on one in another open branch.
 9. postgres.js returns `date` columns as JS `Date`s: select `col::text` wherever the value is a map key, compared with a `YYYY-MM-DD` string, sent to the UI as a day or written back. `time` columns arrive as `HH:MM:SS`. jsonb goes in with `tx.json()`.
 10. A stored secret (API key, token, password) is sealed with `seal()` / `unseal()` (`api/src/services/vault.js`), its column added to `SEALED`, and never returned by a route.
 11. Slots are never stored: `get_available_slots()` computes them at request time.
@@ -298,9 +299,9 @@ The detail and the reasons are in the area files. These are the ones that bite i
 **Admin UI**
 
 20. Every page under `AppShell` brings its own scroll container (`h-full overflow-y-auto` around the content): the shell's `<main>` is `overflow-hidden`.
-21. A new admin page needs a route in `admin/src/main.jsx`, a `ROUTE_CATALOG` entry (`api/src/routes/nav.js`), a place in `DEFAULT_NAV_TREE` plus a migration that adds the link to existing menus, and `NAV_KEYWORDS` + `NAV_DESCRIPTIONS` (`shared/navSearch.js`). Its address must not start with a path nginx hands to the API (`/api/`, `/ws`, `/webhooks/`, `/manage`, `/reservations`, `/widget-api`, `/order-api`, `/uploads/`, `/template-assets/`).
+21. A new admin page needs its route in `admin/src/routes/<area>.jsx` (`{ path, shell, element }`), its record in `shared/nav/<area>.js` (path, label, icon, module, section, order, catalogOrder, keywords, description; `shared/nav/index.js` builds `ROUTE_CATALOG`, `DEFAULT_NAV_TREE`, `NAV_KEYWORDS` and `NAV_DESCRIPTIONS` from them, and an area's first nav file is added to its import list), and a migration that adds the link to existing menus. Its address must not start with a path nginx hands to the API (`/api/`, `/ws`, `/webhooks/`, `/manage`, `/reservations`, `/widget-api`, `/order-api`, `/uploads/`, `/template-assets/`).
 22. TanStack Query v5: `useQuery` has no `onSuccess`, callbacks take the query, and a resolved `null` is not `undefined`. Declare every hook before any early return.
-23. In JSX text `{...}` and `${...}` are code: put code samples in a string expression. In Help.jsx an `<H3>` is plain text (Pepper links to its anchor). Check that a docs page renders, not only that it builds.
+23. In JSX text `{...}` and `${...}` are code: put code samples in a string expression. In a Help section file an `<H3>` is plain text (Pepper links to its anchor). Check that a docs page renders, not only that it builds.
 24. The admin's main bundle must stay under the service worker's 6 MiB precache limit, or the deploy's build fails. Run `npx vite build` in `admin/` after adding a big page or a lot of text, and load heavy pages with `React.lazy`.
 25. Typographic quotes used as string delimiters, and invisible characters (a byte order mark, a no-break space), break builds and templates. Check edited files for them; write an invisible character as its escape.
 
@@ -310,10 +311,16 @@ The detail and the reasons are in the area files. These are the ones that bite i
 
 **Tests**
 
-27. `npm test` in `api/` empties the database it runs against: `DATABASE_URL` must name a database with `test` in it, owned by a role that is not a superuser, and migrated first (`node scripts/migrate.js`).
+27. `npm test` in `api/` empties the database it runs against: `DATABASE_URL` must name a database with `test` in it, owned by a role that is not a superuser, and migrated first (`node scripts/migrate.js`). On a computer other runs share, use one of your own: `eval "$(scripts/test-env.sh <name>)"` makes and migrates `macaroonie_test_<name>` and sets its own Redis database, queue prefix and folders.
 28. A new table, or a route that takes ids, gets a row made through the API in `api/test/support/fixtures.mjs`, so the cross-tenant sweep covers it.
 
 ---
+
+**Working in parallel** (`docs/PARALLEL_WORK.md`)
+
+29. One area per task: read its notes, change files in its paths (`areas.json`), and add its Help, Docs, changelog, notes and outstanding entries in the area's own files. Lists that every area used to edit are gathered from per-area files (Help and Docs sections, routes, menu records, route registration, jobs, Pepper's tools, report subjects and decisions, test fixtures): add to your area's file, never to a central list.
+30. A branch per task from the latest `main`; merge `main` in before opening the pull request. A change to a shared file (`shared/` rules another area owns, `api/src/config/`, `api/src/app.js`, `admin/src/main.jsx`, `CLAUDE.md`, `areas.json`) is named in the pull request's title, and a change another area needs goes first as its own small pull request.
+31. An import into another area's private files fails CI (`node scripts/check-areas.mjs imports`): call a file the area lists as `public` in `areas.json`, or move the code to `shared/`. A new file in a folder no area claims is listed by `node scripts/check-areas.mjs`: add it to its area. Files gathered with a top-level await (`tools/index.js`, `catalogue/index.js`, `jobs/queues.js`, `app.js`) must never be imported back from the files they gather: the start hangs.
 
 ## Environment variables
 
@@ -367,6 +374,6 @@ Tests:
 - **Split an area file that passes about 120 KB** (`till.md` and `reports.md` are the nearest).
 - Don't duplicate what the code already says (table schemas, route lists). Reference it.
 - No credentials, tokens or secret values: only their names and where they live.
-- No time-sensitive status in this file: that is what `docs/claude/OUTSTANDING.md` is for.
+- No time-sensitive status in this file: that is what `docs/claude/outstanding/` is for.
 - Never write an at-sign path import in this file: Claude Code would load the named file into every session.
-- Companion files: `CHANGE.md` (the changelog, prepended on every deploy) and `docs/<MODULE>.md` (design deep dives).
+- Companion files: `changes/` (the changelog, one file per change; `CHANGE.md` before 22 Nov 2026) and `docs/<MODULE>.md` (design deep dives).
