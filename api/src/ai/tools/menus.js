@@ -45,7 +45,7 @@
 // No one-off options are made: the Menus page no longer keeps them.
 
 import { z } from 'zod'
-import { itemType, needsAllergens } from '../../../../shared/catalogue.js'
+import { itemType, needsAllergens, cleanItemType, menuWord } from '../../../../shared/catalogue.js'
 import { randomUUID } from 'node:crypto'
 import { withTenant } from '../../config/db.js'
 import { ToolError, callApi, audit, requireStaffPermission, staffPermissionLevel, levelAtLeast } from '../context.js'
@@ -693,6 +693,8 @@ export const menuTools = [
       return {
         menus: menus.map(m => ({
           menu_id: m.id, name: m.name, venue: m.venue_name || 'all venues',
+          // What it sells and what to call it (migrations 267, 269): a shop's list is a Catalogue.
+          sells: cleanItemType(m.item_type) || 'food', called: menuWord(m.item_type),
           shown_to_guests: !!m.is_published, publish: publishText(m.publish, tz),
           sections: byId.get(m.id)?.sections ?? 0, dishes: byId.get(m.id)?.dishes ?? 0,
           ...(m.tagline ? { tagline: m.tagline } : {}), ...(m.service_times ? { service_times: m.service_times } : {}),

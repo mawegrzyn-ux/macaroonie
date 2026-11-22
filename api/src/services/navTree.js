@@ -14,6 +14,8 @@
 //                                              and what each page is for
 
 import { withTenant } from '../config/db.js'
+import { groupWordFor } from './menuReleases.js'
+import { renameMenusLinks } from '../../../shared/catalogue.js'
 import { MODULE_KEYS } from '../config/modules.js'
 import { permissionLevels } from '../middleware/auth.js'
 import { effectiveRoleId } from './roles.js'
@@ -60,7 +62,8 @@ export function pruneNavTree(nodes, permissions, effectiveRoleId, isPlatformAdmi
 export async function navTreeFor(req) {
   if (!req.tenantId) return []
   const isPlatformAdmin = !!req.isPlatformAdmin
-  const { items, off } = await withTenant(req.tenantId, async tx => ({
+  const { items, off, words } = await withTenant(req.tenantId, async tx => ({
+    words: await groupWordFor(tx, req.tenantId),
     items: await tx`SELECT * FROM nav_items WHERE tenant_id = ${req.tenantId} AND is_active = true`,
     off: new Set((await tx`
       SELECT module_key FROM tenant_modules WHERE tenant_id = ${req.tenantId} AND NOT is_enabled
@@ -72,7 +75,7 @@ export async function navTreeFor(req) {
   const permissions = {}
   for (const k of MODULE_KEYS) permissions[k] = off.has(k) ? 'none' : levels[k]
   const roleId = isPlatformAdmin ? null : await effectiveRoleId(req)
-  return pruneNavTree(buildNavTree(items), permissions, roleId, isPlatformAdmin)
+  return renameMenusLinks(pruneNavTree(buildNavTree(items), permissions, roleId, isPlatformAdmin), words.word)
 }
 
 /**

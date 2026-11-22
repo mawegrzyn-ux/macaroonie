@@ -175,3 +175,28 @@ test('codes: saved, checked, kept and published', async () => {
   assert.equal(live.sections[0].items[0].barcode, '5000112637922')
 
 })
+
+// Step 5 (migration 269): what the group calls its menus.
+test('the group\'s word: from the menus\' types, or the setting; the main menu follows', async () => {
+  const navLabels = async () => {
+    const me = await ok(owner.get('/api/me'))
+    const out = []
+    const walk = list => { for (const n of list || []) { if (n.route === '/menus' || (n.kind === 'section' && /menus|catalogues/i.test(n.label))) out.push(n.label); walk(n.children) } }
+    walk(me.nav_tree)
+    return out
+  }
+  // This tenant now has food and retail menus.
+  const auto = await ok(owner.get('/api/menus/word'))
+  assert.deepEqual([auto.word, auto.setting], ['Menus & catalogues', null])
+  const before = await navLabels()
+  assert.ok(before.length, 'the standard menu has the Menus link')
+  assert.ok(before.every(l => l === 'Menus & catalogues'), JSON.stringify(before))
+  // Fixed by the group; anything else is refused.
+  assert.equal((await ok(owner.put('/api/menus/word', { setting: 'catalogues' }))).word, 'Catalogues')
+  assert.ok((await navLabels()).every(l => l === 'Catalogues'))
+  assert.equal((await owner.put('/api/menus/word', { setting: 'shops' })).status, 400)
+  assert.equal((await ok(owner.put('/api/menus/word', { setting: null }))).word, 'Menus & catalogues')
+  // The menu list carries each menu's type (Pepper's list_menus says Menu or Catalogue from it).
+  const list = await ok(owner.get('/api/menus'))
+  assert.ok(list.some(m => m.item_type === 'goods'))
+})

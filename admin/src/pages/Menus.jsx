@@ -51,7 +51,7 @@ import { ComboBox, comboPayload } from '@/components/menus/ComboEditor'
 import { PublishButton, PublishBadges, useOpenPreview } from '@/components/menus/MenuPublish'
 import { TaxBox, useTaxLookups, taxSettingProblems } from '@/components/menus/TaxBox'
 import { ItemTypePicker, ItemTypeBadge } from '@/components/menus/ItemTypePicker'
-import { itemType, cleanItemType, needsAllergens, typeSwitches, codeProblems, cleanSku, cleanBarcode, barcodeProblem } from '@shared/catalogue.js'
+import { itemType, cleanItemType, needsAllergens, typeSwitches, codeProblems, cleanSku, cleanBarcode, barcodeProblem, menuWord, groupWord } from '@shared/catalogue.js'
 import { MenuImportModal } from '@/components/menus/MenuImport'
 import { normTax, cleanTax } from '@shared/tax.js'
 import { moveDealGroup } from '@shared/combos.js'
@@ -103,6 +103,16 @@ function MenuList({ onEdit }) {
     queryKey: ['venues'],
     queryFn:  () => api.get('/venues'),
   })
+  // What the group calls its menus (migration 269): its setting, else from the menus' types.
+  const { data: words } = useQuery({
+    queryKey: ['menus', 'word'],
+    queryFn:  () => api.get('/menus/word'),
+  })
+  const word = words?.word || groupWord(menus.map(m => m.item_type))
+  const saveWord = useMutation({
+    mutationFn: (setting) => api.put('/menus/word', { setting }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['menus', 'word'] }); qc.invalidateQueries({ queryKey: ['me'] }) },
+  })
   const openPreview = useOpenPreview()
   const [deleting, setDeleting] = useState(null)
 
@@ -130,7 +140,7 @@ function MenuList({ onEdit }) {
     <div className="p-6 max-w-5xl mx-auto space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Menus</h1>
+          <h1 className="text-xl font-semibold" data-testid="menus-word">{word}</h1>
           <p className="text-sm text-muted-foreground">
             Structured menus — sections, dishes, variants, allergens. Render on the website inline or print as PDF.
           </p>
@@ -159,8 +169,21 @@ function MenuList({ onEdit }) {
         </div>
       </Card>}
 
-      <Card title="Your menus"
-        description={`${menus.length} menu${menus.length === 1 ? '' : 's'} on this tenant.`}>
+      <Card title={'Your ' + word.toLowerCase()}
+        description={`${menus.length} on this tenant.`}
+        action={canManage ? (
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            Call them
+            <select value={words?.setting || ''} disabled={saveWord.isPending} data-testid="menus-word-setting"
+              onChange={e => saveWord.mutate(e.target.value || null)}
+              className="min-h-[44px] rounded-md border bg-background px-2 text-sm text-foreground touch-manipulation">
+              <option value="">{'By what they sell (' + groupWord(menus.map(m => m.item_type)) + ')'}</option>
+              <option value="menus">Menus</option>
+              <option value="catalogues">Catalogues</option>
+              <option value="menus_and_catalogues">Menus &amp; catalogues</option>
+            </select>
+          </label>
+        ) : null}>
         {isLoading ? (
           <div className="flex items-center justify-center py-8 text-muted-foreground">
             <Loader2 className="w-5 h-5 animate-spin" />
@@ -187,7 +210,9 @@ function MenuList({ onEdit }) {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <BookOpen className="w-4 h-4 text-primary shrink-0" />
-                      <p className="text-sm font-medium truncate">{m.name}</p>
+                      <p className="text-sm font-medium truncate">{m.name}
+                        {!needsAllergens(m.item_type) && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 align-middle">{menuWord(m.item_type)}</span>}
+                      </p>
                       <PublishBadges menu={m} />
                       {m.print_design_id && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">DESIGNED PRINT</span>}
                     </div>
@@ -644,7 +669,7 @@ function MenuEditor({ id, onBack, openSection = null, openDish = null, onLinkDon
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-x-1 sm:gap-x-2 gap-y-1 ml-auto">
-          {canManage && <button onClick={() => setDetailsOpen(true)} aria-label="Settings" title="Menu settings"
+          {canManage && <button onClick={() => setDetailsOpen(true)} aria-label="Settings" title={menuWord(draft.item_type) + " settings"}
             className={TOP_BTN + ' text-muted-foreground hover:text-foreground'}>
             <SettingsIcon className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Settings</span>
           </button>}

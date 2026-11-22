@@ -25,6 +25,14 @@
 //                              bad barcodes, and a code used twice in one menu
 //   codeIndex(items)           code (barcode, or product code in lower case)
 //                              -> { item_id, option_id, group_id }, for a scan
+//   menuWord(type)             'Menu' for a food menu, 'Catalogue' otherwise (step 5)
+//   groupWord(types, setting)  what the group calls them all: the setting
+//                              (tenants.catalogue_word, migration 269), else
+//                              Menus / Catalogues / Menus & catalogues from
+//                              the menus' own types
+//   renameMenusLinks(tree, word)   the main menu with the Menus link and
+//                              section saying the group's word, where they
+//                              still have the standard label
 //
 // A combo's type is its own (a meal deal of food is food; a gift bundle is
 // goods). Nothing is deleted when a type changes: hidden fields keep their
@@ -152,5 +160,31 @@ export function findByCode(index, code) {
   const c = String(code || '').trim()
   if (!c) return null
   return index.get(c.replace(/\s+/g, '')) || index.get(c.toLowerCase()) || null
+}
+
+// ── Words (migration 269, step 5) ────────────────────────────
+
+export const WORD_SETTINGS = ['menus', 'catalogues', 'menus_and_catalogues']
+const WORDS = { menus: 'Menus', catalogues: 'Catalogues', menus_and_catalogues: 'Menus & catalogues' }
+
+export const menuWord = type => (needsAllergens(type) ? 'Menu' : 'Catalogue')
+
+export function groupWord(types = [], setting = null) {
+  if (WORDS[setting]) return WORDS[setting]
+  const list = (types || []).map(t => cleanItemType(t) || 'food')
+  if (!list.length || list.every(t => t === 'food')) return WORDS.menus
+  if (list.every(t => t !== 'food')) return WORDS.catalogues
+  return WORDS.menus_and_catalogues
+}
+
+/** A label someone renamed in the Navigation designer is theirs: only 'Menus' changes. */
+export function renameMenusLinks(tree, word) {
+  if (!word || word === 'Menus') return tree
+  const walk = list => (list || []).map(n => ({
+    ...n,
+    ...(n.label === 'Menus' && (n.kind === 'section' || n.route === '/menus') ? { label: word } : {}),
+    ...(n.children ? { children: walk(n.children) } : {}),
+  }))
+  return walk(tree)
 }
 
