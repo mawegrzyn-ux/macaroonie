@@ -14,6 +14,10 @@
 //   GET    /api/platform/weather-key  — whether an Open-Meteo key is saved (its last four), 22 Nov 2026
 //   PUT    /api/platform/weather-key  — { api_key } checked with Open-Meteo, then saved sealed
 //   DELETE /api/platform/weather-key  — back to Open-Meteo's free (non-commercial) API
+//   GET    /api/platform/status       — whether the platform is up, in full (platform admin):
+//                                       database, Redis, processes, jobs, machine (services/platformStatus.js)
+//   GET    /api/status/light          — { state: up | degraded | down, checked_at }: the one
+//                                       light on a venue's Tech board (anyone signed in)
 
 import { z } from 'zod'
 import { sql, withTenant, systemSql } from '../config/db.js'
@@ -35,6 +39,7 @@ import { seedPosDefaults } from '../services/posSvc.js'
 import { seedInventoryCategories } from '../services/purchasingSvc.js'
 import { BRAND_DEFAULTS, themeColours } from '../services/themeColours.js'
 import { weatherKeyInfo, checkWeatherKey, saveWeatherKey, removeWeatherKey } from '../services/weatherKey.js'
+import { platformStatus, lightStatus } from '../services/platformStatus.js'
 
 const TenantBody = z.object({
   name:              z.string().min(1).max(200),
@@ -416,6 +421,10 @@ export default async function platformRoutes(app) {
     if (!row) throw httpError(404, 'Not found')
     return { ok: true }
   })
+
+  // ── Whether the platform is up ────────────────────────────────
+  app.get('/platform/status', { preHandler: [requireAuth, requirePlatformAdmin] }, async () => platformStatus())
+  app.get('/status/light', { preHandler: requireAuth }, async () => lightStatus())
 
   // ── Open-Meteo key (the weather captures' paid plan) ─────────
   app.get('/platform/weather-key', { preHandler: [requireAuth, requirePlatformAdmin] }, async () => weatherKeyInfo())

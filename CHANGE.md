@@ -6,6 +6,11 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-22 — The Tech board, and platform status]
+
+- **Store tech → Tech board**: a venue's kit on one page (venue hub, tills, kitchen screens, kiosks, printers, card machines, menu screens), each with a light, whether it is online, the last thing it did and a link to its page, plus a box of what needs looking at and a light for Macaroonie itself. It checks again every minute. Migration 263 adds the link to Store tech.
+- Platform admins get **Platform status** on the Platform page's Services tab: the database, Redis, each API process, when each background job last ran (late ones marked), the queues, the machine's disk, memory and load, and the deployed version.
+
 ## [2026-11-22 — Small fixes: SMTP email, on-page confirms, deleting a test customer, an Open-Meteo key]
 
 - SMTP email works: the package it needs is installed, and with the secure setting left empty the port decides (TLS from the start on 465, an upgrade on 587).

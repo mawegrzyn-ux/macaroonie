@@ -130,6 +130,7 @@ export const DEFAULT_NAV_TREE = [
   {
     // Migration 202 holds this section as JSON (the nav test checks they match).
     label: 'Store tech', children: [
+      { label: 'Tech board', icon: 'Activity', route: '/pos/board', module: 'pos_setup' },
       { label: 'Tills', icon: 'MonitorSmartphone', route: '/pos/tills', module: 'pos_setup' },
       { label: 'Till layouts', icon: 'PanelsTopLeft', route: '/pos/layouts', module: 'pos_setup' },
       { label: 'Floor plan', icon: 'LayoutPanelTop', route: '/pos/floor', module: 'pos_setup' },

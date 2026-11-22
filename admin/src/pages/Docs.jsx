@@ -4055,6 +4055,37 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               modules <Mono>pos_setup</Mono> and <Mono>pos_reports</Mono>, group <Mono>pos</Mono>). Shared
               server code: <Mono>services/posSvc.js</Mono>. Every query filters <Mono>tenant_id</Mono> itself.
             </P>
+            <H3>Tech board and platform status (22 Nov 2026, migration 263)</H3>
+            <P>
+              Store tech → Tech board (<Mono>/pos/board</Mono>, <Mono>TechBoardSection.jsx</Mono>, the first tab, menu
+              link added by migration 263 before Tills): <Mono>GET /api/tech-board/venues/:venueId</Mono>{' '}
+              (<Mono>routes/techBoard.js</Mono>; <Mono>requireOwnVenue</Mono> and Store tech or Screens view) returns the
+              venue&apos;s devices as Store tech shows them (<Mono>deviceView()</Mono>, removed ones left out) with{' '}
+              <Mono>last_action</Mono> (a till&apos;s or kitchen screen&apos;s newest event among the venue&apos;s last 5,000 by{' '}
+              <Mono>seq</Mono>, a kiosk&apos;s last <Mono>kiosk_sessions</Mono> visit, a hub&apos;s <Mono>info_at</Mono> and{' '}
+              <Mono>info.mirror.last_upload_at</Mono>), the printers with the last day&apos;s waiting and failed tickets and
+              the last ticket, the card machines with their last payment (30 days; they report no live state) and,
+              with Screens view, the menu screens. When kit counts as online is <Mono>shared/techBoard.js</Mono>{' '}
+              (<Mono>DEVICE_ONLINE_MS</Mono> 5 min, <Mono>SCREEN_ONLINE_MS</Mono> 150 s, <Mono>seenState()</Mono>,{' '}
+              <Mono>deviceOnline()</Mono>, <Mono>boardSummary()</Mono>), now also used by the installer, the Screens
+              routes and the Printers section; a printer reads as on the Printers page (<Mono>printerState()</Mono>),
+              with failed tickets today making it need looking at. A Store tech tab with <Mono>readOnly</Mono> skips
+              the View-only notice and greyed fieldset. The light at the top is <Mono>GET /api/status/light</Mono>.
+            </P>
+            <P>
+              Platform status (<Mono>services/platformStatus.js</Mono>): each API process writes a heartbeat to Redis
+              every 30 s (<Mono>mac:status:proc:host:pid</Mono>, gone after 90 s, <Mono>startProcessBeat()</Mono> in{' '}
+              <Mono>server.js</Mono>) and each BullMQ worker its last finish and failure (<Mono>watchWorker()</Mono>,{' '}
+              <Mono>mac:status:job:name:done|failed</Mono>). <Mono>GET /api/platform/status</Mono> (platform admin; the
+              Platform page&apos;s Services tab, <Mono>PlatformStatusCard</Mono>, every 30 s): Postgres (SELECT, size,
+              connections), Redis (PING, memory), the processes, the ten jobs (interval, last ran, late after three
+              intervals and a minute, queue counts, last error), the machine (disk, memory, load) and the deployed
+              commit (read from <Mono>.git</Mono>). <Mono>stateOf()</Mono>: down without the database; degraded without
+              Redis, with a late repeating job or a disk over 90% full. <Mono>GET /api/status/light</Mono> (anyone
+              signed in) gives only <Mono>{'{ state, checked_at }'}</Mono>, kept in Redis for 20 s. Not checked: nginx and
+              its certificates, the outside services (Anthropic, Stripe, email providers), the venue hubs&apos; own
+              health beyond their reports.
+            </P>
             <H3>Checks are events</H3>
             <P>
               A check is never edited in place. The till records events (<Mono>{'{ id: ULID, venue_id, device_id, staff_id, approved_by, check_id, type, payload, client_at }'}</Mono>,

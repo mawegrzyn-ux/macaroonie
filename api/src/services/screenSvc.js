@@ -28,6 +28,7 @@ import { boardMenuIds, BLOCK_DEFAULTS } from '../../../shared/screenLayout.js'
 import { menuTags } from '../../../shared/menuTags.js'
 import { statusOf } from '../../../shared/pos/kitchen.js'
 import { pullTimes } from '../../../shared/pos/pullTimes.js'
+import { SCREEN_ONLINE_MS } from '../../../shared/techBoard.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 export const PLAYER_DIR = path.resolve(__dirname, '..', '..', '..', 'screen')
@@ -248,7 +249,7 @@ function orderStatuses(rows) {
 // (screen/player.js in live mode) in a frame each, its data by the view's
 // signed link (routes/screenApi.js /live/*), never a screen's pairing.
 
-const ONLINE_MS = 150_000   // as the Screens page says Online
+const ONLINE_MS = SCREEN_ONLINE_MS   // as the Screens page says Online (shared/techBoard.js)
 
 const designHasOrders = d => (d?.layout?.blocks || []).some(b => b?.type === 'order_status')
 

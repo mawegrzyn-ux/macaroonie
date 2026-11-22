@@ -17,6 +17,7 @@ import { startReviewScrapeWorker }           from './jobs/reviewScrapeWorker.js'
 import { startPublishWorker }                from './jobs/publishWorker.js'
 import jwksClient                            from 'jwks-rsa'
 import { checkVault, sealStoredSecrets }     from './services/vault.js'
+import { startProcessBeat, watchWorker }     from './services/platformStatus.js'
 
 // Stored integration keys are sealed with SECRETS_KEY (migration 179): in
 // production the API doesn't start without a valid one.
@@ -51,10 +52,16 @@ const infoWorker    = startLocalInfoWorker(app.log)
 const reportWorker  = startReportScheduleWorker(app.log)
 const fillWorker    = startCashAutoFillWorker(app.log)
 const noticeWorker  = startTaskNoticeWorker(app, app.log)
+// When each background job last finished or failed, for the Platform page's Status.
+for (const [name, w] of [['notifications', notifWorker], ['hold-sweep', sweepWorker], ['review-scrape', reviewWorker],
+  ['website-publish', publishWorker], ['gloriafood-poll', gfWorker], ['ai-cleanup', aiWorker], ['local-info', infoWorker],
+  ['report-schedules', reportWorker], ['cash-autofill', fillWorker], ['task-notices', noticeWorker]]) watchWorker(name, w)
+let stopBeat = null
 
 // ── Graceful shutdown ────────────────────────────────────────
 const shutdown = async (signal) => {
   app.log.info({ signal }, 'Shutting down')
+  stopBeat?.()
   await app.close()
   await notifWorker.close()
   await sweepWorker.close()
@@ -78,6 +85,7 @@ process.on('SIGINT',  () => shutdown('SIGINT'))
 try {
   await app.listen({ port: env.PORT, host: '0.0.0.0' })
   app.log.info(`API listening on :${env.PORT}`)
+  stopBeat = startProcessBeat(app.log)
 
   // Attach WS server to the same HTTP server
   attachWss(app.server, verifyWsToken)

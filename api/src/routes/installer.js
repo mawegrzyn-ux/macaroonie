@@ -27,11 +27,11 @@ import { deviceOrigin, screensOrigin } from '../services/platformHost.js'
 import { findLinkCode } from '../services/linkCodes.js'
 import { loadScreens } from './screens.js'
 import { BUMP_KINDS } from '../../../shared/pos/kitchen.js'
+import { DEVICE_ONLINE_MS } from '../../../shared/techBoard.js'
 
 const UUID = z.string().uuid()
-// A till or kitchen screen counts as online when it called the API this
-// recently (it says so at most once a minute).
-const DEVICE_ONLINE_MS = 5 * 60_000
+// A till or kitchen screen counts as online when it called the API within
+// DEVICE_ONLINE_MS (shared/techBoard.js: it says so at most once a minute).
 
 
 function deviceView(d) {

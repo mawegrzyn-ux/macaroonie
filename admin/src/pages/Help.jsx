@@ -7026,6 +7026,18 @@ export default function Help() {
               section of the main menu, one page per part. Pick the venue at the top of a page when you have
               more than one; order types, courses, till roles and designs are shared by every venue.
             </P>
+            <H3>The Tech board</H3>
+            <P>
+              Store tech → <strong>Tech board</strong> shows a venue&apos;s kit on one page: the venue hub, tills,
+              kitchen screens, kiosks, printers, card machines and menu screens. Each has a light (green working,
+              amber or red needs looking at, grey nothing to judge yet), whether it is online, the last thing it
+              did (a till&apos;s last activity, a kiosk&apos;s last order, a printer&apos;s last ticket, a card
+              machine&apos;s last payment) and <strong>Open</strong> to its own page. A box at the top lists what
+              needs someone, worst first. Above that, one light says whether Macaroonie itself is up. The board
+              checks again every minute, or press <strong>Check now</strong>. A till or kiosk counts as online when
+              it was heard from in the last five minutes, a menu screen in the last two and a half. Card machines
+              don&apos;t say whether they&apos;re on, so their last payment is shown instead.
+            </P>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li><strong>Order types</strong> (shared by every venue): Eat in, Take out, Delivery, Collection and any you add. They decide how a check is served, can change a dish's tax and show on tickets and kitchen screens.</li>
               <li><strong>Discounts</strong> (shared by every venue): the discounts the till offers by name, e.g. Staff meal 50% or NHS 10%, and whether each needs a manager every time (see Charges and discounts below).</li>

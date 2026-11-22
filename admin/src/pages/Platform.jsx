@@ -18,6 +18,7 @@ import WalletCard from '@/components/platform/WalletCard'
 import AndroidAppCard from '@/components/platform/AndroidAppCard'
 import StripeKeysCard from '@/components/platform/StripeKeysCard'
 import WeatherKeyCard from '@/components/platform/WeatherKeyCard'
+import PlatformStatusCard from '@/components/platform/PlatformStatusCard'
 
 const PLAN_COLOURS = {
   starter:    'bg-gray-100 text-gray-600',
@@ -98,7 +99,7 @@ export default function Platform() {
           {tab === 'wallet' && <WalletCard />}
           {tab === 'payments' && <StripeKeysCard />}
           {tab === 'android' && <AndroidAppCard />}
-          {tab === 'services' && <WeatherKeyCard />}
+          {tab === 'services' && <><PlatformStatusCard /><WeatherKeyCard /></>}
 
           {tab === 'tenants' && <>
           {/* Stats overview */}
