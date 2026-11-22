@@ -13,6 +13,11 @@
 //   typeSwitches(type)         what the type turns on (TYPE_SWITCHES)
 //   needsAllergens(type)       allergens, diet tags and calories apply
 //   showsInKitchen(type)       goes to kitchen screens and tickets by default
+//   resolveItemTypes(menu)     what guests and devices read (step 2): every
+//       item's item_type set to its resolved type, and an item that isn't
+//       food served with no allergens, diet tags or calories (the draft keeps
+//       them). Mutates and returns the menu: call it on a copy.
+//   isFoodItem(item)           an item from a resolved menu is food
 //
 // A combo's type is its own (a meal deal of food is food; a gift bundle is
 // goods). Nothing is deleted when a type changes: hidden fields keep their
@@ -41,3 +46,21 @@ export function itemType(item, section, menu) {
 export const typeSwitches = type => TYPE_SWITCHES[cleanItemType(type) || 'food']
 export const needsAllergens = type => typeSwitches(type).allergens
 export const showsInKitchen = type => typeSwitches(type).kitchen
+
+export function resolveItemTypes(menu) {
+  if (!menu) return menu
+  for (const section of menu.sections || []) {
+    for (const item of section.items || []) {
+      item.item_type = itemType(item, section, menu)
+      if (!needsAllergens(item.item_type)) {
+        item.dietary = []
+        item.allergen_levels = {}
+        item.calories = null
+      }
+    }
+  }
+  return menu
+}
+
+export const isFoodItem = item => needsAllergens(itemType(item))
+

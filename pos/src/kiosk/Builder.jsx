@@ -22,6 +22,7 @@ import { resolveSteps, askedChoices } from '@shared/combos.js'
 import { fromPrice, priceVaries } from '@shared/orderPricing.js'
 import { configItem, dealItem, comboCtx, fillDealPicks } from '@shared/pos/offers.js'
 import { TK, allergenName, pickImages, bundleParts } from '@shared/kiosk.js'
+import { needsAllergens } from '@shared/catalogue.js'
 import { useKiosk, textsFor, addToBasket, closeBuilder, soldOut, itemLevels, dishLevels, mergeLevels, fitOf } from './store.js'
 import OptionGroup, { missingIn, groupName } from './OptionGroup.jsx'
 import { DISPLAYS, choiceLook } from './displays.jsx'
@@ -67,7 +68,7 @@ export function AllergenLine({ item = null, levels = null, config, texts, classN
     <div className={cx('flex gap-[.4em] items-start text-[.85em]', className)} data-testid="k-allergens">
       {hit ? <span className="k-fit-mark k-fit-mark-sm shrink-0" aria-hidden="true"><AlertCircle strokeWidth={2.6} /></span> : <Info size={18} className="shrink-0 mt-[.1em]" />}
       <span>
-        {!parts.length && ui('no_allergens')}
+        {!parts.length && needsAllergens(item?.item_type) && ui('no_allergens')}
         {parts.length > 0 && combo && ui('depends_on_choice') + '. '}
         {parts.map(([key, list], i) => (
           <span key={key}>

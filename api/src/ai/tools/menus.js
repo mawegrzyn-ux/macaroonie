@@ -45,6 +45,7 @@
 // No one-off options are made: the Menus page no longer keeps them.
 
 import { z } from 'zod'
+import { itemType, needsAllergens } from '../../../../shared/catalogue.js'
 import { randomUUID } from 'node:crypto'
 import { withTenant } from '../../config/db.js'
 import { ToolError, callApi, audit, requireStaffPermission, staffPermissionLevel, levelAtLeast } from '../context.js'
@@ -824,6 +825,8 @@ export const menuTools = [
           for (const it of s.items || []) {
             const hay = norm(it.name + ' ' + (it.native_name || '') + ' ' + (it.description || ''))
             if (words.length && !words.every(w => hay.includes(w))) continue
+            // Retail goods and services aren't food: never an answer to an allergen question.
+            if ((has.length || free.length) && !needsAllergens(itemType(it, s, full))) continue
             const codes = it.dietary || []
             if (!has.every(t => codes.includes(t.code))) continue
             let ask = []

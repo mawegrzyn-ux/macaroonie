@@ -30,3 +30,27 @@ test('allergens and kitchen screens are for food only', () => {
   assert.equal(typeSwitches('goods').codes, 'yes')
   assert.equal(typeSwitches('service').duration, true)
 })
+
+test('what guests are served: each item resolved, non-food without allergen data', async () => {
+  const { resolveItemTypes, isFoodItem } = await import('../catalogue.js')
+  const menu = {
+    item_type: 'goods',
+    sections: [
+      { item_type: null, items: [
+        { name: 'Mug', dietary: ['gluten'], allergen_levels: { gluten: 'contains' }, calories: 5 },
+        { name: 'Brownie', item_type: 'food', dietary: ['milk'], allergen_levels: {}, calories: 300 },
+      ] },
+      { item_type: 'service', items: [{ name: 'Class', dietary: [], calories: null }] },
+    ],
+  }
+  resolveItemTypes(menu)
+  const [mug, brownie] = menu.sections[0].items
+  assert.equal(mug.item_type, 'goods')
+  assert.deepEqual([mug.dietary, mug.allergen_levels, mug.calories], [[], {}, null])
+  assert.equal(brownie.item_type, 'food')
+  assert.deepEqual([brownie.dietary, brownie.calories], [['milk'], 300])
+  assert.equal(menu.sections[1].items[0].item_type, 'service')
+  assert.equal(isFoodItem(brownie), true)
+  assert.equal(isFoodItem(mug), false)
+  assert.equal(resolveItemTypes(null), null)
+})

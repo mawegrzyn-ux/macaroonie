@@ -278,6 +278,7 @@ export async function tillMenuData(tx, tenantId, venueId, streams, { guest = fal
         variants: it.variants || [], variant_groups: it.variant_groups || [],
         combo: it.combo || null,
         dietary: it.dietary || [], allergen_levels: it.allergen_levels || {},
+        item_type: it.item_type || 'food',   // resolved by loadMenuVersions() (migration 267)
         description: it.description || null,
         variant_rules: rules,
         ...(guest ? { image_url: it.image_url || null, calories: it.calories ?? null, is_featured: !!it.is_featured }

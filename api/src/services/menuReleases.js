@@ -32,6 +32,7 @@ import { broadcast } from '../config/ws.js'
 import { tillsMayNeedConfig } from './posNotify.js'
 import { loadMenuFull, loadAllergenNotice } from '../routes/menus.js'
 import { releaseContent, contentKey, diffMenus, withShownGroupNames, withDraftTags } from '../../../shared/menuDiff.js'
+import { resolveItemTypes } from '../../../shared/catalogue.js'
 
 export const VERSIONS = ['live', 'draft']
 const MAX_AHEAD_DAYS = 400
@@ -152,7 +153,7 @@ export async function loadMenuVersions(tx, tenantId, { menuIds = null, venueId =
     menus = []
     for (const r of rows) {
       const full = withShownGroupNames(await loadMenuFull(tx, r.id, tenantId))
-      if (full) { full.version = 'draft'; menus.push(full) }
+      if (full) { full.version = 'draft'; menus.push(resolveItemTypes(full)) }
     }
   } else {
     const rows = await liveRows(tx, tenantId, menuIds)
@@ -161,8 +162,12 @@ export async function loadMenuVersions(tx, tenantId, { menuIds = null, venueId =
     const extras = await tenantExtras(tx, tenantId, rows.map(r => r.menu_id))
     menus = rows
       .filter(r => contents.get(r.id) && extras.byMenu.has(r.menu_id))
-      .map(r => withExtras(contents.get(r.id), extras, r))
+      .map(r => resolveItemTypes(withExtras(contents.get(r.id), extras, r)))
   }
+  // Every reader of several menus serves guests or devices: each item carries
+  // its resolved type, and one that isn't food has no allergen data (step 2,
+  // shared/catalogue.js). loadMenuVersion() (one menu) is left as stored: the
+  // publish diff and the admin's version views compare it with the draft.
   return menus
     .filter(m => !venueId || !m.venue_id || m.venue_id === venueId)
     .filter(m => !publishedOnly || m.is_published)
