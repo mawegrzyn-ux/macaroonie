@@ -83,9 +83,18 @@ jobs:
   # refuse any other). It belongs to a role that isn't a superuser, like
   # production's: superusers skip row-level security, and the tests check
   # it holds.
+  #
+  # Split into parallel jobs (docs/PARALLEL_WORK.md 4.4): four parts of the
+  # test files (node's --test-shard, by file) and the cross-tenant sweep, the
+  # slowest file, on its own. Each job has its own Postgres and Redis. The
+  # total work is the same; the answer comes back several times sooner.
   api-tests:
-    name: API tests (cross-tenant sweep, RLS, Pepper)
+    name: API tests (${{ matrix.part == 'sweep' && 'cross-tenant sweep' || format('part {0} of 4', matrix.part) }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        part: ['1', '2', '3', '4', 'sweep']
 
     services:
       postgres:
@@ -140,9 +149,18 @@ jobs:
         run: node scripts/migrate.js
 
       # The spec reporter lists every failing test with its error at the end.
-      - name: npm test
+      - name: Tests
         working-directory: api
-        run: npm test
+        run: |
+          if [ "${{ matrix.part }}" = sweep ]; then
+            files=test/tenant-sweep.test.mjs
+            shard=
+          else
+            files=$(ls test/*.test.mjs | grep -v '^test/tenant-sweep.test.mjs$')
+            shard="--test-shard=${{ matrix.part }}/4"
+          fi
+          node --import ./test/support/register.mjs --test --test-force-exit \
+            --test-concurrency=1 --test-reporter=spec $shard $files
 
   shared-tests:
     name: Shared unit tests
