@@ -31,7 +31,10 @@ export async function fill(ctx) {
       callouts: [{ kind: 'custom', title: mark + ' Ask us', body: mark + ' about spice' }],
       sections: [{ title: mark + ' Noodles', items: [
         { name: mark + ' Pad Thai', price_pence: 1250, is_orderable: true, description: mark + ' dish', dietary: [slug, 'gluten'], allergen_levels: { gluten: 'may_contain' },
-          variant_groups: vg ? [{ group_id: vg.id, overrides: large ? [{ option_id: large.id, price_pence: 250 }] : [] }] : [] },
+          variant_groups: vg ? [{ group_id: vg.id, overrides: large ? [{ option_id: large.id, price_pence: 250 }] : [] }] : [],
+          // Codes (migration 268): menu_item_option_codes gets a row.
+          sku: 'PAD-THAI', barcode: '5000112637922',
+          option_codes: large ? [{ option_id: large.id, sku: 'PAD-THAI-L', barcode: '96385074' }] : [] },
         { name: mark + ' Green Curry', price_pence: 1350, is_orderable: true, variants: [{ label: mark + ' Chicken', price_pence: 1350 }] },
       ] }],
     }))

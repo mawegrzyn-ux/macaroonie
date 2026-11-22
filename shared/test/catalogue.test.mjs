@@ -54,3 +54,30 @@ test('what guests are served: each item resolved, non-food without allergen data
   assert.equal(isFoodItem(mug), false)
   assert.equal(resolveItemTypes(null), null)
 })
+
+test('barcodes: GTIN-8, 12, 13 and 14 with a right check digit', async () => {
+  const { barcodeProblem } = await import('../catalogue.js')
+  for (const ok of ['5000112637922', '96385074', '036000291452', '10012345678902', '', null]) assert.equal(barcodeProblem(ok), null, String(ok))
+  assert.match(barcodeProblem('5000112637923'), /check digit/)
+  assert.match(barcodeProblem('12345'), /8, 12, 13 or 14/)
+  assert.match(barcodeProblem('50001126379AB'), /digits only/)
+})
+
+test('codes are unique in a menu; a scan finds the item, or the item with its option', async () => {
+  const { codeProblems, codeIndex, findByCode } = await import('../catalogue.js')
+  const SIZE = 'g1', S = 'o-s', L = 'o-l'
+  const shirt = {
+    id: 'i1', name: 'T-shirt', sku: 'TEE', barcode: '5000112637922',
+    variant_groups: [{ group_id: SIZE, options: [{ option_id: S, label: 'Small' }, { option_id: L, label: 'Large' }] }],
+    option_codes: [{ option_id: L, sku: 'TEE-L', barcode: '96385074' }],
+  }
+  const mug = { id: 'i2', name: 'Mug', sku: 'tee' }   // the same product code, another case
+  assert.deepEqual(codeProblems({ sections: [{ items: [shirt] }] }), [])
+  assert.match(codeProblems({ sections: [{ items: [shirt, mug] }] })[0], /product code tee is on T-shirt and Mug/i)
+  assert.match(codeProblems({ sections: [{ items: [{ ...mug, sku: null, barcode: '96385074' }, shirt] }] })[0], /barcode 96385074/)
+  const index = codeIndex([shirt])
+  assert.deepEqual(findByCode(index, '5000112637922'), { item_id: 'i1', option_id: null, group_id: null })
+  assert.deepEqual(findByCode(index, '96385074'), { item_id: 'i1', option_id: L, group_id: SIZE })
+  assert.deepEqual(findByCode(index, 'tee-l'), { item_id: 'i1', option_id: L, group_id: SIZE })
+  assert.equal(findByCode(index, '0000'), null)
+})

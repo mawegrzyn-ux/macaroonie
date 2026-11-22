@@ -22,7 +22,8 @@
   ".github/**",
   "docs/claude/OUTSTANDING.md",
   "docs/claude/backup/**",
-  "scripts/check-areas.mjs"
+  "scripts/check-areas.mjs",
+  "docs/claude/estimates.md"
  ],
  "areas": {
   "bookings": {
@@ -613,6 +614,7 @@
     "admin/src/components/menus/ComboEditor.jsx",
     "admin/src/components/menus/DeliverooParts.jsx",
     "admin/src/components/menus/DietaryTagsManager.jsx",
+    "admin/src/components/menus/ItemTypePicker.jsx",
     "admin/src/components/menus/MenuPublish.jsx",
     "admin/src/components/menus/VariantGroupsManager.jsx",
     "admin/src/pages/Allergens.jsx",
@@ -647,6 +649,7 @@
     "api/test/allergen-publish.test.mjs",
     "api/test/deal-options.test.mjs",
     "api/test/menu-delete.test.mjs",
+    "api/test/menu-item-types.test.mjs",
     "api/test/menu-order.test.mjs",
     "api/test/menu-times.test.mjs",
     "api/test/variant-group-copy.test.mjs",

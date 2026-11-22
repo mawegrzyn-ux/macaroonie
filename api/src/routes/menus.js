@@ -36,7 +36,7 @@ import {
 import { FONT_OPTIONS } from '../../../shared/fonts.js'
 import { ALLERGEN_LEVELS, allergenKey, menuTags, noticeOf } from '../../../shared/menuTags.js'
 import { cleanTax } from '../../../shared/tax.js'
-import { ITEM_TYPES, cleanItemType, itemType, resolveItemTypes, needsAllergens } from '../../../shared/catalogue.js'
+import { ITEM_TYPES, cleanItemType, itemType, resolveItemTypes, needsAllergens, cleanSku, cleanBarcode, codeProblems } from '../../../shared/catalogue.js'
 import { comboMenuPrice, variantOptionId } from '../../../shared/orderPricing.js'
 import { PICK_SCALE_MIN, PICK_SCALE_MAX, DEAL_USES, DEAL_PRICE_MAX, normaliseDealGroups } from '../../../shared/combos.js'
 import { taxLookups, checkTaxSetting } from '../services/taxSvc.js'
@@ -160,6 +160,15 @@ const ItemBody = z.object({
   tax:               TaxBody.default({}),   // migration 170
   // What the dish is (migration 267, shared/catalogue.js): null = its section's.
   item_type:         ItemType.nullable().optional(),
+  // Codes (migration 268): product code and barcode, the dish's own and its
+  // options' (shared/catalogue.js codeProblems() checks them on save).
+  sku:               z.string().max(40).nullable().optional(),
+  barcode:           z.string().max(20).nullable().optional(),
+  option_codes:      z.array(z.object({
+    option_id: z.string().uuid(),
+    sku:       z.string().max(40).nullable().optional(),
+    barcode:   z.string().max(20).nullable().optional(),
+  })).max(200).default([]),
   min_order_qty:     z.number().int().min(1).max(99).nullable().optional(),   // migration 133
   // Till (migration 156)
   kind:              z.enum(['dish', 'combo']).default('dish'),
@@ -403,6 +412,26 @@ async function childGroup(tx, tenantId, id, selfId) {
 
 // ── Loaders ──────────────────────────────────────────────────
 
+/**
+ * Each option's own product code and barcode on a dish (migration 268), as
+ * item.option_codes [{ option_id, sku, barcode }] by option id; left off a
+ * dish with none, so releases made before codes read the same.
+ */
+async function attachOptionCodes(tx, items) {
+  const ids = (items || []).map(i => i.id).filter(Boolean)
+  if (!ids.length) return items
+  const rows = await tx`
+    SELECT item_id, option_id, sku, barcode FROM menu_item_option_codes
+     WHERE item_id = ANY(${ids}::uuid[]) ORDER BY item_id, option_id`
+  const byItem = {}
+  for (const r of rows) (byItem[r.item_id] ||= []).push({ option_id: r.option_id, sku: r.sku, barcode: r.barcode })
+  for (const item of items) {
+    if (byItem[item.id]) item.option_codes = byItem[item.id]
+    else delete item.option_codes
+  }
+  return items
+}
+
 /** Attach resolved variant groups (with effective prices) onto item objects. */
 export async function attachVariantGroupsToItems(tx, items) {
   const ids = (items || []).map(i => i.id).filter(Boolean)
@@ -583,7 +612,7 @@ export async function loadMenuFull(tx, menuId, tenantId) {
                'description', i.description, 'price_pence', i.price_pence, 'calories', i.calories,
                'notes', i.notes, 'is_featured', i.is_featured, 'image_url', i.image_url,
                'sort_order', i.sort_order, 'is_orderable', i.is_orderable,
-               'tax', i.tax, 'item_type', i.item_type,
+               'tax', i.tax, 'item_type', i.item_type, 'sku', i.sku, 'barcode', i.barcode,
                'min_order_qty', i.min_order_qty,
                'kind', i.kind, 'kitchen_name', i.kitchen_name, 'pos_course_id', i.pos_course_id,
                'pos_colour', i.pos_colour, 'combo', i.combo,
@@ -631,6 +660,7 @@ export async function loadMenuFull(tx, menuId, tenantId) {
   }
 
   await attachVariantGroupsToItems(tx, sections.flatMap(s => s.items || []))
+  await attachOptionCodes(tx, sections.flatMap(s => s.items || []))
 
   const [{ count: design_count }] = await tx`
     SELECT count(*)::int AS count FROM menu_print_designs
@@ -865,7 +895,7 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
     for (const [ii, item] of (section.items || []).entries()) {
       const [it] = await tx`
         INSERT INTO menu_items (id, section_id, tenant_id, name, native_name, description, price_pence, calories, notes, is_featured, image_url, sort_order,
-                                is_orderable, tax, item_type, min_order_qty,
+                                is_orderable, tax, item_type, sku, barcode, min_order_qty,
                                 kind, kitchen_name, pos_course_id, pos_colour, combo)
         VALUES (${item.id ?? randomUUID()}, ${s.id}, ${tenantId}, ${item.name},
                 ${item.native_name ?? null}, ${item.description ?? null},
@@ -873,6 +903,7 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
                 ${item.is_featured ?? false}, ${item.image_url ?? null},
                 ${item.sort_order ?? ii},
                 ${item.is_orderable ?? true}, ${tx.json(cleanTax(item.tax))}, ${cleanItemType(item.item_type)},
+                ${cleanSku(item.sku)}, ${cleanBarcode(item.barcode)},
                 ${item.min_order_qty > 1 ? item.min_order_qty : null},
                 ${item.kind === 'combo' ? 'combo' : 'dish'}, ${item.kitchen_name || null}, ${item.pos_course_id ?? null},
                 ${item.pos_colour ?? null}, ${item.kind === 'combo' ? tx.json(item.combo || { mode: 'manual', steps: [] }) : null})
@@ -901,6 +932,16 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
             ON CONFLICT (item_id, option_id) DO UPDATE SET price_pence = EXCLUDED.price_pence
           `
         }
+      }
+      // An option's own codes (migration 268): only the tenant's options.
+      for (const oc of (item.option_codes || [])) {
+        const sku = cleanSku(oc?.sku), barcode = cleanBarcode(oc?.barcode)
+        if (!ownOptions.has(oc?.option_id) || (!sku && !barcode)) continue
+        await tx`
+          INSERT INTO menu_item_option_codes (item_id, option_id, tenant_id, sku, barcode)
+          VALUES (${it.id}, ${oc.option_id}, ${tenantId}, ${sku}, ${barcode})
+          ON CONFLICT (item_id, option_id) DO UPDATE SET sku = EXCLUDED.sku, barcode = EXCLUDED.barcode
+        `
       }
       // Dietary tag links; an allergen's level from allergen_levels
       for (const code of (item.dietary || [])) {
@@ -987,6 +1028,8 @@ export function menuSaveBody(full) {
         is_orderable: it.is_orderable !== false,
         tax: cleanTax(it.tax),
         item_type: cleanItemType(it.item_type),
+        sku: cleanSku(it.sku), barcode: cleanBarcode(it.barcode),
+        option_codes: (it.option_codes || []).map(oc => ({ option_id: oc.option_id, sku: cleanSku(oc.sku), barcode: cleanBarcode(oc.barcode) })),
         min_order_qty: it.min_order_qty > 1 ? it.min_order_qty : null,
         variants: (it.variants || []).map((v, vi) => ({ label: v.label, price_pence: v.price_pence, sort_order: vi })),
         // loadMenuFull() shapes attached groups as { options: [{ overridden, price_pence, option_id }] };
@@ -1496,6 +1539,9 @@ export default async function menusRoutes(app) {
   // (The whole-tree write, shared by PATCH and restore.)
   async function writeMenu(tx, tenantId, menuId, body) {
       checkMenuTax(body, await taxLookups(tx, tenantId))
+      // Codes (migration 268): good barcodes, each code once in the menu.
+      const codeIssue = codeProblems(body)[0]
+      if (codeIssue) throw httpError(422, codeIssue)
       const [updated] = await tx`
         UPDATE menus
            SET name = ${body.name},

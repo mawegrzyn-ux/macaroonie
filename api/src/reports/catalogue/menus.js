@@ -57,6 +57,9 @@ export const decisions = {
   ],
   out: {
     'Tokens, codes and sessions': ['menu_preview_links'],
+    // An option's product code and barcode (migration 268): read through the
+    // dish; report fields for codes are item 48 step 6.
+    'Codes kept for a scan and the sales mapping': ['menu_item_option_codes'],
     'Layouts and designs with nothing to count': ['menu_print_designs', 'menu_callouts', 'menu_allergen_notice'],
   },
 }

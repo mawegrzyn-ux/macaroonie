@@ -51,7 +51,7 @@ import { ComboBox, comboPayload } from '@/components/menus/ComboEditor'
 import { PublishButton, PublishBadges, useOpenPreview } from '@/components/menus/MenuPublish'
 import { TaxBox, useTaxLookups, taxSettingProblems } from '@/components/menus/TaxBox'
 import { ItemTypePicker, ItemTypeBadge } from '@/components/menus/ItemTypePicker'
-import { itemType, cleanItemType, needsAllergens } from '@shared/catalogue.js'
+import { itemType, cleanItemType, needsAllergens, typeSwitches, codeProblems, cleanSku, cleanBarcode, barcodeProblem } from '@shared/catalogue.js'
 import { MenuImportModal } from '@/components/menus/MenuImport'
 import { normTax, cleanTax } from '@shared/tax.js'
 import { moveDealGroup } from '@shared/combos.js'
@@ -506,6 +506,10 @@ function MenuEditor({ id, onBack, openSection = null, openDish = null, onLinkDon
             is_orderable: it.is_orderable !== false,
             tax: cleanTax(it.tax),
             item_type: cleanItemType(it.item_type),
+            sku: cleanSku(it.sku), barcode: cleanBarcode(it.barcode),
+            option_codes: (it.option_codes || [])
+              .map(oc => ({ option_id: oc.option_id, sku: cleanSku(oc.sku), barcode: cleanBarcode(oc.barcode) }))
+              .filter(oc => oc.sku || oc.barcode),
             min_order_qty: it.min_order_qty > 1 ? it.min_order_qty : null,
             kind: it.kind === 'combo' ? 'combo' : 'dish',
             kitchen_name: it.kitchen_name || null,
@@ -551,6 +555,8 @@ function MenuEditor({ id, onBack, openSection = null, openDish = null, onLinkDon
     }
     return out
   }, [draft, taxLk])
+  // Product codes and barcodes (migration 268): good barcodes, each code once (the API refuses the same).
+  const codeIssues = useMemo(() => (draft ? codeProblems(draft) : []), [draft])
 
   if (isLoading || !draft) {
     return (
@@ -680,7 +686,7 @@ function MenuEditor({ id, onBack, openSection = null, openDish = null, onLinkDon
             </>
           )}
           {/* On a phone the Save bar at the bottom is the Save button (it shows while there are changes). */}
-          {canManage && <span className="hidden sm:contents"><Btn disabled={!dirty || save.isPending || taxIssues.length > 0} onClick={() => save.mutate()}>
+          {canManage && <span className="hidden sm:contents"><Btn disabled={!dirty || save.isPending || taxIssues.length > 0 || codeIssues.length > 0} onClick={() => save.mutate()}>
             {save.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
             {dirty ? 'Save changes' : 'Saved'}
           </Btn></span>}
@@ -689,6 +695,11 @@ function MenuEditor({ id, onBack, openSection = null, openDish = null, onLinkDon
         </div>
       </div>
 
+      {canManage && codeIssues.length > 0 && (
+        <div className="bg-destructive/10 border border-destructive/30 text-destructive text-sm rounded-md px-4 py-3" data-testid="code-issues">
+          <strong>Fix the codes before saving:</strong> {codeIssues[0]}
+        </div>
+      )}
       {canManage && taxIssues.length > 0 && (
         <div className="bg-destructive/10 border border-destructive/30 text-destructive text-sm rounded-md px-4 py-3" data-testid="tax-issues">
           <strong>Fix the tax settings before saving:</strong> {taxIssues[0]}
@@ -762,7 +773,7 @@ function MenuEditor({ id, onBack, openSection = null, openDish = null, onLinkDon
         <div className="fixed bottom-0 left-0 right-0 bg-background border-t shadow-lg z-20">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-end gap-2">
             <span className="text-xs text-muted-foreground">Unsaved changes.</span>
-            <Btn disabled={save.isPending || taxIssues.length > 0} onClick={() => save.mutate()}>
+            <Btn disabled={save.isPending || taxIssues.length > 0 || codeIssues.length > 0} onClick={() => save.mutate()}>
               {save.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
               Save changes
             </Btn>
@@ -1946,6 +1957,10 @@ function ItemDrawer({ item, section, menuTax, menuType = 'food', sections = [], 
           inherit={itemType(null, section, { item_type: menuType })} inheritLabel="Same as the section" readOnly={readOnly}
           title="What this is" />
 
+        <ItemCodes item={item} groups={(item.variant_groups || []).map(g => mergeAttachedGroup(g, variantGroups))}
+          perOption={typeSwitches(itemType(item, section, { item_type: menuType })).codes === 'yes' || (item.option_codes || []).length > 0}
+          readOnly={readOnly} onChange={onChange} />
+
         {isFood ? <>
         <div>
           <p className="text-xs font-medium mb-1.5">Dietary tags</p>
@@ -2112,3 +2127,55 @@ function CalloutsPanel({ callouts, onChange }) {
     </ReadOnlyFieldset>
   )
 }
+
+// ── Product code and barcode (migration 268) ─────────────────────
+// The dish's own, and for retail goods each option's (a T-shirt's sizes), so
+// a till's barcode scan adds the right one. Checked as typed; the page's Save
+// waits for codeProblems() (shared/catalogue.js), as the API does.
+function ItemCodes({ item, groups, perOption, readOnly, onChange }) {
+  const codes = item.option_codes || []
+  const codeOf = id => codes.find(c => c.option_id === id) || {}
+  const setOption = (optionId, patch) => {
+    const rest = codes.filter(c => c.option_id !== optionId)
+    const next = { ...codeOf(optionId), option_id: optionId, ...patch }
+    onChange({ option_codes: next.sku || next.barcode ? [...rest, next] : rest })
+  }
+  const bad = barcodeProblem(item.barcode)
+  const options = groups.flatMap(g => (g.options || []).map(o => ({ id: o.option_id ?? o.id, label: o.label, group: g.name })))
+  return (
+    <div className="rounded-md border p-3 space-y-2" data-testid="item-codes">
+      <p className="text-xs font-medium">Codes</p>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Product code" hint="Your own code (SKU), optional">
+          <Input value={item.sku || ''} disabled={readOnly} maxLength={40}
+            onChange={e => onChange({ sku: e.target.value || null })} placeholder="e.g. MUG-01" className="font-mono" />
+        </Field>
+        <Field label="Barcode" hint={bad || 'The number under the bars, optional'}>
+          <Input value={item.barcode || ''} disabled={readOnly} inputMode="numeric" maxLength={14}
+            onChange={e => onChange({ barcode: e.target.value.replace(/[^0-9]/g, '') || null })}
+            placeholder="e.g. 5012345678900" className={cn('font-mono', bad && 'border-destructive')} />
+        </Field>
+      </div>
+      {perOption && options.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] text-muted-foreground">Each option&apos;s own codes (a size or colour with its own barcode). A scan adds the dish with that option.</p>
+          {options.map(o => {
+            const c = codeOf(o.id)
+            const ob = barcodeProblem(c.barcode)
+            return (
+              <div key={o.id} className="grid grid-cols-[1fr_1fr_1fr] gap-1.5 items-center" data-testid="option-code">
+                <span className="text-xs truncate" title={o.group + ': ' + o.label}>{o.label}</span>
+                <Input value={c.sku || ''} disabled={readOnly} maxLength={40} placeholder="Product code"
+                  onChange={e => setOption(o.id, { sku: e.target.value || null })} className="font-mono text-xs" />
+                <Input value={c.barcode || ''} disabled={readOnly} inputMode="numeric" maxLength={14} placeholder="Barcode"
+                  title={ob || ''} onChange={e => setOption(o.id, { barcode: e.target.value.replace(/[^0-9]/g, '') || null })}
+                  className={cn('font-mono text-xs', ob && 'border-destructive')} />
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+

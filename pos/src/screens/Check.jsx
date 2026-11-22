@@ -44,6 +44,7 @@ import AllergyModal from '../components/AllergyModal.jsx'
 import MenusModal from '../components/MenusModal.jsx'
 import FlowPrompt from '../components/FlowPrompt.jsx'
 import { useShownMenus } from '../lib/tillMenus.js'
+import { codeIndex, findByCode } from '@shared/catalogue.js'
 import {
   useFlowPrompts, queueFlowPrompts, answerFlowPrompt, dropFlowPrompts, syncFlows, addedOf, offApproval, shownItemIds,
 } from '../lib/orderFlows.js'
@@ -79,6 +80,44 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
   const prompts = useFlowPrompts(checkId)
   const shownIds = useMemo(() => shownItemIds(shownMenus.shown), [shownMenus.shown])
   useEffect(() => () => dropFlowPrompts(checkId), [checkId])
+
+  // A barcode scanner (migration 268) types the code and Enter, much faster
+  // than a person: keys less than 80 ms apart, ending in Enter, while no box
+  // has the cursor. The code finds the item, or the item with one option
+  // (a T-shirt's size), through the codes on the menu (shared/catalogue.js).
+  const codes = useMemo(() => codeIndex(Object.values(config?.items || {})), [config])
+  const scanRef = useRef(null)
+  scanRef.current = code => {
+    const hit = findByCode(codes, code)
+    if (!hit) return toast('No item has the code ' + code, 'bad')
+    const item = config?.items?.[hit.item_id]
+    if (!item || !check || check.closed_at) return toast('This check can\'t take items now', 'bad')
+    const selection = hit.option_id && hit.group_id ? { choices: { [hit.group_id]: [hit.option_id] } } : {}
+    const r = addItem(check, item, selection, { seat, course })
+    if (!r.ok) {
+      // More to choose (another option group): open the item's choices.
+      if (needsChoices(config, item)) return setModal({ kind: 'item', item })
+      return toast(r.error, 'bad')
+    }
+    toast('Added ' + item.name, 'ok')
+  }
+  useEffect(() => {
+    let buf = ''
+    let last = 0
+    const onKey = e => {
+      const t = e.target
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+      const now = Date.now()
+      if (now - last > 80) buf = ''
+      last = now
+      if (e.key === 'Enter') {
+        if (buf.length >= 4) { e.preventDefault(); scanRef.current?.(buf) }
+        buf = ''
+      } else if (e.key.length === 1) buf += e.key
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   useEffect(() => {
     setPresence(checkId)

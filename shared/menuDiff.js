@@ -178,7 +178,8 @@ const SECTION_FIELDS = {
 const DISH_FIELDS = {
   native_name: 'second name', description: 'description', calories: 'calories', notes: 'notes',
   is_featured: 'house favourite', image_url: 'photo', is_orderable: 'online ordering',
-  tax: 'tax', item_type: 'type', min_order_qty: 'minimum quantity',
+  tax: 'tax', item_type: 'type', sku: 'product code', barcode: 'barcode', option_codes: 'option codes',
+  min_order_qty: 'minimum quantity',
   kind: 'combo', kitchen_name: 'kitchen name', pos_course_id: 'till course', pos_colour: 'till colour',
   combo: 'combo steps', dietary: 'allergens and dietary', allergen_levels: 'allergen levels',
 }
