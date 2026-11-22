@@ -200,3 +200,29 @@ test('the group\'s word: from the menus\' types, or the setting; the main menu f
   const list = await ok(owner.get('/api/menus'))
   assert.ok(list.some(m => m.item_type === 'goods'))
 })
+
+// Step 6: reports group dishes (and through them, sales lines) by type, and
+// show their codes.
+test('reports: a dish\'s type, resolved like the menus', async () => {
+  const { runner, rowsOf } = await import('./support/reports.mjs')
+  const run = runner(ids.a)
+  const res = await run({ subject: 'menu.dishes', kind: 'list', rows: ['name', 'type', 'section.menu.sells'] })
+  const rows = rowsOf(res)
+  // The Shop menu was copied in an earlier test, so names come twice: check pairs.
+  const has = (name, type) => rows.some(r => r.name === name && r.type === type)
+  // The T-shirt is goods from its menu; the Sauce bottle overrides to food; the Mug was set to a
+  // service and the class follows its menu (its section's own type cleared); the copy keeps the old.
+  assert.ok(has('T-shirt', 'goods'))
+  assert.ok(has('Sauce bottle', 'food'))
+  assert.ok(has('Mug', 'service') && has('Cookery class', 'goods'))
+  assert.ok(has('Cookery class', 'service'), 'the copy, made before the change')
+  assert.ok(has('Latte', 'food') && has('Milk jug', 'goods'))
+  const shirt = rows.find(r => r.name === 'T-shirt')
+  assert.equal(shirt['section.menu.sells'], 'goods')
+  // Grouped: how many dishes of each type.
+  const grouped = rowsOf(await run({ subject: 'menu.dishes', rows: ['type'], values: [{ measure: 'dishes' }] }))
+  assert.ok(grouped.some(r => r.type === 'goods' && Number(r.dishes) >= 2), JSON.stringify(grouped))
+  // Sales lines reach it through their dish.
+  const { CATALOGUE } = await import('../src/reports/catalogue/index.js')
+  assert.equal(CATALOGUE.subjects['till.lines'].links.item.subject ?? CATALOGUE.subjects['till.lines'].links.item.to, 'menu.dishes')
+})

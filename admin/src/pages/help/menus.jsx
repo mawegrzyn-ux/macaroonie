@@ -247,7 +247,9 @@ export function Section() {
         the list. A Menus link you renamed yourself in the Navigation designer keeps your name.
       </P>
       <P>
-        Still to come: codes and types in reports.
+        <strong>In reports:</strong> Menu dishes have <strong>Type</strong> (food and drink, retail
+        goods or services, as the menu works it out), and menus have <strong>Sells</strong>. Dishes sold reach
+        them through their menu dish, so till sales can be grouped by type (Menu dish, Type).
       </P>
       <H3>Copying dishes, sections and options</H3>
       <P>
