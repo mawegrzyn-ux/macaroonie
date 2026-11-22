@@ -50,6 +50,8 @@ import { SectionTillFields, ItemTillFields, useTillCourses } from '@/components/
 import { ComboBox, comboPayload } from '@/components/menus/ComboEditor'
 import { PublishButton, PublishBadges, useOpenPreview } from '@/components/menus/MenuPublish'
 import { TaxBox, useTaxLookups, taxSettingProblems } from '@/components/menus/TaxBox'
+import { ItemTypePicker, ItemTypeBadge } from '@/components/menus/ItemTypePicker'
+import { itemType, cleanItemType, needsAllergens } from '@shared/catalogue.js'
 import { MenuImportModal } from '@/components/menus/MenuImport'
 import { normTax, cleanTax } from '@shared/tax.js'
 import { moveDealGroup } from '@shared/combos.js'
@@ -477,6 +479,7 @@ function MenuEditor({ id, onBack, openSection = null, openDish = null, onLinkDon
         hide_zero_priced_variants: !!draft.hide_zero_priced_variants,
         hide_unpriced_variants: !!draft.hide_unpriced_variants,
         tax: cleanTax(draft.tax),
+        item_type: cleanItemType(draft.item_type) || 'food',
         sections: (draft.sections || []).map((s, si) => ({
           id: s.id,
           title: s.title, subtitle: s.subtitle || null, highlight: !!s.highlight,
@@ -484,6 +487,7 @@ function MenuEditor({ id, onBack, openSection = null, openDish = null, onLinkDon
           print_break_before: s.print_break_before || 'none',
           print_keep_together: !!s.print_keep_together,
           tax: cleanTax(s.tax),
+          item_type: cleanItemType(s.item_type),
           visibility: s.visibility || 'show',
           pos_course_id: s.pos_course_id || null,
           pos_colour: s.pos_colour || null,
@@ -501,6 +505,7 @@ function MenuEditor({ id, onBack, openSection = null, openDish = null, onLinkDon
             sort_order: ii,
             is_orderable: it.is_orderable !== false,
             tax: cleanTax(it.tax),
+            item_type: cleanItemType(it.item_type),
             min_order_qty: it.min_order_qty > 1 ? it.min_order_qty : null,
             kind: it.kind === 'combo' ? 'combo' : 'dish',
             kitchen_name: it.kitchen_name || null,
@@ -720,6 +725,7 @@ function MenuEditor({ id, onBack, openSection = null, openDish = null, onLinkDon
           <SectionDrawer key={selectedSection.id}
             section={selectedSection}
             menuTax={draft.tax}
+            menuType={cleanItemType(draft.item_type) || 'food'}
             courses={tillCourses}
             onChange={(patch) => patchSection(selectedSectionIndex, patch)}
             onCopy={() => copySectionAt(selectedSectionIndex)}
@@ -732,6 +738,7 @@ function MenuEditor({ id, onBack, openSection = null, openDish = null, onLinkDon
             item={selectedItem.item}
             section={draft.sections[selectedItem.si]}
             menuTax={draft.tax}
+            menuType={cleanItemType(draft.item_type) || 'food'}
             dietaryTags={draft.dietary_tags || []}
             variantGroups={variantGroups}
             sections={draft.sections || []}
@@ -829,6 +836,11 @@ function MenuDetailsModal({ draft, venues, onChange, onClose }) {
                 placeholder="Looking for starters? Our dinner menu is available all day…"
               />
             </Field>
+          </div>
+          <div className="sm:col-span-2">
+            <ItemTypePicker value={cleanItemType(draft.item_type) || 'food'} onChange={t => onChange('item_type', t || 'food')}
+              title="What this menu sells (a section's or a dish's own setting wins)"
+              hint="Retail goods and services have no allergens, diet tags or calories. Food is food and drink." />
           </div>
           <div className="sm:col-span-2">
             <TaxBox value={draft.tax} onChange={tax => onChange('tax', tax)} under={t => [null, null, t]}
@@ -1063,6 +1075,7 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, se
         <div className="flex items-center gap-2 shrink-0 ml-auto">
           <div className="hidden sm:flex items-center gap-1 shrink-0">
             {section.highlight && <Badge>Highlight</Badge>}
+            <ItemTypeBadge type={cleanItemType(section.item_type)} />
             {vat && <Badge title="Section tax (used by dishes without their own)">Tax {vat}</Badge>}
             {breakLabel && <Badge title="Print">{breakLabel}</Badge>}
             {section.print_keep_together && <Badge title="Print">Keep together</Badge>}
@@ -1151,7 +1164,7 @@ const SECTION_VISIBILITY = [
   { key: 'hidden',         label: 'Hide everywhere',   hint: 'Not printed, not on the website, not orderable. It stays here so you can show it again.' },
 ]
 
-function SectionDrawer({ section, menuTax, courses, onChange, onCopy, onRemove, onClose }) {
+function SectionDrawer({ section, menuTax, menuType = 'food', courses, onChange, onCopy, onRemove, onClose }) {
   const readOnly = useContext(MenuReadOnly)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const count = (section.items || []).length
@@ -1243,6 +1256,10 @@ function SectionDrawer({ section, menuTax, courses, onChange, onCopy, onRemove, 
           </label>
         </div>
 
+        <ItemTypePicker value={section.item_type} onChange={item_type => onChange({ item_type })}
+          inherit={menuType} inheritLabel="Same as the menu" readOnly={readOnly}
+          title="What this section sells (a dish's own setting wins)" />
+
         <TaxBox value={section.tax} onChange={tax => onChange({ tax })} under={t => [null, t, menuTax]}
           inheritLabel="Same as the menu" readOnly={readOnly}
           title="Tax for the dishes in this section (a dish's own setting wins)" />
@@ -1300,6 +1317,7 @@ function ItemRow({ item, index, total, selected, onSelect, onRemove, onCopy, onM
           <List className="w-2.5 h-2.5" /> {ownCount}
         </span>
       )}
+      <ItemTypeBadge type={cleanItemType(item.item_type)} />
       {item.min_order_qty > 1 && (
         <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800 shrink-0" title="Minimum order quantity (online ordering)">Min {item.min_order_qty}</span>
       )}
@@ -1774,7 +1792,7 @@ function AllergenPicker({ tags, item, onSet }) {
 
 // ── Item drawer — full dish editor, opened from a row in the middle list ──
 
-function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTags, variantGroups = [], onChange, onOwnOptionsToGroup, onCopy, onRemove, onClose }) {
+function ItemDrawer({ item, section, menuTax, menuType = 'food', sections = [], courses, dietaryTags, variantGroups = [], onChange, onOwnOptionsToGroup, onCopy, onRemove, onClose }) {
   const readOnly = useContext(MenuReadOnly)
   const toggleDietary = (code) => {
     const set = new Set(item.dietary || [])
@@ -1792,6 +1810,9 @@ function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTag
   }
   const allergenTags = dietaryTags.filter(t => t.kind === 'allergen')
   const plainTags = dietaryTags.filter(t => t.kind !== 'allergen')
+  // Allergens, diet tags and calories are for food and drink only (shared/catalogue.js).
+  // Hidden for other types; their values are kept, so switching back loses nothing.
+  const isFood = needsAllergens(itemType(item, section, { item_type: menuType }))
 
   const attached = item.variant_groups || []
   const attachedIds = new Set(attached.map(g => g.group_id))
@@ -1881,12 +1902,12 @@ function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTag
               onChange={(pence) => onChange({ price_pence: pence })}
               placeholder="£0.00" className="font-mono" />
           </Field>
-          <Field label="Calories" hint="kcal, optional">
+          {isFood && <Field label="Calories" hint="kcal, optional">
             <Input type="number" min="0" step="1" inputMode="numeric"
               value={item.calories ?? ''}
               onChange={e => onChange({ calories: e.target.value === '' ? null : Math.max(0, parseInt(e.target.value, 10) || 0) })}
               placeholder="e.g. 420" className="font-mono" />
-          </Field>
+          </Field>}
         </div>
 
         <Field label="Description">
@@ -1921,6 +1942,11 @@ function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTag
           inheritLabel="Same as the section" readOnly={readOnly}
           title="Tax (till, online ordering, Deliveroo)" />
 
+        <ItemTypePicker value={item.item_type} onChange={item_type => onChange({ item_type })}
+          inherit={itemType(null, section, { item_type: menuType })} inheritLabel="Same as the section" readOnly={readOnly}
+          title="What this is" />
+
+        {isFood ? <>
         <div>
           <p className="text-xs font-medium mb-1.5">Dietary tags</p>
           <div className="flex flex-wrap gap-1.5">
@@ -1946,6 +1972,11 @@ function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTag
         </div>
 
         <AllergenPicker tags={allergenTags} item={item} onSet={setAllergen} />
+        </> : (
+          <p className="text-[11px] text-muted-foreground rounded-md border border-dashed p-2" data-testid="no-allergens-note">
+            Allergens, diet tags and calories are for food and drink. Anything already set is kept if you switch back.
+          </p>
+        )}
 
         <ItemTillFields item={item} section={section} courses={courses} onChange={onChange} />
 

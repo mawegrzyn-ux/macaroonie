@@ -1,6 +1,6 @@
 # Menus as catalogues: food, retail goods and services
 
-**Status: research and a recommended structure, parked (22 Nov 2026: the user asked for it written down and put aside). Nothing is built; the decisions in section 7 are open.** The user's
+**Status: step 1 of 4.6 built 22 Nov 2026 (migration 267); steps 2 to 6 not built. The user agreed all four decisions in section 7 as recommended (22 Nov 2026).**
 ask: "I would like flexibility how we use menu. In a non-food retail scenario, we don't need all
 the allergen info, we would also call the menu a catalogue. To accommodate it we would need a flag
 indicating which menus (catalogues) or categories within menus are food, which retail goods, which
@@ -154,6 +154,14 @@ nothing.
 - **D3** Words follow each catalogue's type with an automatic section name (recommended), or one
   group-wide word set in Settings?
 - **D4** Codes and retail variants (4.3) in the first step, or after the type switch?
+
+Answered 22 Nov 2026 ("agree all"): D1 per item with menu and section defaults; D2 three types; D3
+words follow each catalogue's type, with the automatic section name; D4 codes after the type switch
+(step 4).
+
+Built in step 1, one difference from 4.1: the release carries the raw types (menu, section, dish),
+not each item's resolved type. Readers call `itemType(item, section, menu)` from `shared/catalogue.js`,
+which every app can import, and a release made before migration 267 (no types) reads as food.
 
 ## Sources
 

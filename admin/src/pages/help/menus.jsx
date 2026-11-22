@@ -189,6 +189,29 @@ export function Section() {
         with the cross), and the buttons along the top show only their icons. Save with the bar
         at the bottom, which shows as soon as there is something to save.
       </P>
+      <H3>Food, retail goods and services</H3>
+      <P>
+        A menu can sell more than food. In the menu&apos;s <strong>Settings</strong>, <strong>What
+        this menu sells</strong> is <strong>Food and drink</strong> (every menu to start with),{' '}
+        <strong>Retail goods</strong> (mugs, sauce bottles, gift cards) or{' '}
+        <strong>Services</strong> (a cookery class, a private room). A section can sell something
+        else than its menu, and a dish something else than its section: pick it in the
+        section&apos;s or dish&apos;s panel, or leave it on <strong>Same as the menu</strong> /{' '}
+        <strong>Same as the section</strong>. The most specific one wins, as with tax.
+      </P>
+      <P>
+        Retail goods and services have no allergens, diet tags or calories, so a dish panel hides
+        them when the dish isn&apos;t food. Anything already set is kept, and comes back if you
+        switch the dish back to food. A section or dish that isn&apos;t food shows{' '}
+        <strong>Retail</strong> or <strong>Service</strong> next to its name. The type is part of
+        the menu, so a change goes live when you publish.
+      </P>
+      <P>
+        Still to come: the allergen matrix, the Allergens page, the kiosk, the till and the
+        ordering page leaving non-food out of their allergen checks, kitchen screens skipping
+        retail and services, product codes and barcodes, and the word Catalogue for a menu that
+        isn&apos;t food.
+      </P>
       <H3>Copying dishes, sections and options</H3>
       <P>
         <strong>Copy a dish</strong>: tap the copy icon on its row, or <strong>Copy</strong> at
