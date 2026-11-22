@@ -329,9 +329,33 @@ function tipLines(input, people) {
 
 const unitText = (kind, n, cur) => (kind === 'money' ? money(n, cur) + ' in tips' : plural(r2(n), 'point'))
 
+// What Pepper is told about this file's tools, gathered by tools/index.js:
+// the place in the list (order, then the file name), the areas the tools
+// belong to, and the file's lines in the system prompt (prompts.js).
+export { rotaTools as tools }
+export const order = 40
+export const sections = {
+  rota: { label: 'Staff, the rota, pay and tips', modules: ['staff', 'rota', 'rota_pay', 'rota_tips'] },
+}
+// The file's line(s) in the list of what Pepper can do.
+export const promptLines = [
+  'Staff and rota: whos_working, rota_week, set_rota (on, off, sick, holiday), copy_rota_week, list_staff, add / ' +
+    'update staff, leaving dates, time off, rota_pay, add_pay_adjustment, fill_wages_from_rota, rota_tips, ' +
+    'adjust_tips, set_tip_pot_amounts.',
+]
+// How to use them: a paragraph each, after the list.
+export const promptNotes = [
+  'Rota: set_rota changes one week at a time, many people and days in one call. A shift rota names shifts ' +
+    '(Lunch, Dinner); an hourly rota takes start and end times. Paid holiday is status pto on the rota; ' +
+    'add_time_off takes someone off the rota unpaid (and a leaving date takes them off after their last day). Pay ' +
+    'and tips show only to people allowed to see them; never work pay or tips out yourself, read them from ' +
+    'rota_pay and rota_tips.',
+]
+
 export const rotaTools = [
   {
     name: 'list_staff',
+    activity: 'Looked at the staff',
     section: 'rota',
     title: 'List staff',
     description:
@@ -367,6 +391,8 @@ export const rotaTools = [
 
   {
     name: 'whos_working',
+    activity: 'Looked at who is working',
+    core: true,
     section: 'rota',
     title: 'Who\'s working',
     description:
@@ -421,6 +447,7 @@ export const rotaTools = [
 
   {
     name: 'rota_week',
+    activity: 'Looked at the rota',
     section: 'rota',
     title: 'Rota for a week',
     description:
@@ -546,6 +573,7 @@ export const rotaTools = [
 
   {
     name: 'rota_pay',
+    activity: 'Looked at rota pay',
     section: 'rota',
     title: 'Rota pay for a week',
     description:
@@ -575,6 +603,7 @@ export const rotaTools = [
 
   {
     name: 'rota_tips',
+    activity: 'Looked at the tips',
     section: 'rota',
     title: 'Tips for a week',
     description:

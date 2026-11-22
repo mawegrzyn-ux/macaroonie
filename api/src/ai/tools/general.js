@@ -43,9 +43,26 @@ const ALSO = {
   '/ai': ['pepper', 'assistant', 'connect'],
 }
 
+// What Pepper is told about this file's tools, gathered by tools/index.js:
+// the place in the list (order, then the file name), the areas the tools
+// belong to, and the file's lines in the system prompt (prompts.js).
+export { generalTools as tools }
+export const order = 130
+export const sections = {
+  general: { label: 'Finding your way: links to pages', open: true },
+}
+// The file's line(s) in the list of what Pepper can do.
+export const promptLines = [
+  'open_page gives a link to any page of the app the person can open.',
+  'how_do_i answers "how do I...", "where is..." and "what does... mean" questions about the app from its Help ' +
+    'guide, with a link to the steps.',
+]
+
 export const generalTools = [
   {
     name: 'open_page',
+    activity: 'Found the page',
+    core: true,
     section: 'general',
     title: 'Open a page',
     description:
@@ -88,6 +105,8 @@ export const generalTools = [
   },
   {
     name: 'how_do_i',
+    activity: 'Looked it up in Help',
+    core: true,
     section: 'general',
     title: 'Look it up in Help',
     description:

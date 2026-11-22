@@ -131,6 +131,7 @@ export const guestTools = [
   {
     name: 'find_restaurants',
     title: 'Find restaurants',
+    activity: 'Searched restaurants',
     description:
       'Search the restaurants that take bookings through this service, by name, area or postcode. ' +
       'Returns each restaurant\'s venue_id, which the other tools need.',
@@ -186,6 +187,7 @@ export const guestTools = [
   {
     name: 'get_restaurant',
     title: 'Restaurant details',
+    activity: 'Looked up the restaurant',
     description:
       'Details for one restaurant: address, phone, opening hours, party sizes taken online, how far ahead ' +
       'it takes bookings, and today\'s date there (use it to work out dates like "tomorrow" or "Friday").',
@@ -232,6 +234,7 @@ export const guestTools = [
   {
     name: 'check_availability',
     title: 'Check availability',
+    activity: 'Checked availability',
     description:
       'Times a table is free at a restaurant on a date for a party size. Give `time` to check one time; ' +
       'if it is taken, the nearest free times come back instead.',
@@ -266,6 +269,7 @@ export const guestTools = [
   {
     name: 'hold_table',
     title: 'Hold a table',
+    activity: 'Held a table',
     description:
       'Holds a free table for a few minutes while the guest checks the details. Needs the guest\'s name and email ' +
       '(the confirmation goes there). Then read the details back to the guest and, once they say yes, call ' +
@@ -383,6 +387,7 @@ export const guestTools = [
   {
     name: 'release_hold',
     title: 'Release a held table',
+    activity: 'Released the table',
     description: 'Lets go of a held table when the guest doesn\'t want it after all.',
     input: z.object({ venue_id: VenueId, hold_id: z.string().uuid() }),
     async run(ctx, { venue_id, hold_id }) {
@@ -395,6 +400,7 @@ export const guestTools = [
   {
     name: 'request_booking_code',
     title: 'Email a booking code',
+    activity: 'Emailed a code',
     description:
       'First step to look at, change or cancel an existing booking: emails a 6-digit code to the guest. ' +
       'Needs the booking reference (8 characters, from the confirmation email) and the email the booking was made with.',
@@ -420,6 +426,7 @@ export const guestTools = [
   {
     name: 'verify_booking_code',
     title: 'Check a booking code',
+    activity: 'Checked the code',
     description:
       'Checks the 6-digit code the guest received. Returns an access_key for that booking (valid ' + ACCESS_KEY_MINUTES +
       ' minutes) and the booking details. Pass the access_key to change_booking or cancel_booking.',
@@ -443,6 +450,7 @@ export const guestTools = [
   {
     name: 'get_booking',
     title: 'Booking details',
+    activity: 'Looked up the booking',
     description: 'The details of a booking the guest has unlocked with verify_booking_code.',
     input: z.object({ access_key: z.string() }),
     readOnly: true,

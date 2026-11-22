@@ -199,10 +199,32 @@ const STATUS_WORDS = {
   closed: 'closed (no daily checks needed)', upcoming: 'not yet',
 }
 
+// What Pepper is told about this file's tools, gathered by tools/index.js:
+// the place in the list (order, then the file name), the areas the tools
+// belong to, and the file's lines in the system prompt (prompts.js).
+export { hsTools as tools }
+export const order = 30
+export const sections = {
+  hs: { label: 'Health & safety, food safety checks and checklists', modules: ['checklists', 'food_safety', 'hs_action_log'] },
+}
+// The file's line(s) in the list of what Pepper can do.
+export const promptLines = [
+  'Health & safety: hs_status, food_safety_day, checklists_due, tick_checklist, logging fridge, hold, cooking ' +
+    'and delivery checks, corrective actions, the H&S action log.',
+]
+// How to use them: a paragraph each, after the list.
+export const promptNotes = [
+  'Food safety: a reading out of range (or a cooking check under 75°C, or a failed delivery) needs a corrective ' +
+    'action: what was done about it. Ask for it and pass it with the reading, or add it afterwards with ' +
+    'add_corrective_action. Never make up a temperature or tick a task the staff member hasn\'t said is done.',
+]
+
 export const hsTools = [
   {
     name: 'hs_status',
     title: 'H&S status',
+    activity: 'Looked at H&S for the day',
+    core: true,
     description:
       'Health & safety status for a day (default today): per venue, which checklists are done and how many ' +
       'fridge, hold and cooking checks are logged out of those due, plus out-of-range readings with no corrective action. ' +
@@ -259,6 +281,7 @@ export const hsTools = [
   {
     name: 'food_safety_day',
     title: 'Food safety log',
+    activity: 'Looked at the food safety log',
     description:
       'A venue\'s food safety log for a day (default today): each fridge/freezer and hold station with its readings ' +
       'per check time and the checks still missing, cooking checks per session, deliveries, and every out-of-range ' +
@@ -558,6 +581,7 @@ export const hsTools = [
   {
     name: 'checklists_due',
     title: 'Checklists due',
+    activity: 'Looked at the checklists',
     description:
       'The checklists at a venue for a day (default today): each with its checklist_id, how often it runs, ' +
       'and whether it is done, in progress or not started (weekly and monthly ones count for their whole week or month).',
@@ -588,6 +612,7 @@ export const hsTools = [
   {
     name: 'get_checklist',
     title: 'Checklist tasks',
+    activity: 'Opened the checklist',
     description: 'One checklist\'s tasks for a day (default today) with which are ticked, and its notes.',
     input: z.object({ checklist_id: Id, date: DateStr.optional() }),
     readOnly: true,
@@ -676,6 +701,7 @@ export const hsTools = [
   {
     name: 'list_hs_actions',
     title: 'H&S action log',
+    activity: 'Looked at the action log',
     description:
       'A venue\'s H&S action log (repairs, records, training, cleaning jobs): open entries by default, with their ' +
       'action_id, priority, due date and who they are assigned to.',

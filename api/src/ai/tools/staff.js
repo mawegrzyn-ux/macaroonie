@@ -194,10 +194,35 @@ async function moveCheck(ctx, b, { date, time, party_size }) {
 
 const ACTIVE = sql`b.status NOT IN ('cancelled', 'no_show')`
 
+// What Pepper is told about this file's tools, gathered by tools/index.js:
+// the place in the list (order, then the file name), the areas the tools
+// belong to, and the file's lines in the system prompt (prompts.js).
+export { staffTools as tools }
+export const order = 10
+export const sections = {
+  bookings: { label: 'Table bookings', modules: ['bookings'] },
+}
+// The file's line(s) in the list of what Pepper can do.
+export const promptLines = [
+  'Table bookings: find_bookings, day_overview, check_availability, create_booking, change_booking, booking ' +
+    'status, guest details and staff notes.',
+]
+// How to use them: a paragraph each, after the list.
+export const promptNotes = [
+  'Booking limits: create_booking and change_booking refuse a party outside the venue\'s usual party sizes, or a ' +
+    'time over its covers limit, and say which limit. Tell the staff member; only if they still want it, call ' +
+    'again with override_limits: true. A booking past the limits with no free table goes on the Unallocated row to ' +
+    'be seated on the timeline. Bookings outside the booking times, at a blocked time or on a specific table are ' +
+    'done on the timeline, not here.',
+]
+
 export const staffTools = [
   {
     name: 'list_venues',
     title: 'List venues',
+    activity: 'Looked up venues',
+    core: true,
+    open: true,
     description: 'The restaurant\'s venues (locations) with their venue_id and today\'s date at each.',
     input: z.object({}),
     readOnly: true,
@@ -220,6 +245,8 @@ export const staffTools = [
   {
     name: 'find_bookings',
     title: 'Find bookings',
+    activity: 'Searched bookings',
+    core: true,
     description:
       'Search bookings by date, guest name, email, phone or reference. Without a date it looks from today on ' +
       '(set include_past to search older ones). Dates are the venue\'s local dates.',
@@ -260,6 +287,7 @@ export const staffTools = [
   {
     name: 'get_booking',
     title: 'Booking details',
+    activity: 'Looked up the booking',
     description: 'Full details of one booking.',
     input: z.object({ booking: BookingRef }),
     readOnly: true,
@@ -274,6 +302,8 @@ export const staffTools = [
   {
     name: 'day_overview',
     title: 'Day overview',
+    activity: 'Looked at the day',
+    core: true,
     description: 'A venue\'s day (default today): bookings, covers, a count per status and per hour, and the list of bookings.',
     input: z.object({ venue_id: z.string().uuid(), date: DateStr.optional() }),
     readOnly: true,
@@ -311,6 +341,8 @@ export const staffTools = [
   {
     name: 'check_availability',
     title: 'Check availability',
+    activity: 'Checked availability',
+    core: true,
     description:
       'Times with a free table at a venue on a date for a party size (restaurant local times). ' +
       'Also says when the party is outside the venue\'s usual party sizes.',

@@ -159,9 +159,32 @@ async function venueDishes(ctx, venue) {
 const untilText = (until, tz) => (until.some(u => u == null) ? 'until put back'
   : 'until ' + localParts(new Date(Math.max(...until.map(u => new Date(u).getTime()))), tz).time + ' (end of today)')
 
+// What Pepper is told about this file's tools, gathered by tools/index.js:
+// the place in the list (order, then the file name), the areas the tools
+// belong to, and the file's lines in the system prompt (prompts.js).
+export { orderTools as tools }
+export const order = 60
+export const sections = {
+  orders: { label: 'Online orders and sold out dishes', modules: ['web_orders'] },
+  till: { label: 'Till and kitchen reports', modules: ['pos_reports'] },
+}
+// The file's line(s) in the list of what Pepper can do.
+export const promptLines = [
+  'Online orders and the till: online_orders, update_online_order, refund_online_order, pause_online_orders, ' +
+    'online_orders_report, sold_out / set_sold_out (till, online and menu screens), till_day (X / Z figures), ' +
+    'till_checks, kitchen_report.',
+]
+// How to use them: a paragraph each, after the list.
+export const promptNotes = [
+  'Online orders and sold out: an order is its number that day ("order 12"). Turning down or cancelling a paid ' +
+    'order refunds the guest. set_sold_out marks a dish sold out on the tills, online ordering and menu screens at ' +
+    'once.',
+]
+
 export const orderTools = [
   {
     name: 'online_orders',
+    activity: 'Looked at the online orders',
     section: 'orders',
     title: 'Online orders',
     description:
@@ -308,6 +331,7 @@ export const orderTools = [
 
   {
     name: 'online_orders_report',
+    activity: 'Looked at the online orders report',
     section: 'orders',
     title: 'Online orders report',
     description: 'Online orders over dates: orders, sales, tips, discounts, VAT, refunds, average order, by day, by payment method, top dishes and promotions used.',
@@ -340,6 +364,7 @@ export const orderTools = [
 
   {
     name: 'sold_out',
+    activity: 'Looked at what is sold out',
     section: 'orders',
     title: 'Sold out dishes',
     description: 'Which dishes are sold out at a venue right now (on the till, online ordering and menu screens), and until when.',
@@ -399,6 +424,7 @@ export const orderTools = [
 
   {
     name: 'till_day',
+    activity: 'Looked at the till figures',
     section: 'till',
     title: 'Till day figures',
     description:
@@ -447,6 +473,7 @@ export const orderTools = [
 
   {
     name: 'till_checks',
+    activity: 'Looked at the till checks',
     section: 'till',
     title: 'Till checks',
     description: 'A trading day\'s till checks (default the latest day): number, table or name, server, order type, status, total, paid, tips.',
@@ -481,6 +508,7 @@ export const orderTools = [
 
   {
     name: 'kitchen_report',
+    activity: 'Looked at kitchen speed',
     section: 'till',
     title: 'Kitchen speed report',
     description: 'Kitchen screen speed of service over dates (default today): per station tickets, average / median / slowest times, on time and late, by hour, remakes with their reasons, and the kitchen flow timers (time between two points of the flow, per dish or ticket, against a target).',

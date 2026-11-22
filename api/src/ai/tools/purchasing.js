@@ -1131,11 +1131,47 @@ async function poCurrency(ctx, d) {
 
 // ── Tools ──────────────────────────────────────────────────
 
+// What Pepper is told about this file's tools, gathered by tools/index.js:
+// the place in the list (order, then the file name), the areas the tools
+// belong to, and the file's lines in the system prompt (prompts.js).
+export { purchasingTools as tools }
+export const order = 80
+export const sections = {
+  purchasing: { label: 'Purchasing: inventory, suppliers and supplier orders', modules: ['purchasing', 'purchasing_setup', 'purchasing_approve'] },
+}
+// The file's line(s) in the list of what Pepper can do.
+export const promptLines = [
+  'Purchasing: the inventory and supplier prices, suppliers, order lists and pars, price list imports, filling ' +
+    'and placing orders, sending, changing and receiving supplier orders.',
+]
+// How to use them: a paragraph each, after the list.
+export const promptNotes = [
+  'Purchasing: order quantities are packs of the supplier\'s pack (cases, bags), as on the Purchasing page; say ' +
+    'the pack when you confirm. Placing an order makes one purchase order per supplier for its next delivery day ' +
+    '(or the day a request asked for), emailed straight away when the supplier takes email. Orders can need ' +
+    'approval: someone without Purchasing approval sends the order with request_order (place_order refuses them); ' +
+    'an approver finds orders waiting with order_requests, can change one (update_order with its order_id), split ' +
+    'it for another day (split_order) or send it back with a reason (send_back_order), and places it with ' +
+    'place_order and the order_id. split_order also splits a placed purchase order into a second one for another ' +
+    'day. Prices are ex VAT, and only show to people allowed to see them: never guess one. To import a price list, ' +
+    'use import_price_list with a CSV attached in the chat, or read the products from a PDF, photo or email and ' +
+    'pass them as rows (up to 100 per call), keeping the supplier\'s own pack sizes and codes; the card shows what ' +
+    'would change before anything does. When a supplier sends new prices for products already here, ' +
+    'update_prices_by_code matches them by the supplier\'s product code (only the prices change). check_catalogue ' +
+    'lists what to tidy up (one code on two products, items with one name, items nobody sells); switch_items ' +
+    'switches several items off or on at once. When someone ordered on a supplier\'s own website (or has their ' +
+    'basket or quick order), import_supplier_basket sets the order to that basket by the supplier\'s codes, from ' +
+    'rows or an attached CSV; codes not found here are left out and listed. When a supplier says something is out ' +
+    'of stock, set_out_of_stock records it until the first day it can be delivered again (or back in stock); ' +
+    'orders for a day before it then warn, and nothing moves to another supplier unless the person asks.',
+]
+
 export const purchasingTools = [
   // ── Reads ──
   {
     name: 'find_inventory_items',
     title: 'Find inventory items',
+    activity: 'Searched the inventory',
     description:
       'Searches the purchasing inventory (the products the company buys) by name, our code or a supplier\'s ' +
       'product code (e.g. MEA161), category or supplier. ' +
@@ -1204,6 +1240,7 @@ export const purchasingTools = [
   {
     name: 'list_suppliers',
     title: 'List suppliers',
+    activity: 'Looked up suppliers',
     description:
       'Suppliers with how orders reach them, order cutoff, delivery days, minimum order and charges. Name one ' +
       '(supplier) for everything about it: copy addresses, account numbers, per-venue settings and its products ' +
@@ -1252,6 +1289,7 @@ export const purchasingTools = [
   {
     name: 'order_lists',
     title: 'Order lists',
+    activity: 'Looked at the order lists',
     description:
       'The order lists (the products a venue usually orders, from any mix of suppliers). Give venue_id for the lists ' +
       'that venue uses. Name one (list) for its items, the supplier and pack each is ordered on, and the par (usual ' +
@@ -1297,6 +1335,7 @@ export const purchasingTools = [
   {
     name: 'order_form',
     title: 'Open an order',
+    activity: 'Opened the order',
     description:
       'A venue\'s draft order for an order list (or, with order_id, a particular order such as one waiting for ' +
       'approval), as on the Purchasing page: every item with its supplier and pack, the quantity entered so far, what ' +
@@ -1318,6 +1357,7 @@ export const purchasingTools = [
   {
     name: 'purchase_orders',
     title: 'Purchase orders',
+    activity: 'Looked up supplier orders',
     description:
       'Purchase orders (one per supplier per order placed): status To send / Sent / Received / Cancelled, delivery ' +
       'date, totals (with Purchasing setup), send errors and the delivery check. Filter by venue, status ("open" = ' +
@@ -1852,6 +1892,7 @@ export const purchasingTools = [
   {
     name: 'check_catalogue',
     title: 'Check the catalogue',
+    activity: 'Checked the catalogue',
     description:
       'What to tidy up in the purchasing catalogue: a supplier\'s product code on two products (orders by code can\'t ' +
       'tell them apart), two items switched on with one name, items no supplier sells (no live price), and prices ' +
@@ -2322,6 +2363,7 @@ export const purchasingTools = [
   {
     name: 'order_requests',
     title: 'Orders waiting for approval',
+    activity: 'Looked at orders waiting for approval',
     description:
       'Supplier orders waiting for approval (asked by whom and when, the days wanted, every line with what was asked ' +
       'for), and drafts sent back with the reason. Says whether you can approve: then place_order, update_order, ' +

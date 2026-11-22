@@ -3,9 +3,17 @@
 // The AI tool registry (migration 148). A tool is:
 //
 //   name, title, description   shown to the model
-//   section                    the area of the app it belongs to (SECTIONS):
-//                              Pepper's prompt lists the areas, and the staff
-//                              chat loads all but CORE_TOOLS on demand
+//   section                    the area of the app it belongs to (from the
+//                              `sections` a tool file exports): the staff
+//                              connector checks the area's modules. A tool
+//                              without one takes its file's only area
+//   activity                   the line the chat shows for a call ("Looked
+//                              at the rota"), src/ai/chat.js
+//   core                       loaded in every staff chat request; the rest
+//                              are found with tool search (src/ai/chat.js).
+//                              Only for the everyday questions: each one is
+//                              sent in full in every staff chat request
+//   open                       anyone with Pepper can use it (no area's permission)
 //   input                      Zod object schema (validated before run;
 //                              sent to the model / MCP client as JSON Schema)
 //   run(ctx, input)            does the work, returns a plain object
@@ -19,89 +27,76 @@
 //                              asks the person, and run() is called directly.
 //   destructive                cancels or erases (MCP destructiveHint)
 //
-// Guest tools: tools/guest.js. Staff tools (Pepper): tools/staff.js
-// (bookings), tools/hs.js (health & safety, checklists, action log),
-// tools/purchasing.js, tools/menus.js, tools/rota.js (staff, rota, pay,
-// tips), tools/cash.js (cash reconciliation), tools/orders.js (online
-// orders, sold out, till and kitchen reports), tools/venue.js (customers,
-// opening times, tables, booking rules), tools/site.js (website,
-// promotions, reviews, menu screens, booking emails, support) and
-// tools/general.js (open_page, how_do_i), tools/briefing.js (day_briefing),
-// tools/locations.js (opening a new location), tools/localInfo.js,
-// tools/reports.js (the report builder: figures from the data, saved reports,
-// past runs) and tools/reportSchedules.js (report schedules and sends).
+// Guest tools: tools/guest.js (guestTools). Staff tools (Pepper): every
+// other file in this folder that exports `tools` is gathered at start-up
+// (a file that doesn't, such as util.js, is a helper). A tool file exports:
+//
+//   tools         its tools
+//   order         its place: the files are gathered by order, then by file
+//                 name, and Pepper's system prompt lists them in that order.
+//                 The prompt is cached by the model provider, so the order
+//                 depends on nothing but the files
+//   sections      the areas it adds: { key: { label, modules } }, modules
+//                 being the ones its tools check (requireStaffPermission),
+//                 or { label, open: true } for an area anyone can use
+//   promptLines   its line(s) in the prompt's list of what Pepper can do
+//   promptNotes   its paragraph(s) on how to use them (prompts.js)
+//
+// The files: staff.js (bookings), venue.js (customers, opening times,
+// tables, booking rules), hs.js (health & safety, checklists, action log),
+// rota.js (staff, rota, pay, tips), cash.js (cash reconciliation),
+// orders.js (online orders, sold out, till and kitchen reports), menus.js,
+// purchasing.js, locations.js (opening a new location), localInfo.js,
+// reports.js (the report builder: figures from the data, saved reports,
+// past runs), reportSchedules.js (report schedules and sends), site.js
+// (website, promotions, reviews, menu screens, booking emails, support),
+// general.js (open_page, how_do_i), forms.js (open_form) and briefing.js
+// (day_briefing).
 
+import fs from 'node:fs'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { ZodError } from 'zod'
 import { ToolError, isStaff } from '../context.js'
 import { MODULE_KEYS, permissionAtLeast } from '../../config/modules.js'
 import { guestTools } from './guest.js'
-import { staffTools as bookingTools } from './staff.js'
-import { hsTools } from './hs.js'
-import { purchasingTools } from './purchasing.js'
-import { menuTools } from './menus.js'
-import { rotaTools } from './rota.js'
-import { cashTools } from './cash.js'
-import { orderTools } from './orders.js'
-import { venueTools } from './venue.js'
-import { siteTools } from './site.js'
-import { generalTools } from './general.js'
-import { formTools } from './forms.js'
-import { briefingTools } from './briefing.js'
-import { locationTools } from './locations.js'
-import { localInfoTools } from './localInfo.js'
-import { reportTools } from './reports.js'
-import { scheduleTools } from './reportSchedules.js'
 
-// The areas Pepper covers, in the order its prompt lists them.
-export const SECTIONS = {
-  general:    'Finding your way: links to pages',
-  bookings:   'Table bookings',
-  customers:  'Customers',
-  venue:      'Opening times, closures, tables and booking rules',
-  hs:         'Health & safety, food safety checks and checklists',
-  rota:       'Staff, the rota, pay and tips',
-  cash:       'Cash reconciliation and wages paid',
-  orders:     'Online orders and sold out dishes',
-  till:       'Till and kitchen reports',
-  menus:      'Menus, dishes, prices and allergens',
-  purchasing: 'Purchasing: inventory, suppliers and supplier orders',
-  website:    'Website, promotions, reviews, menu screens and booking emails',
-  local_info: 'Local info: weather, traffic, events and incidents around the venues',
-  reports:    'Reports: figures from the data (sales, dishes, takings, voids, orders, bookings) and saved reports',
-  locations:  'Opening a new location: scoping, questions, a brief, creating it',
-  support:    'Reporting problems and asking for features',
+// The staff tool files, in order. A top-level await: nothing a tool file
+// imports may lead back to this file, or it would never finish loading.
+const HERE = new URL('./', import.meta.url)
+const toolFiles = []
+for (const file of fs.readdirSync(HERE).filter(f => f.endsWith('.js') && f !== 'index.js').sort()) {
+  const mod = await import(new URL(file, HERE).href)
+  if (!mod.tools) continue
+  if (!Array.isArray(mod.tools)) throw new Error('Tool file ' + file + ': tools is not a list')
+  if (!Number.isFinite(mod.order)) throw new Error('Tool file ' + file + ' has no order')
+  toolFiles.push({ file, ...mod })
 }
+toolFiles.sort((a, b) => a.order - b.order)   // stable: the same order keeps file-name order
 
-// The modules each area's tools check (requireStaffPermission). The staff
-// connector lists a tool only when the person has View on one of its area's
-// modules (Manage for a change tool), so a list can show a tool the person
-// still can't use (the tool refuses), never hide one they can.
-export const SECTION_MODULES = {
-  bookings:   ['bookings'],
-  customers:  ['customers'],
-  venue:      ['schedule', 'rules', 'tables', 'venues'],
-  hs:         ['checklists', 'food_safety', 'hs_action_log'],
-  rota:       ['staff', 'rota', 'rota_pay', 'rota_tips'],
-  cash:       ['cash_recon'],
-  orders:     ['web_orders'],
-  till:       ['pos_reports'],
-  menus:      ['menus'],
-  purchasing: ['purchasing', 'purchasing_setup', 'purchasing_approve'],
-  website:    ['website', 'promotions', 'screens', 'email_templates'],
-  local_info: ['local_info'],
-  reports:    ['reports'],
-  locations:  ['venues'],
-  support:    ['issue_log', 'feature_requests'],
+// The areas Pepper covers ({ key: label }) and the modules each area's tools
+// check (requireStaffPermission). The staff connector lists a tool only when
+// the person has View on one of its area's modules (Manage for a change
+// tool), so a list can show a tool the person still can't use (the tool
+// refuses), never hide one they can.
+export const SECTIONS = {}
+export const SECTION_MODULES = {}
+const OPEN_SECTIONS = new Set()
+for (const f of toolFiles) {
+  for (const [key, s] of Object.entries(f.sections || {})) {
+    if (SECTIONS[key]) throw new Error('Two tool files add the area ' + key)
+    if (!s.label) throw new Error('Area ' + key + ' (' + f.file + ') has no label')
+    SECTIONS[key] = s.label
+    if (s.open) OPEN_SECTIONS.add(key)
+    else if (s.modules?.length) SECTION_MODULES[key] = s.modules
+    else throw new Error('Area ' + key + ' (' + f.file + ') names no modules')
+  }
 }
-// Tools anyone with Pepper can use (no area's permission).
-const OPEN_TOOLS = new Set(['list_venues', 'open_page', 'how_do_i'])
 
 /** Can a person with these module levels use this staff tool (connector list)?
  *  A reading tool needs View on one of its area's modules, a change tool Manage,
  *  or the level it names itself (`needs: 'use'`: the everyday H&S work). */
 export function toolAllowed(tool, levels) {
-  if (OPEN_TOOLS.has(tool.name) || tool.section === 'general') return true
+  if (tool.open || OPEN_SECTIONS.has(tool.section)) return true
   // A tool may name its own modules (find_dishes: Menus or the Allergen lookup).
   const modules = tool.modules ?? SECTION_MODULES[tool.section]
   if (!modules) return true
@@ -109,35 +104,28 @@ export function toolAllowed(tool, levels) {
   return modules.some(m => permissionAtLeast(levels[m], need))
 }
 
-const withSection = (tools, section) => tools.map(t => (t.section ? t : { ...t, section }))
-
-// Pepper's tools, every area. Older files don't tag their tools; their file is their area.
-const staffTools = [
-  ...generalTools,
-  ...formTools,
-  ...briefingTools,
-  ...withSection(bookingTools, 'bookings'),
-  ...withSection(hsTools, 'hs'),
-  ...withSection(purchasingTools, 'purchasing'),
-  ...withSection(menuTools, 'menus'),
-  ...rotaTools, ...cashTools, ...orderTools, ...venueTools, ...siteTools, ...locationTools,
-  ...localInfoTools,
-  ...reportTools,
-  ...scheduleTools,
-]
+// Pepper's tools, every area. A tool that doesn't name its area gets its file's only one.
+const staffTools = toolFiles.flatMap(f => {
+  const own = Object.keys(f.sections || {})
+  return f.tools.map(t => {
+    if (t.section) return t
+    if (own.length !== 1) throw new Error('Tool ' + t.name + ' (' + f.file + ') has no section')
+    return { ...t, section: own[0] }
+  })
+})
 const BY_AUDIENCE = { guest: guestTools, staff: staffTools }
 
-// Loaded in every staff chat request; the rest are found with tool search
-// (src/ai/chat.js). The everyday questions: today's bookings, who is on,
-// what is due, where a page is.
-export const CORE_TOOLS = new Set([
-  'list_venues', 'find_bookings', 'day_overview', 'check_availability', 'hs_status', 'whos_working', 'open_page', 'how_do_i',
-  'day_briefing', 'open_form',
-])
+// Loaded in every staff chat request (`core` on the tool); the rest are found
+// with tool search (src/ai/chat.js). The everyday questions: today's
+// bookings, who is on, what is due, where a page is.
+export const CORE_TOOLS = new Set(staffTools.filter(t => t.core).map(t => t.name))
+
+// Pepper's system prompt parts from the tool files, in their order (prompts.js).
+export const PROMPT_LINES = toolFiles.flatMap(f => f.promptLines || [])
+export const PROMPT_NOTES = toolFiles.flatMap(f => f.promptNotes || [])
 
 for (const t of staffTools) {
   if (!SECTIONS[t.section]) throw new Error('Tool ' + t.name + ' has no known section')
-  if (t.section !== 'general' && !SECTION_MODULES[t.section]) throw new Error('Section ' + t.section + ' has no modules in SECTION_MODULES')
 }
 for (const m of Object.values(SECTION_MODULES).flat()) {
   if (!MODULE_KEYS.includes(m)) throw new Error('SECTION_MODULES names an unknown module: ' + m)
@@ -155,7 +143,12 @@ export const TOOL_MODULE_KEYS = [...new Set([
   const names = staffTools.map(t => t.name)
   const dup = names.find((n, i) => names.indexOf(n) !== i)
   if (dup) throw new Error('Two staff tools are called ' + dup)
-  for (const n of CORE_TOOLS) if (!names.includes(n)) throw new Error('Core tool ' + n + ' is missing')
+  if (!CORE_TOOLS.size) throw new Error('No core tools')
+  // A guest tool may share a staff tool's name; the chat shows one activity line per name.
+  for (const g of guestTools) {
+    const s = staffTools.find(t => t.name === g.name)
+    if (s && s.activity !== g.activity) throw new Error('The guest and staff tools called ' + g.name + ' show different activity')
+  }
 }
 
 export function toolsFor(ctx) {
