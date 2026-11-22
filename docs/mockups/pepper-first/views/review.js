@@ -102,6 +102,8 @@ App.view('review', {
     const corrected = it => (it.lines || []).filter(l => l.qty !== l.q0 || l.price !== l.p0).length
     const allergensAfter = it => it.base.concat(it.adds).sort()
     const blocked = it => it.kind === 'invoice' && total(it) !== it.printed
+    // Who hears about a rejection: the person who asked. A file that came by email has nobody to tell.
+    const told = it => (it.kind === 'pricelist' ? '' : it.asked.who)
 
     // ── Done by Pepper: rows from before this visit ─────────────
     const done = [
@@ -161,7 +163,7 @@ App.view('review', {
             <div>To: ${esc(D.group)}, ${esc(it.venue)}</div>
             <table>
               <tr><th>Qty</th><th>Item</th><th class="r">Unit</th><th class="r">Total</th></tr>
-              ${it.lines.map(l => `<tr><td>${l.unsure ? '<span class="rv-smudge">' + l.photo + '</span>' : l.photo}</td><td>${esc(l.paper)}</td><td class="r">${plain(l.price === l.p0 ? l.price : l.p0)}</td><td class="r">${plain(l.photo * l.p0)}</td></tr>`).join('')}
+              ${it.lines.map(l => `<tr><td>${l.unsure ? '<span class="rv-smudge">' + l.photo + '</span>' : l.photo}</td><td>${esc(l.paper)}</td><td class="r">${plain(l.p0)}</td><td class="r">${plain(l.photo * l.p0)}</td></tr>`).join('')}
             </table>
             <div class="two tot"><span>TOTAL GBP</span><span>${plain(it.printed)}</span></div>
             <div class="two"><span>Received by</span><span class="rv-sig">M Clarke</span></div>
@@ -222,7 +224,7 @@ App.view('review', {
       const m = mode[it.id]
       if (m === 'edit') return '<button type="button" class="m-btn primary" data-act="save">' + icon('check') + 'Save changes</button><button type="button" class="m-btn ghost" data-act="back">Cancel</button><span class="rv-err" role="alert" hidden></span>'
       if (m === 'reject') {
-        return '<div class="m-field rv-why"><label for="rv-why-' + it.id + '">Why are you rejecting this ' + it.noun + '? ' + esc(it.asked.who.split(',')[0]) + ' is told.</label>' +
+        return '<div class="m-field rv-why"><label for="rv-why-' + it.id + '">Why are you rejecting this ' + it.noun + '? ' + (told(it) ? esc(told(it)) + ' is told.' : 'The reason is kept on the record.') + '</label>' +
           '<textarea class="m-textarea" id="rv-why-' + it.id + '" data-f="why"></textarea><span class="err" role="alert" hidden>Give a reason before you reject it</span></div>' +
           '<button type="button" class="m-btn danger" data-act="reject-go">' + icon('x') + 'Reject ' + it.noun + '</button><button type="button" class="m-btn ghost" data-act="back">Back</button>'
       }
@@ -241,7 +243,7 @@ App.view('review', {
       if (it.state !== 'waiting') {
         const ok = it.state === 'approved'
         return '<div class="m-card rv-strip"><span class="m-ico">' + icon(ok ? 'check' : 'x') + '</span><div class="what"><b>' + (ok ? 'Approved: ' : 'Rejected: ') + esc(it.title) + '</b>' +
-          '<span>' + (ok ? 'It has taken effect and is listed under Done by Pepper.' : esc(it.asked.who.split(',')[0]) + ' is told why: ' + esc(it.reason)) + '</span></div>' +
+          '<span>' + (ok ? 'It has taken effect and is listed under Done by Pepper.' : (told(it) ? esc(told(it)) + ' is told why: ' : 'Nothing changed. The reason is kept: ') + esc(it.reason)) + '</span></div>' +
           '<button type="button" class="m-btn" data-act="show-done">See it in Done by Pepper' + icon('right') + '</button></div>'
       }
       const lock = it.touches
@@ -269,6 +271,7 @@ App.view('review', {
     const src = (label, url) => '<a href="' + url + '" target="_blank" rel="noopener">' + label + '</a>'
     root.innerHTML = `
       <style>
+        #view-review #rv-mock { color-scheme: light; } /* tick boxes and selects stay light, as the mock-up does */
         #view-review .m-main { container-type: inline-size; container-name: rvmain; }
         #view-review .m-main > *, #view-review .rv-panel > * { min-width: 0; }
         #view-review .m-head { flex-wrap: wrap; }
@@ -390,7 +393,7 @@ App.view('review', {
             { kind: 'target', text: 'The Waiting list, lines you can edit before approving, the Done by Pepper list and Undo.' },
             { kind: 'target', text: 'A named person signs off allergen data a model read and any change to pay or tips, never in a batch.' },
           ],
-          calls: 'None to draw the list or a card. Both are built from stored data. Reading the invoice photo took one reader call, when the photo was taken.',
+          calls: 'None to draw the list or a card. Both are built from stored data. In the product, reading the invoice photo takes one reader call when the photo is taken. Here the lines are scripted.',
         })}
         <div class="stack">
           <div class="mock" id="rv-mock">

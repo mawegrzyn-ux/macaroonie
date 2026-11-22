@@ -319,6 +319,8 @@ App.view('confirm', {
     // ── State (this view only) ──────────────────────────────────
     let cur = 'order'
     let seq = 0
+    let showAll = false // the list under the card shows the latest five until asked for more
+    const SHORT = 5
     const st = {} // per action: where its card is and what was typed on it
     const allow = {} // per action: has the group switched on Done, with Undo
     const fresh = a => ({ phase: 'ask', vals: Object.assign({}, a.vals || {}), typed: '', entry: '', at: '', how: '' })
@@ -347,7 +349,7 @@ App.view('confirm', {
     }
     function declText(a, s) {
       const c = CLASSES[a.cls]
-      const out = [wrap('action: ', a.tool, 2), wrap('class: ', c.key, 2), wrap('confirmation: ', c.confirmation, 2), wrap('needs: ', a.needs, 2), 'inputs:']
+      const out = [wrap('action: ', a.tool, 2), wrap('class: ', c.key, 2), wrap('confirmation: ', c.confirmation, 2), wrap('permission: ', a.needs, 2), 'inputs:']
       a.inputs(s).forEach(i => out.push(wrap('  ' + i[0] + ': ', i[1], 4)))
       out.push('preconditions:')
       a.pre.forEach(p => { out.push(wrap('  - rule: ', p.rule, 4)); out.push(wrap('    message: ', p.msg(s), 6)); out.push('    now: ' + (p.ok(s) ? 'passes' : 'fails')) })
@@ -379,6 +381,7 @@ App.view('confirm', {
         #view-confirm .cf-switch[aria-checked="true"] i { background: var(--brand); border-color: transparent; }
         #view-confirm .cf-switch[aria-checked="true"] i::after { transform: translateX(22px); background: var(--brand-ink); }
         #view-confirm .cf-switch:disabled { opacity: 0.45; cursor: not-allowed; }
+        #view-confirm #cf-mock { color-scheme: light; } /* inputs stay light, as the mock-up does */
         #view-confirm .cf-conv { display: grid; gap: 10px; }
         #view-confirm .m-cardlet > header { flex-wrap: wrap; }
         #view-confirm .m-cardlet > header svg, #view-confirm .m-head svg, #view-confirm .m-understood svg, #view-confirm .m-diff svg, #view-confirm .cf-block svg, #view-confirm .cf-why svg { width: 15px; height: 15px; flex: none; }
@@ -408,6 +411,8 @@ App.view('confirm', {
         #view-confirm #cf-mock > .m-toast { top: 46px; bottom: auto; }
         #view-confirm .m-task .m-btn { flex: none; }
         #view-confirm .cf-none { flex: none; max-width: 120px; font-size: 12px; color: var(--m-muted); text-align: right; }
+        #view-confirm .cf-more { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--m-line); background: var(--m-page); }
+        #view-confirm .cf-more .m-btn svg { width: 16px; height: 16px; }
       </style>
       <div class="view-head">
         <span class="eyebrow">Mock-up</span>
@@ -428,16 +433,16 @@ App.view('confirm', {
           why: [
             { text: 'Practitioner guidance in 2026 converges on friction tiered by consequence, and warns that approving everything turns the system into another approval queue (' + src('Towards AI', 'https://pub.towardsai.net/designing-for-ai-agents-8-ux-patterns-that-build-trust-in-2026-713a0c926933') + ', ' + src('DZone', 'https://dzone.com/articles/human-in-the-loop-approval-enterprise-ai-agents') + ').', confidence: 'medium' },
             { text: 'In one study of 73 people, users handed risky operations to an agent as readily as safe ones (' + src('arXiv 2608.19551', 'https://arxiv.org/pdf/2608.19551') + '). So the product has to set the friction.', confidence: 'medium' },
-            { text: 'No vendor found lets an agent write business data without a person\'s approval. Vendor practice, security guidance and Macaroonie\'s own design agree on confirming a preview that the system built.', confidence: 'high' },
+            { text: 'No vendor found lets an agent write business data without a person\'s approval. Where an agent acts without approval for each change, the change is reversible and guest-facing, such as re-ranking a digital menu. Vendor practice, security guidance and Macaroonie\'s own design agree on confirming a preview that the system built.', confidence: 'high' },
           ],
           status: [
             { kind: 'built', text: '97 change tools sit behind one Confirm card, built from the stored plan.' },
             { kind: 'built', text: 'A card expires after 30 minutes and then vanishes.' },
             { kind: 'target', text: 'Declared classes, before and after, fields you can edit on the card, Undo and the Done by Pepper list.' },
             { kind: 'target', text: 'Done, with Undo waits until undo exists and first customers give reversal figures. It is never for money, pay, prices, allergens, deletions or anything about a person.' },
-            { kind: 'target', text: 'A named person signs off any change to allergens, pay or tips, with no exception by voice or in a batch.' },
+            { kind: 'target', text: 'A named person signs off allergen data a model read and any change to pay or tips, with no exception by voice or in a batch.' },
           ],
-          calls: 'None to draw a card. It is built from stored data: the plan and the action\'s declaration.',
+          calls: 'None to draw a card. It is built from stored data: the plan and the action\'s declaration. No model runs on this page: the cards are scripted from the example actions.',
         })}
         <div class="stack">
           <div class="card cf-pick" id="cf-pick" role="group" aria-label="Example actions, by class"></div>
@@ -455,6 +460,7 @@ App.view('confirm', {
                   <div class="m-card">
                     <div class="m-head">${icon('list')}Done by Pepper<span class="count" id="cf-log-n"></span></div>
                     <div class="m-list" id="cf-log"></div>
+                    <div class="cf-more" id="cf-more"></div>
                   </div>
                 </div>
               </div>
@@ -462,7 +468,7 @@ App.view('confirm', {
             <div class="card cf-decl">
               <h3>What this action declares</h3>
               <pre class="code" id="cf-decl" tabindex="0" aria-label="The action's declaration"></pre>
-              <p class="small">The card, the entry in Done by Pepper and the refusal message are all drawn from this declaration.</p>
+              <p class="small">The card, the audit entry in Done by Pepper and the refusal message are all drawn from this declaration.</p>
               <div class="row"><button type="button" class="btn" id="cf-reg">Open the registry mock-up ${icon('right')}</button></div>
             </div>
           </div>
@@ -537,7 +543,8 @@ App.view('confirm', {
             '<span class="cf-why" id="cf-voice-why">' + icon('mic') + '<span>' + esc(voiceWhy(a)) + '</span></span>'
       } else if (s.phase === 'done') {
         body = '<div class="cf-rows"><div class="cf-row"><span class="k">Done at ' + esc(s.at) + '</span><div class="v">' + esc(entry ? entry.what : a.done(s)) +
-          (s.how === 'auto' ? '<small>It ran at once: this group allows Done, with Undo for this action</small>' : s.how === 'voice' ? '<small>Confirmed by a spoken yes</small>' : a.signoff ? '<small>Signed off by ' + esc(me.name) + '</small>' : '') + '</div></div></div>'
+          (s.how === 'auto' ? '<small>It ran at once: this group allows Done, with Undo for this action</small>' : s.how === 'voice' ? '<small>Confirmed by a spoken yes</small>' : a.signoff ? '<small>Signed off by ' + esc(me.name) + '</small>' : '') +
+          (entry && entry.until && canUndo(entry) ? '<small>It waits ' + a.inverse.seconds + ' seconds in the queue. Undo stops it.</small>' : '') + '</div></div></div>'
         foot = (entry && canUndo(entry) ? '<button type="button" class="m-btn" data-act="undo">' + icon('undo') + 'Undo</button>' : '') + again +
           (entry && !canUndo(entry) ? '<span class="cf-why">' + icon('lock') + '<span>' + esc(a.inverse ? 'It has left the queue, so it is too late to undo' : 'No undo: ' + a.noInverse) + '</span></span>' : '')
       } else if (s.phase === 'undone') {
@@ -575,7 +582,10 @@ App.view('confirm', {
 
     function drawLog() {
       $('#cf-log-n').textContent = log.length + ' today'
-      logEl.innerHTML = log.map(e => `
+      const shown = showAll ? log : log.slice(0, SHORT)
+      $('#cf-more').innerHTML = (log.length > SHORT ? '<button type="button" class="m-btn" data-act="more">' + (showAll ? 'Show the latest ' + SHORT : 'Show all ' + log.length) + '</button>' : '') +
+        '<button type="button" class="m-btn ghost" data-act="review">Open For review' + icon('right') + '</button>'
+      logEl.innerHTML = shown.map(e => `
         <div class="m-task${e.undone ? ' done' : ''}" data-entry="${e.id}">
           <span class="m-ico">${icon(e.undone ? 'undo' : 'check')}</span>
           <div class="what"><b>${esc(e.what)}</b><span>${esc(e.who)} · ${esc(e.when)} · ${esc(e.how)}</span>${e.undone ? '<span>Undone at ' + esc(e.undone) + ' by ' + esc(me.name) + '. ' + esc(e.undo) + '.</span>' : ''}</div>
@@ -618,7 +628,13 @@ App.view('confirm', {
     }
 
     // ── Events ──────────────────────────────────────────────────
-    pick.addEventListener('click', e => { const b = e.target.closest('[data-a]'); if (!b) return; cur = b.dataset.a; draw() })
+    pick.addEventListener('click', e => {
+      const b = e.target.closest('[data-a]')
+      if (!b) return
+      cur = b.dataset.a
+      mock.querySelectorAll('.m-toast').forEach(t => t.remove()) // a toast belongs to the card it came from
+      draw()
+    })
     dwu.addEventListener('click', () => {
       const a = byId[cur]
       if (a.cls !== 2) return
@@ -641,6 +657,8 @@ App.view('confirm', {
       else if (act === 'cancel') { s.phase = 'cancelled'; draw() }
       else if (act === 'undo') undo(s.entry)
       else if (act === 'note') App.toast(mock, b.dataset.note)
+      else if (act === 'more') { showAll = !showAll; drawLog() }
+      else if (act === 'review') App.go('review')
       else if (act === 'again') { st[cur] = fresh(a); if (a.cls === 2 && allow[cur]) run('auto'); else draw() }
     })
     $('#cf-reg').addEventListener('click', () => App.go('registry'))

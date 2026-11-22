@@ -155,7 +155,7 @@ App.view('home', {
     const without = name => D.fridges.filter(f => f !== name)
     const EXTRA = {
       ware: { missed: 0, orders: 1, review: '1 supplier order to approve, 1 invoice read from a photo', units: D.fridges, week: [46, 18, 22, 25, 41, 88, 97], event: [5, 'Christmas lights, 18:00'] },
-      hertford: { missed: 0, orders: 1, review: '1 supplier order to approve', units: without('Prep fridge 2'), week: [38, 14, 19, 20, 35, 74, 81], event: [6, 'Christmas market, all day'] },
+      hertford: { missed: 0, orders: 1, review: '1 allergen change to sign off, for all venues', units: without('Prep fridge 2'), week: [38, 14, 19, 20, 35, 74, 81], event: [6, 'Christmas market, all day'] },
       hitchin: { missed: 2, orders: 2, review: '2 supplier orders to approve, 1 price list read from a file', units: without('Bar fridge'), week: [34, 17, 19, 21, 32, 69, 74], event: [4, 'Late-night shopping, 17:00 to 21:00'] },
     }
     const extra = id => EXTRA[id] || { missed: 0, orders: 0, review: '', units: D.fridges, week: [30, 15, 18, 20, 30, 60, 70], event: null }
