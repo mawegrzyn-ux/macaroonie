@@ -17,7 +17,6 @@ App.view('registry', {
     const area = data.people[3].name
     const supplier = data.suppliers[0].name
     const fridge = data.fridges[1]
-    const units = data.fridges.slice(0, -1).join(', ') + ' and ' + data.fridges[data.fridges.length - 1]
     const dish = id => data.dishes.filter(d => d.id === id)[0] || data.dishes[0]
 
     // ── Words for the declared values ─────────────────────────
@@ -53,7 +52,7 @@ App.view('registry', {
               inp('venue', 'venue', 'Venue', venue),
               inp('day', 'day', 'Day', '2026-11-21'),
               inp('description', 'text', 'What it was', 'Bin bags'),
-              inp('amount', 'money', 'Amount, with VAT', 18.4),
+              inp('amount', 'money', 'Amount with VAT', 18.4),
               inp('vat_amount', 'money', 'VAT in it', 3.07, { required: false }),
               inp('category', 'choice', 'Category', 'Supplies', { required: false, options: CATEGORIES }),
               inp('paid_by_card', 'yesno', 'Paid by card', false, { required: false, help: 'A card expense is kept for its receipt and VAT. It does not count as cash out of the till.' }),
@@ -66,7 +65,7 @@ App.view('registry', {
             about: 'Changes the amount, VAT or category of an expense on a day that is still open.', module: 'cash_recon', level: 'use', cls: 'consequential', form: 'flat',
             inputs: [
               inp('expense', 'ref', 'Expense', 'Bin bags, Sat 21 Nov', { subject: 'cash.expenses' }),
-              inp('amount', 'money', 'Amount, with VAT', 21.4, { was: 18.4 }),
+              inp('amount', 'money', 'Amount with VAT', 21.4, { was: 18.4 }),
               inp('vat_amount', 'money', 'VAT in it', 3.57, { required: false, was: 3.07 }),
               inp('category', 'choice', 'Category', 'Supplies', { required: false, options: CATEGORIES }),
             ],
@@ -140,7 +139,7 @@ App.view('registry', {
               inp('corrective_action', 'longtext', 'What was done about it', '', { required: false }),
             ],
             pre: [
-              { rule: 'unit_at_venue', check: 'The unit belongs to the venue', message: venue + ' has no unit called Cellar fridge. Its units are ' + units + '.' },
+              { rule: 'unit_at_venue', check: 'The unit belongs to the venue', message: venue + ' has no unit called ' + fridge + '. Pick one of the units set up for ' + venue + '.' },
               { rule: 'out_of_range_has_action', check: 'A reading out of range comes with a corrective action', message: '9.5°C is above the 8°C limit for ' + fridge + '. Say what was done about it, then save.' },
             ],
             key: ['venue', 'day', 'fridge', 'check_time'], inverse: 'remove_fridge_check',
@@ -153,7 +152,7 @@ App.view('registry', {
               inp('action', 'longtext', 'What was done', 'Moved the stock to the walk-in fridge. Engineer called.'),
               inp('done_by', 'ref', 'Done by', chef, { subject: 'staff.people', required: false }),
             ],
-            pre: [{ rule: 'reading_out_of_range', check: 'The reading is out of range', message: fridge + ' read 3.5°C this morning, which is in range. There is nothing to correct.' }],
+            pre: [{ rule: 'reading_out_of_range', check: 'The reading is out of range', message: 'That reading is in range, so there is nothing to correct.' }],
             key: ['fridge_check', 'action'], inverse: null,
           },
         ],
@@ -174,7 +173,7 @@ App.view('registry', {
               inp('shift', 'choice', 'Shift', 'Evening, 17:00 to 23:00', { required: false, was: '', options: ['Morning, 09:00 to 17:00', 'Evening, 17:00 to 23:00'] }),
             ],
             pre: [
-              { rule: 'works_at_venue', check: 'The person works at the venue', message: shiftLead + ' is not on the staff list at Hitchin. Add her to Hitchin first, or pick someone else.' },
+              { rule: 'works_at_venue', check: 'The person works at the venue', message: shiftLead + ' is not on the staff list at ' + venue + '. Add her to ' + venue + ' first, or pick someone else.' },
               { rule: 'no_time_off', check: 'No time off is booked for the day', message: shiftLead + ' has holiday booked on Friday 27 November. Remove the time off first.' },
             ],
             key: ['venue', 'day', 'person'], inverse: 'set_rota', inverseNote: 'back to the old entry',
@@ -190,7 +189,7 @@ App.view('registry', {
       },
       {
         id: 'supplier_invoice', label: 'Supplier invoice', icon: 'file', table: 'purchase_invoices', subject: 'purchasing.invoices', subjectLabel: 'Supplier invoices', module: 'purchasing',
-        page: '/purchasing?order=:id', pageEg: '/purchasing?order=po-1042', pageBuilt: true, pageNote: 'An invoice opens through its order.',
+        page: '/purchasing?po=:id', pageEg: '/purchasing?po=1042', pageBuilt: true, pageNote: 'An invoice opens through its supplier order.',
         panel: { id: 'Receiving', name: 'Receiving panel', why: 'It shows the photographed invoice beside the lines read from it, against the order.' },
         actions: [
           {
@@ -364,7 +363,7 @@ App.view('registry', {
           (a.applies ? '<div class="m-understood"><span>Applies to: ' + esc(a.applies) + '.</span></div>' : '') +
           '<div class="m-understood"><span>Runs as ' + esc(who) + ' · ' + esc(MODULES[a.module]) + ', ' + esc(LEVELS[a.level]) + '</span></div>' +
           '<div class="m-understood"><span>' + after + '</span></div>' +
-          (typed() ? '<div class="m-field"><label for="rg-word-in">Type ' + esc(word(a)) + ' to go on</label><input class="m-input" id="rg-word-in" data-word-need="' + esc(word(a)) + '" autocomplete="off" autocapitalize="characters" placeholder="' + esc(word(a)) + '"></div>' : '') +
+          (typed() ? '<div class="m-field"><label for="rg-word-in">Type ' + esc(word(a)) + ' to confirm</label><input class="m-input" id="rg-word-in" data-word-need="' + esc(word(a)) + '" autocomplete="off" autocapitalize="characters" placeholder="' + esc(word(a)) + '"></div>' : '') +
         '</div>' +
         '<footer><button type="button" class="m-btn ' + (typed() ? 'danger' : 'primary') + '" data-do="go"' + (typed() ? ' disabled' : '') + '>' + esc(a.go) + '</button><button type="button" class="m-btn ghost" data-do="cancel">Cancel</button></footer></div>'
     }
@@ -383,7 +382,7 @@ App.view('registry', {
       const what = changed.length ? changed : a.inputs.filter(i => ['venue', 'day', 'week', 'longtext'].indexOf(i.type) < 0).slice(0, 2).map(i => showVal(i, i.eg))
       return '<div class="m-card">' + head('1 entry') +
         '<div class="m-task"><span class="m-ico">' + icon(o.icon) + '</span><div class="what"><b>' + esc(a.done) + '</b><span>' + esc(ctx.join(' · ')) + '</span><span>' + esc(what.join(' · ')) + '</span></div>' +
-          (st.inv ? '<button type="button" class="m-btn sm" data-do="undo">' + icon('undo') + 'Undo</button>' : '<span class="m-pill">No undo</span>') + '</div>' +
+          (st.inv ? '<button type="button" class="m-btn" data-do="undo">' + icon('undo') + 'Undo</button>' : '<span class="m-pill">No undo</span>') + '</div>' +
         '<div class="m-pad"><dl class="rg-kv">' +
           '<dt>Asked by</dt><dd>' + esc(who) + ', office tablet, 10:42</dd>' +
           '<dt>Confirmed by</dt><dd>' + esc(who) + (typed() ? ', by typing ' + esc(word(a)) : ', one tap') + '</dd>' +
@@ -820,7 +819,13 @@ App.view('registry', {
       })
       const stop = mock.querySelector('#rg-form-stop')
       stop.hidden = true
-      if (first) { first.focus(); return }
+      if (first) {
+        // Keep the field clear of the bars that stick to the top of the page.
+        first.focus({ preventScroll: true })
+        const r = first.getBoundingClientRect(), edit = root.querySelector('.rg-edit').getBoundingClientRect()
+        if (r.top < Math.max(edit.bottom, 0) + 8 || r.bottom > window.innerHeight) first.scrollIntoView({ block: 'center' })
+        return
+      }
       if (st.fail >= 0) { stop.textContent = a.pre[st.fail].message; stop.hidden = false; return }
       App.toast(mock, a.done + '. Mock-up: nothing is stored.')
     }

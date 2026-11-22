@@ -51,7 +51,7 @@ App.view('confirm', {
       { id: 'cream', name: 'Double cream 1 L', on: 2, qty: 6, price: 390 },
       { id: 'butter', name: 'Unsalted butter 250 g', on: 10, qty: 20, price: 215 },
       { id: 'eggs', name: 'Free-range eggs, tray of 30', on: 2, qty: 8, price: 620 },
-      { id: 'yog', name: 'Coconut yoghurt 1 kg', on: 2, qty: 10, price: 460 },
+      { id: 'yoghurt', name: 'Coconut yoghurt 1 kg', on: 2, qty: 10, price: 460 },
     ]
     const ORDER_SUM = ORDER.reduce((t, l) => t + l.qty * l.price, 0) // 18420
     const ORDER_MIN = 5000
