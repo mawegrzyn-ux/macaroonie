@@ -104,6 +104,18 @@ export function Section() {
         belongs with; if that page had been taken out of your menu, add the entry on the
         Navigation page with <strong>Add link</strong>.
       </P>
+      <H3>Links that open a page at a venue, day or week</H3>
+      <P>
+        Six pages can be opened straight at a venue, a day or a week, and one of their tabs, from
+        a link: Timeline and Bookings (venue and day), Rota (venue and week), Food safety (venue,
+        day and tab: Today, Deliveries, Holds or Cooking), Online orders (venue, day and tab:
+        Orders, Report or Transactions) and Cash recon (venue, and a day, a week or the
+        week&apos;s wages). Pepper gives such links when you ask for a page with a venue or a
+        day in mind. The page opens where the link says once; after that its own venue picker,
+        day and week buttons and tabs work as usual, and reloading the page doesn&apos;t take you
+        back to the link&apos;s day. A link naming a venue you can&apos;t see, or a day that
+        doesn&apos;t exist, opens the page as usual instead.
+      </P>
       <H3>The standard menu</H3>
       <P>
         Every group starts with the same menu, grouped by job: <strong>Home</strong> (Today, Local info,

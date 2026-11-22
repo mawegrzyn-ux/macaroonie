@@ -13,6 +13,7 @@ import { useVenues, useVenueChoice, PageHeader, VenuePicker } from '@/components
 import { RotaGrid, RotaPayTable, RotaTipsTable, useRotaPerms } from '@/components/staff/rota'
 import { PayHeader, TipsHeader } from '@/components/staff/rotaWidgets'
 import { usePepperPage } from '@/lib/pepperPage'
+import { useDeepLink } from '@/lib/deepLink'
 
 // Same card as the Rota dashboard's widgets: accent header bar with an
 // icon, title and the week's total, white body.
@@ -32,9 +33,18 @@ function Panel({ icon: Icon, title, value, children }) {
 }
 
 export default function Rota() {
-  const { data: venues = [] } = useVenues()
+  const { data: venues = [], isSuccess: venuesLoaded } = useVenues()
   const [venueId, setVenueId] = useVenueChoice(venues)
-  const { ctx, element: weekNav } = useWeekNav()
+  const { ctx, element: weekNav, setWeekStart } = useWeekNav()
+  // ?venue=&week= from a link (Pepper's open_page, lib/deepLink.js): set once,
+  // a venue only when it is one of the tenant's.
+  useDeepLink('/rota', {
+    ready: venuesLoaded,
+    apply: l => {
+      if (l.venue && venues.some(v => v.id === l.venue)) setVenueId(l.venue)
+      if (l.week) setWeekStart(l.week)
+    },
+  })
   usePepperPage({ venueId, week: ctx.weekStart })
   const { canEditRota, canSeePay, canEditPay, canSeeTips, canEditTips } = useRotaPerms()
 
