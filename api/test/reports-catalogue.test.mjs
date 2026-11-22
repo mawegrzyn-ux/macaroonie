@@ -70,7 +70,7 @@ test('every table in the database has one decision, and every decision names a t
   assert.deepEqual(read.get('gloriafood_orders'), ['online.sales'])
   assert.deepEqual(read.get('kds_log'), ['kitchen.tickets', 'kitchen.remakes'])
   assert.deepEqual(read.get('reviews'), ['website.reviews'])
-  assert.deepEqual(read.get('local_info_items'), ['local.weather', 'local.items'])
+  assert.deepEqual(read.get('local_info_items'), ['local.weather', 'local.weather_hours', 'local.items'])
   assert.deepEqual(read.get('ai_usage'), ['pepper.usage'])
   assert.deepEqual(read.get('users'), ['group.team'])
   // The rota's own rows, and the weeks and days worked out from them.
@@ -96,7 +96,7 @@ test('a table nobody has decided on, one decided twice and a stale name are each
 
 test('every id column of a table a subject reads is linked, offered or left out on purpose', t => {
   const cover = tableCoverage(CATALOGUE, columns)
-  assert.deepEqual(cover.derived, ['till.takers', 'online.sales', 'cash.days', 'cash.weeks', 'rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.tip_moves', 'safety.days', 'local.weather'])
+  assert.deepEqual(cover.derived, ['till.takers', 'online.sales', 'cash.days', 'cash.weeks', 'rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.tip_moves', 'safety.days', 'local.weather', 'local.weather_hours'])
   assert.equal(cover.tables.length, 119)
 
   const undecided = cover.tables.flatMap(x => x.idsUndecided.map(c => x.table + '.' + c))

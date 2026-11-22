@@ -25,6 +25,7 @@ import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { cn } from '@/lib/utils'
 import { ColourMenuButton } from '@/components/ColourPicker'
+import { typedLink } from '@shared/links.js'
 
 const EMAIL_TYPES = [
   { key: 'confirmation', label: 'Confirmation',  desc: 'Sent when a booking is confirmed.' },
@@ -41,15 +42,11 @@ const PROVIDERS = [
   { value: 'smtp',     label: 'SMTP (custom)',   desc: 'Any SMTP server (Outlook, Gmail, self-hosted).' },
 ]
 
-// Reject javascript: / data: / vbscript: URIs to prevent XSS in email links.
-// Allow merge fields ({{manage_link}}) which aren't real URLs but are safe.
-function isSafeUrl(url) {
-  if (!url) return false
-  if (url.startsWith('{{') && url.endsWith('}}')) return true
-  const lower = url.trim().toLowerCase()
-  if (lower.startsWith('javascript:') || lower.startsWith('data:') || lower.startsWith('vbscript:')) return false
-  return true
-}
+// Links typed into a template go through typedLink() (shared/links.js): web
+// addresses (example.com gets https://), mailto: and tel:, and merge fields
+// ({{manage_link}}); never javascript: or data:. An image is a web address.
+const LINK_RULE = { paths: false, tokens: true }
+const IMAGE_RULE = { mail: false, paths: false }
 
 function escapeAttr(str) {
   return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -134,6 +131,8 @@ function TemplateEditor({ venueId }) {
   const [active,   setActive]   = useState(true)
   const [preview,  setPreview]  = useState(null)
   const [editMode, setEditMode] = useState('visual') // 'visual' | 'html'
+  // The link, image or button being added, asked for under the toolbar (no browser pop-ups).
+  const [ask, setAsk] = useState(null) // { kind: 'link' | 'image' | 'button', url, label }
 
   const initialContent = tpl?.body_html ?? fallback?.body_html ?? ''
 
@@ -349,30 +348,16 @@ function TemplateEditor({ venueId }) {
                   <AlignRight className="w-4 h-4" />
                 </ToolbarBtn>
                 <ToolbarSep />
-                <ToolbarBtn onClick={() => {
-                  const url = window.prompt('Enter URL:')
-                  if (url && isSafeUrl(url)) editor.chain().focus().setLink({ href: url }).run()
-                }} active={editor.isActive('link')} title="Insert link">
+                <ToolbarBtn onClick={() => setAsk({ kind: 'link', url: editor.getAttributes('link').href || '' })} active={editor.isActive('link') || ask?.kind === 'link'} title="Insert link">
                   <Link2 className="w-4 h-4" />
                 </ToolbarBtn>
-                <ToolbarBtn onClick={() => {
-                  const url = window.prompt('Image URL:')
-                  if (url && isSafeUrl(url)) editor.chain().focus().setImage({ src: url }).run()
-                }} title="Insert image">
+                <ToolbarBtn onClick={() => setAsk({ kind: 'image', url: '' })} active={ask?.kind === 'image'} title="Insert image">
                   <ImageIcon className="w-4 h-4" />
                 </ToolbarBtn>
                 <ToolbarBtn onClick={() => editor.chain().focus().setHorizontalRule().run()} title="Divider">
                   <Minus className="w-4 h-4" />
                 </ToolbarBtn>
-                <ToolbarBtn onClick={() => {
-                  const label = window.prompt('Button text:', 'Book a Table')
-                  if (!label) return
-                  const href = window.prompt('Button URL:', '{{manage_link}}')
-                  if (!href || !isSafeUrl(href)) return
-                  editor.chain().focus()
-                    .insertContent(`<a href="${escapeAttr(href)}" class="btn">${escapeAttr(label)}</a>`)
-                    .run()
-                }} title="Insert CTA button">
+                <ToolbarBtn onClick={() => setAsk({ kind: 'button', label: 'Book a Table', url: '{{manage_link}}' })} active={ask?.kind === 'button'} title="Insert CTA button">
                   <span className="text-[10px] font-bold px-0.5">BTN</span>
                 </ToolbarBtn>
                 <ToolbarSep />
@@ -384,6 +369,8 @@ function TemplateEditor({ venueId }) {
                 </ColourMenuButton>
               </div>
             )}
+
+            {editor && ask && <AskBox ask={ask} setAsk={setAsk} editor={editor} mergeFields={mergeFields} />}
 
             {/* Editor content */}
             <EditorContent editor={editor}
@@ -463,6 +450,65 @@ function TemplateEditor({ venueId }) {
 }
 
 // ── Toolbar primitives ──────────────────────────────────────
+
+const ASK_WORDS = {
+  link: { title: 'Link', go: 'Add link', change: 'Change link' },
+  image: { title: 'Image', go: 'Add image' },
+  button: { title: 'Button', go: 'Add button' },
+}
+
+/**
+ * What the link, image and button tools ask, under the toolbar: the address
+ * (and a button's words), checked by typedLink(); Enter adds, Escape or
+ * Cancel closes. A link box left empty takes the link off.
+ */
+function AskBox({ ask, setAsk, editor, mergeFields }) {
+  const [bad, setBad] = useState(null)
+  const words = ASK_WORDS[ask.kind]
+  const had = ask.kind === 'link' && editor.isActive('link')
+  const close = () => { setAsk(null); editor.commands.focus() }
+  const go = () => {
+    if (ask.kind === 'link' && !ask.url.trim()) { editor.chain().focus().extendMarkRange('link').unsetLink().run(); setAsk(null); return }
+    const url = typedLink(ask.url, ask.kind === 'image' ? IMAGE_RULE : LINK_RULE)
+    if (!url) {
+      setBad(ask.kind === 'image' ? 'Type the image\'s web address (https://...).' : 'Type a web address (example.com), mailto:, tel: or a merge field such as {{manage_link}}.')
+      return
+    }
+    if (ask.kind === 'button' && !ask.label?.trim()) { setBad('Give the button its words.'); return }
+    if (ask.kind === 'link') editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
+    if (ask.kind === 'image') editor.chain().focus().setImage({ src: url }).run()
+    if (ask.kind === 'button') editor.chain().focus().insertContent(`<a href="${escapeAttr(url)}" class="btn">${escapeAttr(ask.label.trim())}</a>`).run()
+    setAsk(null)
+  }
+  const keys = e => { if (e.key === 'Enter') { e.preventDefault(); go() } else if (e.key === 'Escape') { e.preventDefault(); close() } }
+  const links = (mergeFields || []).filter(f => /link|url/i.test(f.key || f.name || ''))
+  return (
+    <div className="flex flex-wrap items-end gap-2 px-3 py-2 border-b bg-muted/20" data-testid="email-ask" data-kind={ask.kind}>
+      {ask.kind === 'button' && (
+        <label className="flex-1 min-w-[160px] text-xs font-medium">Button words
+          <TextInput value={ask.label} onChange={e => { setAsk({ ...ask, label: e.target.value }); setBad(null) }} onKeyDown={keys} maxLength={60} data-testid="email-ask-label" />
+        </label>
+      )}
+      <label className="flex-[2] min-w-[200px] text-xs font-medium">{ask.kind === 'image' ? 'Image address' : ask.kind === 'button' ? 'Goes to' : 'Link address'}
+        <TextInput autoFocus={ask.kind !== 'button'} value={ask.url} onChange={e => { setAsk({ ...ask, url: e.target.value }); setBad(null) }} onKeyDown={keys}
+          placeholder={ask.kind === 'image' ? 'https://...' : 'example.com, mailto: or {{manage_link}}'} list={ask.kind !== 'image' && links.length ? 'email-ask-fields' : undefined}
+          data-testid="email-ask-url" />
+      </label>
+      {ask.kind !== 'image' && links.length > 0 && (
+        <datalist id="email-ask-fields">{links.map(f => <option key={f.key || f.name} value={'{{' + (f.key || f.name) + '}}'} />)}</datalist>
+      )}
+      <button type="button" onClick={go} className="min-h-[44px] px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation" data-testid="email-ask-go">
+        {had ? words.change : words.go}
+      </button>
+      {had && (
+        <button type="button" onClick={() => { editor.chain().focus().extendMarkRange('link').unsetLink().run(); setAsk(null) }}
+          className="min-h-[44px] px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted">Remove link</button>
+      )}
+      <button type="button" onClick={close} className="min-h-[44px] px-3 rounded-lg text-sm touch-manipulation hover:bg-muted">Cancel</button>
+      {bad && <p className="basis-full text-xs text-red-700" data-testid="email-ask-bad">{bad}</p>}
+    </div>
+  )
+}
 
 function ToolbarBtn({ onClick, active, title, children }) {
   return (

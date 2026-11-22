@@ -4,7 +4,7 @@
 // around each venue. Weather forecasts are their own subject (local.weather),
 // read beside sales in Sales against the weather.
 
-import { starter } from './define.js'
+import { starter, m } from './define.js'
 
 export default [
   starter({
@@ -17,6 +17,22 @@ export default [
       kind: 'list',
       rows: ['date', 'last_day', 'venue.name', 'kind', 'severity', 'title', 'place', 'time'],
       sort: [{ by: 'date', dir: 'asc' }],
+    },
+  }),
+
+  starter({
+    key: 'local_weather_by_hour',
+    name: 'Weather by the hour',
+    about: 'The temperature at each venue hour by hour across the days, as recorded once an hour has passed and forecast before: when it was warm, cold or wet. Change the value to rain, wind or wet hours.',
+    period: { relative: 'last_n_days', n: 7 },
+    spec: {
+      subject: 'local.weather_hours',
+      kind: 'matrix',
+      rows: ['date'],
+      columns: ['hour'],
+      values: m('average_temp'),
+      drill: { rows: ['date', 'hour', 'venue.name', 'conditions', 'temp', 'rain', 'chance_of_rain', 'wind', 'recorded'] },
+      view: { kind: 'heat' },
     },
   }),
 ]

@@ -20,7 +20,7 @@
 // entry (migration 249) is left out like a hidden one: the entry counts it
 // once, and says how many other reports it holds.
 
-import { subject, text, choice, number, yesno, date, moment, count, avg, min, max, ratio, one, many } from './define.js'
+import { subject, text, choice, number, percent, yesno, date, moment, count, sum, avg, min, max, ratio, one, many } from './define.js'
 import { weatherCodes, WEATHER_GROUPS, WET_DAY_MM, KIND_LABELS } from '../../../../shared/localInfo.js'
 
 const slug = words => String(words).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
@@ -64,6 +64,29 @@ const WEATHER_DAYS = `(
      AND jsonb_typeof(i.data->'weather_code') = 'number'
    ORDER BY i.venue_id, i.starts_on, i.updated_at DESC, i.id
 )`
+
+// The weather hour by hour (22 Nov 2026): each weather day's hours
+// (data.hours, mergeWeatherDay() in shared/localInfo.js), one row an hour,
+// from the same row a day local.weather keeps.
+const hnum = (obj, key) => "(CASE WHEN jsonb_typeof(" + obj + "->'" + key + "') = 'number' THEN (" + obj + "->>'" + key + "')::numeric END)"
+const WEATHER_HOURS = `(
+  SELECT d.id::text || ':' || (x->>'h') AS id, d.tenant_id, d.venue_id, d.day, (x->>'h')::int AS hour, d.updated_at,
+         ${hnum('x', 'weather_code')}::int AS weather_code, ${hnum('x', 'temp')} AS temp,
+         COALESCE(${hnum('x', 'precip_mm')}, 0) AS precip_mm, ${hnum('x', 'precip_prob')} AS precip_prob,
+         COALESCE(${hnum('x', 'wind_kph')}, 0) AS wind_kph, COALESCE(x->>'recorded' = 'true', false) AS recorded,
+         ${hnum("(x->'forecast')", 'weather_code')}::int AS forecast_code, ${hnum("(x->'forecast')", 'temp')} AS forecast_temp,
+         ${hnum("(x->'forecast')", 'precip_mm')} AS forecast_mm
+    FROM (SELECT DISTINCT ON (i.venue_id, i.starts_on) i.id, i.tenant_id, i.venue_id, i.starts_on AS day, i.updated_at, i.data
+            FROM local_info_items i
+           WHERE i.kind = 'weather' AND i.venue_id IS NOT NULL AND NOT i.hidden AND i.merged_into IS NULL
+             AND jsonb_typeof(i.data->'weather_code') = 'number'
+           ORDER BY i.venue_id, i.starts_on, i.updated_at DESC, i.id) d
+    CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(d.data->'hours') = 'array' THEN d.data->'hours' ELSE '[]'::jsonb END) x
+   WHERE x->>'h' ~ '^[0-9]{1,2}$'
+)`
+// An hour that had rain or snow: 0.1 mm or more.
+const WET_HOUR = '({t}.precip_mm >= 0.1)'
+const HOURS = Object.fromEntries(Array.from({ length: 24 }, (_, h) => [String(h).padStart(2, '0'), String(h).padStart(2, '0') + ':00']))
 
 const WET = '({t}.precip_mm >= ' + WET_DAY_MM + ')'
 const SEVERITY = { info: 'Info', notice: 'Worth knowing', warning: 'Warning' }
@@ -134,6 +157,47 @@ export default [
     },
     list: ['date', 'venue.name', 'conditions', 'temp_min', 'temp_max', 'rain', 'wind', 'severity'],
     sort: [{ by: 'date', dir: 'desc' }],
+  }),
+
+  subject({
+    key: 'local.weather_hours',
+    label: 'Weather by the hour',
+    one: 'weather hour',
+    area: 'local',
+    module: 'local_info',
+    about: 'The weather at each venue hour by hour (in the venue\'s time), from the weather capture on the Local info page: an hour that has passed is recorded (Open-Meteo\'s values for the venue\'s spot), a later one the latest forecast with its chance of rain; what was forecast is kept beside a recorded hour. Hours are kept from the capture\'s first run on, and only as fresh as its last run.',
+    from: { sql: WEATHER_HOURS, tables: ['local_info_items'] },
+    idType: 'text',
+    name: 'conditions',
+    venue: 'venue_id',
+    date: { sql: '{t}.day', label: 'Day' },
+    fields: {
+      hour: choice({ sql: "lpad({t}.hour::text, 2, '0')" }, HOURS, { label: 'Hour', about: 'The hour of the day, in the venue\'s time (14:00 is 14:00 to 15:00).' }),
+      conditions: choice({ sql: caseOf('{t}.weather_code', WORD_OF_CODE) }, WORDS, { label: 'Weather', empty: 'Not known' }),
+      kind: choice({ sql: caseOf('{t}.weather_code', GROUP_OF_CODE) }, GROUPS, { label: 'Kind of weather', empty: 'Not known' }),
+      temp: number('temp', { label: 'Temperature (°C)', decimals: 1 }),
+      rain: number('precip_mm', { label: 'Rain and snow (mm)', decimals: 1, adds: true }),
+      chance_of_rain: percent('precip_prob', { label: 'Chance of rain', about: 'A forecast hour\'s chance of rain or snow; none once the hour is recorded.' }),
+      wind: number('wind_kph', { label: 'Wind (km/h)', decimals: 0 }),
+      wet: yesno({ sql: WET_HOUR }, { label: 'Wet hour', about: '0.1 mm of rain or snow or more in the hour.' }),
+      recorded: yesno({ sql: '{t}.recorded' }, { label: 'Recorded' }),
+      forecast_conditions: choice({ sql: caseOf('{t}.forecast_code', WORD_OF_CODE) }, WORDS, { label: 'Weather forecast', empty: 'No forecast' }),
+      forecast_temp: number('forecast_temp', { label: 'Forecast temperature (°C)', decimals: 1 }),
+      forecast_rain: number('forecast_mm', { label: 'Forecast rain and snow (mm)', decimals: 1, adds: true }),
+      read_at: moment('updated_at', { label: 'Last read' }),
+    },
+    measures: {
+      hours: count({ label: 'Hours' }),
+      wet_hours: count({ label: 'Wet hours', where: WET_HOUR, about: 'Hours with 0.1 mm of rain or snow or more.' }),
+      wet_hour_share: ratio('wet_hours', 'hours', { type: 'percent', label: 'Share of hours wet' }),
+      average_temp: avg('temp', { label: 'Average temperature (°C)', decimals: 1 }),
+      warmest: max('temp', { label: 'Warmest (°C)', decimals: 1 }),
+      coldest_hour: min('temp', { label: 'Coldest (°C)', decimals: 1 }),
+      rain_total: sum('precip_mm', { label: 'Rain and snow (mm)', decimals: 1 }),
+      average_wind: avg('wind_kph', { label: 'Average wind (km/h)', decimals: 0 }),
+    },
+    list: ['date', 'hour', 'venue.name', 'conditions', 'temp', 'rain', 'chance_of_rain', 'wind', 'recorded'],
+    sort: [{ by: 'date', dir: 'desc' }, { by: 'hour', dir: 'asc' }],
   }),
 
   subject({

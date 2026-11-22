@@ -17,6 +17,8 @@
 //   watchWorker(name, worker)   records a BullMQ worker's last finish / failure
 //   platformStatus()            the whole picture, for platform admins
 //   lightStatus()               { state, checked_at }: cached for LIGHT_TTL_S
+// Alerts by email when it turns red: services/platformAlerts.js (its last
+// alert is `alert` in platformStatus()).
 
 import os from 'node:os'
 import fs from 'node:fs'
@@ -224,8 +226,11 @@ export async function platformStatus() {
   const [procs, js] = rd.ok ? await Promise.all([processes(), jobs(now)]) : [[], []]
   const m = machine()
   const { state, reasons } = stateOf({ db, redis: rd, jobs: js, machine: m })
+  // What the alerts last sent (services/platformAlerts.js), when Redis answers.
+  let alert = null
+  if (rd.ok) { try { const raw = await client().get(PREFIX + 'alert:last'); alert = raw ? JSON.parse(raw) : null } catch { alert = null } }
   return {
-    state, reasons, checked_at: new Date(now).toISOString(),
+    state, reasons, checked_at: new Date(now).toISOString(), alert,
     deployed: deployed(), node_env: env.NODE_ENV,
     database: db, redis: rd, processes: procs, jobs: js, machine: m,
   }

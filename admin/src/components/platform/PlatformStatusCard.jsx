@@ -29,6 +29,8 @@ function Light({ ok, label }) {
   )
 }
 
+const ALERT_WORDS = { down: 'down', degraded: 'running slow', up: 'back up' }
+
 export default function PlatformStatusCard() {
   const api = useApi()
   const { data: s, isLoading, isFetching, refetch, error } = useQuery({
@@ -60,6 +62,10 @@ export default function PlatformStatusCard() {
                 Checked {ago(s.checked_at)}
                 {s.deployed?.commit && <> · deployed {s.deployed.commit}{s.deployed.branch ? ' (' + s.deployed.branch + ')' : ''}</>}
                 {s.node_env && <> · {s.node_env}</>}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground" data-testid="platform-alerts">
+                Platform admins are emailed when it is down for 2 minutes or slow for 30, and again when it is back.
+                {s.alert ? ' Last: ' + (ALERT_WORDS[s.alert.kind] || s.alert.kind) + ' ' + ago(s.alert.at) + (s.alert.of ? ', to ' + s.alert.to + ' of ' + s.alert.of : '') + '.' : ' None sent yet.'}
               </p>
             </div>
           </div>

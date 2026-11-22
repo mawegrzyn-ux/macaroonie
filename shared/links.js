@@ -12,3 +12,22 @@ export function webLink(url) {
   const u = String(url ?? '').trim()
   return /^https?:\/\/[^\s]+$/i.test(u) ? u : null
 }
+
+/**
+ * A link typed into an editor (the website's rich text, email templates),
+ * as it is stored, or null when it isn't one: a web address (https:// is
+ * put in front of a bare one such as example.com/menu), and as asked
+ * mailto: / tel: links, a path on the site (/menu) and a template
+ * placeholder ({{manage_link}}). Never javascript: or data:.
+ */
+export function typedLink(text, { mail = true, paths = true, tokens = false } = {}) {
+  const u = String(text ?? '').trim()
+  const token = tokens && /^\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}$/i.exec(u)
+  if (token) return '{{' + token[1] + '}}'
+  if (!u || /\s/.test(u)) return null
+  if (webLink(u)) return u
+  if (mail && /^(mailto|tel):[^\s:]+/i.test(u) && !/^(mailto|tel):\/\//i.test(u)) return u
+  if (paths && /^\/(?!\/)[^\s]*$/.test(u)) return u
+  if (/^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}(:\d+)?([/?#][^\s]*)?$/i.test(u)) return 'https://' + u
+  return null
+}

@@ -6,6 +6,12 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-22 — Small follow-ups: links without pop-ups, platform alerts, weather by the hour]
+
+- The website's rich text and the email templates ask for a link, an image or a button on the page instead of a browser pop-up. A bare address such as example.com gets https:// in front; javascript: and data: links are refused.
+- Platform admins are emailed when Macaroonie is down for two minutes or slow for half an hour, and when it is back up. Platform → Services shows when the last one went.
+- Reports: **Weather by the hour** (a new subject and starter): each venue's weather hour by hour, recorded once an hour has passed and forecast before.
+
 ## [2026-11-22 — Which till buttons get used, and till and kitchen screen activity]
 
 - Store tech → Till layouts → a layout: **Taps** colours every button by how often the tills tapped it (pale yellow for few, deep red for the most, grey for never), with the count on each and the most tapped listed. Pick 7, 30 or 90 days, every till or one, and everyone or one person (people need Till reports).

@@ -2652,7 +2652,7 @@ export default function Help() {
                 ['Customers', 'Newsletter sign-ups by month.'],
                 ['Menus', 'Dishes with no photo, price or allergens; Allergens by dish; Price list; Publishing history.'],
                 ['Website and reviews', 'Reviews by rating, site and month.'],
-                ['Local info', 'Local events and incidents coming up.'],
+                ['Local info', 'Local events and incidents coming up; Weather by the hour.'],
                 ['Store tech', 'Card machine payments by machine; Tickets printed by printer; Menu screens offline.'],
                 ['Till activity', 'Till activity by person; Till activity by till; Till buttons tapped.'],
                 ['Pepper', 'Pepper\'s use by month; Pepper\'s use by person; Pepper\'s changes.'],
@@ -8612,6 +8612,7 @@ export default function Help() {
               <li>Select the email type tab (Confirmation / Reminder / Modification / Cancellation).</li>
               <li>Edit the <strong>subject line</strong> — merge fields work here too.</li>
               <li>Edit the <strong>HTML body</strong>. Click merge field pills above the editor to insert them.</li>
+              <li>The link, image and <strong>BTN</strong> (button) tools ask under the toolbar: type the address (example.com gets https:// in front; mailto:, tel: and merge fields such as <Mono>{'{{manage_link}}'}</Mono> work too, picked from the list) and, for a button, its words, then <strong>Add</strong> (or Enter). An image needs a web address. With the words on a link, the link tool shows <strong>Change link</strong> and <strong>Remove link</strong>.</li>
               <li>Click <strong>Preview</strong> to see the email rendered with sample data in a preview panel.</li>
               <li>Click <strong>Save template</strong>.</li>
               <li>To go back to the built-in default, click <strong>Reset to default</strong> or <strong>Delete custom</strong>.</li>
@@ -8832,6 +8833,13 @@ export default function Help() {
               phone to get in touch, set each one to <strong>New</strong>, <strong>Contacted</strong> or{' '}
               <strong>Closed</strong>, keep a note (with its own Save), or delete it (it asks first).{' '}
               <strong>Open</strong> hides closed ones; <strong>All</strong> shows everything.
+            </P>
+            <P>
+              The <strong>Services</strong> tab&apos;s Platform status shows whether Macaroonie is up, running slow or
+              down, and why. Platform admins are emailed when it has been <strong>down</strong> for two minutes or
+              <strong> slow</strong> for half an hour, and again when it is <strong>back up</strong>; each once a spell.
+              The card says when the last one was sent. The emails go from the platform&apos;s own email account, so
+              they need its email key set on the server.
             </P>
 
             <H3>Creating a new tenant (master franchisee)</H3>

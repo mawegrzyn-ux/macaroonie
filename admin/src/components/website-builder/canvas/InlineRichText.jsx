@@ -2,7 +2,10 @@
 //
 // TipTap-powered rich text editor that renders inline in the canvas
 // using public-site styles. A slim formatting toolbar floats above the
-// editor when focused.
+// editor when focused. The link button turns the toolbar into a link box
+// (typed links go through typedLink() in shared/links.js: example.com gets
+// https://, /menu, mailto: and tel: are kept); the toolbar stays while the
+// box is open, though the editor has lost the focus to it.
 
 import { useEffect, useState } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
@@ -14,14 +17,7 @@ import {
   Bold, Italic, Underline as UnderlineIcon, List, ListOrdered,
   Heading2, Heading3, Quote, Link as LinkIcon, AlignLeft, AlignCenter, AlignRight,
 } from 'lucide-react'
-
-function isSafeUrl(u) {
-  if (!u) return false
-  try {
-    const parsed = new URL(u, window.location.origin)
-    return ['http:', 'https:', 'mailto:', 'tel:'].includes(parsed.protocol)
-  } catch { return false }
-}
+import { typedLink } from '@shared/links.js'
 
 export function InlineRichText({
   value, onChange, placeholder, className, style,
@@ -29,6 +25,8 @@ export function InlineRichText({
   onFocus, onBlur,
 }) {
   const [focused, setFocused] = useState(false)
+  // The link being typed (null: none).
+  const [link, setLink] = useState(null)
 
   const editor = useEditor({
     extensions: [
@@ -56,7 +54,9 @@ export function InlineRichText({
 
   return (
     <div className={className} style={{ position: 'relative', ...(style || {}) }}>
-      {focused && <FormatBar editor={editor} allowHeadings={allowHeadings} />}
+      {link !== null
+        ? <LinkBar editor={editor} value={link} setValue={setLink} onDone={() => setLink(null)} />
+        : focused && <FormatBar editor={editor} allowHeadings={allowHeadings} onLink={() => setLink(editor.getAttributes('link').href || '')} />}
       <EditorContent editor={editor} />
       {placeholder && editor.isEmpty && !focused && (
         <p style={{
@@ -68,30 +68,56 @@ export function InlineRichText({
   )
 }
 
-function FormatBar({ editor, allowHeadings }) {
-  function setLink() {
-    const prev = editor.getAttributes('link').href || ''
-    const next = window.prompt('Link URL', prev)
-    if (next === null) return
-    if (!next) { editor.chain().focus().unsetLink().run(); return }
-    if (isSafeUrl(next)) editor.chain().focus().extendMarkRange('link').setLink({ href: next }).run()
-  }
+const BAR = {
+  position: 'absolute',
+  top: -44, left: 0,
+  display: 'flex', alignItems: 'center', gap: 2,
+  background: '#1f2937', color: '#fff',
+  padding: '4px 6px',
+  borderRadius: 6,
+  boxShadow: '0 4px 12px rgba(0,0,0,0.18)',
+  zIndex: 30,
+  fontFamily: 'system-ui, -apple-system, sans-serif',
+  fontSize: 13,
+}
 
+/**
+ * The link box in place of the toolbar: the address, then Add (or Change),
+ * Remove when the words are a link already, and Cancel. Enter adds, Escape
+ * cancels; an empty box takes the link off.
+ */
+function LinkBar({ editor, value, setValue, onDone }) {
+  const [bad, setBad] = useState(false)
+  const had = editor.isActive('link')
+  const close = () => { onDone(); editor.commands.focus() }
+  const apply = () => {
+    if (!value.trim()) { editor.chain().focus().extendMarkRange('link').unsetLink().run(); onDone(); return }
+    const href = typedLink(value)
+    if (!href) { setBad(true); return }
+    editor.chain().focus().extendMarkRange('link').setLink({ href }).run()
+    onDone()
+  }
+  const word = { padding: '0 10px', minHeight: 32, borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600 }
+  return (
+    <div style={{ ...BAR, top: bad ? -66 : -44, flexWrap: 'wrap', maxWidth: 'min(520px, 92vw)', gap: 4 }} data-testid="rt-link-bar">
+      <input autoFocus value={value} placeholder="example.com, /menu or mailto:" aria-label="Link address"
+        onChange={e => { setValue(e.target.value); setBad(false) }}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); apply() } else if (e.key === 'Escape') { e.preventDefault(); close() } }}
+        style={{ flex: '1 1 200px', minWidth: 0, minHeight: 32, padding: '0 8px', borderRadius: 4, border: 'none', color: '#111827', fontSize: 13 }}
+        data-testid="rt-link-input" />
+      <button type="button" onClick={apply} style={{ ...word, background: '#2563eb', color: '#fff' }} data-testid="rt-link-apply">{had ? 'Change' : 'Add link'}</button>
+      {had && <button type="button" onClick={() => { editor.chain().focus().extendMarkRange('link').unsetLink().run(); onDone() }} style={{ ...word, background: '#374151', color: '#fff' }}>Remove</button>}
+      <button type="button" onClick={close} style={{ ...word, background: 'transparent', color: '#fff' }}>Cancel</button>
+      {bad && <span style={{ flexBasis: '100%', color: '#fca5a5', fontSize: 12 }} data-testid="rt-link-bad">Type a web address (example.com), a page of the site (/menu), mailto: or tel:.</span>}
+    </div>
+  )
+}
+
+function FormatBar({ editor, allowHeadings, onLink }) {
   return (
     <div
       onMouseDown={(e) => e.preventDefault()}
-      style={{
-        position: 'absolute',
-        top: -44, left: 0,
-        display: 'flex', alignItems: 'center', gap: 2,
-        background: '#1f2937', color: '#fff',
-        padding: '4px 6px',
-        borderRadius: 6,
-        boxShadow: '0 4px 12px rgba(0,0,0,0.18)',
-        zIndex: 30,
-        fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: 13,
-      }}
+      style={BAR}
     >
       <Btn active={editor.isActive('bold')}      onClick={() => editor.chain().focus().toggleBold().run()}      title="Bold"><Bold size={14}/></Btn>
       <Btn active={editor.isActive('italic')}    onClick={() => editor.chain().focus().toggleItalic().run()}    title="Italic"><Italic size={14}/></Btn>
@@ -112,7 +138,7 @@ function FormatBar({ editor, allowHeadings }) {
       <Btn active={editor.isActive({ textAlign: 'center' })} onClick={() => editor.chain().focus().setTextAlign('center').run()} title="Align center"><AlignCenter size={14}/></Btn>
       <Btn active={editor.isActive({ textAlign: 'right' })}  onClick={() => editor.chain().focus().setTextAlign('right').run()}  title="Align right"><AlignRight size={14}/></Btn>
       <Sep />
-      <Btn active={editor.isActive('link')} onClick={setLink} title="Link"><LinkIcon size={14}/></Btn>
+      <Btn active={editor.isActive('link')} onClick={onLink} title="Link"><LinkIcon size={14}/></Btn>
     </div>
   )
 }
