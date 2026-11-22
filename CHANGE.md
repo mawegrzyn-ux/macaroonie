@@ -6,6 +6,12 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-22 — The weather hour by hour, and as it was recorded]
+
+- The Local info weather capture now brings the forecast hour by hour as well as day by day, and once a day or an hour has passed it records the weather it had, keeping what was forecast beside it. Each run also reads the last seven days, so a week of recorded weather appears straight away.
+- On Local info a weather entry says **Forecast** or **Recorded** (with **Forecast was** underneath), and **By the hour** opens its hours: recorded hours grey, forecast hours dashed with the chance of rain. The Today page shows **Today by the hour** under the week.
+- Pepper says whether a day's weather is a forecast or recorded, what was forecast, and the hours when you ask about a day or two. The Weather report uses the recorded weather once a day is over, with new **Recorded** and forecast fields beside it. No migration.
+
 ## [2026-11-21 — Pepper on the phone's home; one microphone]
 
 - The phone's home screen has **Pepper** in a bar at the bottom: type a question and tap Send, or hold the microphone, speak and let go. The Pepper page opens with the question sent in your current chat.

@@ -7,7 +7,11 @@
 //
 // Weather reads Open-Meteo (keyless): the source's place is geocoded once
 // (/v1/search) and the lat/lon cached on the row until the place changes,
-// then /v1/forecast gives seven days, one item per day. The other kinds run
+// then /v1/forecast gives the next seven days and the last seven
+// (WEATHER_PAST_DAYS), day by day and hour by hour, one item per day. A day
+// or hour that has passed is recorded, with what was forecast for it kept
+// (mergeWeatherDay() in shared/localInfo.js, merged into what the row held,
+// so the past days read again each run keep their forecasts). The other kinds run
 // a web search through Pepper's model (searchForJson in aiJson.js,
 // optionally narrowed to one site), which answers a JSON list of findings.
 //
@@ -43,7 +47,7 @@ import { withTenant, systemSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { searchForJson, askForJson, obj, str, arr, oneOf, clip } from './aiJson.js'
 import { KINDS, KIND_LABELS, SEVERITIES, nextRunAt, itemKey, addDays, localDateTime,
-  weatherText, weatherSummary, weatherSeverity, FLAG_NOTE_MAX } from '../../../shared/localInfo.js'
+  weatherText, weatherSummary, weatherSeverity, mergeWeatherDay, WEATHER_PAST_DAYS, FLAG_NOTE_MAX } from '../../../shared/localInfo.js'
 
 const TIMEOUT_MS = 20000
 const MAX_FOUND = 20
@@ -145,27 +149,61 @@ async function captureWeather(source, tz) {
   const data = await getJson(env.OPEN_METEO_URL.replace(/\/+$/, '') + '/v1/forecast'
     + '?latitude=' + encodeURIComponent(lat) + '&longitude=' + encodeURIComponent(lon)
     + '&daily=weather_code,temperature_2m_min,temperature_2m_max,precipitation_sum,wind_speed_10m_max'
-    + '&forecast_days=7&timezone=' + encodeURIComponent(tz))
+    + '&hourly=weather_code,temperature_2m,precipitation,precipitation_probability,wind_speed_10m'
+    + '&past_days=' + WEATHER_PAST_DAYS + '&forecast_days=7&timezone=' + encodeURIComponent(tz))
   const days = data?.daily?.time || []
+  if (!days.length) return
+  const now = localDateTime(new Date(), tz)
+  const nowHour = Number(now.time.slice(0, 2))
+  const readAt = new Date().toISOString()
+  const hours = hoursByDay(data.hourly)
+  // What the rows already hold for these days, to merge into.
+  const keys = days.map(d => itemKey('weather', d))
+  const held = await withTenant(source.tenant_id, tx => tx`
+    SELECT external_key, data FROM local_info_items
+     WHERE tenant_id = ${source.tenant_id} AND source_id = ${source.id} AND external_key IN ${tx(keys)}`)
+  const prev = new Map(held.map(r => [r.external_key, r.data]))
   for (let i = 0; i < days.length; i++) {
-    const day = {
-      weather_code: data.daily.weather_code?.[i] ?? 0,
-      temp_min: data.daily.temperature_2m_min?.[i],
-      temp_max: data.daily.temperature_2m_max?.[i],
-      precip_mm: data.daily.precipitation_sum?.[i] ?? 0,
-      wind_kph: data.daily.wind_speed_10m_max?.[i] ?? 0,
-    }
+    const key = itemKey('weather', days[i])
+    const merged = mergeWeatherDay(prev.get(key) ?? null, {
+      date: days[i], today: now.date, nowHour, readAt,
+      day: {
+        weather_code: data.daily.weather_code?.[i] ?? 0,
+        temp_min: data.daily.temperature_2m_min?.[i],
+        temp_max: data.daily.temperature_2m_max?.[i],
+        precip_mm: data.daily.precipitation_sum?.[i] ?? 0,
+        wind_kph: data.daily.wind_speed_10m_max?.[i] ?? 0,
+      },
+      hours: hours.get(days[i]) || [],
+    })
     await upsertItem(source, {
       kind: 'weather',
-      title: weatherText(day.weather_code),
-      details: weatherSummary(day),
+      title: weatherText(merged.weather_code),
+      details: weatherSummary(merged),
       place,
       starts_on: days[i],
-      severity: weatherSeverity(day),
-      data: day,
-      external_key: itemKey('weather', days[i]),
+      severity: weatherSeverity(merged),
+      data: merged,
+      external_key: key,
     })
   }
+}
+
+/** Open-Meteo's hourly values ("2026-11-22T14:00" in the venue's time) by day. */
+function hoursByDay(hourly) {
+  const out = new Map()
+  const times = Array.isArray(hourly?.time) ? hourly.time : []
+  times.forEach((t, i) => {
+    const day = String(t).slice(0, 10)
+    const h = Number(String(t).slice(11, 13))
+    if (!out.has(day)) out.set(day, [])
+    out.get(day).push({
+      h, weather_code: hourly.weather_code?.[i], temp: hourly.temperature_2m?.[i],
+      precip_mm: hourly.precipitation?.[i], precip_prob: hourly.precipitation_probability?.[i],
+      wind_kph: hourly.wind_speed_10m?.[i],
+    })
+  })
+  return out
 }
 
 const SEARCH_SYSTEM = 'You find local information for a restaurant’s operations team. Search the web '

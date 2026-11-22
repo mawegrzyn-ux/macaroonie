@@ -18,6 +18,9 @@
 // The same event found under other names is one entry (migration 249): the
 // other reports of it come with the item as `also`, shown under it, each
 // with its source; Not the same (Manage) makes one its own entry again.
+//
+// A captured weather day says Forecast or Recorded, and opens its hours
+// (./weather.jsx).
 
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -28,6 +31,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { KIND_LABELS, addDays, itemOnDay, sortDayItems, FLAG_NOTE_MAX, cleanFlagNote } from '@shared/localInfo.js'
 import { webLink } from '@shared/links.js'
+import { WeatherTag, WeatherMore } from './weather'
 
 // No keyboard popping up by itself on a tablet when the note box opens.
 const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
@@ -286,8 +290,10 @@ export function ItemRow({ item, venueNames = {}, actions = null, compact = false
           )}
           {item.hidden && <span className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"><EyeOff className="w-3 h-3" />Hidden</span>}
           {!item.source_id && <span className="text-[11px] px-1.5 py-0.5 rounded bg-sky-100 text-sky-800">Typed in</span>}
+          <WeatherTag item={item} />
         </div>
         {item.details && <p className="text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap">{item.details}</p>}
+        <WeatherMore item={item} />
         <p className="text-xs text-muted-foreground mt-0.5">
           {[rangeText(item), item.time_text, item.place, where].filter(Boolean).join(' · ')}
           {webLink(item.url) && (

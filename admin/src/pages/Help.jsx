@@ -225,6 +225,12 @@ export default function Help() {
               however many are left) opens the rest.
             </P>
             <P>
+              Between the days and the news, <strong>Today by the hour</strong> shows the rest of today, from the
+              hour before now: each hour&apos;s weather and temperature, with the chance of rain for the hours ahead
+              (dashed) and how much fell for an hour already past (grey, recorded). Swipe it sideways for the
+              evening.
+            </P>
+            <P>
               The forecast comes from the venue&apos;s Weather capture; the news from its other captures and the
               events your team types in, including those saved for every venue (Local info → Captures, Add an
               event). The card shows for people whose role can see Local info. When nothing is held for the week,
@@ -339,7 +345,14 @@ export default function Help() {
             <P>
               <strong>Captures</strong> sets up the automatic part, per venue. A <strong>Weather</strong> capture
               needs only a place ("Ware, Hertfordshire") and fills the next seven days from the Open-Meteo
-              forecast — no account or key needed. <strong>Traffic</strong>, <strong>Events</strong> and{' '}
+              forecast, day by day and hour by hour — no account or key needed. Once a day or an hour has passed,
+              the capture records the weather it had (Open-Meteo&apos;s figures for the venue&apos;s spot, from
+              weather models run on what was observed, not a weather station on the street) and keeps what was
+              forecast for it; each run reads the last seven days again too, so a weekly capture still records
+              every day. A weather entry says <strong>Forecast</strong> until its day is over, then{' '}
+              <strong>Recorded</strong> with <strong>Forecast was</strong> underneath, and{' '}
+              <strong>By the hour</strong> opens its hours: recorded hours grey, forecast hours dashed with the
+              chance of rain. A capture that runs every few hours keeps today&apos;s hours freshest. <strong>Traffic</strong>, <strong>Events</strong> and{' '}
               <strong>Incidents</strong> captures use Pepper's web search: give them a place, optionally one
               website to search (like your local paper) and words to look for, and they store what they find
               with a link to the source. Each capture runs once a day (in the early morning), every few hours,
@@ -2816,8 +2829,10 @@ export default function Help() {
               Hours worked</strong>). Someone whose role can't see a subject sees the
               report without its figures, with a note saying so. The <strong>Weather</strong> subject
               (under Local info) is one row per venue and day from the weather capture on the Local
-              info page: the forecast as it was last read for that day, so for a past day usually that
-              morning's forecast, not a measurement. Pepper can build reports like these too ("sales
+              info page: once the day is over, the weather that was recorded; before that, the latest
+              forecast. <strong>Recorded</strong> says which, and the forecast fields (<strong>Weather
+              forecast</strong>, <strong>Forecast highest</strong>, <strong>Forecast rain and snow</strong>) keep
+              what was forecast for a recorded day, to put beside what happened. Pepper can build reports like these too ("sales
               against the weather by day", "labour against sales by week").
             </P>
             <H3>Saving and changing a report</H3>

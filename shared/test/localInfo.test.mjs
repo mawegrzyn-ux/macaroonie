@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import {
   everyHours, frequencyText, nextRunAt, zonedInstant, itemKey,
   weatherText, weatherSummary, weatherSeverity, itemOnDay, sortDayItems,
-  monthGrid, addDays, weekAhead, isForecast, weatherCodes, WEATHER_GROUPS, weatherGroup,
+  monthGrid, addDays, weekAhead, isWeatherDay, weatherCodes, WEATHER_GROUPS, weatherGroup,
+  mergeWeatherDay, hourText, WEATHER_PAST_DAYS,
 } from '../localInfo.js'
 
 const iso = d => d.toISOString().slice(0, 16) + 'Z'
@@ -149,8 +150,8 @@ test('weekAhead: a forecast per day and the headlines in order', () => {
     { id: 'e6', kind: 'events', title: 'A gig', starts_on: '2026-11-15', severity: 'info', venue_id: 'v1', source_id: 's2' },
     { id: 'e7', kind: 'events', title: 'B gig', starts_on: '2026-11-15', severity: 'info', venue_id: 'v1', source_id: 's2' },
   ]
-  assert.ok(isForecast(items[0]))
-  assert.ok(!isForecast(items[9]), 'a weather item typed in is a headline')
+  assert.ok(isWeatherDay(items[0]))
+  assert.ok(!isWeatherDay(items[9]), 'a weather item typed in is a headline')
   const out = weekAhead(items, '2026-11-14')
   assert.equal(out.from, '2026-11-14')
   assert.equal(out.to, '2026-11-20')
@@ -197,4 +198,60 @@ test('a flag\'s note is one tidy line', async () => {
   assert.equal(cleanFlagNote('line one\r\nline two\u0000\u007f end'), 'line one line two end')
   assert.equal(cleanFlagNote('   '), '')
   for (const v of [null, undefined, 7, {}, ['a']]) assert.equal(cleanFlagNote(v), '', String(v))
+})
+
+test('hourly and recorded weather: a day read before, on and after it', () => {
+  const hour = (h, code, temp, precip, prob) => ({ h, weather_code: code, temp, precip_mm: precip, precip_prob: prob, wind_kph: 10 })
+  const day = (code, min, max, mm) => ({ weather_code: code, temp_min: min, temp_max: max, precip_mm: mm, wind_kph: 20 })
+  assert.equal(hourText(7), '07:00')
+  assert.equal(WEATHER_PAST_DAYS, 7)
+
+  // Read the day before: all forecast, nothing recorded.
+  const d1 = mergeWeatherDay(null, { date: '2026-11-22', today: '2026-11-21', nowHour: 20,
+    day: day(61, 3, 9, 4), hours: [hour(0, 3, 4, 0, 10), hour(12, 61, 8, 1.2, 70), hour(13, 61, 9, 0.8, 60)], readAt: 'r1' })
+  assert.equal(d1.recorded, false)
+  assert.equal(d1.forecast, null, 'not recorded yet: the day itself is the forecast')
+  assert.deepEqual(d1.hours.map(x => [x.h, x.recorded, x.precip_prob]), [[0, false, 10], [12, false, 70], [13, false, 60]])
+  assert.equal(d1.weather_code, 61)
+  assert.equal(d1.read_at, 'r1')
+
+  // Read on the day at 13:00: hours before 13 recorded, each with its forecast kept.
+  const d2 = mergeWeatherDay(d1, { date: '2026-11-22', today: '2026-11-22', nowHour: 13,
+    day: day(63, 3, 10, 6), hours: [hour(0, 2, 5, 0, 5), hour(12, 63, 9, 3, 90), hour(13, 63, 9, 2, 80)], readAt: 'r2' })
+  assert.equal(d2.recorded, false, 'the day is not over')
+  const [h0, h12, h13] = d2.hours
+  assert.deepEqual([h0.recorded, h0.weather_code, h0.precip_prob], [true, 2, null], 'a past hour: recorded, no chance of rain')
+  assert.deepEqual(h0.forecast, { weather_code: 3, temp: 4, precip_mm: 0, precip_prob: 10, wind_kph: 10 }, 'what was forecast for it')
+  assert.deepEqual([h12.recorded, h12.precip_mm, h12.forecast.precip_mm], [true, 3, 1.2])
+  assert.deepEqual([h13.recorded, h13.precip_prob, h13.forecast], [false, 80, null], 'the hour now is still a forecast')
+
+  // Read the day after: the day recorded, its forecast the last one read before it was over.
+  const d3 = mergeWeatherDay(d2, { date: '2026-11-22', today: '2026-11-23', nowHour: 6,
+    day: day(65, 2, 11, 22), hours: [hour(0, 2, 5, 0, 5), hour(12, 63, 9, 3.4, 90), hour(13, 65, 8, 9, 99)], readAt: 'r3' })
+  assert.equal(d3.recorded, true)
+  assert.deepEqual(d3.forecast, { weather_code: 63, temp_min: 3, temp_max: 10, precip_mm: 6, wind_kph: 20 })
+  assert.deepEqual([d3.weather_code, d3.precip_mm], [65, 22], 'the day is what was recorded')
+  assert.ok(d3.hours.every(x => x.recorded && x.precip_prob === null))
+  assert.equal(d3.hours[0].forecast.weather_code, 3, 'an hour recorded earlier keeps the forecast it had')
+  assert.equal(d3.hours[2].forecast.precip_prob, 80, 'the hour that was still ahead keeps its last forecast')
+
+  // Read again later: nothing forecast is lost.
+  const d4 = mergeWeatherDay(d3, { date: '2026-11-22', today: '2026-11-24', day: day(65, 2, 11, 21), hours: [hour(13, 65, 8, 9, 0)] })
+  assert.deepEqual(d4.forecast, d3.forecast)
+  assert.equal(d4.hours.find(x => x.h === 13).forecast.precip_prob, 80)
+
+  // A day first read after it was over: recorded, no forecast.
+  const late = mergeWeatherDay(null, { date: '2026-11-15', today: '2026-11-22', day: day(0, 1, 8, 0), hours: [hour(9, 0, 4, 0, 0)] })
+  assert.deepEqual([late.recorded, late.forecast, late.hours[0].forecast], [true, null, null])
+  // No hours read: the hours held are kept; an hour outside 0..23 is left out.
+  assert.equal(mergeWeatherDay(d2, { date: '2026-11-22', today: '2026-11-22', nowHour: 14, day: day(63, 3, 10, 6) }).hours.length, 3)
+  assert.equal(mergeWeatherDay(null, { date: '2026-11-22', today: '2026-11-22', hours: [hour(24, 0, 1, 0, 0), hour('x', 0, 1, 0, 0)] }).hours.length, 0)
+})
+
+test('weekAhead carries a weather day\'s hours and whether it is recorded', () => {
+  const it = { id: 'w', kind: 'weather', source_id: 's', venue_id: 'v', title: 'Rain', starts_on: '2026-11-22', severity: 'info',
+    data: { weather_code: 63, temp_min: 3, temp_max: 9, precip_mm: 6, wind_kph: 10, recorded: false, hours: [{ h: 9, weather_code: 63, temp: 5, recorded: false }] } }
+  const out = weekAhead([it], '2026-11-22')
+  assert.equal(out.weather[0].recorded, false)
+  assert.equal(out.weather[0].hours.length, 1)
 })

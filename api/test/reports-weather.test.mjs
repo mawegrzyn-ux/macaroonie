@@ -302,3 +302,25 @@ test('a plan that names another subject wrongly is told what is wrong', async ()
   assert.match(why.problem, /^"local\.weather" isn't a subject this role can build reports on \(it is one of the plan's other subjects\)/)
   assert.equal(why.unknown.subject, 'local.weather')
 })
+
+test('a recorded day: the weather that was recorded, what was forecast beside it', async () => {
+  const [{ id: s }] = await sql`SELECT id FROM local_info_sources WHERE tenant_id = ${ids.a} AND venue_id = ${V2} AND kind = 'weather'`
+  const recorded = { ...day(63, 2, 8, 6, 20), recorded: true, forecast: day(0, 5, 12, 0, 10), hours: [] }
+  await forecast(V2, s, '2026-11-02', recorded, { read: '2026-11-03T06:00:00Z' })
+  // The next day still ahead: no forecast kept, the day itself is the forecast.
+  await forecast(V2, s, '2026-11-03', { ...day(61, 3, 9, 2, 10), recorded: false, forecast: null, hours: [] }, { read: '2026-11-03T06:00:00Z' })
+  const res = await run({
+    subject: 'local.weather', kind: 'list',
+    rows: ['date', 'conditions', 'temp_max', 'rain', 'recorded', 'forecast_conditions', 'forecast_high', 'forecast_low', 'forecast_rain'],
+    filters: [period('2026-11-02', '2026-11-03')], sort: [{ by: 'date', dir: 'asc' }],
+  })
+  const rows = rowsOf(res).map(r => ({ ...r, temp_max: num(r.temp_max), rain: num(r.rain), forecast_high: num(r.forecast_high), forecast_low: num(r.forecast_low), forecast_rain: num(r.forecast_rain) }))
+  assert.deepEqual(rows, [
+    { date: '2026-11-02', conditions: 'rain', temp_max: 8, rain: 6, recorded: true, forecast_conditions: 'clear', forecast_high: 12, forecast_low: 5, forecast_rain: 0 },
+    { date: '2026-11-03', conditions: 'light_rain', temp_max: 9, rain: 2, recorded: false, forecast_conditions: 'light_rain', forecast_high: 9, forecast_low: 3, forecast_rain: 2 },
+  ])
+  const sum = await run({ subject: 'local.weather', kind: 'summary', rows: ['venue.name'], filters: [period('2026-11-02', '2026-11-03')],
+    values: [{ key: 'days', measure: 'days' }, { key: 'recorded_days', measure: 'recorded_days' }] })
+  const t = totalsRow(sum)
+  assert.deepEqual([num(t.days), num(t.recorded_days)], [2, 1])
+})
