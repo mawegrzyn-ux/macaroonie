@@ -312,7 +312,7 @@ The detail and the reasons are in the area files. These are the ones that bite i
 **Tests**
 
 27. `npm test` in `api/` empties the database it runs against: `DATABASE_URL` must name a database with `test` in it, owned by a role that is not a superuser, and migrated first (`node scripts/migrate.js`). On a computer other runs share, use one of your own: `eval "$(scripts/test-env.sh <name>)"` makes and migrates `macaroonie_test_<name>` and sets its own Redis database, queue prefix and folders.
-28. A new table, or a route that takes ids, gets a row made through the API in `api/test/support/fixtures.mjs`, so the cross-tenant sweep covers it.
+28. A new table, or a route that takes ids, gets a row made through the API in its area's `api/test/support/fixtures/<area>.mjs` (`fill(ctx)`, run by `order`; rows a later area needs go in `ctx.made`), so the cross-tenant sweep covers it. A named id parameter whose ids come from one table goes in that file's `kinds`.
 
 ---
 
