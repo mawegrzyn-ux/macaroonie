@@ -42,8 +42,7 @@ export function Section() {
         switch and each role's <Mono>cash_recon</Mono> permission onto it, and inserts a{' '}
         <Mono>/cash-dashboard</Mono> nav link straight after <Mono>/cash-recon</Mono>.{' '}
         Its page record (<Mono>shared/nav/dashboards.js</Mono>, which gives{' '}
-        <Mono>ROUTE_CATALOG</Mono> and the standard menu) and the Overview{' '}
-        <Mono>SHORTCUT_OPTIONS</Mono> include it too.
+        <Mono>ROUTE_CATALOG</Mono> and the standard menu) includes it too.
       </P>
       <H3>Widgets</H3>
       <DataTable

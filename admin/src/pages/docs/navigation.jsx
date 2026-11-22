@@ -196,8 +196,7 @@ export function Section() {
         <Mono>main.jsx</Mono> for <Mono>/pos/kiosks/designs/:id</Mono>,{' '}
         <Mono>/pos/printing/designs/:id</Mono> and <Mono>/menus/:id/design</Mono> (keeping the id
         and the <Mono>?query</Mono>), <Mono>/screens?tab=</Mono> in <Mono>Screens.jsx</Mono>,{' '}
-        <Mono>/website?section=</Mono> in <Mono>Website.jsx</Mono>, <Mono>/reservations-widget</Mono>,
-        and saved Overview shortcuts (<Mono>MOVED_SHORTCUTS</Mono> in <Mono>Dashboard.jsx</Mono>).
+        <Mono>/website?section=</Mono> in <Mono>Website.jsx</Mono> and <Mono>/reservations-widget</Mono>.
       </P>
       <P>
         <strong>Which link is lit.</strong> The sidebar lights a link at any address that starts

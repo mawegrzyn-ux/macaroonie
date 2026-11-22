@@ -1,26 +1,20 @@
 // src/pages/Dashboard.jsx
 // The Overview page — a tile-based home page (migration 093). Existing
-// fixed sections (quick access shortcuts, today's stats, upcoming
-// bookings, venues status) are now tiles like any other; two H&S status
-// tiles are also available. Layout control (add/remove/reorder/resize)
+// fixed sections (the person's pins, today's stats, upcoming bookings,
+// venues status) are now tiles like any other; two H&S status tiles are
+// also available. The Your pins tile shows the person's own pins, kept on
+// the server (components/home/Pins.jsx, migration 272). Layout control (add/remove/reorder/resize)
 // and per-role visibility mirror the H&S Dashboard's widget system and
 // the Nav Designer's per-role hiding, respectively — see
 // dashboardTiles.js for the API side.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays } from 'date-fns'
 import * as LucideIcons from 'lucide-react'
 import {
-  CalendarDays, Users, CreditCard, Clock,
-  BookOpen, UserRound, Building2, Table2, Settings,
-  Globe, ChefHat, FolderOpen, MessageSquare, ClipboardList,
-  Wallet, Mail, Activity, SlidersHorizontal, LayoutTemplate,
-  Shield, AlertCircle, Lightbulb, Newspaper, BookMarked,
-  HelpCircle, Plus, X, Pencil, Check, ChevronUp, ChevronDown,
-  Minus, Trash2, Loader2,
-  Thermometer, ListChecks, LayoutGrid, ClipboardCheck,
+  CalendarDays, Users, CreditCard, Clock, Building2, Plus, X, Pencil, Check, ChevronUp, ChevronDown, Minus, Trash2, Loader2,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
@@ -28,7 +22,7 @@ import { MIN_ROWS, MAX_ROWS, rowSpanFor, heightForRows, gridStyle } from '@/lib/
 import { TitleRename } from '@/components/dashboards/TitleRename'
 import { RoleVisibilityModal } from '@/components/dashboards/RoleVisibilityModal'
 import { AllergenLookup } from '@/components/menus/AllergenMatrix'
-import { ASSISTANT_NAME } from '@shared/assistant.js'
+import PinStrip from '@/components/home/Pins'
 
 function resolveIcon(name) {
   return LucideIcons[name] || LucideIcons.Circle
@@ -39,201 +33,13 @@ function resolveIcon(name) {
 // for viewers who can't call the manage-only /dashboard-tiles/catalog
 // endpoint at all).
 const TILE_META = {
-  quick_access:      { label: 'Quick access shortcuts', icon: 'LayoutGrid',   default_col_span: 4, default_height_px: 200 },
+  quick_access:      { label: 'Your pins',              icon: 'Pin',            default_col_span: 4, default_height_px: 200 },
   stats_today:       { label: "Today's stats",          icon: 'BarChart3',    default_col_span: 4, default_height_px: 180 },
   upcoming_bookings: { label: 'Upcoming bookings',      icon: 'CalendarClock', default_col_span: 2, default_height_px: 420 },
   venues_status:     { label: 'Venues status',          icon: 'Building2',    default_col_span: 2, default_height_px: 280 },
   hs_today_status:   { label: 'H&S checks today',       icon: 'ShieldCheck',  default_col_span: 2, default_height_px: 240 },
   hs_week_status:    { label: "Week's H&S status",      icon: 'CalendarCheck', default_col_span: 2, default_height_px: 240 },
   allergen_lookup:   { label: 'Allergen lookup',        icon: 'Grid3x3',      default_col_span: 2, default_height_px: 480 },
-}
-
-// ── Shortcut registry ─────────────────────────────────────────────────────────
-// A separate, older customisation axis from the tile system below — each
-// user picks their own subset of shortcuts from this fixed catalog,
-// always available regardless of whether an admin has hidden the whole
-// Quick access tile for their role.
-
-const SHORTCUT_OPTIONS = [
-  { to: '/dashboards',           label: 'Dashboards',           icon: LucideIcons.LayoutTemplate, colour: 'bg-slate-100 text-slate-700' },
-  { to: '/timeline',             label: 'Timeline',             icon: CalendarDays,    colour: 'bg-sky-100 text-sky-600' },
-  { to: '/bookings',             label: 'Bookings',             icon: BookOpen,        colour: 'bg-blue-100 text-blue-600' },
-  { to: '/customers',            label: 'Customers',            icon: UserRound,       colour: 'bg-indigo-100 text-indigo-600' },
-  { to: '/orders',               label: 'Online orders',        icon: LucideIcons.ShoppingBag, colour: 'bg-orange-100 text-orange-700' },
-  { to: '/promotions',           label: 'Promotions',           icon: LucideIcons.BadgePercent, colour: 'bg-rose-100 text-rose-700' },
-  { to: '/pos',                  label: 'Store tech',           icon: LucideIcons.MonitorSmartphone, colour: 'bg-teal-100 text-teal-700' },
-  { to: '/pos/reports',          label: 'Till reports',         icon: LucideIcons.BarChart3, colour: 'bg-teal-100 text-teal-700' },
-  { to: '/pos/kiosk-designs',    label: 'Kiosk designer',       icon: LucideIcons.Paintbrush, colour: 'bg-teal-100 text-teal-700' },
-  { to: '/pos/kitchen-flow',     label: 'Kitchen flow designer', icon: LucideIcons.Route,     colour: 'bg-teal-100 text-teal-700' },
-  { to: '/pos/print-designs',    label: 'Receipt & ticket designer', icon: LucideIcons.ScrollText, colour: 'bg-teal-100 text-teal-700' },
-  { to: '/screens',              label: 'Menu screens',         icon: LucideIcons.Monitor,   colour: 'bg-zinc-100 text-zinc-700' },
-  { to: '/screens/boards',       label: 'Screen board designer', icon: LucideIcons.Presentation, colour: 'bg-zinc-100 text-zinc-700' },
-  { to: '/purchasing',           label: 'Purchasing',           icon: LucideIcons.ShoppingCart, colour: 'bg-violet-100 text-violet-600' },
-  { to: '/inventory',            label: 'Inventory',            icon: LucideIcons.Package,      colour: 'bg-purple-100 text-purple-600' },
-  { to: '/suppliers',            label: 'Suppliers',            icon: LucideIcons.Truck,        colour: 'bg-fuchsia-100 text-fuchsia-700' },
-  { to: '/cash-recon',           label: 'Cash recon',           icon: Wallet,          colour: 'bg-emerald-100 text-emerald-600' },
-  { to: '/cash-dashboard',       label: 'Cash dashboard',       icon: LayoutGrid,      colour: 'bg-green-100 text-green-700' },
-  { to: '/staff',                label: 'Staff',                icon: LucideIcons.UsersRound,    colour: 'bg-sky-100 text-sky-700' },
-  { to: '/rota',                 label: 'Rota',                 icon: LucideIcons.CalendarRange, colour: 'bg-blue-100 text-blue-700' },
-  { to: '/rota-dashboard',       label: 'Rota dashboard',       icon: LayoutGrid,      colour: 'bg-indigo-100 text-indigo-700' },
-  { to: '/food-safety',          label: 'Food safety',          icon: Thermometer,     colour: 'bg-red-100 text-red-600' },
-  { to: '/checklists',           label: 'Checklists',           icon: ListChecks,      colour: 'bg-teal-100 text-teal-700' },
-  { to: '/hs-dashboard',         label: 'H&S Dashboard',        icon: LayoutGrid,      colour: 'bg-orange-100 text-orange-700' },
-  { to: '/hs-action-log',        label: 'Action log',           icon: ClipboardCheck,  colour: 'bg-cyan-100 text-cyan-700' },
-  { to: '/email-templates',      label: 'Emails',               icon: Mail,            colour: 'bg-rose-100 text-rose-600' },
-  { to: '/email-monitoring',     label: 'Email monitor',        icon: Activity,        colour: 'bg-orange-100 text-orange-600' },
-  { to: '/venues',               label: 'Venues',               icon: Building2,       colour: 'bg-teal-100 text-teal-600' },
-  { to: '/tables',               label: 'Tables',               icon: Table2,          colour: 'bg-cyan-100 text-cyan-600' },
-  { to: '/schedule',             label: 'Schedule',             icon: Clock,           colour: 'bg-amber-100 text-amber-600' },
-  { to: '/rules',                label: 'Rules',                icon: Settings,        colour: 'bg-yellow-100 text-yellow-600' },
-  { to: '/brand',                label: 'Brand & theme',        icon: LucideIcons.Palette, colour: 'bg-rose-100 text-rose-600' },
-  { to: '/website',              label: 'Website',              icon: Globe,           colour: 'bg-lime-100 text-lime-600' },
-  { to: '/website/builder',      label: 'Page builder',         icon: LucideIcons.Blocks, colour: 'bg-lime-100 text-lime-600' },
-  { to: '/website/reservations-widget',  label: 'Reservations widget',  icon: LayoutTemplate,  colour: 'bg-green-100 text-green-600' },
-  { to: '/menus',                label: 'Menus',                icon: ChefHat,         colour: 'bg-fuchsia-100 text-fuchsia-600' },
-  { to: '/menus/print-designs',  label: 'Menu print designer',  icon: LucideIcons.BookOpenText, colour: 'bg-fuchsia-100 text-fuchsia-600' },
-  { to: '/media',                label: 'Media',                icon: FolderOpen,      colour: 'bg-pink-100 text-pink-600' },
-  { to: '/reviews',              label: 'Reviews',              icon: MessageSquare,   colour: 'bg-red-100 text-red-600' },
-  { to: '/team',                 label: 'Team',                 icon: Users,           colour: 'bg-slate-100 text-slate-600' },
-  { to: '/access',               label: 'Access',               icon: Shield,          colour: 'bg-gray-100 text-gray-600' },
-  { to: '/settings',             label: 'Settings',             icon: SlidersHorizontal, colour: 'bg-neutral-100 text-neutral-600' },
-  { to: '/ai',                   label: ASSISTANT_NAME,         icon: LucideIcons.Sparkles, colour: 'bg-purple-100 text-purple-700' },
-  { to: '/issues',               label: 'Issues',               icon: AlertCircle,     colour: 'bg-red-100 text-red-700' },
-  { to: '/feature-requests',     label: 'Feature requests',     icon: Lightbulb,       colour: 'bg-yellow-100 text-yellow-700' },
-  { to: '/changelog',            label: "What's new",           icon: Newspaper,       colour: 'bg-sky-100 text-sky-700' },
-  { to: '/docs',                 label: 'Documentation',        icon: BookMarked,      colour: 'bg-indigo-100 text-indigo-700' },
-  { to: '/help',                 label: 'Help',                 icon: HelpCircle,      colour: 'bg-violet-100 text-violet-700' },
-]
-
-const LS_KEY = 'maca_dashboard_shortcuts'
-
-// A shortcut saved under an address that has moved since (migration 241).
-const MOVED_SHORTCUTS = { '/website?section=tenant-widget': '/website/reservations-widget' }
-
-function loadShortcuts() {
-  try {
-    const list = JSON.parse(localStorage.getItem(LS_KEY) ?? '[]')
-    return Array.isArray(list) ? [...new Set(list.map(to => MOVED_SHORTCUTS[to] || to))] : []
-  } catch { return [] }
-}
-
-function Shortcuts() {
-  const navigate = useNavigate()
-  const [shortcuts, setShortcuts] = useState(loadShortcuts)
-  const [editMode, setEditMode]   = useState(false)
-  const [showPicker, setShowPicker] = useState(false)
-
-  useEffect(() => {
-    localStorage.setItem(LS_KEY, JSON.stringify(shortcuts))
-  }, [shortcuts])
-
-  function add(to) {
-    setShortcuts(prev => prev.includes(to) ? prev : [...prev, to])
-  }
-
-  function remove(to) {
-    setShortcuts(prev => prev.filter(s => s !== to))
-  }
-
-  function done() {
-    setEditMode(false)
-    setShowPicker(false)
-  }
-
-  const shortcutItems = shortcuts.map(to => SHORTCUT_OPTIONS.find(o => o.to === to)).filter(Boolean)
-  const available     = SHORTCUT_OPTIONS.filter(o => !shortcuts.includes(o.to))
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Quick access</p>
-        {editMode ? (
-          <button onClick={done}
-            className="flex items-center gap-1.5 text-xs font-medium text-primary touch-manipulation py-1 px-2 rounded hover:bg-primary/10">
-            <Check className="w-3.5 h-3.5" /> Done
-          </button>
-        ) : (
-          <button onClick={() => setEditMode(true)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground touch-manipulation py-1 px-2 rounded hover:bg-accent hover:text-foreground">
-            <Pencil className="w-3 h-3" /> Customise
-          </button>
-        )}
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {shortcutItems.map(item => (
-          <div key={item.to} className="relative">
-            <button
-              onClick={() => !editMode && navigate(item.to)}
-              className={cn(
-                'flex flex-col items-center gap-2 px-3 pt-3 pb-2.5 rounded-xl border bg-background transition-colors touch-manipulation',
-                'min-w-[76px] min-h-[76px]',
-                editMode ? 'cursor-default opacity-80' : 'hover:bg-accent hover:border-primary/30 active:scale-95',
-              )}
-            >
-              <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center shrink-0', item.colour)}>
-                <item.icon className="w-4.5 h-4.5 w-[18px] h-[18px]" />
-              </div>
-              <span className="text-[11px] font-medium text-center leading-tight max-w-[72px]">{item.label}</span>
-            </button>
-            {editMode && (
-              <button
-                onClick={() => remove(item.to)}
-                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive text-destructive-foreground rounded-full flex items-center justify-center shadow-sm touch-manipulation"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-        ))}
-
-        {(editMode || shortcutItems.length === 0) && (
-          <button
-            onClick={() => setShowPicker(p => !p)}
-            className={cn(
-              'flex flex-col items-center gap-2 px-3 pt-3 pb-2.5 rounded-xl border-2 border-dashed text-muted-foreground transition-colors touch-manipulation',
-              'min-w-[76px] min-h-[76px]',
-              showPicker ? 'border-primary/50 bg-primary/5 text-primary' : 'hover:border-primary/40 hover:bg-accent',
-            )}
-          >
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center">
-              <Plus className="w-5 h-5" />
-            </div>
-            <span className="text-[11px] font-medium">{shortcutItems.length === 0 && !editMode ? 'Add shortcuts' : 'Add'}</span>
-          </button>
-        )}
-      </div>
-
-      {showPicker && (
-        <div className="border rounded-xl bg-background overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 section-head">
-            <p className="text-sm font-semibold">Add a shortcut</p>
-            <button onClick={() => setShowPicker(false)} className="p-1 text-muted-foreground hover:text-foreground touch-manipulation">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          {available.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">All shortcuts added</p>
-          ) : (
-            <div className="p-3 grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-              {available.map(item => (
-                <button
-                  key={item.to}
-                  onClick={() => { add(item.to); setShowPicker(false) }}
-                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg hover:bg-accent text-left touch-manipulation min-h-[44px] transition-colors"
-                >
-                  <div className={cn('w-7 h-7 rounded-md flex items-center justify-center shrink-0', item.colour)}>
-                    <item.icon className="w-3.5 h-3.5" />
-                  </div>
-                  <span className="text-sm font-medium leading-tight">{item.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
 }
 
 // ── Stat card ─────────────────────────────────────────────────────────────────
@@ -638,7 +444,7 @@ export default function Dashboard() {
 
   function renderTileBody(tileType) {
     switch (tileType) {
-      case 'quick_access':      return <Shortcuts />
+      case 'quick_access':      return <PinStrip />
       case 'stats_today':       return <StatsTodayBody todaysBookings={todaysBookings} totalCovers={totalCovers} totalRevenue={totalRevenue} upcoming={upcoming} />
       case 'upcoming_bookings': return <UpcomingBookingsBody upcoming={upcoming} />
       case 'venues_status':     return <VenuesStatusBody venues={venues} />

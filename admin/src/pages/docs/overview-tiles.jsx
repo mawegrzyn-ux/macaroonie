@@ -32,7 +32,7 @@ export function Section() {
       <DataTable
         head={['tile_type', 'Source']}
         rows={[
-          ['quick_access', "Renders the existing per-user Shortcuts component — unchanged, a separate personalisation axis from tile layout."],
+          ['quick_access', "Your pins: the person's own pins (components/home/Pins.jsx, GET / PUT /api/pins, migration 272), the same strip as on Home. A separate personalisation axis from tile layout."],
           ['stats_today', 'The 4 stat cards (bookings/covers/deposit revenue/upcoming), computed client-side from GET /api/bookings for today.'],
           ['upcoming_bookings', "Today's remaining bookings, same data source as stats_today."],
           ['venues_status', 'One row per venue from GET /api/venues.'],
