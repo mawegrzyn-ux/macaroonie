@@ -136,7 +136,7 @@ function prReport(base) {
   const by = new Map()
   const shared = []
   for (const f of changed) {
-    const a = areaOf(f) || (f.startsWith('migrations/') ? 'migrations' : CODE.test(f) && !IGNORE.test(f) ? 'other' : 'docs')
+    const a = areaOf(f) || (isShared(f) ? 'shared' : f.startsWith('migrations/') ? 'migrations' : CODE.test(f) && !IGNORE.test(f) ? 'other' : 'docs')
     if (!by.has(a)) by.set(a, [])
     by.get(a).push(f)
     if (isShared(f) || a === 'shared' || f.startsWith('migrations/')) shared.push(f)
