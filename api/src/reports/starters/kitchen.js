@@ -54,4 +54,18 @@ export default [
       view: { kind: 'bar', x: 'reason', y: ['remakes'], sideways: true },
     },
   }),
+
+  starter({
+    key: 'kitchen_screen_taps',
+    name: 'Kitchen screens: taps by screen',
+    about: 'What was done on each kitchen screen: dishes marked done and ticked off, tickets bumped and brought back, remakes, rushes and orders collected. Taps while no trading day was open aren\'t counted.',
+    period: 'last_week',
+    spec: {
+      subject: 'kitchen.taps',
+      rows: ['screen.name'],
+      values: m('taps', 'dishes_done', 'dishes_ticked', 'bumps', 'recalls', 'remakes', 'rushes', 'collected'),
+      sort: [{ by: 'taps', dir: 'desc' }],
+      drill: { down: ['station.name', 'type', 'date'], rows: ['tapped_at', 'type', 'station.name', 'kitchen_order.number'] },
+    },
+  }),
 ]

@@ -56,6 +56,7 @@ import { makeLink, readLink } from './previewLinks.js'
 import { printLayouts } from './printDesignSvc.js'
 import { hasPrinters, printsDue } from '../../../shared/pos/kitchenPrint.js'
 import { normaliseKitchenColours, sectionColoursById } from '../../../shared/pos/kitchenColours.js'
+import { resolveTimers, timerResults, timerLabel } from '../../../shared/pos/kitchenTimers.js'
 import { pullTimes } from '../../../shared/pos/pullTimes.js'
 import { orderBoardScreens } from './screenSvc.js'
 import { screensOrigin } from './platformHost.js'
@@ -72,11 +73,11 @@ export async function loadStations(tx, tenantId, venueId, { activeOnly = true } 
 /**
  * A venue's kitchen flows in their order: its own, then the shared ones
  * (venue_id NULL, migration 192). [{ id, name, layout, sort_order,
- * off_station_ids, shared, boxes, box_links }]
+ * off_station_ids, shared, boxes, box_links, timers }]
  */
 export async function loadFlows(tx, tenantId, venueId) {
   return tx`
-    SELECT id, name, layout, sort_order, off_station_ids, venue_id IS NULL AS shared, boxes, box_links FROM kds_flows
+    SELECT id, name, layout, sort_order, off_station_ids, venue_id IS NULL AS shared, boxes, box_links, timers FROM kds_flows
      WHERE tenant_id = ${tenantId} AND (venue_id = ${venueId} OR venue_id IS NULL)
      ORDER BY (venue_id IS NULL), sort_order, created_at`
 }
@@ -207,6 +208,66 @@ export async function loadKitchenConfig(tx, tenantId, venueId) {
     // A kitchen order keeps its stream's name for order ready boards' filters.
     revenue_streams: by(streams, r => ({ name: r.name })),
   }
+}
+
+/** At most this many kitchen orders are read for a period's timers. */
+export const TIMER_ORDERS_MAX = 20000
+
+/**
+ * The kitchen report's timers (OUTSTANDING 44.9, shared/pos/kitchenTimers.js):
+ * every timer on the venue's flows (its own and the shared ones, in the
+ * kitchen screens' order), each worked out over the kitchen orders sent in
+ * the period (kds_orders, the venue's days from..to in tz). A dish counts
+ * whichever flow sent it, so long as it passed both of the timer's points.
+ * A shared flow's timer at a box the venue has no station for is listed
+ * with missing: true and no figures. Returns { timers, capped }.
+ */
+export async function kitchenTimers(tx, tenantId, venueId, { tz, from, to }) {
+  const [stations, flows, setting] = await Promise.all([
+    loadStations(tx, tenantId, venueId),
+    loadFlows(tx, tenantId, venueId),
+    flowSetting(tx, tenantId, venueId),
+  ])
+  const withTimers = flows.filter(f => (f.timers || []).length)
+  if (!withTimers.length) return { timers: [], capped: false }
+  const inUse = activeFlowOf(flows, setting.kds_active_flow_id)?.id || null
+  const place = withTimers.some(f => f.shared) ? await flowPlace(tx, tenantId, venueId, stations) : null
+  const rows = await tx`
+    SELECT state->'items' AS items, state->>'number' AS number
+      FROM kds_orders
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
+       AND created_at >= (${from}::date)::timestamp AT TIME ZONE ${tz}
+       AND created_at < ((${to}::date) + 1)::timestamp AT TIME ZONE ${tz}
+     ORDER BY created_at
+     LIMIT ${TIMER_ORDERS_MAX + 1}`
+  const capped = rows.length > TIMER_ORDERS_MAX
+  const orders = capped ? rows.slice(0, TIMER_ORDERS_MAX) : rows
+  const cfg = { stations: by(stations, stationView) }
+  const at = new Date().toISOString()
+  const out = []
+  for (const f of withTimers) {
+    let timers = f.timers
+    let missing = []
+    // A shared flow names boxes: the venue's stations of those names.
+    let names = Object.fromEntries(stations.map(s => [s.id, s.name]))
+    if (f.shared) {
+      const r = resolveSharedFlow({ boxes: f.boxes, links: f.box_links }, place)
+      ;({ timers, missing } = resolveTimers(f.timers, r.matches))
+      names = { ...names, ...Object.fromEntries((f.boxes || []).map(b => [b.id, b.name])) }
+    }
+    const gone = new Set(missing.map(t => t.id))
+    for (const t of f.timers) {
+      const live = timers.find(x => x.id === t.id)
+      const base = {
+        flow_id: f.id, flow_name: f.name, flow_in_use: f.id === inUse, id: t.id,
+        name: timerLabel(t, names), from_name: t.from === 'start' ? 'Orders in' : (names[t.from] || null), to_name: names[t.to] || null,
+        from_when: t.from_when, per: t.per, target_mins: t.target_mins,
+      }
+      if (gone.has(t.id) || !live) { out.push({ ...base, missing: true, count: 0 }); continue }
+      out.push({ ...base, missing: false, ...timerResults(orders, live, cfg, at) })
+    }
+  }
+  return { timers: out, capped }
 }
 
 /** pos_settings.kds_active_flow_id now (one row): has the flow been switched since a config was read? */

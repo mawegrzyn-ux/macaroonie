@@ -4086,6 +4086,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               its certificates, the outside services (Anthropic, Stripe, email providers), the venue hubs&apos; own
               health beyond their reports.
             </P>
+            <P>
+              Alerts (22 Nov 2026, <Mono>services/platformAlerts.js</Mono>, <Mono>startPlatformAlerts()</Mono> in{' '}
+              <Mono>server.js</Mono>): PM2 instance 0 only (never under tests) runs <Mono>platformStatus()</Mono> every
+              minute and emails the active <Mono>platform_admins</Mono> (from the platform&apos;s own provider,{' '}
+              <Mono>SENDGRID_API_KEY</Mono> and <Mono>EMAIL_FROM</Mono>) by <Mono>nextAlert()</Mono>: down for two checks
+              running, degraded for 30 minutes, and up again after either, each once a spell. The admins&apos;
+              addresses are kept from the last good read, so a database outage can still be told; the rule&apos;s memory
+              and the last alert sent are in Redis (<Mono>mac:status:alert:mem</Mono>, <Mono>:last</Mono>), so a restart
+              doesn&apos;t send again, and <Mono>platformStatus()</Mono> returns the last as <Mono>alert</Mono> for the card.
+              No push. Tests: <Mono>api/test/platform-alerts.test.mjs</Mono>.
+            </P>
             <H3>Checks are events</H3>
             <P>
               A check is never edited in place. The till records events (<Mono>{'{ id: ULID, venue_id, device_id, staff_id, approved_by, check_id, type, payload, client_at }'}</Mono>,
@@ -5142,6 +5153,36 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               and <Mono>api/test/till-layouts.test.mjs</Mono>; the fixtures&apos; layout has a category zone shown as a
               whole-screen pop-up list, so the tenant sweep replays it.
             </P>
+            <H3>Taps on a till layout (migration 266)</H3>
+            <P>
+              <Mono>pos_till_taps</Mono> (forced RLS) holds one count per device, person (<Mono>staff_id</Mono>, null when
+              nobody is signed in), layout, zone, button (<Mono>cell</Mono>: a section, menu or dish id, the
+              designer&apos;s button id, or <Mono>times</Mono>) and day, with the button&apos;s last words
+              (<Mono>label</Mono>); the unique index is on <Mono>COALESCE(staff_id, nil uuid)</Mono>. The rules are{' '}
+              <Mono>shared/pos/tillTaps.js</Mono>: <Mono>TAP_ZONES</Mono> (categories, menus, items, category, buttons,
+              popup), <Mono>tapCell()</Mono> (the till keys categories <Mono>s:</Mono> and menus <Mono>m:</Mono>; the
+              designer by id), the till&apos;s queue (<Mono>addTaps()</Mono>, <Mono>takeTaps()</Mono>),{' '}
+              <Mono>cleanTaps()</Mono> (what the API keeps of an upload), <Mono>heatOf()</Mono>,{' '}
+              <Mono>heatShare()</Mono>, <Mono>heatColour()</Mono>, <Mono>heatInk()</Mono> and{' '}
+              <Mono>TAPS_KEEP_DAYS</Mono> (90). On the till <Mono>ZoneGrid</Mono> counts a click on a cell (capture,
+              before the button&apos;s own handler, also in the More sheet) when given <Mono>layoutId</Mono>, through{' '}
+              <Mono>countTap()</Mono> in <Mono>pos/src/lib/taps.js</Mono>: a queue in localStorage
+              (<Mono>maca_till_taps</Mono>, at most 3,000 rows), sent every minute and when the page is hidden by{' '}
+              <Mono>startTapUpload()</Mono> (started in <Mono>startSync()</Mono>, tills only, always to the cloud). Only
+              saved layouts count (the built-in screen has no id). <Mono>POST /pos-api/till-taps</Mono> (tills only, 403
+              otherwise) adds each row to its day&apos;s count, leaves out rows naming a person who isn&apos;t the
+              venue&apos;s or a layout that isn&apos;t the tenant&apos;s and days past 90, and deletes the venue&apos;s rows
+              past 90 days; a refused upload (4xx) is dropped by the till, an offline one kept. The designer&apos;s{' '}
+              <Mono>GET /api/pos/till-layouts/:id/taps?days=&amp;venue_id=&amp;device_id=&amp;staff_id=</Mono> (Store tech
+              view) returns <Mono>heatOf()</Mono>&apos;s zones, max and total, the 15 most tapped with their words, the
+              tills, and the people only for those with Till reports view (a <Mono>staff_id</Mono> without it is 403).
+              Reports: the <Mono>till.taps</Mono> subject (Till buttons tapped), Till activity&apos;s counts of each kind
+              of change (<Mono>orders_opened</Mono>, <Mono>dishes_added</Mono>, <Mono>voids</Mono>,{' '}
+              <Mono>no_sales</Mono> ...), the <Mono>kitchen.taps</Mono> subject (every kitchen screen event, by screen and
+              station; trading day) and a Kitchen screen link on kitchen tickets and remakes (their event&apos;s device),
+              with the starters Till activity by person, by till, Till buttons tapped and Kitchen screens: taps by
+              screen. Tests: <Mono>shared/pos/test/tillTaps.test.mjs</Mono>, <Mono>api/test/till-taps.test.mjs</Mono>.
+            </P>
             <H3>Sending to the kitchen</H3>
             <P>
               <Mono>sendCheck(check, heldCourseIds)</Mono> (<Mono>lib/checkOps.js</Mono>) sends every new line as one{' '}
@@ -5730,6 +5771,25 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>KitchenFlow.jsx</Mono> (box note, link panel, Check a dish).
             </P>
             <P>
+              <strong>Flow timers</strong> (migration 265, 22 Nov 2026): <Mono>kds_flows.timers</Mono> jsonb, each
+              a start (<Mono>start</Mono> = when the dish went live, or a station / box: when the dish reached it or
+              was done there, <Mono>flowTimes()</Mono>) and an end (a prep, expo or runner station / box: the dish&apos;s
+              tap there, <Mono>item.done[to]</Mono>), per dish or per ticket, with a target. The rules are{' '}
+              <Mono>shared/pos/kitchenTimers.js</Mono>: <Mono>normaliseTimers()</Mono>, <Mono>timerProblems()</Mono>{' '}
+              (blocks saving; the designer shows the same list), <Mono>resolveTimers()</Mono> (a shared flow&apos;s box
+              ids to the venue&apos;s station ids through <Mono>resolveSharedFlow().matches</Mono>),{' '}
+              <Mono>timerSpan()</Mono> (one dish: only when its route has both points with the start before the end,
+              not voided, tapped at the end) and <Mono>timerResults()</Mono> / <Mono>summarise()</Mono> (count, average,
+              median and p90 as Postgres&apos;s percentile_cont, max, on time, the five slowest). Results are worked
+              out after the fact by <Mono>kitchenTimers()</Mono> (kitchenSvc) from <Mono>kds_orders.state</Mono> for
+              the kitchen report and Pepper&apos;s <Mono>kitchen_report</Mono>; nothing in the sequencer, the kitchen
+              screens or the venue hub reads them, and no event or log row changed. Copies carry timers the way
+              they carry links (a venue&apos;s flow shared keeps them, box id = station id; a shared flow copied to a
+              venue keeps those whose boxes match); the store setup copy remaps their ids like any jsonb. The
+              designer draws them as dotted violet arrows in lanes under the boxes (<Mono>timerPath()</Mono> in{' '}
+              <Mono>KitchenFlow.jsx</Mono>), apart from the solid links and the dashed wire being dragged.
+            </P>
+            <P>
               <strong>Stations out of a flow</strong> (migration 182): <Mono>kds_flows.off_station_ids</Mono>{' '}
               (uuid[], default empty) are the venue&apos;s stations a flow leaves out. The designer doesn&apos;t
               draw them (Not in this flow lists them with Put back) and{' '}
@@ -5868,7 +5928,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               rows={[
                 ['kds_stations', 'Per venue: name, kind prep | expo | runner | board | balance (183, a Splitter) | printer (191) | sleeper (200), colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }], pieces (a Splitter: members, same shape), split_above (a Splitter: null = each ticket on one station, N = share a ticket with more than N pieces), share_mode (a Splitter: pieces | speed), rush_type_id / rush_count / rush_station_id (a Splitter\'s busy order type rule), printer_id (a printer box), delay_mins (a Sleeper, 1-240), bump_when_checked (an expo or runner: the last dish ticked off bumps the ticket) }, sort_order, is_active.'],
                 ['kds_balance_turns', 'Each Splitter\'s last pick (183): station_id (the box, PK, ON DELETE CASCADE), last_station_id, updated_at. Written by the sequencer (saveBalanceTurns()) so a tie goes to the next station. Forced RLS.'],
-                ['kds_flows', 'A venue\'s kitchen flows (177): name (1-40, unique per venue ignoring case and spaces), layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box), sort_order (the kitchen screen\'s list), off_station_ids uuid[] (182: the venue\'s stations this flow leaves out). Forced RLS like every tenant table. The migration made one "Main flow" per venue with stations or links, holding its links and layout, in use. A venue without any flow gets it from GET .../setup (ensureFlows()). Shared flows (192): venue_id NULL, boxes jsonb [{ id, name, kind }], box_links jsonb [{ id, from, to, targets }] (layout keys are box ids), names unique per tenant (index kds_flows_shared_name); a venue\'s own flow can\'t take a shared flow\'s name, a shared one can\'t take any flow\'s.'],
+                ['kds_flows', 'A venue\'s kitchen flows (177): name (1-40, unique per venue ignoring case and spaces), layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box), sort_order (the kitchen screen\'s list), off_station_ids uuid[] (182: the venue\'s stations this flow leaves out), timers jsonb (265: [{ id, name, from (\'start\' or a station / box id), from_when reached | done, to (a prep, expo or runner station / box), per dish | ticket, target_mins 1-240 }], at most 20, tidied by normaliseTimers() and checked by timerProblems() in shared/pos/kitchenTimers.js; read only by the kitchen report, never by the sequencer, screens or hub). Forced RLS like every tenant table. The migration made one "Main flow" per venue with stations or links, holding its links and layout, in use. A venue without any flow gets it from GET .../setup (ensureFlows()). Shared flows (192): venue_id NULL, boxes jsonb [{ id, name, kind }], box_links jsonb [{ id, from, to, targets }] (layout keys are box ids), names unique per tenant (index kds_flows_shared_name); a venue\'s own flow can\'t take a shared flow\'s name, a shared one can\'t take any flow\'s.'],
                 ['kds_flow_edges', 'A flow\'s links (169, flow_id NOT NULL since 177, ON DELETE CASCADE with the flow): from_station_id (NULL = Orders in), to_station_id (both ON DELETE CASCADE), targets jsonb, exclude boolean (204: All except these, the link takes every dish its targets don\'t name; kept false when targets is empty), sort_order. One link per pair per flow (unique index on flow_id, from, to). Read them by flow_id, never by venue alone. Replaced kds_routes: each station\'s routes became one link from Orders in, every prep station got a link to every expo.'],
                 ['kds_orders', 'Projection (like pos_checks): id text (a check id, web-<orders.id> or gf-<gloriafood_orders.id>), source till | online | gloriafood (178; taken from the id prefix by applyKitchenEvent(), never from the payload), check_id / order_id, status active | ready | collected | cancelled, state jsonb (the whole kitchen order), last_seq.'],
                 ['kds_log', 'One row per bump and remake: station (id, name, kind), seconds since the dishes arrived or were fired, items, order source / type / number, reason, recalled_at (a recalled bump is left out of the report). Feeds the Kitchen report and its CSV.'],
@@ -5885,12 +5945,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET /pos-api/kitchen/sync?since=', 'Kitchen orders changed since a seq (reset with every live order when far behind) and server_time for the screen\'s clock.'],
                 ['POST /pos-api/events', 'Takes kitchen events from kds devices (server-only types refused). The answer has kitchen (orders touched). Broadcasts pos.seq with kinds [checks | kitchen] (tills skip kitchen-only changes) and kitchen.board to screens:<venue>.'],
                 ['/api/pos/venues/:id/kds-stations, /kds-stations/:id, .../kds-stations/order', 'Stations (pos_setup manage). Turning a station into a board drops its links onward and takes it off kitchen screens; a kitchen screen can\'t show a board (422).'],
-                ['PUT /api/pos/kds-flows/:id', '{ links: [{ from, to, targets, exclude }], layout, off_station_ids } replaces one flow\'s links, layout and the stations it leaves out (182; no list = none out; a link touching one is 422) (pos_setup manage). 422 with the first flowProblems() message (links name the flow\'s venue\'s stations); dish / section / revenue stream / order type ids must be the tenant\'s; layout keys that aren\'t start or a station are dropped. Returns { id, links, layout, off_station_ids, warnings }. Device filters name the venue\'s tills and kiosks. A shared flow takes { boxes, links, layout } instead (box ids are uuids, boxProblems() and flowProblems() on the boxes, links only between boxes, stream and device filters by name, menu ids checked) and returns { id, shared, boxes, links, layout, warnings }, warnings including each location that lacks a box\'s station or has one of another kind; it broadcasts pos.config to every venue. GET /api/pos/venues/:id/setup returns kds_flows (own then shared: [{ id, name, sort_order, layout, shared, off_station_ids, links, boxes? }]), kds_active_flow_id, kds_flow_switched_at / _by, kds_locations [{ id, name, active_flow_id, stations }] (every venue, for matching boxes) and kds_shared_names { revenue_stream, device } (every active name, once). Deleting a revenue centre takes it out of every filter of every own flow (a link left with no filter goes; an Except link left with none becomes a link for every dish); shared flows name streams, so nothing to drop. exclude without targets is saved as false; an Except link can\'t name every dish (default) and links out of a Splitter can\'t be Except (they take no filter).'],
+                ['PUT /api/pos/kds-flows/:id', '{ links: [{ from, to, targets, exclude }], layout, off_station_ids, timers } replaces one flow\'s links, layout and the stations it leaves out (182; no list = none out; a link touching one is 422) (pos_setup manage). 422 with the first flowProblems() message (links name the flow\'s venue\'s stations); dish / section / revenue stream / order type ids must be the tenant\'s; layout keys that aren\'t start or a station are dropped. Returns { id, links, layout, off_station_ids, warnings }. Device filters name the venue\'s tills and kiosks. A shared flow takes { boxes, links, layout } instead (box ids are uuids, boxProblems() and flowProblems() on the boxes, links only between boxes, stream and device filters by name, menu ids checked) and returns { id, shared, boxes, links, layout, warnings }, warnings including each location that lacks a box\'s station or has one of another kind; it broadcasts pos.config to every venue. GET /api/pos/venues/:id/setup returns kds_flows (own then shared: [{ id, name, sort_order, layout, shared, off_station_ids, links, boxes? }]), kds_active_flow_id, kds_flow_switched_at / _by, kds_locations [{ id, name, active_flow_id, stations }] (every venue, for matching boxes) and kds_shared_names { revenue_stream, device } (every active name, once). Deleting a revenue centre takes it out of every filter of every own flow (a link left with no filter goes; an Except link left with none becomes a link for every dish); shared flows name streams, so nothing to drop. exclude without targets is saved as false; an Except link can\'t name every dish (default) and links out of a Splitter can\'t be Except (they take no filter).'],
                 ['POST /api/pos/venues/:id/kds-flows', '{ name, copy_from?, shared? } a new flow at the end of its list: empty, or a copy of copy_from (one of this venue\'s flows or a shared one, else 404). shared true makes it shared (pinActiveFlows() first). Copies go either way: own to shared with shareFlow(); shared to own with resolveSharedFlow() (links whose stream / till filters all name nothing here are dropped, unmatched stations go to off_station_ids, the layout follows the matches). 422 when the name is taken.'],
                 ['PATCH / DELETE /api/pos/kds-flows/:id', 'Rename ({ name }, 422 when taken); delete (422 for the flow in use: put another in use first; takes the till lock so it can\'t race a switch). A shared flow: 422 "in use at X" while any venue has it in use (after pinActiveFlows()); both broadcast to every venue.'],
                 ['PUT /api/pos/kds-flows/shared/order', '{ ids } the shared flows\' order, the same at every location (pos_setup manage; pinActiveFlows() first).'],
                 ['PUT /api/pos/venues/:id/kds-flows/order, .../kds-flows/active', 'order: { ids } sort order (keeps the flow in use in use, writing its id down if it was only "the first"); active: { flow_id } switchFlow() with the person\'s email as switched_by. Both pos_setup manage; both broadcast pos.config.'],
-                ['GET /api/pos/venues/:id/kitchen-report[.csv]?from=&to=', 'Per station: tickets, items, average, median, p90, max, on time (within target_mins), late; by hour; remakes. CSV: every bump and remake (pos_reports view).'],
+                ['GET /api/pos/venues/:id/kitchen-report[.csv]?from=&to=', 'Per station: tickets, items, average, median, p90, max, on time (within target_mins), late; by hour; remakes. timers (265): every timer of the venue\'s flows (own then shared) as { flow_id, flow_name, flow_in_use, id, name, from_name, to_name, from_when, per, target_mins, missing, count, avg_secs, median_secs, p90_secs, max_secs, on_time, on_time_pct, slowest [{ number, item, seconds, at }] }, worked out by kitchenTimers() (kitchenSvc) over the kds_orders created in the period (at most 20,000: timers_capped); missing = a shared flow\'s box with no station of its name here. CSV: every bump and remake (pos_reports view).'],
                 ['POST /api/pos/venues/:id/kitchen-test', 'A signed link to the kitchen test bench (pos_setup view): { token, url } (8 hours). See The kitchen test bench below.'],
                 ['GET /pos-api/kitchen-test?token=', 'The bench\'s data (kitchenTestData()): stations, courses, order types, flows with their links, kitchen screens, tables, revenue streams, the live menus\' dishes (no prices) and expires_at. 401 for a bad, run out or other-kind link; 404 when the link\'s venue isn\'t its tenant\'s. Reads only.'],
                 ['POST /api/pos/venues/:id/kitchen-live', 'A signed link to the live kitchen view (pos_setup view): { token, url, expires_at, can_bump } (12 hours, kind kitchen_live). The link carries b: 1 and by (the maker\'s email) only when the maker has pos_setup manage (permissionLevel()): only then may the page bump. See The live kitchen view below.'],
@@ -7504,8 +7564,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>wallet_google</Mono>, sealed JSON; <Mono>/api/loyalty/platform/wallet[/:kind]</Mono>). A tenant may
               save its own instead (<Mono>PUT /api/loyalty/wallet/:kind</Mono>, owner or admin;{' '}
               <Mono>loyalty_wallet_settings</Mono>), checked before saving (the key belongs to the certificate, not
-              run out). Cards are always in the tenant&apos;s brand (<Mono>cardColours()</Mono>: the programme&apos;s
-              card colours, else <Mono>tenant_site.theme.colors</Mono>). <Mono>pushWalletUpdates()</Mono> sends an
+              run out). Cards are in the tenant&apos;s brand (<Mono>cardColours()</Mono> in <Mono>shared/loyalty.js</Mono>: the
+              programme&apos;s card colours, else <Mono>tenant_site.theme.colors</Mono>), or the member&apos;s own look
+              (migration 264, 22 Nov 2026): <Mono>settings.themes</Mono> (up to <Mono>MAX_CARD_THEMES</Mono> 8,{' '}
+              <Mono>{'{ id, name, background, text, accent }'}</Mono>, kept by <Mono>normaliseProgramme()</Mono>, ids kept as
+              sent or made from the name), <Mono>loyalty_members.card_theme</Mono> (null = standard), and{' '}
+              <Mono>memberCardColours()</Mono> (the look while it is offered, else the standard colours) for the Apple pass
+              and the Google object&apos;s <Mono>hexBackgroundColor</Mono> (also patched). <Mono>GET /loyalty-api/t/:slug</Mono>{' '}
+              gives <Mono>card.standard</Mono> and <Mono>card.themes</Mono> in full (<Mono>themeColours()</Mono>);{' '}
+              <Mono>PATCH /me {'{ theme }'}</Mono> picks one (422 when not offered) and marks the wallet for an update;{' '}
+              <Mono>memberSummary()</Mono> gives <Mono>card_theme</Mono>; the export includes it; <Mono>mountLoyalty()</Mono>{' '}
+              sets the card&apos;s <Mono>--mloy-card-*</Mono> from it and offers the looks in Settings. Admin: Loyalty →
+              Programme → <Mono>CardLooks</Mono>. <Mono>pushWalletUpdates()</Mono> sends an
               APNs push (HTTP/2, the pass certificate) to the devices of members whose{' '}
               <Mono>wallet_updated_at</Mono> is after <Mono>wallet_pushed_at</Mono>, and patches their Google object.
               Env (only changed for stand-in servers): <Mono>APPLE_APNS_URL</Mono>, <Mono>GOOGLE_WALLET_API_URL</Mono>,{' '}
@@ -8973,7 +9043,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Food safety and H&S (food_safety, checklists, hs_action_log)', 'safety.days (each venue\'s H&S day as the Overview judges it, worked out for each run), safety.fridges, safety.fridge_checks, safety.hold_stations, safety.hold_checks, safety.cooking_sessions, safety.cooking_items, safety.cooking_checks, safety.delivery_checks; safety.checklist_templates, safety.checklist_tasks, safety.checklists, safety.checklist_ticks; safety.action_categories, safety.actions'],
                 ['Cash reconciliation (cash_recon)', 'cash.days and cash.weeks (worked out for each run by Cash Recon\'s own rule), cash.income, cash.takings, cash.service_charges, cash.expenses, cash.wages, cash.reports, cash.wage_lists, and to group by: cash.income_sources, cash.payment_channels, cash.sc_sources, cash.expense_categories'],
                 ['Staff and rota (rota; pay rota_pay, points and tips rota_tips, the wage list beside the rota cash_recon, people, roles, time off and tip pots staff)', 'rota.staff_weeks, rota.weeks, rota.days, rota.pot_weeks, rota.tip_shares (worked out for each run by the Rota page\'s own rules), rota.entries, rota.pay_adjustments, rota.tip_moves, rota.shifts, and staff.people, staff.roles, staff.time_off, rota.tip_pots'],
-                ['Local info (local_info)', 'local.weather (the weather at each venue, one row a day from the Local info weather capture: recorded once the day is over, else the latest forecast, with what was forecast beside it), local.items (every other Local info item, captured or typed; hidden ones left out, a group-wide one only with every venue; how many staff flagged each relevant or not; since migration 249 entries only, with how many other reports of the same event are in each and whether one was kept apart), local.captures (how often each runs, when it last ran, its problem, since migration 248 whether it learns from staff flags and what it learned, and since 249 a problem putting the same events together)'],
+                ['Local info (local_info)', 'local.weather (the weather at each venue, one row a day from the Local info weather capture: recorded once the day is over, else the latest forecast, with what was forecast beside it), local.weather_hours (22 Nov 2026: one row an hour of the same day row, unnesting data.hours: hour 00-23 as a choice, recorded or forecast with its chance of rain, the forecast kept beside a recorded hour; the starter Weather by the hour), local.items (every other Local info item, captured or typed; hidden ones left out, a group-wide one only with every venue; how many staff flagged each relevant or not; since migration 249 entries only, with how many other reports of the same event are in each and whether one was kept apart), local.captures (how often each runs, when it last ran, its problem, since migration 248 whether it learns from staff flags and what it learned, and since 249 a problem putting the same events together)'],
                 ['Menus (menus)', 'menu.releases (each publish and its state: Live, Earlier, Scheduled, Cancelled, by liveRows()\'s rule), menu.option_groups, menu.options, menu.tags, menu.dish_tags (the allergen matrix\'s levels), menu.dish_option_groups, menu.dish_option_prices, menu.dish_own_options, menu.tax_rates (the usual rate). Everything but releases is the draft the Menus pages edit'],
                 ['Website and reviews (website)', 'website.reviews (as the Reviews page holds them, checked or in the To check inbox), website.pages (the draft, each with its address worked out as pagePath() does), website.media, website.media_categories'],
                 ['Pepper (ai_assistant; use by person, changes and chats Manage on it)', 'pepper.usage (ai_usage, a row a UTC month and channel: requests, units, tokens, web searches; the Settings tab\'s figures), pepper.people (ai_usage_people, each person\'s UTC day: the units their daily share counts; Person links to group.team with team), pepper.actions (ai_actions: what each change was in ACTION_LABELS\' words, where, who asked, whether it went through, cleared; input and result never read), pepper.chats (ai_conversations: where, who started it, model, closed and why, its changes; title, system_prompt and guest_key never read)'],
@@ -9013,7 +9083,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               counts are on each item), the one table planned being <Mono>report_runs</Mono>; phase 4a made it the
               Report runs subject and left migration 250&apos;s <Mono>report_files</Mono> out (a run&apos;s kept
               file is a field of its run), so they are <Mono>{'{ subject: 128, planned: 0, settings: 57, out: 50 }'}</Mono>{' '}
-              over 235 tables, with nothing left planned. What was said to Pepper (<Mono>ai_actions</Mono> input and result,{' '}
+              over 235 tables, with nothing left planned. Till buttons tapped (migration 266, <Mono>pos_till_taps</Mono>)
+              made it <Mono>{'{ subject: 129, planned: 0, settings: 57, out: 57 }'}</Mono> over 243 tables. What was said to Pepper (<Mono>ai_actions</Mono> input and result,{' '}
               <Mono>ai_conversations</Mono> title, system_prompt and guest_key) and a new location&apos;s words
               and Pepper&apos;s plan (<Mono>store_openings</Mono> input, steps, ai, overrides, plan, results) stay
               in their subjects&apos; <Mono>skip</Mono> lists: a test in <Mono>reports-catalogue.test.mjs</Mono>{' '}

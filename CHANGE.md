@@ -6,6 +6,30 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-22 — Small follow-ups: links without pop-ups, platform alerts, weather by the hour]
+
+- The website's rich text and the email templates ask for a link, an image or a button on the page instead of a browser pop-up. A bare address such as example.com gets https:// in front; javascript: and data: links are refused.
+- Platform admins are emailed when Macaroonie is down for two minutes or slow for half an hour, and when it is back up. Platform → Services shows when the last one went.
+- Reports: **Weather by the hour** (a new subject and starter): each venue's weather hour by hour, recorded once an hour has passed and forecast before.
+
+## [2026-11-22 — Which till buttons get used, and till and kitchen screen activity]
+
+- Store tech → Till layouts → a layout: **Taps** colours every button by how often the tills tapped it (pale yellow for few, deep red for the most, grey for never), with the count on each and the most tapped listed. Pick 7, 30 or 90 days, every till or one, and everyone or one person (people need Till reports).
+- Tills count taps on categories, menus, dishes and your own buttons, per day, person and till, and send them every minute (kept when offline). Nothing about the order and no times; kept 90 days.
+- New starter reports: **Till activity by person**, **Till activity by till** (orders opened, dishes added, taken off and voided, sends, discounts, bills, payments, refunds, no sales), **Till buttons tapped** and **Kitchen screens: taps by screen** (dishes done and ticked off, bumps, brought back, remakes, rushes, collected). Kitchen tickets and remakes can be grouped by kitchen screen.
+- Migration 266 (`pos_till_taps`).
+
+## [2026-11-22 — Kitchen flow timers]
+
+- Store tech → Kitchen flow designer: **Add a timer** to time dishes between two points of a flow, e.g. from the order being sent to the pass, or from the grill being done to the pass. Tap where it starts, then a box someone taps done on; it shows as a dotted purple arrow under the boxes with its target. Tap it to name it, pick when it starts (a dish reaching the box, or done there), count each dish or each ticket, set the target in minutes or remove it. Save flow keeps them.
+- Till reports → Kitchen has a **Flow timers** card: for each timer, how many dishes or tickets it counted, the average, middle, 9 in 10 and slowest times (with the order) and the share on time. Pepper's kitchen report includes them.
+- Timers change nothing on the kitchen screens or tickets.
+- Migration 265 (`kds_flows.timers`).
+
+## [2026-11-22 — Loyalty card looks members pick]
+
+- Loyalty → Programme → **Card looks members can pick**: up to eight looks for the card (a name and its colours), in an order you drag. Members choose theirs in the loyalty app's Settings, and their card shows it in the app, on your website and in Apple and Google Wallet. Taking a look away puts its members back on the standard look. Migration 264.
+
 ## [2026-11-22 — The Tech board, and platform status]
 
 - **Store tech → Tech board**: a venue's kit on one page (venue hub, tills, kitchen screens, kiosks, printers, card machines, menu screens), each with a light, whether it is online, the last thing it did and a link to its page, plus a box of what needs looking at and a light for Macaroonie itself. It checks again every minute. Migration 263 adds the link to Store tech.

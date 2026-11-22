@@ -15,7 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import {
   Gift, Loader2, Plus, ArrowLeft, Search, Copy, ExternalLink, Download, Stamp, Users, Wallet, Settings2, LayoutDashboard,
-  AlertTriangle, CircleCheck,
+  AlertTriangle, CircleCheck, Palette,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -30,6 +30,7 @@ import { AppleWalletForm, GoogleWalletForm } from '@/components/loyalty/WalletFo
 import {
   FEATURES, LOYALTY_CHANNELS, CHANNEL_LABELS, REWARD_KINDS, STAMP_PER, DEFAULT_TERMS, DEFAULT_MARKETING,
   normaliseReward, normaliseStampCard, rewardProblems, stampCardProblems, formatMemberNo,
+  MAX_CARD_THEMES, themeColours,
 } from '@shared/loyalty.js'
 
 const money = p => '£' + ((Number(p) || 0) / 100).toFixed(2)
@@ -266,6 +267,74 @@ function cardLook(settings, theme) {
   return { background, text, accent }
 }
 
+// Looks offered when "Add a look" is pressed, in turn (each can be changed).
+const LOOK_PRESETS = [
+  { name: 'Midnight', background: '#111827', text: null, accent: '#f59e0b' },
+  { name: 'Ocean', background: '#0e7490', text: null, accent: '#fde68a' },
+  { name: 'Rose', background: '#fce7f3', text: '#831843', accent: '#db2777' },
+  { name: 'Forest', background: '#14532d', text: null, accent: '#bef264' },
+  { name: 'Sunshine', background: '#facc15', text: '#1f2937', accent: '#b45309' },
+  { name: 'Lavender', background: '#ede9fe', text: '#4c1d95', accent: '#7c3aed' },
+  { name: 'Coral', background: '#fb7185', text: null, accent: '#fff7ed' },
+  { name: 'Slate', background: '#e2e8f0', text: '#0f172a', accent: '#2563eb' },
+]
+const newLookId = () => 'look-' + (crypto.randomUUID?.() || String(Math.random()).slice(2)).replace(/[^a-z0-9]/g, '').slice(0, 8)
+
+/**
+ * The looks members can pick for their own card (settings.themes, 22 Nov
+ * 2026): up to MAX_CARD_THEMES, in order (drag), each a name and the card's
+ * colours. A member's pick is kept by the look's id, so a look keeps its id
+ * when edited; taking one away puts its members back on the standard look.
+ */
+function CardLooks({ themes, onChange, canManage }) {
+  const update = (id, patch) => onChange(themes.map(t => (t.id === id ? { ...t, ...patch } : t)))
+  function add() {
+    const used = new Set(themes.map(t => t.name))
+    const p = LOOK_PRESETS.find(x => !used.has(x.name)) || LOOK_PRESETS[themes.length % LOOK_PRESETS.length]
+    onChange([...themes, { id: newLookId(), ...p }])
+  }
+  return (
+    <Card title="Card looks members can pick" icon={Palette}>
+      <p className="text-sm text-muted-foreground">
+        Members choose one of these for their own card in the loyalty app&apos;s Settings, or keep the standard look
+        above. Their pick shows on their card in the app, on your website and in Apple and Google Wallet. None set: members
+        don&apos;t see a choice.
+      </p>
+      {themes.length > 0 && (
+        <SortableRows items={themes} locked={!canManage}
+          onReorder={ids => onChange(ids.map(id => themes.find(t => t.id === id)))}
+          renderItem={t => {
+            const c = themeColours(t)
+            return (
+              <div className="py-2 space-y-2" data-testid="loy-look">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="w-20 h-12 shrink-0 rounded-lg shadow-sm flex items-end p-1.5 text-[11px] font-bold" style={{ background: c.background, color: c.text }}>
+                    <span style={{ color: c.accent }}>120</span>
+                  </span>
+                  <input value={t.name} onChange={e => update(t.id, { name: e.target.value.slice(0, 30) })} maxLength={30}
+                    aria-label="The look's name" className={cn(inputCls, 'flex-1 min-w-[140px]')} data-testid="loy-look-name" />
+                  {canManage && <ConfirmDelete label={'Take away ' + t.name} confirmLabel="Yes, take it away" onConfirm={() => onChange(themes.filter(x => x.id !== t.id))} />}
+                </div>
+                <div className="grid sm:grid-cols-3 gap-2">
+                  <ColourPicker label="Background" value={t.background} onChange={v => v && update(t.id, { background: v })} disabled={!canManage} />
+                  <ColourPicker label="Words" optional placeholder="Automatic" value={t.text} fallback={c.text} onChange={v => update(t.id, { text: v || null })} disabled={!canManage} />
+                  <ColourPicker label="Highlights" optional placeholder="Same as words" value={t.accent} fallback={c.accent} onChange={v => update(t.id, { accent: v || null })} disabled={!canManage} />
+                </div>
+              </div>
+            )
+          }} />
+      )}
+      {canManage && (
+        <button type="button" className={btn} onClick={add} disabled={themes.length >= MAX_CARD_THEMES} data-testid="loy-look-add">
+          <Plus className="w-4 h-4" /> Add a look
+        </button>
+      )}
+      {themes.length >= MAX_CARD_THEMES && <p className="text-xs text-muted-foreground">{MAX_CARD_THEMES} looks at most.</p>}
+      <p className="text-xs text-muted-foreground">Drag to change the order members see them in. Taking a look away puts the members who picked it back on the standard look.</p>
+    </Card>
+  )
+}
+
 function ProgrammeTab({ data, catalog, canManage }) {
   const api = useApi()
   const qc = useQueryClient()
@@ -412,6 +481,7 @@ function ProgrammeTab({ data, catalog, canManage }) {
           </div>
           <p className="text-xs text-muted-foreground">Used in Apple and Google Wallet and on the web app. Not set: the brand colours from Brand & theme.</p>
         </Card>
+        <CardLooks themes={s.themes || []} onChange={themes => set({ themes })} canManage={canManage} />
       </ReadOnlyFieldset>
       {canManage && (
         <div className="sticky bottom-0 bg-page/95 py-3 flex flex-wrap items-center gap-2 border-t">

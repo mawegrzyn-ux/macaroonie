@@ -8,7 +8,7 @@
 
 import { withTenant } from '../config/db.js'
 import { ensureProgramme, tenantSite } from './loyaltySvc.js'
-import { cardColours } from './walletSvc.js'
+import { cardColours } from '../../../shared/loyalty.js'
 
 const HEX = /^#[0-9a-f]{6}$/i
 const pick = (v, d) => (typeof v === 'string' && HEX.test(v) ? v : d)

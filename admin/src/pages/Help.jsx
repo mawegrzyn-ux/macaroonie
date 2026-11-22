@@ -2644,7 +2644,7 @@ export default function Help() {
                 ['Bookings', 'Guests by day and time; Bookings by source; No-shows and cancellations; How far ahead people book; Party sizes; Deposits taken and refunded; New and returning guests; Emails sent and failed.'],
                 ['Cash reconciliation', 'Cash variance by day; Cash variance by week; Cash variance by venue; Days the cash was short; Income against takings; Takings by payment channel; Expenses by category; Wages by week.'],
                 ['Staff and rota', 'Hours and pay by person; Rota pay by week; Hours on the rota by day; Time off by person; Tips by person and pot; Tip pots by week; Rota pay against the wage list; Labour against sales by week.'],
-                ['Kitchen', 'Ticket times by station; Ticket times by hour; Remakes and why.'],
+                ['Kitchen', 'Ticket times by station; Ticket times by hour; Remakes and why; Kitchen screens: taps by screen.'],
                 ['Self-order kiosks', 'Kiosk visits and orders by day; Where kiosk guests gave up.'],
                 ['Loyalty', 'Members joined by week; Points given and spent; Rewards used; Stamp cards: stamps and cards filled.'],
                 ['Purchasing', 'Spend by supplier; Spend by month; Spend by category; Delivery problems by supplier; Orders sent late; Invoices above the price ordered; Price changes; Products out of stock.'],
@@ -2652,8 +2652,9 @@ export default function Help() {
                 ['Customers', 'Newsletter sign-ups by month.'],
                 ['Menus', 'Dishes with no photo, price or allergens; Allergens by dish; Price list; Publishing history.'],
                 ['Website and reviews', 'Reviews by rating, site and month.'],
-                ['Local info', 'Local events and incidents coming up.'],
+                ['Local info', 'Local events and incidents coming up; Weather by the hour.'],
                 ['Store tech', 'Card machine payments by machine; Tickets printed by printer; Menu screens offline.'],
+                ['Till activity', 'Till activity by person; Till activity by till; Till buttons tapped.'],
                 ['Pepper', 'Pepper\'s use by month; Pepper\'s use by person; Pepper\'s changes.'],
                 ['Your group', 'Team sign-ins; Issues by priority.'],
               ]}
@@ -5890,6 +5891,15 @@ export default function Help() {
               for Google your issuer ID and a service account key file. A wallet card&apos;s balance
               updates within about a minute of a change.
             </P>
+            <H3>Card looks members pick</H3>
+            <P>
+              In Programme, <strong>Card looks members can pick</strong> offers up to eight looks for the card, each a
+              name and its background, words and highlight colours. <strong>Add a look</strong> starts from a ready-made
+              one you can change; drag them into the order members see. Members then choose a look for their own card in
+              the loyalty app&apos;s <strong>Settings</strong> (or keep <strong>Standard</strong>, the card&apos;s colours
+              above), and their card shows it in the app, on your website and in Apple and Google Wallet. Take a look away
+              and the members who picked it go back to the standard look. With no looks set, members see no choice.
+            </P>
 
             <H3>Members</H3>
             <P>
@@ -7397,6 +7407,25 @@ export default function Help() {
               buttons that open it too.
             </P>
 
+            <H3>Which buttons get used: taps on a till layout</H3>
+            <P>
+              Tills count how often each button of their layout is tapped: the categories, the menus, the dishes and
+              your own buttons (the order&apos;s Send, Bill and Pay are in the till&apos;s activity instead, and a
+              dish&apos;s choices aren&apos;t counted). In the layout designer press <strong>Taps</strong>: every
+              button shows its count and a colour from pale yellow (few) to deep red (the most), and a button never
+              tapped is grey. The panel on the right picks <strong>7, 30 or 90 days</strong>, <strong>every till</strong>
+              or one, and (for those who can see Till reports) <strong>everyone</strong> or one person, with the total
+              and the most tapped buttons; tap one to open its zone. Use it to move what staff reach for most to where
+              it is easiest to reach, and to take out what nobody uses. <strong>Hide taps</strong> goes back to the
+              plain preview.
+            </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>What is counted: one number per day, till, person signed in, and button. Not what was on the order and not the time of a tap. Counts are kept for 90 days.</li>
+              <li>The till keeps its counts while it is offline and sends them when it can (every minute, and when it is put away).</li>
+              <li>The preview shows each zone&apos;s first page, and a Dishes zone the first category&apos;s dishes; the list of most tapped has the rest.</li>
+              <li>Reports: <strong>Till buttons tapped</strong> (by layout and button, then by till, person or day), <strong>Till activity by person</strong> and <strong>by till</strong> (orders opened, dishes added, taken off and voided, sends, discounts, bills, payments, refunds and the drawer opened with no sale, from the till&apos;s own record) and <strong>Kitchen screens: taps by screen</strong> (dishes done and ticked off, bumps, tickets brought back, remakes, rushes, collected). Figures about people need Till reports.</li>
+            </ul>
+
             <H3>Phone layouts: the till on a phone</H3>
             <P>
               A till works on a phone too: open the till address in the phone&apos;s browser (or the Android app)
@@ -7815,7 +7844,7 @@ export default function Help() {
                 ['Checks', 'Every check of a day with its items, totals and full history: who did what, when, and who approved it.'],
                 ['Refused changes', 'Changes a till made offline that couldn\'t be applied when it caught up. Note what was done and mark them dealt with.'],
                 ['Print queue', 'Tickets and other jobs, waiting or printed, with the reason when one didn\'t print.'],
-                ['Kitchen', 'Speed of service from the kitchen screens: per station, tickets, dishes, average, middle and slowest times, how many were on time and late, the average by hour, and every remake with its reason. Download CSV for every bump and remake.'],
+                ['Kitchen', 'Speed of service from the kitchen screens: per station, tickets, dishes, average, middle and slowest times, how many were on time and late, the average by hour, and every remake with its reason. Flow timers (set on the kitchen flow) show how many dishes or tickets they counted, the average, middle, 9 in 10 and slowest times (with its order) and the share on time against their target. Download CSV for every bump and remake.'],
               ]}
             />
 
@@ -7875,6 +7904,7 @@ export default function Help() {
               <li><strong>When one order type gets busy</strong> (also in the Splitter's window): <em>Give it its own station</em>, then a count, an order type and a station, e.g. <em>From 5 waiting Delivery orders, send Delivery orders to Wingman 2 and every other order to the other stations</em>. Waiting means with dishes still to cook at the stations the box shares between (the new order counts too). Below the count the box shares as usual; once there are that many, every delivery ticket goes to Wingman 2 and every other ticket to the others, until the deliveries are bumped and the count drops again. Pick a station the box links to in the kitchen flow (the list puts those first and marks the others <em>not linked to it yet</em>; the flow shows a warning if it doesn't link to it). If that station is deleted or stops bumping, the rule switches off. The station list and the flow designer say which way each Splitter shares.</li>
               <li><strong>Holding dishes back for a while (Sleeper)</strong>: for orders that should start later than they arrive, e.g. delivery orders waiting 10 minutes so the food isn't ready before the driver, or desserts waiting 20 minutes after the mains. <strong>Add to the flow</strong> → <strong>Sleeper</strong>, name it (Delivery wait) and set <strong>Hold dishes for</strong> (1 to 240 minutes) under <strong>Edit station</strong>. Then decide which dishes it holds with the link into it from Orders in: tap the link's label and pick an order type (Delivery), a revenue stream, the till or kiosk it was sent from, a section (Desserts) or single dishes; a link with no filter holds every dish. Link the Sleeper on to the stations those dishes go to (the Grill, the Fryer; those links can have filters too), and keep the usual links from Orders in for everything else: a dish takes the links that name it most closely, so delivery dishes take the Sleeper and the rest go straight to the stations. The wait counts from when a dish reaches the Sleeper; then it reaches the next stations by itself. Kitchen screens that show dishes before they arrive (the pass) show it as <em>Waiting at Delivery wait until 19:42</em>, with the ticket's clock showing that time; the grill only sees it once it wakes, and its timer starts then. The pass's Bump sends it on at once, and a dish remade after it woke doesn't wait again. A Sleeper has no kitchen screen and nothing to bump. For a different wait add another Sleeper (Delivery wait 10 min, Dessert wait 20 min). A Sleeper before a kitchen printer prints the ticket when it wakes (within a minute). <strong>Check a dish</strong> shows the wait in its way.</li>
               <li><strong>Order statuses for the boards (Setter)</strong>: a Setter sets an order&apos;s status as a dish passes it, so order ready boards can show more than Preparing and Ready (Cooking, Bagging, Out for delivery). <strong>Add a station</strong> (or <strong>Add to the flow</strong>) → <strong>Setter</strong>; its name is the status, so each Setter at a location needs its own name (call it the same at every location). Under <strong>On order ready boards</strong> pick how it shows on a tile: <strong>Words</strong> (a coloured label under the number, with your own words if you like), a <strong>Flag</strong> in the corner, a <strong>Coloured border</strong> round the tile, a <strong>Traffic light</strong> (pick which lamp is lit), a <strong>Square</strong> or a <strong>Dot</strong>; its <strong>Colour</strong>; and <strong>Movement</strong>: Still, Pulse, Turn, Blink, Bounce, Shake or Glow. Put it in the kitchen flow where the status should change: before a station to say the dish is there (Orders in → <em>Cooking</em> → Grill), after one to say it has left it (Grill → <em>Bagging</em> → Pass). Dishes go straight through a Setter; it has no kitchen screen and nothing to bump. An order shows the last Setter its dishes reached, and keeps it on the Ready side too.</li>
+              <li><strong>Timers</strong> (the dotted purple arrows): to see how long dishes take between two points, e.g. from the order being sent to the pass, or from the grill to the pass. Press <strong>Add a timer</strong>, tap where it starts (<strong>Orders in</strong>, or a box), then the box where it ends: one someone taps done on (a prep, expo or runner screen; boards, printers, Splitters, Sleepers and Setters are greyed). The timer appears as a dotted arrow under the boxes, with its target on its label; tap the label to give it a name, choose when it starts at a box (<em>when a dish reaches it</em> or <em>when it is done there</em>), whether it counts <strong>each dish</strong> or <strong>each ticket</strong> (from the order's first dish to start to its last dish tapped done at the end), set the <strong>target</strong> in minutes, or remove it. <strong>Save flow</strong> keeps them (up to 20 per flow). Timers change nothing in the kitchen: the screens and tickets work as before, and the figures are in Till reports → <strong>Kitchen</strong>, worked out from the orders the kitchen screens kept. A dish counts once it is tapped done at the timer's end, whichever flow sent it, if it passed both points (a dish going another way, voided, or still on its way doesn't count). A shared flow's timer counts at each location that has stations of both its boxes' names. Taking a station out of the flow or removing a box removes its timers.</li>
               <li><strong>Several flows</strong>: the row of flow names above the boxes picks the flow you're looking at; a green dot marks the one <strong>in use</strong>. <strong>New flow</strong> starts an empty one; <strong>Copy</strong> (in the box on the right) starts from the flow you're looking at, which is the quick way to make, say, a <em>Grill down</em> flow from your normal one. <strong>Use this flow now</strong> puts the flow you're looking at in use, after a confirm. <strong>Rename</strong> and the bin (delete, after a confirm) are there too; the flow in use can't be deleted. <strong>Order</strong> sets the order kitchen screens list the flows in (drag the rows). Save or discard changes before opening another flow.</li>
               <li><strong>Flows shared by every location</strong>: with more than one location, a flow can be used by all of them. In <strong>New flow</strong> (or <strong>Copy</strong>) pick <strong>Every location</strong> instead of <strong>Only at</strong> this location. A shared flow has a globe on its tab and shows at every location after that location's own flows; each location puts it in use (or not) itself. Its boxes are station <em>names</em>: at each location a box is that location's station with the same name (capitals and spaces don't matter), so one flow sends Ware's dishes to Ware's Grill and Pass and Hertford's to Hertford's. <strong>Add to the flow</strong> offers this location's stations, or a new box of any kind (tap it to name it). A box this location has no station for shows <em>none here</em>, greyed; the note above the boxes lists what each location lacks, with <strong>Add them at</strong> that location to make the stations there. A location without a box's station leaves that box's links out, so its dishes take the next closest link (no Fryer at Hertford: the fries go with everything else to the Grill). Revenue stream and Sent from filters in a shared flow go by name too (each location's <em>Bar till</em>). Tap a box to rename it, change its kind or remove it from the flow; its panel lists every location's station of that name, with <strong>Add it</strong> where there isn't one, and <strong>Edit station here</strong> for this location's. Changes to a shared flow count at every location once saved. It can't be deleted while any location has it in use. <strong>Copy</strong> turns a shared flow into this location's own (its boxes become this location's stations of those names) or this location's flow into a shared one.</li>
               <li><strong>Kitchen screens</strong>: <strong>Add a screen</strong>, name it, tick the stations it shows (none ticked: all; order ready boards aren't shown on kitchen screens), what it opens on (tickets or the On order counts), tickets across, text size, the <strong>ticket title</strong> (what each ticket's header shows big: <em>Table or name</em>, the usual; the order number; the tent; the table; or the customer's name), the beep, and whether it <strong>can switch the kitchen flow</strong> (on unless you turn it off). On the screen, open the kitchen screen address (kitchen.macaroonie.com, shown on the tab) in Chrome and install it: it shows a code. Type that code in the Add a screen window (or scan its QR code with a phone).</li>
@@ -8582,6 +8612,7 @@ export default function Help() {
               <li>Select the email type tab (Confirmation / Reminder / Modification / Cancellation).</li>
               <li>Edit the <strong>subject line</strong> — merge fields work here too.</li>
               <li>Edit the <strong>HTML body</strong>. Click merge field pills above the editor to insert them.</li>
+              <li>The link, image and <strong>BTN</strong> (button) tools ask under the toolbar: type the address (example.com gets https:// in front; mailto:, tel: and merge fields such as <Mono>{'{{manage_link}}'}</Mono> work too, picked from the list) and, for a button, its words, then <strong>Add</strong> (or Enter). An image needs a web address. With the words on a link, the link tool shows <strong>Change link</strong> and <strong>Remove link</strong>.</li>
               <li>Click <strong>Preview</strong> to see the email rendered with sample data in a preview panel.</li>
               <li>Click <strong>Save template</strong>.</li>
               <li>To go back to the built-in default, click <strong>Reset to default</strong> or <strong>Delete custom</strong>.</li>
@@ -8802,6 +8833,13 @@ export default function Help() {
               phone to get in touch, set each one to <strong>New</strong>, <strong>Contacted</strong> or{' '}
               <strong>Closed</strong>, keep a note (with its own Save), or delete it (it asks first).{' '}
               <strong>Open</strong> hides closed ones; <strong>All</strong> shows everything.
+            </P>
+            <P>
+              The <strong>Services</strong> tab&apos;s Platform status shows whether Macaroonie is up, running slow or
+              down, and why. Platform admins are emailed when it has been <strong>down</strong> for two minutes or
+              <strong> slow</strong> for half an hour, and again when it is <strong>back up</strong>; each once a spell.
+              The card says when the last one was sent. The emails go from the platform&apos;s own email account, so
+              they need its email key set on the server.
             </P>
 
             <H3>Creating a new tenant (master franchisee)</H3>

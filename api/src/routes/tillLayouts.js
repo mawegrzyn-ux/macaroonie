@@ -13,16 +13,20 @@
 //   GET    /till-layouts/:id         a layout, its problems and warnings, where it is used
 //   PUT    /till-layouts/:id         { name, layout } (422 code 'layout' with the problems)
 //   DELETE /till-layouts/:id         venues using it go back to the standard screen, tills to their venue's
+//   GET    /till-layouts/:id/taps    ?days=&venue_id=&device_id=&staff_id= the heat map: taps per
+//                                    zone and button (migration 266); by person only with Till reports view
 //
 // A change tells every till of the company to download its config again.
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
-import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { requireAuth, requirePermission, permissionLevel } from '../middleware/auth.js'
+import { permissionAtLeast } from '../config/modules.js'
 import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import { LAYOUT_TEMPLATES, templateLayout, normaliseTillLayout, layoutProblems, layoutWarnings, MAX_ZONES } from '../../../shared/pos/tillLayout.js'
 import { ownTillLayout, layoutUses } from '../services/tillLayoutSvc.js'
+import { heatOf, TAPS_KEEP_DAYS } from '../../../shared/pos/tillTaps.js'
 
 const canView = requirePermission('pos_setup', 'view')
 const canManage = requirePermission('pos_setup', 'manage')
@@ -94,6 +98,51 @@ export default async function tillLayoutRoutes(app) {
   app.get('/till-layouts/:id', { preHandler: canView }, async req => {
     const id = UUID.parse(req.params.id)
     return withTenant(req.tenantId, async tx => view(await ownLayoutRow(tx, req.tenantId, id), await layoutUses(tx, req.tenantId)))
+  })
+
+  // The heat map (migration 266): taps on the layout's buttons over the last
+  // days, all tills or one, all venues or one; one person's only for those
+  // who can read Till reports (their figures are about people). Also lists
+  // the tills (and, for them, the people) that tapped, and the most tapped
+  // buttons with their words (the preview shows only a zone's first page).
+  app.get('/till-layouts/:id/taps', { preHandler: canView }, async req => {
+    const id = UUID.parse(req.params.id)
+    const q = z.object({
+      days: z.coerce.number().int().min(1).max(TAPS_KEEP_DAYS).default(30),
+      venue_id: UUID.optional(), device_id: UUID.optional(), staff_id: UUID.optional(),
+    }).parse(req.query || {})
+    const people = permissionAtLeast(await permissionLevel(req, 'pos_reports'), 'view')
+    if (q.staff_id && !people) throw httpError(403, 'Taps by person need Till reports view')
+    return withTenant(req.tenantId, async tx => {
+      await ownLayoutRow(tx, req.tenantId, id)
+      const where = tx`
+        t.tenant_id = ${req.tenantId} AND t.layout_id = ${id} AND t.day > current_date - ${q.days}::int
+        ${q.venue_id ? tx`AND t.venue_id = ${q.venue_id}` : tx``}
+        ${q.device_id ? tx`AND t.device_id = ${q.device_id}` : tx``}
+        ${q.staff_id ? tx`AND t.staff_id = ${q.staff_id}` : tx``}`
+      const [cells, tills, staff] = await Promise.all([
+        tx`SELECT t.zone_id, t.zone_type, t.cell, sum(t.taps)::int AS taps, (array_agg(t.label ORDER BY t.updated_at DESC))[1] AS label
+             FROM pos_till_taps t WHERE ${where} GROUP BY 1, 2, 3 ORDER BY 4 DESC`,
+        tx`SELECT t.device_id AS id, d.name, v.name AS venue, sum(t.taps)::int AS taps
+             FROM pos_till_taps t JOIN pos_devices d ON d.id = t.device_id AND d.tenant_id = t.tenant_id
+             JOIN venues v ON v.id = t.venue_id AND v.tenant_id = t.tenant_id
+            WHERE t.tenant_id = ${req.tenantId} AND t.layout_id = ${id} AND t.day > current_date - ${q.days}::int
+            GROUP BY 1, 2, 3 ORDER BY 4 DESC`,
+        people ? tx`
+          SELECT t.staff_id AS id, s.name, sum(t.taps)::int AS taps
+            FROM pos_till_taps t JOIN cash_staff s ON s.id = t.staff_id AND s.tenant_id = t.tenant_id
+           WHERE t.tenant_id = ${req.tenantId} AND t.layout_id = ${id} AND t.day > current_date - ${q.days}::int
+             ${q.venue_id ? tx`AND t.venue_id = ${q.venue_id}` : tx``}
+             ${q.device_id ? tx`AND t.device_id = ${q.device_id}` : tx``}
+           GROUP BY 1, 2 ORDER BY 3 DESC` : [],
+      ])
+      const heat = heatOf(cells)
+      return {
+        days: q.days, ...heat,
+        top: cells.slice(0, 15).map(c => ({ zone_id: c.zone_id, zone_type: c.zone_type, cell: c.cell, label: c.label, taps: c.taps })),
+        tills, people: people ? staff : null,
+      }
+    })
   })
 
   app.put('/till-layouts/:id', { preHandler: canManage }, async req => {

@@ -18,6 +18,7 @@ import { startPublishWorker }                from './jobs/publishWorker.js'
 import jwksClient                            from 'jwks-rsa'
 import { checkVault, sealStoredSecrets }     from './services/vault.js'
 import { startProcessBeat, watchWorker }     from './services/platformStatus.js'
+import { startPlatformAlerts }               from './services/platformAlerts.js'
 
 // Stored integration keys are sealed with SECRETS_KEY (migration 179): in
 // production the API doesn't start without a valid one.
@@ -57,11 +58,13 @@ for (const [name, w] of [['notifications', notifWorker], ['hold-sweep', sweepWor
   ['website-publish', publishWorker], ['gloriafood-poll', gfWorker], ['ai-cleanup', aiWorker], ['local-info', infoWorker],
   ['report-schedules', reportWorker], ['cash-autofill', fillWorker], ['task-notices', noticeWorker]]) watchWorker(name, w)
 let stopBeat = null
+let stopAlerts = null
 
 // ── Graceful shutdown ────────────────────────────────────────
 const shutdown = async (signal) => {
   app.log.info({ signal }, 'Shutting down')
   stopBeat?.()
+  stopAlerts?.()
   await app.close()
   await notifWorker.close()
   await sweepWorker.close()
@@ -86,6 +89,8 @@ try {
   await app.listen({ port: env.PORT, host: '0.0.0.0' })
   app.log.info(`API listening on :${env.PORT}`)
   stopBeat = startProcessBeat(app.log)
+  // Emails platform admins when the platform turns red (one process of the cluster).
+  stopAlerts = startPlatformAlerts(app.log)
 
   // Attach WS server to the same HTTP server
   attachWss(app.server, verifyWsToken)

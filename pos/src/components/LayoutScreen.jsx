@@ -142,10 +142,11 @@ function CategoriesZone({ zone, layoutId, sections, sectionId, setSectionId, res
   const border = buttonBorderStyle(zone)
   const list = isList(zone)
   return (
-    <ZoneGrid zone={zone} memoKey={'cats:' + layoutId + ':' + zone.id} resetKey={resetKey} moreTitle="Categories"
+    <ZoneGrid zone={zone} layoutId={layoutId} memoKey={'cats:' + layoutId + ':' + zone.id} resetKey={resetKey} moreTitle="Categories"
       empty="No categories on the menus on now." testid="zone-categories"
       cells={sections.map(c => ({
         key: 's:' + c.s.id,
+        label: c.s.title,
         node: <SectionButton label={c.s.title} colour={c.s.colour || SECTION_COLOURS[c.i % SECTION_COLOURS.length]} on={c.s.id === sectionId} testid="category"
           place={place} border={border} list={list} onTap={() => setSectionId(c.s.id)} />,
       }))} />
@@ -186,6 +187,7 @@ function MenusZone({ zone, layoutId, shown, onUsed = null }) {
   if (zone.times_button) {
     cells.push({
       key: 'times',
+      label: 'Menu times',
       node: <MenuButton label="Menu times" testid="zone-menu-times" place={place} border={border} list={rows} on={shown.auto} onTap={() => { shown.follow(); onUsed?.() }}
         sub={zone.show_times ? (shown.auto ? (shown.none ? 'No menu on now' : 'Following') : 'Back to the times') : null} />,
     })
@@ -193,11 +195,12 @@ function MenusZone({ zone, layoutId, shown, onUsed = null }) {
   for (const m of list) {
     cells.push({
       key: 'm:' + m.id,
+      label: m.name,
       node: <MenuButton label={m.name} menuId={m.id} testid="zone-menu" place={place} border={border} list={rows} on={shown.ids.includes(m.id)} onTap={() => tap(m.id)}
         sub={zone.show_times ? menuTimesText(m) : null} />,
     })
   }
-  return <ZoneGrid zone={zone} cells={cells} memoKey={'menus:' + layoutId + ':' + zone.id} moreTitle="Menus" empty="The till has no menus." testid="zone-menus" />
+  return <ZoneGrid zone={zone} layoutId={layoutId} cells={cells} memoKey={'menus:' + layoutId + ':' + zone.id} moreTitle="Menus" empty="The till has no menus." testid="zone-menus" />
 }
 
 function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCategories, soldOut, comboRefs, onDish, onHold, counts = null, takeOff = null }) {
@@ -242,10 +245,11 @@ function ItemsZone({ zone, layoutId, config, menus, section, sectionIndex, hasCa
         </div>
       )}
       <div className="flex-1 min-h-0">
-        <ZoneGrid zone={zone} memoKey={'items:' + layoutId + ':' + zone.id} resetKey={(section?.id || '') + '|' + q.trim()} moreTitle={section?.title || 'Dishes'}
+        <ZoneGrid zone={zone} layoutId={layoutId} memoKey={'items:' + layoutId + ':' + zone.id} resetKey={(section?.id || '') + '|' + q.trim()} moreTitle={section?.title || 'Dishes'}
           empty={q ? 'No dish matches.' : hasCategories ? 'This category has no dishes.' : 'No dishes on the menus on now.'} testid="zone-items"
           cells={items.map(it => ({
             key: it.id,
+            label: it.name,
             node: <DishButton fill place={place} look={look} list={isList(zone)} item={it} colour={it.colour || colour} priceText={dishPriceText(config, it.id, comboRefs)}
               showPrice={zone.price} soldOut={soldOut.has(it.id)} onPick={onDish} onHold={onHold} count={counts?.[it.id] || 0} takeOff={takeOff} />,
           }))} />
@@ -275,11 +279,12 @@ function CategoryZone({ zone, layoutId, config, menus, tillMenus, soldOut, combo
   // The zone's own button colours, then its button border.
   const look = { ...categoryButtonStyle(zone), ...buttonBorderStyle(zone) }
   const grid = (
-    <ZoneGrid zone={zone} memoKey={'category:' + layoutId + ':' + zone.id} resetKey={zone.section_id || ''} moreTitle={found?.s.title || 'Dishes'}
+    <ZoneGrid zone={zone} layoutId={layoutId} memoKey={'category:' + layoutId + ':' + zone.id} resetKey={zone.section_id || ''} moreTitle={found?.s.title || 'Dishes'}
       empty={!zone.section_id ? 'No category picked for this zone.' : !found ? 'This category isn\'t on this till\'s menus.' : 'No dishes to show here.'}
       testid="zone-category"
       cells={items.map(it => ({
         key: it.id,
+        label: it.name,
         node: <DishButton fill place={place} look={look} list={isList(zone)} item={it} colour={it.colour || colour} priceText={dishPriceText(config, it.id, comboRefs)}
           showPrice={zone.price} soldOut={soldOut.has(it.id)} onPick={onDish} onHold={onHold} count={counts?.[it.id] || 0} takeOff={takeOff} />,
       }))} />
@@ -326,6 +331,7 @@ function ButtonsZone({ zone, layoutId, config, check, soldOut, onDish, onHold, o
   const inPopup = zone.type === 'popup'
   const cells = zone.buttons.map(b => {
     const item = b.action === 'item' ? config.items?.[b.item_id] : null
+    const label = buttonLabel(b, { items: config.items || {}, presets, tenders, charges, popups })
     const action = actionOf(b.action)
     const missing = (b.action === 'item' && !item) || (b.action === 'discount_preset' && !presets.some(p => p.id === b.preset_id))
       || (b.action === 'tender' && !tenders.some(t => t.key === b.tender && t.enabled))
@@ -333,15 +339,15 @@ function ButtonsZone({ zone, layoutId, config, check, soldOut, onDish, onHold, o
     const disabled = missing || (action?.check && !check) || (b.action === 'back' && !canBack) || (b.action === 'open_popup' && !!idle?.has(b.popup_id))
     const sold = item && soldOut.has(item.id)
     return {
-      key: b.id, w: b.w, h: b.h,
-      node: <LayoutButton b={b} disabled={disabled} place={place} border={border} list={list} label={buttonLabel(b, { items: config.items || {}, presets, tenders, charges, popups })}
+      key: b.id, w: b.w, h: b.h, label,
+      node: <LayoutButton b={b} disabled={disabled} place={place} border={border} list={list} label={label}
         sub={sold ? 'Sold out' : null} note={b.action === 'open_popup' ? notes[b.popup_id] || null : null} count={item ? counts?.[item.id] || 0 : 0}
         item={item} takeOff={takeOff}
         onTap={() => (item ? (sold ? onHold(item) : onDish(item)) : onButton(b))}
         onHold={item ? () => onHold(item) : null} />,
     }
   })
-  return <ZoneGrid zone={zone} cells={cells} memoKey={'buttons:' + layoutId + ':' + zone.id} moreTitle={inPopup ? zone.title : 'Buttons'}
+  return <ZoneGrid zone={zone} layoutId={layoutId} cells={cells} memoKey={'buttons:' + layoutId + ':' + zone.id} moreTitle={inPopup ? zone.title : 'Buttons'}
     empty={inPopup ? 'No buttons in this pop-up yet.' : 'No buttons in this zone yet.'} testid={inPopup ? 'popup-buttons' : 'zone-buttons'} />
 }
 

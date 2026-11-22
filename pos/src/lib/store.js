@@ -21,6 +21,7 @@ import { ulid } from '@shared/pos/ids.js'
 import { soldOutMap as sharedSoldOutMap } from '@shared/pos/offers.js'
 import * as idb from './idb.js'
 import { createTransport, OfflineError, APP_VERSION } from './transport.js'
+import { startTapUpload } from './taps.js'
 import { printTickets } from './print.js'
 import { startDevicePrinting, hasOwnPrinter } from './devicePrint.js'
 import { checkForUpdate } from './appUpdate.js'
@@ -775,6 +776,8 @@ export function startSync() {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { tick(); loadConfig() } })
   connectSocket()
   ensureDevicePrinting()
+  // Counts of taps on the till layout's buttons (lib/taps.js): tills only.
+  if ((state.device?.kind || 'terminal') === 'terminal') startTapUpload((p, b) => api.post(p, b, { via: 'cloud' }))
   const loop = () => {
     // On the venue hub, ask it every 2 s (it has no push); without the push
     // socket, ask every 4 s; with it, every 30 s as a check.

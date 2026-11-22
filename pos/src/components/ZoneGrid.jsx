@@ -11,11 +11,16 @@
 // focus ({ key, n }, a new n each time): that cell is brought into view (its
 // page shown, scrolled to, or the More sheet opened) and lit for a moment
 // (the Order zone's placeholders for a dish's choices still to pick).
+//
+// layoutId: the till layout drawn; a tap on a cell of a counted zone is then
+// counted (lib/taps.js, migration 266) under the cell's key and label.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react'
 import { packCells, isList } from '@shared/pos/tillLayout.js'
 import { Modal, cx } from './ui.jsx'
+import { countTap } from '../lib/taps.js'
+import { getState } from '../lib/store.js'
 
 const GAP = 6
 // The least height of a row in a list that scrolls.
@@ -32,7 +37,9 @@ const track = (n, of) => `calc((100cq${of} - ${GAP * (n - 1)}px) / ${n})`
  * when it changes, back to the first page (another category, another dish).
  * focus: a cell to bring into view (see above).
  */
-export default function ZoneGrid({ zone, cells, memoKey, resetKey = '', empty = null, moreTitle = 'More', testid = null, focus = null }) {
+export default function ZoneGrid({ zone, cells, memoKey, resetKey = '', empty = null, moreTitle = 'More', testid = null, focus = null, layoutId = null }) {
+  // A tap on a cell's button (capture: before the button's own handler).
+  const tapped = c => { if (layoutId) countTap({ layoutId, zone, key: c.key, label: c.label, staffId: getState().staff?.id }) }
   const sig = cells.map(c => c.key + ':' + (c.w || 1) + 'x' + (c.h || 1)).join('|')
   const packed = useMemo(
     () => packCells(cells.map(c => ({ w: c.w || 1, h: c.h || 1 })), zone),
@@ -101,7 +108,8 @@ export default function ZoneGrid({ zone, cells, memoKey, resetKey = '', empty = 
         <div style={grid}>
           {shown.map(p => (
             <div key={cells[p.i].key} className={cx('min-w-0 min-h-0 relative rounded-xl transition-shadow', lit === cells[p.i].key && 'ring-4 ring-warn')}
-              style={place(p)} data-cell={cells[p.i].key} data-lit={lit === cells[p.i].key ? '1' : undefined}>{cells[p.i].node}</div>
+              style={place(p)} data-cell={cells[p.i].key} data-lit={lit === cells[p.i].key ? '1' : undefined}
+              onClickCapture={() => tapped(cells[p.i])}>{cells[p.i].node}</div>
           ))}
           {rest.length > 0 && (
             <div className="min-w-0 min-h-0" style={{ gridColumn: `${zone.cols} / span 1`, gridRow: `${zone.rows} / span 1` }}>
@@ -125,7 +133,7 @@ export default function ZoneGrid({ zone, cells, memoKey, resetKey = '', empty = 
         <Modal title={moreTitle} onClose={() => setMore(false)} wide>
           <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', ...style }} data-testid="zone-more-sheet">
             {rest.map(c => (
-              <div key={c.key} className="h-20 min-w-0 relative" onClick={() => setMore(false)}>{c.node}</div>
+              <div key={c.key} className="h-20 min-w-0 relative" onClickCapture={() => tapped(c)} onClick={() => setMore(false)}>{c.node}</div>
             ))}
           </div>
         </Modal>

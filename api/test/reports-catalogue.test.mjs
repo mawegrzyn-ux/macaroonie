@@ -48,8 +48,8 @@ test('every table in the database has one decision, and every decision names a t
   assert.equal(d.counts.subject + d.counts.planned + d.counts.settings + d.counts.out, tables.length)
 
   // Where the catalogue stands today: a change here is a change to say in the docs.
-  assert.deepEqual(d.counts, { subject: 128, planned: 0, settings: 57, out: 57 })
-  assert.equal(tables.length, 242)
+  assert.deepEqual(d.counts, { subject: 129, planned: 0, settings: 57, out: 57 })
+  assert.equal(tables.length, 243)
 
   // Left-out tables carry a reason; planned ones an area with a phase.
   for (const [reason, list] of Object.entries(LEFT_OUT)) {
@@ -70,7 +70,7 @@ test('every table in the database has one decision, and every decision names a t
   assert.deepEqual(read.get('gloriafood_orders'), ['online.sales'])
   assert.deepEqual(read.get('kds_log'), ['kitchen.tickets', 'kitchen.remakes'])
   assert.deepEqual(read.get('reviews'), ['website.reviews'])
-  assert.deepEqual(read.get('local_info_items'), ['local.weather', 'local.items'])
+  assert.deepEqual(read.get('local_info_items'), ['local.weather', 'local.weather_hours', 'local.items'])
   assert.deepEqual(read.get('ai_usage'), ['pepper.usage'])
   assert.deepEqual(read.get('users'), ['group.team'])
   // The rota's own rows, and the weeks and days worked out from them.
@@ -96,8 +96,8 @@ test('a table nobody has decided on, one decided twice and a stale name are each
 
 test('every id column of a table a subject reads is linked, offered or left out on purpose', t => {
   const cover = tableCoverage(CATALOGUE, columns)
-  assert.deepEqual(cover.derived, ['till.takers', 'online.sales', 'cash.days', 'cash.weeks', 'rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.tip_moves', 'safety.days', 'local.weather'])
-  assert.equal(cover.tables.length, 118)
+  assert.deepEqual(cover.derived, ['till.takers', 'online.sales', 'cash.days', 'cash.weeks', 'rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.tip_moves', 'safety.days', 'local.weather', 'local.weather_hours'])
+  assert.equal(cover.tables.length, 119)
 
   const undecided = cover.tables.flatMap(x => x.idsUndecided.map(c => x.table + '.' + c))
   assert.deepEqual(undecided, [], 'id columns with no link: add one(...) to the subject, or the column to its skip list')

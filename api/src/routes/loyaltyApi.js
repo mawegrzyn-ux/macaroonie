@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 import { systemSql, withTenant } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
-import { rewardSummary, earnText } from '../../../shared/loyalty.js'
+import { rewardSummary, earnText, cardColours, cardTheme, themeColours } from '../../../shared/loyalty.js'
 import {
   ensureProgramme, loadRewards, loadStampCards, joinMember, memberSummary, requestSignInCode, verifySignInCode,
   readJoinTicket, newSession, sessionMember, endSession, exportMember, eraseMember, newToken, emailHash, looksLikeEmail,
@@ -122,6 +122,11 @@ export default async function loyaltyApiRoutes(app) {
         signup: { ask_phone: s.signup.ask_phone, terms_text: s.signup.terms_text, marketing_text: s.signup.marketing_text, welcome_text: s.signup.welcome_text },
         brand: { name: site?.name || null, logo_url: site?.logo_url || null },
         wallet: { apple: s.features.wallet_apple && wallet.apple.available, google: s.features.wallet_google && wallet.google.available },
+        // The card's standard look and the looks a member can pick (22 Nov 2026), colours worked out in full.
+        card: {
+          standard: cardColours(s, site?.colors || {}),
+          themes: s.themes.map(t => ({ id: t.id, name: t.name, ...themeColours(t) })),
+        },
       }
     })
   })
@@ -200,11 +205,15 @@ export default async function loyaltyApiRoutes(app) {
       name: z.string().trim().min(1).max(120).optional(),
       phone: z.string().trim().max(30).nullable().optional(),
       marketing: z.boolean().optional(),
+      // A look the programme offers, or null for the standard one.
+      theme: z.string().max(32).nullable().optional(),
     }).parse(req.body || {})
+    if (body.theme && !cardTheme(programme.settings, body.theme)) throw httpError(422, 'That look isn\'t offered any more: pick another.')
     return withTenant(tenantId, async tx => {
       const set = {}
       if (body.name !== undefined) set.name = body.name
       if (body.phone !== undefined) set.phone = body.phone || null
+      if (body.theme !== undefined && (body.theme || null) !== (member.card_theme || null)) set.card_theme = body.theme || null
       if (body.marketing !== undefined && body.marketing !== member.marketing_opt_in) {
         set.marketing_opt_in = body.marketing
         set.marketing_opt_in_at = body.marketing ? new Date() : null

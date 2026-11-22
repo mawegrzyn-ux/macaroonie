@@ -175,7 +175,8 @@ test('list_reports and get_report: the starters with links, a report\'s plan and
   assert.ok(till.reports.every(r => r.id.startsWith('starter:till_')), 'only the till starters')
 
   const voids = await done(tokens.owner, 'list_reports', { search: 'voids' })
-  assert.deepEqual(voids.reports.map(r => r.name), ['Voids, by whom and why'])
+  // The voids starter first; the till activity starters count voids too.
+  assert.deepEqual(voids.reports.map(r => r.name), ['Voids, by whom and why', 'Till activity by person', 'Till activity by till'])
   const none = await done(tokens.owner, 'list_reports', { search: 'zz nothing like it' })
   assert.deepEqual(none.reports, [])
   assert.match(none.note, /ask_data/)
