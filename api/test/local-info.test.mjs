@@ -20,6 +20,9 @@ const WIND   = [20, 10, 30, 20, 10, 61, 10]
 const SEVS   = ['warning', 'info', 'warning', 'notice', 'notice', 'warning', 'info']
 const TITLES = ['Light rain', 'Clear', 'Thunderstorm', 'Rain', 'Fog', 'Partly cloudy', 'Overcast']
 
+// Added to every hour's temperature, so a later read can differ from an earlier one.
+const shift = { temp: 0 }
+
 async function startFakeMeteo() {
   const calls = { search: 0, forecast: 0 }
   const urls = []
@@ -34,11 +37,27 @@ async function startFakeMeteo() {
         : { results: [{ latitude: 51.81, longitude: -0.03, name }] }))
     }
     calls.forecast++
+    // The crafted days from today, after past_days days of plain weather
+    // (partly cloudy, 2 mm); every hour of every day, its rain at noon.
+    const past = Number(u.searchParams.get('past_days') || 0)
+    const time = [], code = [], tmin = [], tmax = [], mm = [], wind = []
+    for (let i = -past; i < CODES.length; i++) {
+      time.push(LI.addDays(today, i))
+      code.push(i < 0 ? 2 : CODES[i]); tmin.push(i < 0 ? 1 : TMIN[i]); tmax.push(i < 0 ? 7 : TMAX[i])
+      mm.push(i < 0 ? 2 : PRECIP[i]); wind.push(i < 0 ? 10 : WIND[i])
+    }
+    const hourly = { time: [], weather_code: [], temperature_2m: [], precipitation: [], precipitation_probability: [], wind_speed_10m: [] }
+    time.forEach((d, i) => {
+      for (let h = 0; h < 24; h++) {
+        hourly.time.push(d + 'T' + String(h).padStart(2, '0') + ':00')
+        hourly.weather_code.push(code[i]); hourly.temperature_2m.push(tmin[i] + h / 4 + shift.temp)
+        hourly.precipitation.push(h === 12 ? 1.5 : 0); hourly.precipitation_probability.push(40); hourly.wind_speed_10m.push(10)
+      }
+    })
     res.end(JSON.stringify({ daily: {
-      time: CODES.map((_, i) => LI.addDays(today, i)),
-      weather_code: CODES, temperature_2m_min: TMIN, temperature_2m_max: TMAX,
-      precipitation_sum: PRECIP, wind_speed_10m_max: WIND,
-    } }))
+      time, weather_code: code, temperature_2m_min: tmin, temperature_2m_max: tmax,
+      precipitation_sum: mm, wind_speed_10m_max: wind,
+    }, hourly }))
   })
   await new Promise(r => server.listen(0, '127.0.0.1', r))
   const base = 'http://127.0.0.1:' + server.address().port
@@ -134,7 +153,11 @@ test('weather capture: claimed once, geocoded once, seven days, dedupe, hidden s
   assert.match(meteo.urls.find(u => u.includes('/v1/forecast')), /forecast_days=7/)
   assert.match(decodeURIComponent(meteo.urls.find(u => u.includes('/v1/forecast'))), /timezone=Europe\/London/)
 
-  let weather = (await items(owner, '?venue_id=' + V)).filter(i => i.kind === 'weather')
+  assert.match(meteo.urls.find(u => u.includes('/v1/forecast')), /past_days=7/)
+  assert.match(meteo.urls.find(u => u.includes('/v1/forecast')), /hourly=weather_code,temperature_2m,precipitation,precipitation_probability,wind_speed_10m/)
+
+  const ahead = q => items(owner, '?venue_id=' + V + '&from=' + today + q).then(l => l.filter(i => i.kind === 'weather'))
+  let weather = await ahead('')
   assert.equal(weather.length, 7)
   assert.deepEqual(weather.map(i => i.severity), SEVS, 'each day\'s severity follows the rules')
   assert.deepEqual(weather.map(i => i.title), TITLES)
@@ -148,8 +171,9 @@ test('weather capture: claimed once, geocoded once, seven days, dedupe, hidden s
   const run2 = await runClaimed(await claimSource(ids.a, weatherS))
   assert.equal(run2.error, null)
   assert.deepEqual(meteo.calls, { search: 1, forecast: 2 }, 'the geocode is cached')
-  weather = (await items(owner, '?venue_id=' + V)).filter(i => i.kind === 'weather')
+  weather = await ahead('')
   assert.equal(weather.length, 7, 'a capture run again updates, never repeats')
+  assert.equal((await items(owner, '?venue_id=' + V)).filter(i => i.kind === 'weather').length, 14, 'and the last seven days, recorded')
 
   // Hiding an item survives the next capture; a new place re-geocodes.
   await ok(owner.patch('/api/local-info/items/' + weather[1].id, { hidden: true }))
@@ -158,10 +182,10 @@ test('weather capture: claimed once, geocoded once, seven days, dedupe, hidden s
   assert.equal(due3.length, 1, 'the changed capture runs again soon')
   await runClaimed(due3[0])
   assert.deepEqual(meteo.calls, { search: 2, forecast: 3 }, 'a changed place is geocoded again')
-  weather = (await items(owner, '?venue_id=' + V)).filter(i => i.kind === 'weather')
+  weather = await ahead('')
   assert.equal(weather.length, 6, 'the hidden day stays hidden')
   assert.equal(weather[0].place, 'Hertford', 'the capture freshened its rows')
-  const all = (await items(owner, '?venue_id=' + V + '&include_hidden=1')).filter(i => i.kind === 'weather')
+  const all = await ahead('&include_hidden=1')
   assert.equal(all.length, 7)
   assert.equal(all.filter(i => i.hidden).length, 1)
 
@@ -172,6 +196,47 @@ test('weather capture: claimed once, geocoded once, seven days, dedupe, hidden s
   assert.ok(new Date(src.next_run_at) > new Date(), 'the next run is ahead')
   // Seven forecast days in a row, never put together as one (migration 249).
   assert.equal(claude.requests.length, calls0, 'a weather capture never asks Pepper to merge its days')
+})
+
+test('weather hour by hour; a passed day or hour recorded, with what was forecast for it kept', async () => {
+  const all = () => items(owner, '?venue_id=' + V + '&from=' + day(-7) + '&to=' + day(6) + '&kinds=weather&include_hidden=1')
+  let list = await all()
+  assert.equal(list.length, 14)
+  const nowHour = Number(LI.localDateTime(new Date(), 'Europe/London').time.slice(0, 2))
+  const t = list.find(i => i.starts_on === today)
+  assert.equal(t.data.hours.length, 24, 'today hour by hour')
+  assert.equal(t.data.recorded, false, 'today is not over')
+  for (const x of t.data.hours) {
+    assert.equal(x.recorded, x.h < nowHour, 'hour ' + x.h + ': recorded once it has passed')
+    assert.equal(x.precip_prob, x.h < nowHour ? null : 40, 'a chance of rain only ahead')
+  }
+  const tomorrow = list.find(i => i.starts_on === day(1))
+  assert.ok(tomorrow.data.hours.every(x => !x.recorded))
+  const last = list.find(i => i.starts_on === day(-3))
+  assert.deepEqual([last.data.recorded, last.data.forecast, last.title, last.details], [true, null, 'Partly cloudy', 'Partly cloudy, 1 to 7°C, 2 mm'],
+    'a day first read after it was over: recorded, nothing was forecast for it')
+  assert.ok(last.data.hours.every(x => x.recorded && x.precip_prob === null && x.forecast === null))
+
+  // Yesterday as it was when it was still ahead: its forecast and an hour's.
+  const y = list.find(i => i.starts_on === day(-1))
+  const asForecast = { ...y.data, recorded: false, forecast: null, weather_code: 61, temp_min: 0, temp_max: 5, precip_mm: 9,
+    hours: y.data.hours.map(x => ({ ...x, recorded: false, forecast: null, temp: 99, precip_prob: 70 })) }
+  await sql`UPDATE local_info_items SET data = ${sql.json(asForecast)} WHERE id = ${y.id}`
+  shift.temp = 1
+  await runClaimed(await claimSource(ids.a, weatherS))
+  list = await all()
+  const y2 = list.find(i => i.starts_on === day(-1))
+  assert.equal(y2.data.recorded, true)
+  assert.deepEqual(y2.data.forecast, { weather_code: 61, temp_min: 0, temp_max: 5, precip_mm: 9, wind_kph: 10 }, 'the day\'s forecast kept')
+  assert.equal(y2.title, 'Partly cloudy', 'the day shows what was recorded')
+  assert.deepEqual([y2.data.hours[3].temp, y2.data.hours[3].forecast.temp, y2.data.hours[3].forecast.precip_prob], [1 + 3 / 4 + 1, 99, 70],
+    'each hour: recorded, beside its forecast')
+  // Read again: the forecast stays.
+  await runClaimed(await claimSource(ids.a, weatherS))
+  const y3 = (await all()).find(i => i.starts_on === day(-1))
+  assert.deepEqual(y3.data.forecast, y2.data.forecast)
+  assert.equal(y3.data.hours[3].forecast.temp, 99)
+  shift.temp = 0
 })
 
 test('a place the map does not know: the error kept on the capture, the schedule carries on', async () => {
@@ -349,6 +414,16 @@ test('the staff connector: local_info, add_local_event and run_local_capture', a
   assert.ok(out.items.some(i => i.kind === 'Weather'), 'the captured weather is in the answer')
   assert.ok(!out.items.some(i => i.title === 'Zqx far festival'), 'the tool reads two weeks ahead')
   assert.equal(out.captures.length, 3, 'the venue\'s captures are named')
+  const fc = out.items.find(i => i.kind === 'Weather' && i.day === day(2))
+  assert.equal(fc.weather, 'forecast')
+  assert.equal(fc.hours, undefined, 'two weeks asked: no hours')
+  const short = toolResult(await mcp(token, 'tools/call', { name: 'local_info', arguments: { venue: 'Zqx Ware', from: day(-1), to: day(0), kind: 'weather' } }))
+  const yday = short.items.find(i => i.day === day(-1))
+  assert.equal(yday.weather, 'recorded (the day is over)')
+  assert.equal(yday.forecast_was, 'Light rain, 0 to 5°C, 9 mm', 'what was forecast for it')
+  assert.equal(yday.hours.length, 24, 'a short range: the hours')
+  assert.match(yday.hours[12], /^12:00 Partly cloudy, \d+°C, 1\.5 mm \(recorded\)$/)
+  assert.match(short.items.find(i => i.day === day(0)).hours.at(-1), /^23:00 .*40% chance of rain$/, 'an hour ahead: its chance of rain')
 
   const added = await mcp(token, 'tools/call', { name: 'add_local_event', arguments: { venue: 'Zqx Ware', title: 'Zqx Pepper fair', starts_on: day(5) } })
   assert.notEqual(added.json?.result?.isError, true, added.body.slice(0, 300))
@@ -377,7 +452,7 @@ test('the staff connector: local_info, add_local_event and run_local_capture', a
 
 test('deleting a capture takes what it captured with it', async () => {
   const weather = (await items(owner, '?venue_id=' + V + '&kinds=weather&include_hidden=1'))
-  assert.equal(weather.length, 7)
+  assert.equal(weather.length, 14, 'the next seven days and the last seven')
   await ok(owner.delete('/api/local-info/sources/' + weatherS))
   assert.equal((await items(owner, '?venue_id=' + V + '&kinds=weather&include_hidden=1')).length, 0)
   const manual = await items(owner, '?venue_id=' + V)

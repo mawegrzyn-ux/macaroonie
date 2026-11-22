@@ -8442,9 +8442,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               7, through the route as the person, so hidden items and other venues stay out and items saved for every venue
               come in) and turns it into <Mono>summary.local</Mono> with <Mono>weekAhead()</Mono> in{' '}
               <Mono>shared/localInfo.js</Mono>: <Mono>{'{ from, to, weather, headlines, more }'}</Mono>.{' '}
-              <Mono>weather</Mono> has one entry per day with a captured forecast (<Mono>isForecast()</Mono>: kind weather
+              <Mono>weather</Mono> has one entry per day with a captured weather day (<Mono>isWeatherDay()</Mono>: kind weather
               with <Mono>data.weather_code</Mono>; the loudest when two captures cover a day), with the code, temperatures,
-              rain and wind from the capture&apos;s <Mono>data</Mono>. Every other item is a headline (a typed-in weather
+              rain and wind from the capture&apos;s <Mono>data</Mono>, <Mono>recorded</Mono> and its <Mono>hours</Mono>. Every other item is a headline (a typed-in weather
               item too), each once, on the first day of the week it shows, sorted by that day, then severity, kind and
               title; at most <Mono>HEADLINES</Mono> 5, <Mono>more</Mono> counting the rest. A headline&apos;s{' '}
               <Mono>url</Mono> goes through <Mono>webLink()</Mono> (<Mono>shared/links.js</Mono>: http / https only, else null). Without Local info the
@@ -8454,7 +8454,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>WeekAhead</Mono> (exported from <Mono>OpsToday.jsx</Mono>; <Mono>MobileToday.jsx</Mono> draws it with{' '}
               <Mono>{'linkFor={opsLink}'}</Mono>) sits under the greeting: a seven-column strip, each day in its own column
               (<Mono>gridColumnStart</Mono> from its offset, so a day without a forecast is a gap), with{' '}
-              <Mono>WeatherIcon</Mono> from the WMO code, the high, the low and the rain from 1 mm, red or amber for a
+              <Mono>WeatherIcon</Mono> (<Mono>components/localInfo/weather.jsx</Mono>) from the WMO code, the high, the
+              low and the rain from 1 mm, red or amber for a
               warning or a notice; then the headlines with the kind icon in its severity chip (<Mono>KIND_ICONS</Mono>,{' '}
               <Mono>SEV_CHIP</Mono>), when (a day, Until a day, or a day to a day), time and place, and a 48 px Source link;
               then the more link to Local info. Day names come from the feed&apos;s own <Mono>date</Mono> and{' '}
@@ -8570,7 +8571,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               place or search never wedges the schedule). <Mono>POST /sources/:id/run</Mono> claims one
               (<Mono>claimSource()</Mono>, 409 while a run holds it) and runs it unawaited. Weather:
               Open-Meteo, keyless — the place is geocoded once and cached on the source (re-asked when the place
-              changes), then one forecast call for seven days, upserted one item per day. Searches (traffic,
+              changes), then one call for the next seven days and the last seven (<Mono>WEATHER_PAST_DAYS</Mono>), daily
+              and hourly, merged into each day&apos;s row with <Mono>mergeWeatherDay()</Mono> (<Mono>shared/localInfo.js</Mono>)
+              and upserted one item per day. A day&apos;s <Mono>data</Mono>: the day (recorded once it is over, else the
+              latest forecast), <Mono>recorded</Mono>, <Mono>forecast</Mono> (kept once recorded: the forecast as last
+              read before the day was over, null for a day first read after it), <Mono>hours</Mono>{' '}
+              (<Mono>{'[{ h, weather_code, temp, precip_mm, precip_prob, wind_kph, recorded, forecast }]'}</Mono>, an
+              hour before now recorded with no chance of rain and the forecast it had) and <Mono>read_at</Mono>. The
+              row&apos;s title, details and severity follow the day as known. On the page a weather entry says Forecast
+              or Recorded (<Mono>WeatherTag</Mono>), Forecast was, and By the hour (<Mono>WeatherMore</Mono>,{' '}
+              <Mono>HourStrip</Mono>); the Today page&apos;s <Mono>WeekAhead</Mono> shows today&apos;s hours from the hour
+              before now (<Mono>hoursFrom()</Mono>), and Pepper&apos;s <Mono>local_info</Mono> says forecast or recorded,
+              what was forecast, and the hours as lines when up to three days are asked. Searches (traffic,
               events, incidents): <Mono>searchForJson()</Mono> in <Mono>services/aiJson.js</Mono> runs Claude with
               the <Mono>web_search</Mono> server tool (pinned to the capture's site via{' '}
               <Mono>allowed_domains</Mono> when one is set), a JSON schema in the system text, and a{' '}
@@ -8926,7 +8938,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Food safety and H&S (food_safety, checklists, hs_action_log)', 'safety.days (each venue\'s H&S day as the Overview judges it, worked out for each run), safety.fridges, safety.fridge_checks, safety.hold_stations, safety.hold_checks, safety.cooking_sessions, safety.cooking_items, safety.cooking_checks, safety.delivery_checks; safety.checklist_templates, safety.checklist_tasks, safety.checklists, safety.checklist_ticks; safety.action_categories, safety.actions'],
                 ['Cash reconciliation (cash_recon)', 'cash.days and cash.weeks (worked out for each run by Cash Recon\'s own rule), cash.income, cash.takings, cash.service_charges, cash.expenses, cash.wages, cash.reports, cash.wage_lists, and to group by: cash.income_sources, cash.payment_channels, cash.sc_sources, cash.expense_categories'],
                 ['Staff and rota (rota; pay rota_pay, points and tips rota_tips, the wage list beside the rota cash_recon, people, roles, time off and tip pots staff)', 'rota.staff_weeks, rota.weeks, rota.days, rota.pot_weeks, rota.tip_shares (worked out for each run by the Rota page\'s own rules), rota.entries, rota.pay_adjustments, rota.tip_moves, rota.shifts, and staff.people, staff.roles, staff.time_off, rota.tip_pots'],
-                ['Local info (local_info)', 'local.weather (the weather at each venue, one row a day: the forecast read last for that day from the Local info weather capture), local.items (every other Local info item, captured or typed; hidden ones left out, a group-wide one only with every venue; how many staff flagged each relevant or not; since migration 249 entries only, with how many other reports of the same event are in each and whether one was kept apart), local.captures (how often each runs, when it last ran, its problem, since migration 248 whether it learns from staff flags and what it learned, and since 249 a problem putting the same events together)'],
+                ['Local info (local_info)', 'local.weather (the weather at each venue, one row a day from the Local info weather capture: recorded once the day is over, else the latest forecast, with what was forecast beside it), local.items (every other Local info item, captured or typed; hidden ones left out, a group-wide one only with every venue; how many staff flagged each relevant or not; since migration 249 entries only, with how many other reports of the same event are in each and whether one was kept apart), local.captures (how often each runs, when it last ran, its problem, since migration 248 whether it learns from staff flags and what it learned, and since 249 a problem putting the same events together)'],
                 ['Menus (menus)', 'menu.releases (each publish and its state: Live, Earlier, Scheduled, Cancelled, by liveRows()\'s rule), menu.option_groups, menu.options, menu.tags, menu.dish_tags (the allergen matrix\'s levels), menu.dish_option_groups, menu.dish_option_prices, menu.dish_own_options, menu.tax_rates (the usual rate). Everything but releases is the draft the Menus pages edit'],
                 ['Website and reviews (website)', 'website.reviews (as the Reviews page holds them, checked or in the To check inbox), website.pages (the draft, each with its address worked out as pagePath() does), website.media, website.media_categories'],
                 ['Pepper (ai_assistant; use by person, changes and chats Manage on it)', 'pepper.usage (ai_usage, a row a UTC month and channel: requests, units, tokens, web searches; the Settings tab\'s figures), pepper.people (ai_usage_people, each person\'s UTC day: the units their daily share counts; Person links to group.team with team), pepper.actions (ai_actions: what each change was in ACTION_LABELS\' words, where, who asked, whether it went through, cleared; input and result never read), pepper.chats (ai_conversations: where, who started it, model, closed and why, its changes; title, system_prompt and guest_key never read)'],
@@ -9227,8 +9239,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               The weather: <Mono>local.weather</Mono> (<Mono>api/src/reports/catalogue/local.js</Mono>, area Local
               info, module <Mono>local_info</Mono>), one row per venue and day from <Mono>local_info_items</Mono> of
-              kind weather holding a forecast: the one read last for that day (<Mono>DISTINCT ON</Mono> venue and
-              day by <Mono>updated_at</Mono>), days hidden on Local info left out. Fields: the weather and its kind
+              kind weather holding a weather day: the one read last for that day (<Mono>DISTINCT ON</Mono> venue and
+              day by <Mono>updated_at</Mono>), days hidden on Local info left out. Its figures are the day as known
+              (recorded once the day is over, else the forecast); <Mono>recorded</Mono> says which, and{' '}
+              <Mono>forecast_conditions</Mono>, <Mono>forecast_high</Mono>, <Mono>forecast_low</Mono>,{' '}
+              <Mono>forecast_rain</Mono> are what was forecast (the kept <Mono>data.forecast</Mono> for a recorded day,
+              the day itself before), with a <Mono>recorded_days</Mono> figure. Fields: the weather and its kind
               from the code (<Mono>weatherCodes()</Mono>, <Mono>WEATHER_GROUPS</Mono>, <Mono>weatherGroup()</Mono> in{' '}
               <Mono>shared/localInfo.js</Mono>, never the row&apos;s title), how it shows, highest and lowest, rain and
               snow, strongest wind, wet (<Mono>WET_DAY_MM</Mono> 1 mm, the line the Local info summary starts saying

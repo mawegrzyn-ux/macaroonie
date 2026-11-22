@@ -172,6 +172,79 @@ export function weatherSeverity(d = {}) {
   return 'info'
 }
 
+// ── Hourly and recorded weather ──────────────────────────────────────────
+// Each captured weather day keeps its hours, and a day or an hour that has
+// passed is recorded: Open-Meteo's values for the past (weather models run on
+// what was observed, for the venue's spot, not a station on the street),
+// with what was forecast for it kept beside it. A weather day's data:
+//   weather_code, temp_min, temp_max, precip_mm, wind_kph
+//              the day: recorded once it is over, else the latest forecast
+//   recorded   true once the day is over and read again
+//   forecast   once recorded: the forecast for the day as last read before
+//              it was over ({ weather_code, temp_min, ... }), or null when
+//              none was read (a day first read after it was over)
+//   hours      [{ h, weather_code, temp, precip_mm, precip_prob, wind_kph,
+//              recorded, forecast }], h 0..23 in the venue's time: an hour
+//              that has passed is recorded (no chance of rain), with the
+//              forecast for it as last read before, or null
+//   read_at    when the capture last read it
+
+/** How many past days each weather capture reads again, so a day is
+ *  recorded even when its capture runs only once a week. */
+export const WEATHER_PAST_DAYS = 7
+
+const dayValues = d => ({
+  weather_code: numOrNull(d?.weather_code), temp_min: numOrNull(d?.temp_min), temp_max: numOrNull(d?.temp_max),
+  precip_mm: numOrNull(d?.precip_mm), wind_kph: numOrNull(d?.wind_kph),
+})
+const hourValues = x => ({
+  weather_code: numOrNull(x?.weather_code), temp: numOrNull(x?.temp), precip_mm: numOrNull(x?.precip_mm),
+  precip_prob: numOrNull(x?.precip_prob), wind_kph: numOrNull(x?.wind_kph),
+})
+// What was forecast for a day or hour that is now recorded: kept from an
+// earlier recording, or the values it held while it was still a forecast.
+const forecastOf = (was, values) => (was?.recorded ? (was.forecast ?? null)
+  : (was && was.weather_code != null ? values(was) : null))
+
+/** "14:00" for an hour 0..23. */
+export const hourText = h => String(Number(h) || 0).padStart(2, '0') + ':00'
+
+/**
+ * A weather day's data after a capture read it (see above), from what its row
+ * held (`prev`, or null) and what was read: `day` (the daily values), `hours`
+ * ([{ h, weather_code, temp, precip_mm, precip_prob, wind_kph }]; an empty
+ * list keeps the hours held). `date` is the day, `today` and `nowHour` the
+ * venue's day and hour now, `readAt` when it was read.
+ */
+export function mergeWeatherDay(prev, { date, today, nowHour = 0, day = {}, hours = [], readAt = null }) {
+  const was = prev && typeof prev === 'object' ? prev : null
+  const past = date < today
+  const held = new Map((Array.isArray(was?.hours) ? was.hours : []).map(x => [Number(x.h), x]))
+  let outHours
+  if (!hours.length) outHours = [...held.values()]
+  else {
+    const byHour = new Map()
+    for (const x of hours) {
+      const h = Number(x.h)
+      if (!Number.isInteger(h) || h < 0 || h > 23) continue
+      const gone = past || (date === today && h < nowHour)
+      const v = hourValues(x)
+      byHour.set(h, gone
+        ? { h, ...v, precip_prob: null, recorded: true, forecast: forecastOf(held.get(h), hourValues) }
+        : { h, ...v, recorded: false, forecast: null })
+    }
+    outHours = [...byHour.values()]
+  }
+  outHours.sort((a, b) => a.h - b.h)
+  return {
+    ...dayValues(day),
+    recorded: past,
+    forecast: past ? forecastOf(was, dayValues) : null,
+    hours: outHours,
+    read_at: readAt,
+  }
+}
+
 /** Is an item on this day ('YYYY-MM-DD')? Multi-day items run starts_on to ends_on, both included. */
 export function itemOnDay(item, day) {
   const from = String(item?.starts_on || '').slice(0, 10)
@@ -213,8 +286,8 @@ export function monthGrid(month) {
 
 const numOrNull = v => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v))) ? null : Number(v)
 
-/** A captured forecast day (the weather capture's items carry the numbers). */
-export const isForecast = it => it?.kind === 'weather' && it.data != null && it.data.weather_code != null
+/** A captured weather day, forecast or recorded (the weather capture's items carry the numbers). */
+export const isWeatherDay = it => it?.kind === 'weather' && it.data != null && it.data.weather_code != null
 
 // A flag's note: why a finding is relevant, or isn't. One short line.
 export const FLAG_NOTE_MAX = 200
@@ -229,8 +302,8 @@ export function cleanFlagNote(v) {
  * The week ahead at a venue (the Today page): `days` days from `from`
  * ('YYYY-MM-DD'), out of the venue's items (its own and the whole group's,
  * hidden ones left out by the caller).
- *   weather    one forecast per day that has one, in date order (the loudest
- *              when two captures cover a day)
+ *   weather    one weather day per day that has one, in date order (the
+ *              loudest when two captures cover a day), with its hours
  *   headlines  everything else on those days, each once: by the first day it
  *              shows in the week (an item that began earlier shows from
  *              `from`), then the loudest, then kind (incidents, traffic,
@@ -242,17 +315,18 @@ export function weekAhead(items = [], from, { days = 7, headlines = 5 } = {}) {
   const weather = []
   for (let i = 0; i < days; i++) {
     const day = addDays(from, i)
-    const f = sortDayItems(items.filter(it => isForecast(it) && itemOnDay(it, day)))[0]
+    const f = sortDayItems(items.filter(it => isWeatherDay(it) && itemOnDay(it, day)))[0]
     if (!f) continue
     weather.push({
       date: day, title: f.title, details: f.details || null, severity: f.severity || 'info',
       code: numOrNull(f.data.weather_code), temp_min: numOrNull(f.data.temp_min), temp_max: numOrNull(f.data.temp_max),
       precip_mm: numOrNull(f.data.precip_mm), wind_kph: numOrNull(f.data.wind_kph),
+      recorded: !!f.data.recorded, hours: Array.isArray(f.data.hours) ? f.data.hours : [],
     })
   }
   const news = []
   for (const it of items) {
-    if (isForecast(it)) continue
+    if (isWeatherDay(it)) continue
     const start = String(it.starts_on || '').slice(0, 10)
     const end = String(it.ends_on || it.starts_on || '').slice(0, 10)
     if (!start || end < from || start > to) continue

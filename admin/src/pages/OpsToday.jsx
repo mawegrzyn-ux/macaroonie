@@ -17,8 +17,7 @@ import * as LucideIcons from 'lucide-react'
 import {
   Sun, Sunrise, Moon, RefreshCw, Thermometer, Flame, ListChecks, AlertTriangle, Truck, Send,
   Wallet, ShoppingBag, ClipboardList, CheckCircle2, ExternalLink, X, ChevronRight, CalendarDays,
-  Users, Plus, Sparkles, Loader2, Info, CloudSun, Cloud, CloudFog, CloudDrizzle, CloudRain, CloudSnow,
-  CloudLightning, BarChart3,
+  Users, Plus, Sparkles, Loader2, Info, CloudSun, BarChart3,
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { useApi } from '@/lib/api'
@@ -32,6 +31,7 @@ export { FormSheet }
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 import { addDays } from '@shared/localInfo.js'
 import { KIND_ICONS, SEV_CHIP } from '@/components/localInfo/shared'
+import { WeatherIcon, HourStrip, HourLegend, hoursFrom } from '@/components/localInfo/weather'
 
 export const VENUE_KEY = 'maca_today_venue'
 
@@ -205,15 +205,6 @@ export function Glance({ d, linkFor }) {
   )
 }
 
-// Open-Meteo's WMO weather codes as a picture.
-function WeatherIcon({ code, className }) {
-  const c = Number(code)
-  const Icon = c === 0 ? Sun : c <= 2 ? CloudSun : c === 3 ? Cloud : c <= 48 ? CloudFog
-    : c <= 57 ? CloudDrizzle : (c <= 67 || (c >= 80 && c <= 82)) ? CloudRain
-    : (c <= 77 || c === 85 || c === 86) ? CloudSnow : c >= 95 ? CloudLightning : Cloud
-  return <Icon className={className} aria-hidden="true" />
-}
-
 const WEATHER_CELL = {
   warning: 'bg-red-50 border-red-300',
   notice:  'bg-amber-50 border-amber-300',
@@ -222,7 +213,7 @@ const WEATHER_CELL = {
 
 /**
  * The week ahead (summary.local, weekAhead() in shared/localInfo.js): the
- * forecast for each day and the local news, from Local info. Hidden when the
+ * forecast for each day, today's hours, and the local news, from Local info. Hidden when the
  * person can't see Local info; when nothing is held for the week, only people
  * who can set captures up see a line pointing at Local info.
  */
@@ -240,6 +231,8 @@ export function WeekAhead({ d, linkFor, canSetUp = false }) {
     if (date >= w.from && date <= w.to) return named(date, long)
     return format(new Date(date + 'T12:00:00'), 'EEE d MMM')
   }
+  // The rest of today hour by hour (from the hour before now), when today is the day shown.
+  const todayHours = (d.is_today && w.weather.find(x => x.date === d.date)?.hours) || []
   // Each forecast day in its own column, so a day the forecast lacks shows as a gap.
   const column = date => Math.round((Date.parse(date + 'T00:00:00Z') - Date.parse(w.from + 'T00:00:00Z')) / 86400000) + 1
   const when = h => !h.ends_on ? dayLabel(h.day)
@@ -275,6 +268,13 @@ export function WeekAhead({ d, linkFor, canSetUp = false }) {
                   <span className="sr-only">{dayLabel(x.date)}: {x.details || x.title}</span>
                 </div>
               ))}
+            </div>
+          )}
+          {todayHours.length > 0 && (
+            <div className="border-t px-2 sm:px-3 py-2 space-y-1.5" data-testid="today-hours">
+              <h3 className="text-xs font-semibold text-muted-foreground">Today by the hour</h3>
+              <HourStrip hours={todayHours} from={hoursFrom(todayHours)} testId="today-hour-strip" />
+              <HourLegend />
             </div>
           )}
           {w.headlines.length > 0 && (

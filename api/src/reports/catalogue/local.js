@@ -6,7 +6,9 @@
 // incidents, and what staff typed in); and the captures that find it.
 //
 // The weather rows are local_info_items of kind weather that hold a
-// forecast (shared/localInfo.js isForecast()): a venue with two weather
+// weather day (shared/localInfo.js isWeatherDay()): the day as recorded once
+// it is over, else the forecast, with what was forecast kept beside a
+// recorded day (data.forecast). A venue with two weather
 // captures has two rows a day, so the subject keeps the one read last. The
 // words and the kind of weather come from the code (weatherCodes(),
 // WEATHER_GROUPS), never the row's title, which a capture never rewrites.
@@ -42,12 +44,21 @@ const caseOf = (col, pairs) => '(CASE ' + col + ' ' + pairs.map(([code, key]) =>
 // A number kept in the item's data, or nothing when it isn't one.
 const num = key => "(CASE WHEN jsonb_typeof(i.data->'" + key + "') = 'number' THEN (i.data->>'" + key + "')::numeric END)"
 
+// A number kept in the item's data under `obj` (the forecast kept for a recorded day).
+const numIn = (obj, key) => "(CASE WHEN jsonb_typeof(i.data->'" + obj + "'->'" + key + "') = 'number' THEN (i.data->'" + obj + "'->>'" + key + "')::numeric END)"
+const RECORDED = "COALESCE(i.data->>'recorded' = 'true', false)"
+// What was forecast for the day: the day itself until it is recorded, then the forecast kept for it.
+const forecast = key => '(CASE WHEN ' + RECORDED + ' THEN ' + numIn('forecast', key) + ' ELSE ' + num(key) + ' END)'
+
 const WEATHER_DAYS = `(
   SELECT DISTINCT ON (i.venue_id, i.starts_on)
          i.id, i.tenant_id, i.venue_id, i.starts_on AS day, i.severity, i.updated_at,
          ${num('weather_code')}::int AS weather_code,
          ${num('temp_min')} AS temp_min, ${num('temp_max')} AS temp_max,
-         COALESCE(${num('precip_mm')}, 0) AS precip_mm, COALESCE(${num('wind_kph')}, 0) AS wind_kph
+         COALESCE(${num('precip_mm')}, 0) AS precip_mm, COALESCE(${num('wind_kph')}, 0) AS wind_kph,
+         ${RECORDED} AS recorded,
+         ${forecast('weather_code')}::int AS forecast_code, ${forecast('temp_min')} AS forecast_min,
+         ${forecast('temp_max')} AS forecast_max, ${forecast('precip_mm')} AS forecast_mm
     FROM local_info_items i
    WHERE i.kind = 'weather' AND i.venue_id IS NOT NULL AND NOT i.hidden AND i.merged_into IS NULL
      AND jsonb_typeof(i.data->'weather_code') = 'number'
@@ -85,7 +96,7 @@ export default [
     one: 'weather day',
     area: 'local',
     module: 'local_info',
-    about: 'The weather at each venue, one row a day, from the weather capture on the Local info page: the forecast as it was last read for that day. For a past day that is usually the forecast from that morning, not a measurement. Days someone hid on Local info are left out.',
+    about: 'The weather at each venue, one row a day, from the weather capture on the Local info page: once the day is over, the weather that was recorded (Open-Meteo\'s values for the venue\'s spot, from weather models run on what was observed, not a station on the street); before that, the latest forecast. What was forecast is kept beside a recorded day. Days someone hid on Local info are left out.',
     from: { sql: WEATHER_DAYS, tables: ['local_info_items'] },
     name: 'conditions',
     venue: 'venue_id',
@@ -99,14 +110,20 @@ export default [
       rain: number('precip_mm', { label: 'Rain and snow (mm)', decimals: 1, adds: true }),
       wind: number('wind_kph', { label: 'Strongest wind (km/h)', decimals: 0 }),
       wet: yesno({ sql: WET }, { label: 'Wet day', about: WET_DAY_MM + ' mm of rain or snow or more.' }),
-      read_at: moment('updated_at', { label: 'Forecast last read' }),
+      recorded: yesno({ sql: '{t}.recorded' }, { label: 'Recorded', about: 'Yes once the day is over and its weather was recorded; no while it is still the forecast.' }),
+      forecast_conditions: choice({ sql: caseOf('{t}.forecast_code', WORD_OF_CODE) }, WORDS, { label: 'Weather forecast', empty: 'No forecast', about: 'What was forecast for the day, as last read before it was over. A day first read after it was over has none.' }),
+      forecast_high: number('forecast_max', { label: 'Forecast highest (°C)', decimals: 1 }),
+      forecast_low: number('forecast_min', { label: 'Forecast lowest (°C)', decimals: 1 }),
+      forecast_rain: number('forecast_mm', { label: 'Forecast rain and snow (mm)', decimals: 1, adds: true }),
+      read_at: moment('updated_at', { label: 'Last read' }),
     },
     measures: {
-      days: count({ label: 'Days', about: 'How many venue days have a forecast.' }),
+      days: count({ label: 'Days', about: 'How many venue days have weather, recorded or forecast.' }),
+      recorded_days: count({ label: 'Recorded days', where: '{t}.recorded', about: 'Days whose weather was recorded once they were over.' }),
       wet_days: count({ label: 'Wet days', where: WET, about: 'Days with ' + WET_DAY_MM + ' mm of rain or snow or more.' }),
       dry_days: count({ label: 'Dry days', where: 'NOT ' + WET, about: 'Days with less than ' + WET_DAY_MM + ' mm of rain or snow.' }),
       warning_days: count({ label: 'Days with a weather warning', where: "{t}.severity = 'warning'", about: 'Days whose weather shows as a warning: heavy rain or snow, thunder, a gale or a downpour.' }),
-      wet_share: ratio('wet_days', 'days', { type: 'percent', label: 'Share of days wet', about: 'Wet days divided by the days with a forecast.' }),
+      wet_share: ratio('wet_days', 'days', { type: 'percent', label: 'Share of days wet', about: 'Wet days divided by the days with weather.' }),
       average_high: avg('temp_max', { label: 'Average highest (°C)', decimals: 1, about: 'The average of each day\'s highest temperature.' }),
       average_low: avg('temp_min', { label: 'Average lowest (°C)', decimals: 1, about: 'The average of each day\'s lowest temperature.' }),
       hottest: max('temp_max', { label: 'Hottest (°C)', decimals: 1, about: 'The highest temperature of any of the days.' }),

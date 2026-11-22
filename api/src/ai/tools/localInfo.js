@@ -12,15 +12,43 @@
 // Reads and writes go through the admin routes (callApi). Analysis ("how
 // does next week look?") is the model reading local_info together with the
 // bookings and rota tools; there is no separate analysis endpoint.
+//
+// A captured weather day says whether it is a forecast or recorded (once the
+// day is over), what was forecast for a recorded day, and, when up to
+// HOURS_UP_TO_DAYS days are asked, its hours as lines.
 
 import { z } from 'zod'
 import { ToolError, callApi, requireStaffPermission } from '../context.js'
 import { plural, audited, venueFor, venueToday, VenueText, tenantVenueList, pickByName } from './util.js'
-import { KINDS, KIND_LABELS, SEVERITIES, frequencyText, addDays } from '../../../../shared/localInfo.js'
+import { KINDS, KIND_LABELS, SEVERITIES, frequencyText, addDays, weatherText, weatherSummary, hourText } from '../../../../shared/localInfo.js'
 
 const DAY = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe('YYYY-MM-DD')
 
-function itemView(it, venueNames) {
+// The hours go out only for a short range: a day's 24 lines, for each venue.
+const HOURS_UP_TO_DAYS = 3
+
+/** One hour of a weather day for the model: "14:00 Light rain, 9°C, 0.4 mm, 60% chance of rain". */
+function hourLine(x) {
+  const parts = [hourText(x.h) + ' ' + weatherText(x.weather_code)]
+  if (x.temp != null) parts.push(Math.round(x.temp) + '°C')
+  if ((x.precip_mm || 0) >= 0.1) parts.push(Number(x.precip_mm).toFixed(1) + ' mm')
+  if (!x.recorded && x.precip_prob != null) parts.push(Math.round(x.precip_prob) + '% chance of rain')
+  return parts.join(', ') + (x.recorded ? ' (recorded)' : '')
+}
+
+/** What a captured weather day adds: forecast or recorded, what was forecast, and its hours. */
+function weatherView(it, withHours) {
+  const d = it.data
+  if (it.kind !== 'weather' || !it.source_id || !d || d.weather_code == null) return {}
+  const hours = Array.isArray(d.hours) ? d.hours : []
+  return {
+    weather: d.recorded ? 'recorded (the day is over)' : 'forecast',
+    ...(d.recorded && d.forecast ? { forecast_was: weatherSummary(d.forecast) } : {}),
+    ...(withHours && hours.length ? { hours: hours.map(hourLine) } : {}),
+  }
+}
+
+function itemView(it, venueNames, { withHours = false } = {}) {
   return {
     ...(it.venue_id ? { venue: venueNames[it.venue_id] || 'a venue' } : { venue: 'every venue' }),
     kind: KIND_LABELS[it.kind] || it.kind,
@@ -32,6 +60,7 @@ function itemView(it, venueNames) {
     ...(it.place ? { place: it.place } : {}),
     ...(it.url ? { url: it.url } : {}),
     ...(it.source_id ? {} : { typed_in: true }),
+    ...weatherView(it, withHours),
     // Staff's own flags on what a capture found (migration 248).
     ...(it.feedback && (it.feedback.relevant || it.feedback.not_relevant)
       ? { staff_flags: {
@@ -127,7 +156,8 @@ export const localInfoTools = [
     section: 'local_info',
     title: 'Local info: weather, traffic, events, incidents',
     description:
-      'What’s happening around a venue (or the whole group) on the days asked: the captured weather forecast, ' +
+      'What’s happening around a venue (or the whole group) on the days asked: the captured weather (a forecast, ' +
+      'recorded once the day is over with what was forecast beside it; hour by hour when up to three days are asked), ' +
       'road closures and traffic, local events and incidents, plus events staff typed in — from the Local info page ' +
       '(/local-info), where captures are set up. Days default to today up to two weeks ahead; ask for past days for a ' +
       'retrospective. Use it with the bookings and rota tools to weigh a day up (a big event + a thin rota, rain on a ' +
@@ -155,7 +185,7 @@ export const localInfoTools = [
       return {
         ...(venue ? { venue: venue.name } : { venues: 'the whole group' }),
         days: from + ' to ' + to,
-        ...(out.items.length ? { items: out.items.map(it => itemView(it, venueNames)) }
+        ...(out.items.length ? { items: out.items.map(it => itemView(it, venueNames, { withHours: addDays(from, HOURS_UP_TO_DAYS - 1) >= to })) }
           : { items: 'nothing held for those days' }),
         ...(sources && !sources.length ? {
           note: 'This venue has no captures set up yet: only typed-in events can show. Captures are set up on the Local info page (/local-info).',

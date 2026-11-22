@@ -231,7 +231,7 @@ export default [
   starter({
     key: 'till_sales_and_weather',
     name: 'Sales against the weather',
-    about: 'Each trading day\'s net sales and checks beside the weather that day, from the weather capture on the Local info page: the highest temperature and the rain. A day with no forecast shows no weather.',
+    about: 'Each trading day\'s net sales and checks beside the weather that day, from the weather capture on the Local info page: the highest temperature and the rain, as recorded once the day was over. A day with no weather captured shows none.',
     period: { relative: 'last_n_days', n: 28 },
     spec: {
       subject: 'till.checks',
