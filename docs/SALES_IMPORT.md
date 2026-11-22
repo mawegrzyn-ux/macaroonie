@@ -1,6 +1,6 @@
 # Sales from other tills: Loyverse first, then Square and Oracle Simphony
 
-**Status: a plan (22 Nov 2026). Nothing is built.** The user's ask: "plan integration with
+**Status: a plan, parked (22 Nov 2026: the user asked for it written down and put aside). Nothing is built; the decisions in section 10 are open.** The user's ask: "plan integration with
 Loyverse for sales, not just cash up. I would like to import all checks with all details, master
 data, etc. I need a smart tool for mapping items from Loyverse to Macaroonie menus. The tool needs
 to be flexible to allow different mapping approaches, for example we may need to be able to match
