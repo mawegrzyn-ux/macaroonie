@@ -47,6 +47,7 @@ lives in that area's file, which is read only when a task touches the area.
 | `docs/claude/areas/<area>.md` | The area's key files and its mistakes to avoid. **Read the file for every area a task touches before changing code there.** |
 | `docs/claude/history/<area>.md` | What shipped in the area and when (the old Completed items). Reference only. |
 | `docs/claude/outstanding/<area>.md` | What isn't built, known limits and follow-ups, one file per area (`OUTSTANDING.md` is only the index). |
+| `docs/claude/estimates.md` | Each feature step's estimate against what it took (build, merge, model, effort). Add a row for every step you build. |
 | `areas.json` | Which files belong to which area; checked by `scripts/check-areas.mjs` (see Working in parallel). |
 | `docs/*.md` | Design documents: `POS.md`, `REPORTS.md`, `CHAT_FIRST.md`, `PEPPER_FIRST.md`, `ORDERING_APP.md`, `ANDROID_HUB.md`, `SALES_IMPORT.md`, `CATALOGUE.md`, `PARALLEL_WORK.md`. |
 | `docs/claude/backup/` | The whole CLAUDE.md as it was on 21 Nov 2026, before it was split. Never loaded; searches skip it (the root `.ignore`). |
@@ -122,6 +123,7 @@ When the user signals end of session ("wrap up", "eos", "that's all", or natural
 - This file — only when a rule that applies everywhere changes, or an area is added.
 - In-app Help — **always** add/update the operator-facing section (`admin/src/pages/help/<id>.jsx`, one file per section; a new section is a new file whose `order` slots it in) for any new or changed feature. This is the most user-visible doc and must never lag behind shipped code.
 - In-app Docs — **always** add/update the technical section (`admin/src/pages/docs/<id>.jsx`) for any new API routes, DB tables, services, or architectural changes.
+- `docs/claude/estimates.md` — a row for each feature step built: the estimate made before it, build and merge times, model and effort.
 - The changelog — add a file `changes/YYYY-MM-DD-<area>-<slug>.md` for shipped features (`changes/README.md`; `CHANGE.md` is the history before 22 Nov 2026).
 
 **2. Impact analysis:**
