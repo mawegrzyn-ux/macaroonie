@@ -496,7 +496,8 @@ App.view('registry', {
         #view-registry .rg-ico { width: 34px; height: 34px; flex: none; border-radius: 8px; background: var(--brand-soft); color: var(--brand); display: inline-flex; align-items: center; justify-content: center; }
         #view-registry .rg-ico svg { width: 17px; height: 17px; }
         #view-registry .rg-in, #view-registry .rg-vocab { min-width: 0; }
-        #view-registry .rg-nm { display: inline-block; margin-right: 18px; }
+        #view-registry .rg-nm { display: inline-block; margin-right: 18px; white-space: nowrap; }
+        @media (max-width: 640px) { #view-registry .rg-nm { display: block; margin-right: 0; } }
         #view-registry .rg-start { align-content: start; }
         #view-registry .rg-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
         #view-registry .rg-edit { gap: 8px; }
@@ -611,7 +612,7 @@ App.view('registry', {
             <thead><tr><th>Thing</th><th>Names today</th><th>The catalogue's name</th></tr></thead>
             <tbody>
               ${[['Staff', 'cash_staff', 'staff', 'list_staff', 'staff.people'], ['Dishes', 'menu_items', 'menus', 'find_dishes', 'menu.dishes'], ['Online orders', 'orders', 'web_orders', 'online_orders', 'online.orders']].map(r => `
-              <tr><td>${r[0]}</td><td>${['table', 'permission module', 'Pepper tool'].map((kind, n) => `<span class="rg-nm"><span class="mono">${r[n + 1]}</span> <span class="muted small">${kind}</span></span>`).join('')}</td><td class="mono"><b>${r[4]}</b></td></tr>`).join('')}
+              <tr><td>${r[0]}</td><td>${['table', 'module', 'tool'].map((kind, n) => `<span class="rg-nm"><span class="mono">${r[n + 1]}</span> <span class="muted small">${kind}</span></span>`).join('')}</td><td class="mono"><b>${r[4]}</b></td></tr>`).join('')}
             </tbody>
           </table></div>
           <div class="card">
