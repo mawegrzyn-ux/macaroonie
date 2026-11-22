@@ -280,7 +280,8 @@ a change in another area's files makes that a separate, small pull request first
 
 - **Today:** one job runs all 132 API test files one after another (`--test-concurrency=1`, one
   database), beside the migration check and the shared tests (which take about 30 seconds each).
-  The API job is the long one.
+  The API job is the long one: 18 minutes for 913 tests on pull request #489 (22 Nov 2026), of
+  which the tenant sweep is about 2.5 minutes.
 - **Proposed:** split the API tests into four to six parallel jobs (a GitHub Actions matrix), each
   with its own Postgres and Redis service, the files shared out by a fixed list so slow ones are
   spread; the tenant sweep (the slowest single file) as its own job. The total work is the same; the
