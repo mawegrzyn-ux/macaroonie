@@ -5,16 +5,7 @@ import { buildApp }                          from './app.js'
 import { sql, systemSql, reportSql }         from './config/db.js'
 import { env }                               from './config/env.js'
 import { attachWss }                         from './config/ws.js'
-import { startNotificationWorker,
-         startHoldSweepWorker,
-         startGloriaFoodPollWorker,
-         startAiCleanupWorker,
-         startLocalInfoWorker,
-         startReportScheduleWorker,
-         startCashAutoFillWorker,
-         startTaskNoticeWorker }             from './jobs/queues.js'
-import { startReviewScrapeWorker }           from './jobs/reviewScrapeWorker.js'
-import { startPublishWorker }                from './jobs/publishWorker.js'
+import { loadJobs }                          from './jobs/queues.js'
 import jwksClient                            from 'jwks-rsa'
 import { checkVault, sealStoredSecrets }     from './services/vault.js'
 import { startProcessBeat, watchWorker }     from './services/platformStatus.js'
@@ -43,20 +34,12 @@ async function verifyWsToken(token) {
 }
 
 // ── Background workers ───────────────────────────────────────
-const notifWorker   = startNotificationWorker(app.log)
-const sweepWorker   = startHoldSweepWorker(systemSql, app.log)
-const reviewWorker  = startReviewScrapeWorker(app.log)
-const publishWorker = startPublishWorker(app.log)
-const gfWorker      = startGloriaFoodPollWorker(app.log)
-const aiWorker      = startAiCleanupWorker(app.log)
-const infoWorker    = startLocalInfoWorker(app.log)
-const reportWorker  = startReportScheduleWorker(app.log)
-const fillWorker    = startCashAutoFillWorker(app.log)
-const noticeWorker  = startTaskNoticeWorker(app, app.log)
+// One file per job in src/jobs (loadJobs(), jobs/queues.js): each starts its
+// worker and, for a repeating job, its repeat. `app` is for the jobs that run
+// routes (task notices).
+const workers = (await loadJobs()).map(job => [job.name, job.start(app.log, { app })])
 // When each background job last finished or failed, for the Platform page's Status.
-for (const [name, w] of [['notifications', notifWorker], ['hold-sweep', sweepWorker], ['review-scrape', reviewWorker],
-  ['website-publish', publishWorker], ['gloriafood-poll', gfWorker], ['ai-cleanup', aiWorker], ['local-info', infoWorker],
-  ['report-schedules', reportWorker], ['cash-autofill', fillWorker], ['task-notices', noticeWorker]]) watchWorker(name, w)
+for (const [name, w] of workers) watchWorker(name, w)
 let stopBeat = null
 let stopAlerts = null
 
@@ -66,16 +49,7 @@ const shutdown = async (signal) => {
   stopBeat?.()
   stopAlerts?.()
   await app.close()
-  await notifWorker.close()
-  await sweepWorker.close()
-  await reviewWorker.close()
-  await publishWorker.close()
-  await gfWorker.close()
-  await aiWorker.close()
-  await infoWorker.close()
-  await reportWorker.close()
-  await fillWorker.close()
-  await noticeWorker.close()
+  for (const [, w] of workers) await w.close()
   await sql.end()
   await systemSql.end()
   await reportSql.end()

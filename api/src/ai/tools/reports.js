@@ -497,9 +497,52 @@ const Rows = z.number().int().min(1).max(MAX_ROWS).optional()
 export const ReportRef = z.string().trim().min(1).max(200).describe('The report\'s name, or its id from list_reports')
 export const Pinned = z.record(z.any()).optional().describe('Leave out: the confirm card pins it')
 
+// What Pepper is told about this file's tools, gathered by tools/index.js:
+// the place in the list (order, then the file name), the areas the tools
+// belong to, and the file's lines in the system prompt (prompts.js).
+export { reportTools as tools }
+export const order = 110
+export const sections = {
+  reports: { label: 'Reports: figures from the data (sales, dishes, takings, voids, orders, bookings) and saved reports', modules: ['reports'] },
+}
+// The file's line(s) in the list of what Pepper can do.
+export const promptLines = [
+  'Reports: ask_data (a question about the figures answered from the data: sales, dishes sold, takings by ' +
+    'tender, tips, discounts, voids, covers, online orders, bookings, no-shows, deposits), find_fields and ' +
+    'explain_figure (what reports can show and what a figure counts), list_reports / get_report / run_report ' +
+    '(saved reports and the starters), build_report, change_report, copy_report, delete_report, share_report, ' +
+    'export_report (keep a CSV, Excel or PDF file to download), report_runs (past runs, kept files and what is ' +
+    'scheduled), schedule_report / change_schedule / pause_schedule (email a report on a schedule), send_report ' +
+    '(email a report now).',
+]
+// How to use them: a paragraph each, after the list.
+export const promptNotes = [
+  'Reports: for figures over a period (how much, how many, by dish, by hour, by server, by venue, this week ' +
+    'against last), use ask_data rather than adding up the till, cash or order tools: find the subject and its ' +
+    'paths with find_fields first (a report is about one subject: dishes sold, checks, payments, online orders, ' +
+    'bookings...), then pass a plan. Ask for totals, averages and rates as figures and read them from the rows: ' +
+    'never add figures up or work a rate out yourself. Say the period the answer covers and anything the tool says ' +
+    'it assumed or couldn\'t do; when a choice is ambiguous the tool asks, so pass its question on. explain_figure ' +
+    'says what a figure counts (net sales leaves out voided dishes; takings are what was paid). To keep a report, ' +
+    'build_report with the same plan; to change a saved one, change the plan get_report gives; a starter report is ' +
+    'copied first (copy_report). Reports show only what the person\'s role may see. For a file of a report (a ' +
+    'spreadsheet, a download), export_report keeps it for the person to download from Past runs: give them the ' +
+    'link; you never see a file\'s rows. A PDF is the report as it prints, by the group\'s layout (export_report ' +
+    'with pdf; schedule_report can attach one). A page is several reports put together to read and print as one: ' +
+    'get_report says which reports it holds, they are run, kept and scheduled one by one, and the page itself is ' +
+    'changed, printed and downloaded on its own page, so give its link. report_runs lists what they ran, ' +
+    'downloaded, printed, emailed or kept, and what is scheduled. To email a report regularly (every morning, on ' +
+    'Mondays, once a month), schedule_report: its period must move with the date (yesterday, last_week), and it ' +
+    'can send only when there are rows or when a figure crosses a line; to email one now, send_report. The cards ' +
+    'name everyone it goes to: read them back. Sending to other people needs Manage on Reports, and to addresses ' +
+    'outside the team an owner or admin; people\'s details never go outside the team unless an owner or admin asks ' +
+    'for it.',
+]
+
 export const reportTools = [
   {
     name: 'find_fields',
+    activity: 'Looked at what reports can show',
     section: 'reports',
     title: 'Reports: what a report can be built from',
     description:
@@ -537,6 +580,7 @@ export const reportTools = [
 
   {
     name: 'explain_figure',
+    activity: 'Looked up what a figure counts',
     section: 'reports',
     title: 'Reports: what a figure counts',
     description:
@@ -603,6 +647,7 @@ export const reportTools = [
 
   {
     name: 'list_reports',
+    activity: 'Looked at the reports',
     section: 'reports',
     title: 'Reports: the ones you can open',
     description:
@@ -651,6 +696,7 @@ export const reportTools = [
 
   {
     name: 'get_report',
+    activity: 'Opened a report',
     section: 'reports',
     title: 'Reports: what one shows and asks',
     description:
@@ -717,6 +763,7 @@ export const reportTools = [
 
   {
     name: 'run_report',
+    activity: 'Ran a report',
     section: 'reports',
     title: 'Reports: run one',
     description:
@@ -747,6 +794,7 @@ export const reportTools = [
 
   {
     name: 'ask_data',
+    activity: 'Worked the figures out from the data',
     section: 'reports',
     title: 'Reports: answer a question from the data',
     description:
@@ -998,6 +1046,7 @@ export const reportTools = [
 
   {
     name: 'report_runs',
+    activity: 'Looked at past runs and schedules',
     section: 'reports',
     title: 'Reports: past runs, kept files and schedules',
     description:

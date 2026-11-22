@@ -1,7 +1,7 @@
 // src/routes/featureRequests.js
 //
 // Cross-tenant feature request board with upvoting.
-// Mounted at /api/feature-requests in app.js.
+// Mounted at /api/feature-requests (api/src/areas/core.js).
 
 import { z }          from 'zod'
 import { sql, withTenant, withSystem } from '../config/db.js'

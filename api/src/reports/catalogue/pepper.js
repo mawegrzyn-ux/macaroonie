@@ -23,7 +23,22 @@ const MODULE = 'ai_assistant'
 const DAY = '({t}.created_at AT TIME ZONE {tz})::date'
 const GUEST = 'A guest'
 
-export default [
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 160
+
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  settings: ['ai_settings'],
+  out: {
+    'Tokens, codes and sessions': ['ai_access_tokens', 'ai_oauth_clients', 'ai_oauth_grants', 'ai_booking_codes', 'ai_booking_grants'],
+    'Conversations and files': ['ai_messages', 'ai_attachments', 'ai_pending_actions'],
+  },
+}
+
+export const subjects = [
   subject({
     key: 'pepper.usage',
     label: ASSISTANT_NAME + '\'s use by month',

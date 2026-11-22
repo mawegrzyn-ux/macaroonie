@@ -229,9 +229,34 @@ async function fillPlan(ctx, input) {
   return { venue, dates: fill.map(d => d.date), lines, warnings, from, to }
 }
 
+// What Pepper is told about this file's tools, gathered by tools/index.js:
+// the place in the list (order, then the file name), the areas the tools
+// belong to, and the file's lines in the system prompt (prompts.js).
+export { cashTools as tools }
+export const order = 50
+export const sections = {
+  cash: { label: 'Cash reconciliation and wages paid', modules: ['cash_recon'] },
+}
+// The file's line(s) in the list of what Pepper can do.
+export const promptLines = [
+  'Cash reconciliation: cash_day, cash_week (variance), record_cash_day, add_expense, submit_cash_day, ' +
+    'submit_cash_week (a venue that submits once a week), wages_week, mark_wages_paid, fill_cash_from_till ' +
+    '(Loyverse, GloriaFood).',
+]
+// How to use them: a paragraph each, after the list.
+export const promptNotes = [
+  'Cash reconciliation: variance = takings + cash paid out of the till (cash expenses, wages paid that day) - ' +
+    'expected (income, adjusted for service charge); negative means short. Read figures from cash_day and ' +
+    'cash_week, never add them up yourself. record_cash_day changes only the fields named; a submitted day can\'t ' +
+    'change (an owner or admin unsubmits it on the Cash Recon page). Cash up often happens after closing, past ' +
+    'midnight: before 06:00 at the venue (time_now from list_venues), "today\'s cash up" usually means the day that ' +
+    'just ended, so check which date they mean and pass it.',
+]
+
 export const cashTools = [
   {
     name: 'cash_day',
+    activity: 'Looked at the cash up',
     section: 'cash',
     title: 'Cash Recon day',
     description:
@@ -280,6 +305,7 @@ export const cashTools = [
 
   {
     name: 'cash_week',
+    activity: 'Looked at the cash week',
     section: 'cash',
     title: 'Cash Recon week',
     description:
@@ -483,6 +509,7 @@ export const cashTools = [
 
   {
     name: 'wages_week',
+    activity: 'Looked at the wages',
     section: 'cash',
     title: 'Wages for a week',
     description:

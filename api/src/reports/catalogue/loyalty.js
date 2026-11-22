@@ -28,7 +28,23 @@ const SOURCES = {
 const REWARD_KINDS = { amount_off: 'Money off', percent_off: 'Percent off', free_item: 'A free dish' }
 const DAYS_SINCE_VISIT = '((now() AT TIME ZONE {tz})::date - ({t}.last_visit_at AT TIME ZONE {tz})::date)'
 
-export default [
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 90
+
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  settings: ['loyalty_programmes'],
+  out: {
+    'Secrets and keys': ['loyalty_wallet_settings'],
+    'Tokens, codes and sessions': ['loyalty_codes', 'loyalty_sessions', 'loyalty_wallet_devices'],
+    'Shared across groups': ['loyalty_identities'],
+  },
+}
+
+export const subjects = [
   subject({
     key: 'loyalty.members',
     label: 'Loyalty members',

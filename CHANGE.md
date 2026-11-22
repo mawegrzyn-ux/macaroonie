@@ -3,8 +3,14 @@
 All notable changes to this project, most recent first.
 Migrations are listed where a database change is required.
 
+**From 22 Nov 2026 each change is a file of its own in `changes/` (see `changes/README.md`); this file keeps everything before that. `node scripts/changelog.mjs` prints both, newest first.**
+
 ---
 
+
+## [2026-11-22 — Pepper usage: two prices corrected]
+
+- Pepper's usage allowance counts Claude Sonnet 5.5's cached reads at their real price (half of what was counted), and Claude Fable 5.2 at its own price instead of the price for an unlisted model. Allowances and limits are unchanged.
 
 ## [2026-11-22 — Small follow-ups: links without pop-ups, platform alerts, weather by the hour]
 

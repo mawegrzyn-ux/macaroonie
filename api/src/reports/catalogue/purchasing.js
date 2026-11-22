@@ -44,7 +44,25 @@ const BEFORE = `(SELECT h2.price FROM inv_price_history h2
                     AND (h2.changed_at, h2.id) < ({t}.changed_at, {t}.id)
                   ORDER BY h2.changed_at DESC, h2.id DESC LIMIT 1)`
 
-export default [
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 100
+
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  settings: [
+    // What each venue orders and how; a price at one venue
+    'purchasing_settings', 'supplier_venues', 'inv_quote_venue_prices', 'inv_preferred',
+    'order_lists', 'order_list_items', 'order_list_pars', 'order_list_venues',
+  ],
+  out: {
+    'Filled in until placed, then copied onto the purchase order lines reports read': ['supply_order_lines'],
+  },
+}
+
+export const subjects = [
   subject({
     key: 'purchasing.orders',
     label: 'Supplier orders',

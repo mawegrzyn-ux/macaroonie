@@ -7,6 +7,10 @@ import os from 'node:os'
 import path from 'node:path'
 
 process.env.LOG_LEVEL ||= 'silent'
-// Report files the tests keep (services/privateStore.js) go to a folder of their own.
-process.env.PRIVATE_DIR ||= path.join(os.tmpdir(), 'macaroonie-private-test')
+// Report files the tests keep (services/privateStore.js) go to a folder of their own,
+// and uploads too: named after the run (TEST_RUN, set by scripts/test-env.sh) so two
+// runs on one computer never share one.
+const run = process.env.TEST_RUN ? '-' + process.env.TEST_RUN : ''
+process.env.PRIVATE_DIR ||= path.join(os.tmpdir(), 'macaroonie-private-test' + run)
+process.env.UPLOAD_DIR ||= path.join(os.tmpdir(), 'macaroonie-uploads-test' + run)
 register('./loader.mjs', import.meta.url)

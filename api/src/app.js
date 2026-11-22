@@ -10,97 +10,37 @@ import fastifyView  from '@fastify/view'
 import { Eta }   from 'eta'
 import path      from 'node:path'
 import fs        from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { env }          from './config/env.js'
 import { errorHandler } from './middleware/error.js'
 import { refuseOtherTenantsVenues } from './middleware/venue.js'
 import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from './middleware/auth.js'
 
-import venuesRoutes     from './routes/venues.js'
-import schedulesRoutes  from './routes/schedules.js'
-import slotsRoutes      from './routes/slots.js'
-import bookingsRoutes   from './routes/bookings.js'
-import customersRoutes  from './routes/customers.js'
-import paymentsRoutes   from './routes/payments.js'
-import orderApiRoutes, { paymentWebhookRoutes } from './routes/orderApi.js'
-import ordersRoutes from './routes/orders.js'
-import promotionsRoutes from './routes/promotions.js'
-import loyaltyRoutes from './routes/loyalty.js'
-import loyaltyApiRoutes from './routes/loyaltyApi.js'
-import loyaltySite from './routes/loyaltySite.js'
-import websiteRoutes    from './routes/website.js'
-import publicSiteRoutes from './routes/publicSite.js'
-import siteRendererRoutes from './routes/siteRenderer.js'
+// The plugins whose place matters stay here: the host sites (their global
+// onRequest hooks come before every route), the payment webhooks and the
+// tenant site renderer. Every other route plugin is in an area file (AREAS).
 import platformSite       from './routes/platformSite.js'
-import cashReconRoutes  from './routes/cashRecon.js'
-import manageBookingRoutes  from './routes/manageBooking.js'
-import emailTemplateRoutes from './routes/emailTemplates.js'
-import platformRoutes      from './routes/platform.js'
-import teamRoutes          from './routes/team.js'
-import accessRoutes        from './routes/access.js'
-import emailMonitoringRoutes from './routes/emailMonitoring.js'
-import mediaRoutes          from './routes/media.js'
-import menusRoutes          from './routes/menus.js'
-import widgetApiRoutes      from './routes/widgetApi.js'
-import reviewsRoutes        from './routes/reviews.js'
-import backlogRoutes         from './routes/backlog.js'
-import issueLogRoutes        from './routes/issueLog.js'
-import featureRequestsRoutes from './routes/featureRequests.js'
-import changelogRoutes       from './routes/changelog.js'
-import inventoryRoutes       from './routes/inventory.js'
-import supplierRoutes        from './routes/suppliers.js'
-import purchasingRoutes      from './routes/purchasing.js'
-import loyverseRoutes        from './routes/loyverse.js'
-import gloriafoodRoutes, { gloriafoodWebhookRoutes } from './routes/gloriafood.js'
-import deliverooRoutes       from './routes/deliveroo.js'
-import menuTimesRoutes       from './routes/menuTimes.js'
-import testDataRoutes        from './routes/testData.js'
-import foodSafetyRoutes      from './routes/foodSafety.js'
-import checklistsRoutes      from './routes/checklists.js'
-import hsDashboardsRoutes    from './routes/hsDashboards.js'
-import rotaRoutes            from './routes/rota.js'
-import hsActionLogRoutes     from './routes/hsActionLog.js'
-import hsSettingsRoutes      from './routes/hsSettings.js'
-import dashboardTilesRoutes  from './routes/dashboardTiles.js'
-import legacyImportRoutes    from './routes/legacyImport.js'
-import navRoutes             from './routes/nav.js'
-import mcpRoutes             from './routes/mcp.js'
-import mcpOauthRoutes        from './routes/mcpOauth.js'
-import aiRoutes              from './routes/ai.js'
-import storeOpeningRoutes    from './routes/storeOpenings.js'
-import themeRoutes           from './routes/themes.js'
-import menuImportRoutes      from './routes/menuImport.js'
-import documentReadRoutes    from './routes/documentRead.js'
-import navAiRoutes           from './routes/navAi.js'
-import reportAiRoutes        from './routes/reportAi.js'
-import opsRoutes             from './routes/ops.js'
-import noticesRoutes         from './routes/notices.js'
-import localInfoRoutes       from './routes/localInfo.js'
-import reportRoutes, { reportPrintRoutes } from './routes/reports.js'
-import reportScheduleRoutes from './routes/reportSchedules.js'
-import reportLayoutRoutes from './routes/reportLayouts.js'
-import reportDataLinkRoutes, { reportDataPublicRoutes } from './routes/reportDataLinks.js'
-import aiApiRoutes           from './routes/aiApi.js'
-import posSite               from './routes/posSite.js'
-import posSetupRoutes        from './routes/posSetup.js'
-import cardSetupRoutes       from './routes/cardSetup.js'
-import kioskAnalyticsRoutes from './routes/kioskAnalytics.js'
-import printDesignRoutes     from './routes/printDesigns.js'
-import tillLayoutRoutes      from './routes/tillLayouts.js'
-import orderFlowRoutes       from './routes/orderFlows.js'
-import taxSetupRoutes        from './routes/taxSetup.js'
-import posApiRoutes          from './routes/posApi.js'
-import androidAppRoutes      from './routes/androidApp.js'
-import stripeRoutes          from './routes/stripe.js'
-import screenSite            from './routes/screenSite.js'
-import installerSite         from './routes/installerSite.js'
-import installerRoutes       from './routes/installer.js'
-import techBoardRoutes       from './routes/techBoard.js'
-import screensRoutes         from './routes/screens.js'
-import screenApiRoutes       from './routes/screenApi.js'
+import posSite            from './routes/posSite.js'
+import screenSite         from './routes/screenSite.js'
+import installerSite      from './routes/installerSite.js'
+import loyaltySite        from './routes/loyaltySite.js'
+import { paymentWebhookRoutes }    from './routes/orderApi.js'
+import { gloriafoodWebhookRoutes } from './routes/gloriafood.js'
+import siteRendererRoutes from './routes/siteRenderer.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+// The feature routes, one file per area (docs/PARALLEL_WORK.md 3.5):
+// api/src/areas/<area>.js exports routes: [[plugin, options], ...]. Every
+// file in the folder, by name; loaded once, when this file is first imported.
+const AREAS_DIR = path.join(__dirname, 'areas')
+const AREAS = []
+for (const file of fs.readdirSync(AREAS_DIR).filter(f => f.endsWith('.js')).sort()) {
+  const { routes } = await import(pathToFileURL(path.join(AREAS_DIR, file)).href)
+  if (!Array.isArray(routes)) throw new Error('areas/' + file + ' must export routes: [[plugin, options], ...]')
+  AREAS.push({ area: file.slice(0, -3), routes })
+}
 
 export async function buildApp() {
   const app = Fastify({
@@ -248,96 +188,12 @@ export async function buildApp() {
   // '/robots.txt' — none of which shadow '/api/*' or '/uploads/*'.
   await app.register(siteRendererRoutes)
 
-  // API routes
-  await app.register(venuesRoutes,     { prefix: '/api/venues' })
-  await app.register(schedulesRoutes,  { prefix: '/api/venues' })
-  await app.register(slotsRoutes,      { prefix: '/api/venues' })
-  await app.register(bookingsRoutes,   { prefix: '/api/bookings' })
-  await app.register(customersRoutes,  { prefix: '/api/customers' })
-  await app.register(paymentsRoutes,   { prefix: '/api/payments' })
-  await app.register(websiteRoutes,    { prefix: '/api/website' })
-  await app.register(cashReconRoutes,  { prefix: '/api/venues' })
-  await app.register(publicSiteRoutes,     { prefix: '/api/site' })
-  await app.register(emailTemplateRoutes, { prefix: '/api/email-templates' })
-  await app.register(platformRoutes,      { prefix: '/api' })
-  await app.register(teamRoutes,          { prefix: '/api/team' })
-  await app.register(accessRoutes,        { prefix: '/api/access' })
-  await app.register(emailMonitoringRoutes, { prefix: '/api/email-monitoring' })
-  await app.register(mediaRoutes,            { prefix: '/api/media' })
-  await app.register(menusRoutes,            { prefix: '/api/menus' })
-  await app.register(widgetApiRoutes,        { prefix: '/widget-api' })
-  await app.register(orderApiRoutes,         { prefix: '/order-api' })
-  await app.register(ordersRoutes,           { prefix: '/api/orders' })
-  await app.register(promotionsRoutes,       { prefix: '/api/promotions' })
-  await app.register(loyaltyRoutes,          { prefix: '/api/loyalty' })
-  await app.register(loyaltyApiRoutes,       { prefix: '/loyalty-api' })
-  await app.register(reviewsRoutes,          { prefix: '/api/reviews' })
-  await app.register(backlogRoutes,          { prefix: '/api/backlog' })
-  await app.register(issueLogRoutes,         { prefix: '/api/issues' })
-  await app.register(featureRequestsRoutes,  { prefix: '/api/feature-requests' })
-  await app.register(changelogRoutes,        { prefix: '/api/changelog' })
-  await app.register(inventoryRoutes,        { prefix: '/api/inventory' })
-  await app.register(supplierRoutes,         { prefix: '/api/suppliers' })
-  await app.register(purchasingRoutes,       { prefix: '/api/purchasing' })
-  await app.register(loyverseRoutes,         { prefix: '/api/loyverse' })
-  await app.register(gloriafoodRoutes,       { prefix: '/api/gloriafood' })
-  await app.register(deliverooRoutes,        { prefix: '/api/deliveroo' })
-  await app.register(menuTimesRoutes,        { prefix: '/api/menu-times' })
-  await app.register(testDataRoutes,         { prefix: '/api/venues' })
-  await app.register(foodSafetyRoutes,       { prefix: '/api/food-safety' })
-  await app.register(checklistsRoutes,       { prefix: '/api/checklists' })
-  await app.register(hsDashboardsRoutes,     { prefix: '/api/hs-dashboards',   kind: 'hs',   moduleKey: 'hs_dashboard' })
-  await app.register(hsDashboardsRoutes,     { prefix: '/api/cash-dashboards', kind: 'cash', moduleKey: 'cash_dashboard' })
-  await app.register(hsDashboardsRoutes,     { prefix: '/api/rota-dashboards', kind: 'rota', moduleKey: 'rota_dashboard' })
-  await app.register(hsDashboardsRoutes,     { prefix: '/api/custom-dashboards', kind: 'custom', moduleKey: 'custom_dashboard' })
-  await app.register(rotaRoutes,             { prefix: '/api/rota' })
-  await app.register(hsActionLogRoutes,      { prefix: '/api/hs-action-log' })
-  await app.register(hsSettingsRoutes,       { prefix: '/api/hs-settings' })
-  await app.register(dashboardTilesRoutes,   { prefix: '/api/dashboard-tiles' })
-  await app.register(legacyImportRoutes,     { prefix: '/api/legacy-import' })
-  await app.register(navRoutes,              { prefix: '/api/nav' })
-  await app.register(manageBookingRoutes, { prefix: '/manage' })
-  // AI: MCP connectors (guest + staff) and the chats (migration 148)
-  await app.register(mcpRoutes)
-  await app.register(mcpOauthRoutes)
-  await app.register(aiRoutes,    { prefix: '/api/ai' })
-  await app.register(storeOpeningRoutes, { prefix: '/api/ai/store-openings' })
-  await app.register(themeRoutes,        { prefix: '/api/ai/themes' })
-  await app.register(menuImportRoutes,   { prefix: '/api/ai/menus' })
-  await app.register(documentReadRoutes, { prefix: '/api/ai' })
-  await app.register(navAiRoutes, { prefix: '/api/ai' })
-  await app.register(reportAiRoutes, { prefix: '/api/ai/reports' })
-  await app.register(opsRoutes,          { prefix: '/api/ops' })
-  await app.register(noticesRoutes,      { prefix: '/api/notices' })
-  await app.register(localInfoRoutes,    { prefix: '/api/local-info' })
-  await app.register(reportRoutes,       { prefix: '/api/reports' })
-  // Schedules and Email it now (src/reports/send.js sends).
-  await app.register(reportScheduleRoutes, { prefix: '/api/reports' })
-  // Layout templates and a report's layout pick.
-  await app.register(reportLayoutRoutes, { prefix: '/api/reports' })
-  await app.register(reportDataLinkRoutes, { prefix: '/api/reports' })
-  // Data links: no login, the link's own key (src/reports/dataLinks.js).
-  await app.register(reportDataPublicRoutes, { prefix: '/api/report-data' })
-  // The print page (no login: its link is the key).
-  await app.register(reportPrintRoutes,  { prefix: '/api/reports' })
-  await app.register(aiApiRoutes, { prefix: '/ai-api' })
-  // Till (POS): admin setup + reports, and the tills' own API (device auth).
-  await app.register(posSetupRoutes, { prefix: '/api/pos' })
-  await app.register(printDesignRoutes, { prefix: '/api/pos' })
-  await app.register(tillLayoutRoutes, { prefix: '/api/pos' })
-  await app.register(orderFlowRoutes, { prefix: '/api/pos' })
-  await app.register(cardSetupRoutes, { prefix: '/api/pos' })
-  await app.register(kioskAnalyticsRoutes, { prefix: '/api/pos/kiosk-analytics' })
-  await app.register(taxSetupRoutes, { prefix: '/api' })
-  await app.register(posApiRoutes,   { prefix: '/pos-api' })
-  // The Android app's download (Platform page, /android on the device addresses).
-  await app.register(androidAppRoutes)
-  // The group's Stripe account (Connect) and the platform's Stripe keys.
-  await app.register(stripeRoutes)
-  await app.register(screensRoutes,   { prefix: '/api/screens' })
-  await app.register(installerRoutes, { prefix: '/api/installer' })
-  await app.register(techBoardRoutes, { prefix: '/api/tech-board' })
-  await app.register(screenApiRoutes, { prefix: '/screen-api' })
+  // Feature routes: every area file's (AREAS, above), after everything
+  // above, area by area in name order. A route plugin's place among the
+  // others doesn't matter: Fastify matches routes by path, not order.
+  for (const { routes } of AREAS) {
+    for (const [plugin, opts] of routes) await app.register(plugin, opts)
+  }
 
   // ── Health check ─────────────────────────────────────────
   app.get('/api/health', async () => ({ ok: true, env: env.NODE_ENV }))

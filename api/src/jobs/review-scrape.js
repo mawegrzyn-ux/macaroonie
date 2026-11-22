@@ -1,4 +1,9 @@
-// src/jobs/reviewScrapeWorker.js
+// src/jobs/review-scrape.js
+//
+// One background job (docs/PARALLEL_WORK.md 3.9): its queue, its row on the
+// Platform page's Status (services/platformStatus.js JOBS), and start(),
+// which server.js calls once per API process for its worker.
+// Gathered from this folder by loadJobs() (jobs/queues.js).
 //
 // BullMQ worker that processes review-scrape jobs.
 // Job data: { jobId, tenantId, venueId, platform, placeId, maxReviews, apiKey }
@@ -10,8 +15,7 @@
 //   4. Fetch results, normalise, upsert into reviews table
 //   5. Update review_scrape_jobs: status = done, result_count
 
-import { Worker } from 'bullmq'
-import { env }    from '../config/env.js'
+import { Queue, Worker } from 'bullmq'
 import { withTenant, sql, tenantSql } from '../config/db.js'
 import {
   startGoogleReviewsScrape,
@@ -19,8 +23,16 @@ import {
   getRunResults,
   normaliseGoogleReview,
 } from '../services/apifySvc.js'
+import { connection, prefix } from './connection.js'
 
-const connection = { url: env.REDIS_URL }
+export const name  = 'review-scrape'
+export const label = 'Review reading'
+// How often it repeats (ms); null for a queue that runs only when a job is added.
+export const every = null
+// Its place on the Status (lowest first).
+export const order = 100
+export const queue = new Queue(name, { connection, prefix })
+
 const POLL_INTERVAL_MS = 15_000
 const MAX_WAIT_MS      = 600_000  // 10 min
 
@@ -38,8 +50,8 @@ async function pollUntilDone(runId, apiKey, log) {
   throw new Error('Timed out waiting for Apify run')
 }
 
-export function startReviewScrapeWorker(log) {
-  const worker = new Worker('review-scrape', async job => {
+export function start(log) {
+  const worker = new Worker(name, async job => {
     const { jobId, tenantId, venueId, platform, placeId, maxReviews, apiKey } = job.data
     const logMsg = (m) => log.info({ jobId, venue: venueId }, m)
 
@@ -114,7 +126,7 @@ export function startReviewScrapeWorker(log) {
       `.catch(() => {})
       throw err
     }
-  }, { connection, concurrency: 2 })
+  }, { connection, prefix, concurrency: 2 })
 
   worker.on('failed', (job, err) => {
     log.error({ jobId: job?.id, err }, 'Review scrape worker failure')

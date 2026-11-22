@@ -39,7 +39,22 @@ const KIND_OF_FILE = `(CASE WHEN {t}.mimetype LIKE 'image/%' THEN 'picture'
 const FILE_KINDS = { picture: 'Picture', video: 'Video', pdf: 'PDF', other: 'Other' }
 const MB = '({t}.bytes / 1048576.0)'
 
-export default [
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 130
+
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  settings: ['tenant_site', 'website_config', 'website_opening_hours', 'website_menu_documents', 'website_allergen_info', 'website_gallery_images'],
+  out: {
+    'Secrets and keys': ['staging_access'],
+    'Working state that changes from minute to minute': ['review_scrape_jobs'],
+  },
+}
+
+export const subjects = [
   subject({
     key: 'website.reviews',
     label: 'Reviews',

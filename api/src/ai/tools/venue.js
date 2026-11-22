@@ -172,9 +172,27 @@ async function rulesPlan(ctx, input) {
   return { venue, exists, changes, next, lines }
 }
 
+// What Pepper is told about this file's tools, gathered by tools/index.js:
+// the place in the list (order, then the file name), the areas the tools
+// belong to, and the file's lines in the system prompt (prompts.js).
+export { venueTools as tools }
+export const order = 20
+export const sections = {
+  customers: { label: 'Customers', modules: ['customers'] },
+  venue: { label: 'Opening times, closures, tables and booking rules', modules: ['schedule', 'rules', 'tables', 'venues'] },
+}
+// The file's line(s) in the list of what Pepper can do.
+export const promptLines = [
+  'Customers: find_customers, customer_details, update_customer, newsletter unsubscribe, GDPR erasure ' +
+    '(anonymise_customer).',
+  'Opening times and booking setup: opening_times, close_dates / remove_closure (Christmas, a private event), ' +
+    'list_tables, booking_rules / update_booking_rules.',
+]
+
 export const venueTools = [
   {
     name: 'find_customers',
+    activity: 'Searched customers',
     section: 'customers',
     title: 'Find customers',
     description:
@@ -214,6 +232,7 @@ export const venueTools = [
 
   {
     name: 'customer_details',
+    activity: 'Opened the customer',
     section: 'customers',
     title: 'Customer details',
     description: 'One customer\'s profile: contact details, visits, newsletter, staff notes, upcoming bookings and the last 10 bookings.',
@@ -318,6 +337,7 @@ export const venueTools = [
 
   {
     name: 'opening_times',
+    activity: 'Looked at the opening times',
     section: 'venue',
     title: 'Opening times',
     description:
@@ -422,6 +442,7 @@ export const venueTools = [
 
   {
     name: 'list_tables',
+    activity: 'Looked at the tables',
     section: 'venue',
     title: 'Tables',
     description: 'A venue\'s tables by section: covers (smallest and largest party), switched off ones, and table combinations.',
@@ -452,6 +473,7 @@ export const venueTools = [
 
   {
     name: 'booking_rules',
+    activity: 'Looked at the booking rules',
     section: 'venue',
     title: 'Booking rules',
     description: 'A venue\'s booking rules: party sizes, how far ahead, when online bookings close, booking length, gaps, table joining and statuses.',

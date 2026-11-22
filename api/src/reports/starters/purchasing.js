@@ -12,7 +12,10 @@ import { starter, m, share } from './define.js'
 const ORDER_ROWS = ['date', 'number', 'venue.name', 'supplier.name', 'status', 'total_value']
 const LINE_ROWS = ['date', 'order.number', 'order.supplier.name', 'item_name', 'pack_label', 'qty', 'received_qty', 'receive_status', 'receive_note']
 
-export default [
+/** Where these starters come in the list (index.js gathers this folder by it, then by file name). */
+export const order = 60
+
+export const starters = [
   starter({
     key: 'purchasing_spend_by_supplier',
     name: 'Spend by supplier',

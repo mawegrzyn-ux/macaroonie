@@ -1,9 +1,9 @@
 // src/mobile/registry.js
 //
 // Single source of truth for what shows up on the /mobile hub. Add an
-// entry here + a route in main.jsx to ship a new mobile-optimised module —
-// same "one registry drives nav + a picker" pattern as modules.js /
-// defaultNav.js elsewhere in this app. `areas` are the Today feed's task
+// entry here + a route with shell 'mobile' in its area's admin/src/routes/<area>.jsx
+// to ship a new mobile-optimised module — same "one registry drives nav + a
+// picker" pattern as modules.js elsewhere in this app. `areas` are the Today feed's task
 // areas (api/src/services/opsToday.js) a tile's badge counts; Today counts
 // every task. `module` hides the tile from someone whose role has none of it.
 

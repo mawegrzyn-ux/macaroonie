@@ -32,7 +32,21 @@ const effective = col => `(CASE WHEN ${inWall} THEN ${WALL(col)} ELSE {t}.${col}
 
 const SHOWS = { playlist: 'A playlist', board: 'A board' }
 
-export default [
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 150
+
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  out: {
+    'Tokens, codes and sessions': ['screen_pairings'],
+    'Layouts and designs with nothing to count': ['screen_playlist_items'],
+  },
+}
+
+export const subjects = [
   subject({
     key: 'screens.screens',
     label: 'Menu screens',

@@ -27,6 +27,7 @@ import { fileURLToPath } from 'node:url'
 import IORedis from 'ioredis'
 import { systemSql } from '../config/db.js'
 import { env } from '../config/env.js'
+import { loadJobs } from '../jobs/queues.js'
 
 const PREFIX = 'mac:status:'
 const BEAT_MS = 30_000
@@ -34,32 +35,17 @@ const BEAT_TTL_S = 90
 const LIGHT_TTL_S = 20
 const STARTED_AT = new Date().toISOString()
 
-// The background jobs and how often each repeats (jobs/queues.js); a job
-// counts as late after three of its intervals and a minute more. On-demand
-// queues (emails, publishing, review reading) have no interval.
-export const JOBS = [
-  { name: 'hold-sweep',       label: 'Booking holds sweep',   every: 60_000 },
-  { name: 'gloriafood-poll',  label: 'GloriaFood orders',     every: 60_000 },
-  { name: 'report-schedules', label: 'Scheduled reports',     every: 60_000 },
-  { name: 'local-info',       label: 'Local info captures',   every: 300_000 },
-  { name: 'cash-autofill',    label: 'Cash Recon fill',       every: 300_000 },
-  { name: 'task-notices',     label: 'Task notices',          every: 300_000 },
-  { name: 'ai-cleanup',       label: 'Pepper clean-up',       every: 3_600_000 },
-  { name: 'notifications',    label: 'Emails',                every: null },
-  { name: 'website-publish',  label: 'Website publishing',    every: null },
-  { name: 'review-scrape',    label: 'Review reading',        every: null },
-]
+// The background jobs and how often each repeats, gathered from api/src/jobs
+// (one file per job, loadJobs() in jobs/queues.js); a job counts as late
+// after three of its intervals and a minute more. On-demand queues (emails,
+// publishing, review reading) have no interval.
+const jobList = await loadJobs()
+export const JOBS = jobList.map(j => ({ name: j.name, label: j.label, every: j.every }))
 const late = (job, lastAt, now) => job.every != null && lastAt != null && now - lastAt > job.every * 3 + 60_000
 
-// The API's own queue objects (jobs/queues.js), by name, loaded when first asked.
-let queueMap = null
+// The API's own queue objects (each job's file), by name.
+const queueMap = Object.fromEntries(jobList.map(j => [j.name, j.queue]))
 async function queues() {
-  if (!queueMap) {
-    const q = await import('../jobs/queues.js')
-    queueMap = Object.fromEntries([q.notificationQueue, q.holdSweepQueue, q.reviewScrapeQueue, q.publishQueue,
-      q.gloriafoodQueue, q.aiCleanupQueue, q.localInfoQueue, q.reportScheduleQueue, q.cashAutoFillQueue,
-      q.taskNoticeQueue].filter(Boolean).map(x => [x.name, x]))
-  }
   return queueMap
 }
 

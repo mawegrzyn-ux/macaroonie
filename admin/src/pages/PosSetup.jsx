@@ -49,7 +49,7 @@ import { ReceiptSettingsSection, ReconSection } from '@/components/pos/SettingsS
 import { DeviceUpdatesSection } from '@/components/pos/DeviceUpdatesSection'
 
 // The keys are the page addresses (/pos/tills ...): the main menu (ROUTE_CATALOG
-// in api/src/routes/nav.js, DEFAULT_NAV_TREE) links to each one.
+// and DEFAULT_NAV_TREE, from the page records in shared/nav/<area>.js) links to each one.
 export const TABS = [
   // readOnly: a page that only shows (no View-only notice, nothing greyed out).
   { key: 'board', label: 'Tech board', icon: Activity, readOnly: true, wide: true, render: p => <TechBoardSection {...p} /> },

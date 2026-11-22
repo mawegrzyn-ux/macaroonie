@@ -84,7 +84,18 @@ const ALL_SALES = `(
     LEFT JOIN gloriafood_venue_links l ON l.venue_id = g.venue_id AND l.tenant_id = g.tenant_id
 )`
 
-export default [
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 30
+
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  settings: ['ordering_settings'],
+}
+
+export const subjects = [
   subject({
     key: 'online.orders',
     label: 'Online orders',

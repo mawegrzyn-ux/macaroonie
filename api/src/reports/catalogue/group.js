@@ -27,7 +27,34 @@ const TO_RESOLVE = 'EXTRACT(EPOCH FROM ({t}.resolved_at - {t}.created_at))'
 const FOLLOWUPS = "(SELECT count(*) FROM jsonb_array_elements(CASE WHEN jsonb_typeof({t}.followups) = 'array' THEN {t}.followups ELSE '[]'::jsonb END) f)"
 const FOLLOWUPS_LEFT = "(SELECT count(*) FROM jsonb_array_elements(CASE WHEN jsonb_typeof({t}.followups) = 'array' THEN {t}.followups ELSE '[]'::jsonb END) f WHERE NOT COALESCE((f->>'done')::boolean, false))"
 
-export default [
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 170
+
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  settings: [
+    'tenant_modules',
+    'tenants', // the group's own name
+  ],
+  out: {
+    'Secrets and keys': ['platform_secrets'],
+    'Layouts and designs with nothing to count': ['nav_items', 'dashboard_tiles'],
+    'Working state that changes from minute to minute': [
+      // Push notices (migration 262): where a person's notices go, their own
+      // settings, and which task notices were sent (each once).
+      'push_devices', 'user_notify', 'task_notices',
+    ],
+    'Reached only through the row they belong to': ['feature_request_upvotes'],
+    'The platform\'s own, the same for every group': [
+      'platform_admins', 'platform_interest', 'platform_settings', 'backlog_items', 'schema_migrations', 'changelog_entries',
+    ],
+  },
+}
+
+export const subjects = [
   subject({
     key: 'group.team',
     label: 'Team',

@@ -9,22 +9,14 @@
 //   starterByKey(key)    one of them, or null
 //   starterRef(key)      'starter:<key>': how a starter is named where a
 //                        saved report's id would be (stars, runs, the routes)
+//
+// Each area's starters are a file of their own in this folder, gathered
+// from it: `export const order = <number>` (where they come in the list)
+// and `export const starters = [starter({ ... }), ...]`. Nothing here lists
+// the files.
 
-import till from './till.js'
-import online from './online.js'
-import bookings from './bookings.js'
-import purchasing from './purchasing.js'
-import safety from './safety.js'
-import loyalty from './loyalty.js'
-import kitchen from './kitchen.js'
-import kiosks from './kiosks.js'
-import cash from './cash.js'
-import staff from './staff.js'
-import menus from './menus.js'
-import guests from './guests.js'
-import tech from './tech.js'
-import local from './local.js'
-import app from './app.js'
+import { gather } from '../catalogue/gather.js'
+import { FILES } from './files.js'
 import { CATALOGUE, CATALOGUE_MODULES, listColumns } from '../catalogue/index.js'
 import { compileReport } from '../compile.js'
 import { normaliseReport, reportProblems, resolveParams, rowId } from '../../../../shared/reports/spec.js'
@@ -110,7 +102,18 @@ function build(lists) {
   return out
 }
 
-export const STARTERS = build([till, online, bookings, cash, staff, purchasing, safety, loyalty, kitchen, kiosks, menus, guests, tech, local, app])
+// The starters are gathered from this folder: every file that exports
+// `starters` (define.js is the helper), by its `order` and then its name.
+// That order is the list's: the reports routes hand them out in it.
+function gathered(files) {
+  return files.map(({ file, order, module }) => {
+    if (!Number.isFinite(order)) throw new Error('Starter reports: ' + file + ' needs an order (export const order = <number>)')
+    if (!Array.isArray(module.starters)) throw new Error('Starter reports: ' + file + '\'s starters aren\'t a list')
+    return module.starters
+  })
+}
+
+export const STARTERS = build(gathered(gather(FILES, 'starters')))
 
 const BY_KEY = new Map(STARTERS.map(s => [s.key, s]))
 export const starterByKey = key => BY_KEY.get(key) || null

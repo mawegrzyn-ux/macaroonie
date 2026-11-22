@@ -1,0 +1,13 @@
+# Outstanding: hub
+
+What is not built, known limits and follow-ups in this area (`docs/claude/areas/hub.md`). Item numbers are the old CLAUDE.md numbering, kept so earlier references still work; a new item takes the next number after the highest in any file of this folder. Check the live code before calling anything here pending.
+
+**35. Android app — follow-ups** *(shipped 27 Oct 2026, `android-app/`)*
+- Not yet run on a real device (EAS builds work: expo.dev's Build from GitHub builds every platform with `production`, which makes an APK until the app goes on Google Play; the iOS build fails and can be cancelled): install the APK, pick each kind, link it, print a bill, scan a loyalty card, pull the network cable.
+- The download (migration 213) is a copy a platform admin makes by pasting each new build's link: nothing notices a new EAS build by itself (an EAS build webhook could), and tablets already running the app aren't told about a newer one (install the new download over it). Reading expo.dev's build page for its .apk address is untested against the real page (blocked from the build environment); the Install / Download link always works. The copy is read into memory (up to 250 MB) and fetched while the admin waits (45 s).
+- Printing goes through Android's print dialog (no silent printing); ticket printers belong on the venue hub. Device printers (`connection 'device'`) print through the same dialog, a batch at a time.
+- QR scanning uses the web apps' `BarcodeDetector`, which Android WebView may not offer; a native scanner (expo-camera) behind the bridge would make it work everywhere.
+- The hidden corner (five taps top left) has no PIN: anyone who knows it can switch a kiosk to the picker (it goes back by itself after a minute). Its taps also reach the page under it. Tablets on version 1.0 of the app don't have it until the 1.1 download is installed over them.
+- Menu screens in the app (version 1.2) are tried only in Chromium with a stubbed bridge and with `expo prebuild`: not yet on a real Android TV box or smart TV (the leanback home screen tile, the remote's focus on the Picker, video autoplay with sound, the player's service worker inside the WebView). Sideloading on Android TV needs a file manager or a downloader app; there is no Play Store listing.
+- No kiosk lock (Android app pinning or a device manager does it), no auto start after a reboot, no iPhone / iPad build, no app updates pushed by EAS Update (the web apps update themselves; the shell is updated by installing a new APK).
+- A link inside an iframe on another domain is treated as top-level on Android (`isTopFrame` isn't sent there), so it is refused / opened in the browser.

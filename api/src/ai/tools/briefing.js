@@ -109,9 +109,23 @@ const PARTS = [
   }],
 ]
 
+// What Pepper is told about this file's tools, gathered by tools/index.js:
+// the place in the list (order, then the file name), the areas the tools
+// belong to, and the file's lines in the system prompt (prompts.js).
+export { briefingTools as tools }
+export const order = 140
+// The file's line(s) in the list of what Pepper can do.
+export const promptLines = [
+  'day_briefing gives a venue\'s day in one go (bookings and big parties, who is on, H&S due, deliveries, ' +
+    'yesterday\'s cash-up, open online orders, sold out, failed emails, offline screens): use it for "what\'s on ' +
+    'today?" or "brief me", and lead with what needs doing.',
+]
+
 export const briefingTools = [
   {
     name: 'day_briefing',
+    activity: 'Put the day together',
+    core: true,
     section: 'general',
     title: 'Day briefing',
     description:

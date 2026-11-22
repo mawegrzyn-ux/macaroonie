@@ -19,7 +19,7 @@ import { todayIn, addDays } from '../../../../shared/reports/period.js'
 
 // The tables the H&S days are worked out from (the catalogue's from.tables).
 // The settings they read as well (check times, opening days) stay decided as
-// settings in catalogue/decisions.js.
+// settings in their area files' decisions (gathered by catalogue/decisions.js).
 export const HS_TABLES = [
   'checklist_templates', 'checklist_instances',
   'fs_equipment', 'fs_temp_logs', 'fs_hold_stations', 'fs_hold_checks',

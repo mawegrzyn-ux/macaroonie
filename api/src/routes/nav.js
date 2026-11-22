@@ -12,7 +12,7 @@
 // current parent), both from the frontend computing the right
 // parent_id/index and calling the one endpoint that fits.
 //
-// Mounted at /api/nav in app.js.
+// Mounted at /api/nav (api/src/areas/shell.js).
 
 import { z } from 'zod'
 import { withTenant, sql } from '../config/db.js'
@@ -21,6 +21,7 @@ import { ownRoleIds } from '../services/roles.js'
 import { httpError } from '../middleware/error.js'
 import { seedDefaultNav } from '../config/defaultNav.js'
 import { NAV_DESCRIPTIONS, DESCRIPTION_MAX } from '../../../shared/navSearch.js'
+import { ROUTE_CATALOG } from '../../../shared/nav/index.js'
 
 // Every route the admin portal actually has, so the designer can only
 // point nav items at real pages — never an arbitrary URL. `module`, where
@@ -32,106 +33,13 @@ import { NAV_DESCRIPTIONS, DESCRIPTION_MAX } from '../../../shared/navSearch.js'
 // designer, the kitchen flow designer, the screen board designer (with the
 // playlists and walls), the receipt & ticket designer, the menu print
 // designer, the website's page builder and the reservations widget each
-// have a page of their own, so the menu search finds them by name. Every
-// route here needs search words and a description in shared/navSearch.js
-// (api/test/nav-default.test.mjs checks).
-export const ROUTE_CATALOG = [
-  // Today: for everyone signed in (its tasks follow each person's own access), migration 227.
-  { route: '/today', label: 'Today', icon: 'Sun' },
-  { route: '/local-info', label: 'Local info', icon: 'CloudSun', module: 'local_info' },
-  { route: '/', label: 'Overview', icon: 'LayoutDashboard', module: 'dashboard' },
-  { route: '/dashboards', label: 'Dashboards', icon: 'LayoutTemplate', module: 'custom_dashboard' },
-  { route: '/reports', label: 'Reports', icon: 'FileBarChart', module: 'reports' },
-  { route: '/timeline', label: 'Timeline', icon: 'CalendarDays', module: 'bookings' },
-  { route: '/bookings', label: 'Bookings', icon: 'BookOpen', module: 'bookings' },
-  { route: '/customers', label: 'Customers', icon: 'UserRound', module: 'customers' },
-  { route: '/loyalty', label: 'Loyalty', icon: 'Gift', module: 'loyalty' },
-  { route: '/orders', label: 'Online orders', icon: 'ShoppingBag', module: 'web_orders' },
-  { route: '/allergens', label: 'Allergens', icon: 'Wheat', module: 'allergens' },
-  { route: '/orders/settings', label: 'Ordering setup', icon: 'Settings2', module: 'web_ordering_setup' },
-  { route: '/promotions', label: 'Promotions', icon: 'BadgePercent', module: 'promotions' },
-  { route: '/purchasing', label: 'Purchasing', icon: 'ShoppingCart', module: 'purchasing' },
-  { route: '/purchasing/lists', label: 'Order lists', icon: 'ClipboardList', module: 'purchasing_setup' },
-  { route: '/inventory', label: 'Inventory', icon: 'Package', module: 'purchasing_setup' },
-  { route: '/suppliers', label: 'Suppliers', icon: 'Truck', module: 'purchasing_setup' },
-  // Store tech: one page per part (admin/src/pages/PosSetup.jsx TABS).
-  { route: '/pos/board', label: 'Tech board', icon: 'Activity', module: 'pos_setup' },
-  { route: '/pos/tills', label: 'Tills', icon: 'MonitorSmartphone', module: 'pos_setup' },
-  { route: '/pos/layouts', label: 'Till layouts', icon: 'PanelsTopLeft', module: 'pos_setup' },
-  { route: '/pos/floor', label: 'Floor plan', icon: 'LayoutPanelTop', module: 'pos_setup' },
-  { route: '/pos/kiosks', label: 'Kiosks', icon: 'TabletSmartphone', module: 'pos_setup' },
-  { route: '/pos/kiosk-designs', label: 'Kiosk designer', icon: 'Paintbrush', module: 'pos_setup' },
-  { route: '/pos/kitchen', label: 'Kitchen screens', icon: 'CookingPot', module: 'pos_setup' },
-  { route: '/pos/kitchen-flow', label: 'Kitchen flow designer', icon: 'Route', module: 'pos_setup' },
-  { route: '/pos/hub', label: 'Venue hub', icon: 'Server', module: 'pos_setup' },
-  { route: '/pos/printers', label: 'Printers', icon: 'Printer', module: 'pos_setup' },
-  { route: '/pos/printing', label: 'Printing', icon: 'ReceiptText', module: 'pos_setup' },
-  { route: '/pos/print-designs', label: 'Receipt & ticket designer', icon: 'ScrollText', module: 'pos_setup' },
-  { route: '/pos/cards', label: 'Card machines', icon: 'CreditCard', module: 'pos_setup' },
-  { route: '/pos/types', label: 'Order types', icon: 'ListOrdered', module: 'pos_setup' },
-  { route: '/pos/discounts', label: 'Discounts', icon: 'BadgePercent', module: 'pos_setup' },
-  { route: '/pos/charges', label: 'Charges', icon: 'HandCoins', module: 'pos_setup' },
-  { route: '/pos/flows', label: 'Order flows', icon: 'Workflow', module: 'pos_setup' },
-  { route: '/pos/streams', label: 'Revenue streams', icon: 'Waypoints', module: 'pos_setup' },
-  { route: '/pos/courses', label: 'Courses', icon: 'UtensilsCrossed', module: 'pos_setup' },
-  { route: '/pos/staff', label: 'Staff and PINs', icon: 'KeyRound', module: 'pos_setup' },
-  { route: '/pos/roles', label: 'Till roles', icon: 'ShieldCheck', module: 'pos_setup' },
-  { route: '/pos/receipts', label: 'Receipts and payments', icon: 'Receipt', module: 'pos_setup' },
-  { route: '/pos/updates', label: 'Device updates', icon: 'RefreshCw', module: 'pos_setup' },
-  { route: '/pos/recon', label: 'Cash Recon link', icon: 'ArrowRightLeft', module: 'pos_setup' },
-  { route: '/pos/reports', label: 'Till reports', icon: 'BarChart3', module: 'pos_reports' },
-  { route: '/pos/kiosk-analytics', label: 'Kiosk analytics', icon: 'Activity', module: 'pos_reports' },
-  { route: '/cash-recon', label: 'Cash recon', icon: 'Wallet', module: 'cash_recon' },
-  { route: '/cash-dashboard', label: 'Cash dashboard', icon: 'LayoutGrid', module: 'cash_dashboard' },
-  { route: '/staff', label: 'Staff', icon: 'UsersRound', module: 'staff' },
-  { route: '/staff/roles', label: 'Roles', icon: 'BadgeCheck', module: 'staff' },
-  { route: '/rota', label: 'Rota', icon: 'CalendarRange', module: 'rota' },
-  { route: '/rota/setup', label: 'Rota setup', icon: 'Settings2', module: 'staff' },
-  { route: '/rota-dashboard', label: 'Rota dashboard', icon: 'LayoutGrid', module: 'rota_dashboard' },
-  { route: '/food-safety', label: 'Food safety', icon: 'Thermometer', module: 'food_safety' },
-  { route: '/checklists', label: 'Checklists', icon: 'ListChecks', module: 'checklists' },
-  { route: '/hs-dashboard', label: 'H&S dashboard', icon: 'LayoutGrid', module: 'hs_dashboard' },
-  { route: '/hs-action-log', label: 'Action log', icon: 'ClipboardCheck', module: 'hs_action_log' },
-  { route: '/brand', label: 'Brand & theme', icon: 'Palette', module: 'website' },
-  { route: '/website', label: 'Website', icon: 'Globe', module: 'website' },
-  { route: '/website/builder', label: 'Page builder', icon: 'Blocks', module: 'website' },
-  { route: '/website/reservations-widget', label: 'Reservations widget', icon: 'CalendarCheck', module: 'website' },
-  { route: '/menus', label: 'Menus', icon: 'ChefHat', module: 'menus' },
-  { route: '/menus/times', label: 'Menu times', icon: 'Clock', module: 'menus' },
-  { route: '/menus/print-designs', label: 'Menu print designer', icon: 'BookOpenText', module: 'menus' },
-  { route: '/menus/variant-groups', label: 'Menu variant groups', icon: 'Layers', module: 'menus' },
-  { route: '/menus/dietary-tags', label: 'Menu allergens & dietary tags', icon: 'Tag', module: 'menus' },
-  { route: '/menus/allergens', label: 'Allergen matrix', icon: 'Grid3x3', module: 'menus' },
-  { route: '/menus/tax', label: 'Tax rates', icon: 'Percent', module: 'menus' },
-  { route: '/menus/deliveroo', label: 'Deliveroo menu', icon: 'Bike', module: 'menus' },
-  { route: '/menus/translations', label: 'Menu translations (kiosks)', icon: 'Languages', module: 'menus' },
-  { route: '/screens', label: 'Menu screens', icon: 'Monitor', module: 'screens' },
-  { route: '/screens/boards', label: 'Screen board designer', icon: 'Presentation', module: 'screens' },
-  { route: '/screens/playlists', label: 'Screen playlists', icon: 'ListVideo', module: 'screens' },
-  { route: '/screens/walls', label: 'Screen walls', icon: 'Grid2x2', module: 'screens' },
-  { route: '/media', label: 'Media', icon: 'FolderOpen', module: 'website' },
-  { route: '/reviews', label: 'Reviews', icon: 'MessageSquare', module: 'website' },
-  { route: '/venues', label: 'Venues', icon: 'Building2', module: 'venues' },
-  { route: '/new-location', label: 'New venue', icon: 'Store', module: 'venues' },
-  { route: '/tables', label: 'Tables', icon: 'Table2', module: 'tables' },
-  { route: '/schedule', label: 'Schedule', icon: 'Clock', module: 'schedule' },
-  { route: '/rules', label: 'Booking rules', icon: 'Settings', module: 'rules' },
-  { route: '/email-templates', label: 'Emails', icon: 'Mail', module: 'email_templates' },
-  { route: '/email-monitoring', label: 'Email monitor', icon: 'Activity', module: 'email_templates' },
-  { route: '/team', label: 'Team', icon: 'Users', module: 'team' },
-  { route: '/access', label: 'Access', icon: 'Shield', module: 'team' },
-  { route: '/settings', label: 'Settings', icon: 'SlidersHorizontal', module: 'settings' },
-  { route: '/ai', label: 'Pepper', icon: 'Sparkles', module: 'ai_assistant' },
-  { route: '/widget-test', label: 'Widget test', icon: 'LayoutTemplate', module: 'widget_test' },
-  { route: '/test-data', label: 'Test data', icon: 'FlaskConical', module: 'test_data' },
-  { route: '/legacy-import', label: 'Legacy import', icon: 'FileSpreadsheet', module: 'test_data' },
-  { route: '/nav-designer', label: 'Navigation', icon: 'Compass', module: 'nav_designer' },
-  { route: '/issues', label: 'Issues', icon: 'AlertCircle', module: 'issue_log' },
-  { route: '/feature-requests', label: 'Feature requests', icon: 'Lightbulb', module: 'feature_requests' },
-  { route: '/changelog', label: "What's new", icon: 'Newspaper', module: 'changelog' },
-  { route: '/docs', label: 'Documentation', icon: 'BookMarked', module: 'documentation' },
-  { route: '/help', label: 'Help', icon: 'HelpCircle', module: 'documentation' },
-]
+// have a page of their own, so the menu search finds them by name.
+//
+// The list is built from each area's pages (shared/nav/<area>.js, gathered
+// by shared/nav/index.js, 22 Nov 2026): a new page is a record in its area's
+// file, with its search words and description (api/test/nav-default.test.mjs
+// and shared/test/navPages.test.mjs check).
+export { ROUTE_CATALOG }
 
 // A very brief description of the entry (migration 241): what the page is
 // for, in the group's own words. Empty = none of its own, and the page's

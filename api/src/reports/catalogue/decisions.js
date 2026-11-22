@@ -2,8 +2,8 @@
 //
 // Every table in the database has a decision (docs/REPORTS.md 5.6):
 //
-//   in the catalogue   a subject reads it. Not listed here: it is worked out
-//                      from the catalogue itself (each subject's tables)
+//   in the catalogue   a subject reads it. Not listed anywhere: it is worked
+//                      out from the catalogue itself (each subject's tables)
 //   planned            will be reported on in a later phase: its area, and
 //                      whether its rows are things that happen (counted and
 //                      added up) or things to group by (names, people, places)
@@ -12,94 +12,59 @@
 //                      left out
 //   left out           never reported on, with the reason
 //
-// api/test/reports-catalogue.test.mjs compares this with the database: a
-// table with no decision, with two, or a name here that is no longer a table
-// fails it. A new table needs one line here (or a subject in the catalogue).
+// Each area's catalogue file says which of its tables no subject reads, and
+// why, in its own `decisions`, beside its subjects:
+//
+//   export const decisions = {
+//     settings: ['pos_settings', ...],
+//     out: { 'Secrets and keys': ['...'], ... },          a reason: its tables
+//     planned: { till: { happen: [...], group: [...], phase: 3 } },
+//   }
+//
+// This file gathers them from every file of the folder that exports
+// `decisions` (gather.js): a reason that two files give is one reason here,
+// with their tables put together. A table goes in the file of the area that
+// owns it.
+//
+// api/test/reports-catalogue.test.mjs compares the decisions with the
+// database: a table with no decision, with two (in one file or in two), or a
+// name that is no longer a table fails it. A new table needs a subject that
+// reads it, or a line in its area's `decisions`. `node
+// api/scripts/report-catalogue.js` prints where things stand.
 
-/** Reported on later. { area: { happen: [...], group: [...] } }, all in phase 3 unless `phase` says otherwise. Nothing waits now. */
+import { gather } from './gather.js'
+import { FILES } from './files.js'
+
+const KINDS = ['settings', 'out', 'planned']
+
+/** Reported on later. { area: { happen: [...], group: [...] } }, all in phase 3 unless `phase` says otherwise. */
 export const PLANNED = {}
-
 /** How something is set up: a few named fields offered later, the rest left out. */
-export const SETTINGS = [
-  // Till
-  'pos_settings', 'pos_charge_rules', 'pos_stream_order_types', 'pos_till_layouts', 'pos_order_flows',
-  // The lists a check's discounts and charges come from (what each gave is in till.discounts and till.charges),
-  // and a tax rate's own % at a location or for an order type
-  'pos_discounts', 'pos_charges', 'tax_rate_values',
-  'pos_card_accounts', // its name and provider only
-  'print_designs', 'print_design_uses',
-  // Online ordering and its links
-  'ordering_settings', 'deliveroo_settings', 'deliveroo_item_links', 'loyverse_venue_links',
-  // Bookings
-  'booking_rules', 'deposit_rules', 'venue_schedule_templates', 'venue_sittings', 'sitting_slot_caps',
-  'schedule_date_overrides', 'override_sittings', 'override_slot_caps', 'schedule_exceptions',
-  'exception_day_templates', 'exception_sittings', 'exception_sitting_slot_caps', 'disallowed_table_pairs',
-  'email_templates',
-  // Menus
-  'menu_times', 'menu_translations',
-  // Cash and rota
-  'cash_venue_settings', 'cash_wage_defaults', 'rota_settings', 'rota_week_pot_payees',
-  // Purchasing: what each venue orders and how; a price at one venue
-  'purchasing_settings', 'supplier_venues', 'inv_quote_venue_prices', 'inv_preferred',
-  'order_lists', 'order_list_items', 'order_list_pars', 'order_list_venues',
-  // Food safety
-  'fs_capture_times', 'fs_hold_capture_times', 'fs_cooking_settings',
-  // Kitchen flows, the loyalty programme
-  'kds_flows', 'loyalty_programmes',
-  // Website
-  'tenant_site', 'website_config', 'website_opening_hours', 'website_menu_documents', 'website_allergen_info', 'website_gallery_images',
-  // Pepper, the group
-  'ai_settings', 'tenant_modules',
-  'tenants', // the group's own name
-]
-
+export const SETTINGS = []
 /** Never reported on. { reason: [tables] } */
-export const LEFT_OUT = {
-  'Secrets and keys': [
-    'platform_secrets', 'loyverse_connections', 'venue_email_settings', 'loyalty_wallet_settings', 'staging_access',
-  ],
-  'Tokens, codes and sessions': [
-    'pos_pairings', 'screen_pairings', 'menu_preview_links', 'report_print_links', 'loyalty_codes', 'loyalty_sessions', 'loyalty_wallet_devices',
-    'ai_access_tokens', 'ai_oauth_clients', 'ai_oauth_grants', 'ai_booking_codes', 'ai_booking_grants',
-  ],
-  'Conversations and files': [
-    'ai_messages', 'ai_attachments', 'ai_pending_actions',
-    // Report files kept to download: counted on their run (Report runs' Files kept).
-    'report_files',
-  ],
-  'Layouts and designs with nothing to count': [
-    'print_design_variations', 'menu_print_designs', 'menu_callouts', 'menu_allergen_notice', 'screen_playlist_items',
-    'nav_items', 'dashboard_tiles', 'hs_dashboards', 'hs_dashboard_widgets',
-    // The reports themselves, who starred them and their schedules (each
-    // send is a report run: Report runs' Sent by a schedule).
-    'reports', 'report_stars', 'report_schedules', 'report_layouts', 'report_data_links',
-  ],
-  'Working state that changes from minute to minute': [
-    'pos_venue_state', 'kds_flow_edges', 'kds_balance_turns', 'booking_holds', 'table_occupancy', 'review_scrape_jobs',
-    // What each fill last wrote into a Cash Recon field (migration 260): the
-    // scheduled fill's memory of hand changes, not a figure of its own.
-    'cash_fill_values',
-    // Push notices (migration 262): where a person's notices go, their own
-    // settings, and which task notices were sent (each once).
-    'push_devices', 'user_notify', 'task_notices',
-  ],
-  'Filled in until placed, then copied onto the purchase order lines reports read': [
-    'supply_order_lines',
-  ],
-  'Reached only through the row they belong to': [
-    'table_combination_members', 'feature_request_upvotes',
-    // Staff flags on local info (migration 248): counted on the item itself.
-    'local_info_feedback',
-  ],
-  'No longer written (booking emails are in email_log, reported as bookings.emails)': [
-    'notification_log',
-  ],
-  'Shared across groups': [
-    'loyalty_identities',
-  ],
-  'The platform\'s own, the same for every group': [
-    'platform_admins', 'platform_interest', 'platform_settings', 'backlog_items', 'schema_migrations', 'changelog_entries',
-  ],
+export const LEFT_OUT = {}
+
+for (const { file, module } of gather(FILES, 'decisions')) {
+  const d = module.decisions
+  const fail = msg => { throw new Error('Report catalogue, ' + file + '\'s decisions: ' + msg) }
+  if (!d || typeof d !== 'object') fail('not an object')
+  for (const k of Object.keys(d)) if (!KINDS.includes(k)) fail('"' + k + '" isn\'t one of ' + KINDS.join(', '))
+  if (d.settings && !Array.isArray(d.settings)) fail('settings must be a list of tables')
+  SETTINGS.push(...(d.settings || []))
+  for (const [reason, tables] of Object.entries(d.out || {})) {
+    if (!Array.isArray(tables)) fail('out: "' + reason + '" must be a list of tables')
+    ;(LEFT_OUT[reason] ||= []).push(...tables)
+  }
+  for (const [area, a] of Object.entries(d.planned || {})) {
+    if (!Array.isArray(a.happen || []) || !Array.isArray(a.group || [])) fail('planned: ' + area + '\'s happen and group must be lists of tables')
+    const have = (PLANNED[area] ||= { happen: [], group: [] })
+    have.happen.push(...(a.happen || []))
+    have.group.push(...(a.group || []))
+    if (a.phase != null) {
+      if (have.phase != null && have.phase !== a.phase) fail('planned: ' + area + ' is phase ' + have.phase + ' in another file')
+      have.phase = a.phase
+    }
+  }
 }
 
 /** The tables a catalogue's subjects read. Map(table -> [subject keys]). */
@@ -133,8 +98,8 @@ export function tableDecisions(catalogue) {
 
 /**
  * The decisions against the tables a database has: { missing (tables with
- * no decision), twice (decided more than once), gone (named here, not a
- * table any more), counts }.
+ * no decision), twice (decided more than once), gone (named in a decision,
+ * not a table any more), counts }.
  */
 export function checkDecisions(catalogue, tables) {
   const list = tableDecisions(catalogue)

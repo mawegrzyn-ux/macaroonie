@@ -9,7 +9,10 @@
 import { starter, m } from './define.js'
 import { ASSISTANT_NAME } from '../../../../shared/assistant.js'
 
-export default [
+/** Where these starters come in the list (index.js gathers this folder by it, then by file name). */
+export const order = 150
+
+export const starters = [
   starter({
     key: 'app_emails',
     name: 'Emails sent and failed',

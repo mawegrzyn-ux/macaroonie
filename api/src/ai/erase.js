@@ -14,7 +14,7 @@
 // result. A first name on its own, or a phone written another way, isn't
 // matched.
 //
-// cleanUpAi(log): the hourly clean-up (jobs/queues.js). Chats idle longer
+// cleanUpAi(log): the hourly clean-up (jobs/ai-cleanup.js). Chats idle longer
 // than the tenant's chat_retention_days are deleted with their messages,
 // cards and files; the audit's input and result are cleared after a year;
 // unsent uploads go after a day, used or expired guest codes after a day,

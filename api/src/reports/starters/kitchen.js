@@ -8,7 +8,10 @@ import { starter, m, share } from './define.js'
 
 const TICKET_ROWS = ['bumped_at', 'venue.name', 'station_name', 'order_number', 'order_type', 'dishes', 'ticket_time', 'on_time', 'late']
 
-export default [
+/** Where these starters come in the list (index.js gathers this folder by it, then by file name). */
+export const order = 90
+
+export const starters = [
   starter({
     key: 'kitchen_ticket_times',
     name: 'Ticket times by station',

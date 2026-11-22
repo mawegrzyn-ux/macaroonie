@@ -64,7 +64,21 @@ const doneShare = (done, due, opts) => percent({ sql: '(CASE WHEN {t}.' + due + 
 /** A check time's label (fs_capture_times / fs_hold_capture_times are settings, not subjects). */
 const checkTime = table => text({ sql: '(SELECT c.label FROM ' + table + ' c WHERE c.id = {t}.capture_time_id AND c.tenant_id = {t}.tenant_id)' }, { label: 'Check time' })
 
-export default [
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 110
+
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  settings: ['fs_capture_times', 'fs_hold_capture_times', 'fs_cooking_settings'],
+  out: {
+    'Layouts and designs with nothing to count': ['hs_dashboards', 'hs_dashboard_widgets'],
+  },
+}
+
+export const subjects = [
   subject({
     key: 'safety.fridges',
     label: 'Fridges and freezers',

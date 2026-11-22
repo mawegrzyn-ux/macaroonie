@@ -6,7 +6,10 @@
 
 import { starter, m } from './define.js'
 
-export default [
+/** Where these starters come in the list (index.js gathers this folder by it, then by file name). */
+export const order = 120
+
+export const starters = [
   starter({
     key: 'guests_newsletter_signups',
     name: 'Newsletter sign-ups by month',

@@ -79,7 +79,30 @@ const figureMeasures = what => ({
   average_variance: avg('variance', { type: 'money', unit: 'pounds', label: 'Average variance' }),
 })
 
-export default [
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 50
+
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  settings: [
+    'cash_venue_settings', 'cash_wage_defaults',
+    // Which Loyverse store each venue's till figures come from
+    'loyverse_venue_links',
+  ],
+  out: {
+    'Secrets and keys': ['loyverse_connections'],
+    'Working state that changes from minute to minute': [
+      // What each fill last wrote into a Cash Recon field (migration 260): the
+      // scheduled fill's memory of hand changes, not a figure of its own.
+      'cash_fill_values',
+    ],
+  },
+}
+
+export const subjects = [
   // ── Worked out for each run ──────────────────────────────────
 
   subject({

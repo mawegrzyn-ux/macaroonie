@@ -4169,7 +4169,7 @@ function BrandBannerSection() {
 // ── Page shell + section router ─────────────────────────────
 
 // `builder`: the Page builder page (/website/builder) instead of the Website
-// page (/website). main.jsx gives the two different keys, so nothing one
+// page (/website). admin/src/routes/website.jsx gives the two different keys, so nothing one
 // page had open carries over to the other.
 export default function Website({ builder = false }) {
   const api = useApi()

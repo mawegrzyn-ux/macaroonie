@@ -49,9 +49,24 @@ function cardTitle(key, f, { date, monday, template }) {
   return f.title + ', ' + longDate(date)
 }
 
+// What Pepper is told about this file's tools, gathered by tools/index.js:
+// the place in the list (order, then the file name), the areas the tools
+// belong to, and the file's lines in the system prompt (prompts.js).
+export { formTools as tools }
+export const order = 150
+// The file's line(s) in the list of what Pepper can do.
+export const promptLines = [
+  'open_form opens a form in the chat for the person to fill in ("do today\'s cash-up", "log the fridge temps", ' +
+    '"open the closing checklist", "add an expense", "mark the pad thai sold out myself", "who\'s on Saturday"): ' +
+    'fridge and freezer, hold, cooking and delivery checks, a checklist, the cash-up, the week\'s wages, the day\'s ' +
+    'expenses, sold out dishes, the rota for a day. Use it rather than asking for figures one by one when they ' +
+    'want to do the job themselves; you never fill the form\'s fields.',
+]
+
 export const formTools = [
   {
     name: 'open_form',
+    core: true,
     section: 'general',
     title: 'Open a form',
     description:

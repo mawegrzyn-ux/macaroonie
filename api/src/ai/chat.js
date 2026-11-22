@@ -643,7 +643,7 @@ async function handleToolUse(ctx, conv, block, emit) {
   } catch (err) {
     return result(errorText(err, ctx.log), true)
   } finally {
-    if (!tool.confirm && TOOL_LABELS[tool.name]) emit?.({ type: 'step', text: TOOL_LABELS[tool.name] })
+    if (!tool.confirm && ACTIVITY.has(tool.name)) emit?.({ type: 'step', text: ACTIVITY.get(tool.name) })
   }
 }
 
@@ -1025,40 +1025,10 @@ function actionView(a) {
 
 // ── What the person sees ─────────────────────────────────
 
-const TOOL_LABELS = {
-  find_restaurants: 'Searched restaurants', get_restaurant: 'Looked up the restaurant',
-  check_availability: 'Checked availability', hold_table: 'Held a table', release_hold: 'Released the table',
-  request_booking_code: 'Emailed a code', verify_booking_code: 'Checked the code',
-  get_booking: 'Looked up the booking', list_venues: 'Looked up venues', find_bookings: 'Searched bookings',
-  day_overview: 'Looked at the day',
-  hs_status: 'Looked at H&S for the day', food_safety_day: 'Looked at the food safety log',
-  checklists_due: 'Looked at the checklists', get_checklist: 'Opened the checklist',
-  list_hs_actions: 'Looked at the action log',
-  find_inventory_items: 'Searched the inventory', list_suppliers: 'Looked up suppliers',
-  order_lists: 'Looked at the order lists', order_form: 'Opened the order', purchase_orders: 'Looked up supplier orders',
-  order_requests: 'Looked at orders waiting for approval', check_catalogue: 'Checked the catalogue',
-  list_menus: 'Looked at the menus', get_menu: 'Opened the menu', find_dishes: 'Searched the menus',
-  open_page: 'Found the page',
-  how_do_i: 'Looked it up in Help',
-  day_briefing: 'Put the day together',
-  list_staff: 'Looked at the staff', whos_working: 'Looked at who is working', rota_week: 'Looked at the rota',
-  rota_pay: 'Looked at rota pay', rota_tips: 'Looked at the tips',
-  cash_day: 'Looked at the cash up', cash_week: 'Looked at the cash week', wages_week: 'Looked at the wages',
-  online_orders: 'Looked at the online orders', online_orders_report: 'Looked at the online orders report',
-  sold_out: 'Looked at what is sold out', till_day: 'Looked at the till figures', till_checks: 'Looked at the till checks',
-  kitchen_report: 'Looked at kitchen speed',
-  find_customers: 'Searched customers', customer_details: 'Opened the customer',
-  opening_times: 'Looked at the opening times', list_tables: 'Looked at the tables', booking_rules: 'Looked at the booking rules',
-  website_status: 'Looked at the website', list_promotions: 'Looked at the promotions', list_reviews: 'Looked at the reviews',
-  latest_reviews: 'Checked the reviews held',
-  local_info: 'Looked at the local info',
-  find_fields: 'Looked at what reports can show', explain_figure: 'Looked up what a figure counts',
-  list_reports: 'Looked at the reports', get_report: 'Opened a report', run_report: 'Ran a report', ask_data: 'Worked the figures out from the data',
-  report_runs: 'Looked at past runs and schedules',
-  screens_status: 'Looked at the menu screens', email_log: 'Looked at the booking emails', list_issues: 'Looked at the issue log',
-  plan_new_location: 'Scoped the new location', answer_location_questions: 'Passed on the answers',
-  change_location_plan: 'Changed the new location\'s plan', location_openings: 'Looked at the new locations',
-}
+// The line shown for a tool call ("Looked at the rota"), by name: `activity`
+// on the guest and staff tools (a tool without one shows no line).
+export const ACTIVITY = new Map([...audienceTools('guest'), ...audienceTools('staff')]
+  .filter(t => t.activity).map(t => [t.name, t.activity]))
 
 const MAX_SOURCES = 20
 const webAddress = url => {
@@ -1144,7 +1114,7 @@ export async function displayItems(conv) {
         const shown = a ? null : displayOf(b)
         if (a) items.push(actionView(a))
         else if (shown) items.push(shown)
-        else if (TOOL_LABELS[b.name]) items.push({ type: 'step', text: TOOL_LABELS[b.name] })
+        else if (ACTIVITY.has(b.name)) items.push({ type: 'step', text: ACTIVITY.get(b.name) })
       } else if (b.type === 'server_tool_use' && b.name === WEB_SEARCH.name && searchResults.has(b.id)) {
         // A search that never ran (its results never came) isn't shown.
         items.push({ type: 'step', text: searchLine(b.input?.query, searchResults.get(b.id)), web: true })

@@ -3,12 +3,13 @@
 // Pepper's help answers (how_do_i, tools/general.js): a search over the Help
 // page's own text, so "how do I set up tip pots?" gets the steps as written
 // for staff and a link to them. The text is read from the Help page's source
-// (admin/src/pages/Help.jsx, checked out next to the API on every server),
-// cut into passages at each H2 and H3, turned into plain text, and ranked
-// with BM25 (passage headings count three times). No database, no
-// embeddings: the guide is small, and it changes with each deploy, which
-// rebuilds the index (it is built on first use and again when the file
-// changes).
+// (admin/src/pages/help/, one file per section, checked out next to the API
+// on every server), taken in the order the page shows the sections (each
+// file's `export const order`, then its id), cut into passages at each H2
+// and H3, turned into plain text, and ranked with BM25 (passage headings
+// count three times). No database, no embeddings: the guide is small, and it
+// changes with each deploy, which rebuilds the index (it is built on first
+// use and again when a file changes).
 //
 //   searchHelp(question, { limit })  [{ section, heading, text, link, score }]
 //   helpPassages()                   every passage (tests)
@@ -18,8 +19,26 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { helpSlug } from '../../../shared/help.js'
 
-const HELP_FILE = process.env.HELP_SOURCE_FILE ||
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../admin/src/pages/Help.jsx')
+const HELP_DIR = process.env.HELP_SOURCE_DIR ||
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../admin/src/pages/help')
+
+/**
+ * The Help sections' files in the page's order: every .jsx in the folder
+ * but parts.jsx, by `export const order = N`, then `export const id`
+ * (Help.jsx sorts the same way). Read as text: Node doesn't load JSX.
+ */
+export function helpSourceFiles(dir = HELP_DIR) {
+  let names
+  try { names = fs.readdirSync(dir) } catch { return null }
+  const files = names.filter(n => n.endsWith('.jsx') && n !== 'parts.jsx').map(name => {
+    const file = path.join(dir, name)
+    const src = fs.readFileSync(file, 'utf8')
+    const order = Number((src.match(/^export const order = (-?\d+(?:\.\d+)?)/m) || [])[1])
+    const id = (src.match(/^export const id = '([^']+)'/m) || [])[1] || name.replace(/\.jsx$/, '')
+    return { file, src, order: Number.isFinite(order) ? order : Infinity, id, mtimeMs: fs.statSync(file).mtimeMs }
+  })
+  return files.sort((a, b) => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+}
 
 const STOP = new Set(('a an and are as at be but by can do does for from how i if in into is it its me my of on ' +
   'or our so that the their then there this to up we what when where which who why will with you your ' +
@@ -68,13 +87,15 @@ function tokens(text) {
     .map(w => (w.length > 4 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w))
 }
 
-let cache = null   // { mtimeMs, passages, df, avgLen }
+let cache = null   // { key, passages, df, avgLen }
 
 function build() {
-  let stat
-  try { stat = fs.statSync(HELP_FILE) } catch { return null }
-  if (cache && cache.mtimeMs === stat.mtimeMs) return cache
-  const src = fs.readFileSync(HELP_FILE, 'utf8')
+  const files = helpSourceFiles()
+  if (!files?.length) return null
+  // The files' names and change times: a new, removed or edited file rebuilds.
+  const key = files.map(f => f.file + ':' + f.mtimeMs).join('|')
+  if (cache && cache.key === key) return cache
+  const src = files.map(f => f.src).join('\n')
   const passages = []
   const slugCount = new Map()
   for (const sec of src.matchAll(/<section id="([^"]+)" data-help="">([\s\S]*?)<\/section>/g)) {
@@ -105,7 +126,7 @@ function build() {
     // Link to the subsection when its heading is unique on the page, else its section.
     p.link = '/help#' + (p.slug && slugCount.get(p.slug) === 1 ? p.slug : p.sectionId)
   }
-  cache = { mtimeMs: stat.mtimeMs, passages, df, avgLen: total / Math.max(1, passages.length) }
+  cache = { key, passages, df, avgLen: total / Math.max(1, passages.length) }
   return cache
 }
 

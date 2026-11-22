@@ -8,7 +8,10 @@ import { starter, m, share } from './define.js'
 
 const VISIT_ROWS = ['started_at', 'venue.name', 'kiosk.name', 'outcome', 'furthest', 'last_screen', 'length', 'basket_value', 'total']
 
-export default [
+/** Where these starters come in the list (index.js gathers this folder by it, then by file name). */
+export const order = 100
+
+export const starters = [
   starter({
     key: 'kiosks_visits_by_day',
     name: 'Kiosk visits and orders by day',

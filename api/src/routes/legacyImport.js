@@ -8,7 +8,7 @@
 // browser console, which has no straightforward upload) was the whole
 // reason this route exists.
 //
-// Mounted at /api/legacy-import in app.js.
+// Mounted at /api/legacy-import (api/src/areas/hs.js).
 
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'

@@ -5,11 +5,13 @@
 // (docs/REPORTS.md 5.3 and 5.6). It reads information_schema only: no rows.
 //
 //   node api/scripts/report-catalogue.js
-//       Where things stand: every table's decision (in the catalogue,
-//       planned, settings, left out), tables with none, and for each table
-//       the catalogue reads, the columns it doesn't offer yet. Exits 1 when
+//       Where things stand: how many subjects and starters there are, how
+//       many tables, and every table's decision (in the catalogue, planned,
+//       settings, left out), tables with none, and for each table the
+//       catalogue reads, the columns it doesn't offer yet. Exits 1 when
 //       something needs deciding (what api/test/reports-catalogue.test.mjs
-//       fails on).
+//       fails on). The counts are here, not pinned in the test: a new table
+//       or subject changes them, and that is no mistake.
 //
 //   node api/scripts/report-catalogue.js <table> [<table> ...]
 //       A draft subject for each table named, from its columns, types,
@@ -19,13 +21,15 @@
 //
 //   node api/scripts/report-catalogue.js --area <area>
 //       A draft for every table planned for that area (till, kitchen, cash,
-//       staff, purchasing, safety, loyalty ...: see decisions.js).
+//       staff, purchasing, safety, loyalty ...: each area file's
+//       `decisions.planned`, gathered in decisions.js).
 //
 // Env: the API's own (cd api && set -a; source .env; set +a), since the
 // catalogue reads a few lists from services that load the configuration.
 
 import postgres from 'postgres'
 import { CATALOGUE } from '../src/reports/catalogue/index.js'
+import { STARTERS } from '../src/reports/starters/index.js'
 import { PLANNED, checkDecisions, tableDecisions } from '../src/reports/catalogue/decisions.js'
 import { tableCoverage, secretsRead, SECRET_COLUMN } from '../src/reports/catalogue/coverage.js'
 
@@ -77,11 +81,14 @@ async function report() {
   const secrets = secretsRead(CATALOGUE)
   let wrong = 0
 
+  console.log('Subjects: ' + Object.keys(CATALOGUE.subjects).length)
+  console.log('Starter reports: ' + STARTERS.length)
   console.log('Tables: ' + tables.length)
   console.log('  in the catalogue  ' + d.counts.subject)
   console.log('  planned           ' + d.counts.planned)
   console.log('  settings          ' + d.counts.settings)
   console.log('  left out          ' + d.counts.out)
+  console.log('Tables a subject reads column by column: ' + cover.tables.length)
 
   const list = (title, names) => {
     if (!names.length) return
@@ -89,9 +96,9 @@ async function report() {
     console.log('\n' + title)
     for (const n of names) console.log('  ' + n)
   }
-  list('No decision yet (add a subject, or a line in catalogue/decisions.js):', d.missing)
+  list('No decision yet (add a subject, or the table to the `decisions` of its area\'s file in catalogue/):', d.missing)
   list('Decided more than once:', d.twice)
-  list('Named in decisions.js, but not a table any more:', d.gone)
+  list('Named in a catalogue file\'s `decisions`, but not a table any more:', d.gone)
 
   const planned = tableDecisions(CATALOGUE).filter(x => x.kind === 'planned')
   console.log('\nPlanned, by area:')

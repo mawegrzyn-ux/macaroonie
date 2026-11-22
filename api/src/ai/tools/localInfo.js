@@ -150,9 +150,26 @@ function deleteScope(plan, input, out) {
     + (out.until ? ' to ' + out.until : ' or later') + '.'
 }
 
+// What Pepper is told about this file's tools, gathered by tools/index.js:
+// the place in the list (order, then the file name), the areas the tools
+// belong to, and the file's lines in the system prompt (prompts.js).
+export { localInfoTools as tools }
+export const order = 100
+export const sections = {
+  local_info: { label: 'Local info: weather, traffic, events and incidents around the venues', modules: ['local_info'] },
+}
+// The file's line(s) in the list of what Pepper can do.
+export const promptLines = [
+  'Local info: local_info (weather, traffic, events and incidents around a venue, plus events staff typed in; ' +
+    'use it with the booking and rota tools to weigh a day up), add_local_event, run_local_capture (a fresh ' +
+    'forecast or search now), delete_local_info (clear entries from today on in bulk: by venue, capture, kind, ' +
+    'words or days).',
+]
+
 export const localInfoTools = [
   {
     name: 'local_info',
+    activity: 'Looked at the local info',
     section: 'local_info',
     title: 'Local info: weather, traffic, events, incidents',
     description:

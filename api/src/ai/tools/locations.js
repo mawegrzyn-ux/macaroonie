@@ -72,9 +72,25 @@ const canPlan = async ctx => {
   await requireStaffPermission(ctx, 'venues', 'manage')
 }
 
+// What Pepper is told about this file's tools, gathered by tools/index.js:
+// the place in the list (order, then the file name), the areas the tools
+// belong to, and the file's lines in the system prompt (prompts.js).
+export { locationTools as tools }
+export const order = 90
+export const sections = {
+  locations: { label: 'Opening a new location: scoping, questions, a brief, creating it', modules: ['venues'] },
+}
+// The file's line(s) in the list of what Pepper can do.
+export const promptLines = [
+  'Opening a new location: plan_new_location (from the person\'s description; it asks questions), ' +
+    'answer_location_questions, change_location_plan, location_openings, create_location. Pass on the planner\'s ' +
+    'questions in your own words, a few at a time, and show the brief before creating.',
+]
+
 export const locationTools = [
   {
     name: 'plan_new_location',
+    activity: 'Scoped the new location',
     section: 'locations',
     title: 'Plan a new location',
     description:
@@ -100,6 +116,7 @@ export const locationTools = [
 
   {
     name: 'answer_location_questions',
+    activity: 'Passed on the answers',
     section: 'locations',
     title: 'Answer the new location\'s questions',
     description:
@@ -128,6 +145,7 @@ export const locationTools = [
 
   {
     name: 'change_location_plan',
+    activity: 'Changed the new location\'s plan',
     section: 'locations',
     title: 'Change a new location\'s plan',
     description:
@@ -180,6 +198,7 @@ export const locationTools = [
 
   {
     name: 'location_openings',
+    activity: 'Looked at the new locations',
     section: 'locations',
     title: 'New locations being planned',
     description: 'Lists the new locations being planned or already created from a plan; with `opening`, one in full: its plan area by area, open questions, brief and what is still to do.',

@@ -1,7 +1,7 @@
 // src/routes/hsDashboards.js
 //
 // Customisable dashboards, per venue. The same plugin is mounted four times
-// in app.js:
+// in api/src/areas/dashboards.js:
 //   /api/hs-dashboards     { kind: 'hs',     moduleKey: 'hs_dashboard' }
 //   /api/cash-dashboards   { kind: 'cash',   moduleKey: 'cash_dashboard' }
 //   /api/rota-dashboards   { kind: 'rota',   moduleKey: 'rota_dashboard' }

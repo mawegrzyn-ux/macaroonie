@@ -4,7 +4,7 @@
 // Combines our local email_log (what we tried to send) with the
 // SendGrid Stats + Suppression APIs (delivery / bounces / spam).
 //
-// Mounted at /api/email-monitoring in app.js.
+// Mounted at /api/email-monitoring (api/src/areas/bookings.js).
 //
 //   GET  /summary?venue_id=...&days=30   — outbound stats + recent suppressions
 //   GET  /stats?venue_id=...&days=30     — daily breakdown (delivered/bounced/etc)

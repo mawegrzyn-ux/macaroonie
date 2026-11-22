@@ -1,0 +1,27 @@
+# Outstanding: cash
+
+What is not built, known limits and follow-ups in this area (`docs/claude/areas/cash.md`). Item numbers are the old CLAUDE.md numbering, kept so earlier references still work; a new item takes the next number after the highest in any file of this folder. Check the live code before calling anything here pending.
+
+**2. GloriaFood sales integration** *(shipped with migration 159: Cash Recon fill + orders board; follow-ups in item 20)*
+
+**12. Desktop Wages — submitted-report lock** *(resolved by migration 137: wages are no longer submitted, and every wages surface uses `WeekWagesEditor`)*
+
+**17. Loyverse — follow-ups** *(shipped with migration 154)*
+- Built from the Loyverse API v1.0 shape and tested only against a stand-in server (the docs and API hosts weren't reachable from the build environment). First real use: compare a fill with the Loyverse Back Office sales summary for the same day and store, especially refunds, taxes added on top of prices (not included), and `surcharge` (assumed field name).
+- Filling is on demand only: no nightly automatic fill, no webhook.
+- Expenses, wages and the day note aren't filled; Loyverse pay-ins/pay-outs (shifts) aren't read.
+- Dining option (eat in / takeaway / delivery) isn't offered as a figure; map delivery platforms by payment type.
+- One store per venue; a venue with two Loyverse stores can't sum both.
+- The AI assistant has no Loyverse tool.
+- The dashboard import widget (migration 212) only opens the fill window: there is still no automatic or scheduled fill, and it fills one source at a time (no "fill both").
+
+**20. GloriaFood — follow-ups** *(shipped with migration 159)*
+- Built from GloriaFood's Accepted Orders API v2 README and its two sample orders (the docs repo was readable; their website wasn't) and tested only against a stand-in server. First real use: check that the "Push Accepted Order" integration accepts our address (or use the poll key), then compare a day's orders, payments and fulfil times with GloriaFood's own order list.
+- No history from the API: earlier days come from importing GloriaFood's order export (migration 162). The import assumes the export's Order ID is the id the API sends (not checked against a live restaurant); if not, the `after_live` cutoff still stops overlaps, except for orders a poll venue's queue holds from before the import. The export has no dishes or discounts (Items before discounts / Discounts are £0 on imported days), and a payment option named in GloriaFood (e.g. "Card (G-Pay / via Browser)") is stored as the export spells it, which may differ from the code the API sends for the same option.
+- An order paid two ways counts under its main `payment`; GloriaFood doesn't send the split amounts.
+- Polling needs Redis (the BullMQ repeat job); with Redis down only Check for orders now, and the preview's own poll, collect orders. A pop whose orders fail to store is lost except for the API log entry.
+- Board moves (and the kitchen screens' ready / collected, migration 178) are ours only; nothing is sent back to GloriaFood (no ready time, no status). GloriaFood orders aren't in the Online orders Report tab (they are in its Transactions tab), aren't linked to Customers, and the AI assistant has no GloriaFood tool.
+- No GloriaFood menu sync (the Fetch Menu API exists).
+
+**47. Sales from other tills: Loyverse checks, master data and an item mapping tool; Square and Simphony later (plan, the user, 22 Nov 2026; parked the same day)**
+- The ask: import every Loyverse check with all its details and the master data, not just Cash Recon figures, with a smart, flexible tool for mapping Loyverse items (variant combinations, modifiers) to Macaroonie menus; plan for Square and Oracle Simphony too. Plan: `docs/SALES_IMPORT.md` (connectors, a raw store, normalised `ext_*` sales in pence as the other till recorded them, rules-based mapping with smart suggestions, "every till" report subjects, phases). Nothing is built; decisions D1 to D6 there wait for the user.

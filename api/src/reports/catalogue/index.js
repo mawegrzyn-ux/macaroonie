@@ -10,25 +10,15 @@
 //   catalogueView(levels)  what the browser and Pepper get: labels, types
 //                          and links, no SQL, and only what the person's
 //                          role may see
+//
+// Each area's subjects are a file of their own in this folder, gathered from
+// it (below): `export const order = <number>` (where they come),
+// `export const subjects = [subject({ ... }), ...]`, and `export const
+// decisions` (its tables no subject reads, and why: decisions.js). Nothing
+// here lists the files; AREAS, the headings, stays here.
 
-import common from './common.js'
-import till from './till.js'
-import online from './online.js'
-import bookings from './bookings.js'
-import purchasing from './purchasing.js'
-import safety from './safety.js'
-import kitchen from './kitchen.js'
-import kiosks from './kiosks.js'
-import loyalty from './loyalty.js'
-import cash from './cash.js'
-import staff from './staff.js'
-import local from './local.js'
-import menus from './menus.js'
-import screens from './screens.js'
-import website from './website.js'
-import pepper from './pepper.js'
-import group from './group.js'
-import runsSubjects from './runs.js'
+import { gather } from './gather.js'
+import { FILES } from './files.js'
 import { templateRefs } from './define.js'
 import { MODULE_KEYS, permissionAtLeast } from '../../config/modules.js'
 import { ASSISTANT_NAME } from '../../../../shared/assistant.js'
@@ -156,9 +146,30 @@ function build(lists) {
   return { subjects }
 }
 
-const LISTS = [common, till, online, bookings, cash, staff, kitchen, kiosks, loyalty, purchasing, safety, menus, website, local, screens, pepper, group]
-// Report runs name every other subject in its own words (runs.js), so it comes last.
-export const CATALOGUE = build([...LISTS, runsSubjects(LISTS.flat(), AREAS)])
+// The subjects are gathered from this folder: every file that exports
+// `subjects` (the others, define.js, coverage.js, decisions.js and
+// gather.js, are helpers), by its `order` and then its name. That order is
+// the catalogue's: the builder lists an area's subjects in it, and Pepper
+// and the smart builder take the first that fits. `subjects` is a list, or
+// a function given every subject of the files with a list, and AREAS, and
+// called after them all, whatever its order: Report runs name every other
+// subject in their own words (runs.js), so they come last.
+function gathered(files) {
+  const listOf = (file, list) => {
+    if (!Array.isArray(list)) throw new Error('Report catalogue: ' + file + '\'s subjects aren\'t a list')
+    return list
+  }
+  for (const { file, order } of files) {
+    if (!Number.isFinite(order)) throw new Error('Report catalogue: ' + file + ' needs an order (export const order = <number>)')
+  }
+  const isFn = f => typeof f.module.subjects === 'function'
+  const lists = files.filter(f => !isFn(f)).map(f => listOf(f.file, f.module.subjects))
+  const others = lists.flat()
+  for (const f of files.filter(isFn)) lists.push(listOf(f.file, f.module.subjects(others, AREAS)))
+  return lists
+}
+
+export const CATALOGUE = build(gathered(gather(FILES, 'subjects')))
 
 /** Every module a subject, field, figure or link of the catalogue asks for. */
 export const CATALOGUE_MODULES = [...new Set(Object.values(CATALOGUE.subjects).flatMap(s => [
