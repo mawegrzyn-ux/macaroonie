@@ -792,6 +792,7 @@
     "api/test/mcp-oauth.test.mjs",
     "api/test/menu-import.test.mjs",
     "api/test/pepper-forms.test.mjs",
+    "api/test/pepper-requests.test.mjs",
     "api/test/pepper-tools-registry.test.mjs",
     "api/test/pepper-voice.test.mjs",
     "api/test/pepper-web-search.test.mjs",

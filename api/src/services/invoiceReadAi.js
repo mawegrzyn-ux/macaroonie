@@ -193,7 +193,7 @@ export async function readInvoice({ tenantId, person, files, po, lines, catalogu
       })),
     }),
   })
-  const raw = await askForJson({ tenantId, person, system: SYSTEM_PROMPT, schema: INVOICE_SCHEMA, content, maxTokens: 32000, what: 'invoice' })
+  const raw = await askForJson({ tenantId, person, system: SYSTEM_PROMPT, schema: INVOICE_SCHEMA, content, maxTokens: 32000, what: 'invoice', use: 'invoice_reader' })
   if (!Array.isArray(raw.lines)) throw httpError(502, ASSISTANT_NAME + '\'s answer couldn\'t be read. Try again.')
   const read = toInvoice(raw, { lines, catalogue: cat })
   if (!read.lines.length) throw httpError(422, ASSISTANT_NAME + ' couldn\'t find any lines in that. Try a clearer photo or a PDF of the invoice.')

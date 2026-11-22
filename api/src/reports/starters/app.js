@@ -44,6 +44,21 @@ export const starters = [
   }),
 
   starter({
+    key: 'pepper_cost_by_model',
+    name: ASSISTANT_NAME + '\'s cost by model',
+    about: 'Each AI model ' + ASSISTANT_NAME + ' used: requests, tokens in and out a request, the estimated cost in dollars at its list prices, the cost of one request and how long one took. Tap a model to see what the requests were for.',
+    period: 'last_month',
+    venues: false,
+    spec: {
+      subject: 'pepper.requests',
+      rows: ['model'],
+      values: m('requests', 'input_a_request', 'output_a_request', 'total_cost', 'cost_a_request', 'average_time'),
+      sort: [{ by: 'total_cost', dir: 'desc' }],
+      drill: { down: ['use', 'channel', { field: 'date', bucket: 'week' }] },
+    },
+  }),
+
+  starter({
     key: 'pepper_use_by_person',
     name: ASSISTANT_NAME + '\'s use by person',
     about: 'Each person\'s use of ' + ASSISTANT_NAME + '\'s chat: requests, the units their daily share counts, and on how many days (UTC) they used it.',

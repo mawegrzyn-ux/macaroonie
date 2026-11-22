@@ -14,6 +14,9 @@ export async function fill(ctx) {
     VALUES (${tenantId}, 'staff_chat', ${sub}, ${sub + '@test.local'}, 'test', ${mark + ' chat'}, 'fast') RETURNING id
   `
   await sql`INSERT INTO ai_messages (conversation_id, tenant_id, seq, role, content) VALUES (${conv.id}, ${tenantId}, 1, 'user', ${sql.json([{ type: 'text', text: mark + ' hello' }])})`
+  // One model request (migration 271): written by addUsage() after a model call.
+  await sql`INSERT INTO ai_requests (tenant_id, channel, use, model, input_tokens, output_tokens, units, cost_usd, ms)
+            VALUES (${tenantId}, 'staff_chat', 'chat', 'claude-sonnet-5-5', 1200, 80, 3400, 0.0032, 1800)`
   await sql`INSERT INTO ai_pending_actions (tenant_id, conversation_id, tool_use_id, tool, input, card, expires_at)
             VALUES (${tenantId}, ${conv.id}, 'toolu_x', 'set_rota', ${sql.json({})}, ${sql.json({ title: mark + ' card', lines: [] })}, now() + interval '30 minutes')`
 }

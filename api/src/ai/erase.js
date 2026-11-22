@@ -196,6 +196,8 @@ export async function cleanUpAi(log) {
         const usage = await tx`
           DELETE FROM ai_usage_people WHERE tenant_id = ${t.id} AND day < current_date - 400 RETURNING day
         `
+        // Each model request (migration 271) after 90 days; the month's totals stay.
+        await tx`DELETE FROM ai_requests WHERE tenant_id = ${t.id} AND created_at < now() - interval '90 days'`
         totals.chats += chats.length; totals.audit += audit.length; totals.uploads += uploads.length
         totals.codes += codes.length; totals.usage += usage.length
       })

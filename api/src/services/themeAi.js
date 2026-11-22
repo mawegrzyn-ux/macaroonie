@@ -160,6 +160,7 @@ export async function suggestThemes({ tenantId, person, target, prompt = '', ima
     messages: [{ role: 'user', content }],
   }
   let res
+  const started = Date.now()
   try {
     res = await callClaude(params)
   } catch (err) {
@@ -178,6 +179,7 @@ export async function suggestThemes({ tenantId, person, target, prompt = '', ima
   await addUsage(tenantId, 'staff_chat', {
     input: u.input_tokens || 0, output: u.output_tokens || 0, cacheRead: u.cache_read_input_tokens || 0,
     cacheWrite: u.cache_creation_input_tokens || 0, model: res.model, person,
+    use: 'theme_maker', ms: Date.now() - started,
   })
   if (res.stop_reason === 'refusal') throw httpError(422, ASSISTANT_NAME + ' can\'t help with this one. Try another picture or other words.')
   if (res.stop_reason === 'max_tokens') throw httpError(502, ASSISTANT_NAME + '\'s answer was cut off. Try again.')

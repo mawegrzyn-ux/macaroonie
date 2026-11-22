@@ -1088,6 +1088,7 @@ function ask(p, { slice, files, ...rest }) {
     person: { sub: p.sub, email: p.email },
     system: [SYSTEM, slice.text],
     schema: ANSWER_SCHEMA,
+    use: 'smart_builder',
     content: [...fileBlocks(files || []), { type: 'text', text: userText(rest) }],
     thinking: true,
     effort: 'medium',

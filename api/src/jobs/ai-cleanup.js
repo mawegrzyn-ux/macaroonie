@@ -22,8 +22,8 @@ export const queue = new Queue(name, { connection, prefix })
 // audit inputs older than a year, unsent uploads, used guest codes and old
 // per-person usage; and kiosk visits' playbacks after 90 days (the visits
 // after 400, services/kioskJourneySvc.js). Idempotent, so a run that
-// overlaps another is harmless. Also the usage record after 90 days
-// (migration 270).
+// overlaps another is harmless. Also the usage record and each of Pepper's
+// model requests after 90 days (migrations 270, 271).
 
 export function start(log) {
   const worker = new Worker(name, async () => {

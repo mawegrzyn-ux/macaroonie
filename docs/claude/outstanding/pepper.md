@@ -36,3 +36,11 @@ What is not built, known limits and follow-ups in this area (`docs/claude/areas/
 - Use the brand on other designs saves designs one after another; a failure leaves the earlier ones changed (each row says which failed). Kiosk designs only change their brand colours and fonts, not their layout pictures.
 - The wizard's own-look kit applies to the venue's web page only (not its kiosk designs or boards, which are company-wide).
 - The wizard has no undo for settings saved in earlier steps other than changing them again; deleting a draft is the reset.
+
+**51. Measuring Pepper, step 0 follow-ups (Pepper-first, 22 Nov 2026; migration 271)**
+
+Built (0b): `ai_requests`, one row per model call with what it was for, the model, tokens, units, an estimated cost in dollars and the time it took; report subject `pepper.requests` and the starter Pepper's cost by model. Not done:
+- No median or percentiles: the report engine has sum, average, smallest, largest and counts, so "median response time" is the average and the longest for now.
+- The cost is at the list prices in `PRICES` when the row was written: a price change later doesn't change old rows, and discounts (batch, an Anthropic agreement) aren't known. The time is the model call's only, not the whole chat turn (tools and the database are left out).
+- The staff and guest connectors' calls (`addUsage()` with no model) aren't model requests and aren't kept: the model there is the other app's.
+- Tool search hit rate (one of step 0's numbers) isn't recorded: it needs the tool search blocks of each turn counted (`server_tool_use` of `tool_search_tool_*` against the tools then called).

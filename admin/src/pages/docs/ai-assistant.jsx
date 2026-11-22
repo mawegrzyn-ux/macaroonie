@@ -833,6 +833,22 @@ export function Section() {
         <Mono>FormCard</Mono> opens <Mono>FormOpener</Mono> (the Today sheet, or <Mono>AvailabilityModal</Mono> for
         sold out).
       </P>
+      <H3>Model requests (migration 271)</H3>
+      <P>
+        <Mono>addUsage()</Mono> (<Mono>ai/context.js</Mono>) adds each call to the month&apos;s <Mono>ai_usage</Mono> as before and,
+        when it is given a <Mono>model</Mono> (a model call; the connectors&apos; calls have none), writes a row to{' '}
+        <Mono>ai_requests</Mono>: <Mono>channel</Mono>, <Mono>use</Mono> (<Mono>USES</Mono>: chat, nav_search, smart_builder,
+        menu_reader, invoice_reader, receipt_reader, local_info, theme_maker, translation, new_location, other; the words are{' '}
+        <Mono>USE_LABELS</Mono> in <Mono>shared/pepperActions.js</Mono>), <Mono>model</Mono>, the four token counts, web searches,{' '}
+        <Mono>units</Mono>, <Mono>cost_usd</Mono> and <Mono>ms</Mono>. <Mono>usageUnits()</Mono> and <Mono>usageCost()</Mono> both
+        come from <Mono>costMicros()</Mono> over <Mono>PRICES</Mono>, so the units and the dollars never disagree. The chat
+        times each call in <Mono>callModel()</Mono> (<Mono>CALL_MS</Mono>, by reply); <Mono>askForJson()</Mono> and{' '}
+        <Mono>searchForJson()</Mono> take <Mono>use</Mono> from their callers and time their own call, as do the menu reader,
+        the theme maker, translations and store openings. No person is kept (that is <Mono>ai_usage_people</Mono>, for
+        Manage). <Mono>cleanUpAi()</Mono> deletes rows after 90 days. Report subject <Mono>pepper.requests</Mono> (View on{' '}
+        <Mono>ai_assistant</Mono>): requests, tokens, units, cost, cost / units / tokens a request, average and longest time,
+        models; starter <Mono>pepper_cost_by_model</Mono>. Tests: <Mono>api/test/pepper-requests.test.mjs</Mono>.
+      </P>
       <H3>Voice (migration 261)</H3>
       <P>
         <Mono>admin/src/lib/speech.js</Mono>: <Mono>listen()</Mono> / <Mono>speak()</Mono> over the browser&apos;s

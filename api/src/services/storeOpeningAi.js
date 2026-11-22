@@ -244,6 +244,7 @@ export async function askPepper({ tenantId, person, step, opening, context, canS
     }],
   }
   let res
+  const started = Date.now()
   try {
     res = await callClaude(params)
   } catch (err) {
@@ -263,6 +264,7 @@ export async function askPepper({ tenantId, person, step, opening, context, canS
   addUsage(tenantId, 'staff_chat', {
     input: u.input_tokens || 0, output: u.output_tokens || 0, cacheRead: u.cache_read_input_tokens || 0,
     cacheWrite: u.cache_creation_input_tokens || 0, model: res.model, person,
+    use: 'new_location', ms: Date.now() - started,
   })
   if (res.stop_reason === 'refusal') throw httpError(422, ASSISTANT_NAME + ' can\'t help with this one. Try describing the new location differently.')
   if (res.stop_reason === 'max_tokens') throw httpError(502, ASSISTANT_NAME + '\'s answer was cut off. Try again, or describe the location more briefly.')
