@@ -5142,6 +5142,36 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               and <Mono>api/test/till-layouts.test.mjs</Mono>; the fixtures&apos; layout has a category zone shown as a
               whole-screen pop-up list, so the tenant sweep replays it.
             </P>
+            <H3>Taps on a till layout (migration 266)</H3>
+            <P>
+              <Mono>pos_till_taps</Mono> (forced RLS) holds one count per device, person (<Mono>staff_id</Mono>, null when
+              nobody is signed in), layout, zone, button (<Mono>cell</Mono>: a section, menu or dish id, the
+              designer&apos;s button id, or <Mono>times</Mono>) and day, with the button&apos;s last words
+              (<Mono>label</Mono>); the unique index is on <Mono>COALESCE(staff_id, nil uuid)</Mono>. The rules are{' '}
+              <Mono>shared/pos/tillTaps.js</Mono>: <Mono>TAP_ZONES</Mono> (categories, menus, items, category, buttons,
+              popup), <Mono>tapCell()</Mono> (the till keys categories <Mono>s:</Mono> and menus <Mono>m:</Mono>; the
+              designer by id), the till&apos;s queue (<Mono>addTaps()</Mono>, <Mono>takeTaps()</Mono>),{' '}
+              <Mono>cleanTaps()</Mono> (what the API keeps of an upload), <Mono>heatOf()</Mono>,{' '}
+              <Mono>heatShare()</Mono>, <Mono>heatColour()</Mono>, <Mono>heatInk()</Mono> and{' '}
+              <Mono>TAPS_KEEP_DAYS</Mono> (90). On the till <Mono>ZoneGrid</Mono> counts a click on a cell (capture,
+              before the button&apos;s own handler, also in the More sheet) when given <Mono>layoutId</Mono>, through{' '}
+              <Mono>countTap()</Mono> in <Mono>pos/src/lib/taps.js</Mono>: a queue in localStorage
+              (<Mono>maca_till_taps</Mono>, at most 3,000 rows), sent every minute and when the page is hidden by{' '}
+              <Mono>startTapUpload()</Mono> (started in <Mono>startSync()</Mono>, tills only, always to the cloud). Only
+              saved layouts count (the built-in screen has no id). <Mono>POST /pos-api/till-taps</Mono> (tills only, 403
+              otherwise) adds each row to its day&apos;s count, leaves out rows naming a person who isn&apos;t the
+              venue&apos;s or a layout that isn&apos;t the tenant&apos;s and days past 90, and deletes the venue&apos;s rows
+              past 90 days; a refused upload (4xx) is dropped by the till, an offline one kept. The designer&apos;s{' '}
+              <Mono>GET /api/pos/till-layouts/:id/taps?days=&amp;venue_id=&amp;device_id=&amp;staff_id=</Mono> (Store tech
+              view) returns <Mono>heatOf()</Mono>&apos;s zones, max and total, the 15 most tapped with their words, the
+              tills, and the people only for those with Till reports view (a <Mono>staff_id</Mono> without it is 403).
+              Reports: the <Mono>till.taps</Mono> subject (Till buttons tapped), Till activity&apos;s counts of each kind
+              of change (<Mono>orders_opened</Mono>, <Mono>dishes_added</Mono>, <Mono>voids</Mono>,{' '}
+              <Mono>no_sales</Mono> ...), the <Mono>kitchen.taps</Mono> subject (every kitchen screen event, by screen and
+              station; trading day) and a Kitchen screen link on kitchen tickets and remakes (their event&apos;s device),
+              with the starters Till activity by person, by till, Till buttons tapped and Kitchen screens: taps by
+              screen. Tests: <Mono>shared/pos/test/tillTaps.test.mjs</Mono>, <Mono>api/test/till-taps.test.mjs</Mono>.
+            </P>
             <H3>Sending to the kitchen</H3>
             <P>
               <Mono>sendCheck(check, heldCourseIds)</Mono> (<Mono>lib/checkOps.js</Mono>) sends every new line as one{' '}
@@ -9042,7 +9072,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               counts are on each item), the one table planned being <Mono>report_runs</Mono>; phase 4a made it the
               Report runs subject and left migration 250&apos;s <Mono>report_files</Mono> out (a run&apos;s kept
               file is a field of its run), so they are <Mono>{'{ subject: 128, planned: 0, settings: 57, out: 50 }'}</Mono>{' '}
-              over 235 tables, with nothing left planned. What was said to Pepper (<Mono>ai_actions</Mono> input and result,{' '}
+              over 235 tables, with nothing left planned. Till buttons tapped (migration 266, <Mono>pos_till_taps</Mono>)
+              made it <Mono>{'{ subject: 129, planned: 0, settings: 57, out: 57 }'}</Mono> over 243 tables. What was said to Pepper (<Mono>ai_actions</Mono> input and result,{' '}
               <Mono>ai_conversations</Mono> title, system_prompt and guest_key) and a new location&apos;s words
               and Pepper&apos;s plan (<Mono>store_openings</Mono> input, steps, ai, overrides, plan, results) stay
               in their subjects&apos; <Mono>skip</Mono> lists: a test in <Mono>reports-catalogue.test.mjs</Mono>{' '}

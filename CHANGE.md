@@ -6,6 +6,13 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-22 — Which till buttons get used, and till and kitchen screen activity]
+
+- Store tech → Till layouts → a layout: **Taps** colours every button by how often the tills tapped it (pale yellow for few, deep red for the most, grey for never), with the count on each and the most tapped listed. Pick 7, 30 or 90 days, every till or one, and everyone or one person (people need Till reports).
+- Tills count taps on categories, menus, dishes and your own buttons, per day, person and till, and send them every minute (kept when offline). Nothing about the order and no times; kept 90 days.
+- New starter reports: **Till activity by person**, **Till activity by till** (orders opened, dishes added, taken off and voided, sends, discounts, bills, payments, refunds, no sales), **Till buttons tapped** and **Kitchen screens: taps by screen** (dishes done and ticked off, bumps, brought back, remakes, rushes, collected). Kitchen tickets and remakes can be grouped by kitchen screen.
+- Migration 266 (`pos_till_taps`).
+
 ## [2026-11-22 — Kitchen flow timers]
 
 - Store tech → Kitchen flow designer: **Add a timer** to time dishes between two points of a flow, e.g. from the order being sent to the pass, or from the grill being done to the pass. Tap where it starts, then a box someone taps done on; it shows as a dotted purple arrow under the boxes with its target. Tap it to name it, pick when it starts (a dish reaching the box, or done there), count each dish or each ticket, set the target in minutes or remove it. Save flow keeps them.

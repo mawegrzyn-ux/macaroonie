@@ -66,6 +66,13 @@
 // Duplicate (copyZone(): the copy goes in the first free space of its size).
 // The canvas draws all of it through the same zoneBoxStyle(),
 // buttonBorderStyle() and categoryButtonStyle() the till uses.
+//
+// Taps (22 Nov 2026, migration 266; shared/pos/tillTaps.js): the Taps
+// button colours the preview's buttons by how often the tills tapped them
+// (GET /api/pos/till-layouts/:id/taps: the last 7, 30 or 90 days, all tills
+// or one, and one person's for those who can read Till reports), with the
+// most tapped buttons listed (the preview shows a zone's first page and a
+// Dishes zone's first category only).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -73,7 +80,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Loader2, Save, PanelsTopLeft, Plus, Minus, Eye, EyeOff, AlertTriangle, Info, X,
   AlignLeft, AlignCenter, AlignRight, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd,
-  LayoutGrid, List, Smartphone, Tablet, Copy,
+  LayoutGrid, List, Smartphone, Tablet, Copy, Flame,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -96,6 +103,7 @@ import {
 } from '@shared/pos/tillLayout.js'
 import { chargeValueText } from '@shared/pos/charges.js'
 import { timesLabel } from '@shared/menuTimes.js'
+import { heatShare, heatColour, heatInk, TAPS_KEEP_DAYS } from '@shared/pos/tillTaps.js'
 
 // Screens to preview on: the till's top bar takes 64 px, the layout the rest.
 // A layout made for a phone previews on the phone screens (upright: a
@@ -227,6 +235,15 @@ export default function TillLayoutDesigner() {
   // The screen previewed on: one remembered for phone layouts, one for the rest.
   const [screenKeys, setScreenKeys] = useState(() => ({ false: storedScreen(false), true: storedScreen(true) }))
 
+  // The heat map: off until asked for (it reads the tills' counts).
+  const [heatOn, setHeatOn] = useState(false)
+  const [heatQ, setHeatQ] = useState({ days: 30, device_id: '', staff_id: '' })
+  const taps = useQuery({
+    queryKey: ['till-layout-taps', id, heatQ],
+    queryFn: () => api.get('/pos/till-layouts/' + id + '/taps?' + new URLSearchParams(Object.entries(heatQ).filter(([, v]) => v !== '')).toString()),
+    enabled: heatOn,
+  })
+
   useEffect(() => { if (saved) setDraft({ name: saved.name, layout: normaliseTillLayout(saved.layout) }) }, [saved])
   useEffect(() => setSelB(null), [selId])
 
@@ -302,7 +319,7 @@ export default function TillLayoutDesigner() {
   const back = () => (dirty ? setLeaving(true) : navigate('/pos/layouts'))
   const tenders = setup?.settings?.tenders || []
   const charges = setup?.charges || []
-  const ctx = { setup, names, discounts, tenders, charges, layout }
+  const ctx = { setup, names, discounts, tenders, charges, layout, heat: heatOn ? taps.data || null : null }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -338,6 +355,9 @@ export default function TillLayoutDesigner() {
                 className="h-10 rounded-xl border bg-background px-3 text-sm touch-manipulation">
                 {screens.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
               </select>
+              <Btn onClick={() => setHeatOn(v => !v)} aria-pressed={heatOn} variant={heatOn ? 'primary' : 'default'} data-testid="tl-taps">
+                <Flame className="w-4 h-4" /> {heatOn ? 'Hide taps' : 'Taps'}
+              </Btn>
               {layout.zones.some(z => z.type === 'modifiers') && (
                 <Btn onClick={() => setShowChoices(v => !v)} aria-pressed={showChoices} data-testid="tl-show-choices">
                   {showChoices ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -355,6 +375,7 @@ export default function TillLayoutDesigner() {
           </div>
 
           <div className="space-y-4 min-w-0 lg:sticky lg:top-0" data-testid="tl-panel">
+            {heatOn && <TapsPanel q={heatQ} setQ={setHeatQ} taps={taps} layout={layout} names={names} onPick={setSelId} />}
             {sel
               ? <ZonePanel zone={sel} ctx={ctx} canManage={canManage} onBack={() => setSelId(null)} selB={selB} setSelB={setSelB}
                   onChange={patch => patchZone(sel.id, patch)} onRemove={() => removeZone(sel.id)} onDuplicate={() => duplicate(sel.id)}
@@ -437,6 +458,75 @@ export default function TillLayoutDesigner() {
         </div>
       </div>
     </div>
+  )
+}
+
+const TAP_DAYS = [{ value: 7, label: '7 days' }, { value: 30, label: '30 days' }, { value: TAPS_KEEP_DAYS, label: TAPS_KEEP_DAYS + ' days' }]
+
+/**
+ * The heat map's settings and figures: the days, which till and (Till
+ * reports viewers) which person, the taps counted and the most tapped
+ * buttons, each opening its zone.
+ */
+function TapsPanel({ q, setQ, taps, layout, names, onPick }) {
+  const d = taps.data
+  const zoneOf = zid => layout.zones.find(z => z.id === zid)
+  return (
+    <Section title="Taps on this layout" hint="How often the tills tapped each button: the hotter, the more.">
+      <div className="space-y-3" data-testid="tl-taps-panel">
+        <Segmented value={q.days} options={TAP_DAYS} onChange={v => setQ(x => ({ ...x, days: v }))} />
+        <div className="grid gap-2 sm:grid-cols-2">
+          <select className={inputCls} value={q.device_id} onChange={e => setQ(x => ({ ...x, device_id: e.target.value }))} aria-label="Which till" data-testid="tl-taps-till">
+            <option value="">Every till</option>
+            {(d?.tills || []).map(t => <option key={t.id} value={t.id}>{t.name} ({t.venue})</option>)}
+          </select>
+          {d?.people && (
+            <select className={inputCls} value={q.staff_id} onChange={e => setQ(x => ({ ...x, staff_id: e.target.value }))} aria-label="Whose taps" data-testid="tl-taps-person">
+              <option value="">Everyone</option>
+              {d.people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          )}
+        </div>
+        {taps.isLoading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+        <ErrorNote error={taps.error} />
+        {d && (
+          <>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="font-semibold tabular-nums" data-testid="tl-taps-total">{d.total.toLocaleString('en-GB')} taps</span>
+              <span className="flex-1 h-2.5 rounded-full" style={{ background: 'linear-gradient(90deg, ' + heatColour(0.08) + ', ' + heatColour(0.5) + ', ' + heatColour(1) + ')' }} aria-hidden="true" />
+              <span className="text-xs text-muted-foreground">few to most</span>
+            </div>
+            {!d.total ? (
+              <p className="text-sm text-muted-foreground">No taps counted in these days. Tills count taps on this layout's buttons once they use it (the till app from 22 Nov 2026).</p>
+            ) : (
+              <ol className="divide-y rounded-lg border text-sm" data-testid="tl-taps-top">
+                {d.top.map((t, i) => {
+                  const z = zoneOf(t.zone_id)
+                  return (
+                    <li key={t.zone_id + ':' + t.cell}>
+                      <button type="button" onClick={() => z && onPick(z.id)} disabled={!z}
+                        className="w-full min-h-[44px] flex items-center gap-2 px-3 py-1.5 text-left hover:bg-muted touch-manipulation disabled:opacity-60">
+                        <span className="w-5 text-xs text-muted-foreground tabular-nums">{i + 1}</span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block font-medium truncate">{t.label || 'A button'}</span>
+                          <span className="block text-xs text-muted-foreground truncate">{z ? zoneName(z, layout, names) : 'A zone since removed'}</span>
+                        </span>
+                        <span className="tabular-nums font-semibold">{t.taps.toLocaleString('en-GB')}</span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ol>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Counted on the tills per day, till and person: not what was ordered, and not when. Kept {TAPS_KEEP_DAYS} days.
+              The preview shows each zone's first page, and a Dishes zone the first category's dishes; the list has the rest.
+              {d.people ? '' : ' Taps by person are for those who can see Till reports.'}
+            </p>
+          </>
+        )}
+      </div>
+    </Section>
   )
 }
 
@@ -679,7 +769,7 @@ function ZoneBodyPreview({ zone, scale, ctx, hasBar, focus = null }) {
   const font = Math.max(7, (zone.font || FONT.default) * scale)
   if (zone.type === 'check') return <CheckPreview scale={scale} zone={zone} />
   if (zone.type === 'label') return <LabelPreview zone={zone} scale={scale} />
-  if (zone.type === 'popup') return <GridPreview zone={zone} cells={previewCells(zone, ctx)} font={font} focus={focus} />
+  if (zone.type === 'popup') return <GridPreview zone={zone} cells={previewCells(zone, ctx)} font={font} focus={focus} heat={heatFor(zone, ctx)} />
   if (zone.type === 'seats') {
     const seats = zone.parts !== 'courses'
     const courses = zone.parts !== 'seats'
@@ -717,7 +807,7 @@ function ZoneBodyPreview({ zone, scale, ctx, hasBar, focus = null }) {
       )}
       {zone.type === 'items' && zone.search && <div className="shrink-0 rounded border bg-white px-1 mb-0.5 text-slate-400" style={{ fontSize: Math.max(7, 12 * scale) }}>Find a dish</div>}
       {zone.type === 'modifiers' && hasBar && zone.show_name !== false && <div className="shrink-0 font-bold truncate" style={{ fontSize: Math.max(7, 16 * scale) }}>A dish's name</div>}
-      <div className="flex-1 min-h-0"><GridPreview zone={zone} cells={cells} font={font} focus={focus} /></div>
+      <div className="flex-1 min-h-0"><GridPreview zone={zone} cells={cells} font={font} focus={focus} heat={heatFor(zone, ctx)} /></div>
       {zone.type === 'modifiers' && hasBar && (
         <div className="shrink-0 flex gap-0.5 mt-0.5" style={{ fontSize: Math.max(7, 12 * scale) }}>
           <span className="rounded border bg-white px-1">− 1 +</span>
@@ -832,7 +922,21 @@ function inkOn(hex) {
   return lum > 0.6 ? '#111827' : '#ffffff'
 }
 
-function GridPreview({ zone, cells, font, focus = null }) {
+/** A button's look on the heat map: warm and readable when tapped, pale when never. */
+function heatLook(n, max) {
+  const share = heatShare(n, max)
+  return share
+    ? { background: heatColour(share), color: heatInk(share), borderColor: '#9a3412' }
+    : { background: '#f8fafc', color: '#94a3b8', borderColor: '#e2e8f0' }
+}
+
+/** A zone's taps for the heat map: { cells: { [cell]: taps }, max } (null: taps off, or a zone not counted). */
+function heatFor(zone, ctx) {
+  if (!ctx.heat || zone.type === 'modifiers') return null
+  return { cells: ctx.heat.zones?.[zone.id] || {}, max: ctx.heat.max || 0 }
+}
+
+function GridPreview({ zone, cells, font, focus = null, heat = null }) {
   const packed = packCells(cells.map(c => ({ w: c.w || 1, h: c.h || 1 })), zone)
   // The button being edited: the page that holds it, outlined; behind More, More is.
   const fi = focus ? cells.findIndex(c => c.key === focus) : -1
@@ -862,9 +966,16 @@ function GridPreview({ zone, cells, font, focus = null }) {
                 ...(c.head ? {} : look),
                 ...(c.colour ? { background: c.colour, color: inkOn(c.colour), borderColor: c.colour } : {}),
                 ...(c.head ? {} : border),
+                // Taps: hot buttons warm, buttons never tapped pale.
+                ...(heat && !c.head ? heatLook(heat.cells[c.key] || 0, heat.max) : {}),
                 ...(p.i === fi ? { outline: '2px solid #0284c7', outlineOffset: '-2px' } : {}),
               }}
-              data-testid="tl-cell" data-focus={p.i === fi ? '1' : undefined}>
+              data-testid="tl-cell" data-focus={p.i === fi ? '1' : undefined} data-taps={heat && !c.head ? heat.cells[c.key] || 0 : undefined}>
+              {heat && !c.head && (
+                <span className="self-end rounded bg-black/70 text-white px-1 tabular-nums leading-none py-px" style={{ fontSize: '0.7em' }} data-testid="tl-cell-taps">
+                  {heat.cells[c.key] || 0}
+                </span>
+              )}
               <span className={cn('line-clamp-2 break-words', list && !c.head && 'flex-1 min-w-0')} data-testid="tl-cell-words">{c.label}</span>
               {c.sub && <span className={cn('opacity-70 font-medium', list && 'shrink-0')} style={{ fontSize: '0.8em' }} data-testid="tl-cell-sub">{c.sub}</span>}
             </div>

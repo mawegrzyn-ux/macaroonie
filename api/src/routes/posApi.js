@@ -99,6 +99,7 @@ import { dayFigures } from '../../../shared/pos/reports.js'
 import { permissionProblem } from '../../../shared/pos/permissions.js'
 import { deviceEvent } from '../../../shared/pos/deviceRules.js'
 import { KITCHEN_DEVICE_EVENTS, BUMP_KINDS } from '../../../shared/pos/kitchen.js'
+import { cleanTaps, TAPS_KEEP_DAYS } from '../../../shared/pos/tillTaps.js'
 import { kioskConfig, readPreviewToken, previewDevice } from '../services/kioskSvc.js'
 import { saveVisits, MAX_VISITS } from '../services/kioskJourneySvc.js'
 import { kioskReceipt, sendWaitingReceipts } from '../services/receiptSvc.js'
@@ -914,6 +915,39 @@ export default async function posApiRoutes(app) {
       map.set(d.id, { check_id: body.check_id || null, staff_id: body.staff_id || null, at: Date.now(), device_name: d.name })
       if (before !== (body.check_id || null)) broadcast('pos:' + d.venue_id, { type: 'pos.presence' })
       return { presence: presenceFor(d.venue_id) }
+    })
+
+    // Taps on the till layout's buttons (migration 266, shared/pos/tillTaps.js):
+    // counts the till kept since its last upload, added to the day's. Rows
+    // naming a person or layout that isn't this venue's / tenant's are left
+    // out; rows past TAPS_KEEP_DAYS go. Returns { kept } (rows taken).
+    scoped.post('/till-taps', async req => {
+      const d = req.posDevice
+      if (d.kind !== 'terminal') throw httpError(403, 'Only tills count taps')
+      const rows = cleanTaps(z.object({ taps: z.array(z.any()).max(1000) }).parse(req.body || {}).taps)
+      if (!rows.length) return { kept: 0 }
+      return withTenant(d.tenant_id, async tx => {
+        const staffIds = [...new Set(rows.map(r => r.staff_id).filter(Boolean))]
+        const layoutIds = [...new Set(rows.map(r => r.layout_id))]
+        const [staff, layouts] = await Promise.all([
+          staffIds.length ? tx`SELECT id FROM cash_staff WHERE tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id} AND id = ANY(${staffIds}::uuid[])` : [],
+          tx`SELECT id FROM pos_till_layouts WHERE tenant_id = ${d.tenant_id} AND id = ANY(${layoutIds}::uuid[])`,
+        ])
+        const people = new Set(staff.map(r => r.id))
+        const known = new Set(layouts.map(r => r.id))
+        const keep = rows.filter(r => known.has(r.layout_id) && (!r.staff_id || people.has(r.staff_id))
+          && Date.parse(r.day) >= Date.now() - TAPS_KEEP_DAYS * 86400000)
+        for (const r of keep) {
+          await tx`
+            INSERT INTO pos_till_taps (tenant_id, venue_id, device_id, staff_id, layout_id, zone_id, zone_type, cell, label, day, taps)
+            VALUES (${d.tenant_id}, ${d.venue_id}, ${d.id}, ${r.staff_id}, ${r.layout_id}, ${r.zone_id}, ${r.zone_type}, ${r.cell}, ${r.label}, ${r.day}, ${r.n})
+            ON CONFLICT (device_id, (COALESCE(staff_id, '00000000-0000-0000-0000-000000000000'::uuid)), layout_id, zone_id, cell, day)
+            DO UPDATE SET taps = pos_till_taps.taps + EXCLUDED.taps, label = COALESCE(EXCLUDED.label, pos_till_taps.label),
+                          zone_type = EXCLUDED.zone_type, updated_at = now()`
+        }
+        await tx`DELETE FROM pos_till_taps WHERE tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id} AND day < current_date - ${TAPS_KEEP_DAYS}::int`
+        return { kept: keep.length }
+      })
     })
 
     scoped.get('/print-jobs', async req => {

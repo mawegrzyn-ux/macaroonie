@@ -273,4 +273,48 @@ export default [
       drill: { down: [{ field: 'date', bucket: 'week' }] },
     },
   }),
+
+  // What happened on the tills, by person and by till (OUTSTANDING 44.8),
+  // from the till's own changes (Till activity).
+  starter({
+    key: 'till_activity_by_person',
+    name: 'Till activity by person',
+    about: 'What each person did on the tills: orders opened, dishes added, taken off and voided, sends to the kitchen, discounts, bills, payments, refunds and the drawer opened with no sale. Kiosks count as their own.',
+    period: 'last_week',
+    spec: {
+      subject: 'till.activity',
+      rows: ['staff.name'],
+      values: m('orders_opened', 'dishes_added', 'dishes_taken_off', 'sends', 'voids', 'discounts_given', 'bills_printed', 'payments_taken', 'refunds_given', 'no_sales'),
+      sort: [{ by: 'orders_opened', dir: 'desc' }],
+      drill: { down: ['device.name', 'type', 'date'], rows: ['made_at', 'type', 'check.number', 'device.name', 'approved_by.name'] },
+    },
+  }),
+
+  starter({
+    key: 'till_activity_by_till',
+    name: 'Till activity by till',
+    about: 'What was done on each till and kiosk: orders opened, dishes added, taken off and voided, sends to the kitchen, discounts, payments, refunds and the drawer opened with no sale, and changes that reached us late (the till was offline).',
+    period: 'last_week',
+    spec: {
+      subject: 'till.activity',
+      rows: ['device.name'],
+      values: m('changes', 'orders_opened', 'dishes_added', 'dishes_taken_off', 'voids', 'discounts_given', 'payments_taken', 'refunds_given', 'no_sales', 'sent_late'),
+      sort: [{ by: 'changes', dir: 'desc' }],
+      drill: { down: ['staff.name', 'type', 'date'], rows: ['made_at', 'type', 'check.number', 'staff.name'] },
+    },
+  }),
+
+  starter({
+    key: 'till_buttons_tapped',
+    name: 'Till buttons tapped',
+    about: 'The buttons of each till layout by how often they were tapped (categories, menus, dishes and the layout\'s own buttons), most first: what staff reach for, and what they never use. The layout designer\'s Taps shows the same on the layout.',
+    period: { relative: 'last_n_days', n: 30 },
+    spec: {
+      subject: 'till.taps',
+      rows: ['layout', 'button'],
+      values: m('taps'),
+      sort: [{ by: 'taps', dir: 'desc' }],
+      drill: { down: ['zone', 'device.name', 'staff.name', 'date'] },
+    },
+  }),
 ]

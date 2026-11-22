@@ -20,6 +20,8 @@
 import { subject, text, number, money, percent, yesno, choice, moment, duration, sum, avg, count, countDistinct, ratio, one, many } from './define.js'
 import { TENDERS, CHECK_EVENTS, VENUE_EVENTS } from '../../../../shared/pos/checks.js'
 import { PROVIDERS } from '../../services/cardMachines/index.js'
+import { ZONE_TYPES } from '../../../../shared/pos/tillLayout.js'
+import { TAP_ZONES, TAPS_KEEP_DAYS } from '../../../../shared/pos/tillTaps.js'
 
 const TENDER_LABELS = Object.fromEntries(TENDERS.map(t => [t.key, t.label]))
 const MODES = { table: 'Table', tab: 'Tab', counter: 'Counter' }
@@ -77,6 +79,10 @@ export const EVENT_LABELS = {
 }
 // Kept beside the list the till itself uses, so a new event type can't go unnamed.
 export const TILL_EVENT_TYPES = [...CHECK_EVENTS, ...VENUE_EVENTS]
+const TAP_ZONE_LABELS = Object.fromEntries(TAP_ZONES.map(k => [k, ZONE_TYPES.find(t => t.key === k)?.label || k]))
+// Till activity's counts of one kind of change (OUTSTANDING 44.8): what each
+// person or till did, from the till's own events.
+const changes = (type, label, about) => count({ label, where: "{t}.type = '" + type + "'", about })
 
 const DEVICE_KINDS = { terminal: 'Till', kds: 'Kitchen screen', kiosk: 'Self-order kiosk', hub: 'Venue hub' }
 const CARD_PROVIDERS = Object.fromEntries(Object.entries(PROVIDERS).map(([k, p]) => [k, p.label]))
@@ -737,6 +743,18 @@ export default [
       checks: countDistinct('check_id', { label: 'Checks', about: 'How many different checks the changes were on.' }),
       approvals: count({ label: 'Approved by a manager', where: '{t}.approved_by IS NOT NULL', about: 'Changes that needed a manager\'s PIN.' }),
       sent_late: count({ label: 'Sent later', where: "{t}.created_at - {t}.client_at > interval '2 minutes'", about: 'Changes that reached the cloud more than two minutes after they were made: the till or the venue was offline.' }),
+      orders_opened: changes('check.opened', 'Orders opened'),
+      dishes_added: changes('line.added', 'Dishes added', 'Each dish line added to an order (a line of 3 counts once).'),
+      dishes_taken_off: changes('line.deleted', 'Dishes taken off', 'Dishes taken off before they were sent to the kitchen.'),
+      sends: changes('lines.sent', 'Sends to the kitchen'),
+      voids: changes('line.voided', 'Dishes voided', 'Dishes voided after they were sent.'),
+      discounts_given: changes('discount.applied', 'Discounts given'),
+      bills_printed: changes('bill.printed', 'Bills printed'),
+      payments_taken: changes('payment.added', 'Payments taken'),
+      payments_taken_off: changes('payment.voided', 'Payments taken off'),
+      refunds_given: changes('refund.added', 'Refunds given'),
+      orders_reopened: changes('check.reopened', 'Orders reopened'),
+      no_sales: changes('drawer.opened', 'Drawer opened (no sale)'),
     },
     links: {
       day: one('till.days', 'day_id', { label: 'Trading day' }),
@@ -748,8 +766,40 @@ export default [
     },
     list: ['made_at', 'type', 'check.number', 'staff.name', 'approved_by.name', 'device.name'],
     sort: [{ by: 'made_at', dir: 'desc' }],
-    // What the change held, and the order the cloud put it in.
-    skip: ['payload', 'assigned', 'seq'],
+    // What the sequencer worked out, and the order the cloud put it in.
+    // (What the change held, payload, is read by Kitchen screen taps.)
+    skip: ['assigned', 'seq'],
+  }),
+
+  // Taps on till layout buttons (migration 266, shared/pos/tillTaps.js).
+  subject({
+    key: 'till.taps',
+    label: 'Till buttons tapped',
+    one: 'day\'s taps on a button',
+    area: 'till',
+    module: 'pos_reports',
+    about: 'How often each button of a till layout was tapped: one count per day, till, person and button, kept ' + TAPS_KEEP_DAYS + ' days. Taps on categories, menus, dishes and the layout\'s own buttons are counted; the order\'s own buttons (Send, Bill, Pay) are changes in Till activity. Nothing about what was ordered or when in the day.',
+    from: 'pos_till_taps',
+    name: 'button',
+    venue: 'venue_id',
+    date: { sql: '{t}.day', label: 'Day' },
+    fields: {
+      button: text({ sql: 'COALESCE({t}.label, {t}.cell)' }, { label: 'Button', about: 'Its words when it was last tapped.' }),
+      layout: text({ sql: '(SELECT l.name FROM pos_till_layouts l WHERE l.id = {t}.layout_id AND l.tenant_id = {t}.tenant_id)' }, { label: 'Till layout' }),
+      zone: text('zone_id', { label: 'Zone', about: 'The zone\'s name in the layout designer\'s list.' }),
+      zone_type: choice('zone_type', TAP_ZONE_LABELS, { label: 'Kind of zone' }),
+    },
+    measures: {
+      taps: sum('taps', { label: 'Taps' }),
+      buttons: countDistinct({ sql: "{t}.layout_id::text || '|' || {t}.zone_id || '|' || {t}.cell" }, { label: 'Buttons tapped', about: 'How many different buttons were tapped.' }),
+    },
+    links: {
+      staff: takers('staff_id', 'Tapped by'),
+      device: one('till.devices', 'device_id', { label: 'Till' }),
+    },
+    list: ['date', 'button', 'layout', 'zone', 'device.name', 'staff.name'],
+    sort: [{ by: 'date', dir: 'desc' }],
+    skip: ['updated_at'],
   }),
 
   subject({

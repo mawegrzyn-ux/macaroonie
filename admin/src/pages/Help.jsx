@@ -2644,7 +2644,7 @@ export default function Help() {
                 ['Bookings', 'Guests by day and time; Bookings by source; No-shows and cancellations; How far ahead people book; Party sizes; Deposits taken and refunded; New and returning guests; Emails sent and failed.'],
                 ['Cash reconciliation', 'Cash variance by day; Cash variance by week; Cash variance by venue; Days the cash was short; Income against takings; Takings by payment channel; Expenses by category; Wages by week.'],
                 ['Staff and rota', 'Hours and pay by person; Rota pay by week; Hours on the rota by day; Time off by person; Tips by person and pot; Tip pots by week; Rota pay against the wage list; Labour against sales by week.'],
-                ['Kitchen', 'Ticket times by station; Ticket times by hour; Remakes and why.'],
+                ['Kitchen', 'Ticket times by station; Ticket times by hour; Remakes and why; Kitchen screens: taps by screen.'],
                 ['Self-order kiosks', 'Kiosk visits and orders by day; Where kiosk guests gave up.'],
                 ['Loyalty', 'Members joined by week; Points given and spent; Rewards used; Stamp cards: stamps and cards filled.'],
                 ['Purchasing', 'Spend by supplier; Spend by month; Spend by category; Delivery problems by supplier; Orders sent late; Invoices above the price ordered; Price changes; Products out of stock.'],
@@ -2654,6 +2654,7 @@ export default function Help() {
                 ['Website and reviews', 'Reviews by rating, site and month.'],
                 ['Local info', 'Local events and incidents coming up.'],
                 ['Store tech', 'Card machine payments by machine; Tickets printed by printer; Menu screens offline.'],
+                ['Till activity', 'Till activity by person; Till activity by till; Till buttons tapped.'],
                 ['Pepper', 'Pepper\'s use by month; Pepper\'s use by person; Pepper\'s changes.'],
                 ['Your group', 'Team sign-ins; Issues by priority.'],
               ]}
@@ -7405,6 +7406,25 @@ export default function Help() {
               that opens another pop-up shows that one instead. Taking a pop-up out of the layout takes the
               buttons that open it too.
             </P>
+
+            <H3>Which buttons get used: taps on a till layout</H3>
+            <P>
+              Tills count how often each button of their layout is tapped: the categories, the menus, the dishes and
+              your own buttons (the order&apos;s Send, Bill and Pay are in the till&apos;s activity instead, and a
+              dish&apos;s choices aren&apos;t counted). In the layout designer press <strong>Taps</strong>: every
+              button shows its count and a colour from pale yellow (few) to deep red (the most), and a button never
+              tapped is grey. The panel on the right picks <strong>7, 30 or 90 days</strong>, <strong>every till</strong>
+              or one, and (for those who can see Till reports) <strong>everyone</strong> or one person, with the total
+              and the most tapped buttons; tap one to open its zone. Use it to move what staff reach for most to where
+              it is easiest to reach, and to take out what nobody uses. <strong>Hide taps</strong> goes back to the
+              plain preview.
+            </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>What is counted: one number per day, till, person signed in, and button. Not what was on the order and not the time of a tap. Counts are kept for 90 days.</li>
+              <li>The till keeps its counts while it is offline and sends them when it can (every minute, and when it is put away).</li>
+              <li>The preview shows each zone&apos;s first page, and a Dishes zone the first category&apos;s dishes; the list of most tapped has the rest.</li>
+              <li>Reports: <strong>Till buttons tapped</strong> (by layout and button, then by till, person or day), <strong>Till activity by person</strong> and <strong>by till</strong> (orders opened, dishes added, taken off and voided, sends, discounts, bills, payments, refunds and the drawer opened with no sale, from the till&apos;s own record) and <strong>Kitchen screens: taps by screen</strong> (dishes done and ticked off, bumps, tickets brought back, remakes, rushes, collected). Figures about people need Till reports.</li>
+            </ul>
 
             <H3>Phone layouts: the till on a phone</H3>
             <P>
