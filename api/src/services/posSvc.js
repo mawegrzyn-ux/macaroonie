@@ -15,6 +15,7 @@
 // Every query filters tenant_id itself (RLS alone isn't enough here).
 
 import crypto from 'node:crypto'
+import { showsInKitchen } from '../../../shared/catalogue.js'
 import { withTenant, withSystem } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { loadMenuVersions } from './menuReleases.js'
@@ -272,7 +273,8 @@ export async function tillMenuData(tx, tenantId, venueId, streams, { guest = fal
       const shape = it => ({
         id: it.id, name: it.name, kitchen_name: it.kitchen_name || null, section_id: s.id,
         price_pence: it.price_pence ?? null, kind: it.kind || 'dish',
-        course_id: it.pos_course_id || s.pos_course_id || null,
+        // Retail goods and services (migration 267) have no course: they never go to the kitchen.
+        course_id: showsInKitchen(it.item_type) ? (it.pos_course_id || s.pos_course_id || null) : null,
         colour: it.pos_colour || s.pos_colour || null,
         tax: [taxForVenue(it.tax, venueId, streamIds), sectionTax, menuTax],
         variants: it.variants || [], variant_groups: it.variant_groups || [],

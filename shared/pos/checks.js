@@ -122,6 +122,7 @@ function lineProblem(l) {
   for (const c of l.combo || []) if (!isText(c.name, 200) || !Number.isInteger(c.upcharge ?? 0)) return 'line.combo item'
   if (l.seat != null && !(Number.isInteger(l.seat) && l.seat >= 0 && l.seat <= 99)) return 'line.seat'
   if (l.course_id != null && !isUuid(l.course_id)) return 'line.course_id'
+  if (l.no_kitchen != null && typeof l.no_kitchen !== 'boolean') return 'line.no_kitchen'
   if (!optText(l.note, 300)) return 'line.note'
   if (l.allergies != null && !(Array.isArray(l.allergies) && l.allergies.every(a => isText(a, 60)))) return 'line.allergies'
   if (typeof l.vat_rate !== 'number' || l.vat_rate < 0 || l.vat_rate > 100) return 'line.vat_rate'
@@ -598,6 +599,8 @@ export function applyEvent(checks, e, ctx = {}) {
         vat_rate: p.line.vat_rate, tax_rate_id: p.line.tax_rate_id ?? null,
         revenue_stream_id: p.line.revenue_stream_id ?? c.revenue_stream_id,
         price_override: !!p.line.price_override, open_item: !!p.line.open_item,
+        // Retail goods and services (migration 267): never on a kitchen screen or ticket.
+        ...(p.line.no_kitchen ? { no_kitchen: true } : {}),
         // Put on by an order flow: which, and whether staff may take it off.
         ...(p.line.flow ? { flow: { id: p.line.flow.id, key: p.line.flow.key, removable: p.line.flow.removable } } : {}),
         status: 'new', held: false, send_id: null, sent_at: null,

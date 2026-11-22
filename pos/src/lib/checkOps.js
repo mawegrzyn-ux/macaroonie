@@ -2,6 +2,7 @@
 // function builds events; the check rules (shared/pos/checks.js) decide.
 
 import { ulid } from '@shared/pos/ids.js'
+import { showsInKitchen } from '@shared/catalogue.js'
 import { priceItem, posTax, isActiveLine, lineGross, picksWithin } from '@shared/pos/pricing.js'
 import { combosWithItem, stepWithItem, comboOf } from '@shared/combos.js'
 import { configItem, dealItem, comboCtx, autoCombosFor, checkOffers } from '@shared/pos/offers.js'
@@ -350,6 +351,7 @@ export function copyOfLine(l) {
     seat: l.seat ?? null, course_id: l.course_id ?? null, note: l.note || null, allergies: l.allergies || [],
     vat_rate: l.vat_rate, tax_rate_id: l.tax_rate_id ?? null, revenue_stream_id: l.revenue_stream_id ?? null,
     ...(l.price_override ? { price_override: true } : {}), ...(l.open_item ? { open_item: true } : {}),
+    ...(l.no_kitchen ? { no_kitchen: true } : {}),
   }
 }
 
@@ -399,7 +401,10 @@ export function addItem(check, item, selection = {}, opts = {}) {
     qty: Math.max(1, opts.qty || 1),
     unit_price: override ? opts.unit_price : priced.unit_price,
     modifiers: priced.modifiers, combo: priced.combo,
-    seat: opts.seat ?? null, course_id: coursesOn(config, check.revenue_stream_id) ? courseFor(it, opts.course) : null,
+    seat: opts.seat ?? null,
+    // Retail goods and services (migration 267): no course, never to the kitchen.
+    course_id: coursesOn(config, check.revenue_stream_id) && showsInKitchen(it.item_type) ? courseFor(it, opts.course) : null,
+    ...(showsInKitchen(it.item_type) ? {} : { no_kitchen: true }),
     note: opts.note || null, allergies: opts.allergies || [],
     vat_rate: tax.vat_rate, tax_rate_id: tax.tax_rate_id,
     revenue_stream_id: check.revenue_stream_id,

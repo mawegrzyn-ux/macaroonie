@@ -31,6 +31,7 @@ import { STEP_DISPLAYS, comboOf, comboItemIds, stepChoices, pickScale } from './
 import { priceItem, posTax, checkTotals } from './pos/pricing.js'
 import { replay } from './pos/checks.js'
 import { ulid } from './pos/ids.js'
+import { showsInKitchen } from './catalogue.js'
 import { configItem, dealItem, comboCtx, checkOffers } from './pos/offers.js'
 import { UI_TEXT, ALLERGEN_NAMES } from './kioskText.js'
 import { contrast } from './themeKit.js'
@@ -1290,6 +1291,8 @@ export function kioskLine(config, entry, check, id, ctx = null) {
       qty: Math.max(1, Math.min(99, Number(entry.qty) || 1)),
       unit_price: priced.unit_price, modifiers: priced.modifiers, combo: priced.combo,
       seat: null, course_id: it.course_id || null, note: entry.note ? String(entry.note).slice(0, 300) : null, allergies: [],
+      // Retail goods and services (migration 267): never to the kitchen.
+      ...(showsInKitchen(it.item_type) ? {} : { no_kitchen: true }),
       vat_rate: tax.vat_rate, tax_rate_id: tax.tax_rate_id, revenue_stream_id: check.revenue_stream_id ?? null,
       // Put on by an order flow (shared/pos/orderFlows.js): { id, key, removable }.
       ...(entry.flow ? { flow: { id: entry.flow.id, key: entry.flow.key, removable: !!entry.flow.removable } } : {}),

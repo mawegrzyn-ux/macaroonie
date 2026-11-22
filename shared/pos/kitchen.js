@@ -1302,7 +1302,9 @@ export function kitchenForCheckEvent(e, before = {}, after = {}, orders = {}, cf
     case 'lines.sent': {
       const ids = new Set(p.line_ids)
       const was = before[e.check_id]
-      const lines = check.lines.filter(l => ids.has(l.id) && l.send_id === p.send_id
+      // A retail or service line (no_kitchen, migration 267) is sent with the
+      // rest but never reaches a kitchen screen or ticket.
+      const lines = check.lines.filter(l => ids.has(l.id) && l.send_id === p.send_id && !l.no_kitchen
         && (was?.lines.find(x => x.id === l.id)?.status ?? 'new') === 'new')
       if (!lines.length) return {}
       const o = ensure(check)

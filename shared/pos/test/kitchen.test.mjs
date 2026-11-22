@@ -1504,3 +1504,20 @@ test('kitchen dishes keep their menu section (for the screens\' section colours)
   assert.deepEqual(items.map(i => i.section_id), [SIDES, DRINKS])
   assert.deepEqual(items[1].parts.map(p => p.section_id), [FOOD, DRINKS])
 })
+
+test('retail goods and services (no_kitchen, migration 267) are sent with the order but never reach a kitchen screen', () => {
+  const t = till(withExpo)
+  const c = openTable(t)
+  const mug = lineOf('Mug', uuid(), FOOD, { no_kitchen: true })
+  const b = burger()
+  addAndSend(t, c, [b, mug])
+  // On the check both are sent ...
+  assert.deepEqual(t.checks[c].lines.map(l => [l.name, l.status, !!l.no_kitchen]), [['Burger', 'sent', false], ['Mug', 'sent', true]])
+  // ... but the kitchen has the burger only.
+  const names = Object.values(t.orders).flatMap(o => o.items.map(i => i.name))
+  assert.deepEqual(names, ['Burger'])
+  // A mug on its own makes no kitchen order at all.
+  const c2 = openTable(t)
+  addAndSend(t, c2, [lineOf('Mug', uuid(), FOOD, { no_kitchen: true })])
+  assert.equal(Object.values(t.orders).filter(o => o.check_id === c2).length, 0)
+})
