@@ -13,7 +13,7 @@ export function Section() {
       <H2>Home</H2>
       <P>
         <strong>Home</strong> is the first page you see after signing in, and the first link in the main menu.
-        It is the place to start a shift: your pins, a hello with the day at a glance (bookings and covers,
+        It is the place to start a shift: the ask bar, your pins, a hello with the day at a glance (bookings and covers,
         parties of 8 or more, how many people are on the rota, and whether the venue is closed today), then
         everything that needs doing at the venue, and the week ahead. Pick the venue at the top right if you
         work at more than one; the page remembers it.
@@ -23,6 +23,29 @@ export function Section() {
         role can open (the rest are named under the tasks, so nobody is told something is fine when it simply
         isn&apos;t theirs to see). The tiles that used to be the home page are on the <strong>Overview</strong>{' '}
         page (Home section of the menu), and an old link to the Today page opens Home.
+      </P>
+      <H3>The ask bar</H3>
+      <P>
+        The box at the top of Home finds a page or asks Pepper. Type a few letters or what you want to do
+        (<strong>&ldquo;rota&rdquo;</strong>, <strong>&ldquo;fridge temperatures&rdquo;</strong>,{' '}
+        <strong>&ldquo;change staff pay&rdquo;</strong>) and the pages that fit show straight away, with what
+        each is for and where it sits in the menu, then any saved reports whose name fits. Tap one to open
+        it. Finding a page this way never waits for Pepper and works with Pepper switched off.
+      </P>
+      <P>
+        The last row is always <strong>Ask Pepper</strong> with your words. Tap it, tap{' '}
+        <strong>Ask</strong>, or press <strong>Enter</strong> without picking a row, and Pepper opens at the
+        side with a new chat that starts with your question. When Pepper answers with a page, it shows a
+        card with the page&apos;s name, where it sits in the menu, the venue, day or tab it opens at, and{' '}
+        <strong>Open</strong>. With a keyboard, the arrow keys move through the rows, Enter opens the one lit,
+        and Escape clears the box. Under the bar, a few questions for the day (Brief me on today, What is
+        booked for tonight?) ask Pepper in one tap.
+      </P>
+      <P>
+        The same bar opens over any other page: tap <strong>Search or ask</strong> at the top of the menu (or
+        the magnifying glass on the narrow menu), press <strong>Ctrl+K</strong> (Cmd+K on a Mac), or press{' '}
+        <strong>/</strong> when you aren&apos;t typing in a box. On Home those keys go to the bar at the top of
+        the page.
       </P>
       <H3>Your pins</H3>
       <P>

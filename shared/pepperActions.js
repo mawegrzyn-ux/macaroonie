@@ -19,7 +19,6 @@ export const CHANNEL_LABELS = {
 /** What a model request was for (ai_requests.use, migration 271; USES in api/src/ai/context.js). */
 export const USE_LABELS = {
   chat: ASSISTANT_NAME + '\'s chat',
-  nav_search: 'Menu search',
   smart_builder: 'Report smart builder',
   menu_reader: 'Reading a menu',
   invoice_reader: 'Reading an invoice',

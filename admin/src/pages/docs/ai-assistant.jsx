@@ -837,7 +837,7 @@ export function Section() {
       <P>
         <Mono>addUsage()</Mono> (<Mono>ai/context.js</Mono>) adds each call to the month&apos;s <Mono>ai_usage</Mono> as before and,
         when it is given a <Mono>model</Mono> (a model call; the connectors&apos; calls have none), writes a row to{' '}
-        <Mono>ai_requests</Mono>: <Mono>channel</Mono>, <Mono>use</Mono> (<Mono>USES</Mono>: chat, nav_search, smart_builder,
+        <Mono>ai_requests</Mono>: <Mono>channel</Mono>, <Mono>use</Mono> (<Mono>USES</Mono>: chat, smart_builder,
         menu_reader, invoice_reader, receipt_reader, local_info, theme_maker, translation, new_location, other; the words are{' '}
         <Mono>USE_LABELS</Mono> in <Mono>shared/pepperActions.js</Mono>), <Mono>model</Mono>, the four token counts, web searches,{' '}
         <Mono>units</Mono>, <Mono>cost_usd</Mono> and <Mono>ms</Mono>. <Mono>usageUnits()</Mono> and <Mono>usageCost()</Mono> both

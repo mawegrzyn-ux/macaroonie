@@ -43,6 +43,52 @@ export function Section() {
       <P>
         The phone app (<Mono>/mobile</Mono>) keeps its own hub and Today page for now.
       </P>
+      <H3>The ask bar (step 2c)</H3>
+      <P>
+        <Mono>admin/src/components/layout/AskBar.jsx</Mono> (it replaced the sidebar&apos;s <Mono>NavSearch.jsx</Mono>).
+        The results come from the browser, never the model: pages from <Mono>searchNavTree()</Mono> over the
+        person&apos;s own <Mono>nav_tree</Mono> plus the platform pages for platform admins (<Mono>searchTreeOf()</Mono>),
+        at most <Mono>PAGES_SHOWN</Mono> 8, then saved reports (<Mono>useReportMatches()</Mono>: GET /api/reports from two
+        letters, <Mono>searchReports()</Mono>), then an Ask Pepper row when the person can chat. Rows: <Mono>ask-result</Mono>{' '}
+        (<Mono>data-route</Mono>, <Mono>ask-result-label</Mono>, <Mono>ask-result-place</Mono>), <Mono>ask-report</Mono>{' '}
+        (<Mono>data-id</Mono>), <Mono>ask-pepper</Mono>, <Mono>ask-none</Mono>; the box <Mono>ask-input</Mono> (a combobox
+        with <Mono>aria-activedescendant</Mono>), <Mono>ask-clear</Mono>, <Mono>ask-pepper-button</Mono>. Arrow keys move
+        the lit row; Enter opens it, with none lit hands the words to Pepper (without Pepper: opens the first result);
+        Escape clears, and on an empty box closes the window.
+      </P>
+      <P>
+        <Mono>AppShell.jsx</Mono> lends the bar <Mono>AskContext</Mono>: <Mono>openBar()</Mono> focuses the bar on Home when
+        one is registered (<Mono>registerInline()</Mono>, the <Mono>inline</Mono> bar) and otherwise opens{' '}
+        <Mono>AskOverlay</Mono> (<Mono>ask-overlay</Mono>, closed by a pick, Escape, a tap outside or a page change);{' '}
+        <Mono>askPepper(words)</Mono> sets <Mono>pepperAsk</Mono> <Mono>{'{ text, id }'}</Mono> and opens the drawer, whose{' '}
+        <Mono>ask</Mono> starts a new chat (the remembered one is left in the history) and sends the words once that
+        chat is on screen (<Mono>ChatView</Mono>&apos;s <Mono>ask</Mono>, keyed by the ask so a second ask still sends).
+        Opened by the sidebar&apos;s Search or ask (<Mono>ask-open</Mono>, with a Ctrl K hint off touch screens), the
+        collapsed rail&apos;s and the touch rail&apos;s search buttons (<Mono>ask-open-rail</Mono>,{' '}
+        <Mono>ask-open-touch</Mono>), and <Mono>isAskShortcut()</Mono>: Ctrl or Cmd+K, or / outside a box, never inside a
+        rich text editor or an open window (<Mono>role=&quot;dialog&quot;</Mono>). On Home the bar has asks to tap for the
+        day (<Mono>dayAsks()</Mono> in <Mono>Home.jsx</Mono> from the feed&apos;s areas: <Mono>ask-suggestions</Mono>,{' '}
+        <Mono>ask-suggestion</Mono>).
+      </P>
+      <P>
+        The usage record: the bar calls <Mono>useSearchUse()</Mono> (typed, askedPepper, picked menu or report), as the
+        sidebar box did. Pepper&apos;s own menu search (<Mono>POST /api/ai/nav-search</Mono>, <Mono>routes/navAi.js</Mono>,
+        the <Mono>nav_search</Mono> use) was removed: the chat&apos;s <Mono>open_page</Mono> finds pages with the same
+        matcher.
+      </P>
+      <H3>Nav cards in Pepper&apos;s chat</H3>
+      <P>
+        In the staff chat <Mono>open_page</Mono>&apos;s result carries <Mono>nav_card</Mono>: one entry per page offered,{' '}
+        <Mono>{'{ page, section, icon, link, opens_at }'}</Mono> (section is where the page sits in the standard menu,{' '}
+        <Mono>opens_at</Mono> the venue, day, week and tab its link was built with by <Mono>pageLink()</Mono>). The
+        tool&apos;s <Mono>display()</Mono> turns it into a <Mono>{'{ type: \'nav\', pages }'}</Mono> item, keeping only links
+        into the app; <Mono>chat.js</Mono> streams it as a card and rebuilds it from the stored result in{' '}
+        <Mono>displayItems()</Mono>, like the form card. <Mono>ChatView</Mono>&apos;s <Mono>NavCard</Mono> draws it
+        (<Mono>chat-nav-card</Mono>, <Mono>chat-nav-page</Mono> <Mono>data-link</Mono>, <Mono>chat-nav-name</Mono>,{' '}
+        <Mono>chat-nav-section</Mono>, <Mono>chat-nav-at</Mono>, <Mono>chat-nav-open</Mono> through <Mono>Go</Mono>, so the
+        phone&apos;s <Mono>linkFor</Mono> applies). Over the staff connector there is no card: the result has the full
+        office <Mono>url</Mono> as before. Tests: <Mono>api/test/open-page.test.mjs</Mono>.
+      </P>
       <H3>Pins (migration 272)</H3>
       <P>
         Each person&apos;s own shortcuts, kept on the server so they follow the person to any device. Table{' '}

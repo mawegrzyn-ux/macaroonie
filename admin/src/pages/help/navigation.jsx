@@ -19,51 +19,26 @@ export function Section() {
       </P>
       <H3>Searching the menu</H3>
       <P>
-        The box at the top of the sidebar searches the menu. Type a page&apos;s name or what
-        you want to do — <strong>&ldquo;change staff pay&rdquo;</strong>,{' '}
-        <strong>&ldquo;fridge temperatures&rdquo;</strong>, <strong>&ldquo;allergy&rdquo;</strong> —
-        and the menu narrows to the links that fit, best match first, each saying which section
-        it sits in and, under its name, what the page is for. The search looks in those words
-        too, so a page is found by what it does as well as by what it is called. A match in a
-        page&apos;s own name comes first, then its everyday words, then its description.
-        A plural finds the singular and the other way round, so{' '}
+        The ask bar (on Home, or over any page: <strong>Search or ask</strong> at the top of the sidebar,
+        Ctrl+K, or <strong>/</strong>) searches the menu as you type. Type a page&apos;s name or what you want
+        to do — <strong>&ldquo;change staff pay&rdquo;</strong>,{' '}
+        <strong>&ldquo;fridge temperatures&rdquo;</strong>, <strong>&ldquo;allergy&rdquo;</strong> — and the
+        pages that fit show under the box, best match first, each saying what the page is for and which
+        section it sits in. The search looks in those words too, so a page is found by what it does as well
+        as by what it is called. A match in a page&apos;s own name comes first, then its everyday words, then
+        its description. A plural finds the singular and the other way round, so{' '}
         <strong>&ldquo;designers&rdquo;</strong> lists every designer and{' '}
-        <strong>&ldquo;tickets&rdquo;</strong> finds the Receipt &amp; ticket designer.
-        Filler words (how, do, I, change…) are ignored, so a whole question works.
-        Tap a result to open it, or tap the &times; (or press Escape) to bring the full menu
-        back. It only ever offers pages your role can open. When the sidebar is collapsed, the
-        magnifying glass opens it with the box ready to type into. A page
-        renamed in the Navigation designer is still found by its old words — the search knows
-        every page&apos;s everyday vocabulary as well as its label. In Launcher mode the
-        sidebar search still works, so any page is a few letters away even when the tiles
-        don&apos;t show it.
-      </P>
-      <H3>Asking Pepper to search the menu</H3>
-      <P>
-        When you&apos;re not sure what a page is called, ask Pepper. Type what you&apos;re after
-        in your own words — <strong>&ldquo;a guest wants their money back&rdquo;</strong>,{' '}
-        <strong>&ldquo;where do I see what the fryer cooked&rdquo;</strong> — then press{' '}
-        <strong>Enter</strong> or tap the <strong>Pepper button</strong> (the sparkles) at the
-        right of the search box. Pepper reads your words and picks the pages that fit best,
-        each with a line saying why, and writes a short note under them saying which to open
-        first. Tap a pick to open it, or press Enter again to open the first one. Typing again
-        goes back to the plain search; <strong>Show the menu&apos;s own matches</strong> does
-        the same without changing your words. If nothing in your menu does what you asked,
-        Pepper says so and offers the chat instead.
-      </P>
-      <P>
-        Pepper only picks from the pages your role can open, so it never sends you somewhere
-        you can&apos;t go. It needs Pepper switched on for your group and Pepper in your role;
-        without it, Enter opens the best match as before. Each search counts towards the
-        group&apos;s monthly Pepper allowance and your daily share (it&apos;s a small one).
+        <strong>&ldquo;tickets&rdquo;</strong> finds the Receipt &amp; ticket designer. Filler words (how, do,
+        I, change…) are ignored, so a whole question works. It only ever offers pages your role can open, and
+        a page renamed in the Navigation designer is still found by its old words. When nothing fits, or you
+        would rather ask, press Enter and Pepper takes the words (see Home, The ask bar).
       </P>
       <H3>What each menu entry is for</H3>
       <P>
         Every entry in the menu has a short description: a sentence or two, 260 characters at
         most, saying what the page is for. It shows under the entry&apos;s name in the search
         results, as the tooltip when you hold the pointer over a link or a section heading in
-        the sidebar, and on each row of the Navigation page. Pepper reads it too, when it
-        searches the menu for you or gives you a link to a page.
+        the sidebar, and on each row of the Navigation page.
       </P>
       <P>
         Each page comes with standard words. To write your own (your group&apos;s name for a

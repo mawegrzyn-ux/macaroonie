@@ -2,8 +2,10 @@
 //
 // Home (/): where the day starts, for every group and role (Pepper-first
 // step 2b, reports/AI first back office strategy.md "Home: the day comes to
-// the person", decision 2). From the top: the person's pins
-// (components/home/Pins.jsx), the day at a glance, what needs doing at the
+// the person", decision 2). From the top: the ask bar (step 2c,
+// components/layout/AskBar.jsx: pages and saved reports found as you type with
+// no model call, Enter hands the words to Pepper; asks to tap for the day
+// under it), the person's pins (components/home/Pins.jsx), the day at a glance, what needs doing at the
 // venue grouped Late / Now / Next / Later (GET /api/ops/today, worked out from
 // data and rules, so it all works with Pepper switched off), each task with
 // one action: a form opened right here (the same shared panels the Food
@@ -16,7 +18,7 @@
 //
 // The parts are exported for the phone's Today (pages/mobile/MobileToday.jsx).
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -30,6 +32,7 @@ import { cn } from '@/lib/utils'
 import { usePepperPage } from '@/lib/pepperPage'
 import { FormSheet, Go } from '@/components/forms/FormSheet'
 import PinStrip from '@/components/home/Pins'
+import AskBar from '@/components/layout/AskBar'
 
 export { FormSheet }
 import { addDays } from '@shared/localInfo.js'
@@ -103,6 +106,7 @@ export default function Home() {
 
   const { text: hello, Icon: HelloIcon } = greeting(d?.now)
   const name = firstName(me)
+  const suggestions = useMemo(() => dayAsks(d?.tasks || []), [d?.tasks])
 
   return (
     <div className="h-full flex flex-col overflow-hidden bg-page">
@@ -125,6 +129,8 @@ export default function Home() {
 
       <div className="flex-1 min-h-0 overflow-y-auto" data-testid="home">
         <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-4">
+          <AskBar inline suggestions={suggestions} />
+
           <section className="rounded-lg border bg-background overflow-hidden" data-testid="home-pins">
             <div className="section-head px-4 py-2.5 flex items-center gap-2">
               <Pin className="w-4 h-4 shrink-0" />
@@ -171,6 +177,18 @@ export default function Home() {
   )
 }
 
+/** Asks to tap under the bar on Home, for what is on today (H6 of docs/CHAT_FIRST.md). */
+export function dayAsks(tasks) {
+  const areas = new Set(tasks.map(t => t.area))
+  return [
+    'Brief me on today',
+    areas.has('food_safety') || areas.has('checklists') ? 'Which H&S checks are still to do today?' : null,
+    areas.has('purchasing') ? 'Which supplier orders still need sending?' : null,
+    'What is booked for tonight?',
+    'Who is working today?',
+  ].filter(Boolean).slice(0, 4)
+}
+
 /** H2: bookings, big parties, who's on, closed. */
 export function Glance({ d, linkFor }) {
   const b = d.summary?.bookings
@@ -184,7 +202,7 @@ export function Glance({ d, linkFor }) {
   return (
     <div className="flex flex-wrap gap-2 mt-4" data-testid="today-glance">
       {chips.map(c => {
-        const cls = cn('inline-flex items-center gap-1.5 rounded-full border px-3 min-h-[36px] text-sm touch-manipulation',
+        const cls = cn('inline-flex items-center gap-1.5 rounded-full border px-3 min-h-[48px] text-sm touch-manipulation',
           c.tone === 'amber' ? 'bg-amber-50 border-amber-300 text-amber-900' : c.tone === 'sky' ? 'bg-sky-50 border-sky-300 text-sky-900' : 'bg-muted/50')
         const inner = <><c.Icon className="w-4 h-4 shrink-0" /><span>{c.text}</span></>
         return c.to ? <Go key={c.key} to={c.to} linkFor={linkFor} className={cn(cls, 'hover:bg-accent')}>{inner}</Go> : <span key={c.key} className={cls}>{inner}</span>

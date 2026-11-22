@@ -48,8 +48,8 @@ export function Section() {
       />
       <H3>The menu search</H3>
       <P>
-        The sidebar&apos;s search box (8 Nov 2026) narrows the menu to the links that fit what
-        was typed. The rules are one shared file, <Mono>shared/navSearch.js</Mono>:{' '}
+        The menu search (8 Nov 2026; since Pepper-first step 2c it is the ask bar, see Home, pins and
+        the ask bar) finds the links that fit what was typed. The rules are one shared file, <Mono>shared/navSearch.js</Mono>:{' '}
         <Mono>searchTerms()</Mono> splits the query into words and drops filler
         (<Mono>STOP_WORDS</Mono> — articles, question words and doing-words like
         <Mono> change</Mono>/<Mono>edit</Mono>; when every word is filler the words themselves
@@ -75,58 +75,20 @@ export function Section() {
         the platform-admin pages that live outside the catalogue.
       </P>
       <P>
-        The UI is <Mono>admin/src/components/layout/NavSearch.jsx</Mono> (input + results
-        list), wired in <Mono>AppShell.jsx</Mono>: it searches the role-pruned{' '}
-        <Mono>nav_tree</Mono> (so results never offer a page the person can&apos;t open, and it
-        works in launcher mode too), appends a Platform section for platform admins, clears on
-        Escape or the &times;, and (without Pepper) opens the best match on Enter. The collapsed icon rail and the touch burger rail
-        each have a search button that opens the sidebar with the box focused. Tests:{' '}
+        The UI is the ask bar, <Mono>admin/src/components/layout/AskBar.jsx</Mono>: it searches the role-pruned{' '}
+        <Mono>nav_tree</Mono> (so results never offer a page the person can&apos;t open) with a Platform section
+        added for platform admins (<Mono>searchTreeOf()</Mono>). Tests:{' '}
         <Mono>shared/test/navSearch.test.mjs</Mono> (terms, matching, ranking), plus a drift
         check in <Mono>api/test/nav-default.test.mjs</Mono> — every catalogue route must have
         keywords and no keyword entry may point at a route that is gone, so a new page
         can&apos;t ship without search words.
       </P>
-      <H3>Pepper in the menu search</H3>
       <P>
-        With Pepper (9 Nov 2026), typing still filters locally with no AI; <strong>Enter</strong>{' '}
-        or the Pepper button inside the box calls <Mono>POST /api/ai/nav-search</Mono>{' '}
-        <Mono>{'{ query }'}</Mono> (<Mono>routes/navAi.js</Mono>, under <Mono>/api/ai</Mono> for the
-        proxy timeout; <Mono>requireAuth</Mono> + <Mono>ai_assistant</Mono> view,{' '}
-        <Mono>pepperOn()</Mono>, 20 a minute). The server builds the caller&apos;s own menu with{' '}
-        <Mono>navTreeFor(req)</Mono> (<Mono>services/navTree.js</Mono>: <Mono>nav_items</Mono>{' '}
-        pruned exactly as <Mono>/api/me</Mono> prunes them, now sharing{' '}
-        <Mono>navItemVisible()</Mono> / <Mono>buildNavTree()</Mono> / <Mono>pruneNavTree()</Mono>{' '}
-        with it), flattens it with <Mono>navLinksOf()</Mono>, adds Platform and Backlog for
-        platform admins, and offers each link once as a ref (<Mono>L1</Mono>,{' '}
-        <Mono>L2</Mono>, …) with its label, where it sits, what the page is for (its description,
-        since migration 241) and its <Mono>NAV_KEYWORDS</Mono>: one line per link from{' '}
-        <Mono>linkLines()</Mono>, <Mono>{'L1 | label | in: place | about: description | covers: words'}</Mono>,
-        with line breaks flattened and <Mono>|</Mono> turned into <Mono>/</Mono> in every field, so
-        a description a group typed can&apos;t start a new link line or add a field.{' '}
-        <Mono>askForJson()</Mono> runs with <Mono>model: &apos;fast&apos;</Mono>{' '}
-        (<Mono>AI_MODEL_FAST</Mono>), effort low and <Mono>NAV_SEARCH_SCHEMA</Mono>{' '}
-        (<Mono>{'{ picks: [{ ref, why }], note }'}</Mono>); <Mono>picksFrom()</Mono> maps refs
-        back onto the links, dropping unknown refs and repeats, at most{' '}
-        <Mono>MAX_PICKS</Mono> (5), reasons cut to 140 and the note to 400 characters. Reply:{' '}
-        <Mono>{'{ picks: [{ label, route, icon, path, why }], note }'}</Mono>. The model never
-        sees or returns a route, so it can&apos;t send anyone to a page outside their menu. Usage
-        is counted like every Pepper call (<Mono>addUsage()</Mono> with the person, against the
-        monthly allowance and the daily share).
-      </P>
-      <P>
-        Admin: <Mono>usePepperNavSearch()</Mono> in <Mono>NavSearch.jsx</Mono> keeps one answer
-        for the query it was asked about (<Mono>forQuery(q)</Mono>; a slower answer to an
-        earlier query is ignored), <Mono>NavSearchInput</Mono> gets the Pepper button
-        (<Mono>nav-search-pepper</Mono>, a spinner while asking) and the Enter rule (Pepper&apos;s
-        answer on screen: open its first pick; otherwise ask), and{' '}
-        <Mono>PepperNavResults</Mono> draws the picks (<Mono>nav-pepper-pick</Mono>,{' '}
-        <Mono>nav-pepper-why</Mono>), the note (<Mono>nav-pepper-note</Mono>), Ask in the chat
-        when nothing fits, Show the menu&apos;s own matches, and the loading and error states.
-        The local results show a hint line (<Mono>nav-search-hint</Mono>); the no-match state&apos;s
-        button now asks Pepper to find it. Tests: <Mono>api/test/nav-search-ai.test.mjs</Mono>{' '}
-        (the exact links <Mono>/api/me</Mono> gives the person, picks back as links, the
-        everyday model, usage, a role&apos;s pages never leaking, platform pages, refusals,
-        tenants apart).
+        Pepper&apos;s own menu search (9 Nov 2026: <Mono>POST /api/ai/nav-search</Mono>,{' '}
+        <Mono>routes/navAi.js</Mono>, picks from refs L1..Ln on the everyday model, shown in the sidebar as
+        Pepper&apos;s picks) was retired with step 2c: one of the three page matchers the strategy made into one.
+        Enter in the ask bar now hands the words to Pepper&apos;s chat, whose <Mono>open_page</Mono> finds pages with
+        the same <Mono>searchNavTree()</Mono> and answers with a nav card.
       </P>
       <H3>Descriptions</H3>
       <P>
@@ -148,10 +110,10 @@ export function Section() {
         head={['Where', 'What happens']}
         rows={[
           ['Search (matchLink())', 'A term counts once, at the best place it hits: the link\'s own name 4, its page\'s search words or route 3, its description 2, a section above it 1 (SEARCH_WEIGHTS), each 0.5 less when the hit is another form of the word (a plural). Every term must hit somewhere. Results sort by score, then by how many terms are in the link\'s own name (labelHits), then by name. A section\'s description is shown, never searched through its links.'],
-          ['Results (NavSearch.jsx)', 'Name (nav-search-label, wraps), the description under it (nav-search-description, three lines at most, the whole of it in its tooltip), then where the link sits (nav-search-place, from placeText(): a name said once when a section and the link under it share it).'],
+          ['Results (AskBar.jsx)', 'Name (ask-result-label, wraps), the description under it (two lines at most, the whole of it in its tooltip), then where the link sits (ask-result-place, from placeText(): a name said once when a section and the link under it share it).'],
           ['Sidebar (AppShell.jsx)', 'A link\'s or section\'s tooltip is its description (toNavItem()).'],
           ['Navigation designer', 'Each row shows the description (nav-row-description, data-own when it is the entry\'s own words). The add / edit form has a Description box (nav-description) with the page\'s standard words as its placeholder, a counter to 260 (nav-description-count), a hint (nav-description-hint) and Use the standard words (nav-description-standard). Save waits while it is too long.'],
-          ['Pepper', 'The menu search\'s link lines carry it as about: (linkLines() in routes/navAi.js). open_page returns the page\'s standard description as about (ai/tools/general.js).'],
+          ['Pepper', 'open_page returns the page\'s standard description as about (ai/tools/general.js).'],
         ]}
       />
       <P>

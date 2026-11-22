@@ -15,6 +15,7 @@
 // (pages/Dashboard.jsx); both read the same ['pins'] query.
 
 import { useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as LucideIcons from 'lucide-react'
@@ -144,7 +145,8 @@ function PinEditor({ pins, links, venues, save, onClose }) {
     }
   }
 
-  return (
+  // On document.body, so it covers the whole screen (the menu too), wherever the strip is.
+  return createPortal(
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-label="Your pins" data-testid="pins-editor"
         className="w-full sm:max-w-2xl bg-background rounded-t-xl sm:rounded-xl shadow-xl flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
@@ -209,7 +211,8 @@ function PinEditor({ pins, links, venues, save, onClose }) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -220,13 +223,16 @@ function PinRow({ pin, page, venues, onChange, onRemove }) {
   const field = 'h-12 rounded-md border bg-background px-2 text-sm touch-manipulation min-w-0'
   return (
     <li ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} data-testid="pins-row" data-path={pin.path}
-      className={cn('border rounded-lg bg-background flex flex-wrap items-center gap-2 p-2', isDragging && 'shadow-lg relative z-10')}>
+      className={cn('border rounded-lg bg-background flex items-center gap-2 p-2', isDragging && 'shadow-lg relative z-10')}>
       <button type="button" ref={setActivatorNodeRef} {...attributes} {...listeners} aria-label={'Move ' + (page?.label || pin.path)}
         data-testid="pins-grip" className="w-12 h-12 shrink-0 flex items-center justify-center rounded-md text-muted-foreground hover:bg-accent cursor-grab touch-none">
         <GripVertical className="w-5 h-5" />
       </button>
-      <Icon className="w-4 h-4 shrink-0 text-primary" />
-      <span className="font-medium text-sm min-w-[6rem] flex-[1_1_8rem] truncate">{page?.label || pin.path}</span>
+      <div className="flex-1 min-w-0 flex flex-wrap items-center gap-2">
+      <span className="flex items-center gap-2 min-w-[6rem] flex-[1_1_8rem]">
+        <Icon className="w-4 h-4 shrink-0 text-primary" />
+        <span className="font-medium text-sm truncate">{page?.label || pin.path}</span>
+      </span>
       <input value={pin.label || ''} maxLength={LABEL_MAX} onChange={e => onChange({ label: e.target.value })}
         placeholder="Own name (optional)" aria-label="Own name for this pin" data-testid="pins-label"
         className={cn(field, 'flex-[1_1_9rem]')} />
@@ -244,6 +250,7 @@ function PinRow({ pin, page, venues, onChange, onRemove }) {
           {tabs.map(t => <option key={t} value={t}>{tabName(t)}</option>)}
         </select>
       )}
+      </div>
       <button type="button" onClick={onRemove} aria-label={'Take ' + (page?.label || pin.path) + ' off'} data-testid="pins-remove"
         className="w-12 h-12 shrink-0 flex items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive touch-manipulation">
         <X className="w-4 h-4" />

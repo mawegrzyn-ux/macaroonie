@@ -407,11 +407,11 @@ export function Section() {
       <H3>Finding a page</H3>
       <P>
         Ask <em>"Where do I change the opening times?"</em> or <em>"Take me to the rota"</em>{' '}
-        and Pepper replies with a link to the page; tap it to go there. It only offers pages
-        you can open. Quicker still: type it into the search box at the top of the menu and
-        press Enter, and Pepper picks the pages for you there (see Asking Pepper to search
-        the menu). Pepper finds pages by the same names and search words as the menu search
-        box.
+        and Pepper replies with a card for the page: its name, where it sits in the menu, the venue,
+        day or tab it opens at, and <strong>Open</strong>. It only offers pages you can open. Quicker
+        still: type the page&apos;s name into the ask bar and tap it in the list, with no wait for
+        Pepper (see Home, The ask bar). Pepper finds pages by the same names and search words as the
+        bar.
       </P>
       <P>
         Say the venue, the day or week and the part of the page you want, and the link opens
@@ -601,7 +601,7 @@ export function Section() {
       </P>
       <H3>What each request to the AI model costs</H3>
       <P>
-        Every time Pepper asks the AI model something (a step of a chat, a menu search, reading an
+        Every time Pepper asks the AI model something (a step of a chat, reading an
         invoice or a menu, building a report, a local info search) it is kept for 90 days: when,
         what for, which model answered, how much it read and wrote, how long it took and what it
         cost. In <strong>Reports</strong>, the starter <strong>Pepper&apos;s cost by model</strong> shows
