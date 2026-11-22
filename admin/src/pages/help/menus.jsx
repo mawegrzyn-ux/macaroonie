@@ -207,10 +207,15 @@ export function Section() {
         the menu, so a change goes live when you publish.
       </P>
       <P>
-        Still to come: the allergen matrix, the Allergens page, the kiosk, the till and the
-        ordering page leaving non-food out of their allergen checks, kitchen screens skipping
-        retail and services, product codes and barcodes, and the word Catalogue for a menu that
-        isn&apos;t food.
+        What guests and staff see leaves retail goods and services out of allergens: the
+        allergen matrix and the Allergens page don&apos;t list them, and on the till, kiosks, the
+        website, online ordering and printed menus they show no allergens, diet tags or calories
+        (a kiosk doesn&apos;t say &ldquo;No allergens listed&rdquo; for them). Pepper doesn&apos;t
+        offer them as answers to allergy questions.
+      </P>
+      <P>
+        Still to come: kitchen screens skipping retail and services, product codes and barcodes,
+        and the word Catalogue for a menu that isn&apos;t food.
       </P>
       <H3>Copying dishes, sections and options</H3>
       <P>

@@ -94,3 +94,40 @@ test('a food menu published before types existed is still in step with its draft
   const live = await withTenant(ids.a, tx => loadMenuVersion(tx, lunch.id, ids.a))
   assert.equal(itemType(live.sections[0].items[0], live.sections[0], live), 'food')
 })
+
+// Step 2 (docs/CATALOGUE.md 4.6): the allergen surfaces leave retail goods and
+// services out. The draft keeps their tags; guests and devices never see them.
+test('the allergen matrix, the lookup and what guests are served leave non-food out', async () => {
+  const { loadMenuVersions } = await import('../src/services/menuReleases.js')
+  const tags = await ok(owner.get('/api/menus/dietary/all'))
+  const milk = tags.find(t => t.standard_key === 'milk') || tags.find(t => t.kind === 'allergen')
+  assert.ok(milk, 'the seed has an allergen tag')
+  const cafe = await ok(owner.post('/api/menus', { name: 'Cafe', slug: 'cafe' }))
+  const full = await ok(owner.get(`/api/menus/${cafe.id}`))
+  await ok(owner.patch(`/api/menus/${cafe.id}`, {
+    ...menuSaveBody(full),
+    sections: [{ title: 'Counter', items: [
+      { name: 'Latte', price_pence: 350, dietary: [milk.code], calories: 120 },
+      { name: 'Milk jug', price_pence: 800, item_type: 'goods', dietary: [milk.code], calories: 9 },
+    ] }],
+  }))
+  // The draft keeps the jug's tag (switching back loses nothing) ...
+  const draft = await ok(owner.get(`/api/menus/${cafe.id}`))
+  assert.deepEqual(draft.sections[0].items[1].dietary, [milk.code])
+  // ... but the allergen matrix leaves it out, draft and live.
+  const matrix = await ok(owner.get(`/api/menus/${cafe.id}/allergens`))
+  assert.deepEqual(matrix.sections[0].items.map(i => i.name), ['Latte'])
+  await ok(owner.post(`/api/menus/${cafe.id}/publish`, {}))
+  const lookup = await ok(owner.get(`/api/menus/${cafe.id}/allergens?version=live`))
+  assert.deepEqual(lookup.sections[0].items.map(i => i.name), ['Latte'])
+
+  // What tills, kiosks, the website and ordering read: resolved, the jug with no allergens or calories.
+  const [live] = await withTenant(ids.a, tx => loadMenuVersions(tx, ids.a, { menuIds: [cafe.id] }))
+  const [latte, jug] = live.sections[0].items
+  assert.deepEqual([latte.item_type, latte.dietary, latte.calories], ['food', [milk.code], 120])
+  assert.deepEqual([jug.item_type, jug.dietary, jug.allergen_levels, jug.calories], ['goods', [], {}, null])
+
+  // The publish diff still sees the draft and the release as the same.
+  const status = await ok(owner.get(`/api/menus/${cafe.id}/publish`))
+  assert.equal(status.in_sync, true, JSON.stringify(status.changes))
+})

@@ -36,7 +36,7 @@ import {
 import { FONT_OPTIONS } from '../../../shared/fonts.js'
 import { ALLERGEN_LEVELS, allergenKey, menuTags, noticeOf } from '../../../shared/menuTags.js'
 import { cleanTax } from '../../../shared/tax.js'
-import { ITEM_TYPES, cleanItemType } from '../../../shared/catalogue.js'
+import { ITEM_TYPES, cleanItemType, itemType, resolveItemTypes, needsAllergens } from '../../../shared/catalogue.js'
 import { comboMenuPrice, variantOptionId } from '../../../shared/orderPricing.js'
 import { PICK_SCALE_MIN, PICK_SCALE_MAX, DEAL_USES, DEAL_PRICE_MAX, normaliseDealGroups } from '../../../shared/combos.js'
 import { taxLookups, checkTaxSetting } from '../services/taxSvc.js'
@@ -487,7 +487,7 @@ const AllergenMatrixBody = z.object({
 export async function loadAllergenMatrix(tx, menuId, tenantId, { version = 'draft' } = {}) {
   if (version === 'live') return liveAllergenMatrix(tx, menuId, tenantId)
   const [menu] = await tx`
-    SELECT m.id, m.name, m.updated_at, v.name AS venue_name
+    SELECT m.id, m.name, m.updated_at, m.item_type, v.name AS venue_name
       FROM menus m LEFT JOIN venues v ON v.id = m.venue_id
      WHERE m.id = ${menuId} AND m.tenant_id = ${tenantId}
   `
@@ -495,9 +495,9 @@ export async function loadAllergenMatrix(tx, menuId, tenantId, { version = 'draf
   const [tags, sections, items, links] = await Promise.all([
     tx`SELECT id, code, label, glyph, colour, sort_order, kind, standard_key, show_on_menu FROM menu_dietary_tags
         WHERE tenant_id = ${tenantId} ORDER BY kind, sort_order, label`,
-    tx`SELECT id, title, visibility, sort_order FROM menu_sections
+    tx`SELECT id, title, visibility, sort_order, item_type FROM menu_sections
         WHERE menu_id = ${menuId} AND tenant_id = ${tenantId} ORDER BY sort_order, title`,
-    tx`SELECT i.id, i.section_id, i.name, i.native_name, i.description, i.sort_order
+    tx`SELECT i.id, i.section_id, i.name, i.native_name, i.description, i.sort_order, i.item_type
          FROM menu_items i JOIN menu_sections s ON s.id = i.section_id
         WHERE s.menu_id = ${menuId} AND i.tenant_id = ${tenantId}
         ORDER BY i.sort_order, i.name`,
@@ -509,12 +509,16 @@ export async function loadAllergenMatrix(tx, menuId, tenantId, { version = 'draf
   const tagsByItem = {}
   for (const l of links) (tagsByItem[l.item_id] ||= {})[l.tag_id] = l.level
   const bySection = {}
+  const sectionById = new Map(sections.map(s => [s.id, s]))
   for (const i of items) {
+    // Retail goods and services have no allergens (migration 267): left out.
+    if (!needsAllergens(itemType(i, sectionById.get(i.section_id), menu))) continue
     (bySection[i.section_id] ||= []).push({
       id: i.id, name: i.name, native_name: i.native_name, description: i.description,
       levels: tagsByItem[i.id] || {},
     })
   }
+  delete menu.item_type
   return {
     menu,
     tags,
@@ -527,8 +531,10 @@ export async function loadAllergenMatrix(tx, menuId, tenantId, { version = 'draf
 // The allergen matrix of the live version (migration 165): what guests are
 // served, for the Allergen lookup. Same shape as the draft matrix.
 async function liveAllergenMatrix(tx, menuId, tenantId) {
-  const full = await loadMenuVersion(tx, menuId, tenantId)
+  // Retail goods and services have no allergens (migration 267): left out.
+  const full = resolveItemTypes(await loadMenuVersion(tx, menuId, tenantId))
   if (!full) return null
+  for (const s of full.sections || []) s.items = (s.items || []).filter(i => needsAllergens(i.item_type))
   const [meta] = await tx`
     SELECT m.updated_at, v.name AS venue_name FROM menus m LEFT JOIN venues v ON v.id = ${full.venue_id ?? null}
      WHERE m.id = ${menuId} AND m.tenant_id = ${tenantId}`
@@ -672,7 +678,8 @@ function remapLayout(layout, newId) {
 // colour, and for a venue-scoped menu the venue's address and phone.
 // Used by the print page and by the menu designer, so both show the same.
 async function loadPrintMenu(tx, menuId, tenantId, { version = 'draft', releaseId = null } = {}) {
-  const menu = await loadMenuVersion(tx, menuId, tenantId, { version, releaseId })
+  // Printed as guests see it: no allergens or calories on retail goods and services.
+  const menu = resolveItemTypes(await loadMenuVersion(tx, menuId, tenantId, { version, releaseId }))
   if (!menu) return null
   const [meta] = await tx`
     SELECT t.name AS tenant_name, ts.logo_url, ts.primary_colour,
@@ -1086,7 +1093,7 @@ export default async function menusRoutes(app) {
     `
     if (!meta || !meta.site_published) throw httpError(404, 'Menu not found or not published')
     // The live version (migration 165): its own "shown to guests" setting decides.
-    const data = await withTenant(meta.tenant_id, tx => loadMenuVersion(tx, req.params.menuId, meta.tenant_id))
+    const data = resolveItemTypes(await withTenant(meta.tenant_id, tx => loadMenuVersion(tx, req.params.menuId, meta.tenant_id)))
     if (!data || !data.is_published) throw httpError(404, 'Menu not found or not published')
     // Website only shows sections set to show everywhere (migration 136)
     // and tags shown on menus (migration 146).

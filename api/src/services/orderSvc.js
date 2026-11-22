@@ -234,6 +234,7 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
       id: it.id, section_id: s.id, name: it.name, native_name: it.native_name || null, kind: it.kind === 'combo' ? 'combo' : 'dish',
       description: it.description || null, notes: it.notes || null,
       image_url: it.image_url || null, calories: it.calories ?? null,
+      item_type: it.item_type || 'food',   // resolved by loadMenuVersions() (migration 267)
       dietary: (it.dietary || []).filter(c => shownCodes.has(c)),
       allergen_levels: Object.fromEntries(Object.entries(it.allergen_levels || {}).filter(([c]) => shownCodes.has(c))),
       price_pence: it.price_pence ?? null,
