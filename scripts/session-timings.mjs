@@ -5,7 +5,9 @@
 // estimate of what they cost, and what the commits in the window changed.
 //
 //   node scripts/session-timings.mjs --log <session.jsonl> --from <ISO> --to <ISO>
-//        [--label "48.1 build"] [--commits <from>..<to>] [--json]
+//        [--label "48.1 build"] [--commits <from>..<to>] [--json] [--agent]
+//
+// --agent reads an agent's own log (<session>/subagents/agent-<id>.jsonl), whose records are sidechain.
 //
 // The log is ~/.claude/projects/<project>/<session id>.jsonl. Times are UTC.
 // Phases come from the tool and, for shell commands, the command itself
@@ -74,7 +76,7 @@ for (const line of fs.readFileSync(log, 'utf8').split('\n')) {
   if (!line) continue
   let r
   try { r = JSON.parse(line) } catch { continue }
-  if (r.isSidechain) continue
+  if (r.isSidechain && !process.argv.includes('--agent')) continue
   const at = r.timestamp ? new Date(r.timestamp).getTime() : null
   if (!at || at < from - 3600e3 || at > to + 3600e3) continue
   const content = r.message?.content

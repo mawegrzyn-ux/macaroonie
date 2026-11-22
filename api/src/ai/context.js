@@ -197,26 +197,49 @@ const OTHER = [UNIT_PRICE, UNIT_PRICE * 5, UNIT_PRICE * 0.1, UNIT_PRICE * 1.25]
 const SEARCH_PRICE = 10_000   // millionths of a dollar per search
 export const SEARCH_UNITS = SEARCH_PRICE / UNIT_PRICE
 
-export function usageUnits({ input = 0, output = 0, cacheRead = 0, cacheWrite = 0, searches = 0 }, model = null) {
+// What a call cost, in millionths of a dollar: tokens x $ per million tokens
+// at the model's prices, and each web search.
+function costMicros({ input = 0, output = 0, cacheRead = 0, cacheWrite = 0, searches = 0 }, model) {
   const [pIn, pOut, pRead, pWrite] = PRICES[model] ?? OTHER
   const rate = (input + cacheRead + cacheWrite > LONG_PROMPT && LONG_PROMPT_RATE[model]) || 1
-  // In millionths of a dollar: tokens x $ per million tokens.
-  const cost = (input * pIn + output * pOut + cacheRead * pRead + cacheWrite * pWrite) * rate + searches * SEARCH_PRICE
-  return Math.round(cost / UNIT_PRICE)
+  return (input * pIn + output * pOut + cacheRead * pRead + cacheWrite * pWrite) * rate + searches * SEARCH_PRICE
 }
+
+export function usageUnits(tokens, model = null) {
+  return Math.round(costMicros(tokens, model) / UNIT_PRICE)
+}
+
+/** What a call cost in dollars at the list prices (PRICES; OTHER for a model not in it). */
+export function usageCost(tokens, model = null) {
+  return Math.round(costMicros(tokens, model)) / 1e6
+}
+
+// What a model call was for (ai_requests.use, migration 271): the words are
+// USE_LABELS in shared/pepperActions.js.
+export const USES = ['chat', 'nav_search', 'smart_builder', 'menu_reader', 'invoice_reader', 'receipt_reader', 'local_info', 'theme_maker', 'translation', 'new_location', 'other']
 
 /** The web searches a model response made (usage.server_tool_use). */
 export const searchesIn = usage => Math.max(0, Number(usage?.server_tool_use?.web_search_requests) || 0)
 
 /** Add to this month's usage for a tenant + channel, and to the person's day
  *  (staff only: `person` = { sub, email }). `model` is the one that answered,
- *  `searches` the web searches the response made. */
-export async function addUsage(tenantId, channel, { requests = 1, input = 0, output = 0, cacheRead = 0, cacheWrite = 0, searches = 0, model = null, person = null } = {}) {
+ *  `searches` the web searches the response made. A call with a `model` is a
+ *  model request and is also kept on its own (ai_requests, migration 271):
+ *  `use` says what it was for (USES), `ms` how long the call took. */
+export async function addUsage(tenantId, channel, { requests = 1, input = 0, output = 0, cacheRead = 0, cacheWrite = 0, searches = 0, model = null, person = null, use = 'other', ms = null } = {}) {
   if (!tenantId) return
   const month = usageMonth()
-  const units = usageUnits({ input, output, cacheRead, cacheWrite, searches }, model)
+  const tokens = { input, output, cacheRead, cacheWrite, searches }
+  const units = usageUnits(tokens, model)
   try {
     await withTenant(tenantId, async tx => {
+      if (model) {
+        await tx`
+          INSERT INTO ai_requests (tenant_id, channel, use, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, web_searches, units, cost_usd, ms)
+          VALUES (${tenantId}, ${channel}, ${USES.includes(use) ? use : 'other'}, ${String(model).slice(0, 100)}, ${input}, ${output}, ${cacheRead}, ${cacheWrite},
+                  ${searches}, ${units}, ${usageCost(tokens, model)}, ${Number.isFinite(ms) && ms >= 0 ? Math.round(ms) : null})
+        `
+      }
       await tx`
         INSERT INTO ai_usage (tenant_id, month, channel, requests, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, units, web_searches)
         VALUES (${tenantId}, ${month}, ${channel}, ${requests}, ${input}, ${output}, ${cacheRead}, ${cacheWrite}, ${units}, ${searches})

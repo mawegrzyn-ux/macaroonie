@@ -11,6 +11,11 @@ export async function fill(ctx) {
   const { viewerRole } = made
   const navItem = await step('nav item', () => post('/api/nav/items', { label: mark + ' Link', route: '/rota', parent_id: null }))
   if (navItem && viewerRole) await step('nav item roles', () => patch(`/api/nav/items/${navItem.id}`, { hidden_role_ids: [viewerRole.id] }))
+  // ── The usage record (migration 270): a page and a menu search ──
+  await step('usage record', () => post('/api/usage/events', { events: [
+    { kind: 'page', path: '/rota' },
+    { kind: 'search', query: mark + ' fridge', results: 2, pepper: true, picked: 'pepper', path: '/food-safety' },
+  ] }))
 }
 
 export async function fillLate(ctx) {

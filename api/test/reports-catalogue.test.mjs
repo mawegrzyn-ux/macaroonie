@@ -215,14 +215,16 @@ test('nothing secret is read, every module asked for exists, and no SQL leaves t
   for (const m of CATALOGUE_MODULES) assert.ok(MODULE_KEYS.includes(m), m)
   assert.deepEqual([...CATALOGUE_MODULES].sort(), [
     'ai_assistant', 'bookings', 'cash_recon', 'checklists', 'customers', 'email_templates', 'feature_requests', 'food_safety', 'hs_action_log',
-    'issue_log', 'local_info', 'loyalty', 'loyalty_members', 'menus', 'pos_reports', 'pos_setup', 'promotions', 'purchasing', 'purchasing_setup',
+    'issue_log', 'local_info', 'loyalty', 'loyalty_members', 'menus', 'nav_designer', 'pos_reports', 'pos_setup', 'promotions', 'purchasing', 'purchasing_setup',
     'reports', 'rota', 'rota_pay', 'rota_tips', 'screens', 'staff', 'team', 'venues', 'web_orders', 'website',
   ])
   for (const s of Object.values(CATALOGUE.subjects)) {
     assert.ok(AREAS.some(a => a.key === s.area), s.key + ' area')
     // Only the venue list and the role names are open to everyone who can use
-    // reports (every signed-in person sees the role names, on Team and Access).
-    if (!['venue', 'group.roles'].includes(s.key)) assert.ok(s.module, s.key + ' needs a module')
+    // reports (every signed-in person sees the role names, on Team and Access),
+    // and each person's own usage record (its rule reads {me}: only theirs).
+    if (!['venue', 'group.roles', 'usage.mine'].includes(s.key)) assert.ok(s.module, s.key + ' needs a module')
+    if (!s.module && s.key !== 'venue' && s.key !== 'group.roles') assert.match(s.where || '', /\{me\}/, s.key + ' with no module is the person\'s own')
     assert.ok(s.about.length > 20, s.key + ' says what it is')
     for (const f of Object.values(s.fields)) assert.ok(f.label && f.type, s.key + '.' + f.key)
   }

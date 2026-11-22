@@ -11,6 +11,8 @@
 //   - the tenant is $1 in every statement, on the base rows and on every
 //     row joined to them (row-level security is on as well: reports run
 //     through withReport(), as the tenant);
+//   - {me} in a subject's rule is the person running it, as a parameter
+//     (env.userKey): a subject that is each person's own record;
 //   - a field the person's role can't see is left out of a list with a
 //     note; a report that groups, filters or sorts by one is refused.
 //
@@ -79,6 +81,7 @@ class Statement {
     this.params = [env.tenantId]
     this.n = 0
     this.tzParam = null
+    this.meParam = null
     this.works = new Set()
   }
   /** A subject's rows as SQL, noting the rows worked out for the run this statement reads. */
@@ -91,6 +94,13 @@ class Statement {
     return '$' + this.params.length + '::' + cast
   }
   alias(prefix = 't') { return prefix + this.n++ }
+  // The person running the report (their auth0 sub): {me} in a subject's
+  // rule, for a record that is each person's own (the usage record). No
+  // person, no rows: '' matches nobody.
+  me() {
+    if (!this.meParam) this.meParam = this.p(this.env.userKey || '', 'text')
+    return this.meParam
+  }
   // The group's own time zone, for rows with no venue.
   tz() {
     if (!this.tzParam) this.tzParam = this.p(this.env.tz || 'Europe/London', 'text')
@@ -134,6 +144,7 @@ class Scope {
     return template.replace(/\{([a-z_][a-z0-9_]*)\}/g, (_, name) => {
       if (name === 't') return alias
       if (name === 'tz') return this.tzOf(alias, subject)
+      if (name === 'me') return this.st.me()
       return this.follow(alias, subject, name).alias
     })
   }
@@ -1053,8 +1064,8 @@ function compileParts(spec, env, period, { strict = false } = {}) {
 // ── The plan ─────────────────────────────────────────────────
 
 /**
- * Everything needed to run a definition: env = { tenantId, levels, params
- * (resolved), today, tz, spec }. Throws ReportError with sentences when it
+ * Everything needed to run a definition: env = { tenantId, userKey, levels,
+ * params (resolved), today, tz, spec }. Throws ReportError with sentences when it
  * can't be run.
  */
 export function compileReport(spec, envIn, { listLimit = SCREEN_ROWS + 1, open = true, strictParts = false } = {}) {

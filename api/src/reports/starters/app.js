@@ -44,6 +44,21 @@ export const starters = [
   }),
 
   starter({
+    key: 'pepper_cost_by_model',
+    name: ASSISTANT_NAME + '\'s cost by model',
+    about: 'Each AI model ' + ASSISTANT_NAME + ' used: requests, tokens in and out a request, the estimated cost in dollars at its list prices, the cost of one request and how long one took. Tap a model to see what the requests were for.',
+    period: 'last_month',
+    venues: false,
+    spec: {
+      subject: 'pepper.requests',
+      rows: ['model'],
+      values: m('requests', 'input_a_request', 'output_a_request', 'total_cost', 'cost_a_request', 'average_time'),
+      sort: [{ by: 'total_cost', dir: 'desc' }],
+      drill: { down: ['use', 'channel', { field: 'date', bucket: 'week' }] },
+    },
+  }),
+
+  starter({
     key: 'pepper_use_by_person',
     name: ASSISTANT_NAME + '\'s use by person',
     about: 'Each person\'s use of ' + ASSISTANT_NAME + '\'s chat: requests, the units their daily share counts, and on how many days (UTC) they used it.',
@@ -100,6 +115,39 @@ export const starters = [
       values: m('issues', 'open_count', 'resolved_count', 'average_to_resolve'),
       sort: [{ by: 'priority', dir: 'asc' }],
       drill: { down: ['kind', 'status', { field: 'date', bucket: 'week' }] },
+    },
+  }),
+
+  // The usage record (migration 270): the group's pages and menu searches,
+  // with no person (each person's own is the subject My pages and searches).
+  starter({
+    key: 'usage_pages',
+    name: 'Pages opened',
+    about: 'Which pages of the app the group opens: times each page was opened and on how many days. Who opened them isn\'t reported.',
+    period: { relative: 'last_n_days', n: 28 },
+    venues: false,
+    spec: {
+      subject: 'usage.pages',
+      rows: ['page'],
+      values: m('opens', 'days'),
+      sort: [{ by: 'opens', dir: 'desc' }],
+      drill: { down: [{ field: 'date', bucket: 'week' }] },
+    },
+  }),
+
+  starter({
+    key: 'usage_searches',
+    name: 'Menu searches by week',
+    about: 'Week by week: searches in the menu box, how many were handed to ' + ASSISTANT_NAME + ' and their share, how many opened something and how many found no menu match. What was typed and who typed it aren\'t reported.',
+    period: { relative: 'last_n_days', n: 84 },
+    venues: false,
+    spec: {
+      subject: 'usage.searches',
+      rows: [{ field: 'date', bucket: 'week' }],
+      values: m('searches', 'handed', 'handed_share', 'opened_share', 'no_match'),
+      sort: [{ by: 'date:week', dir: 'asc' }],
+      drill: { down: ['opened', 'to_pepper'] },
+      view: { kind: 'line', x: 'date:week', y: ['handed_share', 'opened_share'] },
     },
   }),
 ]

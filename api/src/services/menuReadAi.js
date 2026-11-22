@@ -172,6 +172,7 @@ export async function readMenu({ tenantId, person, files, hint = '', tags = [], 
     messages: [{ role: 'user', content }],
   }
   let res
+  const started = Date.now()
   try {
     res = await callClaude(params)
   } catch (err) {
@@ -189,6 +190,7 @@ export async function readMenu({ tenantId, person, files, hint = '', tags = [], 
   await addUsage(tenantId, 'staff_chat', {
     input: u.input_tokens || 0, output: u.output_tokens || 0, cacheRead: u.cache_read_input_tokens || 0,
     cacheWrite: u.cache_creation_input_tokens || 0, model: res.model, person,
+    use: 'menu_reader', ms: Date.now() - started,
   })
   if (res.stop_reason === 'refusal') throw httpError(422, ASSISTANT_NAME + ' can\'t read this one. Try other photos or a PDF of the menu.')
   if (res.stop_reason === 'max_tokens') throw httpError(422, 'That menu is too long to read in one go. Send it a few pages at a time.')

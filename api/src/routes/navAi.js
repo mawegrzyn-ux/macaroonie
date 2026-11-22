@@ -96,6 +96,7 @@ export default async function navAiRoutes(app) {
       person: { sub: req.user?.sub, email: req.user?.email },
       system: SYSTEM_PROMPT,
       schema: NAV_SEARCH_SCHEMA,
+      use: 'nav_search',
       content: [
         { type: 'text', text: 'Menu links they can open:\n' + linkLines(unique) },
         { type: 'text', text: 'They typed: ' + JSON.stringify(query) },

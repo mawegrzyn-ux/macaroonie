@@ -7,7 +7,7 @@
 // the usage after, and turns the API's failures into replies the admin can
 // show.
 //
-//   askForJson({ tenantId, person, system, schema, content, maxTokens, effort, what, model, thinking, words })
+//   askForJson({ tenantId, person, system, schema, content, maxTokens, effort, what, model, thinking, words, use })
 //     system:   the instructions; a list of texts is sent as one block each,
 //               each cached (fixed instructions first, then what changes)
 //     content:  the user message's blocks (images, documents, text)
@@ -18,6 +18,8 @@
 //     words:    the messages for a refusal, a request Claude can't take and
 //               an answer too long, when the "read a file" ones don't fit
 //               ({ badRequest, refusal, tooLong })
+//     use:      what the call is for, in Pepper's record of model requests
+//               (USES in ai/context.js: 'invoice_reader', 'nav_search' ...)
 //     Returns the parsed answer (an object), or throws an httpError.
 //
 //   pepperOn(tenantId)  throws unless the AI key is set and Pepper is on for
@@ -87,7 +89,7 @@ export async function pepperOn(tenantId) {
   if (!(await getAiSettings(tenantId)).staff_enabled) throw httpError(403, ASSISTANT_NAME + ' is switched off for your group (' + ASSISTANT_NAME + ' > Settings).')
 }
 
-export async function askForJson({ tenantId, person, system, schema, content, maxTokens = 16000, effort = 'medium', what = 'file', model = 'main', thinking = false, words = {} }) {
+export async function askForJson({ tenantId, person, system, schema, content, maxTokens = 16000, effort = 'medium', what = 'file', model = 'main', thinking = false, words = {}, use = 'other' }) {
   if ((await chatUnitsLeft(tenantId)) <= 0) throw httpError(429, 'This month\'s AI allowance is used up.')
   const mine = person?.sub ? await personUnitsLeft(tenantId, person.sub) : null
   if (mine !== null && mine <= 0) throw httpError(429, 'You\'ve used your share of the AI allowance for today. It starts again tomorrow.')
@@ -105,6 +107,7 @@ export async function askForJson({ tenantId, person, system, schema, content, ma
     messages: [{ role: 'user', content }],
   }
   let res
+  const started = Date.now()
   try {
     res = await callClaude(params)
   } catch (err) {
@@ -121,7 +124,7 @@ export async function askForJson({ tenantId, person, system, schema, content, ma
   const u = res.usage || {}
   await addUsage(tenantId, 'staff_chat', {
     input: u.input_tokens || 0, output: u.output_tokens || 0, cacheRead: u.cache_read_input_tokens || 0,
-    cacheWrite: u.cache_creation_input_tokens || 0, model: res.model, person,
+    cacheWrite: u.cache_creation_input_tokens || 0, model: res.model, person, use, ms: Date.now() - started,
   })
   if (res.stop_reason === 'refusal') throw httpError(422, words.refusal || ASSISTANT_NAME + ' can\'t read this one. Try another photo or a PDF of the ' + what + '.')
   if (res.stop_reason === 'max_tokens') throw httpError(422, words.tooLong || 'That ' + what + ' is too long to read in one go. Send it a few pages at a time.')
@@ -158,6 +161,7 @@ export async function searchForJson({ tenantId, person = null, system, schema, p
   let messages = [{ role: 'user', content: prompt }]
   let res
   for (let round = 0; round < 5; round++) {
+    const started = Date.now()
     res = await callClaude({
       model: env.AI_MODEL, max_tokens: maxTokens, system: sys, tools,
       output_config: { effort }, messages,
@@ -166,6 +170,7 @@ export async function searchForJson({ tenantId, person = null, system, schema, p
     await addUsage(tenantId, 'staff_chat', {
       input: u.input_tokens || 0, output: u.output_tokens || 0, cacheRead: u.cache_read_input_tokens || 0,
       cacheWrite: u.cache_creation_input_tokens || 0, searches: searchesIn(u), model: res.model, person,
+      use: 'local_info', ms: Date.now() - started,
     })
     if (res.stop_reason !== 'pause_turn') break
     messages = [...messages, { role: 'assistant', content: res.content }]

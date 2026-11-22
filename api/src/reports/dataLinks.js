@@ -30,7 +30,7 @@ import { resultTable } from './export/table.js'
 import { resultJson } from './export/json.js'
 import { csvOf } from './export/csv.js'
 import { errorText } from './export/file.js'
-import { CATALOGUE } from './catalogue/index.js'
+import { CATALOGUE, ownRecordOnly } from './catalogue/index.js'
 import { normalisePeriod, RELATIVE_PERIODS } from '../../../shared/reports/period.js'
 
 export const LINK_LIMITS = { name: 80, perReport: 10, perGroup: 100, rate: 3600, rows: 50000, page: 5000, years: 2 }
@@ -93,6 +93,7 @@ export async function makeLink(p, target, body) {
     throw httpError(403, 'Your role can\'t report on ' + (CATALOGUE.subjects[spec.subject]?.label || 'this'))
   }
   if (body.personal && !p.isOwner) throw httpError(403, 'Only an owner can let a data link show people\'s details')
+  if (ownRecordOnly(spec)) throw httpError(422, 'This report is your own record: it can\'t be a data link')
   const keys = new Set(spec.params.map(x => x.key))
   const params = Object.fromEntries(Object.entries(body.params || {}).filter(([k]) => keys.has(k)))
   await refuseOtherVenues(p, spec, params)

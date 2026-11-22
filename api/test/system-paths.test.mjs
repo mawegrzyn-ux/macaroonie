@@ -16,6 +16,7 @@ import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../src/middleware/au
 import { expireStaleOrders } from '../src/services/orderSvc.js'
 import { announceDueReleases, backfillFirstReleases } from '../src/services/menuReleases.js'
 import { cleanUpAi } from '../src/ai/erase.js'
+import { cleanUpUsage } from '../src/services/usageRecord.js'
 import { pollAll } from '../src/services/gloriafoodSvc.js'
 import { kioskOrder, normaliseDesign } from '../../shared/kiosk.js'
 import { posChoices } from '../../shared/pos/pricing.js'
@@ -362,5 +363,6 @@ test('background jobs work across tenants', async () => {
   const [{ left }] = await sql`SELECT count(*)::int AS left FROM menus WHERE needs_first_release`
   assert.equal(left, 0)
   await cleanUpAi(null)
+  await cleanUpUsage()
   await pollAll(null)
 })

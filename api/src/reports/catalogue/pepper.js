@@ -13,11 +13,12 @@
 //
 // Levels follow the Pepper page: the month's usage is on its Settings tab for
 // View; everyone's use by person, the Activity tab and other people's chats
-// are for Manage.
+// are for Manage. Each model request (migration 271) is for View like the
+// month's usage: it has no person.
 
-import { subject, text, number, yesno, choice, date, moment, sum, count, countDistinct, ratio, one, many } from './define.js'
+import { subject, text, number, yesno, choice, date, moment, duration, sum, avg, max, count, countDistinct, ratio, one, many } from './define.js'
 import { ASSISTANT_NAME } from '../../../../shared/assistant.js'
-import { CHANNEL_LABELS, ACTION_LABELS } from '../../../../shared/pepperActions.js'
+import { CHANNEL_LABELS, ACTION_LABELS, USE_LABELS } from '../../../../shared/pepperActions.js'
 
 const MODULE = 'ai_assistant'
 const DAY = '({t}.created_at AT TIME ZONE {tz})::date'
@@ -73,6 +74,50 @@ export const subjects = [
     list: ['month', 'channel', 'requests', 'units', 'web_searches'],
     sort: [{ by: 'month', dir: 'desc' }],
     skip: ['updated_at'],
+  }),
+
+  subject({
+    key: 'pepper.requests',
+    label: ASSISTANT_NAME + '\'s model requests',
+    one: 'model request',
+    area: 'pepper',
+    module: MODULE,
+    about: 'Each call ' + ASSISTANT_NAME + ' made to the AI model (kept 90 days): when, where, what for (the chat, the menu search, a reader, the report smart builder, local info), which model answered, its tokens, how long it took and what it cost. The cost is an estimate at the list prices of each model. Who asked isn\'t reported here.',
+    from: 'ai_requests',
+    name: 'model',
+    date: { sql: DAY, bound: '{t}.created_at', label: 'Day' },
+    fields: {
+      at: moment('created_at', { label: 'When' }),
+      channel: choice('channel', CHANNEL_LABELS, { label: 'Where' }),
+      use: choice('use', USE_LABELS, { label: 'What for' }),
+      model: text('model', { label: 'Model' }),
+      input_tokens: number('input_tokens', { label: 'Tokens in', adds: true }),
+      output_tokens: number('output_tokens', { label: 'Tokens out', adds: true }),
+      cache_read_tokens: number('cache_read_tokens', { label: 'Tokens from the cache', adds: true }),
+      cache_write_tokens: number('cache_write_tokens', { label: 'Tokens put in the cache', adds: true }),
+      web_searches: number('web_searches', { label: 'Web searches', adds: true }),
+      units: number('units', { label: 'Units', adds: true, about: 'What the monthly allowance counts for this request.' }),
+      cost: number('cost_usd', { label: 'Cost ($)', adds: true, decimals: 4, about: 'An estimate in US dollars at the model\'s list prices: tokens of each kind and web searches.' }),
+      took: duration({ sql: '({t}.ms::numeric / 1000)' }, { label: 'Took', about: 'How long the model took to answer, where it was timed.' }),
+    },
+    measures: {
+      requests: count({ label: 'Requests' }),
+      total_input: sum('input_tokens', { label: 'Tokens in' }),
+      total_output: sum('output_tokens', { label: 'Tokens out' }),
+      total_cache_read: sum('cache_read_tokens', { label: 'Tokens from the cache' }),
+      total_cache_write: sum('cache_write_tokens', { label: 'Tokens put in the cache' }),
+      total_units: sum('units', { label: 'Units' }),
+      total_cost: sum('cost_usd', { label: 'Cost ($)', decimals: 4 }),
+      cost_a_request: ratio('total_cost', 'requests', { label: 'Cost a request ($)', decimals: 4 }),
+      units_a_request: ratio('total_units', 'requests', { label: 'Units a request', decimals: 0 }),
+      input_a_request: ratio('total_input', 'requests', { label: 'Tokens in a request', decimals: 0 }),
+      output_a_request: ratio('total_output', 'requests', { label: 'Tokens out a request', decimals: 0 }),
+      average_time: avg({ sql: '({t}.ms::numeric / 1000)' }, { type: 'duration', label: 'Average time' }),
+      longest_time: max({ sql: '({t}.ms::numeric / 1000)' }, { type: 'duration', label: 'Longest time' }),
+      models: countDistinct('model', { label: 'Models' }),
+    },
+    list: ['at', 'use', 'model', 'input_tokens', 'output_tokens', 'cost', 'took'],
+    sort: [{ by: 'at', dir: 'desc' }],
   }),
 
   subject({

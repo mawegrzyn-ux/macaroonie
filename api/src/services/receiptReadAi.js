@@ -48,7 +48,7 @@ export async function readReceipt({ tenantId, person, file, categories = [], cur
     type: 'text',
     text: 'The receipt is above.\n' + JSON.stringify({ currency, categories: categories.map(c => c.name) }),
   })
-  const raw = await askForJson({ tenantId, person, system: SYSTEM_PROMPT, schema: RECEIPT_SCHEMA, content, maxTokens: 4000, effort: 'low', what: 'receipt' })
+  const raw = await askForJson({ tenantId, person, system: SYSTEM_PROMPT, schema: RECEIPT_SCHEMA, content, maxTokens: 4000, effort: 'low', what: 'receipt', use: 'receipt_reader' })
   const amount = readAmount(raw.total, { max: 100000 })
   const vat = readAmount(raw.vat, { max: 100000 })
   if (amount === undefined && !clip(raw.merchant, 200) && !clip(raw.description, 200)) {

@@ -442,7 +442,7 @@ export async function learnFromFlags(source, { person = null, auto = false } = {
       why('relevant', it.why_yes), why('not relevant', it.why_no)].filter(Boolean).join(' | '))
   const out = await askForJson({
     tenantId: source.tenant_id, person, model: 'fast', effort: 'low', maxTokens: 2000,
-    system: LEARN_SYSTEM, schema: LEARN_SCHEMA, what: 'set of flags',
+    system: LEARN_SYSTEM, schema: LEARN_SCHEMA, what: 'set of flags', use: 'local_info',
     words: {
       badRequest: "Pepper couldn't work with these flags. Try again later.",
       refusal: "Pepper couldn't learn from these flags.",
@@ -702,7 +702,7 @@ async function mergePass(source, tz) {
     try {
       const out = await askForJson({
         tenantId: source.tenant_id, person: null, model: 'fast', effort: 'low', maxTokens: 4000,
-        system: MERGE_SYSTEM, schema: MERGE_SCHEMA, what: 'list of findings',
+        system: MERGE_SYSTEM, schema: MERGE_SCHEMA, what: 'list of findings', use: 'local_info',
         words: {
           badRequest: 'Pepper couldn\'t compare these findings. They are looked at again after the next run.',
           refusal: 'Pepper couldn\'t compare these findings.',

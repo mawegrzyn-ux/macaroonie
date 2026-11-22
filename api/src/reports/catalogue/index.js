@@ -68,6 +68,11 @@ function build(lists) {
       for (const ref of templateRefs(sql)) {
         if (ref === 't') continue
         if (ref === 'tz') { if (what.startsWith('link venue')) fail(s, what + ' can\'t use {tz}'); continue }
+        // The person running the report: only in a subject's own rule for
+        // which rows count (a record that is each person's own). Nothing can
+        // link to such a subject (the check on links below: its rows are
+        // picked through more than {t}).
+        if (ref === 'me') { if (what !== 'where') fail(s, what + ' can\'t use {me}: only a subject\'s where can'); continue }
         if (!allowed.has(ref)) fail(s, what + ' names {' + ref + '}, which isn\'t one of its links to one row')
       }
     }
@@ -320,3 +325,15 @@ export const listColumns = (subjectKey, levels) => {
   const s = CATALOGUE.subjects[subjectKey]
   return s ? s.list.filter(p => viewable(s, p, levels)) : []
 }
+
+/**
+ * A report whose subject (or a subject it shows beside it) is each person's
+ * own record ({me} in its rule, e.g. usage.mine): it can only be run by the
+ * person, never scheduled or made a data link, which run as their owner and
+ * would send the owner's record to others (decision 8 of the Pepper-first plan).
+ */
+export function ownRecordOnly(spec) {
+  const keys = [spec?.subject, ...((spec?.also || []).map(a => a?.subject))].filter(Boolean)
+  return keys.some(k => JSON.stringify(CATALOGUE.subjects[k]?.where ?? '').includes('{me}'))
+}
+

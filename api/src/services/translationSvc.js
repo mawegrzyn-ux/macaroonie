@@ -137,6 +137,7 @@ export async function aiTranslate(tenantId, { lang, source = 'en', items, person
   const from = KIOSK_LANGUAGES.find(l => l.code === source) || KIOSK_LANGUAGES[0]
   const api = await anthropic()
   let res
+  const started = Date.now()
   try {
     res = await api.messages.create({
       model: env.AI_MODEL,
@@ -159,6 +160,7 @@ export async function aiTranslate(tenantId, { lang, source = 'en', items, person
   addUsage(tenantId, 'staff_chat', {
     input: u.input_tokens || 0, output: u.output_tokens || 0, cacheRead: u.cache_read_input_tokens || 0,
     cacheWrite: u.cache_creation_input_tokens || 0, model: res.model, person,
+    use: 'translation', ms: Date.now() - started,
   })
   const textBlock = (res.content || []).find(b => b.type === 'text')
   let parsed = null

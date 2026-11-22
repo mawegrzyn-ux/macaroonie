@@ -45,6 +45,7 @@ function MacaroonIcon({ className = 'w-5 h-5' }) {
 }
 import { cn } from '@/lib/utils'
 import { useApi, setSelectedTenant } from '@/lib/api'
+import { usePageUse, useSearchUse } from '@/lib/usage'
 import TenantSwitcherModal from '@/components/TenantSwitcherModal'
 import MobileSuggestModal from '@/components/MobileSuggestModal'
 import MobileViewToggle from '@/components/MobileViewToggle'
@@ -252,6 +253,19 @@ export default function AppShell() {
   // words it answered.
   const pepperSearch = usePepperNavSearch()
   const pepperAnswer = canAskAi ? pepperSearch.forQuery(navQuery) : null
+  // The usage record (lib/usage.js): pages opened, and each search with
+  // whether it went to Pepper and what it opened.
+  usePageUse()
+  const searchUse = useSearchUse()
+  useEffect(() => { searchUse.typed(navQuery, navResults?.length ?? 0) }, [navQuery, navResults, searchUse])
+  function askPepper() {
+    searchUse.askedPepper()
+    pepperSearch.ask(navQuery)
+  }
+  const pickedFrom = kind => (route, boxKind) => {
+    searchUse.picked(boxKind || kind, route)
+    afterNavPick()
+  }
   function afterNavPick() {
     setNavQuery('')
     pepperSearch.reset()
@@ -382,11 +396,11 @@ export default function AppShell() {
               value={navQuery}
               onChange={setNavQuery}
               results={navResults}
-              onPick={afterNavPick}
+              onPick={pickedFrom('menu')}
               inputRef={searchInputRef}
               canAskAi={canAskAi}
               pepper={pepperAnswer}
-              onAskPepper={() => pepperSearch.ask(navQuery)}
+              onAskPepper={askPepper}
             />
           </div>
         )}
@@ -395,8 +409,8 @@ export default function AppShell() {
             <PepperNavResults
               pepper={pepperAnswer}
               exact={navExact}
-              onPick={afterNavPick}
-              onAskAgain={() => pepperSearch.ask(navQuery)}
+              onPick={pickedFrom('pepper')}
+              onAskAgain={askPepper}
               onOpenChat={() => { afterNavPick(); openAi() }}
               onShowAll={() => pepperSearch.reset()}
             />
@@ -405,11 +419,11 @@ export default function AppShell() {
               results={navResults}
               query={navQuery}
               exact={navExact}
-              onPick={afterNavPick}
+              onPick={pickedFrom('menu')}
               canAskAi={canAskAi}
-              onAskAi={() => pepperSearch.ask(navQuery)}
+              onAskAi={askPepper}
             />
-            <SavedReportResults query={navQuery} enabled={(me?.permissions?.reports ?? 'none') !== 'none'} onPick={afterNavPick} />
+            <SavedReportResults query={navQuery} enabled={(me?.permissions?.reports ?? 'none') !== 'none'} onPick={pickedFrom('report')} />
           </>) : (<>
           {isLauncherMode ? (
             // Launcher mode: the sidebar tree is switched off tenant-wide

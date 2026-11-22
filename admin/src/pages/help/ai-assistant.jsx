@@ -599,6 +599,17 @@ export function Section() {
         The card has its own Save. The details in Activity are cleared after a year; the line
         saying what was done stays.
       </P>
+      <H3>What each request to the AI model costs</H3>
+      <P>
+        Every time Pepper asks the AI model something (a step of a chat, a menu search, reading an
+        invoice or a menu, building a report, a local info search) it is kept for 90 days: when,
+        what for, which model answered, how much it read and wrote, how long it took and what it
+        cost. In <strong>Reports</strong>, the starter <strong>Pepper&apos;s cost by model</strong> shows
+        each model&apos;s requests, the estimated cost in dollars and the cost and time of one request;
+        tap a model to see what the requests were for. The subject is <strong>Pepper&apos;s model
+        requests</strong> (needs View on Pepper). The cost is an estimate at each model&apos;s list
+        prices; who asked isn&apos;t in it.
+      </P>
       <H3>Guests&apos; details in Pepper&apos;s chats</H3>
       <P>
         When you anonymise a customer (Customers page, or by asking Pepper), their name, email

@@ -125,12 +125,18 @@ async function anthropic() {
  * create() would return it. A rejected key is the platform's problem, not
  * the person's: say so.
  */
+// How long each model call took, by its reply (recordUsage() -> ai_requests.ms).
+const CALL_MS = new WeakMap()
+
 async function callModel(params, onEvent, log) {
   const api = await anthropic()
   try {
+    const started = Date.now()
     const stream = api.beta.messages.stream(params)
     if (onEvent) stream.on('streamEvent', onEvent)
-    return await stream.finalMessage()
+    const reply = await stream.finalMessage()
+    if (reply && typeof reply === 'object') CALL_MS.set(reply, Date.now() - started)
+    return reply
   } catch (err) {
     if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
       throw new ToolError('The AI assistant\'s key isn\'t working. A platform admin needs to update it.', 503)
@@ -597,6 +603,8 @@ async function recordUsage(conv, response) {
     searches:   searchesIn(usage),
     model:      response.model,
     person:     conv.channel === 'staff_chat' ? { sub: conv.user_sub, email: conv.user_email } : null,
+    use:        'chat',
+    ms:         CALL_MS.get(response) ?? null,
   })
 }
 

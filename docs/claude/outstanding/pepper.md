@@ -36,3 +36,19 @@ What is not built, known limits and follow-ups in this area (`docs/claude/areas/
 - Use the brand on other designs saves designs one after another; a failure leaves the earlier ones changed (each row says which failed). Kiosk designs only change their brand colours and fonts, not their layout pictures.
 - The wizard's own-look kit applies to the venue's web page only (not its kiosk designs or boards, which are company-wide).
 - The wizard has no undo for settings saved in earlier steps other than changing them again; deleting a draft is the reset.
+
+**51. Measuring Pepper, step 0 follow-ups (Pepper-first, 22 Nov 2026; migration 271)**
+
+Built (0b): `ai_requests`, one row per model call with what it was for, the model, tokens, units, an estimated cost in dollars and the time it took; report subject `pepper.requests` and the starter Pepper's cost by model. Not done:
+- No median or percentiles: the report engine has sum, average, smallest, largest and counts, so "median response time" is the average and the longest for now.
+- The cost is at the list prices in `PRICES` when the row was written: a price change later doesn't change old rows, and discounts (batch, an Anthropic agreement) aren't known. The time is the model call's only, not the whole chat turn (tools and the database are left out).
+- The staff and guest connectors' calls (`addUsage()` with no model) aren't model requests and aren't kept: the model there is the other app's.
+- Tool search hit rate (one of step 0's numbers) isn't recorded: it needs the tool search blocks of each turn counted (`server_tool_use` of `tool_search_tool_*` against the tools then called).
+
+Built (0c): the evaluation set in `api/eval/` (27 tasks, harness, `npm run eval [-- --live]`), proven in CI against the stand-in model. Not done:
+- **Never run against the live model.** The owner's first run: `eval "$(scripts/test-env.sh eval)"`, then in `api/` `ANTHROPIC_API_KEY=... npm run eval -- --live` (README: about $0.15 to $0.60 on the default routing). Tasks that fail then are the first real failures to read; some may fail for the harness (a check too strict about words) rather than for Pepper, so read the reply and the cards in the result file before calling it Pepper's fault.
+- The tasks were written from the tools and the notes, not from real chats (there are none yet): replace or add tasks from the first real failures once staff use Pepper.
+- One message per task in all 27; multi-turn tasks (Pepper asks, the person answers) are supported (`say` returns a list) but none is written. A "nothing" task passes when Pepper asks the right question, but whether it asked is not checked.
+- Each trial empties the whole test database, so trials run one after another (no parallel trials).
+- No task covers reports (`build_report`, schedules), new locations, purchasing orders, tips or pay: their end states take longer setups; add them next.
+- The result files stay on the computer that ran them (`api/eval/results/`, not committed): no history of runs to compare against yet.

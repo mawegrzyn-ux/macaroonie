@@ -148,7 +148,15 @@ export async function eraseFromAi(tx, tenantId, values) {
        WHERE id = ${a.id} AND tenant_id = ${tenantId}
     `
   }
-  return { chats, actions: actions.length }
+  // Menu searches (migration 270) whose words name the guest: a staff
+  // member may have searched for them. The row is only a count, so it goes.
+  const searches = await tx`
+    SELECT id, query FROM usage_events
+     WHERE tenant_id = ${tenantId} AND kind = 'search' AND query ILIKE ANY(${likes}::text[])
+  `
+  const gone = searches.filter(s => hit(s.query)).map(s => s.id)
+  if (gone.length) await tx`DELETE FROM usage_events WHERE tenant_id = ${tenantId} AND id = ANY(${gone}::uuid[])`
+  return { chats, actions: actions.length, searches: gone.length }
 }
 
 // ── The hourly clean-up ──────────────────────────────────
@@ -188,6 +196,8 @@ export async function cleanUpAi(log) {
         const usage = await tx`
           DELETE FROM ai_usage_people WHERE tenant_id = ${t.id} AND day < current_date - 400 RETURNING day
         `
+        // Each model request (migration 271) after 90 days; the month's totals stay.
+        await tx`DELETE FROM ai_requests WHERE tenant_id = ${t.id} AND created_at < now() - interval '90 days'`
         totals.chats += chats.length; totals.audit += audit.length; totals.uploads += uploads.length
         totals.codes += codes.length; totals.usage += usage.length
       })

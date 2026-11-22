@@ -170,7 +170,7 @@ const HEAVY = 'This report would read too much at once. Narrow the period or add
 async function prepare(tx, ctx, spec0, params, { listLimit, costFactor = 1, open = true }) {
   await takeSlot(tx, ctx.tenantId)
   const scope = await scopeOf(tx, ctx.tenantId, spec0, params, atOf(ctx))
-  const envc = { tenantId: ctx.tenantId, levels: ctx.levels, params, today: scope.today, tz: scope.tz }
+  const envc = { tenantId: ctx.tenantId, userKey: ctx.userKey, levels: ctx.levels, params, today: scope.today, tz: scope.tz }
   let spec = spec0
   let plan = compileReport(spec, envc, { listLimit, open })
   let currencyColumn = null
