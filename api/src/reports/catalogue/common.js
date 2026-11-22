@@ -7,6 +7,11 @@ import { subject, text, number, money, percent, yesno, choice, moment, count, on
 
 // A dish priced by its options has no menu price of its own: it counts as
 // priced when it has an option group or options of its own to price it by.
+// What a dish sells (migration 267): its own type, else its section's, else
+// its menu's, else food (itemType() in shared/catalogue.js says the same).
+const ITEM_TYPE = "COALESCE({t}.item_type, (SELECT COALESCE(s.item_type, m.item_type) FROM menu_sections s JOIN menus m ON m.id = s.menu_id AND m.tenant_id = s.tenant_id WHERE s.id = {t}.section_id AND s.tenant_id = {t}.tenant_id), 'food')"
+const TYPES = { food: 'Food and drink', goods: 'Retail goods', service: 'Services' }
+
 const PRICED = '({t}.price_pence IS NOT NULL'
   + ' OR EXISTS (SELECT 1 FROM menu_item_variant_groups g WHERE g.tenant_id = {t}.tenant_id AND g.item_id = {t}.id)'
   + ' OR EXISTS (SELECT 1 FROM menu_item_variants v WHERE v.tenant_id = {t}.tenant_id AND v.item_id = {t}.id))'
@@ -65,6 +70,7 @@ export const subjects = [
     fields: {
       name: text('name'),
       published: yesno('is_published', { label: 'Shown to guests' }),
+      sells: choice('item_type', TYPES, { label: 'Sells', about: 'Food and drink, retail goods or services.' }),
     },
     measures: {
       menus: count({ label: 'Menus' }),
@@ -106,7 +112,8 @@ export const subjects = [
     },
     list: ['name', 'menu.name', 'visibility'],
     sort: [{ by: 'name', dir: 'asc' }],
-    skip: ['pos_course_id', 'highlight', 'sort_order', 'created_at', 'image_url', 'print_break_before', 'print_keep_together', 'pos_colour', 'tax'],
+    // A section's own type (migration 267) is read through its dishes' Type.
+    skip: ['pos_course_id', 'highlight', 'sort_order', 'created_at', 'image_url', 'print_break_before', 'print_keep_together', 'pos_colour', 'tax', 'item_type'],
   }),
 
   subject({
@@ -122,6 +129,7 @@ export const subjects = [
     fields: {
       name: text('name'),
       kind: choice('kind', { dish: 'Dish', combo: 'Meal deal' }, { label: 'Dish or meal deal' }),
+      type: choice({ sql: ITEM_TYPE }, TYPES, { label: 'Type', about: 'Food and drink, retail goods or services, from its own setting, its section or its menu.' }),
       price: money('price_pence', { label: 'Menu price', adds: false }),
       featured: yesno('is_featured', { label: 'House favourite' }),
       orderable: yesno('is_orderable', { label: 'Can be ordered online' }),
@@ -148,7 +156,10 @@ export const subjects = [
     },
     list: ['name', 'section.name', 'section.menu.name', 'price'],
     sort: [{ by: 'name', dir: 'asc' }],
-    skip: ['pos_course_id', 'sort_order', 'updated_at', 'pos_colour', 'combo', 'tax'],
+    // Product code and barcode (migration 268) aren't fields: every subject
+    // that links to dishes would carry them, and Dishes sold then no longer
+    // fits the smart builder's budget for subjects listed in full.
+    skip: ['pos_course_id', 'sort_order', 'updated_at', 'pos_colour', 'combo', 'tax', 'sku', 'barcode'],
   }),
 
   subject({
