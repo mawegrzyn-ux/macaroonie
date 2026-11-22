@@ -70,6 +70,10 @@ export function withShownGroupNames(full) {
 export function releaseContent(full) {
   if (!full) return null
   const menu = dropKeys(full, MENU_DROP)
+  // A menu's type (migration 267) counts only when it isn't food, so menus
+  // published before types existed read the same as their draft; a section's
+  // or dish's null (the level above) is dropped by canon() like any null.
+  if (menu.item_type === 'food') delete menu.item_type
   menu.sections = (full.sections || []).map(s => ({
     ...dropKeys(s, ROW_DROP),
     items: (s.items || []).map(i => ({
@@ -164,17 +168,17 @@ const MENU_FIELDS = {
   hide_zero_priced_variants: 'Hide £0 options', hide_unpriced_variants: 'Hide unpriced options',
   print_columns: 'Print columns', print_orientation: 'Print orientation', print_paper_size: 'Paper size',
   print_hide_variant_group_headers: 'Print option headers', print_settings: 'Print settings',
-  tax: 'Tax',
+  tax: 'Tax', item_type: 'Type',
 }
 const SECTION_FIELDS = {
   subtitle: 'subtitle', highlight: 'highlight', image_url: 'image', visibility: 'where it shows',
   print_break_before: 'print break', print_keep_together: 'keep together',
-  tax: 'tax', pos_course_id: 'till course', pos_colour: 'till colour',
+  tax: 'tax', item_type: 'type', pos_course_id: 'till course', pos_colour: 'till colour',
 }
 const DISH_FIELDS = {
   native_name: 'second name', description: 'description', calories: 'calories', notes: 'notes',
   is_featured: 'house favourite', image_url: 'photo', is_orderable: 'online ordering',
-  tax: 'tax', min_order_qty: 'minimum quantity',
+  tax: 'tax', item_type: 'type', min_order_qty: 'minimum quantity',
   kind: 'combo', kitchen_name: 'kitchen name', pos_course_id: 'till course', pos_colour: 'till colour',
   combo: 'combo steps', dietary: 'allergens and dietary', allergen_levels: 'allergen levels',
 }

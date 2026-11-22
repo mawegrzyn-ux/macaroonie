@@ -36,6 +36,7 @@ import {
 import { FONT_OPTIONS } from '../../../shared/fonts.js'
 import { ALLERGEN_LEVELS, allergenKey, menuTags, noticeOf } from '../../../shared/menuTags.js'
 import { cleanTax } from '../../../shared/tax.js'
+import { ITEM_TYPES, cleanItemType } from '../../../shared/catalogue.js'
 import { comboMenuPrice, variantOptionId } from '../../../shared/orderPricing.js'
 import { PICK_SCALE_MIN, PICK_SCALE_MAX, DEAL_USES, DEAL_PRICE_MAX, normaliseDealGroups } from '../../../shared/combos.js'
 import { taxLookups, checkTaxSetting } from '../services/taxSvc.js'
@@ -141,6 +142,8 @@ const TaxBody = z.object({
   rules: z.array(TaxRule).max(50).default([]),
 })
 
+const ItemType = z.enum(ITEM_TYPES)
+
 const ItemBody = z.object({
   id:             z.string().uuid().optional(),
   name:           z.string().min(1).max(200),
@@ -155,6 +158,8 @@ const ItemBody = z.object({
   // Web ordering (migration 122)
   is_orderable:      z.boolean().default(true),
   tax:               TaxBody.default({}),   // migration 170
+  // What the dish is (migration 267, shared/catalogue.js): null = its section's.
+  item_type:         ItemType.nullable().optional(),
   min_order_qty:     z.number().int().min(1).max(99).nullable().optional(),   // migration 133
   // Till (migration 156)
   kind:              z.enum(['dish', 'combo']).default('dish'),
@@ -184,6 +189,8 @@ const SectionBody = z.object({
   print_keep_together: z.boolean().default(false),
   // Tax (migration 170): used when a dish has none of its own.
   tax:        TaxBody.default({}),
+  // What its dishes are (migration 267): null = the menu's.
+  item_type:  ItemType.nullable().optional(),
   // Where the section shows (migration 136): everywhere, printed menus
   // only (website_hidden), or nowhere (hidden).
   visibility: z.enum(['show', 'website_hidden', 'hidden']).default('show'),
@@ -301,6 +308,9 @@ const MenuMetaBody = z.object({
   hide_zero_priced_variants:        z.boolean().default(false),
   hide_unpriced_variants:           z.boolean().default(false),
   tax:                              TaxBody.default({}),   // migration 170
+  // What the menu's dishes are unless a section or dish says (migration 267):
+  // food, retail goods or services (shared/catalogue.js).
+  item_type:                        ItemType.default('food'),
 })
 
 const MenuFullBody = MenuMetaBody.extend({
@@ -567,7 +577,7 @@ export async function loadMenuFull(tx, menuId, tenantId) {
                'description', i.description, 'price_pence', i.price_pence, 'calories', i.calories,
                'notes', i.notes, 'is_featured', i.is_featured, 'image_url', i.image_url,
                'sort_order', i.sort_order, 'is_orderable', i.is_orderable,
-               'tax', i.tax,
+               'tax', i.tax, 'item_type', i.item_type,
                'min_order_qty', i.min_order_qty,
                'kind', i.kind, 'kitchen_name', i.kitchen_name, 'pos_course_id', i.pos_course_id,
                'pos_colour', i.pos_colour, 'combo', i.combo,
@@ -836,26 +846,26 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
     const [s] = await tx`
       INSERT INTO menu_sections (id, menu_id, tenant_id, title, subtitle, highlight, image_url, sort_order,
                                  print_break_before, print_keep_together,
-                                 tax, visibility, pos_course_id, pos_colour)
+                                 tax, item_type, visibility, pos_course_id, pos_colour)
       VALUES (${section.id ?? randomUUID()}, ${menuId}, ${tenantId}, ${section.title},
               ${section.subtitle ?? null}, ${section.highlight ?? false}, ${section.image_url ?? null},
               ${section.sort_order ?? si},
               ${section.print_break_before ?? 'none'}, ${section.print_keep_together ?? false},
-              ${tx.json(cleanTax(section.tax))},
+              ${tx.json(cleanTax(section.tax))}, ${cleanItemType(section.item_type)},
               ${section.visibility ?? 'show'}, ${section.pos_course_id ?? null}, ${section.pos_colour ?? null})
       RETURNING id
     `
     for (const [ii, item] of (section.items || []).entries()) {
       const [it] = await tx`
         INSERT INTO menu_items (id, section_id, tenant_id, name, native_name, description, price_pence, calories, notes, is_featured, image_url, sort_order,
-                                is_orderable, tax, min_order_qty,
+                                is_orderable, tax, item_type, min_order_qty,
                                 kind, kitchen_name, pos_course_id, pos_colour, combo)
         VALUES (${item.id ?? randomUUID()}, ${s.id}, ${tenantId}, ${item.name},
                 ${item.native_name ?? null}, ${item.description ?? null},
                 ${item.price_pence ?? null}, ${item.calories ?? null}, ${item.notes ?? null},
                 ${item.is_featured ?? false}, ${item.image_url ?? null},
                 ${item.sort_order ?? ii},
-                ${item.is_orderable ?? true}, ${tx.json(cleanTax(item.tax))},
+                ${item.is_orderable ?? true}, ${tx.json(cleanTax(item.tax))}, ${cleanItemType(item.item_type)},
                 ${item.min_order_qty > 1 ? item.min_order_qty : null},
                 ${item.kind === 'combo' ? 'combo' : 'dish'}, ${item.kitchen_name || null}, ${item.pos_course_id ?? null},
                 ${item.pos_colour ?? null}, ${item.kind === 'combo' ? tx.json(item.combo || { mode: 'manual', steps: [] }) : null})
@@ -950,11 +960,13 @@ export function menuSaveBody(full) {
     hide_zero_priced_variants: !!full.hide_zero_priced_variants,
     hide_unpriced_variants: !!full.hide_unpriced_variants,
     tax: cleanTax(full.tax),
+    item_type: cleanItemType(full.item_type) || 'food',
     sections: (full.sections || []).map((s, si) => ({
       id: s.id,
       title: s.title, subtitle: s.subtitle ?? null, highlight: !!s.highlight, image_url: s.image_url ?? null, sort_order: si,
       print_break_before: s.print_break_before ?? 'none', print_keep_together: !!s.print_keep_together,
       tax: cleanTax(s.tax),
+      item_type: cleanItemType(s.item_type),
       visibility: s.visibility || 'show',
       pos_course_id: s.pos_course_id ?? null, pos_colour: s.pos_colour ?? null,
       items: (s.items || []).map((it, ii) => ({
@@ -967,6 +979,7 @@ export function menuSaveBody(full) {
         is_featured: !!it.is_featured, image_url: it.image_url ?? null, sort_order: ii,
         is_orderable: it.is_orderable !== false,
         tax: cleanTax(it.tax),
+        item_type: cleanItemType(it.item_type),
         min_order_qty: it.min_order_qty > 1 ? it.min_order_qty : null,
         variants: (it.variants || []).map((v, vi) => ({ label: v.label, price_pence: v.price_pence, sort_order: vi })),
         // loadMenuFull() shapes attached groups as { options: [{ overridden, price_pence, option_id }] };
@@ -1384,12 +1397,12 @@ export default async function menusRoutes(app) {
     const [row] = await withTenant(req.tenantId, async tx => {
       const tax = checkTaxSetting(body.tax, await taxLookups(tx, req.tenantId), 'Menu tax')
       return tx`
-      INSERT INTO menus (tenant_id, venue_id, name, slug, tagline, service_times, intro_line, is_published, sort_order, print_columns, print_orientation, print_paper_size, print_hide_variant_group_headers, print_settings, hide_zero_priced_variants, hide_unpriced_variants, tax)
+      INSERT INTO menus (tenant_id, venue_id, name, slug, tagline, service_times, intro_line, is_published, sort_order, print_columns, print_orientation, print_paper_size, print_hide_variant_group_headers, print_settings, hide_zero_priced_variants, hide_unpriced_variants, tax, item_type)
       VALUES (${req.tenantId}, ${body.venue_id ?? null}, ${body.name}, ${body.slug},
               ${body.tagline ?? null}, ${body.service_times ?? null}, ${body.intro_line ?? null},
               ${body.is_published}, ${body.sort_order}, ${body.print_columns}, ${body.print_orientation}, ${body.print_paper_size},
               ${body.print_hide_variant_group_headers}, ${tx.json(body.print_settings)}, ${body.hide_zero_priced_variants}, ${body.hide_unpriced_variants},
-              ${tx.json(tax)})
+              ${tx.json(tax)}, ${cleanItemType(body.item_type) || 'food'})
       RETURNING *
     `
     })
@@ -1416,13 +1429,13 @@ export default async function menusRoutes(app) {
       for (let n = 2; taken.has(slug); n++) slug = `${full.slug}-copy-${n}`
 
       const [row] = await tx`
-        INSERT INTO menus (tenant_id, venue_id, name, slug, tagline, service_times, intro_line, is_published, sort_order, print_columns, print_orientation, print_paper_size, print_hide_variant_group_headers, print_settings, hide_zero_priced_variants, hide_unpriced_variants, tax)
+        INSERT INTO menus (tenant_id, venue_id, name, slug, tagline, service_times, intro_line, is_published, sort_order, print_columns, print_orientation, print_paper_size, print_hide_variant_group_headers, print_settings, hide_zero_priced_variants, hide_unpriced_variants, tax, item_type)
         VALUES (${req.tenantId}, ${full.venue_id ?? null}, ${full.name + ' (copy)'}, ${slug},
                 ${full.tagline ?? null}, ${full.service_times ?? null}, ${full.intro_line ?? null},
                 false, ${full.sort_order ?? 0}, ${full.print_columns ?? 4},
                 ${full.print_orientation ?? 'landscape'}, ${full.print_paper_size ?? 'A4'},
                 ${!!full.print_hide_variant_group_headers}, ${tx.json(full.print_settings ?? {})},
-                ${!!full.hide_zero_priced_variants}, ${!!full.hide_unpriced_variants}, ${tx.json(cleanTax(full.tax))})
+                ${!!full.hide_zero_priced_variants}, ${!!full.hide_unpriced_variants}, ${tx.json(cleanTax(full.tax))}, ${cleanItemType(full.item_type) || 'food'})
         RETURNING *
       `
 
@@ -1494,6 +1507,7 @@ export default async function menusRoutes(app) {
                hide_zero_priced_variants = ${body.hide_zero_priced_variants},
                hide_unpriced_variants = ${body.hide_unpriced_variants},
                tax = ${tx.json(cleanTax(body.tax))},
+               item_type = ${cleanItemType(body.item_type) || 'food'},
                updated_at = now()
          WHERE id = ${menuId} AND tenant_id = ${tenantId}
          RETURNING *
