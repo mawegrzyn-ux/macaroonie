@@ -179,11 +179,13 @@ App.view('ask', {
       #view-ask .ask-meter > .muted { flex: 1 1 260px; min-width: 0; }
       @media (min-width: 981px) {
         #view-ask { --ask-gap: 92px; }
-        #view-ask .ask-meter { position: sticky; top: var(--ask-top, 100px); z-index: 40; background: var(--bg); padding-block: 8px; margin-block: -8px; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 12px; align-items: center; }
+        #view-ask .ask-meter { position: sticky; top: var(--ask-top, 100px); z-index: 40; background: var(--bg); padding: 8px 10px; margin: -8px -10px; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 12px; align-items: center; }
         #view-ask .ask-meter > .muted { grid-column: 2; grid-row: 1; }
         #view-ask #ask-last { grid-column: 1 / -1; justify-self: start; }
       }
       #view-ask .ask-pane { display: grid; gap: 12px; align-content: start; min-width: 0; }
+      #view-ask #ask-bar-pane { padding-bottom: 56px; }
+      #view-ask .m-results :focus-visible { outline-offset: -3px; }
       #view-ask .ask-box { display: grid; gap: 6px; min-width: 0; }
       #view-ask .m-ask .m-iconbtn { width: 48px; height: 48px; }
       #view-ask .ask-row { padding: 0; gap: 0; align-items: stretch; }
@@ -241,8 +243,8 @@ App.view('ask', {
             'Tap <b>what is the VAT on gift cards?</b> Reports do not cover it, so Pepper says so and shows no figure.',
           ],
           why: [
-            { text: 'Asking first with the screens kept underneath beats chat alone. Finding a page by words has stuck in other products as an extra way in beside the menu (' + out('https://hashnode.com/changelog/2026-07-28-ai-navigation-cmd-k', 'Hashnode') + ', ' + out('https://docs.stripe.com/assistant', 'Stripe') + '), and none of the products the report found removed their menus.', confidence: 'high' },
-            { text: 'Chat lowers effort. In ' + out('https://arxiv.org/pdf/2605.31287', 'controlled studies') + ' it did not reliably save time or improve accuracy, and its advantage shrank as tasks got harder. So words are for finding things and for small requests, and the checking happens on a page.', confidence: 'medium' },
+            { text: 'Asking first with the screens kept underneath beats chat alone. Finding a page by words has stuck in other products as an extra way in beside the menu (' + out('https://hashnode.com/changelog/2026-07-28-ai-navigation-cmd-k', 'Hashnode') + ', ' + out('https://rameshbabuprudhvi.github.io/sentri/docs/guide/command-palette.html', 'Sentri') + ', ' + out('https://docs.stripe.com/assistant', 'Stripe') + '), and none of the products the report found removed their menus.', confidence: 'high' },
+            { text: 'Chat lowers effort. In controlled studies (' + out('https://arxiv.org/pdf/2605.31287', '134 decision-makers') + ', ' + out('https://arxiv.org/pdf/2608.19551', '73 people') + ') it did not reliably save time or improve accuracy, and its advantage shrank as tasks got harder. So words are for finding things and for small requests, and the checking happens on a page.', confidence: 'medium' },
             { text: 'At UK prices, 3,000 model requests a month for one site on a mid-tier model would take 35% to 70% of the subscription, on the report\'s own estimates. So a page jump must cost no model call. <span class="tag low">Medium to low confidence</span>' },
             { text: 'A figure comes from the report catalogue. Model-written database queries were right about 39% of the time on an ' + out('https://aclanthology.org/2026.findings-emnlp.1971/', 'enterprise-scale benchmark') + ', and a curated description of the data added 17 to 23 points. So Pepper picks a named measure and the report engine does the sums. <span class="tag medium">Medium to high confidence</span>' },
           ],

@@ -216,7 +216,7 @@ App.view('form', {
         key: 'add_staff_member', tool: 'add_staff_member', pick: 'Add a staff member', title: 'Add a staff member', icon: 'users', save: 'Save staff member', done: 'Staff member saved',
         fields: [
           { name: 'name', type: 'text', required: true, label: 'Full name', help: 'As it shows on the rota.', example: 'Priya Shah', max: 60 },
-          { name: 'role', type: 'select', required: true, label: 'Role', help: 'Sets which shifts they can be given.', options: ['Manager', 'Shift lead', 'Chef', 'Front of house'], example: 'Front of house' },
+          { name: 'role', type: 'select', required: true, label: 'Role', help: 'Sets which shifts they can be given.', options: ['Manager', 'Chef', 'Front of house'], example: 'Front of house' },
           { name: 'venue', type: 'select', required: true, label: 'Home venue', help: 'Where they usually work.', options: VENUES, example: 'Ware' },
           { name: 'start', type: 'date', required: true, label: 'First day', help: 'Shifts can start from this day.', example: '2026-12-01' },
           { name: 'mobile', type: 'phone', required: false, label: 'Mobile', help: 'For rota messages.', example: '07700 900123' },
@@ -342,6 +342,7 @@ App.view('form', {
 #view-form .m-field.error .m-select, #view-form .m-field.error .m-textarea, #view-form .m-field.error .fm-yn .m-btn { border-color: var(--m-bad); }
 #view-form .fm-opt { font-weight: 400; }
 #view-form .fm-one { grid-template-columns: minmax(0, 1fr); }
+#view-form #fm-panel .m-form { grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); }
 #view-form .fm-rule { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: 8px; background: var(--m-warn-soft); color: var(--m-warn); font-size: 13px; }
 #view-form .fm-rule svg { margin-top: 2px; }
 #view-form .fm-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; padding: 10px 12px; border-top: 1px solid var(--m-line); background: var(--m-page); }

@@ -83,7 +83,7 @@ App.view('evidence', {
       ? '<span class="tag high">High for the code</span><span class="tag">None for use</span>'
       : '<span class="tag ' + CONF_CLASS[c] + '">' + esc(c) + (tail ? ' ' + tail : '') + '</span>'
     const UNRATED = 'The report\'s table does not rate this on its own, so it takes the level the report gives any single outside figure.'
-    const LAW = 'Taken from law-firm and vendor summaries. The primary texts were not read, and this is no legal advice.'
+    const LAW = 'Taken from law-firm and vendor summaries. The primary texts were not read, and none of this is legal advice.'
     const CODE = 'Counted from the files on 22 November 2026. Nothing was checked at run time and no usage data exists.'
 
     // ── Findings ───────────────────────────────────────────────
