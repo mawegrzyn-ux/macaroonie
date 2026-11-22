@@ -69,5 +69,5 @@ Built: `usage_events` (pages opened, menu searches with handed to Pepper and wha
 - Only the office sidebar's search box is recorded. Today's Ask Pepper bar on the phone (`AskPepperBar`) and the Pepper drawer aren't searches of the menu and aren't recorded; step 2's home bar should call `useSearchUse()` too.
 - No sessions: "share of sessions that use the bar" (step 2's measure) needs a session id per sign-in or tab; add a `session` column then rather than guessing from times.
 - No median: report figures are sum, average, smallest, largest and counts only, so "median time to the first task" has to wait for a median figure in the report engine.
-- A schedule or data link of My pages and searches runs as its owner and so sends the owner's own record to whoever receives it; that is the owner's choice, but the schedule page doesn't say so.
+- (Fixed 22 Nov 2026 before merging: a report on My pages and searches, or one showing it beside another subject, can't be scheduled, emailed or made a data link: `ownRecordOnly()` in `api/src/reports/catalogue/index.js`, 422 with a reason. The admin still offers those buttons on such a report; they fail with the reason.)
 - Platform admins viewing another group are recorded in that group like members.

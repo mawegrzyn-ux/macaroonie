@@ -325,3 +325,15 @@ export const listColumns = (subjectKey, levels) => {
   const s = CATALOGUE.subjects[subjectKey]
   return s ? s.list.filter(p => viewable(s, p, levels)) : []
 }
+
+/**
+ * A report whose subject (or a subject it shows beside it) is each person's
+ * own record ({me} in its rule, e.g. usage.mine): it can only be run by the
+ * person, never scheduled or made a data link, which run as their owner and
+ * would send the owner's record to others (decision 8 of the Pepper-first plan).
+ */
+export function ownRecordOnly(spec) {
+  const keys = [spec?.subject, ...((spec?.also || []).map(a => a?.subject))].filter(Boolean)
+  return keys.some(k => JSON.stringify(CATALOGUE.subjects[k]?.where ?? '').includes('{me}'))
+}
+

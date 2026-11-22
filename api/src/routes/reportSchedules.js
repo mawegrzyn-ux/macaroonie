@@ -47,7 +47,7 @@ import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
-import { CATALOGUE, catalogueView } from '../reports/catalogue/index.js'
+import { CATALOGUE, catalogueView, ownRecordOnly } from '../reports/catalogue/index.js'
 import { STARTER_PREFIX, starterByKey } from '../reports/starters/index.js'
 import { limitPepperRuns, runsFor } from '../reports/access.js'
 import { loadTarget, loadTargets } from '../reports/target.js'
@@ -444,6 +444,7 @@ export default async function reportScheduleRoutes(app) {
     const p = await requestPerson(req)
     const me = await asOwner(p)
     const target = await loadTarget(req.params.id, me)
+    if (ownRecordOnly(target.spec)) throw httpError(422, 'This report is your own record: it can\'t be sent on a schedule')
     const bad = timingProblem(body.timing)
     if (bad) throw httpError(422, bad)
     const timing = normaliseTiming(body.timing)
@@ -647,6 +648,7 @@ export default async function reportScheduleRoutes(app) {
     const body = SendBody.parse(req.body || {})
     const p = await requestPerson(req)
     const target = await loadTarget(req.params.id, p)
+    if (ownRecordOnly(target.spec)) throw httpError(422, 'This report is your own record: it can\'t be emailed')
     const params = ownParams(target.spec, body.params)
     const plan = await prepareSend(p, target, {
       kind: 'emailed', recipients: body.recipients, delivery: body.delivery, condition: { when: 'always' },

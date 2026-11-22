@@ -131,3 +131,19 @@ test('the record is kept 90 days', async () => {
   assert.equal(removed, 1)
   assert.equal((await sql`SELECT count(*)::int AS n FROM usage_events WHERE tenant_id = ${ids.a}`)[0].n, 5, 'six less the one erased')
 })
+
+test('each person\'s own record can\'t be scheduled, emailed or made a data link', async () => {
+  const { ownRecordOnly } = await import('../src/reports/catalogue/index.js')
+  assert.equal(ownRecordOnly({ subject: 'usage.mine' }), true)
+  assert.equal(ownRecordOnly({ subject: 'usage.pages' }), false)
+  assert.equal(ownRecordOnly({ subject: 'till.lines', also: [{ subject: 'usage.mine' }] }), true)
+  const owner = as(A.owner, ids.a)
+  const res = await owner.post('/api/reports', { name: 'Mine', spec: { subject: 'usage.mine', kind: 'list', rows: ['page'] } })
+  assert.equal(res.status, 201, res.body)
+  const saved = res.json.report || res.json
+  const sched = await owner.post(`/api/reports/${saved.id}/schedules`, { timing: { days: [1], time: '08:00' }, recipients: [{ email: 'x@example.com' }] })
+  assert.equal(sched.status, 422, sched.body)
+  assert.match(sched.json.error, /your own record/)
+  const sent = await owner.post(`/api/reports/${saved.id}/send`, { recipients: [{ email: 'x@example.com' }] })
+  assert.equal(sent.status, 422, sent.body)
+})
