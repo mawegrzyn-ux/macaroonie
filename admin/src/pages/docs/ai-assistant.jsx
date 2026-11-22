@@ -849,6 +849,27 @@ export function Section() {
         <Mono>ai_assistant</Mono>): requests, tokens, units, cost, cost / units / tokens a request, average and longest time,
         models; starter <Mono>pepper_cost_by_model</Mono>. Tests: <Mono>api/test/pepper-requests.test.mjs</Mono>.
       </P>
+      <H3>The evaluation set (api/eval)</H3>
+      <P>
+        Simple tasks typed to Pepper, each graded by the database afterwards, never by Pepper&apos;s reply, each trial
+        from a clean tenant: the test database emptied and filled again by <Mono>resetAndSeed()</Mono> and{' '}
+        <Mono>fillTenant()</Mono> (mark &quot;Oak&quot;), then the task&apos;s setup. <Mono>harness.mjs</Mono> sends the
+        message to <Mono>POST /api/ai/chat</Mono>, presses Confirm (or Cancel) on each pending card through{' '}
+        <Mono>/api/ai/actions/:id/confirm</Mono>, and checks: <Mono>check(ctx)</Mono> for a change, an md5 per watched
+        table (<Mono>fingerprint()</Mono>) for &quot;nothing may change&quot;. Tokens, cost and time per trial are summed from{' '}
+        <Mono>ai_requests</Mono> (use chat). <Mono>tasks/&lt;area&gt;.mjs</Mono>: 27 tasks over bookings, food safety,
+        H&amp;S, rota, cash, menus, purchasing, the venue, customers, the website, issues and local info; 7 of them must
+        change nothing (missing details, a guest note with orders in it, an operator without the permission, a question).
+        Each has <Mono>reference(ctx)</Mono>, the calls a right answer makes.
+      </P>
+      <P>
+        <Mono>npm run eval</Mono> in <Mono>api/</Mono> (test database only) runs every setup and check with no model;{' '}
+        <Mono>npm run eval -- --live</Mono> runs the real model (<Mono>ANTHROPIC_API_KEY</Mono> from the environment;{' '}
+        <Mono>--only=</Mono>, <Mono>--trials=</Mono>, <Mono>--out=</Mono>) and writes a JSON result to{' '}
+        <Mono>api/eval/results/</Mono>. <Mono>api/test/pepper-eval.test.mjs</Mono> proves the harness with the stand-in
+        model: every task passes on its reference calls, no change task passes before its message, a wrong value and a
+        made-up reading fail. How to add a task and what a run costs: <Mono>api/eval/README.md</Mono>.
+      </P>
       <H3>Voice (migration 261)</H3>
       <P>
         <Mono>admin/src/lib/speech.js</Mono>: <Mono>listen()</Mono> / <Mono>speak()</Mono> over the browser&apos;s
