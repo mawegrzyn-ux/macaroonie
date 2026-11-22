@@ -7,7 +7,7 @@
 //   linkedSources()        the ones a venue is linked to
 //   retrieveDays()         fills days from each linked system; one failing
 //                          doesn't stop the others
-//   sweepAutoFill()        every few minutes (startCashAutoFillWorker()):
+//   sweepAutoFill()        every few minutes (jobs/cash-autofill.js):
 //                          each venue with the scheduled fill on, once a day
 //                          from its auto_fill_at (venue time), fills the day
 //                          just ended and the two before, keeping figures

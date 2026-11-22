@@ -255,7 +255,7 @@ ${preBill ? '<p class="note">Not paid yet. Once it is paid at the counter, this 
 </body></html>`
 }
 
-/** Hourly (jobs/queues.js): a receipt's page goes after 400 days. */
+/** Hourly (jobs/ai-cleanup.js): a receipt's page goes after 400 days. */
 export async function cleanUpReceipts(log) {
   try {
     const removed = await systemSql`DELETE FROM pos_receipts WHERE created_at < now() - interval '400 days' RETURNING id`

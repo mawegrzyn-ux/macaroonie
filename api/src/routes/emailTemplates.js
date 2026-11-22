@@ -1,7 +1,7 @@
 // src/routes/emailTemplates.js
 //
 // Admin CRUD for email templates + venue email settings.
-// Mounted at /api/email-templates in app.js.
+// Mounted at /api/email-templates (api/src/areas/bookings.js).
 
 import { z }  from 'zod'
 import { withTenant } from '../config/db.js'

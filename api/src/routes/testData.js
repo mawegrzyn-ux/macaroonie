@@ -18,7 +18,7 @@
 // requested occupancy — it does not replicate get_available_slots()'s full
 // allocation logic, which is unnecessary for synthetic test data.
 //
-// Mounted at /api/venues (see app.js) — same prefix as venues/schedules/cashRecon.
+// Mounted at /api/venues (see api/src/areas/bookings.js) — same prefix as venues/schedules/cashRecon.
 
 import { z }          from 'zod'
 import { withTenant } from '../config/db.js'

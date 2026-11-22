@@ -49,6 +49,25 @@ export function Section() {
         ]}
       />
 
+      <H3>Routes: one file per area</H3>
+      <P>
+        Since 22 Nov 2026 each area&apos;s pages are routed from{' '}
+        <Mono>admin/src/routes/&lt;area&gt;.jsx</Mono>, which imports its pages and exports{' '}
+        <Mono>{"routes = [{ path | index, shell, element }]"}</Mono>. The shell is the layout a
+        page opens in: <Mono>office</Mono> (AppShell), <Mono>mobile</Mono> (MobileShell, under{' '}
+        <Mono>/mobile</Mono>), <Mono>installer</Mono> (InstallerShell, under{' '}
+        <Mono>/install</Mono>) or <Mono>bare</Mono> (none); a path is relative to its
+        shell&apos;s own. Big pages opened by few people are <Mono>React.lazy</Mono> there, with{' '}
+        <Mono>LoadingPage</Mono> (<Mono>routes/lib/</Mono>, not gathered) while they load.{' '}
+        <Mono>main.jsx</Mono> keeps the providers, <Mono>RequireAuth</Mono>,{' '}
+        <Mono>TenantGate</Mono>, the shells and the few routes whose place matters (the{' '}
+        <Mono>Moved</Mono> redirects, <Mono>/link/:code</Mono>, <Mono>/reservations-widget</Mono>,
+        the phone&apos;s catch-all), and gathers the area files with{' '}
+        <Mono>{"import.meta.glob('./routes/*.jsx', { eager: true })"}</Mono>; a route with an
+        unknown shell is logged and left out. React Router ranks routes by path, so the files
+        need no order.
+      </P>
+
       <H3>The Help and Docs pages: one file per section</H3>
       <P>
         Each section of the Help page is a file in <Mono>admin/src/pages/help/</Mono> and each

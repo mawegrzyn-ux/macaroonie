@@ -1,7 +1,7 @@
 // src/routes/team.js
 //
 // In-app user/team management within a tenant.
-// Mounted at /api/team in app.js.
+// Mounted at /api/team (api/src/areas/core.js).
 //
 // RBAC: only owner + platform_admin can invite, change roles, remove.
 // Admin can view the team list.

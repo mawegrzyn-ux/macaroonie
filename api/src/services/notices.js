@@ -2,7 +2,7 @@
 //
 // Push notices for the Today tasks (migration 262, OUTSTANDING 44 item 13,
 // docs/PEPPER_FIRST.md 4.8 and phase 6a). Every five minutes
-// (startTaskNoticeWorker()) sweepNotices() works out each venue's Today
+// (jobs/task-notices.js) sweepNotices() works out each venue's Today
 // tasks, the same feed the Today page shows (opsToday()), and sends:
 //   - due soon: a task with a time that is due within the next half hour
 //   - late:     a task the feed has gone late on

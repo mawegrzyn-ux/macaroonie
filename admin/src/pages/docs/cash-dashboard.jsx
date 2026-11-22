@@ -26,8 +26,8 @@ export function Section() {
       <H3>Storage and API (migration 101)</H3>
       <P>
         No new tables. <Mono>hs_dashboards.kind</Mono> (<Mono>'hs' | 'cash'</Mono>, default{' '}
-        <Mono>'hs'</Mono>) splits the two. <Mono>routes/hsDashboards.js</Mono> is registered
-        twice in <Mono>app.js</Mono>: <Mono>/api/hs-dashboards</Mono> with{' '}
+        <Mono>'hs'</Mono>) splits the two. <Mono>routes/hsDashboards.js</Mono> was registered
+        twice (today four times, from <Mono>api/src/areas/dashboards.js</Mono>): <Mono>/api/hs-dashboards</Mono> with{' '}
         <Mono>{"{ kind: 'hs', moduleKey: 'hs_dashboard' }"}</Mono> and{' '}
         <Mono>/api/cash-dashboards</Mono> with{' '}
         <Mono>{"{ kind: 'cash', moduleKey: 'cash_dashboard' }"}</Mono>. Each mount filters
@@ -41,7 +41,8 @@ export function Section() {
         switch covers both). The migration copies each tenant's <Mono>cash_recon</Mono>{' '}
         switch and each role's <Mono>cash_recon</Mono> permission onto it, and inserts a{' '}
         <Mono>/cash-dashboard</Mono> nav link straight after <Mono>/cash-recon</Mono>.{' '}
-        <Mono>ROUTE_CATALOG</Mono>, <Mono>defaultNav.js</Mono> and the Overview{' '}
+        Its page record (<Mono>shared/nav/dashboards.js</Mono>, which gives{' '}
+        <Mono>ROUTE_CATALOG</Mono> and the standard menu) and the Overview{' '}
         <Mono>SHORTCUT_OPTIONS</Mono> include it too.
       </P>
       <H3>Widgets</H3>

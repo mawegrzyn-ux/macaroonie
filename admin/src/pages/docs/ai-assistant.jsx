@@ -49,17 +49,37 @@ export function Section() {
         <Mono>cash.js</Mono>, <Mono>orders.js</Mono>, <Mono>venue.js</Mono>,{' '}
         <Mono>site.js</Mono> and <Mono>general.js</Mono> (below), <Mono>localInfo.js</Mono>,{' '}
         <Mono>locations.js</Mono> and <Mono>reports.js</Mono> (in their own sections). A tool is{' '}
-        <Mono>{'{ name, section, title, description, input (Zod), run(ctx, input), readOnly, confirm, destructive, needs, describe() }'}</Mono>{' '}
+        <Mono>{'{ name, section, title, description, activity, core, open, input (Zod), run(ctx, input), readOnly, confirm, destructive, needs, describe() }'}</Mono>{' '}
         (<Mono>tools/index.js</Mono>); the Zod schema goes to the model and MCP clients as JSON
-        Schema via zod-to-json-schema.
+        Schema via zod-to-json-schema. <Mono>activity</Mono> is the line the chat shows for a
+        call (&quot;Looked at the rota&quot;; <Mono>ACTIVITY</Mono> in <Mono>chat.js</Mono> is
+        built from it).
       </P>
       <P>
-        <Mono>section</Mono> is the area (<Mono>SECTIONS</Mono> in <Mono>tools/index.js</Mono>:
+        <Mono>tools/index.js</Mono> gathers the staff tools from the folder (22 Nov 2026): every
+        file that exports <Mono>tools</Mono> (<Mono>util.js</Mono>, without it, is a helper),
+        sorted by its <Mono>order</Mono> export, then file name. Each file also exports{' '}
+        <Mono>sections</Mono> (the areas it adds:{' '}
+        <Mono>{'{ key: { label, modules } }'}</Mono>, or{' '}
+        <Mono>{'{ label, open: true }'}</Mono> for an area anyone with Pepper can use),{' '}
+        <Mono>promptLines</Mono> (its lines in the prompt&apos;s list of what Pepper can do) and{' '}
+        <Mono>promptNotes</Mono> (its paragraphs on how to use them). From them the registry
+        builds <Mono>SECTIONS</Mono>, <Mono>SECTION_MODULES</Mono>, <Mono>CORE_TOOLS</Mono>,{' '}
+        <Mono>TOOL_MODULE_KEYS</Mono>, <Mono>PROMPT_LINES</Mono> and <Mono>PROMPT_NOTES</Mono>;{' '}
+        <Mono>prompts.js</Mono> joins the lines in that order, so the cached system prompt
+        changes only when a tool file does. A tool file never imports{' '}
+        <Mono>tools/index.js</Mono>, <Mono>chat.js</Mono> or <Mono>prompts.js</Mono>: the
+        registry reads the folder with a top-level await, and a file that led back to it would
+        never finish loading.
+      </P>
+      <P>
+        <Mono>section</Mono> is the area (<Mono>SECTIONS</Mono>:
         general, bookings, customers, venue, hs, rota, cash, orders, till, menus, purchasing,
-        website, local_info, reports, locations, support). The older files don&apos;t set it; <Mono>withSection()</Mono> tags
-        their tools by file. The registry throws at start-up on a staff tool without a known
-        section, two staff tools with one name, or a missing core tool, so a mistake fails the
-        deploy instead of a chat. <Mono>CORE_TOOLS</Mono> (list_venues, find_bookings,
+        website, local_info, reports, locations, support). A tool that doesn&apos;t set it takes
+        its file&apos;s only area. The registry throws at start-up on a staff tool without a known
+        section, an area two files add, two staff tools with one name, a tool file without an
+        order, or no core tool, so a mistake fails the deploy instead of a chat. The tools marked{' '}
+        <Mono>core: true</Mono> (<Mono>CORE_TOOLS</Mono>: list_venues, find_bookings,
         day_overview, check_availability, hs_status, whos_working, open_page, how_do_i,
         day_briefing) are loaded in
         every staff chat request; the rest are found with tool search (The chat loop, below).
@@ -210,8 +230,9 @@ export function Section() {
       />
       <P>
         Quantities on orders are packs of the chosen quote, as on the Purchasing page. Both
-        chat (<Mono>TOOL_LABELS</Mono> in <Mono>chat.js</Mono>) and Activity (
-        <Mono>AiAssistant.jsx</Mono>, <Mono>changeDetail()</Mono>) label the new tools. The
+        chat (each tool&apos;s <Mono>activity</Mono>) and Activity (<Mono>ACTION_LABELS</Mono> in{' '}
+        <Mono>shared/pepperActions.js</Mono>, <Mono>changeDetail()</Mono> in{' '}
+        <Mono>AiAssistant.jsx</Mono>) label the new tools. The
         staff prompt (<Mono>prompts.js</Mono>) says to prefer <Mono>receive_delivery</Mono>{' '}
         over <Mono>log_delivery</Mono> when a delivery has a purchase order.
       </P>
@@ -396,9 +417,15 @@ export function Section() {
         date); their tools default to today where a date is optional.
       </P>
       <P>
-        Every change tool has a chat label (<Mono>TOOL_LABELS</Mono> in <Mono>chat.js</Mono> for
-        reads, the card title for changes) and an Activity label and detail
-        (<Mono>AiAssistant.jsx</Mono>: <Mono>TOOL_LABELS</Mono>, <Mono>changeDetail()</Mono>).
+        Every tool has a chat label (its <Mono>activity</Mono>, gathered into{' '}
+        <Mono>ACTIVITY</Mono> in <Mono>chat.js</Mono>, for reads; the card title for changes),
+        and every change tool an Activity label and detail (<Mono>ACTION_LABELS</Mono> in{' '}
+        <Mono>shared/pepperActions.js</Mono>, imported as <Mono>TOOL_LABELS</Mono> in{' '}
+        <Mono>AiAssistant.jsx</Mono>, and <Mono>changeDetail()</Mono> there). Still kept by hand
+        beside the tools: <Mono>ACTION_LABELS</Mono> and <Mono>changeDetail()</Mono>,{' '}
+        <Mono>VOICE_CONFIRM_TOOLS</Mono> and <Mono>HEAVY_TOOLS</Mono> in <Mono>chat.js</Mono>,
+        and <Mono>OPEN_FORMS</Mono> in <Mono>tools/forms.js</Mono>, which must match{' '}
+        <Mono>FORMS</Mono> in <Mono>FormSheet.jsx</Mono>.
       </P>
       <H3>Confirm cards (chats)</H3>
       <P>
@@ -699,7 +726,7 @@ export function Section() {
         rows={[
           ['eraseFromAi(tx, tenantId, values)', 'Called by POST /api/customers/:id/anonymise inside its own transaction, with every name, email and phone on the customer row and on their bookings and orders (collected before they are overwritten). Identifiers under 3 characters are skipped. Candidate chats are found by text (ILIKE on messages, cards and titles); a chat is only touched when something in it matches as a whole word (case ignored, no letter, digit or _ either side), so erasing a guest called Tom leaves a chat about tomatoes alone. In a matching chat: every message has the identifiers replaced with [removed], thinking blocks dropped (they can\'t be edited and still replay) and file blocks replaced with "[File removed]"; cards scrubbed, and open ones cancelled (result { error: erased }); its files deleted; the title scrubbed; closed_at set with closed_reason erased. ai_actions rows that match get input and result scrubbed and redacted_at. A first name alone, or a phone written another way, isn\'t matched.'],
           ['Closed chats', 'The stored history is replayed to the model unchanged, so an edited one can\'t carry on: runTurn() refuses it (409), the conversation responses carry closed, ChatView shows a notice and a Start a new chat button instead of the composer, and the chat list marks it. anonymise_customer, run from a chat, closes that chat too (the Confirm reply carries closed); its audit row is written by customer id, and the Confirm note uses the card title as it is after the erasure (titleNow()).'],
-          ['cleanUpAi(log)', 'The hourly ai-cleanup BullMQ job (startAiCleanupWorker() in jobs/queues.js, started by server.js). Per tenant: chats idle (updated_at) longer than chat_retention_days are deleted with their messages, cards and files (cascade), never one held by a running turn; ai_actions input and result cleared after 365 days (redacted_at); unsent uploads after a day; used or expired guest codes and grants after a day; ai_usage_people rows after 400 days. Idempotent, a failure on one tenant is logged and the rest carry on. Needs Redis (the repeat job), like the hold sweep.'],
+          ['cleanUpAi(log)', 'The hourly ai-cleanup BullMQ job (jobs/ai-cleanup.js, started by server.js through loadJobs()). Per tenant: chats idle (updated_at) longer than chat_retention_days are deleted with their messages, cards and files (cascade), never one held by a running turn; ai_actions input and result cleared after 365 days (redacted_at); unsent uploads after a day; used or expired guest codes and grants after a day; ai_usage_people rows after 400 days. Idempotent, a failure on one tenant is logged and the rest carry on. Needs Redis (the repeat job), like the hold sweep.'],
         ]}
       />
       <H3>Tables</H3>

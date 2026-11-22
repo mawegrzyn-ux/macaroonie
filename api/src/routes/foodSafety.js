@@ -1,7 +1,7 @@
 // src/routes/foodSafety.js
 //
 // SFBB-style food safety temperature & delivery logs (per venue).
-// Mounted at /api/food-safety in app.js.
+// Mounted at /api/food-safety (api/src/areas/hs.js).
 //
 // Access: reading needs food_safety View; logging and correcting readings,
 // deliveries and corrective actions (POST / PATCH of temp-logs, deliveries,

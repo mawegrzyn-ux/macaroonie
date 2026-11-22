@@ -1,7 +1,7 @@
 // src/routes/backlog.js
 //
 // Global Kanban backlog — platform admin only.
-// Mounted at /api/backlog in app.js.
+// Mounted at /api/backlog (api/src/areas/core.js).
 
 import { z }          from 'zod'
 import { sql }        from '../config/db.js'

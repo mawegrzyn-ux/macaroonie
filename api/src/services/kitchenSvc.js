@@ -550,7 +550,7 @@ export async function submitServerEvent(tenantId, venueId, type, payload) {
 }
 
 /**
- * The minute sweep (jobs/queues.js): at each venue with a kitchen printer,
+ * The minute sweep (jobs/hold-sweep.js): at each venue with a kitchen printer,
  * when a dish waiting for its time (an order for later) has come due for a
  * printer, send kitchen.print_due so the sequencer prints it. Returns how
  * many venues printed; never throws.
