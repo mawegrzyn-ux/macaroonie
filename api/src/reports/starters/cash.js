@@ -11,7 +11,10 @@ import { starter, m, share } from './define.js'
 const DAY_ROWS = ['date', 'venue.name', 'status', 'income', 'takings', 'expenses', 'wages_paid', 'variance']
 const WAGE_ROWS = ['date', 'venue.name', 'name', 'pay_type', 'hours', 'wage', 'bank', 'cash', 'unpaid', 'paid_on']
 
-export default [
+/** Where these starters come in the list (index.js gathers this folder by it, then by file name). */
+export const order = 40
+
+export const starters = [
   starter({
     key: 'cash_variance_by_day',
     name: 'Cash variance by day',

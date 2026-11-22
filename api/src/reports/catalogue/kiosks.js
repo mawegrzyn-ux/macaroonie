@@ -20,7 +20,10 @@ const NOT_ORDERED = "{t}.outcome <> 'ordered'"
 const OPENED_DISH = "COALESCE({t}.summary->'stages' @> '[\"item\"]'::jsonb, false)"
 const LANGUAGES = Object.fromEntries(KIOSK_LANGUAGES.map(l => [l.code, l.name]))
 
-export default [
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 80
+
+export const subjects = [
   subject({
     key: 'kiosks.visits',
     label: 'Kiosk visits',

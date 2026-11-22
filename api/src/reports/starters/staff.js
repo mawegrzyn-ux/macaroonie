@@ -14,7 +14,10 @@ import { starter, m } from './define.js'
 const WEEK_ROWS = ['date', 'venue.name', 'name', 'role', 'hours', 'paid_hours', 'pay', 'tip_share']
 const DAY_ROWS = ['date', 'venue.name', 'person.name', 'kind', 'hours', 'time_off_hours']
 
-export default [
+/** Where these starters come in the list (index.js gathers this folder by it, then by file name). */
+export const order = 50
+
+export const starters = [
   starter({
     key: 'rota_hours_pay_by_person',
     name: 'Hours and pay by person',

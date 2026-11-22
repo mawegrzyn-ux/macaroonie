@@ -14,7 +14,21 @@ const PRICED = '({t}.price_pence IS NOT NULL'
 const ALLERGENS = '(SELECT count(*) FROM menu_item_dietary d JOIN menu_dietary_tags g ON g.id = d.tag_id'
   + " WHERE d.tenant_id = {t}.tenant_id AND d.item_id = {t}.id AND g.kind = 'allergen')"
 
-export default [
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 10
+
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  settings: [
+    // A tax rate's own {'SECRETS': "'Secrets and keys'", 'TOKENS': "'Tokens, codes and sessions'", 'CONV': "'Conversations and files'", 'LAYOUTS': "'Layouts and designs with nothing to count'", 'WORKING': "'Working state that changes from minute to minute'", 'REACHED': "'Reached only through the row they belong to'"}t a location or for an order type
+    'tax_rate_values',
+  ],
+}
+
+export const subjects = [
   subject({
     key: 'venue',
     label: 'Venues',

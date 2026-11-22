@@ -12,7 +12,10 @@ import { starter, m } from './define.js'
 
 const OUT = { field: 'in_range', op: 'is', value: false }
 
-export default [
+/** Where these starters come in the list (index.js gathers this folder by it, then by file name). */
+export const order = 70
+
+export const starters = [
   starter({
     key: 'safety_fridge_readings_out',
     name: 'Fridge and freezer readings out of range',

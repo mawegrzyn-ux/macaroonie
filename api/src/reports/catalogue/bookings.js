@@ -12,7 +12,29 @@ const LIVE = "{t}.status NOT IN ('cancelled', 'no_show')"
 const PAID = "{t}.status IN ('succeeded', 'refunded', 'partially_refunded')"
 const LEAD = '((' + DAY + ') - ({t}.created_at AT TIME ZONE {tz})::date)'
 
-export default [
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 40
+
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  settings: [
+    'booking_rules', 'deposit_rules', 'venue_schedule_templates', 'venue_sittings', 'sitting_slot_caps',
+    'schedule_date_overrides', 'override_sittings', 'override_slot_caps', 'schedule_exceptions',
+    'exception_day_templates', 'exception_sittings', 'exception_sitting_slot_caps', 'disallowed_table_pairs',
+    'email_templates',
+  ],
+  out: {
+    'Secrets and keys': ['venue_email_settings'],
+    'Working state that changes from minute to minute': ['booking_holds', 'table_occupancy'],
+    'Reached only through the row they belong to': ['table_combination_members'],
+    'No longer written (booking emails are in email_log, reported as bookings.emails)': ['notification_log'],
+  },
+}
+
+export const subjects = [
   subject({
     key: 'bookings.sections',
     label: 'Table sections',

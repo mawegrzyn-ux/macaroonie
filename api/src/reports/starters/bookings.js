@@ -8,7 +8,10 @@ import { starter, m, share } from './define.js'
 
 const BOOKING_ROWS = ['date', 'starts_at', 'venue.name', 'covers', 'table.name', 'status', 'source', 'reference']
 
-export default [
+/** Where these starters come in the list (index.js gathers this folder by it, then by file name). */
+export const order = 30
+
+export const starters = [
   starter({
     key: 'bookings_guests_by_day',
     name: 'Guests by day and time',
