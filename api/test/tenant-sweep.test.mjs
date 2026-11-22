@@ -1,5 +1,6 @@
 // The cross-tenant sweep. Tenants A and B are filled through the API first
-// (support/fixtures.mjs, B with its own mark so A's stays unique); then
+// (support/fixtures.mjs and its areas in support/fixtures/, B with its own
+// mark so A's stays unique); then
 // tenant B's owner:
 //   1. calls every route that takes a parameter with A's ids, and with B's
 //      own ids mixed in (B's venue with A's sitting, ...): nothing B gets
@@ -18,7 +19,7 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { as, getApp, sql, closeApp } from './support/app.mjs'
 import { resetAndSeed, A, B } from './support/seed.mjs'
-import { fillTenant, MARK } from './support/fixtures.mjs'
+import { fillTenant, MARK, KINDS } from './support/fixtures.mjs'
 
 const PUBLIC = [
   /^\/widget-api\//, /^\/order-api\//, /^\/ai-api\//, /^\/screen-api\//, /^\/pos-api\//, /^\/webhooks\//,
@@ -42,15 +43,9 @@ const B_MARK = 'Wvb'
 const DATE  = /^(date|week|week_start|weekStart|day)$/
 const SLUG  = /^(slug|venueSlug|tenantSlug|pageSlug)$/
 const OTHER = { dow: ['1'], type: ['bounces'], email: ['nobody@zqx.test'], gateway: ['demo'], key: ['x'], token: ['x'] }
-// Named id parameters and the tables their ids come from; anything else
-// (:id) gets every id either tenant has.
-const KINDS = {
-  venueId: ['venues'], menuId: ['menus'], staffId: ['cash_staff'], potId: ['tip_pots'], itemId: ['menu_items', 'inv_items'],
-  designId: ['menu_print_designs', 'screen_designs'], releaseId: ['menu_releases'], widgetId: ['hs_dashboard_widgets'],
-  expenseId: ['cash_expenses'], holdId: ['booking_holds'], paymentId: ['payments', 'order_payments'], periodId: ['staff_rota_off'],
-  dayId: ['pos_days'], tenantId: ['tenants'], userId: ['users'], sid: ['venue_sittings', 'override_sittings', 'exception_sittings'],
-  eid: ['schedule_exceptions'], oid: ['schedule_date_overrides'], fileId: ['report_files'], scheduleId: ['report_schedules'], layoutId: ['report_layouts'], linkId: ['report_data_links'],
-}
+// KINDS: named id parameters and the tables their ids come from, each area's
+// beside its fixtures (`kinds` in support/fixtures/<area>.mjs), gathered by
+// support/fixtures.mjs; anything else (:id) gets every id either tenant has.
 const IDS_PER_TABLE = 1
 const CONCURRENCY = 8
 const MAX_CALLS_PER_ROUTE = 1500
