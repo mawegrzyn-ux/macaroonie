@@ -95,7 +95,29 @@ const PRINT_STATUS = { queued: 'Waiting', printing: 'Printing', printed: 'Printe
 const DEVICE_OF = col => ({ sql: "(CASE WHEN {t}." + col + " ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN {t}." + col + "::uuid END)" })
 const DAY_AT = (col, label = 'Day') => ({ sql: '({t}.' + col + ' AT TIME ZONE {tz})::date', bound: '{t}.' + col, label })
 
-export default [
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 20
+
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  settings: [
+    'pos_settings', 'pos_charge_rules', 'pos_stream_order_types', 'pos_till_layouts', 'pos_order_flows',
+    // The lists a check's discounts and charges come from (what each gave is in till.discounts and till.charges)
+    'pos_discounts', 'pos_charges',
+    'pos_card_accounts', // its name and provider only
+    'print_designs', 'print_design_uses',
+  ],
+  out: {
+    'Tokens, codes and sessions': ['pos_pairings'],
+    'Layouts and designs with nothing to count': ['print_design_variations'],
+    'Working state that changes from minute to minute': ['pos_venue_state'],
+  },
+}
+
+export const subjects = [
   // ── Who and what the till groups by ────────────────────────
 
   subject({

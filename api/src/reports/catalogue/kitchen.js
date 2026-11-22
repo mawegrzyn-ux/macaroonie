@@ -44,7 +44,21 @@ const logFields = () => ({
   order_number: text('order_number', { label: 'Order number' }),
 })
 
-export default [
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 70
+
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  settings: ['kds_flows'],
+  out: {
+    'Working state that changes from minute to minute': ['kds_flow_edges', 'kds_balance_turns'],
+  },
+}
+
+export const subjects = [
   subject({
     key: 'kitchen.stations',
     label: 'Kitchen stations',

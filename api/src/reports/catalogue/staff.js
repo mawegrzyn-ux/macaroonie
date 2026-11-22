@@ -43,7 +43,18 @@ const TIME_OFF_MINUTES = ['sick_minutes', 'pto_minutes', 'uto_minutes', 'abs_min
 // What a tip move gave its person, of one kind: taken out is a minus, as the Rota page counts it.
 const given = kind => ({ sql: "(CASE WHEN {t}.kind = '" + kind + "' THEN (CASE WHEN {t}.action = 'remove' THEN -{t}.amount ELSE {t}.amount END) END)" })
 
-export default [
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 60
+
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  settings: ['rota_settings', 'rota_week_pot_payees'],
+}
+
+export const subjects = [
   // ── Worked out for each run ──────────────────────────────────
 
   subject({

@@ -7,7 +7,10 @@
 
 import { starter, m } from './define.js'
 
-export default [
+/** Where these starters come in the list (index.js gathers this folder by it, then by file name). */
+export const order = 80
+
+export const starters = [
   starter({
     key: 'loyalty_members_joined',
     name: 'Members joined by week',

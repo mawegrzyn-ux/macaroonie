@@ -8,7 +8,9 @@
 //
 // What a run was about is said in the catalogue's own words for its subject
 // and area, which exist only once every other subject is defined, so
-// index.js hands them in: runsSubjects(otherSubjects, areas). Both are text
+// `subjects` is a function and index.js hands them in: subjects(every other
+// file's subjects, areas), called after the files whose subjects are a list,
+// whatever their order. Both are text
 // worked out in SQL, not choices: a choice's words go into the smart
 // builder's word index (smart.js subjectDocs()), and every subject's and
 // area's name there made this the best fit for nearly every request.
@@ -39,7 +41,29 @@ const SAFE_KEY = /^[a-z0-9_.]+$/
 const lit = v => "'" + String(v).replace(/'/g, "''") + "'"
 const caseOf = (pairs, otherwise) => '(CASE {t}.subject ' + pairs.map(([k, v]) => "WHEN '" + k + "' THEN " + lit(v)).join(' ') + ' ELSE ' + otherwise + ' END)'
 
-export default function runsSubjects(others, areas) {
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 180
+
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  out: {
+    'Tokens, codes and sessions': ['report_print_links'],
+    'Conversations and files': [
+      // Report files kept to download: counted on their run (Report runs' Files kept).
+      'report_files',
+    ],
+    'Layouts and designs with nothing to count': [
+      // The reports themselves, who starred them and their schedules (each
+      // send is a report run: Report runs' Sent by a schedule).
+      'reports', 'report_stars', 'report_schedules', 'report_layouts', 'report_data_links',
+    ],
+  },
+}
+
+export function subjects(others, areas) {
   const all = [...others, { key: KEY, label: LABEL, area: 'shared' }]
   const areaLabel = Object.fromEntries(areas.map(a => [a.key, a.label]))
   for (const s of all) {

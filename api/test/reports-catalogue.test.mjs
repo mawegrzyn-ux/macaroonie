@@ -9,7 +9,12 @@
 //   nothing that must stay secret is read, and nothing of the SQL leaves
 //     the server
 //   every field, grouping, figure and link of every subject runs
+//   every subject and starter file of the two folders is gathered
+//
+// How many subjects, tables and decisions there are isn't pinned here: `node
+// api/scripts/report-catalogue.js` prints the counts.
 import { test, before, after } from 'node:test'
+import fs from 'node:fs'
 import assert from 'node:assert/strict'
 import { as, closeApp, sql } from './support/app.mjs'
 import { resetAndSeed, A } from './support/seed.mjs'
@@ -22,6 +27,8 @@ import { tableCoverage, secretsRead, columnUse } from '../src/reports/catalogue/
 import { MODULE_KEYS } from '../src/config/modules.js'
 import { bucketsFor } from '../../shared/reports/paths.js'
 import { EVENT_LABELS, TILL_EVENT_TYPES } from '../src/reports/catalogue/till.js'
+import { gather } from '../src/reports/catalogue/gather.js'
+import { STARTERS } from '../src/reports/starters/index.js'
 
 let ids, columns, tables
 
@@ -42,14 +49,12 @@ after(closeApp)
 
 test('every table in the database has one decision, and every decision names a table', () => {
   const d = checkDecisions(CATALOGUE, tables)
-  assert.deepEqual(d.missing, [], 'tables with no decision: add a subject that reads them, or a line in src/reports/catalogue/decisions.js')
-  assert.deepEqual(d.twice, [], 'tables decided more than once')
-  assert.deepEqual(d.gone, [], 'decisions.js names tables that are gone')
+  assert.deepEqual(d.missing, [], 'tables with no decision: add a subject that reads them, or the table to the `decisions` of its area\'s file in src/reports/catalogue/')
+  assert.deepEqual(d.twice, [], 'tables decided more than once (in one catalogue file or in two)')
+  assert.deepEqual(d.gone, [], 'a catalogue file\'s `decisions` names tables that are gone')
   assert.equal(d.counts.subject + d.counts.planned + d.counts.settings + d.counts.out, tables.length)
-
-  // Where the catalogue stands today: a change here is a change to say in the docs.
-  assert.deepEqual(d.counts, { subject: 129, planned: 0, settings: 57, out: 57 })
-  assert.equal(tables.length, 243)
+  // How many of each there are is printed by `node api/scripts/report-catalogue.js`:
+  // a new table or subject changes the counts, and that is no mistake.
 
   // Left-out tables carry a reason; planned ones an area with a phase.
   for (const [reason, list] of Object.entries(LEFT_OUT)) {
@@ -85,6 +90,38 @@ test('every table in the database has one decision, and every decision names a t
   assert.equal(tableDecisions(CATALOGUE).find(x => x.table === 'platform_secrets').reason, 'Secrets and keys')
 })
 
+test('every subject and starter file is gathered, in its order', async () => {
+  // A file is gathered when it exports `subjects` (or `starters`); one that
+  // still has a default export, or forgot its order, would be left out or
+  // put last without a word.
+  for (const [folder, name] of [['catalogue', 'subjects'], ['starters', 'starters']]) {
+    const dir = new URL('../src/reports/' + folder + '/', import.meta.url)
+    for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.js') && f !== 'index.js')) {
+      const mod = await import(new URL(file, dir).href)
+      assert.ok(!('default' in mod), folder + '/' + file + ' has a default export: name it `' + name + '`')
+      if (name in mod) assert.ok(Number.isFinite(mod.order), folder + '/' + file + ' needs `export const order = <number>`')
+      else assert.ok(!('order' in mod) && !('decisions' in mod), folder + '/' + file + ' has an order or decisions but no `' + name + '`')
+    }
+  }
+  // The catalogue's subjects are the files' subjects, file by file in their
+  // order, then those worked out from all the others (Report runs).
+  const files = await gather(new URL('../src/reports/catalogue/index.js', import.meta.url).href, 'subjects')
+  const isFn = f => typeof f.module.subjects === 'function'
+  const listed = files.filter(f => !isFn(f)).flatMap(f => f.module.subjects)
+  const keys = [...listed, ...files.filter(isFn).flatMap(f => f.module.subjects(listed, AREAS))].map(s => s.key)
+  assert.deepEqual(keys, Object.keys(CATALOGUE.subjects))
+  assert.equal(keys.at(-1), 'group.report_runs')
+  const starterFiles = await gather(new URL('../src/reports/starters/index.js', import.meta.url).href, 'starters')
+  assert.deepEqual(starterFiles.flatMap(f => f.module.starters.map(s => s.key)), STARTERS.map(s => s.key))
+  // Every file's decisions are gathered: each of its tables has its decision.
+  const all = tableDecisions(CATALOGUE)
+  for (const f of await gather(new URL('../src/reports/catalogue/index.js', import.meta.url).href, 'decisions')) {
+    const d = f.module.decisions
+    for (const t of d.settings || []) assert.ok(all.some(x => x.table === t && x.kind === 'settings'), f.file + ': ' + t)
+    for (const [reason, list] of Object.entries(d.out || {})) for (const t of list) assert.ok(all.some(x => x.table === t && x.kind === 'out' && x.reason === reason), f.file + ': ' + t)
+  }
+})
+
 test('a table nobody has decided on, one decided twice and a stale name are each caught', () => {
   const d = checkDecisions(CATALOGUE, [...tables.filter(t => t !== 'nav_items'), 'brand_new_table'])
   assert.deepEqual(d.missing, ['brand_new_table'])
@@ -97,7 +134,8 @@ test('a table nobody has decided on, one decided twice and a stale name are each
 test('every id column of a table a subject reads is linked, offered or left out on purpose', t => {
   const cover = tableCoverage(CATALOGUE, columns)
   assert.deepEqual(cover.derived, ['till.takers', 'online.sales', 'cash.days', 'cash.weeks', 'rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.tip_moves', 'safety.days', 'local.weather', 'local.weather_hours'])
-  assert.equal(cover.tables.length, 119)
+  // Every table a subject reads as it is, is a table of the database.
+  assert.deepEqual(cover.tables.map(x => x.table).filter(x => !tables.includes(x)), [])
 
   const undecided = cover.tables.flatMap(x => x.idsUndecided.map(c => x.table + '.' + c))
   assert.deepEqual(undecided, [], 'id columns with no link: add one(...) to the subject, or the column to its skip list')

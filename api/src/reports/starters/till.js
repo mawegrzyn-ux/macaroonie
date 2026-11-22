@@ -12,7 +12,10 @@ const ON_CLOSED = { field: 'check.status', op: 'is', value: 'closed' }
 const CHECK_ROWS = ['number', 'date', 'venue.name', 'mode', 'server.name', 'order_type.name', 'covers', 'net', 'service_charge', 'total']
 const LINE_ROWS = ['date', 'check.number', 'name', 'qty', 'gross', 'discount', 'net', 'section.name', 'check.server.name']
 
-export default [
+/** Where these starters come in the list (index.js gathers this folder by it, then by file name). */
+export const order = 10
+
+export const starters = [
   starter({
     key: 'till_sales_by_day',
     name: 'Sales by day',

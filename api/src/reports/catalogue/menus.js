@@ -42,7 +42,26 @@ const hasPicture = col => ({ sql: "(COALESCE({t}." + col + ", '') <> '')" })
 // two ids together (the tables have no id of their own).
 const pair = (a, b) => ({ sql: '({t}.' + a + "::text || ':' || {t}." + b + '::text)' })
 
-export default [
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 120
+
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  settings: [
+    'menu_times', 'menu_translations',
+    // The Deliveroo file's settings and its links to dishes
+    'deliveroo_settings', 'deliveroo_item_links',
+  ],
+  out: {
+    'Tokens, codes and sessions': ['menu_preview_links'],
+    'Layouts and designs with nothing to count': ['menu_print_designs', 'menu_callouts', 'menu_allergen_notice'],
+  },
+}
+
+export const subjects = [
   subject({
     key: 'menu.releases',
     label: 'Menu publishes',

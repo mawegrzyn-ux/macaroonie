@@ -10,7 +10,10 @@ const COUNTED = { field: 'counted', op: 'is', value: true }
 const ORDER_COUNTED = { field: 'order.counted', op: 'is', value: true }
 const ORDER_ROWS = ['date', 'number', 'venue.name', 'status', 'fulfilment', 'tender', 'total', 'refunded', 'placed_at']
 
-export default [
+/** Where these starters come in the list (index.js gathers this folder by it, then by file name). */
+export const order = 20
+
+export const starters = [
   starter({
     key: 'online_by_day_channel',
     name: 'Online orders and sales by day and channel',

@@ -112,7 +112,21 @@ const FLAGS = cond => '(SELECT count(*) FROM local_info_feedback f WHERE f.item_
 const ALSO = '(SELECT count(*) FROM local_info_items c WHERE c.merged_into = {t}.id AND c.tenant_id = {t}.tenant_id)'
 const LEARNS = "({t}.learn_auto AND {t}.kind <> 'weather')"
 
-export default [
+/** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
+export const order = 140
+
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  out: {
+    // Staff flags on local info (migration 248): counted on the item itself.
+    'Reached only through the row they belong to': ['local_info_feedback'],
+  },
+}
+
+export const subjects = [
   subject({
     key: 'local.weather',
     label: 'Weather',

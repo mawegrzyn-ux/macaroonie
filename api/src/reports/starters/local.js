@@ -6,7 +6,10 @@
 
 import { starter, m } from './define.js'
 
-export default [
+/** Where these starters come in the list (index.js gathers this folder by it, then by file name). */
+export const order = 140
+
+export const starters = [
   starter({
     key: 'local_coming_up',
     name: 'Local events and incidents coming up',
