@@ -1,7 +1,7 @@
 // shared/help.js
 //
 // The Help page's subsection anchors, made the same way by the page
-// (admin/src/pages/Help.jsx gives each H3 this id) and by Pepper's help
+// (admin/src/pages/help/parts.jsx gives each H3 this id) and by Pepper's help
 // search (api/src/ai/helpIndex.js links answers to it).
 
 /** "Fill from GloriaFood" -> "fill-from-gloriafood". */
