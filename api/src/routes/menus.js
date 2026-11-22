@@ -27,7 +27,7 @@ import { randomUUID } from 'node:crypto'
 import { notifyTillsOnWrite } from '../services/posNotify.js'
 import {
   loadMenuVersion, publishMenu, cancelRelease, publishStatus, menuStatuses, announceMenus,
-  publishAllergens, allergenStatus,
+  publishAllergens, allergenStatus, groupWordFor,
 } from '../services/menuReleases.js'
 import {
   BLOCK_TYPES, MAX_PAGES, MAX_BLOCKS, MENU_LAYOUT_CSS,
@@ -36,7 +36,7 @@ import {
 import { FONT_OPTIONS } from '../../../shared/fonts.js'
 import { ALLERGEN_LEVELS, allergenKey, menuTags, noticeOf } from '../../../shared/menuTags.js'
 import { cleanTax } from '../../../shared/tax.js'
-import { ITEM_TYPES, cleanItemType, itemType, resolveItemTypes, needsAllergens, cleanSku, cleanBarcode, codeProblems } from '../../../shared/catalogue.js'
+import { ITEM_TYPES, cleanItemType, itemType, resolveItemTypes, needsAllergens, cleanSku, cleanBarcode, codeProblems, WORD_SETTINGS } from '../../../shared/catalogue.js'
 import { comboMenuPrice, variantOptionId } from '../../../shared/orderPricing.js'
 import { PICK_SCALE_MIN, PICK_SCALE_MAX, DEAL_USES, DEAL_PRICE_MAX, normaliseDealGroups } from '../../../shared/combos.js'
 import { taxLookups, checkTaxSetting } from '../services/taxSvc.js'
@@ -1226,6 +1226,17 @@ export default async function menusRoutes(app) {
   // ════════════════════════════════════════════════════════════
   //   MENUS — list / get / create / patch / delete
   // ════════════════════════════════════════════════════════════
+
+  // What the group calls its menus (migration 269): { word, setting, types }.
+  app.get('/word', async (req) => withTenant(req.tenantId, tx => groupWordFor(tx, req.tenantId)))
+  // setting: null = from the menus' types, or menus / catalogues / menus_and_catalogues.
+  app.put('/word', { preHandler: PERM.manage }, async (req) => {
+    const { setting } = z.object({ setting: z.enum(WORD_SETTINGS).nullable() }).parse(req.body || {})
+    return withTenant(req.tenantId, async tx => {
+      await tx`UPDATE tenants SET catalogue_word = ${setting}, updated_at = now() WHERE id = ${req.tenantId}`
+      return groupWordFor(tx, req.tenantId)
+    })
+  })
 
   app.get('/', async (req) => {
     const venue_id = req.query?.venue_id || null

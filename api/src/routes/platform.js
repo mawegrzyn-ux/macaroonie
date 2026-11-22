@@ -20,6 +20,8 @@
 //                                       light on a venue's Tech board (anyone signed in)
 
 import { z } from 'zod'
+import { groupWordFor } from '../services/menuReleases.js'
+import { renameMenusLinks } from '../../../shared/catalogue.js'
 import { sql, withTenant, systemSql } from '../config/db.js'
 import { requireAuth, requirePlatformAdmin } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
@@ -166,11 +168,13 @@ export default async function platformRoutes(app) {
     let navTree = []
     let launcherTiles = []
     if (req.tenantId) {
-      const items = await withTenant(req.tenantId, tx => tx`
-        SELECT * FROM nav_items WHERE tenant_id = ${req.tenantId} AND is_active = true
-      `)
+      const [items, words] = await withTenant(req.tenantId, async tx => [
+        await tx`SELECT * FROM nav_items WHERE tenant_id = ${req.tenantId} AND is_active = true`,
+        await groupWordFor(tx, req.tenantId),
+      ])
       const fullTree = buildNavTree(items)
-      navTree = pruneNavTree(fullTree, permissions, effectiveRole?.id ?? null, isPlatformAdmin)
+      // The Menus link and section say the group's word (migration 269): Catalogues for a shop.
+      navTree = renameMenusLinks(pruneNavTree(fullTree, permissions, effectiveRole?.id ?? null, isPlatformAdmin), words.word)
       launcherTiles = items
         .filter(i => i.kind === 'link' && i.show_in_launcher
           && navItemVisible(i, permissions, effectiveRole?.id ?? null, isPlatformAdmin))

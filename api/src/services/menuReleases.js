@@ -32,7 +32,7 @@ import { broadcast } from '../config/ws.js'
 import { tillsMayNeedConfig } from './posNotify.js'
 import { loadMenuFull, loadAllergenNotice } from '../routes/menus.js'
 import { releaseContent, contentKey, diffMenus, withShownGroupNames, withDraftTags } from '../../../shared/menuDiff.js'
-import { resolveItemTypes } from '../../../shared/catalogue.js'
+import { resolveItemTypes, groupWord } from '../../../shared/catalogue.js'
 
 export const VERSIONS = ['live', 'draft']
 const MAX_AHEAD_DAYS = 400
@@ -473,3 +473,17 @@ export async function backfillFirstReleases(log) {
   if (made) log?.info?.({ made }, 'Published existing menus (first releases)')
   return made
 }
+
+/**
+ * What the group calls its menus (migration 269, shared/catalogue.js
+ * groupWord()): the group's setting, else worked out from its menus' types.
+ * { word, setting, types }
+ */
+export async function groupWordFor(tx, tenantId) {
+  const [row] = await tx`
+    SELECT t.catalogue_word,
+           COALESCE((SELECT array_agg(m.item_type) FROM menus m WHERE m.tenant_id = t.id), '{}') AS types
+      FROM tenants t WHERE t.id = ${tenantId}`
+  return { word: groupWord(row?.types || [], row?.catalogue_word), setting: row?.catalogue_word ?? null, types: row?.types || [] }
+}
+

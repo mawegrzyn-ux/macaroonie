@@ -237,8 +237,17 @@ export function Section() {
         with its size or colour when the code belongs to one. If the item has other choices to
         make, its choices window opens. Codes go to the tills when the menu is published.
       </P>
+      <H3>Menus or catalogues</H3>
       <P>
-        Still to come: the word Catalogue for a menu that isn&apos;t food, and codes in reports.
+        A menu that sells retail goods or services is a <strong>Catalogue</strong>: the list on
+        the Menus page marks it, and Pepper calls it that. The page, its title and the Menus link
+        in the main menu say <strong>Menus</strong> when everything you sell is food,{' '}
+        <strong>Catalogues</strong> when none of it is, and <strong>Menus &amp; catalogues</strong>{' '}
+        when you have both. To fix the word, pick it in <strong>Call them</strong> at the top of
+        the list. A Menus link you renamed yourself in the Navigation designer keeps your name.
+      </P>
+      <P>
+        Still to come: codes and types in reports.
       </P>
       <H3>Copying dishes, sections and options</H3>
       <P>

@@ -81,3 +81,21 @@ test('codes are unique in a menu; a scan finds the item, or the item with its op
   assert.deepEqual(findByCode(index, 'tee-l'), { item_id: 'i1', option_id: L, group_id: SIZE })
   assert.equal(findByCode(index, '0000'), null)
 })
+
+test('words: Menu or Catalogue, the group\'s word, and the main menu renamed only where standard', async () => {
+  const { menuWord, groupWord, renameMenusLinks } = await import('../catalogue.js')
+  assert.deepEqual(['food', 'goods', 'service', null].map(menuWord), ['Menu', 'Catalogue', 'Catalogue', 'Menu'])
+  assert.equal(groupWord([]), 'Menus')
+  assert.equal(groupWord(['food', null]), 'Menus')
+  assert.equal(groupWord(['goods', 'service']), 'Catalogues')
+  assert.equal(groupWord(['food', 'goods']), 'Menus & catalogues')
+  assert.equal(groupWord(['food'], 'catalogues'), 'Catalogues')
+  assert.equal(groupWord(['goods'], 'nonsense'), 'Catalogues')
+  const tree = [
+    { kind: 'section', label: 'Menus', children: [{ kind: 'link', label: 'Menus', route: '/menus' }, { kind: 'link', label: 'Tax', route: '/menus/tax' }] },
+    { kind: 'link', label: 'Our dishes', route: '/menus' },
+  ]
+  const out = renameMenusLinks(tree, 'Catalogues')
+  assert.deepEqual([out[0].label, out[0].children[0].label, out[0].children[1].label, out[1].label], ['Catalogues', 'Catalogues', 'Tax', 'Our dishes'])
+  assert.equal(renameMenusLinks(tree, 'Menus'), tree)
+})
