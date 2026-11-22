@@ -1698,6 +1698,8 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
   const [newRead,   setNewRead]   = useState(null)   // what Pepper read off the receipt
   const [editRead,  setEditRead]  = useState(null)
   const [uploading, setUploading] = useState({})
+  // Delete asks on the row first: { id, blocked } (blocked: it still has a receipt).
+  const [asking, setAsking] = useState(null)
   const newFileRef  = useRef(null)
   const editFileRef = useRef(null)
   const fileInputRefs = useRef({})
@@ -1756,12 +1758,13 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
     } catch {}
   }
 
-  async function handleDelete(expId) {
+  function askDelete(expId) {
     const exp = expenses.find(e => e.id === expId)
-    if (exp?.receipt_url) {
-      alert('Delete the receipt first before deleting this expense.')
-      return
-    }
+    setAsking({ id: expId, blocked: !!exp?.receipt_url })
+  }
+
+  async function handleDelete(expId) {
+    setAsking(null)
     try {
       await api.delete(`/venues/${venueId}/cash-recon/expenses/${expId}`)
       setExpenses(p => p.filter(e => e.id !== expId))
@@ -1959,11 +1962,24 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
                   }} title="Edit">
                     <Pencil className="w-4 h-4" />
                   </IconBtn>
-                  <IconBtn onClick={() => handleDelete(exp.id)} title="Delete" className="text-destructive hover:bg-destructive/10">
+                  <IconBtn onClick={() => askDelete(exp.id)} title="Delete" className="text-destructive hover:bg-destructive/10">
                     <Trash2 className="w-4 h-4" />
                   </IconBtn>
                 </div>
               </div>
+              )}
+              {asking?.id === exp.id && (
+                <div className="mt-2 rounded-lg border border-destructive/40 bg-destructive/5 p-2.5 flex flex-wrap items-center gap-2" data-testid="expense-delete-confirm">
+                  <p className="flex-1 min-w-[180px] text-sm">
+                    {asking.blocked ? 'Remove the receipt first, then delete the expense.' : 'Delete this expense?'}
+                  </p>
+                  {!asking.blocked && (
+                    <button type="button" onClick={() => handleDelete(exp.id)}
+                      className="min-h-[48px] px-4 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium touch-manipulation">Yes, delete</button>
+                  )}
+                  <button type="button" onClick={() => setAsking(null)}
+                    className="min-h-[48px] px-4 rounded-lg border text-sm touch-manipulation hover:bg-muted">{asking.blocked ? 'OK' : 'Cancel'}</button>
+                </div>
               )}
             </div>
           )

@@ -1205,6 +1205,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET', '/:id', 'operator', 'Customer detail including full booking history.'],
                 ['PATCH', '/:id', 'operator', 'Update name, phone, or notes.'],
                 ['POST', '/:id/unsubscribe', 'operator', 'Newsletter off: marketing_opt_in = false, marketing_opt_out_at = now() (migration 125). There is no staff subscribe; only the guest opts in, at online checkout.'],
+                ['DELETE', '/:id', 'owner', 'Delete for good (22 Nov 2026, test and demo data; Customers manage and the owner role): the row goes, its bookings, web orders and loyalty membership stay unlinked (ON DELETE SET NULL) with the guest details written on them. Returns { deleted, bookings_kept, orders_kept }. Not erasure: use anonymise.'],
                 ['POST', '/:id/anonymise', 'admin', 'GDPR erasure — replaces all PII with placeholders, anonymises linked bookings and web orders (guest fields, notes, allergy_note, consent, order line notes), clears the newsletter fields, and in the same transaction removes their name, email and phone from Pepper\'s chats and audit (eraseFromAi(), see Pepper → Erasure and retention). Never deletes the row.'],
                 ['GET', '/:id/export', 'admin', 'GDPR data export — returns a JSON file download with customer, newsletter status, all booking records and all web orders (with items and the consent recorded at checkout).'],
               ]}
@@ -8803,8 +8804,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               group&apos;s web search switch, which is for Pepper&apos;s chat. The web search is tested only against a
               stand-in Claude (the exact server-tool block shapes): first live use, run a capture and check the
               findings and <Mono>last_error</Mono>. Open-Meteo's free API is for non-commercial use — before real
-              franchisees rely on the weather, either buy an Open-Meteo API plan (set the two URL env vars to the
-              customer endpoints) or swap the provider in <Mono>captureWeather()</Mono>. Searches store what the
+              franchisees rely on the weather, buy an Open-Meteo API plan and save its key on the Platform page
+              (Services tab, 22 Nov 2026: <Mono>services/weatherKey.js</Mono>, sealed in <Mono>platform_secrets</Mono>{' '}
+              as <Mono>open_meteo_key</Mono>, checked with one call before saving, <Mono>GET/PUT/DELETE
+              /api/platform/weather-key</Mono>); with a key the captures go to Open-Meteo&apos;s customer hosts with{' '}
+              <Mono>apikey</Mono> (<Mono>meteoUrl()</Mono>; a stand-in host set in the two URL env vars is kept). Searches store what the
               model read on a page: dates can be wrong or stale, which is why every captured item keeps its source
               link and can be hidden. No push or alerting; the calendar is pull-only. Flags (migration 248) change
               nothing on the calendar, and what Pepper learns is words added to the search&apos;s ask, not a filter:

@@ -355,9 +355,7 @@ export function MediaLibraryModal({
                 canEdit={canEdit}
                 onCreate={(name) => createCategory.mutate(name)}
                 onRename={(id, name) => renameCategory.mutate({ id, name })}
-                onDelete={(id) => {
-                  if (window.confirm('Delete this category? Items will become uncategorized.')) deleteCategory.mutate(id)
-                }}
+                onDelete={(id) => deleteCategory.mutate(id)}
               />
 
               {!canEdit && <ReadOnlyNotice what="the media library" className="text-xs" />}
@@ -500,11 +498,7 @@ export function MediaLibraryModal({
                   scopes={scopes}
                   onPatch={(body) => patchItem.mutate({ id: singleSelected.id, body })}
                   onEdit={() => setEditorItem(singleSelected)}
-                  onDelete={() => {
-                    if (window.confirm(`Delete "${singleSelected.filename}"? This cannot be undone.`)) {
-                      deleteItem.mutate(singleSelected.id, { onSuccess: clearSelection })
-                    }
-                  }}
+                  onDelete={() => deleteItem.mutate(singleSelected.id, { onSuccess: clearSelection })}
                 />
               ) : (
                 <DetailMulti count={selected.length}
@@ -513,11 +507,7 @@ export function MediaLibraryModal({
                   scopes={scopes}
                   onMoveCategory={(id) => bulkAction.mutate({ action: 'move-category', ids: [...selectedIds], category_id: id })}
                   onMoveScope={(scope) => bulkAction.mutate({ action: 'move-scope', ids: [...selectedIds], scope })}
-                  onDelete={() => {
-                    if (window.confirm(`Delete ${selected.length} item${selected.length !== 1 ? 's' : ''}?`)) {
-                      bulkAction.mutate({ action: 'delete', ids: [...selectedIds] }, { onSuccess: clearSelection })
-                    }
-                  }}
+                  onDelete={() => bulkAction.mutate({ action: 'delete', ids: [...selectedIds] }, { onSuccess: clearSelection })}
                 />
               )}
             </div>
@@ -616,7 +606,21 @@ function CategoriesList({ categories, active, onSelect, onCreate, onRename, onDe
 
 function CatRow({ active, onClick, icon, children, onRename, onDelete, count }) {
   const [editing, setEditing] = useState(false)
+  const [asking, setAsking] = useState(false)
   const [name, setName] = useState(typeof children === 'string' ? children : '')
+  if (asking) {
+    return (
+      <div className="rounded border border-destructive/40 bg-destructive/5 p-2 space-y-1.5" data-testid="media-cat-confirm">
+        <p className="text-xs">Delete &quot;{children}&quot;? Its items stay, with no category.</p>
+        <div className="flex gap-1.5">
+          <button type="button" onClick={() => { setAsking(false); onDelete?.() }}
+            className="min-h-[44px] px-3 rounded-md bg-destructive text-destructive-foreground text-xs font-medium touch-manipulation">Yes, delete</button>
+          <button type="button" onClick={() => setAsking(false)}
+            className="min-h-[44px] px-3 rounded-md border text-xs touch-manipulation hover:bg-muted">Cancel</button>
+        </div>
+      </div>
+    )
+  }
   if (editing) {
     return (
       <input autoFocus value={name} onChange={e => setName(e.target.value)}
@@ -638,7 +642,7 @@ function CatRow({ active, onClick, icon, children, onRename, onDelete, count }) 
       {onRename && (
         <span className={cn('opacity-0 group-hover:opacity-100 inline-flex gap-0.5', active && 'opacity-100')}>
           <span onClick={(e) => { e.stopPropagation(); setEditing(true) }} className="hover:text-primary cursor-pointer p-0.5"><Pencil className="w-3 h-3" /></span>
-          <span onClick={(e) => { e.stopPropagation(); onDelete?.() }} className="hover:text-destructive cursor-pointer p-0.5"><Trash2 className="w-3 h-3" /></span>
+          <span onClick={(e) => { e.stopPropagation(); setAsking(true) }} className="hover:text-destructive cursor-pointer p-0.5" aria-label="Delete category"><Trash2 className="w-3 h-3" /></span>
         </span>
       )}
     </button>
@@ -765,12 +769,33 @@ function DetailSingle({ item, categories, scopes, onPatch, onEdit, onDelete, can
             <Edit3 className="w-3.5 h-3.5" /> Edit image
           </button>
         )}
-        <button onClick={onDelete}
-          className="inline-flex items-center justify-center gap-1.5 w-full text-sm border border-destructive text-destructive rounded-md px-3 py-2 min-h-[36px] hover:bg-destructive/10">
-          <Trash2 className="w-3.5 h-3.5" /> Delete
-        </button>
+        <DeleteTwice label="Delete" question={'Delete "' + item.filename + '"? This can\'t be undone.'} onConfirm={onDelete} />
       </div>
     </div>
+  )
+}
+
+/** A delete button that asks first, on the page (no browser pop-up). */
+function DeleteTwice({ label, question, onConfirm }) {
+  const [asking, setAsking] = useState(false)
+  if (asking) {
+    return (
+      <div className="rounded-md border border-destructive/40 bg-destructive/5 p-2.5 space-y-2" data-testid="media-delete-confirm">
+        <p className="text-sm">{question}</p>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => { setAsking(false); onConfirm() }}
+            className="flex-1 min-h-[48px] px-3 rounded-md bg-destructive text-destructive-foreground text-sm font-medium touch-manipulation">Yes, delete</button>
+          <button type="button" onClick={() => setAsking(false)}
+            className="flex-1 min-h-[48px] px-3 rounded-md border text-sm touch-manipulation hover:bg-muted">Cancel</button>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <button type="button" onClick={() => setAsking(true)} data-testid="media-delete"
+      className="inline-flex items-center justify-center gap-1.5 w-full text-sm border border-destructive text-destructive rounded-md px-3 py-2 min-h-[48px] hover:bg-destructive/10 touch-manipulation">
+      <Trash2 className="w-3.5 h-3.5" /> {label}
+    </button>
   )
 }
 
@@ -798,10 +823,7 @@ function DetailMulti({ count, categories, scopes, onMoveCategory, onMoveScope, o
           {scopes.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
       </div>
-      <button onClick={onDelete}
-        className="inline-flex items-center justify-center gap-1.5 w-full text-sm border border-destructive text-destructive rounded-md px-3 py-2 min-h-[36px] hover:bg-destructive/10">
-        <Trash2 className="w-3.5 h-3.5" /> Delete all
-      </button>
+      <DeleteTwice label="Delete all" question={'Delete these ' + count + ' items? This can\'t be undone.'} onConfirm={onDelete} />
     </div>
   )
 }

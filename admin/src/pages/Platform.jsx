@@ -17,6 +17,7 @@ import AiLimitsPanel from '@/components/platform/AiLimitsPanel'
 import WalletCard from '@/components/platform/WalletCard'
 import AndroidAppCard from '@/components/platform/AndroidAppCard'
 import StripeKeysCard from '@/components/platform/StripeKeysCard'
+import WeatherKeyCard from '@/components/platform/WeatherKeyCard'
 
 const PLAN_COLOURS = {
   starter:    'bg-gray-100 text-gray-600',
@@ -79,8 +80,8 @@ export default function Platform() {
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-6 space-y-6">
-          <div className="inline-flex rounded-lg border overflow-hidden">
-            {[['tenants', 'Tenants'], ['interest', 'Registered interest'], ['ai', 'AI usage'], ['payments', 'Payments'], ['wallet', 'Loyalty wallets'], ['android', 'Macaroonie Player']].map(([v, l]) => (
+          <div className="inline-flex flex-wrap rounded-lg border overflow-hidden">
+            {[['tenants', 'Tenants'], ['interest', 'Registered interest'], ['ai', 'AI usage'], ['payments', 'Payments'], ['wallet', 'Loyalty wallets'], ['android', 'Macaroonie Player'], ['services', 'Services']].map(([v, l]) => (
               <button key={v} type="button" onClick={() => setTab(v)}
                 className={cn('h-11 px-4 text-sm font-medium touch-manipulation inline-flex items-center gap-2',
                   tab === v ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted')}>
@@ -97,6 +98,7 @@ export default function Platform() {
           {tab === 'wallet' && <WalletCard />}
           {tab === 'payments' && <StripeKeysCard />}
           {tab === 'android' && <AndroidAppCard />}
+          {tab === 'services' && <WeatherKeyCard />}
 
           {tab === 'tenants' && <>
           {/* Stats overview */}

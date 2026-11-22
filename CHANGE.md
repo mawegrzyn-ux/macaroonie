@@ -6,6 +6,13 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-22 — Small fixes: SMTP email, on-page confirms, deleting a test customer, an Open-Meteo key]
+
+- SMTP email works: the package it needs is installed, and with the secure setting left empty the port decides (TLS from the start on 465, an upgrade on 587).
+- No more browser pop-ups when deleting in the Media library, replacing a page with a template in the page builder, or when an image upload fails: each asks or tells on the page. Deleting a Cash Recon expense now asks first too.
+- Owners can delete a test or demo customer for good from their profile (asked twice). Their bookings and orders stay, unlinked. Use Anonymise for a real guest.
+- Platform admins can save an Open-Meteo key on the Platform page (new Services tab): with it the weather captures use Open-Meteo's paid service, which is needed before real customers rely on the weather. No migration.
+
 ## [2026-11-22 — The weather hour by hour, and as it was recorded]
 
 - The Local info weather capture now brings the forecast hour by hour as well as day by day, and once a day or an hour has passed it records the weather it had, keeping what was forecast beside it. Each run also reads the last seven days, so a week of recorded weather appears straight away.

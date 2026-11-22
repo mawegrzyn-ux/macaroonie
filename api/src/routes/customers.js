@@ -8,13 +8,19 @@
 //   PATCH /customers/:id             update name / phone / notes
 //   POST /customers/:id/anonymise    GDPR right to erasure (anonymises, never deletes)
 //   GET  /customers/:id/export       GDPR data export (JSON download)
+//   DELETE /customers/:id            delete for good (owners; test and demo data):
+//                                    the row goes, their bookings, online orders and
+//                                    loyalty membership stay without the link
+//                                    (ON DELETE SET NULL), keeping the guest's details
+//                                    written on them. For a real guest's erasure use
+//                                    anonymise.
 //
 // upsertCustomer() is exported and called from bookings.js on every
 // booking confirm so the customer DB grows automatically.
 
 import { z } from 'zod'
 import { withTenant, sql } from '../config/db.js'
-import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js'
 import { eraseFromAi } from '../ai/erase.js'
 import { forgetPersonalFiles, removeStored } from '../reports/fileErasure.js'
 
@@ -301,6 +307,20 @@ export default async function customersRoutes(app) {
     `)
     if (!row) throw httpError(404, 'Customer not found or already anonymised')
     return row
+  })
+
+  // ── DELETE /customers/:id ──────────────────────────────────
+  app.delete('/:id', { preHandler: [PERM.manage, requireRole('owner')] }, async (req) => {
+    const id = z.string().uuid().safeParse(req.params.id)
+    if (!id.success) throw httpError(404, 'Customer not found')
+    return withTenant(req.tenantId, async tx => {
+      const [kept] = await tx`
+        SELECT (SELECT count(*)::int FROM bookings WHERE customer_id = ${id.data} AND tenant_id = ${req.tenantId}) AS bookings,
+               (SELECT count(*)::int FROM orders   WHERE customer_id = ${id.data} AND tenant_id = ${req.tenantId}) AS orders`
+      const [row] = await tx`DELETE FROM customers WHERE id = ${id.data} AND tenant_id = ${req.tenantId} RETURNING id`
+      if (!row) throw httpError(404, 'Customer not found')
+      return { deleted: row.id, bookings_kept: kept.bookings, orders_kept: kept.orders }
+    })
   })
 
   // ── POST /customers/:id/anonymise ──────────────────────────

@@ -1524,6 +1524,14 @@ export default function Help() {
               Anonymisation is permanent and irreversible. Once confirmed, the customer's personal details
               cannot be recovered. Only proceed when you have received a valid erasure request.
             </InfoBox>
+            <H3>Deleting a test customer</H3>
+            <P>
+              Owners also see <strong>Delete this customer</strong> at the bottom of a customer&apos;s profile,
+              for clearing out test and demo records. It asks twice. The customer record goes for good, but
+              their bookings, online orders and loyalty membership stay, no longer linked to it, and still show
+              the name and contact details written on them. For a real guest asking to be forgotten, use{' '}
+              <strong>Anonymise</strong> instead: that removes their details everywhere.
+            </P>
             <P>
               Anonymising also covers the customer&apos;s online orders: name, email, phone, notes and
               allergy information are removed, and they come off the newsletter. The export includes

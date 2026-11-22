@@ -716,15 +716,16 @@ function ImagePlaceholder({ onChange, scope }) {
   const fileRef = useRef(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [uploading, setUploading]   = useState(false)
+  const [uploadError, setUploadError] = useState(null)   // shown on the picker, never a browser pop-up
 
   async function handleFiles(files) {
     if (!files?.[0]) return
-    setUploading(true)
+    setUploading(true); setUploadError(null)
     try {
       const res = await api.upload('/website/upload', files[0], { kind: 'images', scope })
       onChange(res.url)
     } catch (e) {
-      alert(e?.body?.error || e.message || 'Upload failed')
+      setUploadError(e?.body?.error || e.message || 'Upload failed')
     } finally {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''
@@ -753,6 +754,7 @@ function ImagePlaceholder({ onChange, scope }) {
           <ImageIcon size={14} /> Library
         </button>
       </div>
+      {uploadError && <p role="alert" style={{ margin: 0, fontSize: 13, color: '#b91c1c' }}>{uploadError}</p>}
       <MediaLibraryModal open={pickerOpen} onClose={() => setPickerOpen(false)}
         mode="picker" scope={scope} onPick={(picked) => onChange(picked)} />
     </div>
@@ -764,15 +766,16 @@ function ImagePicker({ label, url, onChange, scope, position = 'top-right' }) {
   const fileRef = useRef(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [uploading, setUploading]   = useState(false)
+  const [uploadError, setUploadError] = useState(null)   // shown on the picker, never a browser pop-up
 
   async function handleFiles(files) {
     if (!files?.[0]) return
-    setUploading(true)
+    setUploading(true); setUploadError(null)
     try {
       const res = await api.upload('/website/upload', files[0], { kind: 'images', scope })
       onChange(res.url)
     } catch (e) {
-      alert(e?.body?.error || e.message || 'Upload failed')
+      setUploadError(e?.body?.error || e.message || 'Upload failed')
     } finally {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''
@@ -808,6 +811,7 @@ function ImagePicker({ label, url, onChange, scope, position = 'top-right' }) {
           Remove
         </button>
       )}
+      {uploadError && <span role="alert" style={{ color: '#fca5a5' }}>{uploadError}</span>}
       <MediaLibraryModal open={pickerOpen} onClose={() => setPickerOpen(false)}
         mode="picker" scope={scope} onPick={(picked) => onChange(picked)} />
     </div>

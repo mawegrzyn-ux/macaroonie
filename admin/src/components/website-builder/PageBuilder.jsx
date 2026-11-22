@@ -449,7 +449,6 @@ export function PageBuilder({
   })
 
   function applyTemplate(tpl) {
-    if (blocks.length > 0 && !window.confirm(`Replace all ${blocks.length} blocks with the "${tpl.label}" template?`)) return
     const newBlocks = tpl.blocks.map(b => ({ id: crypto.randomUUID(), type: b.type, data: structuredClone(b.data) }))
     setBlocks(newBlocks)
     setSelectedId(null)
@@ -686,7 +685,7 @@ export function PageBuilder({
       )}
 
       {templatesOpen && (
-        <TemplatePickerModal onClose={() => setTemplatesOpen(false)} onApply={applyTemplate} />
+        <TemplatePickerModal onClose={() => setTemplatesOpen(false)} onApply={applyTemplate} replacing={blocks.length} />
       )}
     </div>
     </LinkCatalogProvider>
@@ -696,10 +695,13 @@ export function PageBuilder({
 
 // ─────────────────────────────────────────────────────────────
 
-function TemplatePickerModal({ onClose, onApply }) {
+/** The page's templates. With blocks on the page already, picking one asks
+ *  first (on the page, no browser pop-up): it replaces them all. */
+function TemplatePickerModal({ onClose, onApply, replacing = 0 }) {
+  const [picked, setPicked] = useState(null)
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-background rounded-xl shadow-2xl w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col"
+      <div className="bg-background rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}>
         <div className="px-5 h-14 border-b flex items-center justify-between">
           <h2 className="font-semibold text-sm">Start from a template</h2>
@@ -707,8 +709,8 @@ function TemplatePickerModal({ onClose, onApply }) {
         </div>
         <div className="flex-1 overflow-y-auto p-5 grid grid-cols-1 md:grid-cols-2 gap-3">
           {PAGE_TEMPLATES.map(t => (
-            <button key={t.key} type="button" onClick={() => onApply(t)}
-              className="text-left border rounded-lg p-4 hover:border-primary hover:shadow-sm">
+            <button key={t.key} type="button" onClick={() => (replacing > 0 ? setPicked(t) : onApply(t))}
+              className={cn('text-left border rounded-lg p-4 hover:border-primary hover:shadow-sm touch-manipulation', picked?.key === t.key && 'border-primary ring-2 ring-primary/30')}>
               <div className="flex items-start justify-between gap-2 mb-1">
                 <p className="text-sm font-semibold">{t.label}</p>
                 {t.style_pack && (
@@ -730,6 +732,17 @@ function TemplatePickerModal({ onClose, onApply }) {
             </button>
           ))}
         </div>
+        {picked && (
+          <div className="border-t px-5 py-3 flex flex-wrap items-center gap-2 bg-destructive/5" data-testid="template-replace-confirm">
+            <p className="flex-1 min-w-[200px] text-sm">
+              Replace all {replacing} block{replacing !== 1 ? 's' : ''} on this page with the &quot;{picked.label}&quot; template?
+            </p>
+            <button type="button" onClick={() => onApply(picked)}
+              className="min-h-[48px] px-4 rounded-md bg-destructive text-destructive-foreground text-sm font-medium touch-manipulation">Replace them</button>
+            <button type="button" onClick={() => setPicked(null)}
+              className="min-h-[48px] px-4 rounded-md border text-sm touch-manipulation hover:bg-muted">Cancel</button>
+          </div>
+        )}
       </div>
     </div>
   )
