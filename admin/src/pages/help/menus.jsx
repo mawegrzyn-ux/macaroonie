@@ -219,9 +219,26 @@ export function Section() {
         get no course, and an online order&apos;s kitchen copy leaves them out. They aren&apos;t
         offered for food safety cooking checks either.
       </P>
+      <H3>Product codes and barcodes</H3>
       <P>
-        Still to come: product codes and barcodes, and the word Catalogue for a menu that
-        isn&apos;t food.
+        A dish&apos;s panel has <strong>Codes</strong>: a <strong>Product code</strong> (your own
+        code, such as MUG-01) and a <strong>Barcode</strong> (the number under the bars on the
+        packaging: 8, 12, 13 or 14 digits). Both are optional. A barcode with a wrong last digit
+        shows in red, and the menu can&apos;t be saved until it is right; each code can be used once
+        in a menu.
+      </P>
+      <P>
+        For retail goods the panel also lists each option of the dish&apos;s option groups, so a
+        T-shirt&apos;s Small, Medium and Large can each have their own product code and barcode.
+      </P>
+      <P>
+        <strong>Scanning at the till:</strong> with a barcode scanner plugged into the till (one
+        that types the code and presses Enter), scan the item on an open check and it is added,
+        with its size or colour when the code belongs to one. If the item has other choices to
+        make, its choices window opens. Codes go to the tills when the menu is published.
+      </P>
+      <P>
+        Still to come: the word Catalogue for a menu that isn&apos;t food, and codes in reports.
       </P>
       <H3>Copying dishes, sections and options</H3>
       <P>

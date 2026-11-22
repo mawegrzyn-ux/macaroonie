@@ -131,3 +131,47 @@ test('the allergen matrix, the lookup and what guests are served leave non-food 
   const status = await ok(owner.get(`/api/menus/${cafe.id}/publish`))
   assert.equal(status.in_sync, true, JSON.stringify(status.changes))
 })
+
+// Step 4 (migration 268): product codes and barcodes on a dish and on its
+// options, checked on save, kept by Pepper's save body, in the release, and
+// sent to the till for a scan.
+test('codes: saved, checked, kept and published', async () => {
+  const size = await ok(owner.post('/api/menus/variant-groups', { name: 'Shirt size', options: [{ label: 'Small', price_pence: 0 }, { label: 'Large', price_pence: 0 }] }))
+  const groups = await ok(owner.get('/api/menus/variant-groups'))
+  const lib = (groups.groups || groups).find(g => g.id === size.id)
+  const large = lib.options.find(o => o.label === 'Large')
+  const shop = await ok(owner.post('/api/menus', { name: 'Merch', slug: 'merch', item_type: 'goods' }))
+  const base = menuSaveBody(await ok(owner.get(`/api/menus/${shop.id}`)))
+  const shirt = { name: 'T-shirt', price_pence: 1500, sku: 'TEE', barcode: '5000112637922',
+    variant_groups: [{ group_id: size.id }], option_codes: [{ option_id: large.id, barcode: '96385074' }] }
+  await ok(owner.patch(`/api/menus/${shop.id}`, { ...base, sections: [{ title: 'Clothes', items: [shirt] }] }))
+  const saved = await ok(owner.get(`/api/menus/${shop.id}`))
+  const it = saved.sections[0].items[0]
+  assert.deepEqual([it.sku, it.barcode], ['TEE', '5000112637922'])
+  assert.deepEqual(it.option_codes, [{ option_id: large.id, sku: null, barcode: '96385074' }])
+
+  // A wrong check digit, and a code used twice, are refused with a reason.
+  const bad = menuSaveBody(saved)
+  bad.sections[0].items[0].barcode = '5000112637923'
+  const r1 = await owner.patch(`/api/menus/${shop.id}`, bad)
+  assert.equal(r1.status, 422)
+  assert.match(r1.json.error, /check digit/)
+  const twice = menuSaveBody(saved)
+  twice.sections[0].items.push({ name: 'Mug', price_pence: 800, sku: 'tee' })
+  const r2 = await owner.patch(`/api/menus/${shop.id}`, twice)
+  assert.equal(r2.status, 422)
+  assert.match(r2.json.error, /product code/i)
+
+  // Pepper's save body keeps every code; a save of it changes nothing.
+  await ok(owner.patch(`/api/menus/${shop.id}`, menuSaveBody(saved)))
+  const again = (await ok(owner.get(`/api/menus/${shop.id}`))).sections[0].items[0]
+  assert.deepEqual([again.sku, again.barcode, again.option_codes], [it.sku, it.barcode, it.option_codes])
+
+  // Published, and what the till reads has them.
+  await ok(owner.post(`/api/menus/${shop.id}/publish`, {}))
+  const { loadMenuVersions } = await import('../src/services/menuReleases.js')
+  const [live] = await withTenant(ids.a, tx => loadMenuVersions(tx, ids.a, { menuIds: [shop.id] }))
+  assert.deepEqual(live.sections[0].items[0].option_codes, it.option_codes)
+  assert.equal(live.sections[0].items[0].barcode, '5000112637922')
+
+})

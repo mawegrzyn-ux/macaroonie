@@ -1,6 +1,6 @@
 # Menus as catalogues: food, retail goods and services
 
-**Status: steps 1 to 3 of 4.6 built 22 Nov 2026 (migration 267); steps 4 to 6 not built. The user agreed all four decisions in section 7 as recommended (22 Nov 2026).**
+**Status: steps 1 to 4 of 4.6 built 22 Nov 2026 (migrations 267 and 268); steps 5 and 6 not built. The user agreed all four decisions in section 7 as recommended (22 Nov 2026).**
 ask: "I would like flexibility how we use menu. In a non-food retail scenario, we don't need all
 the allergen info, we would also call the menu a catalogue. To accommodate it we would need a flag
 indicating which menus (catalogues) or categories within menus are food, which retail goods, which

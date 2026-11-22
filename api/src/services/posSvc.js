@@ -281,6 +281,9 @@ export async function tillMenuData(tx, tenantId, venueId, streams, { guest = fal
         combo: it.combo || null,
         dietary: it.dietary || [], allergen_levels: it.allergen_levels || {},
         item_type: it.item_type || 'food',   // resolved by loadMenuVersions() (migration 267)
+        // Codes for a barcode scan (migration 268, codeIndex() in shared/catalogue.js).
+        ...(it.sku ? { sku: it.sku } : {}), ...(it.barcode ? { barcode: it.barcode } : {}),
+        ...(it.option_codes?.length ? { option_codes: it.option_codes } : {}),
         description: it.description || null,
         variant_rules: rules,
         ...(guest ? { image_url: it.image_url || null, calories: it.calories ?? null, is_featured: !!it.is_featured }
