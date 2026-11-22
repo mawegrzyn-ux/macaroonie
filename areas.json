@@ -552,6 +552,7 @@
    ],
    "public": [
     "admin/src/components/localInfo/shared.jsx",
+    "api/src/ai/tools/localInfo.js",
     "api/src/services/localInfoSvc.js",
     "api/src/services/weatherKey.js",
     "shared/localInfo.js",
@@ -959,6 +960,7 @@
     "admin/src/components/reports/shared.jsx",
     "admin/src/components/website-builder/shared.jsx",
     "admin/src/lib/linked.js",
+    "api/src/ai/tools/reportSchedules.js",
     "api/src/services/cashReconSvc.js",
     "api/src/services/pdfBrowser.js",
     "api/src/services/privateStore.js",
