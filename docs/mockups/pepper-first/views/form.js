@@ -110,7 +110,7 @@ App.view('form', {
         ],
         hot(v) { const t = num(v.temp); return t != null && t > 5 && t <= 40 },
         needs(v) { return this.hot(v) ? { chilled: true, action: true } : {} },
-        rule(v) { return this.hot(v) ? 'The van is over 5 °C. Before this saves, the form needs an answer on chilled goods and a corrective action. This rule belongs to the form. Pepper did not add it.' : '' },
+        rule(v) { return this.hot(v) ? 'The van is over 5\u00a0°C. Before this saves, the form needs an answer on chilled goods and a corrective action. This rule belongs to the form. Pepper did not add it.' : '' },
         check(v, s) {
           const e = {}
           const t = num(v.temp)
@@ -120,13 +120,13 @@ App.view('form', {
           else if (t == null || t < -30 || t > 40) e.temp = 'Type a temperature between -30 and 40.'
           else if (s.origin.temp === 'said' && !s.checked.temp) e.temp = 'Confirm the ' + s.ex.said.temp + ' you said, or type the reading.'
           if (this.hot(v)) {
-            if (!v.chilled) e.chilled = 'The van is over 5 °C. Say if the chilled goods were accepted.'
-            if (!String(v.action).trim()) e.action = 'The van is over 5 °C. Say what you did about it.'
+            if (!v.chilled) e.chilled = 'The van is over 5\u00a0°C. Say if the chilled goods were accepted.'
+            if (!String(v.action).trim()) e.action = 'The van is over 5\u00a0°C. Say what you did about it.'
           }
           return e
         },
         summary(v) {
-          return [v.supplier, niceDate(v.date), String(v.short).trim() || 'Nothing short', 'Van ' + String(v.temp).trim() + ' °C',
+          return [v.supplier, niceDate(v.date), String(v.short).trim() || 'Nothing short', 'Van ' + String(v.temp).trim() + '\u00a0°C',
             v.chilled ? 'Chilled goods ' + (v.chilled === 'Yes' ? 'accepted' : 'not accepted') : '',
             String(v.action).trim() ? 'Action: ' + String(v.action).trim() : '', String(v.notes).trim() ? 'Note: ' + String(v.notes).trim() : ''].filter(Boolean)
         },
@@ -165,15 +165,15 @@ App.view('form', {
       '<table><thead><tr><th>Item</th><th class="q">Ordered</th><th class="q">Sent</th></tr></thead><tbody>' +
       '<tr><td>Chicken thigh, chilled</td><td class="q">10 kg</td><td class="q">10 kg</td></tr>' +
       '<tr><td>Pak choi</td><td class="q">6 kg</td><td class="q">4 kg</td></tr>' +
-      '<tr><td>Thai basil</td><td class="q">12 bunches</td><td class="q">12 bunches</td></tr></tbody></table>' +
+      '<tr><td>Thai basil</td><td class="q">2 kg</td><td class="q">2 kg</td></tr></tbody></table>' +
       '<div class="fm-note-row"><span>3 lines</span><span>Received by: ........</span></div></div>'
     const EX = {
       typed: {
         form: 'delivery', words: 'bread delivery, 14 loaves short, van was 6 degrees',
         pepper: 'I chose the delivery check for Ware and put in what you told me. Check it and save.',
-        understood: ['Form: Delivery check', 'Supplier: East Bakery, your bread supplier', 'Short: 14 loaves', 'Van: 6 °C, as you said', 'Day: today'],
+        understood: ['Form: Delivery check', 'Supplier: East Bakery, your bread supplier', 'Short: 14 loaves', 'Van: 6\u00a0°C, as you said', 'Day: today'],
         fill: { supplier: 'East Bakery', date: TODAY, short: '14 loaves short', temp: '6' },
-        said: { temp: '6 °C' },
+        said: { temp: '6\u00a0°C' },
         helps: { temp: 'Pepper never infers a measured value. It shows back what you said, and you confirm it.' },
       },
       spoken: {
@@ -205,22 +205,22 @@ App.view('form', {
         key: 'add_supplier', tool: 'add_supplier', pick: 'Add a supplier', title: 'Add a supplier', icon: 'truck', save: 'Save supplier', done: 'Supplier saved',
         fields: [
           { name: 'name', type: 'text', required: true, label: 'Supplier name', help: 'The name on their invoices.', example: 'Lea Valley Produce', max: 80 },
-          { name: 'order_via', type: 'select', required: true, label: 'How orders are sent', help: 'Where a purchase order goes when you send it.', options: ['Email', 'Phone', 'Their website'], example: 'Email' },
+          { name: 'order_via', type: 'select', required: true, label: 'How orders are sent', help: 'Where a purchase order goes.', options: ['Email', 'Phone', 'Their website'], example: 'Email' },
           { name: 'email', type: 'email', required: false, label: 'Orders email', help: 'Purchase orders are sent here.', example: 'orders@leavalley.example' },
           { name: 'phone', type: 'phone', required: false, label: 'Phone', help: 'For the day an order is late.', example: '01632 960114' },
           { name: 'min_order', type: 'number', required: false, label: 'Minimum order in pounds', help: 'Leave empty if they have none.', example: '50', min: 0 },
-          { name: 'chilled', type: 'yesno', required: true, label: 'Delivers chilled goods', help: 'Chilled deliveries get a van temperature check.', example: 'Yes' },
+          { name: 'chilled', type: 'yesno', required: true, label: 'Delivers chilled goods', help: 'Adds a van temperature check.', example: 'Yes' },
         ],
       },
       {
         key: 'add_staff_member', tool: 'add_staff_member', pick: 'Add a staff member', title: 'Add a staff member', icon: 'users', save: 'Save staff member', done: 'Staff member saved',
         fields: [
           { name: 'name', type: 'text', required: true, label: 'Full name', help: 'As it shows on the rota.', example: 'Priya Shah', max: 60 },
-          { name: 'role', type: 'select', required: true, label: 'Role', help: 'Sets which shifts they can be given.', options: ['General manager', 'Head chef', 'Shift lead', 'Chef', 'Front of house'], example: 'Front of house' },
+          { name: 'role', type: 'select', required: true, label: 'Role', help: 'Sets which shifts they can be given.', options: ['Manager', 'Shift lead', 'Chef', 'Front of house'], example: 'Front of house' },
           { name: 'venue', type: 'select', required: true, label: 'Home venue', help: 'Where they usually work.', options: VENUES, example: 'Ware' },
-          { name: 'start', type: 'date', required: true, label: 'First day', help: 'The rota can give them shifts from this day.', example: '2026-12-01' },
+          { name: 'start', type: 'date', required: true, label: 'First day', help: 'Shifts can start from this day.', example: '2026-12-01' },
           { name: 'mobile', type: 'phone', required: false, label: 'Mobile', help: 'For rota messages.', example: '07700 900123' },
-          { name: 'under_18', type: 'yesno', required: true, label: 'Under 18', help: 'Applies the working hours rules for young workers.', example: 'No' },
+          { name: 'under_18', type: 'yesno', required: true, label: 'Under 18', help: 'Applies the rules for young workers.', example: 'No' },
         ],
       },
       {
@@ -230,7 +230,7 @@ App.view('form', {
           { name: 'date', type: 'date', required: true, label: 'First day closed', help: 'Guests cannot book from this day.', example: '2026-12-25', notBefore: TODAY },
           { name: 'days', type: 'number', required: true, label: 'Days closed in a row', help: '1 for a single day.', example: '2', min: 1, max: 14, whole: true },
           { name: 'reason', type: 'text', required: true, label: 'Reason', help: 'Staff see this on the timeline.', example: 'Christmas', max: 60 },
-          { name: 'website', type: 'yesno', required: true, label: 'Show on the website', help: 'Adds the closure to the opening times guests see.', example: 'Yes' },
+          { name: 'website', type: 'yesno', required: true, label: 'Show on the website', help: 'Guests see it under opening times.', example: 'Yes' },
         ],
       },
     ]
@@ -311,7 +311,7 @@ App.view('form', {
 #view-form .fm-note table { width: 100%; border-collapse: collapse; }
 #view-form .fm-note th, #view-form .fm-note td { text-align: left; font-weight: 400; padding: 3px 6px 3px 0; border-bottom: 1px dashed var(--m-line); vertical-align: top; }
 #view-form .fm-note th { color: var(--m-muted); border-bottom-style: solid; }
-#view-form .fm-note .q { text-align: right; padding-right: 0; white-space: nowrap; }
+#view-form .fm-note .q { text-align: right; padding: 3px 0 3px 10px; white-space: nowrap; }
 #view-form .m-understood .m-pill { height: auto; min-height: 20px; padding: 2px 8px; border-radius: 10px; white-space: normal; }
 #view-form .fm-sum { padding: 8px 12px; font-size: 13.5px; overflow-wrap: anywhere; }
 #view-form .fm-quiet { font-size: 12.5px; color: var(--m-muted); align-self: center; }
@@ -352,10 +352,10 @@ App.view('form', {
 #view-form #fm-cash { max-width: 560px; }
 #view-form .fm-sub { padding: 10px 12px 2px; }
 #view-form .fm-line { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--m-line); }
-#view-form .fm-line .what { flex: 1 1 150px; min-width: 0; display: grid; gap: 1px; }
+#view-form .fm-line .what { flex: 1 1 170px; min-width: 0; display: grid; gap: 1px; }
 #view-form .fm-line .what span, #view-form .fm-nocount { font-size: 12.5px; color: var(--m-muted); }
 #view-form .fm-line .cnt { flex: 0 0 150px; }
-#view-form .fm-line .var { flex: 0 0 110px; display: grid; gap: 4px; justify-items: end; }
+#view-form .fm-line .var { flex: 0 0 110px; margin-left: auto; display: grid; gap: 4px; justify-items: end; }
 #view-form .fm-line.total { background: var(--m-page); }
 #view-form .fm-pair { align-items: start; }
 #view-form .fm-pair > * { min-width: 0; }
@@ -378,7 +378,7 @@ App.view('form', {
               tryThis: [
                 'Switch between <b>Typed</b>, <b>Spoken</b> and <b>Photo</b>. Pepper chooses a different form or fills different fields.',
                 'Tick one value Pepper filled, then press <b>Accept all</b>.',
-                'Press <b>Save check</b> before you confirm the 6 °C. Then confirm it and see what the form still asks for.',
+                'Press <b>Save check</b> before you confirm the 6&nbsp;°C. Then confirm it and see what the form still asks for.',
                 'Save while some values are unchecked. The form asks once.',
                 'After saving, press <b>Edit</b> on the summary line.',
                 'In <b>Spoken</b>, change the amount to 0 and save.',
@@ -407,7 +407,7 @@ App.view('form', {
                 <button type="button" class="btn" id="fm-reset">${icon('undo')}Start again</button>
               </div>
               <div class="mock" id="fm-mock">
-                ${App.mockBar('app.macaroonie.com/pepper')}
+                ${App.mockBar('office.macaroonie.com/pepper')}
                 <div class="mock-body">
                   <div class="m-main">
                     <div class="m-title"><h2>Pepper</h2><span class="m-pill">Ware</span><span class="m-pill">${esc(D.today)}</span></div>

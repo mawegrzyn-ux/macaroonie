@@ -114,7 +114,7 @@ App.view('evidence', {
       },
       {
         cat: 'trends', conf: 'Medium to low',
-        title: `Vendors send the operator a short list of things that need attention.`,
+        title: `Vendors now push what needs attention to the operator.`,
         detail: `Toast's scheduled agents check data and send a notification or email, for example about missed breaks or sold-out items. The UK checklist product Trail is organised around the day's checklists, with over 245 million tasks completed by its vendor's count.`,
         why: `For a task feed as Home this is a reasoned bet, backed by vendor direction and one set of usage logs. No controlled test exists.`,
         src: ['toastAgents', 'accessTrail'],
@@ -122,7 +122,7 @@ App.view('evidence', {
       {
         cat: 'trends', conf: 'Medium',
         title: `No vendor found has replaced its fixed forms with forms made on the fly.`,
-        detail: `Where products generate an interface, a person builds an app, a report or a view once and then keeps it. Free generation is still slow: Google says its generated pages "can sometimes take a minute or more" with "occasional inaccuracies".`,
+        detail: `Where products generate an interface, a person builds an app, a report or a view once and then keeps it. Free generation is still slow and unreliable: Google says its generated pages "can sometimes take a minute or more" with "occasional inaccuracies".`,
         why: `An absence across the sources found. The search for restaurant products did not run, so the report records this as not found.`,
         src: ['shopifyWinter', 'oracle', 'googleResearch'],
       },
@@ -206,7 +206,7 @@ App.view('evidence', {
       {
         cat: 'regulation', conf: 'Medium', kind: 'Law-firm summary',
         title: `The law leaves responsibility with the operator.`,
-        detail: `The UK competition regulator's March 2026 guidance holds a business responsible for its AI agent's conduct toward consumers, even where a third party supplies it. Payroll records must be kept for three years, so a stored record has to stand apart from the conversation that produced it.`,
+        detail: `The UK competition regulator's March 2026 guidance holds a business responsible for its AI agent's conduct toward consumers, even where a third party supplies it. Payroll records must be kept for three years, and the report asks that the stored record and its audit trail stand independently of the conversation that produced them.`,
         why: LAW,
         src: ['taylor', 'govuk'],
       },
@@ -495,7 +495,20 @@ App.view('evidence', {
       #view-evidence .ev-vt td:nth-child(5) { min-width: 190px; }
       #view-evidence .ev-vt td:nth-child(6) { min-width: 150px; }
       #view-evidence .ev-vt .ev-who { display: grid; gap: 4px; justify-items: start; }
+      #view-evidence .ev-tt { min-width: 760px; }
+      #view-evidence .ev-tt td:nth-child(1) { min-width: 200px; font-weight: 500; }
+      #view-evidence .ev-tt td:nth-child(2) { white-space: nowrap; }
       #view-evidence .ev-rest { display: block; margin-top: 4px; font-size: 12.5px; color: var(--ink-2); }
+      @media (max-width: 760px) {
+        #view-evidence .ev-vt, #view-evidence .ev-vt tbody, #view-evidence .ev-tt, #view-evidence .ev-tt tbody { display: block; min-width: 0; }
+        #view-evidence .ev-vt thead, #view-evidence .ev-tt thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+        #view-evidence .ev-vt tr, #view-evidence .ev-tt tr { display: grid; gap: 8px; padding: 14px 12px; border-bottom: 1px solid var(--line); }
+        #view-evidence .ev-vt tr:last-child, #view-evidence .ev-tt tr:last-child { border-bottom: 0; }
+        #view-evidence .ev-vt td:nth-child(n), #view-evidence .ev-tt td:nth-child(n) { display: block; padding: 0; border: 0; min-width: 0; }
+        #view-evidence .ev-vt td:nth-child(n + 2) { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 2px 12px; }
+        #view-evidence .ev-vt td:nth-child(n + 2)::before { content: attr(data-label); font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-2); font-weight: 600; padding-top: 3px; }
+        #view-evidence .ev-tt td:nth-child(3) { color: var(--ink-2); }
+      }
       #view-evidence .ev-cost { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
       #view-evidence .ev-cost > * { min-width: 0; display: grid; gap: 14px; align-content: start; }
       @media (max-width: 860px) { #view-evidence .ev-cost { grid-template-columns: minmax(0, 1fr); } }
@@ -528,10 +541,12 @@ App.view('evidence', {
         #view-evidence .ev-when { text-align: left; padding: 0 0 4px 22px; border-left: 2px solid var(--line); }
         #view-evidence .ev-what::before { top: -17px; }
       }
-      #view-evidence .ev-ct { min-width: 520px; }
+      #view-evidence .ev-costmore { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+      #view-evidence .ev-costmore > * { min-width: 0; }
+      @media (max-width: 1000px) { #view-evidence .ev-costmore { grid-template-columns: minmax(0, 1fr); } }
+      #view-evidence .ev-ct { min-width: 500px; }
+      #view-evidence .ev-ct tr.ev-on td { background: var(--brand-soft); font-weight: 600; }
       #view-evidence .ev-ct td { white-space: nowrap; }
-      #view-evidence .ev-tt td:nth-child(1) { min-width: 200px; font-weight: 500; }
-      #view-evidence .ev-tt td:nth-child(2) { white-space: nowrap; }
       #view-evidence .ev-gapgrid { display: grid; gap: 14px; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; }
       @media (max-width: 900px) { #view-evidence .ev-gapgrid { grid-template-columns: minmax(0, 1fr); } }
       #view-evidence .ev-two { columns: 2 260px; column-gap: 28px; display: block; }
@@ -550,12 +565,12 @@ App.view('evidence', {
 
     const vendorRow = v => `
       <tr data-sectors="${v.sectors.join(' ')}">
-        <td><div class="ev-who"><b>${esc(v.vendor)}</b><span>${esc(v.product)}</span><span class="tag">${esc(v.sectors.map((s, i) => i ? SECTOR_NAME[s].toLowerCase() : SECTOR_NAME[s]).join(' and '))}</span><span class="ev-meta">${links(v.src)}</span></div></td>
-        <td>${esc(v.what)}</td>
-        <td>${v.acts ? esc(v.acts) : NS}</td>
-        <td>${v.approval ? esc(v.approval) : NS}</td>
-        <td>${v.status}</td>
-        <td>${v.uk ? esc(v.uk) : NS}</td>
+        <td data-label="Product"><div class="ev-who"><b>${esc(v.vendor)}</b><span>${esc(v.product)}</span><span class="tag">${esc(v.sectors.map((s, i) => i ? SECTOR_NAME[s].toLowerCase() : SECTOR_NAME[s]).join(' and '))}</span><span class="ev-meta">${links(v.src)}</span></div></td>
+        <td data-label="What it does"><div>${esc(v.what)}</div></td>
+        <td data-label="Acts or only answers"><div>${v.acts ? esc(v.acts) : NS}</div></td>
+        <td data-label="How changes are approved"><div>${v.approval ? esc(v.approval) : NS}</div></td>
+        <td data-label="Status"><div>${v.status}</div></td>
+        <td data-label="UK"><div>${v.uk ? esc(v.uk) : NS}</div></td>
       </tr>`
 
     root.innerHTML = style + `
@@ -624,7 +639,7 @@ App.view('evidence', {
                 <div class="ev-ctl">
                   <span class="ev-lab" id="ev-mlab"><span>Model</span><span class="small muted num" id="ev-mrate" style="font-weight:400"></span></span>
                   <div class="seg" id="ev-mseg" role="group" aria-labelledby="ev-mlab">
-                    ${TIERS.map(t => `<button type="button" data-tier="${t.id}" aria-pressed="${t.id === 'mid'}">${esc(t.name)} · ${esc(t.model)}</button>`).join('')}
+                    ${TIERS.map(t => `<button type="button" data-tier="${t.id}" aria-pressed="${t.id === 'mid'}">${esc(t.name)}</button>`).join('')}
                   </div>
                 </div>
                 <div class="ev-ctl">
@@ -647,11 +662,11 @@ App.view('evidence', {
               </div>
             </div>
           </div>
-          <div class="grid c2">
+          <div class="ev-costmore">
             <div class="tblwrap">
               <table class="tbl ev-ct">
                 <thead><tr><th scope="col">Model tier (Nov 2026 prices)</th><th scope="col">Cost per request</th><th scope="col">Typical site, 600 a month</th><th scope="col">AI-first site, 3,000 a month</th></tr></thead>
-                <tbody>${TIERS.map(t => `<tr><td>${esc(t.name)} (${esc(t.model)})</td><td class="num">about US$${t.milli / 1000}</td><td class="num">${usd(t.milli * 600)}</td><td class="num">${usd(t.milli * 3000)}</td></tr>`).join('')}</tbody>
+                <tbody id="ev-ctbody">${TIERS.map(t => `<tr data-tier="${t.id}"><td>${esc(t.name)} (${esc(t.model)})</td><td class="num">about US$${t.milli / 1000}</td><td class="num">${usd(t.milli * 600)}</td><td class="num">${usd(t.milli * 3000)}</td></tr>`).join('')}</tbody>
               </table>
             </div>
             <div class="card">
@@ -752,7 +767,7 @@ App.view('evidence', {
       const share = pounds / price * 100
       $('ev-reqval').textContent = count(n)
       $('ev-subval').textContent = gbp(price)
-      $('ev-mrate').textContent = 'about US$' + (t.milli / 1000) + ' a request'
+      $('ev-mrate').textContent = t.model + ', about US$' + (t.milli / 1000) + ' a request'
       $('ev-out-cost').textContent = usd(milli)
       $('ev-out-gbp').textContent = 'About ' + gbp(pounds) + ' at the rate the report\'s percentages imply'
       $('ev-share-k').textContent = 'Share of a ' + gbp(price) + ' subscription'
@@ -777,6 +792,7 @@ App.view('evidence', {
       $('ev-over').hidden = !over
       root.querySelectorAll('#ev-quick button').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.req) === n)))
       root.querySelectorAll('#ev-mseg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tier === tier)))
+      root.querySelectorAll('#ev-ctbody tr').forEach(r => r.classList.toggle('ev-on', r.dataset.tier === tier))
     }
     req.addEventListener('input', draw)
     sub.addEventListener('input', draw)

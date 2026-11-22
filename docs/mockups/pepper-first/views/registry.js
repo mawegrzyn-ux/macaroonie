@@ -282,30 +282,59 @@ App.view('registry', {
     const confirmRule = () => CLASSES[st.cls].rule + (st.cls !== 'reversible' ? '' : st.inv ? ' With an inverse declared, a group can later choose Done, with Undo.' : ' With no inverse there is no Undo, so it stays a card.')
     const q = s => '\'' + String(s).replace(/\\/g, '\\\\').replace(/'/g, '\\\'') + '\''
 
+    // The declarations as code, wrapped to the width of the pane beside the readable card.
+    const WIDE = 48
+    const wrapList = (head, items, tail, ind) => {
+      const lines = []
+      let cur = head
+      items.forEach((it, n) => {
+        const piece = it + (n < items.length - 1 ? ',' : '')
+        if (n === 0) cur += piece
+        else if ((cur + ' ' + piece).length > WIDE) { lines.push(cur); cur = ind + piece }
+        else cur += ' ' + piece
+      })
+      lines.push(cur + tail)
+      return lines.join('\n')
+    }
+    const wrapText = (text, ind) => {
+      const out = []
+      let cur = ''
+      text.split(' ').forEach(w => { if (cur && (cur + ' ' + w).length > WIDE - ind.length - 5) { out.push(cur + ' '); cur = w } else cur = cur ? cur + ' ' + w : w })
+      out.push(cur)
+      return ind + out.map(q).join(' +\n' + ind)
+    }
+    const fit = (line, ind) => line.length <= WIDE ? line : line.replace(/^(\s*\w+:) /, '$1\n' + ind)
+
     const recordCode = o => [
       'object(' + q(o.id) + ', {',
       '  label: ' + q(o.label) + ',',
       '  table: ' + q(o.table) + ',',
       '  subject: ' + q(o.subject) + ',',
       '  module: ' + q(o.module) + ',',
-      '  open: ' + q(o.page) + ',',
-      '  actions: [' + o.actions.map(a => q(a.name)).join(', ') + '],',
+      fit('  open: ' + q(o.page) + ',', '    '),
+      wrapList('  actions: [', o.actions.map(a => q(a.name)), '],', '    '),
       '  form: ' + (o.panel ? '{ panel: ' + q(o.panel.id) + ' }' : '{ drawn: \'from the rules\' }') + ',',
       '})',
     ].join('\n')
 
+    const inputCode = i => {
+      const tail = (i.required ? '.required()' : '') + ','
+      if (i.type === 'choice') return wrapList('    ' + i.name + ': choice(', i.options.map(q), ')' + tail, '      ')
+      const line = '    ' + i.name + ': ' + (i.type === 'ref' ? 'ref(' + q(i.subject) + ')' : i.type + '()')
+      return (line + tail).length > WIDE && i.required ? line + '\n      ' + tail : line + tail
+    }
     const declCode = a => [
       'action(' + q(a.name) + ', {',
       '  title: ' + q(a.title) + ',',
       '  inputs: {',
-    ].concat(a.inputs.map(i => '    ' + i.name + ': ' + (i.type === 'choice' ? 'choice(' + i.options.map(q).join(', ') + ')' : i.type === 'ref' ? 'ref(' + q(i.subject) + ')' : i.type + '()') + (i.required ? '.required()' : '') + ','), [
+    ].concat(a.inputs.map(inputCode), [
       '  },',
-      '  needs: { module: ' + q(a.module) + ', level: ' + q(a.level) + ' },',
+      wrapList('  needs: { ', ['module: ' + q(a.module), 'level: ' + q(a.level)], ' },', '    '),
       '  preconditions: [',
-    ], a.pre.map(p => '    { rule: ' + q(p.rule) + ',\n      message: ' + q(p.message) + ' },'), [
+    ], a.pre.map(p => '    { rule: ' + q(p.rule) + ', message:\n' + wrapText(p.message, '        ') + ' },'), [
       '  ],',
       '  class: ' + q(st.cls) + ',',
-      '  key: [' + a.key.map(q).join(', ') + '],',
+      wrapList('  key: [', a.key.map(q), '],', '    '),
       '  inverse: ' + (st.inv ? q(invName(a)) : 'null') + ',',
       '})',
     ]).join('\n')
@@ -316,11 +345,11 @@ App.view('registry', {
       if (st.fail >= 0) {
         const p = a.pre[st.fail]
         return '<div class="m-cardlet rg-refuse"><header>' + icon('alert') + '<span style="flex:1;min-width:0">Can\'t ' + esc(lower(a.title)) + '</span><span class="m-pill late">Not done</span></header>' +
-          '<div class="m-pad"><p>' + esc(p.message) + '</p><div class="m-understood">Rule checked: <span class="mono">' + esc(p.rule) + '</span> · Nothing was changed</div></div></div>'
+          '<div class="m-pad"><p>' + esc(p.message) + '</p><div class="m-understood"><span>Rule checked: <span class="mono">' + esc(p.rule) + '</span>. Nothing was changed.</span></div></div></div>'
       }
       if (st.cls === 'read') {
         return '<div class="m-cardlet"><header>' + icon('eye') + '<span style="flex:1;min-width:0">No Confirm card</span><span class="m-pill">Read</span></header>' +
-          '<div class="m-pad"><p>A read changes nothing, so it runs straight away and is logged.</p><div class="m-understood">Runs as ' + esc(who) + ' · ' + esc(MODULES[a.module]) + ', ' + esc(LEVELS[a.level]) + '</div></div></div>'
+          '<div class="m-pad"><p>A read changes nothing, so it runs straight away and is logged.</p><div class="m-understood"><span>Runs as ' + esc(who) + ' · ' + esc(MODULES[a.module]) + ', ' + esc(LEVELS[a.level]) + '</span></div></div></div>'
       }
       const diff = st.cls !== 'reversible'
       const any = a.inputs.some(i => i.was !== undefined)
@@ -332,9 +361,9 @@ App.view('registry', {
       return '<div class="m-cardlet"><header>' + icon('sparkles') + '<span style="flex:1;min-width:0">' + esc(a.ask) + '</span><span class="m-pill ' + C.pill + '">' + esc(C.label) + '</span></header>' +
         '<div class="m-scroll"><table class="m-table">' + rows + '</table></div>' +
         '<div class="m-pad">' +
-          (a.applies ? '<div class="m-understood">Applies to: ' + esc(a.applies) + '</div>' : '') +
-          '<div class="m-understood">Runs as ' + esc(who) + ' · ' + esc(MODULES[a.module]) + ', ' + esc(LEVELS[a.level]) + '</div>' +
-          '<div class="m-understood">' + after + '</div>' +
+          (a.applies ? '<div class="m-understood"><span>Applies to: ' + esc(a.applies) + '.</span></div>' : '') +
+          '<div class="m-understood"><span>Runs as ' + esc(who) + ' · ' + esc(MODULES[a.module]) + ', ' + esc(LEVELS[a.level]) + '</span></div>' +
+          '<div class="m-understood"><span>' + after + '</span></div>' +
           (typed() ? '<div class="m-field"><label for="rg-word-in">Type ' + esc(word(a)) + ' to go on</label><input class="m-input" id="rg-word-in" data-word-need="' + esc(word(a)) + '" autocomplete="off" autocapitalize="characters" placeholder="' + esc(word(a)) + '"></div>' : '') +
         '</div>' +
         '<footer><button type="button" class="m-btn ' + (typed() ? 'danger' : 'primary') + '" data-do="go"' + (typed() ? ' disabled' : '') + '>' + esc(a.go) + '</button><button type="button" class="m-btn ghost" data-do="cancel">Cancel</button></footer></div>'
@@ -374,8 +403,9 @@ App.view('registry', {
         .concat(a.inputs.map(i => '  ' + i.name + ': ' + typeWords(i) + (i.required ? ', needed' : ', optional') + (i.help ? '. ' + i.help : '')))
         .concat(['Works only when:'], a.pre.map(p => '  ' + p.check + '.'))
         .concat(['Asks first: ' + asks, 'Undo: ' + (st.inv ? invName(a) + '.' : 'none.'), 'Asked twice: done once (key: ' + a.key.join(' + ') + ').', 'Example: ' + a.name + '({ ' + eg + ' })'])
-        .join('\n')
     }
+    // Each line of the tool's words keeps its indent when it wraps.
+    const toolHtml = a => toolText(a).map(l => { const lead = l.length - l.replace(/^ +/, '').length; return '<div style="padding-left:' + (lead + 2) + 'ch;text-indent:-2ch">' + (esc(l.trim()) || '&nbsp;') + '</div>' }).join('')
 
     function whyHtml(a) {
       return '<div class="m-card"><div class="m-head">' + icon('shield') + 'Rules checked first<span class="count">' + a.pre.length + (a.pre.length === 1 ? ' rule' : ' rules') + '</span></div><div class="m-list">' +
@@ -466,7 +496,7 @@ App.view('registry', {
         #view-registry .rg-ico { width: 34px; height: 34px; flex: none; border-radius: 8px; background: var(--brand-soft); color: var(--brand); display: inline-flex; align-items: center; justify-content: center; }
         #view-registry .rg-ico svg { width: 17px; height: 17px; }
         #view-registry .rg-in { min-width: 0; }
-        #view-registry .rg-vocab { min-width: 470px; }
+        #view-registry .rg-start { align-content: start; }
         #view-registry .rg-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
         #view-registry .rg-edit { gap: 8px; }
         @media (min-width: 981px) { #view-registry .rg-edit { position: sticky; top: var(--rg-top, 110px); z-index: 5; box-shadow: var(--shadow); } }
@@ -484,6 +514,8 @@ App.view('registry', {
         #view-registry .mock button.rg-pre { width: 100%; text-align: left; background: transparent; border: 0; border-top: 1px solid var(--m-line); color: var(--m-ink); font-size: 14px; touch-action: manipulation; }
         #view-registry .mock button.rg-pre:first-child { border-top: 0; }
         #view-registry .mock button.rg-pre[aria-pressed="true"] { background: var(--m-bad-soft); }
+        #view-registry .mock .m-form .m-field { align-content: start; }
+        #view-registry .mock .m-form .m-field > label { min-height: 20px; }
         #view-registry .mock .rg-date { position: relative; display: block; }
         #view-registry .mock .rg-date .m-btn { width: 100%; justify-content: flex-start; }
         #view-registry .mock .rg-date input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
@@ -492,8 +524,6 @@ App.view('registry', {
         #view-registry .mock .rg-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
         #view-registry .mock .rg-stop { background: var(--m-bad-soft); color: var(--m-bad); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; font-weight: 500; }
         #view-registry .mock .rg-hid .what b, #view-registry .mock .rg-hid .m-ico { color: var(--m-muted); font-weight: 500; }
-        #view-registry .rg-not { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 12px; align-items: start; }
-        @media (max-width: 560px) { #view-registry .rg-not { grid-template-columns: minmax(0, 1fr); gap: 4px; } #view-registry .rg-not > div { margin-bottom: 8px; } }
       </style>
 
       <div class="view-head">
@@ -559,14 +589,14 @@ App.view('registry', {
               </div>
               <div class="rg-pvs">
                 <div class="stack">
-                  <article class="card rg-pv" id="rg-pv-card"><h3>1. The Confirm card</h3><p class="small muted">From the title, the inputs, the class and the inverse.</p><div class="mock"><div class="m-pad" id="rg-card"></div></div></article>
-                  <article class="card rg-pv" id="rg-pv-why"><h3>4. The reason it will not run</h3><p class="small muted">From the preconditions and their messages.</p><div class="mock"><div class="m-pad" id="rg-why"></div></div></article>
+                  <article class="card rg-pv" id="rg-pv-card"><h3>The Confirm card</h3><p class="small muted">From the title, the inputs, the class and the inverse.</p><div class="mock"><div class="m-pad" id="rg-card"></div></div></article>
+                  <article class="card rg-pv" id="rg-pv-why"><h3>The reason it will not run</h3><p class="small muted">From the preconditions and their messages.</p><div class="mock"><div class="m-pad" id="rg-why"></div></div></article>
                 </div>
                 <div class="stack">
-                  <article class="card rg-pv" id="rg-pv-audit"><h3>2. The audit entry</h3><p class="small muted">From the title, the class, the key and the inverse.</p><div class="mock"><div class="m-pad" id="rg-audit"></div></div></article>
-                  <article class="card rg-pv" id="rg-pv-tool"><h3>3. What Pepper's tool is told</h3><p class="small muted">From every part of the declaration, with one worked example.</p><pre class="code rg-wrap" id="rg-tool"></pre></article>
+                  <article class="card rg-pv" id="rg-pv-audit"><h3>The audit entry</h3><p class="small muted">From the title, the class, the key and the inverse.</p><div class="mock"><div class="m-pad" id="rg-audit"></div></div></article>
+                  <article class="card rg-pv" id="rg-pv-tool"><h3>What Pepper's tool is told</h3><p class="small muted">From every part of the declaration, with one worked example.</p><pre class="code rg-wrap" id="rg-tool"></pre></article>
                 </div>
-                <article class="card rg-pv rg-full" id="rg-pv-form"><h3>5. The form, when the action is flat</h3><p class="small muted">From the inputs: one field per input, the same checks the server makes, one Save.</p><div class="mock"><div class="m-pad" id="rg-form"></div></div></article>
+                <article class="card rg-pv rg-full" id="rg-pv-form"><h3>The form, when the action is flat</h3><p class="small muted">From the inputs: one field per input, the same checks the server makes, one Save.</p><div class="mock"><div class="m-pad" id="rg-form"></div></div></article>
               </div>
               <div class="row"><button type="button" class="btn" data-go="confirm">Open the Confirm card mock-up ${icon('right')}</button><button type="button" class="btn" data-go="review">Open For review ${icon('right')}</button></div>
             </section>
@@ -576,18 +606,18 @@ App.view('registry', {
         <section class="stack">
           ${part(4, 'One vocabulary')}
           <p class="muted" style="max-width:70ch">Today one thing has a different name in each layer. The registry uses the report catalogue's subject names everywhere, so a person, a page, a report and Pepper mean the same thing by the same word.</p>
-          <div class="grid c2">
-            <div class="stack">
-              <div class="tblwrap"><table class="tbl rg-vocab">
-                <thead><tr><th>Thing</th><th>Names today</th><th>Catalogue name</th></tr></thead>
-                <tbody>
-                  <tr><td>Staff</td><td><span class="mono">cash_staff</span> <span class="muted small">table</span><br><span class="mono">staff</span> <span class="muted small">permission module</span></td><td><span class="mono">staff.people</span></td></tr>
-                  <tr><td>Dishes</td><td><span class="mono">menu_items</span> <span class="muted small">table</span><br><span class="mono">menus</span> <span class="muted small">permission module</span></td><td><span class="mono">menu.dishes</span></td></tr>
-                  <tr><td>Online orders</td><td><span class="mono">orders</span> <span class="muted small">table</span><br><span class="mono">web_orders</span> <span class="muted small">permission module</span></td><td><span class="mono">online.orders</span></td></tr>
-                </tbody>
-              </table></div>
-              <div class="card">
-                <div class="row"><h3>A measure made easier for Pepper</h3><span class="tag target">Target, not built</span></div>
+          <div class="tblwrap"><table class="tbl">
+            <thead><tr><th>Thing</th><th>Table today</th><th>Permission module today</th><th>Pepper tool today</th><th>The catalogue's name</th></tr></thead>
+            <tbody>
+              <tr><td>Staff</td><td class="mono">cash_staff</td><td class="mono">staff</td><td class="mono">list_staff</td><td class="mono"><b>staff.people</b></td></tr>
+              <tr><td>Dishes</td><td class="mono">menu_items</td><td class="mono">menus</td><td class="mono">find_dishes</td><td class="mono"><b>menu.dishes</b></td></tr>
+              <tr><td>Online orders</td><td class="mono">orders</td><td class="mono">web_orders</td><td class="mono">online_orders</td><td class="mono"><b>online.orders</b></td></tr>
+            </tbody>
+          </table></div>
+          <div class="card">
+            <div class="row"><h3>A measure made easier for Pepper</h3><span class="tag target">Target, not built</span></div>
+            <div class="grid c2">
+              <div class="stack rg-start">
                 <dl class="kv">
                   <dt>Measure</dt><dd>Net sales <span class="mono muted">till.checks.net_sales</span></dd>
                   <dt>Means</dt><dd>Gross sales less discounts. VAT is included; charges and tips are not.</dd>
@@ -599,8 +629,6 @@ App.view('registry', {
                 <div class="row" id="rg-words" role="group" aria-label="Word in a question">${WORDS.map((x, n) => `<button type="button" class="btn rg-chip" data-word="${n}" aria-pressed="${n === 0}">${esc(x.w)}</button>`).join('')}</div>
                 <div class="note" id="rg-word-out" role="status"></div>
               </div>
-            </div>
-            <div class="stack">
               <pre class="code">${esc([
                 'measure(\'net_sales\', {',
                 '  subject: \'till.checks\',',
@@ -618,8 +646,8 @@ App.view('registry', {
                 '  },',
                 '})',
               ].join('\n'))}</pre>
-              <p class="small muted">Synonyms and a worked example per field are the idea a semantic-layer standard calls <span class="mono">ai_context</span> (${link('https://github.com/open-semantic-interchange/OSI/blob/main/core-spec/spec.md', 'Ossie specification')}). The report calls them the cheapest accuracy gain available.</p>
             </div>
+            <p class="small muted">Synonyms and a worked example per field are the idea a semantic-layer standard calls <span class="mono">ai_context</span> (${link('https://github.com/open-semantic-interchange/OSI/blob/main/core-spec/spec.md', 'Ossie specification')}). The report calls them the cheapest accuracy gain available.</p>
           </div>
         </section>
 
@@ -641,31 +669,29 @@ App.view('registry', {
           </div>
         </section>
 
-        <div class="grid c2">
-          <section class="stack">
-            ${part(6, 'What the registry is not')}
-            <div class="card">
-              <div class="rg-not">
-                <span class="tag no">Do not build</span><div><b>A run-time metadata engine</b><br><span class="muted">Tables, forms and screens generated from metadata while the app runs.</span></div>
-                <span class="tag no">Do not build</span><div><b>Customer-defined tables</b><br><span class="muted">A group adding tables of its own. Custom fields, if they come, go in the same field registry so reports, simple forms and Pepper pick them up.</span></div>
-                <span class="tag no">Do not build</span><div><b>Queries written by the model</b><br><span class="muted">Pepper names a measure from the catalogue. The report engine writes the query and does the sums.</span></div>
-              </div>
-              <p class="note">Platforms that generate everything from metadata were built that way from their first day (${link('https://github.com/frappe/frappe', 'Frappe')}). Retrofitting that onto about 245 existing tables is a rewrite. Describing what exists is not.</p>
-            </div>
-          </section>
+        <section class="stack">
+          ${part(6, 'What the registry is not')}
+          <div class="grid c3">
+            <article class="card"><div class="row"><span class="tag no">Do not build</span></div><h3>A run-time metadata engine</h3><p class="muted">Tables, forms and screens generated from metadata while the app runs.</p></article>
+            <article class="card"><div class="row"><span class="tag no">Do not build</span></div><h3>Customer-defined tables</h3><p class="muted">A group adding tables of its own. Custom fields, if they come, go in the same field registry, so reports, simple forms and Pepper pick them up.</p></article>
+            <article class="card"><div class="row"><span class="tag no">Do not build</span></div><h3>Queries written by the model</h3><p class="muted">Pepper names a measure from the catalogue. The report engine writes the query and does the sums.</p></article>
+          </div>
+          <div class="note">Platforms that generate everything from metadata were built that way from their first day (${link('https://github.com/frappe/frappe', 'Frappe')}). Retrofitting that onto about 245 existing tables is a rewrite. Describing what exists is not.</div>
+        </section>
 
-          <section class="stack">
-            ${part(7, 'Two standards worth a place now')}
+        <section class="stack">
+          ${part(7, 'Two standards worth a place now')}
+          <div class="grid c2">
             <div class="card">
               <h3>A product code (GTIN) on inventory items and supplier products</h3>
+              <p class="muted">The number under the barcode. One field on each, checked by its last digit.</p>
               <dl class="kv">
-                <dt>Inventory item</dt><dd>Coconut milk, 400 ml tin <span class="mono muted">5012345678948</span></dd>
-                <dt>Supplier product</dt><dd>${esc(supplier)}, case of 12 <span class="mono muted">5060123456783</span></dd>
+                <dt>Inventory item</dt><dd>Coconut milk, 400 ml tin<br><span class="mono muted">5012345678948</span></dd>
+                <dt>Supplier product</dt><dd>${esc(supplier)}, case of 12<br><span class="mono muted">5060123456783</span></dd>
               </dl>
-              <p class="small muted">The number under the barcode. One field on each, checked by its last digit.</p>
             </div>
             <div class="card">
-              <div class="row"><h3>Supplier invoices held as structured data</h3></div>
+              <h3>Supplier invoices held as structured data</h3>
               <p>UK mandatory e-invoicing for domestic business invoices is confirmed from April 2029 (${link('https://kpmg.com/us/en/taxnewsflash/news/2026/10/uk-b2b-e-invoicing-roadmap-april-2029.html', 'KPMG')}). The date rests on secondary sources, so check it before relying on it. <span class="tag medium">Medium confidence</span></p>
               <pre class="code">${esc([
                 'invoice({',
@@ -680,9 +706,9 @@ App.view('registry', {
                 '})',
               ].join('\n'))}</pre>
             </div>
-            <p class="small muted">These two and nothing more for now.</p>
-          </section>
-        </div>
+          </div>
+          <p class="small muted">These two and nothing more for now.</p>
+        </section>
       </div>`
 
     // ── Drawing ───────────────────────────────────────────────
@@ -728,7 +754,7 @@ App.view('registry', {
 
     function drawPreviews(flash) {
       const o = obj(), a = act()
-      const made = { card: cardHtml(a), why: whyHtml(a), audit: auditHtml(o, a), tool: esc(toolText(a)), form: formHtml(o, a) }
+      const made = { card: cardHtml(a), why: whyHtml(a), audit: auditHtml(o, a), tool: toolHtml(a), form: formHtml(o, a) }
       Object.keys(made).forEach(k => {
         if (drawn[k] === made[k]) return
         drawn[k] = made[k]

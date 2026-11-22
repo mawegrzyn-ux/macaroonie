@@ -143,7 +143,7 @@ App.view('phone', {
       #view-phone .m-hold { -webkit-touch-callout: none; }
       #view-phone .ph-tip { position: absolute; right: 10px; bottom: calc(100% + 8px); background: var(--m-ink); color: var(--m-surface); font-size: 13px; font-weight: 600; padding: 7px 11px; border-radius: 8px; white-space: nowrap; animation: ph-nudge 0.3s ease-out; }
       #view-phone .ph-tip::after { content: ""; position: absolute; right: 22px; top: 100%; border: 6px solid transparent; border-top-color: var(--m-ink); }
-      #view-phone .mock.phone > .m-toast { bottom: 88px; }
+      #view-phone .mock.phone > .m-toast { left: 12px; right: 12px; bottom: 88px; transform: none; max-width: none; justify-content: space-between; }
       #view-phone .m-sheet > header .m-iconbtn { width: 48px; height: 48px; }
 
       #view-phone .ph-switch { position: absolute; inset: 0; z-index: 25; background: var(--m-page); display: flex; flex-direction: column; overflow-y: auto; }
@@ -182,8 +182,8 @@ App.view('phone', {
           ],
           why: [
             { text: 'In one US vendor\'s 2026 assistant logs, 54% of prompts came from phones and 53% arrived during peak lunch or dinner service, against 15% at nightly close. The vendor published no method ' + src('https://pos.toasttab.com/blog/data/q1-2026-restaurant-ai-pos-trends', 'Toast') + '.', confidence: 'low' },
-            { text: 'McDonald\'s ended its drive-through voice ordering test and went back to a conventional route ' + src('https://www.nbcnews.com/business/business-news/mcdonalds-end-ai-drive-test-ibm-rcna157603', 'NBC News') + '. Always-listening voice is on the do not build list.', confidence: 'medium' },
-            { text: 'Kitchens are loud: one hospital kitchen averaged about 81 dB(A) at peak ' + src('https://jest.utm.my/index.php/jest/article/download/182/111', 'JEST') + '. No independent measurement of speech recognition in a working kitchen was found. Hold to talk is kept to small entries a person can check. ' + mtl },
+            { text: 'Voice ordering was withdrawn or slowed in the drive-through trials. McDonald\'s ended its test and restored a conventional route ' + src('https://www.nbcnews.com/business/business-news/mcdonalds-end-ai-drive-test-ibm-rcna157603', 'NBC News') + '. Always-listening voice is on the do not build list.', confidence: 'medium' },
+            { text: 'Kitchens measure about 80 to 95 dB(A). One hospital kitchen averaged 80.87 dB(A) at peak ' + src('https://jest.utm.my/index.php/jest/article/download/182/111', 'JEST') + '. No independent test of staff voice recognition in a kitchen was found, so hold to talk is kept to small entries a person can check. ' + mtl },
             { text: 'Menu vocabulary is the main failure point in restaurant speech, on a speech vendor\'s own account ' + src('https://deepgram.com/learn/ai-drive-thru-voice-ai-order-taking', 'Deepgram') + '. So the venue\'s own dish, supplier and staff names go to the step that corrects the transcript. ' + mtl },
           ],
           status: [
@@ -304,6 +304,7 @@ App.view('phone', {
     let tipTimer = 0
 
     const scrollEnd = () => { main.scrollTop = main.scrollHeight }
+    const clearToasts = () => mock.querySelectorAll('.m-toast').forEach(t => t.remove())
     const drawCounts = () => {
       $('#ph-c-small').textContent = state.small
       $('#ph-c-reader').textContent = state.reader
@@ -357,6 +358,7 @@ App.view('phone', {
         <button type="button" class="m-btn ghost" data-a="names">Choose another name</button>`
     }
     function openSwitch(next) {
+      clearToasts()
       pending = next || null
       picked = null
       locking = false
@@ -488,6 +490,7 @@ App.view('phone', {
              <footer><button type="button" class="m-btn primary" data-a="open">Open form</button></footer>`
       }
       const open = () => {
+        clearToasts()
         const made = App.sheet(mock, {
           title: 'Fridge check',
           body: `
@@ -543,6 +546,7 @@ App.view('phone', {
     /** One ask, spoken or typed: the words first, then the card. */
     function respond(via, text, instant) {
       clearTimeout(timer)
+      clearToasts()
       const u = understand(text)
       thread.innerHTML = ''
       thread.appendChild(saidEl(via, text))
@@ -565,6 +569,7 @@ App.view('phone', {
     }
     function capture() {
       clearTimeout(timer)
+      clearToasts()
       state.review += 1
       state.reader += 1
       drawCounts()

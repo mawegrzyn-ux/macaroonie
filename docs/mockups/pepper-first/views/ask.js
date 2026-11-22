@@ -74,7 +74,7 @@ App.view('ask', {
     const STOP = new Set('a an the of at to for is are was what whats how did do does my me open show go take add on in with and i we it can you please need want'.split(' '))
     /** The words someone typed: the venue and the day or week they name, and what is left to match pages with. */
     function parse(text) {
-      const clean = String(text || '').toLowerCase().replace(/[‘’']s\b/g, '').replace(/[^a-z0-9.\- ]+/g, ' ')
+      const clean = String(text || '').toLowerCase().replace(/[\u2018\u2019']s\b/g, '').replace(/[^a-z0-9.\- ]+/g, ' ')
       const words = s => s.split(/\s+/).map(w => w.replace(/^[.\-]+|[.\-]+$/g, '')).filter(Boolean)
       const ctx = { venue: null, period: null }
       let rest = clean
@@ -173,9 +173,16 @@ App.view('ask', {
       ['Tuesday 17 November', 204065], ['Wednesday 18 November', 231190], ['Thursday 19 November', 287635], ['Friday 20 November', 486240, true]]
 
     const CSS = `
-      #view-ask .mock { scroll-margin-top: 132px; }
+      #view-ask { --ask-gap: 12px; }
+      #view-ask #ask-pepper { scroll-margin-top: calc(var(--ask-top, 100px) + var(--ask-gap)); scroll-margin-bottom: 12px; }
       #view-ask #ask-last { white-space: normal; height: auto; min-height: 22px; padding-block: 2px; }
       #view-ask .ask-meter > .muted { flex: 1 1 260px; min-width: 0; }
+      @media (min-width: 981px) {
+        #view-ask { --ask-gap: 92px; }
+        #view-ask .ask-meter { position: sticky; top: var(--ask-top, 100px); z-index: 40; background: var(--bg); padding-block: 8px; margin-block: -8px; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 12px; align-items: center; }
+        #view-ask .ask-meter > .muted { grid-column: 2; grid-row: 1; }
+        #view-ask #ask-last { grid-column: 1 / -1; justify-self: start; }
+      }
       #view-ask .ask-pane { display: grid; gap: 12px; align-content: start; min-width: 0; }
       #view-ask .ask-box { display: grid; gap: 6px; min-width: 0; }
       #view-ask .m-ask .m-iconbtn { width: 48px; height: 48px; }
@@ -297,8 +304,22 @@ App.view('ask', {
 
     // ── State and the parts of the page ────────────────────────
     const $ = sel => root.querySelector(sel)
-    const mock = $('#ask-mock'), input = $('#ask-input'), box = $('#ask-results')
+    const mock = $('#ask-mock'), input = $('#ask-input'), box = $('#ask-results'), meter = $('.ask-meter')
     const barPane = $('#ask-bar-pane'), pagePane = $('#ask-page-pane'), talk = $('#ask-talk')
+    // The counter stays in sight at a desk: it sticks under the page's own top bar, whose height is measured here.
+    const topbar = document.querySelector('.topbar')
+    const setTop = () => { root.style.setProperty('--ask-top', (topbar ? topbar.offsetHeight : 0) + 'px') }
+    setTop()
+    window.addEventListener('resize', setTop)
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(setTop, () => {})
+    /** After a page opens, bring the top of the mock-up (and the counter) back into sight if it had scrolled away. */
+    function bringUp() {
+      const top = topbar ? topbar.getBoundingClientRect().bottom : 0
+      const stuck = getComputedStyle(meter).position === 'sticky'
+      const lim = stuck ? Math.max(top, meter.getBoundingClientRect().bottom) : top
+      if (mock.getBoundingClientRect().top >= lim) return
+      window.scrollBy(0, (stuck ? mock : meter).getBoundingClientRect().top - lim - (stuck ? 4 : 12))
+    }
     let calls = 0
     let results = []      // [{ item, score, pick }]
     let cur = -1          // the row the arrow keys are on; -1 is nothing chosen, results.length is the Ask Pepper row
@@ -413,7 +434,7 @@ App.view('ask', {
       barPane.hidden = true
       pagePane.hidden = false
       setLast('Opened ' + it.label + (pills.length ? ' · ' + (extra && extra.pills ? pills.join(' · ') : short(res)) : ''), false)
-      if (mock.getBoundingClientRect().top < 0) mock.scrollIntoView({ block: 'start' })
+      bringUp()
       $('#ask-back').focus({ preventScroll: true })
     }
     function backToBar() {
@@ -502,8 +523,9 @@ App.view('ask', {
         html = hit && hit.score >= 60 ? navCard(hit)
           : '<div class="m-msg pepper">This mock-up only knows the examples above. In the product, Pepper would answer with one of the four cards.</div>'
       }
+      mock.querySelectorAll('.m-toast').forEach(t => t.remove()) // an Undo for the card this answer replaces
       talk.innerHTML = '<div class="m-msg me">' + esc(words) + '</div>' + html
-      $('#ask-pepper-count').textContent = '1 model call for this answer'
+      $('#ask-pepper-count').textContent = '1 model call for this answer · ' + calls + ' so far'
       input.value = ''
       refresh()
       setLast('Asked Pepper', true)

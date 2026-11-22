@@ -25,6 +25,7 @@ App.view('home', {
         #view-home .mock { overflow: clip; }
         #view-home .m-sheet { position: sticky; bottom: 0; max-height: min(92%, calc(100vh - 128px)); max-height: min(92%, calc(100dvh - 128px)); outline: 0; }
         #view-home .hm-toasts { position: sticky; bottom: 0; height: 0; z-index: 30; }
+        #view-home .hm-toasts .m-toast { left: 12px; right: 12px; transform: none; width: fit-content; max-width: none; margin-inline: auto; }
         #view-home .hm-footnote { margin-right: auto; align-self: center; font-size: 13px; color: var(--m-muted); min-width: 0; }
         #view-home .hm-footnote b { color: var(--m-ink); }
 
@@ -134,8 +135,8 @@ App.view('home', {
     // ── Small helpers ───────────────────────────────────────────
     const gbp = p => (p < 0 ? '-' : '') + '£' + (Math.abs(p) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     const parseMoney = s => { const c = String(s).replace(/[£,\s]/g, ''); return /^\d+(\.\d{1,2})?$/.test(c) ? Math.round(parseFloat(c) * 100) : null }
-    const parseTemp = s => { const c = String(s).trim().replace(',', '.').replace(/−/g, '-'); return /^-?\d{1,3}(\.\d+)?$/.test(c) ? parseFloat(c) : null }
-    const fmtTemp = v => (v < 0 ? '−' : '') + Math.abs(v).toFixed(1) + ' °C'
+    const parseTemp = s => { const c = String(s).trim().replace(',', '.').replace(/\u2212/g, '-'); return /^-?\d{1,3}(\.\d+)?$/.test(c) ? parseFloat(c) : null }
+    const fmtTemp = v => (v < 0 ? '\u2212' : '') + Math.abs(v).toFixed(1) + ' °C'
     const varWords = v => v === 0 ? 'balanced' : gbp(Math.abs(v)) + (v < 0 ? ' short' : ' over')
     const cap = s => s.charAt(0).toUpperCase() + s.slice(1)
     const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many)
@@ -319,7 +320,7 @@ App.view('home', {
         const cashups = rows.reduce((n, r) => n + r.cashups, 0)
         const lateSafety = D.venues.filter(v => (state.feeds[v.id] || []).some(t => t.state === 'open' && t.safety && groupOf(t) === 'late'))
         if (cashups) out.push(['Cash recon', plural(cashups, 'cash-up', 'cash-ups') + ' not submitted'])
-        if (lateSafety.length) out.push(['Food safety', 'checks late at ' + lateSafety[0].name])
+        if (lateSafety.length) out.push(['Food safety', 'checks late at ' + (lateSafety.length === 1 ? lateSafety[0].name : lateSafety.length + ' venues')])
         out.push(['Rota', 'you open this most Sundays'])
       } else {
         const list = state.feeds[vid] || []
@@ -357,7 +358,7 @@ App.view('home', {
         </div>
         <div class="hm-skip" id="hm-skip-${id}" hidden>
           <div class="m-field" id="hm-whyf-${id}"><label for="hm-why-${id}">Why is this being skipped?</label>
-            <input class="m-input" id="hm-why-${id}" autocomplete="off" placeholder="For example: the supplier cancelled"><span class="err" hidden></span></div>
+            <input class="m-input" id="hm-why-${id}" autocomplete="off" placeholder="${t.safety ? 'For example: closed today for a private event' : 'For example: the supplier cancelled'}"><span class="err" hidden></span></div>
           ${t.safety
             ? `<p class="hm-warn">${icon('shield')}<span>This is a food safety task. A skip is recorded with your reason and shown above the store.</span></p>`
             : '<p class="hm-hint">The reason is kept with the task.</p>'}
@@ -368,7 +369,7 @@ App.view('home', {
     function taskRow(t) {
       const g = groupOf(t)
       const id = esc(t.id)
-      if (g === 'done') return `<div class="hm-item" data-task="${id}"><div class="m-task hm-task done"><span class="m-ico hm-ico-done">${icon('check')}</span><div class="what"><b>${esc(t.title)}</b><span>${esc(t.summary)}</span></div></div></div>`
+      if (g === 'done') return `<div class="hm-item" data-task="${id}"><div class="m-task hm-task done"><span class="m-ico hm-ico-done">${icon('check')}</span><div class="what"><b>${esc(t.title.replace(/ not submitted$/, ''))}</b><span>${esc(t.summary)}</span></div></div></div>`
       if (g === 'skipped') return `<div class="hm-item" data-task="${id}"><div class="m-task hm-task done"><span class="m-ico">${icon('flag')}</span>
         <div class="what"><b>${esc(t.title)}</b><span>Skipped ${NOW} by ${esc(t.by)} · Reason: ${esc(t.reason)}${t.safety ? ' <span class="m-pill now">Shown above the store</span>' : ''}</span></div>
         <div class="hm-acts"><button type="button" class="m-btn" data-act="unskip" data-id="${id}">Bring it back</button></div></div></div>`
@@ -432,7 +433,7 @@ App.view('home', {
         return `<div class="hm-day ${i === 0 ? 'today' : ''}"><b>${d}</b><span class="hm-wx">${WEATHER[i]}</span><span class="num">${booked} booked</span>${evs.map(e => `<span class="hm-ev">${esc(e)}</span>`).join('')}</div>`
       })
       return `<section class="m-card" id="hm-week">
-        <div class="m-head">${icon('calendar')}Week ahead${vid ? ' at ' + esc(VEN[vid].name) : ', all venues'}<span class="count">weather, bookings, local events</span></div>
+        <div class="m-head">${icon('calendar')}Week ahead${vid ? ' at ' + esc(VEN[vid].name) : ', all venues'}<span class="count">next 7 days</span></div>
         <div class="hm-week"><div class="hm-days">${days.join('')}</div></div>
       </section>`
     }
@@ -558,12 +559,12 @@ App.view('home', {
       const freezer = u => /freezer/i.test(u)
       const s = openSheet({
         title: t.title + ' · ' + vname,
-        body: `<p class="hm-note">${esc(vname)} has ${units.length} units at this check. Type each temperature. A fridge must be 8 °C or colder and the freezer −18 °C or colder.</p>
+        body: `<p class="hm-note">${esc(vname)} has ${units.length} units at this check. Type each temperature. A fridge must be 8 °C or colder and the freezer \u221218 °C or colder.</p>
           <div>${units.map((u, i) => `
             <div class="hm-unit" data-unit="${i}">
-              <div class="hm-uname"><label for="hm-t-${i}">${esc(u)}</label><span>${freezer(u) ? '−18 °C or colder' : '8 °C or colder'}</span></div>
+              <div class="hm-uname"><label for="hm-t-${i}">${esc(u)}</label><span>${freezer(u) ? '\u221218 °C or colder' : '8 °C or colder'}</span></div>
               <div class="hm-temp">
-                ${freezer(u) ? `<button type="button" class="m-btn hm-sign" data-sign="${i}" aria-pressed="true" aria-label="Below zero">−</button>` : ''}
+                ${freezer(u) ? `<button type="button" class="m-btn hm-sign" data-sign="${i}" aria-pressed="true" aria-label="Below zero">\u2212</button>` : ''}
                 <input class="m-input num" id="hm-t-${i}" inputmode="decimal" autocomplete="off" aria-describedby="hm-tb-${i}">
                 <span class="hm-deg">°C</span>
                 <span class="m-pill" id="hm-tb-${i}">No reading</span>
@@ -605,14 +606,14 @@ App.view('home', {
       const sign = units.map((_, i) => q('[data-sign="' + i + '"]'))
       const err = q('#hm-t-err')
       const note = footNote(s.sheet)
-      const setSign = (i, minus) => { sign[i].setAttribute('aria-pressed', String(minus)); sign[i].textContent = minus ? '−' : '+'; sign[i].setAttribute('aria-label', minus ? 'Below zero' : 'Above zero') }
+      const setSign = (i, minus) => { sign[i].setAttribute('aria-pressed', String(minus)); sign[i].textContent = minus ? '\u2212' : '+'; sign[i].setAttribute('aria-label', minus ? 'Below zero' : 'Above zero') }
       function read(i) {
         const raw = temp[i].value.trim()
         if (!raw) return { v: null }
         let v = parseTemp(raw)
         if (v == null) return { v: null, bad: true }
         if (sign[i]) {
-          if (/^[-−]/.test(raw)) setSign(i, true)
+          if (/^[-\u2212]/.test(raw)) setSign(i, true)
           else if (sign[i].getAttribute('aria-pressed') === 'true') v = -Math.abs(v)
         }
         return { v, out: freezer(units[i]) ? v > -18 : v > 8 }
@@ -705,7 +706,11 @@ App.view('home', {
     const task = id => (state.feeds[curVenue()] || []).find(t => t.id === id)
     const panel = id => main.querySelector('#hm-not-' + id)
     function closePanels(except) {
-      main.querySelectorAll('.hm-not').forEach(p => { if (p !== except) p.hidden = true })
+      main.querySelectorAll('.hm-not').forEach(p => {
+        if (p === except) return
+        p.hidden = true
+        p.querySelector('.hm-skip').hidden = true
+      })
       main.querySelectorAll('[data-act="more"]').forEach(b => b.setAttribute('aria-expanded', String(!!except && b.getAttribute('aria-controls') === except.id && !except.hidden)))
     }
     const toAsk = () => { const i = main.querySelector('#hm-ask-input'); if (i) i.blur(); App.go('ask') }
@@ -719,8 +724,8 @@ App.view('home', {
       if (act === 'review') return App.go('review')
       if (act === 'page') return toast(b.dataset.page + ' would open here' + (curVenue() ? ' at ' + VEN[curVenue()].name : '') + '. That page is outside this mock-up.')
       if (act === 'pinpage') return pinSheet()
-      if (act === 'venue') { state.venue = b.dataset.venue; draw(); return toTop() }
-      if (act === 'back') { state.venue = null; draw(); return toTop() }
+      if (act === 'venue') { state.venue = b.dataset.venue; toasts.innerHTML = ''; draw(); return toTop() }
+      if (act === 'back') { state.venue = null; toasts.innerHTML = ''; draw(); return toTop() }
       if (!t) return
       if (act === 'open') return openTask(t)
       if (act === 'more') {
@@ -772,6 +777,7 @@ App.view('home', {
       const b = e.target.closest('button')
       if (!b) return
       closeSheets()
+      toasts.innerHTML = ''
       state.role = b.dataset.role
       state.venue = null
       draw()
