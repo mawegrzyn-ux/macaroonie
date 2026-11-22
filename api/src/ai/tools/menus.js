@@ -635,10 +635,39 @@ export async function createMenuFromSections(ctx, input) {
 
 // ── Tools ──────────────────────────────────────────────────
 
+// What Pepper is told about this file's tools, gathered by tools/index.js:
+// the place in the list (order, then the file name), the areas the tools
+// belong to, and the file's lines in the system prompt (prompts.js).
+export { menuTools as tools }
+export const order = 70
+export const sections = {
+  menus: { label: 'Menus, dishes, prices and allergens', modules: ['menus'] },
+}
+// The file's line(s) in the list of what Pepper can do.
+export const promptLines = [
+  'Menus: list_menus, get_menu, find_dishes (allergy questions), create_menu from a photo or PDF, dish and price ' +
+    'changes, publish_menu.',
+]
+// How to use them: a paragraph each, after the list.
+export const promptNotes = [
+  'Menus: prices are in pounds. A dish is priced by its own price, or by options: an option group (Protein, ' +
+    'Size) with a price per choice for that dish; use the existing groups get_menu lists rather than making ' +
+    'near-duplicates, and only make a new group when none fits. Allergens use the restaurant\'s own allergen tags ' +
+    'with a level (contains, may contain, can be removed); never guess an allergen that isn\'t on the menu or the ' +
+    'staff member\'s word, and when reading a menu photo or PDF, only add allergens printed on it. A big menu goes ' +
+    'in batches of up to 50 dishes: create_menu with the first sections, then add_dishes for the rest straight ' +
+    'away, a section or two per call, without waiting for the cards; tell the staff member to confirm the cards in ' +
+    'order. Allergy questions: answer from find_dishes or get_menu, and say to check with the kitchen for a ' +
+    'serious allergy. Menu changes are saved to the draft: guests, the till and Deliveroo keep the live menu until ' +
+    'it is published, so after a change say it is in the draft and offer to publish it (now or at a time); never ' +
+    'publish unless the staff member asks. Allergy questions use the live menus.',
+]
+
 export const menuTools = [
   {
     name: 'list_menus',
     title: 'List menus',
+    activity: 'Looked at the menus',
     description:
       'Lists the menus (from the Menus page) with the venue they belong to (or all venues), whether they are shown to ' +
       'guests, whether their latest changes are published (live) or still in the draft, any scheduled publish, and ' +
@@ -674,6 +703,7 @@ export const menuTools = [
   {
     name: 'get_menu',
     title: 'Show a menu',
+    activity: 'Opened the menu',
     description:
       'One menu in full: its sections (and where each shows) and dishes with price or option prices, allergens with ' +
       'their level (contains, may contain, can be removed), dietary tags, calories, and whether they can be ordered ' +
@@ -740,6 +770,7 @@ export const menuTools = [
   {
     name: 'find_dishes',
     title: 'Find dishes',
+    activity: 'Searched the menus',
     description:
       'Finds dishes across menus by name (search), and/or by tags: has (dishes with all of these allergens or dietary ' +
       'tags) and free_from (dishes without these allergens; a dish where the allergen can be removed on request is ' +

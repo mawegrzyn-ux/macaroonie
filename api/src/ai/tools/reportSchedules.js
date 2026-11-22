@@ -436,6 +436,12 @@ function oneTarget(input) {
 
 // ── The tools ─────────────────────────────────────────────────
 
+// What Pepper is told about this file's tools, gathered by tools/index.js:
+// the place in the list (order, then the file name), the areas the tools
+// belong to, and the file's lines in the system prompt (prompts.js).
+export { scheduleTools as tools }
+export const order = 115
+
 export const scheduleTools = [
   {
     name: 'schedule_report',

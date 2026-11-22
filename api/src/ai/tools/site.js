@@ -64,9 +64,26 @@ const REVIEW_SITES = ['google', 'tripadvisor', 'justeat', 'deliveroo', 'glovo']
 const SITE_NAMES = { google: 'Google', tripadvisor: 'TripAdvisor', justeat: 'Just Eat', deliveroo: 'Deliveroo', glovo: 'Glovo' }
 const squashText = s => String(s ?? '').trim().replace(/\s+/g, ' ')
 
+// What Pepper is told about this file's tools, gathered by tools/index.js:
+// the place in the list (order, then the file name), the areas the tools
+// belong to, and the file's lines in the system prompt (prompts.js).
+export { siteTools as tools }
+export const order = 120
+export const sections = {
+  website: { label: 'Website, promotions, reviews, menu screens and booking emails', modules: ['website', 'promotions', 'screens', 'email_templates'] },
+  support: { label: 'Reporting problems and asking for features', modules: ['issue_log', 'feature_requests'] },
+}
+// The file's line(s) in the list of what Pepper can do.
+export const promptLines = [
+  'Website and more: website_status, publish_website, set_website_banner, list_promotions / switch_promotion, ' +
+    'list_reviews / latest_reviews / record_reviews / moderate_review, screens_status / reload_screen, email_log, ' +
+    'report_issue, list_issues, request_feature.',
+]
+
 export const siteTools = [
   {
     name: 'website_status',
+    activity: 'Looked at the website',
     section: 'website',
     title: 'Website status',
     description:
@@ -165,6 +182,7 @@ export const siteTools = [
 
   {
     name: 'list_promotions',
+    activity: 'Looked at the promotions',
     section: 'website',
     title: 'Promotions',
     description: 'Promotions for online ordering and the till: what each gives, how it applies (automatic, button, code), when, on or off, uses and discount given.',
@@ -215,6 +233,7 @@ export const siteTools = [
 
   {
     name: 'list_reviews',
+    activity: 'Looked at the reviews',
     section: 'website',
     title: 'Reviews',
     description: 'Recent customer reviews (Google and others): rating, who, what they said, approved for the website or not, featured, the reply; plus the average and counts.',
@@ -256,6 +275,7 @@ export const siteTools = [
 
   {
     name: 'latest_reviews',
+    activity: 'Checked the reviews held',
     section: 'website',
     title: 'Latest reviews held per site',
     description:
@@ -392,6 +412,7 @@ export const siteTools = [
 
   {
     name: 'screens_status',
+    activity: 'Looked at the menu screens',
     section: 'website',
     title: 'Menu screens',
     description: 'The menu screens: venue, online or not, what each shows (board or playlist, or its wall), when it was last seen.',
@@ -444,6 +465,7 @@ export const siteTools = [
 
   {
     name: 'email_log',
+    activity: 'Looked at the booking emails',
     section: 'website',
     title: 'Booking emails sent',
     description:
@@ -511,6 +533,7 @@ export const siteTools = [
 
   {
     name: 'list_issues',
+    activity: 'Looked at the issue log',
     section: 'support',
     title: 'Logged issues',
     description: 'The restaurant\'s logged issues: title, priority, status and the resolution notes.',
