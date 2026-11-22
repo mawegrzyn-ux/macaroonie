@@ -6,6 +6,13 @@ Migrations are listed where a database change is required.
 ---
 
 
+## [2026-11-22 — Kitchen flow timers]
+
+- Store tech → Kitchen flow designer: **Add a timer** to time dishes between two points of a flow, e.g. from the order being sent to the pass, or from the grill being done to the pass. Tap where it starts, then a box someone taps done on; it shows as a dotted purple arrow under the boxes with its target. Tap it to name it, pick when it starts (a dish reaching the box, or done there), count each dish or each ticket, set the target in minutes or remove it. Save flow keeps them.
+- Till reports → Kitchen has a **Flow timers** card: for each timer, how many dishes or tickets it counted, the average, middle, 9 in 10 and slowest times (with the order) and the share on time. Pepper's kitchen report includes them.
+- Timers change nothing on the kitchen screens or tickets.
+- Migration 265 (`kds_flows.timers`).
+
 ## [2026-11-22 — Loyalty card looks members pick]
 
 - Loyalty → Programme → **Card looks members can pick**: up to eight looks for the card (a name and its colours), in an order you drag. Members choose theirs in the loyalty app's Settings, and their card shows it in the app, on your website and in Apple and Google Wallet. Taking a look away puts its members back on the standard look. Migration 264.

@@ -13,7 +13,7 @@
 //   set_sold_out           mark dishes sold out (today / until back) or back on     web_orders, manage
 //   till_day               a trading day's till figures (X live, or the Z)          pos_reports, view
 //   till_checks            a day's till checks                                       pos_reports, view
-//   kitchen_report         speed of service per kitchen station, remakes            pos_reports, view
+//   kitchen_report         speed of service per kitchen station, remakes, flow timers   pos_reports, view
 //
 // Reads and writes go through /api/orders and /api/pos (callApi); sold out
 // goes through the same route as the orders board, which tells tills, the
@@ -483,7 +483,7 @@ export const orderTools = [
     name: 'kitchen_report',
     section: 'till',
     title: 'Kitchen speed report',
-    description: 'Kitchen screen speed of service over dates (default today): per station tickets, average / median / slowest times, on time and late, by hour, and remakes with their reasons.',
+    description: 'Kitchen screen speed of service over dates (default today): per station tickets, average / median / slowest times, on time and late, by hour, remakes with their reasons, and the kitchen flow timers (time between two points of the flow, per dish or ticket, against a target).',
     input: z.object({ venue: VenueText, from: DateStr.optional(), to: DateStr.optional() }),
     readOnly: true,
     async run(ctx, input) {
@@ -503,6 +503,18 @@ export const orderTools = [
         busiest_hours: [...r.hours].sort((a, b) => b.tickets - a.tickets).slice(0, 5)
           .map(h => String(h.hour).padStart(2, '0') + ':00 ' + (nameOf.get(h.station_id) || 'station') + ': ' + plural(h.tickets, 'ticket') + ', ' + mins(h.avg_secs) + ' average'),
         remakes: r.remakes.slice(0, 30).map(m => m.item_name + ' at ' + m.station + (m.reason ? ' (' + m.reason + ')' : '')),
+        // Flow timers (migration 265): drawn on a kitchen flow, worked out from the kitchen orders.
+        ...((r.timers || []).length ? {
+          timers: r.timers.map(t => ({
+            timer: t.name, flow: t.flow_name + (t.flow_in_use ? ' (in use)' : ''),
+            from: t.from_name === 'Orders in' ? 'order sent' : (t.from_when === 'done' ? t.from_name + ' done' : 'reaches ' + t.from_name),
+            to: (t.to_name || 'a removed box') + ' tapped done', per: t.per,
+            ...(t.missing ? { note: 'this venue has no station for one of its boxes' } : {
+              counted: t.count, average: mins(t.avg_secs), median: mins(t.median_secs), slowest: mins(t.max_secs),
+              on_time: t.on_time_pct == null ? null : t.on_time_pct + '%', target: t.target_mins + ' min',
+            }),
+          })),
+        } : {}),
         ...(r.stations.length ? {} : { note: 'No kitchen screen tickets in these dates.' }),
       }
     },

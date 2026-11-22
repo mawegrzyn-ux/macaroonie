@@ -542,6 +542,66 @@ function DateBox({ label, value, onChange }) {
   )
 }
 
+// Kitchen flow timers (migration 265, OUTSTANDING 44.9): drawn on the flow
+// as dotted arrows; worked out from the period's kitchen orders.
+function TimersCard({ timers, capped }) {
+  const flows = [...new Set(timers.map(t => t.flow_id))]
+  return (
+    <Card title="Flow timers">
+      <div className="space-y-4" data-testid="kitchen-timers">
+        {flows.map(id => {
+          const list = timers.filter(t => t.flow_id === id)
+          const f = list[0]
+          return (
+            <div key={id}>
+              <p className="text-xs font-semibold mb-1">{f.flow_name}{f.flow_in_use ? ' (in use)' : ''}</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-muted-foreground">
+                      <th className="py-2 pr-3">Timer</th><th className="py-2 pr-3 text-right">Counted</th>
+                      <th className="py-2 pr-3 text-right">Average</th><th className="py-2 pr-3 text-right">Middle</th><th className="py-2 pr-3 text-right">9 in 10 within</th>
+                      <th className="py-2 pr-3 text-right">Slowest</th><th className="py-2 text-right">On time</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {list.map(t => (
+                      <tr key={t.id} data-testid="kitchen-timer">
+                        <td className="py-2 pr-3">
+                          <p className="font-medium">{t.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {(t.from_name === 'Orders in' ? 'Sent' : t.from_when === 'done' ? t.from_name + ' done' : 'Reaches ' + (t.from_name || 'a removed box'))}
+                            {' to ' + (t.to_name || 'a removed box') + ' tapped done · each ' + (t.per === 'ticket' ? 'ticket' : 'dish')}
+                          </p>
+                          {t.missing && <p className="text-xs text-amber-800">This location has no station for one of its boxes, so it counts nothing here.</p>}
+                        </td>
+                        <td className="py-2 pr-3 text-right tabular-nums">{t.count}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums font-semibold">{mmss(t.avg_secs)}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums">{mmss(t.median_secs)}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums">{mmss(t.p90_secs)}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums" title={(t.slowest || []).map(r => 'Order ' + (r.number || '?') + (r.item ? ' ' + r.item : '') + ': ' + mmss(r.seconds)).join(', ')}>
+                          {mmss(t.max_secs)}{t.slowest?.[0]?.number ? <span className="block text-xs text-muted-foreground">order {t.slowest[0].number}</span> : null}
+                        </td>
+                        <td className={cn('py-2 text-right tabular-nums', t.count > 0 && t.on_time_pct < 80 && 'text-amber-800 font-semibold')}>
+                          {t.count ? t.on_time_pct + '%' : '-'} <span className="text-xs text-muted-foreground font-normal">({t.target_mins} min)</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground mt-3">
+        Timers are set in Store tech, Kitchen screens, on the flow (Add a timer). A dish counts once it is tapped done at the timer's end, whichever flow sent it, if it passed both points; per ticket, once every dish of the order going that way is.
+        {capped ? ' Only the first 20,000 kitchen orders of these days are counted: pick fewer days.' : ''}
+      </p>
+    </Card>
+  )
+}
+
 function KitchenTab({ venueId }) {
   const api = useApi()
   const today = new Date()
@@ -605,6 +665,7 @@ function KitchenTab({ venueId }) {
               )}
             <p className="text-xs text-muted-foreground mt-3">A ticket's time runs from its dishes reaching the screen (or their course being fired) to the bump. Tickets brought back don't count. At the pass it is the whole order.</p>
           </Card>
+          {(data.timers || []).length > 0 && <TimersCard timers={data.timers} capped={data.timers_capped} />}
           {hourList.length > 0 && (
             <Card title="Average time by hour">
               <div className="space-y-3">

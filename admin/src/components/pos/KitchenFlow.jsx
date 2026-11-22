@@ -37,25 +37,39 @@
 // station, and its panel lists every location with Add it for those that
 // don't. Links filtered by Sent from take only the dishes sent from that
 // till or kiosk (the bar's till to the bar).
+//
+// Timers (migration 265, shared/pos/kitchenTimers.js) are dotted arrows
+// under the boxes: Add a timer, tap where it starts (Orders in, or a box:
+// when a dish reaches it or is done there), then the box where it ends (one
+// someone taps: prep, expo or runner). Each has a target in minutes and
+// counts per dish or per ticket; the figures are in Till reports, Kitchen.
+// Timers are saved with the flow and change nothing on the kitchen screens.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Plus, Loader2, Pencil, Maximize2, Minimize2, Wand2, Route, X, Search, GripVertical, AlertTriangle, Info, Link2,
-  ArrowUpDown, Copy, CheckCircle2, MinusCircle, Globe, MapPin,
+  ArrowUpDown, Copy, CheckCircle2, MinusCircle, Globe, MapPin, Timer,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
   flowProblems, flowWarnings, itemRoute, KIND_LABELS, START, isBumpKind, resolveSharedFlow, boxProblems, flowName,
 } from '@shared/pos/kitchen.js'
-import { Section, Btn, ErrorNote, ConfirmDelete, inputCls, Modal, Field, SortableRows, Segmented, Toggle } from './shared'
+import {
+  normaliseTimers, timerProblems, timerLabel, canEndTimer, newTimerId, MAX_TIMERS, DEFAULT_TIMER_TARGET,
+} from '@shared/pos/kitchenTimers.js'
+import { Section, Btn, ErrorNote, ConfirmDelete, inputCls, Modal, Field, SortableRows, Segmented, Toggle, NumberBox } from './shared'
 
 const NODE_W = 196
 const NODE_H = 72
 const COL = 350          // room between columns for the link labels
 const ROW = 100
 const PAD = 28
+const TIMER_COLOUR = '#7c3aed'
+// Timers run in lanes under every box, one lane each, so a label never sits on a box.
+const TIMER_GAP = 44
+const TIMER_STEP = 48
 
 const KIND_STYLE = {
   start: 'border-zinc-500',
@@ -117,7 +131,7 @@ function seedDraft(setup, flow) {
     const links = (flow.links || [])
       .filter(l => ids.has(l.to) && (!l.from || ids.has(l.from)))
       .map(linkDraft)
-    return { boxes, links, off: [], layout: placeMissing({ ...(flow.layout || {}) }, boxes, links) }
+    return { boxes, links, off: [], layout: placeMissing({ ...(flow.layout || {}) }, boxes, links), timers: timersAt(flow.timers, ids) }
   }
   const ids = new Set(setup.kds_stations.map(s => s.id))
   // Stations this flow leaves out (deleted ones forgotten).
@@ -127,7 +141,28 @@ function seedDraft(setup, flow) {
     .filter(l => here(l.to) && (!l.from || here(l.from)))
     .map(linkDraft)
   const inFlow = setup.kds_stations.filter(s => !off.includes(s.id))
-  return { links, off, layout: placeMissing({ ...(flow?.layout || {}) }, inFlow, links) }
+  return { links, off, layout: placeMissing({ ...(flow?.layout || {}) }, inFlow, links), timers: timersAt(flow?.timers, new Set(inFlow.map(s => s.id))) }
+}
+
+/** A flow's timers whose ends are among these boxes (a box removed takes its timers). */
+function timersAt(timers, ids) {
+  return normaliseTimers(timers).filter(t => (t.from === START || ids.has(t.from)) && ids.has(t.to))
+}
+
+/**
+ * A timer's dotted arrow: down from under its start box to its lane (lane i
+ * under the lowest box, `floor`), along it, and up into its end box. The
+ * lines pass behind boxes on the way; the label sits in the lane.
+ */
+function timerPath(a, b, i, floor) {
+  const s = { x: a.x + NODE_W * 0.35, y: a.y + NODE_H }
+  const e = { x: b.x + NODE_W * 0.65, y: b.y + NODE_H + 2 }
+  const low = floor + TIMER_GAP + i * TIMER_STEP
+  const r = Math.min(14, Math.abs(e.x - s.x) / 2) * (e.x >= s.x ? 1 : -1)
+  return {
+    d: `M ${s.x} ${s.y} L ${s.x} ${low - Math.abs(r)} Q ${s.x} ${low} ${s.x + r} ${low} L ${e.x - r} ${low} Q ${e.x} ${low} ${e.x} ${low - Math.abs(r)} L ${e.x} ${e.y}`,
+    mid: { x: (s.x + e.x) / 2, y: low },
+  }
 }
 
 /**
@@ -298,6 +333,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
   const [dirty, setDirty] = useState(false)
   const [selected, setSelected] = useState(null)     // { link: key } | { node: id }
   const [connectFrom, setConnectFrom] = useState(null)
+  const [timerPick, setTimerPick] = useState(null)    // { from: null | id } while adding a timer
   const [wire, setWire] = useState(null)              // { from, x, y } while dragging a new link
   const [checking, setChecking] = useState(false)
   const [check, setCheck] = useState(() => ({ item_id: '', order_type_id: (setup.order_types || []).find(t => t.is_active)?.id || '', revenue_stream_id: '', device_id: '' }))
@@ -311,7 +347,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
 
   // A change from elsewhere (station added, removed, saved flow): take it in,
   // keeping an unsaved draft but dropping links to stations that are gone.
-  const flowKey = JSON.stringify({ links: flow.links, layout: flow.layout, off: flow.off_station_ids, boxes: flow.boxes }) + '|' + stations.map(s => s.id).join(',')
+  const flowKey = JSON.stringify({ links: flow.links, layout: flow.layout, off: flow.off_station_ids, boxes: flow.boxes, timers: flow.timers }) + '|' + stations.map(s => s.id).join(',')
   useEffect(() => {
     if (!dirty) { setDraft(seedDraft(setup, flow)); return }
     // A shared flow's boxes don't change with this location's stations.
@@ -319,7 +355,8 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
     setDraft(d => {
       const off = d.off.filter(id => byId[id])
       const links = d.links.filter(l => byId[l.to] && (!l.from || byId[l.from]))
-      return { links, off, layout: placeMissing(d.layout, inFlowOf(off), links) }
+      const timers = timersAt(d.timers, new Set(inFlowOf(off).map(s => s.id)))
+      return { links, off, layout: placeMissing(d.layout, inFlowOf(off), links), timers }
     })
   }, [flowKey]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -335,11 +372,15 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
     return out
   }, [draft.layout, inFlow])
   const width = Math.max(720, ...Object.values(pos).map(p => p.x + NODE_W + PAD + 40))
-  const height = Math.max(380, ...Object.values(pos).map(p => p.y + NODE_H + PAD))
+  // The timers' lanes start under the lowest box.
+  const floor = Math.max(...Object.values(pos).map(p => p.y + NODE_H))
+  const timerRoom = draft.timers.length ? TIMER_GAP + (draft.timers.length - 1) * TIMER_STEP + 36 : 0
+  const height = Math.max(380, ...Object.values(pos).map(p => p.y + NODE_H + PAD), floor + timerRoom)
 
-  const problems = useMemo(() => (shared
-    ? [...boxProblems(draft.boxes), ...flowProblems(draft.boxes, draft.links)]
-    : flowProblems(stations, draft.links)), [shared, draft.boxes, stations, draft.links])
+  const problems = useMemo(() => [
+    ...(shared ? [...boxProblems(draft.boxes), ...flowProblems(draft.boxes, draft.links)] : flowProblems(stations, draft.links)),
+    ...timerProblems(draft.timers, Object.fromEntries(inFlow.map(n => [n.id, { name: n.name, kind: n.kind }]))),
+  ], [shared, draft.boxes, stations, draft.links, draft.timers, inFlow])
   const warnings = useMemo(() => flowWarnings(inFlow, draft.links), [inFlow, draft.links])
   // A shared flow at every location: which boxes each has no station for.
   const places = useMemo(() => (shared ? (setup.kds_locations || []).map(v => {
@@ -368,7 +409,7 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
   const removeLink = key => { changeLinks(links => links.filter(l => l.key !== key)); setSelected(null) }
   // Out of this flow: its links in this flow go; the station stays for the others.
   const takeOut = id => {
-    change(d => ({ ...d, links: d.links.filter(l => l.to !== id && l.from !== id), off: [...d.off, id] }))
+    change(d => ({ ...d, links: d.links.filter(l => l.to !== id && l.from !== id), off: [...d.off, id], timers: d.timers.filter(t => t.from !== id && t.to !== id) }))
     setSelected(null)
   }
   const putBack = id => change(d => {
@@ -390,10 +431,23 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
   const removeBox = id => {
     change(d => {
       const { [id]: _gone, ...layout } = d.layout
-      return { ...d, boxes: d.boxes.filter(b => b.id !== id), links: d.links.filter(l => l.to !== id && l.from !== id), layout }
+      return { ...d, boxes: d.boxes.filter(b => b.id !== id), links: d.links.filter(l => l.to !== id && l.from !== id), layout, timers: d.timers.filter(t => t.from !== id && t.to !== id) }
     })
     setSelected(null)
   }
+
+  // Timers: tap where one starts, then the box someone taps where it ends.
+  const startTimer = () => { setTimerPick({ from: null }); setConnectFrom(null); setSelected(null); setChecking(false) }
+  const pickForTimer = id => {
+    if (!timerPick.from) { setTimerPick({ from: id }); return }
+    if (id === START || id === timerPick.from || !canEndTimer(byId[id]?.kind)) return
+    const t = { id: newTimerId(), name: '', from: timerPick.from, from_when: 'reached', to: id, per: 'dish', target_mins: DEFAULT_TIMER_TARGET }
+    change(d => ({ ...d, timers: [...d.timers, t] }))
+    setTimerPick(null)
+    setSelected({ timer: t.id })
+  }
+  const updateTimer = (id, patch) => change(d => ({ ...d, timers: d.timers.map(t => (t.id === id ? { ...t, ...patch } : t)) }))
+  const removeTimer = id => { change(d => ({ ...d, timers: d.timers.filter(t => t.id !== id) })); setSelected(null) }
 
   // ── Pointer handling: move boxes, draw links ──
   const canvasRef = useRef(null)
@@ -456,7 +510,8 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
       return
     }
     if (!g.moved) {
-      if (connectFrom) { addLink(connectFrom, g.id); setConnectFrom(null) } else setSelected({ node: g.id })
+      if (timerPick) pickForTimer(g.id)
+      else if (connectFrom) { addLink(connectFrom, g.id); setConnectFrom(null) } else setSelected({ node: g.id })
     }
   }
   const onCancel = () => { drag.current = null; setWire(null) }
@@ -494,11 +549,13 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
         boxes: draft.boxes.map(b => ({ id: b.id, name: tidyName(b.name), kind: b.kind })),
         links: draft.links.map(l => ({ from: l.from, to: l.to, targets: l.targets, exclude: isExcept(l), always: !!l.always })),
         layout: pos,
+        timers: normaliseTimers(draft.timers),
       }
       : {
         links: draft.links.map(l => ({ from: l.from, to: l.to, targets: l.targets, exclude: isExcept(l), always: !!l.always })),
         layout: pos,
         off_station_ids: draft.off,
+        timers: normaliseTimers(draft.timers),
       }),
     onSuccess: out => {
       setSaved(out.warnings || [])
@@ -509,22 +566,25 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
         links: out.links.map(linkDraft),
         off: out.off_station_ids || [],
         layout: out.layout,
+        timers: out.timers || [],
       })
       setSelected(null)
       qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
     },
   })
-  const discard = () => { setDraft(seedDraft(setup, flow)); setDirty(false); setSelected(null); setConnectFrom(null) }
+  const discard = () => { setDraft(seedDraft(setup, flow)); setDirty(false); setSelected(null); setConnectFrom(null); setTimerPick(null) }
 
   const selLink = selected?.link ? draft.links.find(l => l.key === selected.link) : null
   const selNode = selected?.node || null
+  const selTimer = selected?.timer ? draft.timers.find(t => t.id === selected.timer) : null
+  const names = Object.fromEntries(inFlow.map(n => [n.id, n.name]))
   const nodes = [{ id: START, name: 'Orders in', kind: 'start', is_active: true }, ...inFlow]
 
   const canvas = (
     <div ref={wrapRef} className={cn('relative min-w-0 overflow-auto rounded-xl border bg-muted/40', full ? 'flex-1' : 'h-[460px] flex-1')}
       data-testid="flow-canvas-wrap">
       <div ref={canvasRef} className="relative" style={{ width, height }} data-testid="flow-canvas"
-        onPointerDown={e => { if (e.target === e.currentTarget) { setSelected(null); setConnectFrom(null) } }}>
+        onPointerDown={e => { if (e.target === e.currentTarget) { setSelected(null); setConnectFrom(null); setTimerPick(null) } }}>
         <svg className="absolute inset-0 pointer-events-none" width={width} height={height} aria-hidden="true">
           <defs>
             <marker id="kf-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -533,7 +593,20 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
             <marker id="kf-arrow-on" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb" />
             </marker>
+            <marker id="kf-timer" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill={TIMER_COLOUR} />
+            </marker>
           </defs>
+          {draft.timers.map((t, i) => {
+            const a = pos[t.from], b = pos[t.to]
+            if (!a || !b) return null
+            const sel = selTimer?.id === t.id
+            return (
+              <path key={t.id} d={timerPath(a, b, i, floor).d} fill="none" stroke={TIMER_COLOUR} strokeWidth={sel ? 4 : 3}
+                strokeDasharray="0.5 8" strokeLinecap="round" markerEnd="url(#kf-timer)" opacity={route ? 0.3 : sel ? 1 : 0.85}
+                data-testid="flow-timer-line" />
+            )
+          })}
           {draft.links.map(l => {
             const a = pos[nodeKey(l.from)], b = pos[l.to]
             if (!a || !b) return null
@@ -551,6 +624,25 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
               fill="none" stroke="#2563eb" strokeWidth={2.5} strokeDasharray="6 5" />
           )}
         </svg>
+
+        {draft.timers.map((t, i) => {
+          const a = pos[t.from], b = pos[t.to]
+          if (!a || !b) return null
+          const { mid } = timerPath(a, b, i, floor)
+          const sel = selTimer?.id === t.id
+          return (
+            <div key={t.id} role="button" tabIndex={0} data-testid="flow-timer" data-from={t.from} data-to={t.to}
+              onClick={() => { setSelected({ timer: t.id }); setConnectFrom(null); setTimerPick(null) }}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected({ timer: t.id }) } }}
+              title={timerLabel(t, names) + ': target ' + t.target_mins + ' min ' + (t.per === 'ticket' ? 'a ticket' : 'a dish')}
+              className={cn('absolute z-10 -translate-x-1/2 -translate-y-1/2 h-10 max-w-[170px] px-3 rounded-full border-2 border-dotted text-xs font-medium flex items-center gap-1 cursor-pointer touch-manipulation shadow-sm',
+                sel ? 'bg-violet-700 text-white border-violet-700' : 'bg-violet-50 text-violet-900 border-violet-400', route && 'opacity-50')}
+              style={{ left: mid.x, top: mid.y }}>
+              <Timer className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">{(t.name ? t.name + ' · ' : '') + t.target_mins + ' min'}</span>
+            </div>
+          )
+        })}
 
         {draft.links.map(l => {
           const a = pos[nodeKey(l.from)], b = pos[l.to]
@@ -578,15 +670,19 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
           const p = pos[n.id]
           const kind = n.kind
           const sel = selNode === n.id
-          const pickable = connectFrom && n.id !== START && n.id !== connectFrom
+          const pickable = timerPick
+            ? (!timerPick.from || (n.id !== START && n.id !== timerPick.from && canEndTimer(kind)))
+            : connectFrom && n.id !== START && n.id !== connectFrom
+          const timerOut = timerPick && !pickable && n.id !== timerPick.from
           return (
             <div key={n.id} data-node={n.id} data-testid="flow-node" data-kind={kind}
               onPointerDown={e => onNodeDown(e, n.id)} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onCancel}
               style={{ left: p.x, top: p.y, width: NODE_W, height: NODE_H, touchAction: canManage ? 'none' : 'auto' }}
               data-here={shared && kind !== 'start' ? (n.here ? 'yes' : 'no') : undefined}
               className={cn('absolute rounded-xl border-2 bg-background shadow-sm flex items-stretch select-none touch-manipulation',
-                KIND_STYLE[kind], sel && 'ring-4 ring-primary/30', pickable && 'ring-4 ring-blue-400 cursor-pointer',
-                connectFrom === n.id && 'ring-4 ring-blue-600', (!n.is_active || (shared && kind !== 'start' && !n.here)) && 'opacity-50',
+                KIND_STYLE[kind], sel && 'ring-4 ring-primary/30', pickable && (timerPick ? 'ring-4 ring-violet-400 cursor-pointer' : 'ring-4 ring-blue-400 cursor-pointer'),
+                connectFrom === n.id && 'ring-4 ring-blue-600',
+                timerPick?.from === n.id && 'ring-4 ring-violet-600', timerOut && 'opacity-40', (!n.is_active || (shared && kind !== 'start' && !n.here)) && 'opacity-50',
                 route && !inRoute(n.id) && 'opacity-40', route && inRoute(n.id) && 'ring-4 ring-blue-500')}>
               <div className="w-2 rounded-l-[10px] shrink-0" style={{ background: n.colour || KIND_STRIP[kind] }} />
               {canManage && (
@@ -630,6 +726,19 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
           <Btn onClick={() => setConnectFrom(null)}><X className="w-4 h-4" /> Cancel</Btn>
         </div>
       )}
+      {timerPick && (
+        <div className="rounded-xl border border-violet-300 bg-violet-50 p-3 space-y-2" data-testid="flow-timer-pick">
+          <p className="font-medium">{timerPick.from
+            ? 'Now tap the box where it ends: one someone taps done on (a prep, expo or runner screen).'
+            : 'Tap where the timer starts: Orders in (when the order is sent) or a box.'}</p>
+          {timerPick.from && <p className="text-muted-foreground">Starts at {nameOf(timerPick.from)}.</p>}
+          <Btn onClick={() => setTimerPick(null)}><X className="w-4 h-4" /> Cancel</Btn>
+        </div>
+      )}
+      {selTimer && (
+        <TimerPanel key={selTimer.id} timer={selTimer} names={names} nameOf={nameOf} canManage={canManage}
+          onChange={patch => updateTimer(selTimer.id, patch)} onRemove={() => removeTimer(selTimer.id)} onClose={() => setSelected(null)} />
+      )}
       {checking && (
         <CheckPanel kindOf={id => byId[id]?.kind} settingsOf={id => (byId[id]?.here || byId[id])?.settings || {}} setup={setup} lk={lk} shared={shared} check={check} setCheck={setCheck} route={route} nameOf={nameOf} onClose={() => setChecking(false)} />
       )}
@@ -649,8 +758,8 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
           onBox={patch => updateBox(selNode, patch)}
           onPick={key => setSelected({ link: key })} onClose={() => setSelected(null)} />
       )}
-      {!connectFrom && !checking && !selLink && !selNode && flowBox}
-      {!connectFrom && !checking && !selLink && !selNode && (
+      {!connectFrom && !timerPick && !checking && !selLink && !selNode && !selTimer && flowBox}
+      {!connectFrom && !timerPick && !checking && !selLink && !selNode && !selTimer && (
         <div className="rounded-xl border bg-background p-3 space-y-2 text-muted-foreground">
           <p className="flex gap-2"><Info className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{canManage
@@ -664,6 +773,9 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
             </p>
           )}
           <p>From each box a dish takes the links that name it most closely: the dish itself, then its section, the till or kiosk it was sent from, its revenue stream, its order type, then links set to All except these (every dish but the ones they list), then links for every dish. Links that tie all apply: e.g. from the expo to the board and to a runner at once.</p>
+          <p className="flex gap-2"><Timer className="w-4 h-4 shrink-0 mt-0.5 text-violet-700" />
+            <span>Dotted purple arrows are timers: how long dishes take from one point to a box someone taps, against a target. They change nothing in the kitchen; the figures are in Till reports, Kitchen.</span>
+          </p>
         </div>
       )}
     </div>
@@ -682,9 +794,16 @@ function FlowDesigner({ venueId, setup, flow, isActive, canManage, onStation, ba
             <Wand2 className="w-4 h-4" /> Tidy
           </Btn>
         )}
-        <Btn onClick={() => { setChecking(c => !c); setSelected(null) }} variant={checking ? 'primary' : 'default'}>
+        <Btn onClick={() => { setChecking(c => !c); setSelected(null); setTimerPick(null) }} variant={checking ? 'primary' : 'default'}>
           <Route className="w-4 h-4" /> Check a dish
         </Btn>
+        {canManage && (
+          <Btn onClick={() => (timerPick ? setTimerPick(null) : startTimer())} variant={timerPick ? 'primary' : 'default'}
+            disabled={!timerPick && draft.timers.length >= MAX_TIMERS} title={draft.timers.length >= MAX_TIMERS ? 'A flow has at most ' + MAX_TIMERS + ' timers' : undefined}
+            data-testid="flow-add-timer">
+            <Timer className="w-4 h-4" /> Add a timer
+          </Btn>
+        )}
         <Btn onClick={() => setFull(f => !f)} title={full ? 'Leave full screen' : 'Full screen'}>
           {full ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           <span className="hidden sm:inline">{full ? 'Leave full screen' : 'Full screen'}</span>
@@ -1058,6 +1177,54 @@ function Chip({ on, onClick, except, children }) {
         on ? (except ? 'bg-rose-600 text-white border-rose-600' : 'bg-primary text-primary-foreground border-primary') : 'bg-background hover:bg-muted')}>
       {children}
     </button>
+  )
+}
+
+function TimerPanel({ timer: t, names, nameOf, canManage, onChange, onRemove, onClose }) {
+  const from = nameOf(t.from === START ? null : t.from)
+  const to = nameOf(t.to)
+  return (
+    <PanelBox title={timerLabel(t, names)} onClose={onClose} testid="flow-timer-panel">
+      <p className="flex gap-2 text-muted-foreground">
+        <Timer className="w-4 h-4 shrink-0 mt-0.5 text-violet-700" aria-hidden="true" />
+        <span>How long dishes take from {t.from === START ? 'the order being sent' : from} to being tapped done at {to}. It changes nothing in the kitchen: the figures are in Till reports, Kitchen.</span>
+      </p>
+      {canManage ? (
+        <>
+          <Field label="Name (optional)">
+            <input className={inputCls} value={t.name} maxLength={40} placeholder={from + ' to ' + to}
+              onChange={e => onChange({ name: e.target.value })} data-testid="flow-timer-name" />
+          </Field>
+          {t.from !== START && (
+            <div>
+              <p className="font-medium mb-1.5">Starts when</p>
+              <Segmented value={t.from_when} onChange={v => onChange({ from_when: v })}
+                options={[{ value: 'reached', label: 'A dish reaches ' + from }, { value: 'done', label: from + ' is done' }]} />
+            </div>
+          )}
+          <div>
+            <p className="font-medium mb-1.5">Counts</p>
+            <Segmented value={t.per} onChange={v => onChange({ per: v })}
+              options={[{ value: 'dish', label: 'Each dish' }, { value: 'ticket', label: 'Each ticket' }]} />
+            <p className="text-xs text-muted-foreground mt-1">{t.per === 'ticket'
+              ? 'One time per order: from its first dish to start to its last dish tapped done at ' + to + '.'
+              : 'One time per dish that passes both points.'}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-medium">Target</span>
+            <NumberBox value={t.target_mins} min={1} max={240} ariaLabel="Target in minutes" onChange={v => onChange({ target_mins: v })} />
+            <span className="text-muted-foreground">minutes</span>
+          </div>
+          {!t.target_mins && <p className="text-xs text-red-700">A target is needed (1 to 240 minutes).</p>}
+          <div className="flex items-center gap-2 pt-1 border-t">
+            <span className="flex-1 text-xs text-muted-foreground">Remove this timer</span>
+            <ConfirmDelete label="Remove timer" confirmLabel="Yes, remove" onConfirm={onRemove} />
+          </div>
+        </>
+      ) : (
+        <p>Starts {t.from === START ? 'when the order is sent' : t.from_when === 'done' ? 'when ' + from + ' is done' : 'when a dish reaches ' + from}; counts {t.per === 'ticket' ? 'each ticket' : 'each dish'}; target {t.target_mins} minutes.</p>
+      )}
+    </PanelBox>
   )
 }
 

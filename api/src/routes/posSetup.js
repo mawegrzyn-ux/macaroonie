@@ -85,6 +85,7 @@ import {
   SHARE_MODES, RUSH_COUNT_MAX,
 } from '../../../shared/pos/kitchen.js'
 import { KITCHEN_COLOUR_KEYS, SECTION_COLOURS_MAX, normaliseKitchenColours } from '../../../shared/pos/kitchenColours.js'
+import { MAX_TIMERS, TIMER_PER, TIMER_FROM_WHEN, normaliseTimers, timerProblems, resolveTimers } from '../../../shared/pos/kitchenTimers.js'
 import { PULL_TIMES } from '../../../shared/pos/pullTimes.js'
 import { cleanOrderRange, rangesOverlap, freeOrderRange, ORDER_NO_MAX } from '../../../shared/pos/numbers.js'
 import { deviceOrigin, installerOrigin } from '../services/platformHost.js'
@@ -93,7 +94,7 @@ import { hubRelease } from '../services/hubRelease.js'
 import { forgetDevice } from './posApi.js'
 import {
   ensureFlows, loadFlows, activeFlowOf, switchFlow, flowPlace, pinActiveFlows, gloriaFoodTypes, GF_TYPES, kitchenTestToken,
-  kitchenLiveToken, readKitchenLiveToken,
+  kitchenLiveToken, readKitchenLiveToken, kitchenTimers,
 } from '../services/kitchenSvc.js'
 import { checkDesign, ownDesign, previewToken, menuChanges, unpricedDishes } from '../services/kioskSvc.js'
 import { normaliseDesign } from '../../../shared/kiosk.js'
@@ -441,6 +442,18 @@ const FlowLayout = z.record(z.string().max(40), z.object({
   x: z.number().min(-2000).max(20000),
   y: z.number().min(-2000).max(20000),
 })).default({})
+// A timer (migration 265, shared/pos/kitchenTimers.js): from Orders in
+// ('start') or a box / station to a box / station someone taps.
+const FlowTimer = z.object({
+  id:          z.string().max(40).optional(),
+  name:        z.string().trim().max(40).default(''),
+  from:        z.union([z.literal('start'), UUID]),
+  from_when:   z.enum(TIMER_FROM_WHEN).default('reached'),
+  to:          UUID,
+  per:         z.enum(TIMER_PER).default('dish'),
+  target_mins: z.number().int().min(1).max(240),
+})
+const FlowTimers = z.array(FlowTimer).max(MAX_TIMERS).default([])
 // A shared flow: named boxes (each location's station of that name) and links between them.
 const SharedFlowBody = z.object({
   boxes: z.array(z.object({
@@ -450,12 +463,14 @@ const SharedFlowBody = z.object({
   })).max(80),
   links: z.array(FlowLink).max(400),
   layout: FlowLayout,
+  timers: FlowTimers,
 })
 const KdsFlowBody = z.object({
   // The venue's stations this flow leaves out (migration 182).
   off_station_ids: z.array(UUID).max(300).default([]),
   links: z.array(FlowLink).max(400),
   layout: FlowLayout,
+  timers: FlowTimers,
 })
 
 const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -524,8 +539,8 @@ export async function loadFlowLinks(tx, tenantId, flowId) {
 /** A flow as the setup page shows it: a venue's own with its links, a shared one with its boxes. */
 function flowView(f, links = []) {
   return f.shared || f.venue_id === null
-    ? { id: f.id, name: f.name, sort_order: f.sort_order, layout: f.layout || {}, shared: true, off_station_ids: [], boxes: f.boxes || [], links: (f.box_links || []).map(l => ({ ...l, exclude: isExcept(l), always: !!l.always })) }
-    : { id: f.id, name: f.name, sort_order: f.sort_order, layout: f.layout || {}, shared: false, off_station_ids: f.off_station_ids || [], links }
+    ? { id: f.id, name: f.name, sort_order: f.sort_order, layout: f.layout || {}, shared: true, off_station_ids: [], boxes: f.boxes || [], links: (f.box_links || []).map(l => ({ ...l, exclude: isExcept(l), always: !!l.always })), timers: f.timers || [] }
+    : { id: f.id, name: f.name, sort_order: f.sort_order, layout: f.layout || {}, shared: false, off_station_ids: f.off_station_ids || [], links, timers: f.timers || [] }
 }
 
 /**
@@ -583,7 +598,7 @@ async function flowsView(tx, tenantId, venueId, settings) {
 /** A flow of the tenant's (a venue's own, or shared: venue_id null), or 404. */
 async function ownFlow(tx, tenantId, id) {
   const [f] = await tx`
-    SELECT id, venue_id, name, layout, sort_order, off_station_ids, boxes, box_links, venue_id IS NULL AS shared
+    SELECT id, venue_id, name, layout, sort_order, off_station_ids, boxes, box_links, timers, venue_id IS NULL AS shared
       FROM kds_flows WHERE id = ${id} AND tenant_id = ${tenantId}`
   if (!f) throw httpError(404, 'Kitchen flow not found')
   return f
@@ -1635,6 +1650,8 @@ export default async function posSetupRoutes(app) {
       let boxes = []
       let boxLinks = []
       let edges = []
+      // Timers name boxes or stations as links do, so they follow the same way.
+      let timers = from?.timers || []
       const stations = await tx`SELECT id, name, kind, is_active FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`
       if (from && body.shared && from.shared) {
         boxes = from.boxes
@@ -1647,6 +1664,8 @@ export default async function posSetupRoutes(app) {
         const shared = shareFlow(await loadFlowLinks(tx, tenantId, from.id), inFlow, await venueNames(tx, tenantId, venueId))
         boxes = shared.boxes
         boxLinks = shared.links
+        const kept = new Set(boxes.map(b => b.id))
+        timers = timers.filter(t => (t.from === 'start' || kept.has(t.from)) && kept.has(t.to))
       } else if (from && from.shared) {
         // A shared flow as this venue's own: its boxes become the venue's
         // stations of those names; stations it has no box for are left out.
@@ -1661,6 +1680,7 @@ export default async function posSetupRoutes(app) {
         const matched = new Set(Object.values(r.matches))
         off = stations.filter(st => !matched.has(st.id)).map(st => st.id)
         layout = Object.fromEntries(Object.entries(from.layout || {}).flatMap(([k, p]) => (k === 'start' ? [[k, p]] : r.matches[k] ? [[r.matches[k], p]] : [])))
+        timers = resolveTimers(timers, r.matches).timers
       } else if (from) {
         edges = await loadFlowLinks(tx, tenantId, from.id)
         off = from.off_station_ids || []
@@ -1673,10 +1693,10 @@ export default async function posSetupRoutes(app) {
         ? await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM kds_flows WHERE tenant_id = ${tenantId} AND venue_id IS NULL`
         : await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM kds_flows WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
       const [f] = await tx`
-        INSERT INTO kds_flows (tenant_id, venue_id, name, layout, sort_order, off_station_ids, boxes, box_links)
+        INSERT INTO kds_flows (tenant_id, venue_id, name, layout, sort_order, off_station_ids, boxes, box_links, timers)
         VALUES (${tenantId}, ${body.shared ? null : venueId}, ${body.name}, ${tx.json(layout)}, ${n}, ${off},
-                ${tx.json(boxes)}, ${tx.json(boxLinks)})
-        RETURNING id, venue_id, name, layout, sort_order, off_station_ids, boxes, box_links, venue_id IS NULL AS shared`
+                ${tx.json(boxes)}, ${tx.json(boxLinks)}, ${tx.json(timers)})
+        RETURNING id, venue_id, name, layout, sort_order, off_station_ids, boxes, box_links, timers, venue_id IS NULL AS shared`
       for (const [i, l] of edges.entries()) {
         await tx`
           INSERT INTO kds_flow_edges (tenant_id, venue_id, flow_id, from_station_id, to_station_id, targets, exclude, always, sort_order)
@@ -1808,8 +1828,11 @@ export default async function posSetupRoutes(app) {
         if (problems.length) throw httpError(422, problems[0])
         await checkMenuTargets(tx, tenantId, menuIds)
         const layout = layoutOf(body.layout, new Set(['start', ...ids]))
+        const timers = normaliseTimers(body.timers)
+        const tp = timerProblems(timers, Object.fromEntries(boxes.map(b => [b.id, b])))
+        if (tp.length) throw httpError(422, tp[0])
         await tx`
-          UPDATE kds_flows SET boxes = ${tx.json(boxes)}, box_links = ${tx.json(links)}, layout = ${tx.json(layout)}, updated_at = now()
+          UPDATE kds_flows SET boxes = ${tx.json(boxes)}, box_links = ${tx.json(links)}, layout = ${tx.json(layout)}, timers = ${tx.json(timers)}, updated_at = now()
            WHERE id = ${id} AND tenant_id = ${tenantId}`
         // Which locations lack which boxes (their links are left out there).
         const { kds_locations } = await sharedPlaces(tx, tenantId)
@@ -1820,7 +1843,7 @@ export default async function posSetupRoutes(app) {
           for (const d of r.differs) missing.push('At ' + v.name + ', ' + d.station.name + ' is set up as ' + KIND_LABELS[d.station.kind] + ', not ' + KIND_LABELS[d.box.kind] + ': it works as ' + KIND_LABELS[d.station.kind] + ' there.')
         }
         after = await everyVenueChanged(tx, tenantId)
-        return { id, shared: true, boxes, links, layout, warnings: [...flowWarnings(boxes, links), ...missing] }
+        return { id, shared: true, boxes, links, layout, timers, warnings: [...flowWarnings(boxes, links), ...missing] }
       }
 
       const body = KdsFlowBody.parse(req.body)
@@ -1847,6 +1870,9 @@ export default async function posSetupRoutes(app) {
       if (problems.length) throw httpError(422, problems[0])
       await checkMenuTargets(tx, tenantId, menuIds)
       const layout = layoutOf(body.layout, new Set(['start', ...stations.map(s => s.id)]))
+      const timers = normaliseTimers(body.timers)
+      const tp = timerProblems(timers, Object.fromEntries(inFlow.map(s => [s.id, s])))
+      if (tp.length) throw httpError(422, tp[0])
       await tx`DELETE FROM kds_flow_edges WHERE tenant_id = ${tenantId} AND flow_id = ${id}`
       for (const [i, l] of links.entries()) {
         await tx`
@@ -1854,11 +1880,11 @@ export default async function posSetupRoutes(app) {
           VALUES (${tenantId}, ${venueId}, ${id}, ${l.from}, ${l.to}, ${tx.json(l.targets)}, ${l.exclude}, ${l.always}, ${i})`
       }
       await tx`
-        UPDATE kds_flows SET layout = ${tx.json(layout)}, off_station_ids = ${[...off]}, updated_at = now()
+        UPDATE kds_flows SET layout = ${tx.json(layout)}, off_station_ids = ${[...off]}, timers = ${tx.json(timers)}, updated_at = now()
          WHERE id = ${id} AND tenant_id = ${tenantId}`
       const saved = await loadFlowLinks(tx, tenantId, id)
       after = () => configChanged(venueId)
-      return { id, links: saved, layout, off_station_ids: [...off], warnings: flowWarnings(inFlow, saved) }
+      return { id, links: saved, layout, off_station_ids: [...off], timers, warnings: flowWarnings(inFlow, saved) }
     })
     after()
     return out
@@ -1913,7 +1939,9 @@ export default async function posSetupRoutes(app) {
            WHERE l.tenant_id = ${req.tenantId} AND l.venue_id = ${venueId} AND l.kind = 'bump' AND l.recalled_at IS NULL AND ${range}
            GROUP BY 1, 2 ORDER BY 1`,
       ])
-      return { from, to, timezone: tz, stations, hours, days, remakes }
+      // Flow timers (migration 265): worked out from the period's kitchen orders.
+      const timers = await kitchenTimers(tx, req.tenantId, venueId, { tz, from, to })
+      return { from, to, timezone: tz, stations, hours, days, remakes, timers: timers.timers, timers_capped: timers.capped }
     })
   })
 
