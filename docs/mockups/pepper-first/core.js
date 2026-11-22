@@ -170,7 +170,8 @@
     GROUPS.forEach(g => {
       const mine = order.filter(n => views[n].group === g)
       if (!mine.length) return
-      const grp = el('<div class="grp"><span>' + esc(g) + '</span></div>')
+      // A group of one needs no heading: its tab says the same thing.
+      const grp = el('<div class="grp">' + (mine.length > 1 ? '<span>' + esc(g) + '</span>' : '') + '</div>')
       mine.forEach(n => grp.appendChild(el('<a class="tab" href="#' + n + '" data-tab="' + n + '">' + esc(views[n].label) + '</a>')))
       tabs.appendChild(grp)
     })

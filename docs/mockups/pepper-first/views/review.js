@@ -489,8 +489,8 @@ App.view('review', {
           const l = it.lines[i], row = card.querySelector('[data-line="' + l.id + '"]')
           const qi = row.querySelector('[data-f="qty"]'), pi = row.querySelector('[data-f="price"]')
           const q = qi ? whole(qi.value) : l.qty, p = pi ? pence(pi.value) : l.price
-          if (isNaN(q)) return fail('The quantity of ' + l.name + ' must be a whole number.')
-          if (isNaN(p) || p <= 0) return fail('The price of ' + l.name + ' must be pounds and pence, such as 4.10.')
+          if (qi && isNaN(q)) return fail('The quantity of ' + l.name + ' must be a whole number.')
+          if (pi && (isNaN(p) || p <= 0)) return fail('The price of ' + l.name + ' must be pounds and pence, such as 4.10.')
           next.push([l, q, p])
         }
         next.forEach(n => { n[0].qty = n[1]; n[0].price = n[2] })
