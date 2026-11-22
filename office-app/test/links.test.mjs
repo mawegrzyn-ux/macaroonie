@@ -25,7 +25,7 @@ test('only our pages may use the bridge (the token above all)', () => {
 })
 
 test('a tapped notice opens its page on the phone pages', () => {
-  assert.equal(noticeUrl('/today', ROOT), 'https://ops.macaroonie.com/mobile/today')
+  assert.equal(noticeUrl('/', ROOT), 'https://ops.macaroonie.com/mobile/today', 'Home: the phone\'s Today')
   assert.equal(noticeUrl('/mobile/cash-up', ROOT), 'https://ops.macaroonie.com/mobile/cash-up')
   assert.equal(noticeUrl('//evil.example/x', ROOT), 'https://ops.macaroonie.com/mobile', 'never another host')
   assert.equal(noticeUrl('https://evil.example/', ROOT), 'https://ops.macaroonie.com/mobile')

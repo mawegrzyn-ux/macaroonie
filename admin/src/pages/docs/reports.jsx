@@ -744,8 +744,8 @@ export function Section() {
         scope (<Mono>venueScope()</Mono>). <Mono>services/opsToday.js</Mono> source <Mono>report_alerts</Mono>{' '}
         (area module <Mono>reports</Mono>): a <Mono>report_alert</Mono> task in Now, opening the report.
         Admin: the On Today part of <Mono>ScheduleWindow.jsx</Mono> (<Mono>sched-today</Mono>,{' '}
-        <Mono>sched-today-only</Mono>), <Mono>KIND_ICON</Mono> / <Mono>AREA_ROUTES</Mono> in{' '}
-        <Mono>OpsToday.jsx</Mono>. Tests: <Mono>api/test/reports-phase5.test.mjs</Mono> (4), the
+        <Mono>sched-today-only</Mono>), <Mono>KIND_ICON</Mono> in{' '}
+        <Mono>Home.jsx</Mono>. Tests: <Mono>api/test/reports-phase5.test.mjs</Mono> (4), the
         report search test in <Mono>shared/test/navSearch.test.mjs</Mono>.
       </P>
 

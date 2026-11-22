@@ -78,7 +78,7 @@ function navLabel(tree, path) {
 /** "/food-safety" -> "Food safety", for a page that isn't in the nav. */
 function pathLabel(path) {
   const words = path.split('/').filter(s => s && !/^[0-9a-f-]{20,}$/i.test(s)).join(' ').replace(/[-_]+/g, ' ')
-  return words ? words[0].toUpperCase() + words.slice(1) : 'Overview'
+  return words ? words[0].toUpperCase() + words.slice(1) : 'Home'
 }
 
 /** What the drawer sends about the page on screen, and how the chip words it. */
@@ -520,7 +520,7 @@ function ChatItem({ item, decide, busy = false, linkFor = null }) {
 }
 
 /** Pepper's form card (open_form, OUTSTANDING 44 item 3): the form, its venue
- *  and day, and Open, which opens the same sheet as the Today page's tasks
+ *  and day, and Open, which opens the same sheet as the tasks on Home
  *  over the chat. Built by the server from what it found, never from the
  *  model's words. */
 function FormCard({ card, linkFor }) {

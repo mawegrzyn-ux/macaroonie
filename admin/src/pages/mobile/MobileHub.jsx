@@ -1,12 +1,12 @@
 // src/pages/mobile/MobileHub.jsx
 // Landing screen for the /mobile PWA — a tile per registered mobile module,
 // two to a row. A tile with things to do today shows how many (red when any
-// is late), from the Today feed for the venue picked on the Today page.
+// is late), from the Today feed for the venue picked on the Today page (or on Home).
 // Pepper sits at the bottom (AskPepperBar) for people who can chat with it.
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { MOBILE_MODULES } from '@/mobile/registry'
-import { readVenue } from '@/pages/OpsToday'
+import { readVenue } from '@/pages/Home'
 import { useTodayFeed, tileBadge, todayLine } from '@/mobile/today'
 import { useQuery } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'

@@ -2,7 +2,7 @@
 //
 // The Today feed on the phone (GET /api/ops/today, api/src/services/opsToday.js):
 // the Today page and the hub's tile badges share one query (same key as the
-// office Today page), and links in tasks go to the phone's own pages.
+// office Home), and links in tasks go to the phone's own pages.
 
 import { useQuery } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'

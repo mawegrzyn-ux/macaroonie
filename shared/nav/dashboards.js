@@ -5,10 +5,10 @@
 
 export const pages = [
   {
-    path: '/', label: 'Overview', icon: 'LayoutDashboard', module: 'dashboard',
+    path: '/overview', label: 'Overview', icon: 'LayoutDashboard', module: 'dashboard',
     section: 'Home', order: 30, catalogOrder: 30,
-    keywords: 'overview home start tiles stats summary dashboard',
-    description: "The home page: tiles you arrange with today's bookings, your venues, shortcuts and health and safety status.",
+    keywords: 'overview tiles stats summary dashboard figures desk',
+    description: "Tiles you arrange with today's bookings and figures, your venues, your pins and health and safety status.",
   },
   {
     path: '/dashboards', label: 'Dashboards', icon: 'LayoutTemplate', module: 'custom_dashboard',

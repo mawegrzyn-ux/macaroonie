@@ -25,13 +25,13 @@ export function staysInApp(url, root) {
 export const bridgeAllowed = (url, root) => staysInApp(url, root) && !/^about:/i.test(url)
 
 /**
- * Where a tapped notice opens: the API sends a path of the office (/today);
+ * Where a tapped notice opens: the API sends a path of the office (/, Home);
  * on the phone pages that is /mobile/today. Anything else that is a path of
  * ours opens as it is; anything that isn't a path goes to the phone home.
  */
 export function noticeUrl(path, root) {
   const p = String(path || '')
   if (!p.startsWith('/') || p.startsWith('//')) return opsUrl(root)
-  if (p === '/today') return opsUrl(root, '/mobile/today')
+  if (p === '/') return opsUrl(root, '/mobile/today')
   return opsUrl(root, p)
 }

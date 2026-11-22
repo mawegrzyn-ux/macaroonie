@@ -16,6 +16,33 @@ export function Section() {
         home and the ask bar&rdquo;; <Mono>docs/PEPPER_FIRST.md</Mono> 4.1 to 4.4). Decision 8 holds throughout: a
         person&apos;s pins are theirs, and nothing on Home ranks or scores a person.
       </P>
+      <H3>Home at / (migration 273)</H3>
+      <P>
+        <Mono>admin/src/pages/Home.jsx</Mono> (the index route in <Mono>admin/src/routes/shell.jsx</Mono>), for every
+        group and role (decision 2: it is the Today feed and a search bar, not a chat; a full-screen conversation is
+        never a landing page). From the top: pins (<Mono>home-pins</Mono>), the greeting with{' '}
+        <Mono>Glance</Mono>, the feed&apos;s <Mono>TaskBoard</Mono> with its <Mono>FormSheet</Mono>, and{' '}
+        <Mono>WeekAhead</Mono>, all from <Mono>GET /api/ops/today</Mono> as the Today page drew them (see Today, the
+        ops front door); step 5 adds For review below. Its page record is <Mono>/</Mono> in{' '}
+        <Mono>shared/nav/shell.js</Mono> (Home, icon <Mono>Home</Mono>, no module: the only page without one), first
+        in the Home section. The Overview&apos;s tiles moved to <Mono>/overview</Mono> (its record in{' '}
+        <Mono>shared/nav/dashboards.js</Mono>, the route in <Mono>admin/src/routes/dashboards.jsx</Mono>), and{' '}
+        <Mono>/today</Mono> is a redirect to <Mono>/</Mono>. Task notices open <Mono>/</Mono> (the phone app&apos;s
+        host and the Office app send it to <Mono>/mobile/today</Mono>: <Mono>push-sw.js</Mono>,{' '}
+        <Mono>noticeUrl()</Mono> in <Mono>office-app/links.js</Mono>).
+      </P>
+      <P>
+        Migration 273 on saved menus: the <Mono>/</Mono> link becomes <Mono>/overview</Mono> (only where{' '}
+        <Mono>/overview</Mono> isn&apos;t there yet, so a second run changes nothing); the <Mono>/today</Mono> link
+        becomes <Mono>/</Mono>, named Home with the Home icon where the group hadn&apos;t renamed it, with no module and
+        no hidden roles; Home goes first among its siblings; a menu without Today gets a Home link first in the
+        Overview&apos;s section (or at the top). Tests: <Mono>api/test/nav-default.test.mjs</Mono> (the migrations&apos;
+        tree against <Mono>DEFAULT_NAV_TREE</Mono>, 273 on real rows) and <Mono>api/test/ops-today.test.mjs</Mono>{' '}
+        (Home in a custom role&apos;s menu that has no Overview).
+      </P>
+      <P>
+        The phone app (<Mono>/mobile</Mono>) keeps its own hub and Today page for now.
+      </P>
       <H3>Pins (migration 272)</H3>
       <P>
         Each person&apos;s own shortcuts, kept on the server so they follow the person to any device. Table{' '}

@@ -92,7 +92,7 @@ export function Section() {
         The dashboards you make on the Dashboards page aren&apos;t on the phone.
       </P>
       <P>
-        <strong>Today</strong> is the first tile: the same list as the Today page in the office
+        <strong>Today</strong> is the first tile: the same list as Home in the office
         (Late, Now, Next, Later) in one column. Fridge, hold, cooking and checklist tasks open
         their form right there; the rest open the phone&apos;s own page (Purchasing on the order,
         Cash Up, Online orders), or the office site when the phone has no page for it (the H&amp;S

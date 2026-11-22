@@ -11,7 +11,7 @@ import CashDashboard from '@/pages/CashDashboard'
 import MobileHSDashboard from '@/pages/mobile/MobileHSDashboard'
 
 export const routes = [
-  { index: true, shell: 'office', element: <Dashboard /> },
+  { path: 'overview', shell: 'office', element: <Dashboard /> },
   { path: 'dashboards', shell: 'office', element: <Dashboards /> },
   { path: 'hs-dashboard', shell: 'office', element: <HSDashboard /> },
   { path: 'cash-dashboard', shell: 'office', element: <CashDashboard /> },

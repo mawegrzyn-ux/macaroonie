@@ -96,7 +96,7 @@ function RequireAuth({ children }) {
 
   if (!isAuthenticated) {
     // Come back to the page asked for (a deep link, the connector sign-in
-    // page), not the Overview: onRedirectCallback below.
+    // page), not Home: onRedirectCallback below.
     loginWithRedirect({ appState: { returnTo: window.location.pathname + window.location.search } })
     return null
   }

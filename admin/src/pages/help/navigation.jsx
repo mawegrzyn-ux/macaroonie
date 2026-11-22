@@ -118,8 +118,8 @@ export function Section() {
       </P>
       <H3>The standard menu</H3>
       <P>
-        Every group starts with the same menu, grouped by job: <strong>Home</strong> (Today, Local info,
-        Overview, Dashboards, Pepper), <strong>Service</strong> (Timeline, Bookings, Customers, Loyalty,
+        Every group starts with the same menu, grouped by job: <strong>Home</strong> (Home, Local info,
+        Overview, Dashboards, Reports, Pepper), <strong>Service</strong> (Timeline, Bookings, Customers, Loyalty,
         Online orders), <strong>Money</strong> (Till reports, Kiosk analytics, Cash recon, Cash dashboard),{' '}
         <strong>Health &amp; safety</strong>,{' '}
         <strong>Stock</strong> (Purchasing, with Order lists, Inventory and Suppliers under it),{' '}

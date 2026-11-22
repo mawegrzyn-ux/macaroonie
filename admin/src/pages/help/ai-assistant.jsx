@@ -146,7 +146,7 @@ export function Section() {
         Ask Pepper to open a form and it puts a card in the chat with an <strong>Open</strong> button:{' '}
         <em>&ldquo;do today&apos;s cash-up&rdquo;</em>, <em>&ldquo;log the fridge temps&rdquo;</em>,{' '}
         <em>&ldquo;open the closing checklist&rdquo;</em>, <em>&ldquo;add an expense&rdquo;</em>,{' '}
-        <em>&ldquo;who&apos;s on Saturday&rdquo;</em>. Open shows the same form the Today page opens, over the
+        <em>&ldquo;who&apos;s on Saturday&rdquo;</em>. Open shows the same form a task on Home opens, over the
         chat, and you fill it in yourself: Pepper never fills a form&apos;s fields. The forms: fridge and
         freezer, hot and cold hold, cooking and delivery checks; a checklist; the cash-up; the week&apos;s
         wages; the day&apos;s expenses with receipts; sold out dishes; and the rota for a day. Each needs

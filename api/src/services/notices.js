@@ -194,7 +194,7 @@ function payloadFor(venue, task, kind) {
   return {
     title: task.title,
     body: [venue.name, when, task.detail].filter(Boolean).join(' · '),
-    url: '/today',
+    url: '/',
     tag: venue.id + ':' + task.key + ':' + kind,
   }
 }

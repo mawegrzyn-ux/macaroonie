@@ -109,7 +109,7 @@ test('the sweep: due soon then late, each once, only to people who can do it and
   const soon = sent.filter(s => /Due at 09:00/.test(s.body))
   assert.ok(soon.length >= 1, 'a due-soon notice')
   assert.ok(soon.every(s => s.endpoint.endsWith('/owner')), 'only to the owner')
-  assert.equal(soon[0].url, '/today')
+  assert.equal(soon[0].url, '/')
   const before = sent.length
   await sweepNotices(app, quiet, { time: '08:50' })
   assert.equal(sent.filter(s => /Due at 09:00/.test(s.body)).length, soon.length, 'each once')

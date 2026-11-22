@@ -2196,7 +2196,7 @@ function GeneralTab({ venueId, venueSettings, onRefetch, api }) {
             <strong>Each day</strong>: every day is submitted on its own when it is counted.{' '}
             <strong>Once a week</strong>: days are filled in and saved as you go, and the whole week is
             submitted in one go from the week (or the phone&apos;s Cash Up list, or Pepper). A day can&apos;t be
-            submitted by itself, and the Today page asks for last week from the Monday.
+            submitted by itself, and Home asks for last week from the Monday.
           </p>
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="How days are submitted">
             {[['daily', 'Each day'], ['weekly', 'Once a week']].map(([value, label]) => (

@@ -314,10 +314,10 @@ test('the week ahead: the forecast and the headlines from Local info', async () 
   await sql`DELETE FROM local_info_items WHERE tenant_id = ${ids.a} AND title LIKE 'Wk %'`
 })
 
-// Migration 227: the Today link is for every role. A custom role names only
-// the modules it has, so a Supervisor without the Overview (module dashboard)
-// lost Today too while the link was tied to it.
-test('Today is in every role\'s menu, even a role without the Overview', async () => {
+// Migration 227 made the Today link every role's; migration 273 made it Home
+// at /, still with no module. A custom role names only the modules it has, so
+// a Supervisor without the Overview (module dashboard) must keep Home.
+test('Home is in every role\'s menu, even a role without the Overview', async () => {
   const links = nodes => nodes.flatMap(n => [...(n.route ? [n.route] : []), ...links(n.children || [])])
   const role = await ok(owner.post('/api/access/roles', {
     key: 'supervisor', label: 'Supervisor', permissions: { food_safety: 'manage', checklists: 'manage' },
@@ -327,20 +327,21 @@ test('Today is in every role\'s menu, even a role without the Overview', async (
   const menu = async () => links((await ok(sup.get('/api/me'))).nav_tree)
   const me = await ok(sup.get('/api/me'))
   assert.equal(me.permissions.dashboard, 'none', 'no Overview for the Supervisor')
-  assert.ok(!(await menu()).includes('/'), 'the Overview link is hidden from them')
-  assert.ok((await menu()).includes('/today'), 'a new group\'s menu: Today is there')
+  assert.ok(!(await menu()).includes('/overview'), 'the Overview link is hidden from them')
+  assert.ok((await menu()).includes('/'), 'a new group\'s menu: Home is there')
   const d = await feed(sup)
   assert.ok(d.not_included.includes('cash'), 'their feed names the areas they can\'t see')
   assert.ok(!d.not_included.includes('food_safety') && !d.not_included.includes('checklists'), 'food safety and checklists are theirs')
 
-  // A link as migration 221 made it (the Overview's module and hidden
-  // roles): hidden from the Supervisor; migration 227 puts it back.
+  // A Today link as migration 221 made it (the Overview's module and hidden
+  // roles) and the Overview at /: migration 273 makes it Home for everyone.
+  await sql`UPDATE nav_items SET route = '/today', label = 'Today', icon = 'Sun' WHERE tenant_id = ${ids.a} AND route = '/'`
+  await sql`UPDATE nav_items SET route = '/' WHERE tenant_id = ${ids.a} AND route = '/overview'`
   await sql`UPDATE nav_items SET module = 'dashboard', hidden_role_ids = ARRAY[${role.id}]::uuid[] WHERE tenant_id = ${ids.a} AND route = '/today'`
   assert.ok(!(await menu()).includes('/today'), 'tied to the Overview, as before')
-  await sql.unsafe(fs.readFileSync(new URL('../../migrations/227_today_for_everyone.sql', import.meta.url), 'utf8'))
-  assert.ok((await menu()).includes('/today'), 'migration 227: there again')
-  const [row] = await sql`SELECT module, hidden_role_ids FROM nav_items WHERE tenant_id = ${ids.a} AND route = '/today'`
-  assert.equal(row.module, null)
-  assert.deepEqual(row.hidden_role_ids, [])
+  await sql.unsafe(fs.readFileSync(new URL('../../migrations/273_shell_home_menu.sql', import.meta.url), 'utf8'))
+  assert.ok((await menu()).includes('/'), 'migration 273: Home is there')
+  const [row] = await sql`SELECT label, icon, module, hidden_role_ids FROM nav_items WHERE tenant_id = ${ids.a} AND route = '/'`
+  assert.deepEqual([row.label, row.icon, row.module, row.hidden_role_ids], ['Home', 'Home', null, []])
   await sql`UPDATE users SET custom_role_id = NULL WHERE tenant_id = ${ids.a} AND auth0_user_id = ${A.operator}`
 })
