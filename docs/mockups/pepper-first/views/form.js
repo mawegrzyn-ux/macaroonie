@@ -101,7 +101,7 @@ App.view('form', {
         icon: 'truck', title: 'Delivery check', save: 'Save check', done: 'Delivery check saved', ruleAfter: 'chilled',
         fields: [
           { name: 'supplier', label: 'Supplier', type: 'select', options: SUPPLIERS },
-          { name: 'date', label: 'Date', type: 'date' },
+          { name: 'date', label: 'Date', type: 'date', start: TODAY, startHelp: "Today, the form's usual start." },
           { name: 'short', label: 'Items short or rejected', type: 'text', wide: true, placeholder: 'Leave empty if everything arrived' },
           { name: 'temp', label: 'Van temperature', type: 'number', unit: '°C', help: 'A measured value. You type it or say it. Pepper never infers one.' },
           { name: 'chilled', label: 'Chilled goods accepted', type: 'yesno' },
@@ -137,7 +137,7 @@ App.view('form', {
           { name: 'amount', label: 'Amount', type: 'number', unit: '£', unitFirst: true },
           { name: 'supplier', label: 'Supplier', type: 'select', options: SUPPLIERS },
           { name: 'category', label: 'Category', type: 'select', options: ['Food and drink', 'Cleaning', 'Repairs', 'Staff', 'Other'] },
-          { name: 'date', label: 'Date', type: 'date' },
+          { name: 'date', label: 'Date', type: 'date', start: TODAY, startHelp: "Today, the form's usual start." },
           { name: 'paid', label: 'Paid from', type: 'select', options: ['Petty cash', 'Till', 'Company card'] },
           { name: 'note', label: 'Note', type: 'text', placeholder: 'What it was for' },
         ],
@@ -159,7 +159,8 @@ App.view('form', {
       },
     }
 
-    // The three scripted examples. fill = what the words or the note state; nothing else is filled.
+    // The three scripted examples. fill = what the words or the note state; nothing else counts as
+    // Pepper's. A field the words leave out keeps the form's own start value (start), unmarked.
     const NOTE = '<div class="fm-note"><div class="fm-note-row"><b>Lea Valley Produce</b><span>Delivery note 48213</span></div>' +
       '<div class="fm-note-row"><span>Date 22 Nov 2026</span><span>To Thai House, Ware</span></div>' +
       '<table><thead><tr><th>Item</th><th class="q">Ordered</th><th class="q">Sent</th></tr></thead><tbody>' +
@@ -171,8 +172,8 @@ App.view('form', {
       typed: {
         form: 'delivery', words: 'bread delivery, 14 loaves short, van was 6 degrees',
         pepper: 'I chose the delivery check for Ware and put in what you told me. Check it and save.',
-        understood: ['Form: Delivery check', 'Supplier: East Bakery, your bread supplier', 'Short: 14 loaves', 'Van: 6\u00a0°C, as you said', 'Day: today'],
-        fill: { supplier: 'East Bakery', date: TODAY, short: '14 loaves short', temp: '6' },
+        understood: ['Form: Delivery check', 'Supplier: East Bakery, your bread supplier', 'Short: 14 loaves', 'Van: 6\u00a0°C, as you said'],
+        fill: { supplier: 'East Bakery', short: '14 loaves short', temp: '6' },
         said: { temp: '6\u00a0°C' },
         helps: { temp: 'Pepper never infers a measured value. It shows back what you said, and you confirm it.' },
       },
@@ -538,10 +539,11 @@ App.view('form', {
       mode = key
       const ex = EX[key]
       const F = FORMS[ex.form]
-      st = { key, ex, F, vals: {}, origin: {}, checked: {}, edited: {}, tried: false, asked: false, asking: false, open: true, saved: null, unknown: '' }
+      st = { key, ex, F, vals: {}, origin: {}, started: {}, checked: {}, edited: {}, tried: false, asked: false, asking: false, open: true, saved: null, unknown: '' }
       F.fields.forEach(f => {
         const filled = has(ex.fill, f.name)
-        st.vals[f.name] = filled ? ex.fill[f.name] : ''
+        st.vals[f.name] = filled ? ex.fill[f.name] : (f.start || '')
+        if (!filled && f.start) st.started[f.name] = true
         if (filled) st.origin[f.name] = ex.said && ex.said[f.name] ? 'said' : 'pepper'
       })
       press($('#fm-mode'), 'data-mode', key)
@@ -583,7 +585,7 @@ App.view('form', {
         '<button type="button" class="m-iconbtn" id="fm-close" aria-label="Close the form">' + icon('x') + '</button></div>' +
         '<div class="fm-bar"><span id="fm-count" aria-live="polite"></span><button type="button" class="m-btn" id="fm-all">' + icon('check') + 'Accept all</button></div>' +
         '<div class="m-pad"><div class="m-form">' + F.fields.map(f =>
-          fieldHtml(Object.assign({}, f, { help: helps[f.name] || f.help }), 'fm-a-' + f.name, st.vals[f.name]) +
+          fieldHtml(Object.assign({}, f, { help: helps[f.name] || (st.started[f.name] ? f.startHelp : f.help) }), 'fm-a-' + f.name, st.vals[f.name]) +
           (F.ruleAfter === f.name ? '<div class="fm-rule wide" data-rule hidden>' + icon('alert') + '<span></span></div>' : '')).join('') + '</div></div>' +
         '<div class="fm-foot"><div class="fm-askbox" id="fm-askbox" role="alert" hidden><span></span><span>' +
         '<button type="button" class="m-btn primary" id="fm-anyway">Save anyway</button><button type="button" class="m-btn" id="fm-back">Check them first</button></span></div>' +
@@ -625,6 +627,8 @@ App.view('form', {
         const er = box.querySelector('[data-err]')
         er.textContent = errs[f.name] || ''
         er.hidden = !errs[f.name]
+        const help = box.querySelector('.help')
+        if (help && f.startHelp && help.textContent === f.startHelp) help.hidden = !st.started[f.name]
       })
       panel.querySelector('#fm-count').textContent = filled
         ? filled + ' of ' + F.fields.length + ' filled by Pepper, ' + done + ' checked'
@@ -667,7 +671,7 @@ App.view('form', {
     function commit() {
       const again = !!st.saved
       st.saved = Object.assign({}, st.vals)
-      st.origin = {}; st.checked = {}; st.edited = {}
+      st.origin = {}; st.started = {}; st.checked = {}; st.edited = {}
       st.tried = false; st.asked = false; st.asking = false; st.open = false
       drawPanel()
       drawTalk()
@@ -678,6 +682,7 @@ App.view('form', {
 
     wire(right, (name, value) => {
       st.vals[name] = value
+      st.started[name] = false
       if (st.origin[name]) { st.checked[name] = true; st.edited[name] = true }
       st.asking = false
       paint()

@@ -185,6 +185,7 @@ App.view('ask', {
       }
       #view-ask .ask-pane { display: grid; gap: 12px; align-content: start; min-width: 0; }
       #view-ask #ask-bar-pane { padding-bottom: 56px; }
+      #view-ask .m-toast { width: max-content; }
       #view-ask .m-results :focus-visible { outline-offset: -3px; }
       #view-ask .ask-box { display: grid; gap: 6px; min-width: 0; }
       #view-ask .m-ask .m-iconbtn { width: 48px; height: 48px; }

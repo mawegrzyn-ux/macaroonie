@@ -495,7 +495,8 @@ App.view('registry', {
         #view-registry .rg-chip { border-radius: 999px; }
         #view-registry .rg-ico { width: 34px; height: 34px; flex: none; border-radius: 8px; background: var(--brand-soft); color: var(--brand); display: inline-flex; align-items: center; justify-content: center; }
         #view-registry .rg-ico svg { width: 17px; height: 17px; }
-        #view-registry .rg-in { min-width: 0; }
+        #view-registry .rg-in, #view-registry .rg-vocab { min-width: 0; }
+        #view-registry .rg-nm { display: inline-block; margin-right: 18px; }
         #view-registry .rg-start { align-content: start; }
         #view-registry .rg-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
         #view-registry .rg-edit { gap: 8px; }
@@ -606,12 +607,11 @@ App.view('registry', {
         <section class="stack">
           ${part(4, 'One vocabulary')}
           <p class="muted" style="max-width:70ch">Today one thing has a different name in each layer. The registry uses the report catalogue's subject names everywhere, so a person, a page, a report and Pepper mean the same thing by the same word.</p>
-          <div class="tblwrap"><table class="tbl">
-            <thead><tr><th>Thing</th><th>Table today</th><th>Permission module today</th><th>Pepper tool today</th><th>The catalogue's name</th></tr></thead>
+          <div class="tblwrap"><table class="tbl rg-vocab">
+            <thead><tr><th>Thing</th><th>Names today</th><th>The catalogue's name</th></tr></thead>
             <tbody>
-              <tr><td>Staff</td><td class="mono">cash_staff</td><td class="mono">staff</td><td class="mono">list_staff</td><td class="mono"><b>staff.people</b></td></tr>
-              <tr><td>Dishes</td><td class="mono">menu_items</td><td class="mono">menus</td><td class="mono">find_dishes</td><td class="mono"><b>menu.dishes</b></td></tr>
-              <tr><td>Online orders</td><td class="mono">orders</td><td class="mono">web_orders</td><td class="mono">online_orders</td><td class="mono"><b>online.orders</b></td></tr>
+              ${[['Staff', 'cash_staff', 'staff', 'list_staff', 'staff.people'], ['Dishes', 'menu_items', 'menus', 'find_dishes', 'menu.dishes'], ['Online orders', 'orders', 'web_orders', 'online_orders', 'online.orders']].map(r => `
+              <tr><td>${r[0]}</td><td>${['table', 'permission module', 'Pepper tool'].map((kind, n) => `<span class="rg-nm"><span class="mono">${r[n + 1]}</span> <span class="muted small">${kind}</span></span>`).join('')}</td><td class="mono"><b>${r[4]}</b></td></tr>`).join('')}
             </tbody>
           </table></div>
           <div class="card">
@@ -633,8 +633,8 @@ App.view('registry', {
                 'measure(\'net_sales\', {',
                 '  subject: \'till.checks\',',
                 '  label: \'Net sales\',',
-                '  about: \'Gross sales less discounts. VAT is\'',
-                '    + \' included; charges and tips are not.\',',
+                '  about: \'Gross sales less discounts. VAT is \' +',
+                '    \'included; charges and tips are not.\',',
                 '  ai_context: {',
                 '    synonyms: [\'takings\', \'revenue\',',
                 '      \'sales after discounts\'],',
@@ -686,9 +686,20 @@ App.view('registry', {
               <h3>A product code (GTIN) on inventory items and supplier products</h3>
               <p class="muted">The number under the barcode. One field on each, checked by its last digit.</p>
               <dl class="kv">
-                <dt>Inventory item</dt><dd>Coconut milk, 400 ml tin<br><span class="mono muted">5012345678948</span></dd>
-                <dt>Supplier product</dt><dd>${esc(supplier)}, case of 12<br><span class="mono muted">5060123456783</span></dd>
+                <dt>Inventory item</dt><dd>Coconut milk, 400 ml tin</dd>
+                <dt>Supplier product</dt><dd>${esc(supplier)}, case of 12</dd>
               </dl>
+              <pre class="code">${esc([
+                'inventory_item({',
+                '  name: \'Coconut milk, 400 ml tin\',',
+                '  gtin: \'5012345678948\',',
+                '})',
+                'supplier_product({',
+                '  supplier: \'' + supplier + '\',',
+                '  pack: \'case of 12\',',
+                '  gtin: \'5060123456783\',',
+                '})',
+              ].join('\n'))}</pre>
             </div>
             <div class="card">
               <h3>Supplier invoices held as structured data</h3>
@@ -759,6 +770,7 @@ App.view('registry', {
         if (drawn[k] === made[k]) return
         drawn[k] = made[k]
         $('#rg-' + k).innerHTML = made[k]
+        $('#' + TARGETS[k]).querySelectorAll('.m-toast').forEach(t => t.remove())
         if (flash) {
           const pv = $('#' + TARGETS[k])
           pv.classList.add('rg-flash')
