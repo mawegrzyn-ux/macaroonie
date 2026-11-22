@@ -1,4 +1,4 @@
-// src/main.jsx  (replace existing — adds all pages)
+// src/main.jsx: the providers, the sign-in gate, the shells, and every area's routes (src/routes/)
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from 'react-router-dom'
@@ -31,118 +31,30 @@ installDropGuard()
 
 import AppShell    from '@/components/layout/AppShell'
 import MobileShell from '@/components/mobile/MobileShell'
-import MobileHub   from '@/pages/mobile/MobileHub'
-import MobileHSDashboard from '@/pages/mobile/MobileHSDashboard'
-import MobileToday from '@/pages/mobile/MobileToday'
-import MobileExpenses from '@/pages/mobile/MobileExpenses'
-import MobilePurchasing from '@/pages/mobile/MobilePurchasing'
-import MobileCashUp from '@/pages/mobile/MobileCashUp'
-import MobileWages from '@/pages/mobile/MobileWages'
 import TenantGate  from '@/components/TenantGate'
-import ConnectAi   from '@/pages/ConnectAi'
 import { TimelineSettingsProvider } from '@/contexts/TimelineSettingsContext'
 import { SettingsProvider } from '@/contexts/SettingsContext'
-import Dashboard   from '@/pages/Dashboard'
-import Timeline    from '@/pages/Timeline'
-import Bookings    from '@/pages/Bookings'
-import Customers   from '@/pages/Customers'
-import Loyalty     from '@/pages/Loyalty'
-import Venues      from '@/pages/Venues'
-import Tables      from '@/pages/Tables'
-import Schedule    from '@/pages/Schedule'
-import Rules       from '@/pages/Rules'
-import WidgetTest  from '@/pages/WidgetTest'
-// The Docs and Help pages are 1.5 MB of text few people open: their own
-// chunks, loaded when opened, so the main bundle stays under the service
-// worker's precache limit (vite.config.js maximumFileSizeToCacheInBytes).
-const Docs = React.lazy(() => import('@/pages/Docs'))
-const Help = React.lazy(() => import('@/pages/Help'))
-// Reports: opened by some roles only, so kept out of the main bundle too.
-const Reports = React.lazy(() => import('@/pages/Reports'))
-const ReportView = React.lazy(() => import('@/pages/ReportView'))
-const ReportBuilder = React.lazy(() => import('@/pages/ReportBuilder'))
-const ReportRuns = React.lazy(() => import('@/pages/ReportRuns'))
-const ReportSchedules = React.lazy(() => import('@/pages/ReportSchedules'))
-const ReportLayouts = React.lazy(() => import('@/pages/ReportLayouts'))
-const ReportPageEditor = React.lazy(() => import('@/pages/ReportPageEditor'))
-const LoadingPage = () => <div className="p-6 text-sm text-muted-foreground">Loading…</div>
-import Settings    from '@/pages/Settings'
-import Website     from '@/pages/Website'
-import Brand       from '@/pages/Brand'
-import CashRecon      from '@/pages/CashRecon'
-import EmailTemplates from '@/pages/EmailTemplates'
-import EmailMonitoring from '@/pages/EmailMonitoring'
-import Media          from '@/pages/Media'
-import Reviews        from '@/pages/Reviews'
-import Menus          from '@/pages/Menus'
-import MenuVariantGroups from '@/pages/MenuVariantGroups'
-import MenuDietaryTags from '@/pages/MenuDietaryTags'
-import MenuAllergenMatrix from '@/pages/MenuAllergenMatrix'
-import Allergens from '@/pages/Allergens'
-import MenuTax from '@/pages/MenuTax'
-import MenuTimes from '@/pages/MenuTimes'
-import MenuDeliveroo from '@/pages/MenuDeliveroo'
-import MenuTranslations from '@/pages/MenuTranslations'
-import MenuDesigner from '@/pages/MenuDesigner'
-import MenuPrintDesigns from '@/pages/MenuPrintDesigns'
-import ReservationsWidget from '@/pages/ReservationsWidget'
-import Screens from '@/pages/Screens'
-import ScreenDesigner from '@/pages/ScreenDesigner'
-import Team           from '@/pages/Team'
-import Access         from '@/pages/Access'
-import Platform       from '@/pages/Platform'
-import Backlog         from '@/pages/Backlog'
-import IssueLog        from '@/pages/IssueLog'
-import FeatureRequests from '@/pages/FeatureRequests'
-import Changelog       from '@/pages/Changelog'
-import Purchasing           from '@/pages/Purchasing'
-import OrderLists           from '@/pages/OrderLists'
-import Inventory            from '@/pages/Inventory'
-import Suppliers            from '@/pages/Suppliers'
-import TestData        from '@/pages/TestData'
-import LegacyImport     from '@/pages/LegacyImport'
-import FoodSafety      from '@/pages/FoodSafety'
-import Checklists      from '@/pages/Checklists'
-import HSDashboard     from '@/pages/HSDashboard'
-import CashDashboard   from '@/pages/CashDashboard'
-import Staff           from '@/pages/Staff'
-import StaffRoles      from '@/pages/StaffRoles'
-import Rota            from '@/pages/Rota'
-import RotaSetup       from '@/pages/RotaSetup'
-import RotaDashboard   from '@/pages/RotaDashboard'
-import Dashboards      from '@/pages/Dashboards'
-import OpsToday        from '@/pages/OpsToday'
-import LocalInfo       from '@/pages/LocalInfo'
-import HSActionLog     from '@/pages/HSActionLog'
-import Orders          from '@/pages/Orders'
-import OrderingSettings from '@/pages/OrderingSettings'
-import PosSetup from '@/pages/PosSetup'
-import PosFloor from '@/pages/PosFloor'
-import PosReports from '@/pages/PosReports'
-import KioskAnalytics from '@/pages/KioskAnalytics'
-import KioskDesigner from '@/pages/KioskDesigner'
-import PrintDesigner from '@/pages/PrintDesigner'
-import TillLayoutDesigner from '@/pages/TillLayoutDesigner'
-import OrderFlowDesigner from '@/pages/OrderFlowDesigner'
-import Promotions from '@/pages/Promotions'
-import MobileOrders    from '@/pages/mobile/MobileOrders'
-import MobileAllergens from '@/pages/mobile/MobileAllergens'
-import MobileNotices from '@/pages/mobile/MobileNotices'
-import MobileAssistant from '@/pages/mobile/MobileAssistant'
-const MobileReportList = React.lazy(() => import('@/pages/mobile/MobileReports').then(m => ({ default: m.MobileReportList })))
-const MobileReport = React.lazy(() => import('@/pages/mobile/MobileReports').then(m => ({ default: m.MobileReport })))
-import AiAssistant     from '@/pages/AiAssistant'
-import NewLocation     from '@/pages/NewLocation'
-import NavDesigner     from '@/pages/NavDesigner'
-import Launcher        from '@/pages/Launcher'
 import './index.css'
 import { IS_OPS_HOST, IS_INSTALLER_HOST } from '@/lib/hosts'
 import { inOfficeApp, OfficeAuthProvider } from '@/lib/officeApp'
 import InstallerShell  from '@/components/installer/InstallerShell'
-import InstallerHome   from '@/pages/installer/InstallerHome'
-import InstallerLink   from '@/pages/installer/InstallerLink'
-import InstallerAdd    from '@/pages/installer/InstallerAdd'
-import InstallerDevice from '@/pages/installer/InstallerDevice'
+
+// Every area's pages (docs/PARALLEL_WORK.md 3.4): admin/src/routes/<area>.jsx
+// each export `routes`, a list of { path | index, shell, element }. The shell
+// is the layout a page opens in: 'office' (AppShell), 'mobile' (MobileShell),
+// 'installer' (InstallerShell) or 'bare' (none). React Router ranks routes by
+// their paths, so the files need no order; the routes kept below (redirects
+// and the phone's catch-all) come after the gathered ones.
+const SHELLS = ['bare', 'installer', 'office', 'mobile']
+const AREA_ROUTES = Object.entries(import.meta.glob('./routes/*.jsx', { eager: true }))
+  .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  .flatMap(([file, m]) => (m.routes || []).map(r => ({ ...r, file })))
+for (const r of AREA_ROUTES) {
+  if (!SHELLS.includes(r.shell)) console.error('Route ' + (r.path || 'index') + ' in ' + r.file + ' has no known shell: ' + r.shell)
+}
+const routesIn = shell => AREA_ROUTES.filter(r => r.shell === shell).map(r => (r.index
+  ? <Route key={shell + ':index'} index element={r.element} />
+  : <Route key={shell + ':' + r.path} path={r.path} element={r.element} />))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -242,132 +154,25 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <RequireAuth>
             <TenantGate>
             <Routes>
-              {/* An AI app's connector sign-in (migration 181): its own page, no app shell. */}
-              <Route path="connect-ai" element={<ConnectAi />} />
+              {routesIn('bare')}
               {/* The installer app (installer.<domain>, migration 184) and its QR code links. */}
               <Route path="install" element={<InstallerShell />}>
-                <Route index element={<InstallerHome />} />
-                <Route path="link" element={<InstallerLink />} />
-                <Route path="link/:code" element={<InstallerLink />} />
-                <Route path="add" element={<InstallerAdd />} />
-                <Route path="device/:kind/:id" element={<InstallerDevice />} />
+                {routesIn('installer')}
               </Route>
               <Route path="link/:code" element={<LinkRedirect />} />
               {/* ops.<domain> is the phone app only, installer.<domain> the installer only (lib/hosts.js) */}
               <Route element={IS_INSTALLER_HOST ? <Navigate to="/install" replace /> : IS_OPS_HOST ? <Navigate to="/mobile" replace /> : <AppShell />}>
-                <Route index          element={<Dashboard />} />
-                <Route path="dashboards" element={<Dashboards />} />
-                <Route path="reports"     element={<React.Suspense fallback={<LoadingPage />}><Reports /></React.Suspense>} />
-                <Route path="reports/new" element={<React.Suspense fallback={<LoadingPage />}><ReportBuilder /></React.Suspense>} />
-                <Route path="reports/runs" element={<React.Suspense fallback={<LoadingPage />}><ReportRuns /></React.Suspense>} />
-                <Route path="reports/schedules" element={<React.Suspense fallback={<LoadingPage />}><ReportSchedules /></React.Suspense>} />
-                <Route path="reports/layouts" element={<React.Suspense fallback={<LoadingPage />}><ReportLayouts /></React.Suspense>} />
-                <Route path="reports/new-page" element={<React.Suspense fallback={<LoadingPage />}><ReportPageEditor /></React.Suspense>} />
-                <Route path="reports/:id/page" element={<React.Suspense fallback={<LoadingPage />}><ReportPageEditor /></React.Suspense>} />
-                <Route path="reports/:id" element={<React.Suspense fallback={<LoadingPage />}><ReportView /></React.Suspense>} />
-                <Route path="reports/:id/edit" element={<React.Suspense fallback={<LoadingPage />}><ReportBuilder /></React.Suspense>} />
-                <Route path="today"      element={<OpsToday />} />
-                <Route path="local-info" element={<LocalInfo />} />
-                <Route path="timeline" element={<Timeline />} />
-                <Route path="bookings"   element={<Bookings />} />
-                <Route path="customers" element={<Customers />} />
-                <Route path="loyalty" element={<Loyalty />} />
-                <Route path="orders" element={<Orders />} />
-                <Route path="allergens" element={<Allergens />} />
-                <Route path="orders/settings" element={<OrderingSettings />} />
-                <Route path="pos" element={<PosSetup />} />
-                <Route path="pos/:tab" element={<PosSetup />} />
-                <Route path="pos/floor" element={<PosFloor />} />
-                <Route path="pos/reports" element={<PosReports />} />
-                <Route path="pos/kiosk-analytics" element={<KioskAnalytics />} />
-                <Route path="pos/kiosk-designs/:id" element={<KioskDesigner />} />
-                <Route path="pos/print-designs/:id" element={<PrintDesigner />} />
+                {routesIn('office')}
                 <Route path="pos/kiosks/designs/:id" element={<Moved to={p => '/pos/kiosk-designs/' + p.id} />} />
                 <Route path="pos/printing/designs/:id" element={<Moved to={p => '/pos/print-designs/' + p.id} />} />
-                <Route path="pos/layouts/:id" element={<TillLayoutDesigner />} />
-                <Route path="pos/flows/:id" element={<OrderFlowDesigner />} />
-                <Route path="promotions" element={<Promotions />} />
-                <Route path="venues"    element={<Venues />} />
-                <Route path="new-location"     element={<NewLocation />} />
-                <Route path="new-location/:id" element={<NewLocation />} />
-                <Route path="tables"   element={<Tables />} />
-                <Route path="schedule" element={<Schedule />} />
-                <Route path="rules"       element={<Rules />} />
-                {/* One component, two pages: the keys keep one page's open section out of the other */}
-                <Route path="website"     element={<Website key="settings" />} />
-                <Route path="website/builder" element={<Website key="builder" builder />} />
-                <Route path="brand"       element={<Brand />} />
-                <Route path="website/reservations-widget" element={<ReservationsWidget />} />
                 {/* The old address. nginx sends everything under /reservations to
                     the API (the guests' widget), so this only ever worked for
                     links inside the app; the page lives under /website. */}
                 <Route path="reservations-widget" element={<Navigate to="/website/reservations-widget" replace />} />
-                <Route path="cash-recon" element={<CashRecon />} />
-                <Route path="food-safety" element={<FoodSafety />} />
-                <Route path="checklists" element={<Checklists />} />
-                <Route path="hs-dashboard" element={<HSDashboard />} />
-                <Route path="cash-dashboard" element={<CashDashboard />} />
-                <Route path="staff"          element={<Staff />} />
-                <Route path="staff/roles"    element={<StaffRoles />} />
-                <Route path="rota"           element={<Rota />} />
-                <Route path="rota/setup"     element={<RotaSetup />} />
-                <Route path="rota-dashboard" element={<RotaDashboard />} />
-                <Route path="hs-action-log" element={<HSActionLog />} />
-                <Route path="email-templates" element={<EmailTemplates />} />
-                <Route path="email-monitoring" element={<EmailMonitoring />} />
-                <Route path="media"            element={<Media />} />
-                <Route path="reviews"         element={<Reviews />} />
-                <Route path="menus"            element={<Menus />} />
-                <Route path="menus/variant-groups" element={<MenuVariantGroups />} />
-                <Route path="menus/dietary-tags"    element={<MenuDietaryTags />} />
-                <Route path="menus/allergens"       element={<MenuAllergenMatrix />} />
-                <Route path="menus/tax"             element={<MenuTax />} />
-                <Route path="menus/times"           element={<MenuTimes />} />
-                <Route path="menus/deliveroo"       element={<MenuDeliveroo />} />
-                <Route path="menus/translations"    element={<MenuTranslations />} />
-                <Route path="menus/print-designs"     element={<MenuPrintDesigns />} />
-                <Route path="menus/print-designs/:id" element={<MenuDesigner />} />
                 <Route path="menus/:id/design"      element={<Moved to={p => '/menus/print-designs/' + p.id} />} />
-                <Route path="screens"               element={<Screens page="screens" />} />
-                <Route path="screens/boards"        element={<Screens page="boards" />} />
-                <Route path="screens/playlists"     element={<Screens page="playlists" />} />
-                <Route path="screens/walls"         element={<Screens page="walls" />} />
-                <Route path="screens/boards/:id"    element={<ScreenDesigner />} />
-                <Route path="widget-test" element={<WidgetTest />} />
-                <Route path="test-data"   element={<TestData />} />
-                <Route path="legacy-import" element={<LegacyImport />} />
-                <Route path="team"        element={<Team />} />
-                <Route path="access"      element={<Access />} />
-                <Route path="platform"           element={<Platform />} />
-                <Route path="backlog"            element={<Backlog />} />
-                <Route path="issues"             element={<IssueLog />} />
-                <Route path="feature-requests"   element={<FeatureRequests />} />
-                <Route path="changelog"          element={<Changelog />} />
-                <Route path="purchasing"              element={<Purchasing />} />
-                <Route path="purchasing/lists"        element={<OrderLists />} />
-                <Route path="inventory"               element={<Inventory />} />
-                <Route path="suppliers"               element={<Suppliers />} />
-                <Route path="docs"               element={<React.Suspense fallback={<LoadingPage />}><Docs /></React.Suspense>} />
-                <Route path="help"        element={<React.Suspense fallback={<LoadingPage />}><Help /></React.Suspense>} />
-                <Route path="settings"    element={<Settings />} />
-                <Route path="ai"          element={<AiAssistant />} />
-                <Route path="nav-designer" element={<NavDesigner />} />
-                <Route path="launcher"     element={<Launcher />} />
               </Route>
               <Route path="mobile" element={IS_INSTALLER_HOST ? <Navigate to="/install" replace /> : <MobileShell />}>
-                <Route index          element={<MobileHub />} />
-                <Route path="today"        element={<MobileToday />} />
-                <Route path="hs-dashboard" element={<MobileHSDashboard />} />
-                <Route path="expenses"     element={<MobileExpenses />} />
-                <Route path="purchasing" element={<MobilePurchasing />} />
-                <Route path="cash-up"      element={<MobileCashUp />} />
-                <Route path="wages"        element={<MobileWages />} />
-                <Route path="orders"       element={<MobileOrders />} />
-                <Route path="allergens"    element={<MobileAllergens />} />
-                <Route path="notices"      element={<MobileNotices />} />
-                <Route path="assistant"    element={<MobileAssistant />} />
-                <Route path="reports"      element={<React.Suspense fallback={<LoadingPage />}><MobileReportList /></React.Suspense>} />
-                <Route path="reports/:ref" element={<React.Suspense fallback={<LoadingPage />}><MobileReport /></React.Suspense>} />
+                {routesIn('mobile')}
                 {/* A page the phone no longer has (Dashboards): the hub. */}
                 <Route path="*"            element={<Navigate to="/mobile" replace />} />
               </Route>
