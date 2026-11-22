@@ -3,13 +3,12 @@
 // against a stand-in Claude (support/fake-claude.mjs).
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
 import { startFakeClaude } from './support/fake-claude.mjs'
 
 const claude = await startFakeClaude()
 const { as, sql, ok, closeApp } = await import('./support/app.mjs')
 const { resetAndSeed, A, B } = await import('./support/seed.mjs')
-const { searchHelp, helpPassages } = await import('../src/ai/helpIndex.js')
+const { searchHelp, helpPassages, helpSourceFiles } = await import('../src/ai/helpIndex.js')
 const { helpSlug } = await import('../../shared/help.js')
 const { longDate, localParts } = await import('../src/ai/tools/util.js')
 // The app's first hidden line on every staff message (contextNote() in ai/chat.js).
@@ -44,7 +43,16 @@ test.after(async () => { await claude.close(); await closeApp() })
 // ── Help answers ────────────────────────────────────────
 
 test('the Help index: every section and subsection, links that exist on the page', () => {
-  const src = fs.readFileSync(new URL('../../admin/src/pages/Help.jsx', import.meta.url), 'utf8')
+  // One file per section in admin/src/pages/help/, each with its id (its
+  // file's name) and an order number, which is what the page sorts by.
+  const files = helpSourceFiles()
+  assert.ok(files.length > 50, 'section files: ' + files.length)
+  for (const f of files) {
+    assert.equal(f.id + '.jsx', f.file.split('/').pop(), f.file)
+    assert.ok(Number.isFinite(f.order), 'no order in ' + f.file)
+    assert.equal([...f.src.matchAll(/<section id="([^"]+)" data-help="">/g)].map(m => m[1]).join(), f.id, f.file)
+  }
+  const src = files.map(f => f.src).join('\n')
   const passages = helpPassages()
   assert.ok(passages.length > 100, 'passages: ' + passages.length)
   const sectionIds = new Set([...src.matchAll(/<section id="([^"]+)" data-help="">/g)].map(m => m[1]))
