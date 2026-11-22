@@ -3,6 +3,8 @@
 All notable changes to this project, most recent first.
 Migrations are listed where a database change is required.
 
+**From 22 Nov 2026 each change is a file of its own in `changes/` (see `changes/README.md`); this file keeps everything before that. `node scripts/changelog.mjs` prints both, newest first.**
+
 ---
 
 

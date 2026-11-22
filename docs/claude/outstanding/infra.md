@@ -1,0 +1,13 @@
+# Outstanding: infra
+
+What is not built, known limits and follow-ups in this area (`docs/claude/areas/infra.md`). Item numbers are the old CLAUDE.md numbering, kept so earlier references still work; a new item takes the next number after the highest in any file of this folder. Check the live code before calling anything here pending.
+
+**8. Test suite**
+CI (`.github/workflows/ci.yml`) builds an empty database from every migration, starts the API, runs the shared unit tests and the API tests (`api/test`: the cross-tenant sweep and Pepper's chat loop) on every pull request; it isn't a required check yet (add a branch rule in GitHub). Still to do:
+- The checks run while building earlier features (Pepper tools, Purchasing, Loyverse, GloriaFood, POS, kitchen, screens, kiosks) live outside the repo; port the ones worth keeping into `api/test` as features are touched.
+- Priority targets: `confirm_hold()` race condition, slot resolver output, booking flow end-to-end, admin-override booking creation, schedule exception resolution.
+- The sweep only tries ids the fixtures make: 120 of 182 tenant tables have rows (till checks and events, kitchen orders, online order lines, paired screens, media and the integrations are empty because they come from devices, guests or other services). Its own body for each write route is `{}`, so writes are only tested properly through the replay of `fillTenant()`'s writes.
+
+**45. Platform board (backlog, the user, 21 Nov 2026)** *(built 22 Nov 2026 as Platform status, Platform → Services; the venue's Tech board, item 44.7, the same day)*
+- Limits: it checks the database, Redis, the API processes' heartbeats, the background jobs, the machine and the deployed commit; not nginx or its certificates, the outside services (Anthropic, Stripe, the email providers, Open-Meteo), backups, or the venue hubs beyond their own reports. Alerts (22 Nov 2026): platform admins are emailed when it is down for two minutes, slow for 30, and back up; email only (no push), sent through the platform's own provider key, from PM2 instance 0, and not tried against a real email provider or a real outage. One machine only: with several, each process's heartbeat shows its host, but the disk and memory are the machine that answered.
+- Tech board limits: nothing is live (read every minute); a till's or kitchen screen's last activity is found among the venue's last 5,000 events, so a device quiet for longer shows none; card machines report no state of their own (the last payment stands in); a menu screen's reloads aren't stored; a printer plugged into a till reads as on the Printers page (fine while the till is linked, whether or not it is online). Not tried on the live server or with real kit.
