@@ -162,6 +162,38 @@ jobs:
           node --import ./test/support/register.mjs --test --test-force-exit \
             --test-concurrency=1 --test-reporter=spec $shard $files
 
+  # The area map (docs/PARALLEL_WORK.md 4.1 to 4.3): fails on a new import
+  # from one area into another's private files, and comments on a pull
+  # request with the areas and shared files it changes (a comment only).
+  areas:
+    name: Areas (map, imports, what this changes)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: The map
+        run: node scripts/check-areas.mjs
+      - name: Imports across areas
+        run: node scripts/check-areas.mjs imports
+      - name: Comment the areas on the pull request
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          node scripts/check-areas.mjs pr "$BASE" > /tmp/areas.md
+          cat /tmp/areas.md >> "$GITHUB_STEP_SUMMARY"
+          gh pr comment "$PR" --edit-last --body-file /tmp/areas.md 2>/dev/null \
+            || gh pr comment "$PR" --body-file /tmp/areas.md
+
   shared-tests:
     name: Shared unit tests
     runs-on: ubuntu-latest
