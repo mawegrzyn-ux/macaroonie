@@ -21,6 +21,7 @@ import {
 } from '../services/apifySvc.js'
 
 const connection = { url: env.REDIS_URL }
+const prefix = env.QUEUE_PREFIX
 const POLL_INTERVAL_MS = 15_000
 const MAX_WAIT_MS      = 600_000  // 10 min
 
@@ -114,7 +115,7 @@ export function startReviewScrapeWorker(log) {
       `.catch(() => {})
       throw err
     }
-  }, { connection, concurrency: 2 })
+  }, { connection, prefix, concurrency: 2 })
 
   worker.on('failed', (job, err) => {
     log.error({ jobId: job?.id, err }, 'Review scrape worker failure')

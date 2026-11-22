@@ -12,6 +12,10 @@ const schema = z.object({
 
   // Redis (BullMQ + hold sweep)
   REDIS_URL:             z.string().default('redis://localhost:6379'),
+  // BullMQ's key prefix. Two runs on one Redis (a test run beside a dev
+  // server, two agents' test runs) keep their queues apart with their own
+  // prefix or their own Redis database (scripts/test-env.sh sets both).
+  QUEUE_PREFIX:          z.string().default('bull'),
 
   // Auth0
   AUTH0_DOMAIN:          z.string(),           // e.g. obscurekitty.uk.auth0.com

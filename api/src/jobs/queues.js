@@ -2,18 +2,21 @@
 import { Queue, Worker } from 'bullmq'
 import { env } from '../config/env.js'
 
-const connection = { url: env.REDIS_URL }
+// Every queue and worker shares these: the Redis connection and the key
+// prefix (QUEUE_PREFIX), so a run with its own prefix never sees another's jobs.
+export const connection = { url: env.REDIS_URL }
+export const prefix = env.QUEUE_PREFIX
 
-export const notificationQueue  = new Queue('notifications',    { connection })
-export const holdSweepQueue     = new Queue('hold-sweep',       { connection })
-export const reviewScrapeQueue  = new Queue('review-scrape',    { connection })
-export const publishQueue       = new Queue('website-publish',  { connection })
-export const gloriafoodQueue    = new Queue('gloriafood-poll',  { connection })
-export const aiCleanupQueue     = new Queue('ai-cleanup',       { connection })
-export const localInfoQueue     = new Queue('local-info',       { connection })
-export const reportScheduleQueue = new Queue('report-schedules', { connection })
-export const cashAutoFillQueue  = new Queue('cash-autofill',    { connection })
-export const taskNoticeQueue    = new Queue('task-notices',     { connection })
+export const notificationQueue  = new Queue('notifications',    { connection, prefix })
+export const holdSweepQueue     = new Queue('hold-sweep',       { connection, prefix })
+export const reviewScrapeQueue  = new Queue('review-scrape',    { connection, prefix })
+export const publishQueue       = new Queue('website-publish',  { connection, prefix })
+export const gloriafoodQueue    = new Queue('gloriafood-poll',  { connection, prefix })
+export const aiCleanupQueue     = new Queue('ai-cleanup',       { connection, prefix })
+export const localInfoQueue     = new Queue('local-info',       { connection, prefix })
+export const reportScheduleQueue = new Queue('report-schedules', { connection, prefix })
+export const cashAutoFillQueue  = new Queue('cash-autofill',    { connection, prefix })
+export const taskNoticeQueue    = new Queue('task-notices',     { connection, prefix })
 
 // ── Notification worker ───────────────────────────────────────
 // Routes booking emails through the new pluggable email system
@@ -36,7 +39,7 @@ export function startNotificationWorker(log) {
       log:  (msg) => log.info(msg),
     })
 
-  }, { connection, concurrency: 5 })
+  }, { connection, prefix, concurrency: 5 })
 
   worker.on('failed', (job, err) => {
     log.error({ jobId: job?.id, err }, 'Notification job failed')
@@ -83,7 +86,7 @@ export function startHoldSweepWorker(sql, log) {
     const wallets = await pushWalletUpdates({ log, siteOf: tenantSite })
     if (wallets) log.info({ wallets }, 'Wallet cards updated')
     log.debug('Hold sweep complete')
-  }, { connection })
+  }, { connection, prefix })
 
   // Schedule repeating sweep every 60 seconds
   holdSweepQueue.add('sweep', {}, {
@@ -105,7 +108,7 @@ export function startGloriaFoodPollWorker(log) {
     const { pollAll } = await import('../services/gloriafoodSvc.js')
     const r = await pollAll(log)
     if (r.stored) log.info(r, 'GloriaFood orders collected')
-  }, { connection })
+  }, { connection, prefix })
 
   worker.on('failed', (job, err) => {
     log.error({ jobId: job?.id, err }, 'GloriaFood poll job failed')
@@ -132,7 +135,7 @@ export function startLocalInfoWorker(log) {
     const { sweepLocalInfo } = await import('../services/localInfoSvc.js')
     const ran = await sweepLocalInfo(log)
     if (ran) log.info({ ran }, 'Local info captures run')
-  }, { connection })
+  }, { connection, prefix })
 
   worker.on('failed', (job, err) => {
     log.error({ jobId: job?.id, err }, 'Local info job failed')
@@ -158,7 +161,7 @@ export function startReportScheduleWorker(log) {
     const { sweepSchedules } = await import('../reports/schedules.js')
     const r = await sweepSchedules(log)
     if (r.claimed) log.info(r, 'Report schedules sent')
-  }, { connection })
+  }, { connection, prefix })
 
   worker.on('failed', (job, err) => {
     log.error({ jobId: job?.id, err }, 'Report schedules job failed')
@@ -185,7 +188,7 @@ export function startCashAutoFillWorker(log) {
     const { sweepAutoFill } = await import('../services/reconRetrieve.js')
     const ran = await sweepAutoFill(log)
     if (ran) log.info({ ran }, 'Scheduled Cash Recon fills run')
-  }, { connection })
+  }, { connection, prefix })
 
   worker.on('failed', (job, err) => {
     log.error({ jobId: job?.id, err }, 'Scheduled Cash Recon fill job failed')
@@ -211,7 +214,7 @@ export function startTaskNoticeWorker(app, log) {
     const { sweepNotices } = await import('../services/notices.js')
     const r = await sweepNotices(app, log)
     if (r.sent) log.info(r, 'Task notices sent')
-  }, { connection })
+  }, { connection, prefix })
 
   worker.on('failed', (job, err) => {
     log.error({ jobId: job?.id, err }, 'Task notices job failed')
@@ -262,7 +265,7 @@ export function startAiCleanupWorker(log) {
     // Sent task notices (migration 262) after 30 days.
     const { cleanUpNotices } = await import('../services/notices.js')
     await cleanUpNotices()
-  }, { connection })
+  }, { connection, prefix })
 
   worker.on('failed', (job, err) => {
     log.error({ jobId: job?.id, err }, 'AI clean-up job failed')

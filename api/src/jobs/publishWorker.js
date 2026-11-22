@@ -11,6 +11,7 @@ import { Worker } from 'bullmq'
 import { env } from '../config/env.js'
 
 const connection = { url: env.REDIS_URL }
+const prefix = env.QUEUE_PREFIX
 
 export function startPublishWorker(log) {
   const worker = new Worker('website-publish', async job => {
@@ -19,7 +20,7 @@ export function startPublishWorker(log) {
 
     const { publishTenantSite } = await import('../services/publishSvc.js')
     await publishTenantSite(tenantId)
-  }, { connection })
+  }, { connection, prefix })
 
   worker.on('failed', (job, err) => {
     log.error({ jobId: job?.id, err }, 'Scheduled publish job failed')
