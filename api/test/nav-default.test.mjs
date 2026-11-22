@@ -149,7 +149,7 @@ test('every catalogue page is in the default menu once, and nothing else', () =>
 test('every catalogue page has menu-search keywords, and none point at a page that is gone', () => {
   const catalog = new Set(ROUTE_CATALOG.map(r => r.route))
   for (const r of catalog) {
-    assert.ok(searchWords(NAV_KEYWORDS[r] || '').length, r + ' needs search keywords in shared/navSearch.js')
+    assert.ok(searchWords(NAV_KEYWORDS[r] || '').length, r + ' needs search keywords (its record in shared/nav/<area>.js)')
   }
   for (const key of Object.keys(NAV_KEYWORDS)) {
     assert.ok(catalog.has(key) || EXTRA_SEARCH_ROUTES.includes(key),
@@ -158,13 +158,13 @@ test('every catalogue page has menu-search keywords, and none point at a page th
 })
 
 // Every entry has a description (migration 241): a page's standard one comes
-// from shared/navSearch.js, at most 260 characters, and the link's label and
+// from its record in shared/nav/<area>.js, at most 260 characters, and the link's label and
 // icon in the catalogue are the ones migration 241 gave existing menus.
 test('every catalogue page has a description of at most 260 characters', () => {
   const catalog = new Map(ROUTE_CATALOG.map(r => [r.route, r]))
   for (const r of catalog.keys()) {
     const d = NAV_DESCRIPTIONS[r] || ''
-    assert.ok(d.length >= 20, r + ' needs a description in shared/navSearch.js')
+    assert.ok(d.length >= 20, r + ' needs a description (its record in shared/nav/<area>.js)')
     assert.ok(d.length <= DESCRIPTION_MAX, r + ': ' + d.length + ' characters')
   }
   for (const key of Object.keys(NAV_DESCRIPTIONS)) {
