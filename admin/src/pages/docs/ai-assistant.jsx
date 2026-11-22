@@ -341,15 +341,17 @@ export function Section() {
       <H3>Help answers, the day briefing and the page note</H3>
       <P>
         <Mono>how_do_i</Mono> (<Mono>tools/general.js</Mono>) searches the Help page itself:{' '}
-        <Mono>ai/helpIndex.js</Mono> reads <Mono>admin/src/pages/Help.jsx</Mono> from the
-        checkout (or <Mono>HELP_SOURCE_FILE</Mono>), cuts it at each{' '}
+        <Mono>ai/helpIndex.js</Mono> reads every section file in{' '}
+        <Mono>admin/src/pages/help/</Mono> from the checkout (or <Mono>HELP_SOURCE_DIR</Mono>),
+        all but <Mono>parts.jsx</Mono>, in the page&apos;s order (the number in each file&apos;s{' '}
+        <Mono>export const order</Mono>, then its id, read from the source as text), cuts them at each{' '}
         <Mono>{'<section id data-help>'}</Mono>, H2 and H3, turns the JSX into plain text
         (DataTable rows become lines) and ranks passages with BM25, headings counting three
-        times. The index is built on first use and again when the file&apos;s mtime changes, so
-        a deploy refreshes it; no database, no embeddings. The Pepper section scores lower
+        times. The index is built on first use and again when a file is added, removed or
+        changed (its mtime), so a deploy refreshes it; no database, no embeddings. The Pepper section scores lower
         unless the question is about Pepper. Links go to the subsection:{' '}
         <Mono>helpSlug()</Mono> (<Mono>shared/help.js</Mono>) makes the same anchor on both
-        sides, the page&apos;s <Mono>H3</Mono> giving itself that id (only when its heading is
+        sides, the page&apos;s <Mono>H3</Mono> (<Mono>help/parts.jsx</Mono>) giving itself that id (only when its heading is
         plain text) and <Mono>Help.jsx</Mono> scrolling to the hash after it renders. A heading
         used twice links to its section instead.
       </P>

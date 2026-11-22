@@ -49,6 +49,23 @@ export function Section() {
         ]}
       />
 
+      <H3>The Help and Docs pages: one file per section</H3>
+      <P>
+        Each section of the Help page is a file in <Mono>admin/src/pages/help/</Mono> and each
+        section of this page a file in <Mono>admin/src/pages/docs/</Mono>, named after its id
+        (<Mono>kitchen.jsx</Mono>) and exporting <Mono>id</Mono>, <Mono>label</Mono>,{' '}
+        <Mono>order</Mono> and <Mono>Section</Mono>. The building blocks (<Mono>H2</Mono>,{' '}
+        <Mono>H3</Mono>, <Mono>P</Mono>, <Mono>Mono</Mono>, <Mono>InfoBox</Mono>,{' '}
+        <Mono>DataTable</Mono>, and <Mono>Code</Mono> here) are in each folder&apos;s{' '}
+        <Mono>parts.jsx</Mono>. <Mono>Help.jsx</Mono> and <Mono>Docs.jsx</Mono> keep the page
+        (the contents list, scrolling) and gather the files with{' '}
+        <Mono>{"import.meta.glob('./help/*.jsx', { eager: true })"}</Mono>, leaving out{' '}
+        <Mono>parts.jsx</Mono>, sorted by <Mono>order</Mono> and then id; the contents list comes
+        from the same files. Orders are spaced by 10, so a new section is a new file whose
+        order slots it between two others, and two areas&apos; new sections never edit the same
+        file. Pepper&apos;s help index reads the Help files in the same order.
+      </P>
+
       <H3>New booking — FAB &amp; two paths</H3>
       <P>
         A round <strong>floating action button (FAB)</strong> sits at the bottom-right of the Timeline canvas
