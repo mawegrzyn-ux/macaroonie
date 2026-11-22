@@ -61,3 +61,13 @@ before adding `pl-14`.
 **49. Deep links, step 1 follow-ups (Pepper-first, 22 Nov 2026)**
 
 Built: the six pages open at a venue, day or week, and tab from their address, and Pepper's `open_page` builds such links. Not done: no other page accepts anything yet (add `accepts` to its record and read it with `useDeepLink()`); Today's cards and the phone pages don't build links with `pageLink()` yet; the menu search box and Pepper's menu search (`/api/ai/nav-search`) open pages without a venue or day; Cash Recon's settings view and the day view's own tabs, and Bookings' status filter, can't be linked; a link's venue is checked against the tenant's venues only (there are no per-person venue limits today). `open_page` still offers the standard catalogue pages the person's modules allow, not their own menu (`navTreeFor()`), so a link an admin hid from a role, or renamed, is still offered under its standard name. Checked in Chromium through the browser harness at 1280 px only, not on a tablet or the phone pages.
+
+**50. Usage record, step 0a follow-ups (Pepper-first, 22 Nov 2026, migration 270)**
+
+Built: `usage_events` (pages opened, menu searches with handed to Pepper and what they opened), written in batches from `admin/src/lib/usage.js`, the person's own record (`usage.mine`, `{me}`) and two group subjects with no person (`usage.pages`, `usage.searches`), 90 days. Not done:
+- No browser check yet that a page change and a search reach `POST /api/usage/events` (the API side is tested; the admin side only built). First check: open three pages and search once, then read `usage_events`.
+- Only the office sidebar's search box is recorded. Today's Ask Pepper bar on the phone (`AskPepperBar`) and the Pepper drawer aren't searches of the menu and aren't recorded; step 2's home bar should call `useSearchUse()` too.
+- No sessions: "share of sessions that use the bar" (step 2's measure) needs a session id per sign-in or tab; add a `session` column then rather than guessing from times.
+- No median: report figures are sum, average, smallest, largest and counts only, so "median time to the first task" has to wait for a median figure in the report engine.
+- A schedule or data link of My pages and searches runs as its owner and so sends the owner's own record to whoever receives it; that is the owner's choice, but the schedule page doesn't say so.
+- Platform admins viewing another group are recorded in that group like members.

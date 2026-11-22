@@ -25,6 +25,7 @@ import * as safety from './safety.js'
 import * as screens from './screens.js'
 import * as staff from './staff.js'
 import * as till from './till.js'
+import * as usage from './usage.js'
 import * as website from './website.js'
 
 export const FILES = [
@@ -45,5 +46,6 @@ export const FILES = [
   ['screens.js', screens],
   ['staff.js', staff],
   ['till.js', till],
+  ['usage.js', usage],
   ['website.js', website],
 ]

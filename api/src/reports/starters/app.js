@@ -102,4 +102,37 @@ export const starters = [
       drill: { down: ['kind', 'status', { field: 'date', bucket: 'week' }] },
     },
   }),
+
+  // The usage record (migration 270): the group's pages and menu searches,
+  // with no person (each person's own is the subject My pages and searches).
+  starter({
+    key: 'usage_pages',
+    name: 'Pages opened',
+    about: 'Which pages of the app the group opens: times each page was opened and on how many days. Who opened them isn\'t reported.',
+    period: { relative: 'last_n_days', n: 28 },
+    venues: false,
+    spec: {
+      subject: 'usage.pages',
+      rows: ['page'],
+      values: m('opens', 'days'),
+      sort: [{ by: 'opens', dir: 'desc' }],
+      drill: { down: [{ field: 'date', bucket: 'week' }] },
+    },
+  }),
+
+  starter({
+    key: 'usage_searches',
+    name: 'Menu searches by week',
+    about: 'Week by week: searches in the menu box, how many were handed to ' + ASSISTANT_NAME + ' and their share, how many opened something and how many found no menu match. What was typed and who typed it aren\'t reported.',
+    period: { relative: 'last_n_days', n: 84 },
+    venues: false,
+    spec: {
+      subject: 'usage.searches',
+      rows: [{ field: 'date', bucket: 'week' }],
+      values: m('searches', 'handed', 'handed_share', 'opened_share', 'no_match'),
+      sort: [{ by: 'date:week', dir: 'asc' }],
+      drill: { down: ['opened', 'to_pepper'] },
+      view: { kind: 'line', x: 'date:week', y: ['handed_share', 'opened_share'] },
+    },
+  }),
 ]

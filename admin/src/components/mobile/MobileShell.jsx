@@ -16,6 +16,7 @@ import { useAuth0 } from '@auth0/auth0-react'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, ArrowLeftRight, LogOut, LayoutGrid } from 'lucide-react'
 import { useApi, setSelectedTenant } from '@/lib/api'
+import { usePageUse } from '@/lib/usage'
 import TenantSwitcherModal from '@/components/TenantSwitcherModal'
 import { applySiteTheme } from '@/contexts/SettingsContext'
 import { MOBILE_MODULES } from '@/mobile/registry'
@@ -95,6 +96,8 @@ function useMobileManifest() {
 
 export default function MobileShell() {
   useMobileManifest()
+  // The usage record (lib/usage.js): the phone pages opened.
+  usePageUse()
 
   const location = useLocation()
   const navigate = useNavigate()

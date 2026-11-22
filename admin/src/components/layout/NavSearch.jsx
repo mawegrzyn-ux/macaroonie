@@ -21,6 +21,10 @@
 // and a note below them. Typing again goes back to the plain filter; Enter
 // on Pepper's answer opens its first pick. Without Pepper, Enter opens the
 // best match as before.
+//
+// The usage record (migration 270): every list calls onPick(route) and the
+// box onPick(route, 'menu' | 'pepper'), so AppShell can note what a search
+// opened (useSearchUse() in lib/usage.js).
 import { useMemo, useState, useRef, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { NavLink, useNavigate } from 'react-router-dom'
@@ -89,13 +93,13 @@ export function NavSearchInput({ value, onChange, results, onPick, inputRef, can
               // first pick; otherwise Enter asks Pepper.
               if (pepper?.status === 'done' && pepper.picks.length) {
                 navigate(pepper.picks[0].route)
-                onPick?.()
+                onPick?.(pepper.picks[0].route, 'pepper')
               } else if (!busy) {
                 onAskPepper?.()
               }
             } else if (results?.length) {
               navigate(results[0].route)
-              onPick?.()
+              onPick?.(results[0].route, 'menu')
             }
           } else if (e.key === 'Escape' && value) {
             e.stopPropagation()
@@ -181,7 +185,7 @@ export function PepperNavResults({ pepper, onPick, onAskAgain, onOpenChat, onSho
             key={p.route}
             to={p.route}
             end={p.route === '/' || !!exact?.has(p.route)}
-            onClick={onPick}
+            onClick={() => onPick?.(p.route)}
             data-testid="nav-pepper-pick"
             className={({ isActive }) => cn(
               'flex items-start gap-3 px-3 py-2 min-h-[44px] rounded-md text-sm font-medium touch-manipulation',
@@ -262,7 +266,7 @@ export function NavSearchResults({ results, query, onPick, canAskAi, onAskAi, ex
             key={r.key}
             to={r.route}
             end={r.route === '/' || !!exact?.has(r.route)}
-            onClick={onPick}
+            onClick={() => onPick?.(r.route)}
             data-testid="nav-search-result"
             data-route={r.route}
             className={({ isActive }) => cn(
@@ -316,7 +320,7 @@ export function SavedReportResults({ query, enabled, onPick }) {
     <div className="space-y-0.5 pt-2" data-testid="nav-search-reports">
       <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Reports</p>
       {found.map(r => (
-        <NavLink key={r.id} to={'/reports/' + encodeURIComponent(r.id)} onClick={onPick}
+        <NavLink key={r.id} to={'/reports/' + encodeURIComponent(r.id)} onClick={() => onPick?.('/reports/' + encodeURIComponent(r.id))}
           data-testid="nav-search-report" data-id={r.id}
           className={({ isActive }) => cn(
             'flex items-start gap-3 px-3 py-2 min-h-[44px] rounded-md text-sm font-medium touch-manipulation',
