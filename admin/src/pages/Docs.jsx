@@ -1205,6 +1205,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET', '/:id', 'operator', 'Customer detail including full booking history.'],
                 ['PATCH', '/:id', 'operator', 'Update name, phone, or notes.'],
                 ['POST', '/:id/unsubscribe', 'operator', 'Newsletter off: marketing_opt_in = false, marketing_opt_out_at = now() (migration 125). There is no staff subscribe; only the guest opts in, at online checkout.'],
+                ['DELETE', '/:id', 'owner', 'Delete for good (22 Nov 2026, test and demo data; Customers manage and the owner role): the row goes, its bookings, web orders and loyalty membership stay unlinked (ON DELETE SET NULL) with the guest details written on them. Returns { deleted, bookings_kept, orders_kept }. Not erasure: use anonymise.'],
                 ['POST', '/:id/anonymise', 'admin', 'GDPR erasure — replaces all PII with placeholders, anonymises linked bookings and web orders (guest fields, notes, allergy_note, consent, order line notes), clears the newsletter fields, and in the same transaction removes their name, email and phone from Pepper\'s chats and audit (eraseFromAi(), see Pepper → Erasure and retention). Never deletes the row.'],
                 ['GET', '/:id/export', 'admin', 'GDPR data export — returns a JSON file download with customer, newsletter status, all booking records and all web orders (with items and the consent recorded at checkout).'],
               ]}
@@ -4053,6 +4054,37 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               API, device auth) and <Mono>routes/posSetup.js</Mono> (<Mono>/api/pos</Mono>, the admin pages,
               modules <Mono>pos_setup</Mono> and <Mono>pos_reports</Mono>, group <Mono>pos</Mono>). Shared
               server code: <Mono>services/posSvc.js</Mono>. Every query filters <Mono>tenant_id</Mono> itself.
+            </P>
+            <H3>Tech board and platform status (22 Nov 2026, migration 263)</H3>
+            <P>
+              Store tech → Tech board (<Mono>/pos/board</Mono>, <Mono>TechBoardSection.jsx</Mono>, the first tab, menu
+              link added by migration 263 before Tills): <Mono>GET /api/tech-board/venues/:venueId</Mono>{' '}
+              (<Mono>routes/techBoard.js</Mono>; <Mono>requireOwnVenue</Mono> and Store tech or Screens view) returns the
+              venue&apos;s devices as Store tech shows them (<Mono>deviceView()</Mono>, removed ones left out) with{' '}
+              <Mono>last_action</Mono> (a till&apos;s or kitchen screen&apos;s newest event among the venue&apos;s last 5,000 by{' '}
+              <Mono>seq</Mono>, a kiosk&apos;s last <Mono>kiosk_sessions</Mono> visit, a hub&apos;s <Mono>info_at</Mono> and{' '}
+              <Mono>info.mirror.last_upload_at</Mono>), the printers with the last day&apos;s waiting and failed tickets and
+              the last ticket, the card machines with their last payment (30 days; they report no live state) and,
+              with Screens view, the menu screens. When kit counts as online is <Mono>shared/techBoard.js</Mono>{' '}
+              (<Mono>DEVICE_ONLINE_MS</Mono> 5 min, <Mono>SCREEN_ONLINE_MS</Mono> 150 s, <Mono>seenState()</Mono>,{' '}
+              <Mono>deviceOnline()</Mono>, <Mono>boardSummary()</Mono>), now also used by the installer, the Screens
+              routes and the Printers section; a printer reads as on the Printers page (<Mono>printerState()</Mono>),
+              with failed tickets today making it need looking at. A Store tech tab with <Mono>readOnly</Mono> skips
+              the View-only notice and greyed fieldset. The light at the top is <Mono>GET /api/status/light</Mono>.
+            </P>
+            <P>
+              Platform status (<Mono>services/platformStatus.js</Mono>): each API process writes a heartbeat to Redis
+              every 30 s (<Mono>mac:status:proc:host:pid</Mono>, gone after 90 s, <Mono>startProcessBeat()</Mono> in{' '}
+              <Mono>server.js</Mono>) and each BullMQ worker its last finish and failure (<Mono>watchWorker()</Mono>,{' '}
+              <Mono>mac:status:job:name:done|failed</Mono>). <Mono>GET /api/platform/status</Mono> (platform admin; the
+              Platform page&apos;s Services tab, <Mono>PlatformStatusCard</Mono>, every 30 s): Postgres (SELECT, size,
+              connections), Redis (PING, memory), the processes, the ten jobs (interval, last ran, late after three
+              intervals and a minute, queue counts, last error), the machine (disk, memory, load) and the deployed
+              commit (read from <Mono>.git</Mono>). <Mono>stateOf()</Mono>: down without the database; degraded without
+              Redis, with a late repeating job or a disk over 90% full. <Mono>GET /api/status/light</Mono> (anyone
+              signed in) gives only <Mono>{'{ state, checked_at }'}</Mono>, kept in Redis for 20 s. Not checked: nginx and
+              its certificates, the outside services (Anthropic, Stripe, email providers), the venue hubs&apos; own
+              health beyond their reports.
             </P>
             <H3>Checks are events</H3>
             <P>
@@ -8803,8 +8835,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               group&apos;s web search switch, which is for Pepper&apos;s chat. The web search is tested only against a
               stand-in Claude (the exact server-tool block shapes): first live use, run a capture and check the
               findings and <Mono>last_error</Mono>. Open-Meteo's free API is for non-commercial use — before real
-              franchisees rely on the weather, either buy an Open-Meteo API plan (set the two URL env vars to the
-              customer endpoints) or swap the provider in <Mono>captureWeather()</Mono>. Searches store what the
+              franchisees rely on the weather, buy an Open-Meteo API plan and save its key on the Platform page
+              (Services tab, 22 Nov 2026: <Mono>services/weatherKey.js</Mono>, sealed in <Mono>platform_secrets</Mono>{' '}
+              as <Mono>open_meteo_key</Mono>, checked with one call before saving, <Mono>GET/PUT/DELETE
+              /api/platform/weather-key</Mono>); with a key the captures go to Open-Meteo&apos;s customer hosts with{' '}
+              <Mono>apikey</Mono> (<Mono>meteoUrl()</Mono>; a stand-in host set in the two URL env vars is kept). Searches store what the
               model read on a page: dates can be wrong or stale, which is why every captured item keeps its source
               link and can be hidden. No push or alerting; the calendar is pull-only. Flags (migration 248) change
               nothing on the calendar, and what Pepper learns is words added to the search&apos;s ask, not a filter:

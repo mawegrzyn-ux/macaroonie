@@ -41,6 +41,7 @@ import { sha256, normaliseScreenCode, forgetScreen } from '../services/screenAut
 import { designerData, tenantRoom, screenRoom } from '../services/screenSvc.js'
 import { screensOrigin } from '../services/platformHost.js'
 import { normalizeBoard, MIN_SIZE, MAX_SIZE, TRANSITION_KEYS, DEFAULT_TRANSITION_MS } from '../../../shared/screenLayout.js'
+import { SCREEN_ONLINE_MS } from '../../../shared/techBoard.js'
 
 const PERM = {
   view:   [requirePermission('screens', 'view')],
@@ -51,7 +52,7 @@ const UUID = z.string().uuid()
 const SIZE = z.number().int().min(MIN_SIZE).max(MAX_SIZE)
 const HHMM = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
 const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
-const ONLINE_MS = 150_000
+const ONLINE_MS = SCREEN_ONLINE_MS   // shared/techBoard.js
 const MAX_LAYOUT_BYTES = 500_000
 
 const Schedule = z.object({

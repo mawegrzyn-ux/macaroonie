@@ -46,6 +46,7 @@ import { env } from '../config/env.js'
 import { withTenant, systemSql } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { searchForJson, askForJson, obj, str, arr, oneOf, clip } from './aiJson.js'
+import { weatherKey, meteoUrl } from './weatherKey.js'
 import { KINDS, KIND_LABELS, SEVERITIES, nextRunAt, itemKey, addDays, localDateTime,
   weatherText, weatherSummary, weatherSeverity, mergeWeatherDay, WEATHER_PAST_DAYS, FLAG_NOTE_MAX } from '../../../shared/localInfo.js'
 
@@ -136,9 +137,11 @@ export async function sweepLocalInfo(log = null) {
 async function captureWeather(source, tz) {
   let { lat, lon } = source
   const place = clip(source.place, 200)
+  // A paid plan's key, when one is saved on the Platform page (weatherKey.js).
+  const key = await weatherKey()
   if (lat == null || lon == null || source.geocoded_place !== place) {
-    const geo = await getJson(env.OPEN_METEO_GEOCODE_URL.replace(/\/+$/, '')
-      + '/v1/search?count=1&language=en&format=json&name=' + encodeURIComponent(place))
+    const geo = await getJson(meteoUrl(env.OPEN_METEO_GEOCODE_URL, '/v1/search',
+      'count=1&language=en&format=json&name=' + encodeURIComponent(place), key))
     const hit = geo?.results?.[0]
     if (!hit) throw new Error('Couldn\'t find "' + place + '" on the map. Try the town with its county, or a postcode.')
     lat = hit.latitude; lon = hit.longitude
@@ -146,11 +149,11 @@ async function captureWeather(source, tz) {
       UPDATE local_info_sources SET lat = ${lat}, lon = ${lon}, geocoded_place = ${place}
        WHERE id = ${source.id} AND tenant_id = ${source.tenant_id}`)
   }
-  const data = await getJson(env.OPEN_METEO_URL.replace(/\/+$/, '') + '/v1/forecast'
-    + '?latitude=' + encodeURIComponent(lat) + '&longitude=' + encodeURIComponent(lon)
+  const data = await getJson(meteoUrl(env.OPEN_METEO_URL, '/v1/forecast',
+    'latitude=' + encodeURIComponent(lat) + '&longitude=' + encodeURIComponent(lon)
     + '&daily=weather_code,temperature_2m_min,temperature_2m_max,precipitation_sum,wind_speed_10m_max'
     + '&hourly=weather_code,temperature_2m,precipitation,precipitation_probability,wind_speed_10m'
-    + '&past_days=' + WEATHER_PAST_DAYS + '&forecast_days=7&timezone=' + encodeURIComponent(tz))
+    + '&past_days=' + WEATHER_PAST_DAYS + '&forecast_days=7&timezone=' + encodeURIComponent(tz), key))
   const days = data?.daily?.time || []
   if (!days.length) return
   const now = localDateTime(new Date(), tz)

@@ -17,7 +17,7 @@ import { format, parseISO } from 'date-fns'
 import {
   Search, User, Mail, Phone, Download, Plus, Upload,
   ShieldAlert, ChevronRight, Pencil, X, Check, FileText,
-  TriangleAlert, TrendingUp, Minus, ChevronUp, ChevronDown, ArrowUpDown, Newspaper,
+  TriangleAlert, TrendingUp, Minus, ChevronUp, ChevronDown, ArrowUpDown, Newspaper, Trash2,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
@@ -425,9 +425,10 @@ function SortableHeader({ col, label, align = 'left', sort, onSort }) {
 // ── Detail panel ──────────────────────────────────────────────
 function CustomerDetail({ customer, api, onUpdated, onAnonymised, onClose }) {
   const qc = useQueryClient()
-  const { canManage } = usePermission('customers')
+  const { canManage, isOwner } = usePermission('customers')
   const [editing,          setEditing]          = useState(false)
   const [confirmAnonymise, setConfirmAnonymise] = useState(false)
+  const [confirmDelete,    setConfirmDelete]    = useState(false)
   const [form, setForm] = useState({
     name:        customer.name        ?? '',
     email:       customer.email       ?? '',
@@ -469,6 +470,11 @@ function CustomerDetail({ customer, api, onUpdated, onAnonymised, onClose }) {
 
   const anonymiseMutation = useMutation({
     mutationFn: () => api.post(`/customers/${customer.id}/anonymise`, {}),
+    onSuccess:  onAnonymised,
+  })
+  // Delete for good (owners, test and demo data): the list refreshes and the panel closes, as after anonymising.
+  const deleteMutation = useMutation({
+    mutationFn: () => api.delete(`/customers/${customer.id}`),
     onSuccess:  onAnonymised,
   })
 
@@ -723,6 +729,34 @@ function CustomerDetail({ customer, api, onUpdated, onAnonymised, onClose }) {
                 </div>
               )}
             </div>
+          </Section>
+        )}
+
+        {/* Delete for good: owners, for test and demo data */}
+        {canManage && isOwner && (
+          <Section title="Delete for good">
+            {!confirmDelete ? (
+              <button type="button" onClick={() => setConfirmDelete(true)} data-testid="customer-delete"
+                className="w-full flex items-center justify-center gap-1.5 min-h-[48px] text-sm border border-destructive/40 text-destructive rounded-lg hover:bg-destructive/5 touch-manipulation">
+                <Trash2 className="w-3.5 h-3.5" /> Delete this customer
+              </button>
+            ) : (
+              <div className="border border-destructive/40 rounded-lg p-3 space-y-2" data-testid="customer-delete-confirm">
+                <p className="text-xs text-destructive flex items-start gap-1.5">
+                  <TriangleAlert className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  For test and demo data. The customer record goes for good; their bookings, online orders and loyalty membership stay, without the link to it, and keep the name and contact details written on them. To erase a real guest&apos;s details, use Anonymise instead.
+                </p>
+                {deleteMutation.isError && <p className="text-xs text-destructive">{deleteMutation.error?.message}</p>}
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => deleteMutation.mutate()} disabled={deleteMutation.isPending}
+                    className="flex-1 min-h-[48px] text-sm bg-destructive text-destructive-foreground rounded-lg disabled:opacity-50 touch-manipulation">
+                    {deleteMutation.isPending ? 'Deleting…' : 'Yes, delete for good'}
+                  </button>
+                  <button type="button" onClick={() => setConfirmDelete(false)}
+                    className="flex-1 min-h-[48px] text-sm border rounded-lg hover:bg-accent touch-manipulation">Cancel</button>
+                </div>
+              </div>
+            )}
           </Section>
         )}
       </div>

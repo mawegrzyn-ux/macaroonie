@@ -762,7 +762,7 @@ async function dropDeviceStation(tx, tenantId, venueId, stationId) {
   }
 }
 
-function deviceView(d) {
+export function deviceView(d) {
   return {
     id: d.id, name: d.name, kind: d.kind, short_code: d.short_code, settings: d.settings || {},
     paired: !!d.secret_hash, paired_at: d.paired_at, last_seen_at: d.last_seen_at,

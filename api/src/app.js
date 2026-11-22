@@ -96,6 +96,7 @@ import stripeRoutes          from './routes/stripe.js'
 import screenSite            from './routes/screenSite.js'
 import installerSite         from './routes/installerSite.js'
 import installerRoutes       from './routes/installer.js'
+import techBoardRoutes       from './routes/techBoard.js'
 import screensRoutes         from './routes/screens.js'
 import screenApiRoutes       from './routes/screenApi.js'
 
@@ -335,6 +336,7 @@ export async function buildApp() {
   await app.register(stripeRoutes)
   await app.register(screensRoutes,   { prefix: '/api/screens' })
   await app.register(installerRoutes, { prefix: '/api/installer' })
+  await app.register(techBoardRoutes, { prefix: '/api/tech-board' })
   await app.register(screenApiRoutes, { prefix: '/screen-api' })
 
   // ── Health check ─────────────────────────────────────────

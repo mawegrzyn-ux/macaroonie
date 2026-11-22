@@ -20,6 +20,7 @@ import { Plus, Loader2, Pencil, Server, RotateCcw, Printer, Usb, ChevronRight, C
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, NumberBox, Toggle, ago } from './shared'
+import { deviceOnline } from '@shared/techBoard.js'
 
 const KINDS = [
   { value: 'station', label: 'Kitchen / bar' },
@@ -49,7 +50,7 @@ export const onHub = (p, setup) => p.connection === 'device' && setup.devices.fi
 /** The hub a new USB printer starts on: one that found USB printers, else the first. */
 const defaultHub = hubs => (hubs.find(h => h.info?.local_printers?.length) || hubs[0])?.id || ''
 /** The hub has been heard from in the last few minutes. */
-export const hubOnline = d => !!d?.paired && !!d.last_seen_at && Date.now() - new Date(d.last_seen_at).getTime() < 5 * 60_000
+export const hubOnline = d => deviceOnline(d)   // shared/techBoard.js
 
 /** What we know about a printer, in a few words: [text, tone]. */
 export function printerState(p, setup) {

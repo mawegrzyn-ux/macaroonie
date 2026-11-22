@@ -1524,6 +1524,14 @@ export default function Help() {
               Anonymisation is permanent and irreversible. Once confirmed, the customer's personal details
               cannot be recovered. Only proceed when you have received a valid erasure request.
             </InfoBox>
+            <H3>Deleting a test customer</H3>
+            <P>
+              Owners also see <strong>Delete this customer</strong> at the bottom of a customer&apos;s profile,
+              for clearing out test and demo records. It asks twice. The customer record goes for good, but
+              their bookings, online orders and loyalty membership stay, no longer linked to it, and still show
+              the name and contact details written on them. For a real guest asking to be forgotten, use{' '}
+              <strong>Anonymise</strong> instead: that removes their details everywhere.
+            </P>
             <P>
               Anonymising also covers the customer&apos;s online orders: name, email, phone, notes and
               allergy information are removed, and they come off the newsletter. The export includes
@@ -7017,6 +7025,18 @@ export default function Help() {
               Everything the till, kitchen screens, kiosks and menu screens need is in the <strong>Store tech</strong>{' '}
               section of the main menu, one page per part. Pick the venue at the top of a page when you have
               more than one; order types, courses, till roles and designs are shared by every venue.
+            </P>
+            <H3>The Tech board</H3>
+            <P>
+              Store tech → <strong>Tech board</strong> shows a venue&apos;s kit on one page: the venue hub, tills,
+              kitchen screens, kiosks, printers, card machines and menu screens. Each has a light (green working,
+              amber or red needs looking at, grey nothing to judge yet), whether it is online, the last thing it
+              did (a till&apos;s last activity, a kiosk&apos;s last order, a printer&apos;s last ticket, a card
+              machine&apos;s last payment) and <strong>Open</strong> to its own page. A box at the top lists what
+              needs someone, worst first. Above that, one light says whether Macaroonie itself is up. The board
+              checks again every minute, or press <strong>Check now</strong>. A till or kiosk counts as online when
+              it was heard from in the last five minutes, a menu screen in the last two and a half. Card machines
+              don&apos;t say whether they&apos;re on, so their last payment is shown instead.
             </P>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li><strong>Order types</strong> (shared by every venue): Eat in, Take out, Delivery, Collection and any you add. They decide how a check is served, can change a dish's tax and show on tickets and kitchen screens.</li>

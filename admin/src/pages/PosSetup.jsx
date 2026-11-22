@@ -22,7 +22,7 @@ import { useParams, useSearchParams, Navigate } from 'react-router-dom'
 import {
   Loader2, MonitorSmartphone, Waypoints, ListOrdered, Printer, ReceiptText, CreditCard, CookingPot,
   TabletSmartphone, KeyRound, ShieldCheck, UtensilsCrossed, Receipt, ArrowRightLeft, RefreshCw, Server, BadgePercent, PanelsTopLeft, HandCoins, Workflow,
-  Paintbrush, Route, ScrollText,
+  Paintbrush, Route, ScrollText, Activity,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
@@ -37,6 +37,7 @@ import ChargesSection from '@/components/pos/ChargesSection'
 import OrderFlowsSection from '@/components/pos/OrderFlowsSection'
 import PrintersSection from '@/components/pos/PrintersSection'
 import HubSection from '@/components/pos/HubSection'
+import { TechBoardSection } from '@/components/pos/TechBoardSection'
 import PrintingSection, { PrintDesignsSection } from '@/components/pos/PrintingSection'
 import CardMachinesSection from '@/components/pos/CardMachinesSection'
 import KitchenSection, { KitchenFlowSection } from '@/components/pos/KitchenSection'
@@ -50,6 +51,8 @@ import { DeviceUpdatesSection } from '@/components/pos/DeviceUpdatesSection'
 // The keys are the page addresses (/pos/tills ...): the main menu (ROUTE_CATALOG
 // in api/src/routes/nav.js, DEFAULT_NAV_TREE) links to each one.
 export const TABS = [
+  // readOnly: a page that only shows (no View-only notice, nothing greyed out).
+  { key: 'board', label: 'Tech board', icon: Activity, readOnly: true, wide: true, render: p => <TechBoardSection {...p} /> },
   { key: 'tills', label: 'Tills', icon: MonitorSmartphone, render: p => <TillsSection {...p} /> },
   { key: 'layouts', label: 'Till layouts', icon: PanelsTopLeft, render: p => <TillLayoutsSection {...p} /> },
   { key: 'streams', label: 'Revenue streams', icon: Waypoints, render: p => <RevenueStreamsSection {...p} /> },
@@ -99,9 +102,9 @@ export default function PosSetup() {
           {!venuesLoading && !venues.length && <p className="text-sm text-muted-foreground">Add a venue first.</p>}
           <ErrorNote error={error} />
           {(isLoading || venuesLoading) && <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
-          {setup && !canManage && <ReadOnlyNotice what="the store tech setup" />}
+          {setup && !canManage && !tab.readOnly && <ReadOnlyNotice what="the store tech setup" />}
           {setup && (
-            <ReadOnlyFieldset disabled={!canManage}>
+            <ReadOnlyFieldset disabled={!canManage && !tab.readOnly}>
               {tab.render({ venueId, setup, canManage })}
             </ReadOnlyFieldset>
           )}

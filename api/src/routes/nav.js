@@ -55,6 +55,7 @@ export const ROUTE_CATALOG = [
   { route: '/inventory', label: 'Inventory', icon: 'Package', module: 'purchasing_setup' },
   { route: '/suppliers', label: 'Suppliers', icon: 'Truck', module: 'purchasing_setup' },
   // Store tech: one page per part (admin/src/pages/PosSetup.jsx TABS).
+  { route: '/pos/board', label: 'Tech board', icon: 'Activity', module: 'pos_setup' },
   { route: '/pos/tills', label: 'Tills', icon: 'MonitorSmartphone', module: 'pos_setup' },
   { route: '/pos/layouts', label: 'Till layouts', icon: 'PanelsTopLeft', module: 'pos_setup' },
   { route: '/pos/floor', label: 'Floor plan', icon: 'LayoutPanelTop', module: 'pos_setup' },

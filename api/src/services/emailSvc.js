@@ -224,7 +224,8 @@ async function sendViaSMTP({ credentials, from, to, cc, replyTo, subject, html, 
   const transport  = nodemailer.default.createTransport({
     host:   credentials?.host,
     port:   credentials?.port || 587,
-    secure: credentials?.secure ?? true,
+    // Not set: TLS from the start only on 465; 587 and 25 upgrade with STARTTLS.
+    secure: credentials?.secure ?? (Number(credentials?.port || 587) === 465),
     auth: {
       user: credentials?.user,
       pass: credentials?.pass,
