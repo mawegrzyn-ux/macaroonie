@@ -19,6 +19,13 @@ feature's estimates with its actuals.
   starts and ends on a turn boundary, else left blank.
 - Times are UTC from the container clock. Steps that overlap (one building while another waits
   on CI) are timed on their own clocks and the overlap noted.
+- **Detail** (since 22 Nov 2026): `node scripts/session-timings.mjs --log <session log> --from <ISO>
+  --to <ISO> --commits <a>..<b>` reads the session's own log (`~/.claude/projects/<project>/<session>.jsonl`)
+  and gives, for the window: tool calls and model messages, time in tools by phase (find and read
+  code, edits, test runs, builds, waits for background runs and CI, pull requests), the model's own
+  time between calls, the slowest calls, tokens and an estimated cost at list prices, and the lines
+  the commits changed by kind (code, tests, docs and notes, migrations). Phases are guessed from the
+  tool and the shell command's words. Add its numbers to the step's detail below.
 
 ## Scale used for the 22 Nov 2026 backlog estimates
 
@@ -82,4 +89,53 @@ Item 48's steps as estimated: 1: 1.5 to 2, 2: 1 to 2, 3: 1, 4: 2 to 3, 5: 1, 6: 
 - What cost time: one test that failed for a reason the plan didn't foresee (the smart builder's budget, 12 minutes), and the related test runs (2 to 5 minutes each).
 - Not counted: the owner's review, a browser check of the editor and the till scan, a real barcode scanner.
 - **Revised scale for the next planned feature** (a design written and decisions taken, one area, one agent): estimate each step in minutes, about 10 to 30 minutes to build plus about 6 minutes to merge; a step with a migration and a new table at the top of that range; double it for a step that touches something the plan didn't look at. Keep the old session scale for work with no design yet, or that needs live accounts or devices.
+
+## Detail by step (from `scripts/session-timings.mjs`)
+
+Model claude-opus-5-5 at high effort for every step. "Tools" is time inside tool calls (a test run,
+a build, a wait), "model" the model's own time between them (reading results, deciding, writing the
+next edit). Cost is estimated from each message's tokens at list prices; cached reads are most of it
+(the session's context was about 550,000 tokens, re-read on every message).
+
+| Step | Wall | Calls / messages | Tools by phase | Model | Changed (files, +lines) | Tokens out / cached read | Cost |
+|---|---|---|---|---|---|---|---|
+| 48.1 | 8.8 min | 38 / 69 | tests 4.0, builds 0.7, reading code 0.1 (18 calls), edits 0.1 (9) | 2.2 min | code 5 (+140), tests 2 (+128), docs 7 (+43), migration (+15) | 50k / 36M | about $9 |
+| 48.2 | 13.8 min | 28 / 55 | tests 10.1 (one run of 65 files blocked 10 min in the foreground), builds 0.4 | 1.6 min | code 7 (+51), tests 2 (+61), docs 7 (+21) | 41k / 32M | about $8 |
+| 48.3 | 6.0 min | 37 / 61 | waiting on background tests 1.3, tests 0.7, builds 0.6, reading 22 calls | 1.6 min | code 7 (+35), tests 1 (+17), docs 7 (+19) | 37k / 39M | about $9 |
+| 48.4 | 11.7 min | 32 / 59 | waiting on background tests 6.3, tests 0.9, builds 0.4 | 2.1 min | code 8 (+260), tests 3 (+75), docs 8 (+33), migration (+28) | 60k / 40M | about $10 |
+| 48.5 | 7.5 min | 26 / 40 | waiting on background tests 4.3, tests 0.5, builds 0.3 | 1.5 min | code 7 (+109), tests 2 (+43), docs 6 (+20), migration (+7) | 31k / 29M | about $7 |
+| 48.6 | 25.5 min | 46 / 76 | finding and rerunning a failing test 8.1, waiting on background tests 9.6, waiting on 48.5's and its own CI 10.2 | 2.1 min | code 1 (+13), tests 1 (+26), docs 8 (+15) | 57k / 58M | about $13 |
+| **48 whole** (18:00 to 19:36) | **96 min** | **233 / 406** | **tests 24.2, background waits 22.7, CI waits 20.3**, builds 2.3, pull requests 1.0, reading code 0.5 (88 calls), edits 0.5 (37 calls), git 0.3 | **12.6 min** | code 22 (+598), tests 4 (+350), docs and notes 18 (+201), migrations 3 (+50) | 323k / 263M | **about $62** |
+
+### What was quick and what was slow
+
+- **Writing the code was the smallest part.** Edits took 0.5 minutes of tool time over 37 calls,
+  reading code 0.5 minutes over 88 calls, and the model's own time 12.6 minutes in all. About 70% of
+  the 96 minutes was waiting: test runs (24 min), background test runs (23 min) and CI (20 min).
+- **Quick: code that followed an existing path.** The type on menu, section and dish (48.1) copied
+  the tax inheritance through the schema, the load, the tree save, the copy body and the release;
+  the kitchen skip (48.3) was one flag set where lines are made and one filter where they're sent;
+  the word (48.5) one shared rule used in four places. Each was 1.5 to 2 minutes of the model's time.
+- **Quick: shared rules with unit tests.** `shared/catalogue.js` (types, barcodes, codes, words) was
+  written and tested in seconds each; unit tests run in under a second.
+- **Slow: finding a cause the plan didn't foresee.** 48.6 added three report fields in under a
+  minute, then a smart builder test failed: the fields, linked into every subject that reaches dishes,
+  pushed Dishes sold out of the builder's budget. Finding it took about 12 minutes (a debug print,
+  then comparing the subjects listed in full with and without the change).
+- **Slow: the broad test runs.** Running every related API test file after each step took 4 to 10
+  minutes (36 to 65 files). Running them in the background while writing the docs hid most of it;
+  48.2's run was started in the foreground and blocked the agent for 10 minutes.
+- **Slow: CI.** About 5 to 6 minutes per pull request with the API tests in parallel parts. Steps
+  2 to 6 were built while the previous step's CI ran, so most of it overlapped.
+- **Expensive: a long session.** About $62 for the feature, most of it re-reading the session's
+  context (about 550,000 tokens) on each of 406 messages. The same steps in a fresh agent with a
+  small context would cost a fraction; the time would be about the same, since waiting dominates.
+
+### What to change next time
+
+- Start broad test runs in the background from the first one, and write the docs meanwhile.
+- Run the smart builder test (`reports-smart.test.mjs`) whenever a report field is added to a
+  subject many others link to.
+- For cost, build a feature in a fresh agent (or a new session) that reads only the plan and the
+  area notes, not in a session that already holds a day of context.
 

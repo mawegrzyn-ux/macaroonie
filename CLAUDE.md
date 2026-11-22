@@ -123,7 +123,7 @@ When the user signals end of session ("wrap up", "eos", "that's all", or natural
 - This file — only when a rule that applies everywhere changes, or an area is added.
 - In-app Help — **always** add/update the operator-facing section (`admin/src/pages/help/<id>.jsx`, one file per section; a new section is a new file whose `order` slots it in) for any new or changed feature. This is the most user-visible doc and must never lag behind shipped code.
 - In-app Docs — **always** add/update the technical section (`admin/src/pages/docs/<id>.jsx`) for any new API routes, DB tables, services, or architectural changes.
-- `docs/claude/estimates.md` — a row for each feature step built: the estimate made before it, build and merge times, model and effort.
+- `docs/claude/estimates.md` — a row for each feature step built: the estimate made before it, build and merge times, model and effort, and its detail from `node scripts/session-timings.mjs` (phases, model time, tokens, cost, lines changed).
 - The changelog — add a file `changes/YYYY-MM-DD-<area>-<slug>.md` for shipped features (`changes/README.md`; `CHANGE.md` is the history before 22 Nov 2026).
 
 **2. Impact analysis:**
