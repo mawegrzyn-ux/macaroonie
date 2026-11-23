@@ -30,6 +30,8 @@ import { openDatesOrNull } from './openDays.js'
 import { poNumberLabel, deadlinePassed } from '../../../shared/procurement.js'
 import { weekAhead } from '../../../shared/localInfo.js'
 import { loadStates, applyStates, canChange } from './opsTasks.js'
+import { deviceOnline } from '../../../shared/techBoard.js'
+import { pageLink } from '../../../shared/nav/links.js'
 
 export const GRACE_MINS = 30
 export const NEXT_MINS = 120
@@ -84,6 +86,13 @@ export const AREAS = {
   wages: 'cash_recon',
   online_orders: 'web_orders',
   report_alerts: 'reports',
+  // Pepper-first step 5d: six more sources.
+  failed_emails: 'email_templates',
+  reviews: 'website',
+  screens: 'screens',
+  devices: 'pos_setup',
+  sold_out: 'web_orders',
+  rota: 'rota',
 }
 
 /** The module a task belongs to: its area's, or Purchasing approval for orders to approve. */
@@ -123,6 +132,36 @@ function checkRounds({ kind, form, label, units, times, readings, key }, s) {
     }]
   })
 }
+
+// A source's reads shared with another source on the same feed (the tech
+// board, the day's sittings): worked out once per feed.
+const once = (s, key, fn) => (s.memo[key] ||= fn())
+
+/** The day's sittings (the booking schedule), or null when they can't be read. */
+const sittingsOf = (ctx, v, s) => once(s, 'sittings', () =>
+  callApi(ctx, 'GET', `/api/venues/${v.id}/schedule/sittings-for-date?date=${s.date}`).then(r => r.sittings || []).catch(() => null))
+
+const SEEN_TODAY_MS = 24 * 3600_000
+const SEEN_LATELY_MS = 3 * 3600_000
+/**
+ * Whether kit that isn't answering is worth a task now (screens, devices):
+ * only on today's feed; while the venue trades (its first sitting less
+ * OPEN_EARLY_MINS to its closing time) for kit seen in the last day; when the
+ * day has no sittings to go by, only kit seen in the last three hours (it
+ * dropped, rather than was switched off at close).
+ */
+const OPEN_EARLY_MINS = 30
+async function offlineMatters(ctx, v, s, lastSeenAt) {
+  if (s.date !== s.today || !lastSeenAt) return false
+  const age = Date.now() - new Date(lastSeenAt).getTime()
+  const sittings = await sittingsOf(ctx, v, s)
+  const close = sittings?.length ? closingTime(sittings) : null
+  const opens = (sittings || []).map(x => hhmm(x.opens_at)).filter(Boolean).sort()[0]
+  if (!close || !opens) return age < SEEN_LATELY_MS
+  const from = Math.max(0, mins(opens) - OPEN_EARLY_MINS)
+  return mins(s.now) >= from && s.now <= close && age < SEEN_TODAY_MS
+}
+const lastSeenText = (at, tz) => 'Last seen ' + localParts(at, tz).time
 
 const SOURCES = {
   async food_safety(ctx, v, s) {
@@ -364,6 +403,110 @@ const SOURCES = {
       action: { path: '/orders', label: 'Open the board' },
     }]
   },
+
+  // Booking emails that failed or bounced on the feed's day (Email monitor's
+  // log, read as the person). A failed email stays failed in the log, so
+  // these are done by hand (MANUAL_DONE_KINDS) once someone has dealt with it.
+  async failed_emails(ctx, v, s) {
+    const rows = await callApi(ctx, 'GET', `/api/email-monitoring/log?venue_id=${v.id}&limit=200`)
+    return rows
+      .filter(e => ['failed', 'bounced'].includes(e.status) && e.venue_id === v.id && localParts(e.created_at, v.timezone).date === s.date)
+      .slice(0, 10)
+      .map(e => ({
+        key: 'email_failed:' + e.id, area: 'failed_emails', kind: 'failed_email', compliance: false,
+        title: 'Booking email ' + (e.status === 'bounced' ? 'bounced' : 'failed') + (e.guest_name ? ' for ' + e.guest_name : ''),
+        detail: [e.subject, e.recipient, e.error ? String(e.error).slice(0, 80) : null].filter(Boolean).join(' · '),
+        due: null, group: 'now',
+        action: { path: '/email-monitoring', label: 'Look at it' },
+      }))
+  },
+
+  // Reviews waiting in the To check inbox (Reviews): one task each, low
+  // ratings now, the rest later. Gone once checked.
+  async reviews(ctx, v, s) {
+    const rows = await callApi(ctx, 'GET', `/api/reviews?venue_id=${v.id}&to_check=true&limit=10&sort=newest`)
+    return rows.slice(0, 10).map(r => ({
+      key: 'review:' + r.id, area: 'reviews', kind: 'review_to_check', compliance: false,
+      title: 'Review to check: ' + r.rating + (Number(r.rating) === 1 ? ' star' : ' stars') + (r.reviewer_name ? ' from ' + r.reviewer_name : ''),
+      detail: [r.platform, r.review_text ? String(r.review_text).replace(/\s+/g, ' ').slice(0, 90) : null].filter(Boolean).join(' · '),
+      due: null, group: Number(r.rating) <= 2 ? 'now' : 'later',
+      action: { path: '/reviews', label: 'Check it' },
+    }))
+  },
+
+  // Menu screens that stopped answering while the venue trades (the Tech
+  // board's own rule for online, shared/techBoard.js). Done by hand, or gone
+  // once it answers again.
+  async screens(ctx, v, s) {
+    const board = await once(s, 'board', () => callApi(ctx, 'GET', `/api/tech-board/venues/${v.id}`))
+    const out = []
+    for (const x of board.screens || []) {
+      if (!x.paired || x.state !== 'offline' || !(await offlineMatters(ctx, v, s, x.last_seen_at))) continue
+      out.push({
+        key: 'screen_offline:' + x.id, area: 'screens', kind: 'screen_offline', compliance: false,
+        title: 'Menu screen offline: ' + x.name,
+        detail: lastSeenText(x.last_seen_at, v.timezone) + ' · it keeps showing what it had; check its power and Wi-Fi',
+        due: null, group: 'now',
+        action: { path: '/pos/board', label: 'Look at it' },
+      })
+    }
+    return out
+  },
+
+  // Tills, kitchen screens, kiosks and the venue hub that stopped answering
+  // while the venue trades (the Tech board, shared/techBoard.js deviceOnline()).
+  async devices(ctx, v, s) {
+    const board = await once(s, 'board', () => callApi(ctx, 'GET', `/api/tech-board/venues/${v.id}`))
+    const names = { till: 'Till', kds: 'Kitchen screen', kiosk: 'Kiosk', hub: 'Venue hub' }
+    const out = []
+    for (const d of board.devices || []) {
+      if (!d.paired || deviceOnline(d) || !(await offlineMatters(ctx, v, s, d.last_seen_at))) continue
+      out.push({
+        key: 'device_offline:' + d.id, area: 'devices', kind: 'device_offline', compliance: false,
+        title: (names[d.kind] || 'Device') + ' offline: ' + d.name,
+        detail: lastSeenText(d.last_seen_at, v.timezone),
+        due: null, group: 'now',
+        action: { path: '/pos/board', label: 'Look at it' },
+      })
+    }
+    return out
+  },
+
+  // Dishes sold out (on the till, online and menu screens), one task each:
+  // put back on when there is more. Later, unless sold out since an earlier day.
+  async sold_out(ctx, v, s) {
+    const av = await callApi(ctx, 'GET', `/api/orders/availability/${v.id}`)
+    const seen = new Map()
+    for (const m of av.menus || []) for (const sec of m.sections || []) for (const i of sec.items || []) {
+      if (!(i.sold_out || i.sold_out_until)) continue
+      const name = String(i.name).trim()
+      if (!seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), i)
+    }
+    return [...seen.values()].slice(0, 10).map(i => ({
+      key: 'sold_out:' + i.id, area: 'sold_out', kind: 'sold_out', compliance: false,
+      title: i.name + ' is sold out',
+      detail: i.sold_out_until ? 'Back on by itself at ' + localParts(i.sold_out_until, v.timezone).time + ' unless put back sooner' : 'Until someone puts it back',
+      due: null, group: 'later',
+      action: { form: 'sold_out', label: 'Put back on' },
+    }))
+  },
+
+  // Next week's rota still empty from Thursday (late from Saturday), at a
+  // venue with people on its rota. Gone once anyone is on it.
+  async rota(ctx, v, s) {
+    const day = new Date(s.date + 'T12:00:00Z').getUTCDay()   // 0 Sunday .. 6 Saturday
+    if (![4, 5, 6, 0].includes(day)) return []
+    const next = addDays(mondayOf(s.date), 7)
+    const week = await callApi(ctx, 'GET', `/api/rota/venues/${v.id}/weeks/${next}`)
+    if (!(week.staff || []).length || (week.entries || []).length) return []
+    return [{
+      key: 'rota_next_week:' + next, area: 'rota', kind: 'rota_not_ready', compliance: false,
+      title: 'Next week\'s rota is empty',
+      detail: 'Week of ' + shortDate(next) + ' · nobody is on it yet',
+      due: null, group: day === 6 || day === 0 ? 'late' : 'now',
+      action: { path: pageLink('/rota', { venue: v.id, week: next }), label: 'Do the rota' },
+    }]
+  },
 }
 
 /**
@@ -413,7 +556,7 @@ export async function opsToday(ctx, venue, { date, time, levels }) {
   const [closed] = await Promise.all([
     callApi(ctx, 'GET', `/api/hs-settings?venue_id=${venue.id}&date=${day}`).then(r => !!r.closed).catch(() => false),
   ])
-  const s = { date: day, now: at, today: now.date, closed, levels }
+  const s = { date: day, now: at, today: now.date, closed, levels, memo: {} }
 
   const tasks = []
   const notIncluded = []

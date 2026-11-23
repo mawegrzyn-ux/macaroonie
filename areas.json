@@ -1132,6 +1132,7 @@
     "api/test/home-pins.test.mjs",
     "api/test/nav-default.test.mjs",
     "api/test/open-page.test.mjs",
+    "api/test/ops-sources.test.mjs",
     "api/test/ops-tasks.test.mjs",
     "api/test/ops-today.test.mjs",
     "api/test/task-notices.test.mjs",

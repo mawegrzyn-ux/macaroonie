@@ -26,7 +26,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Home as HomeIcon, Sun, Sunrise, Moon, RefreshCw, Thermometer, Flame, ListChecks, AlertTriangle, Truck, Send,
   Wallet, ShoppingBag, ClipboardList, CheckCircle2, ExternalLink, ChevronRight, CalendarDays,
-  Users, Loader2, Info, CloudSun, BarChart3, Pin, Sparkles,
+  Users, Loader2, Info, CloudSun, BarChart3, Pin, Sparkles, MailWarning, MessageSquare, Monitor, MonitorSmartphone,
+  Ban, CalendarRange,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
@@ -57,14 +58,16 @@ const KIND_ICON = {
   fridge_check: Thermometer, hold_check: Thermometer, cooking_check: Flame, corrective_action: AlertTriangle,
   checklist: ListChecks, hs_action: ClipboardList, po_to_send: Send, delivery_due: Truck, delivery_not_booked: Truck,
   orders_to_approve: ClipboardList, cash_up: Wallet, cash_week: Wallet, wages_to_pay: Users, online_orders: ShoppingBag,
-  report_alert: BarChart3,
+  report_alert: BarChart3, failed_email: MailWarning, review_to_check: MessageSquare, screen_offline: Monitor,
+  device_offline: MonitorSmartphone, sold_out: Ban, rota_not_ready: CalendarRange,
 }
 
 
 const AREA_NAMES = {
   food_safety: 'food safety', checklists: 'checklists', hs_actions: 'the H&S action log',
   purchasing: 'purchasing', cash: 'cash reconciliation', wages: 'wages', online_orders: 'online orders',
-  report_alerts: 'report alerts',
+  report_alerts: 'report alerts', failed_emails: 'failed booking emails', reviews: 'reviews', screens: 'menu screens',
+  devices: 'tills and devices', sold_out: 'sold out dishes', rota: 'the rota',
 }
 
 export function readVenue() { try { return localStorage.getItem(VENUE_KEY) || '' } catch { return '' } }
