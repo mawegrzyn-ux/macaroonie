@@ -81,6 +81,8 @@
     "api/test/customers-delete.test.mjs"
    ],
    "public": [
+    "admin/src/components/bookings/BookingDrawer.jsx",
+    "admin/src/components/bookings/NewBookingModal.jsx",
     "api/src/services/broadcastSvc.js",
     "api/src/services/depositSvc.js",
     "api/src/services/emailSvc.js",
@@ -858,6 +860,7 @@
     "shared/test/procurement.test.mjs"
    ],
    "public": [
+    "admin/src/components/purchasing/ordering.jsx",
     "admin/src/components/purchasing/shared.jsx",
     "api/src/services/invoiceReadAi.js",
     "api/src/services/pdfDoc.js",

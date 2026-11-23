@@ -31,7 +31,7 @@
 // Prices show only for people with purchasing_setup view (meta.show_prices).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Loader2, Plus, Search, Printer, FileText, FileSpreadsheet, Mail, Check, AlertTriangle, Truck,
@@ -61,6 +61,7 @@ import {
 import { NoOrderSupplierModal, noOrderPo } from '@/components/purchasing/noOrder'
 import { BasketModal } from '@/components/purchasing/basket'
 import { StockBadge, StockNote, StockControl } from '@/components/purchasing/stock'
+import { useFormFill, PepperMark, FILLED_CLASS } from '@/components/forms/fill'
 
 const SENT_VIA = [
   { key: 'print', label: 'Printed and handed over' },
@@ -104,6 +105,26 @@ export function PurchasingApp({ venueId, phone = false }) {
         : <Deliveries venueId={venueId} meta={meta} onOpen={id => go({ po: id })} />}
     </div>
   )
+}
+
+/**
+ * An order in a form sheet (Pepper's open_form 'order', Pepper-first step 3e):
+ * the Order tab's lists, then the order form, the same as the Purchasing
+ * page's, with Pepper's quantities marked (OrderForm). Placing or sending it
+ * tells the sheet what was saved.
+ */
+export function OrderSheet({ venueId }) {
+  const [orderId, setOrderId] = useState(null)
+  const { data: meta } = usePurchasingMeta()
+  const fill = useFormFill()
+  const navigate = useNavigate()
+  if (!venueId) return null
+  if (orderId) {
+    return <OrderForm key={orderId} orderId={orderId} meta={meta} phone={false} embedded
+      onBack={() => setOrderId(null)} onPlaced={() => { fill?.saved('Order placed', 'order'); setOrderId(null) }}
+      onOpenPo={id => navigate('/purchasing?po=' + id)} onOpenOrder={setOrderId} />
+  }
+  return <OrderHome venueId={venueId} meta={meta} onOpen={setOrderId} />
 }
 
 // ── Order tab ───────────────────────────────────────────────────
@@ -275,7 +296,32 @@ function useAutosave(orderId) {
   return { queue, flush, state, error }
 }
 
-function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrder }) {
+/** Pepper's items ({ name, qty }) matched to an order's lines by name:
+ *  exact, then starts with, then contains (one match only). */
+export function matchOrderItems(items, wanted) {
+  const found = {}
+  const missing = []
+  for (const w of wanted || []) {
+    const t = String(w.name || '').trim().toLowerCase()
+    const tests = [n => n === t, n => n.startsWith(t), n => n.includes(t)]
+    let hit = null
+    for (const test of tests) {
+      const hits = items.filter(it => test(String(it.name).toLowerCase()))
+      if (hits.length === 1) { hit = hits[0]; break }
+      if (hits.length > 1) break
+    }
+    if (hit && hit.quote !== undefined) found[hit.item_id] = Number(w.qty)
+    else missing.push(w.name)
+  }
+  return { found, missing }
+}
+
+// embedded: inside a form sheet (components/forms/FormSheet.jsx), whose own
+// header sticks at the top, so this form's bars don't stick. In a sheet
+// Pepper filled, the quantities Pepper was told (fill.values.items) are put
+// on their lines marked, and saved only when the person presses OK (or OK
+// all) or changes them; the order can't be placed while any is waiting.
+function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrder, embedded = false }) {
   const api = useApi()
   const qc = useQueryClient()
   const { data: order, isLoading, error } = useQuery({ queryKey: ['supply-order', orderId], queryFn: () => api.get(`/purchasing/orders/${orderId}`) })
@@ -295,6 +341,9 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
   const [basket, setBasket] = useState(false)
   const [show, setShow] = useShowPrefs()
   const save = useAutosave(orderId)
+  const fill = useFormFill()
+  const [pepper, setPepper] = useState(null)   // { item_id: qty } still waiting for the person
+  const [pepperMissing, setPepperMissing] = useState([])
   const prices = !!order?.show_prices
   const editable = !!order?.can_edit
   // Recording what a supplier said (out of stock until a date): anyone who
@@ -317,6 +366,22 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
       return next
     })
   }, [order])
+
+  // Pepper's quantities, once, when the order is first here: on the lines,
+  // not saved (the draft on the server keeps its own until OK or a change).
+  useEffect(() => {
+    if (!order || pepper !== null) return
+    const wanted = fill?.values?.items
+    if (!wanted?.length || !order.can_edit) { setPepper({}); return }
+    const { found, missing } = matchOrderItems(order.items, wanted)
+    setPepper(found)
+    setPepperMissing(missing)
+    setLines(prev => {
+      const next = { ...prev }
+      for (const [id, qty] of Object.entries(found)) next[id] = { ...next[id], qty }
+      return next
+    })
+  }, [order]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // After the server changed the quantities (a split): its lines win.
   const reload = fresh => {
@@ -344,7 +409,9 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
     (goneOf(it) ? null : it.quotes.find(q => q.id === it.default_quote_id) || null)
 
   // Each quantity is saved with the price it is shown on (the line keeps it).
+  // A change to a line Pepper filled takes its mark off.
   const setQty = (it, qty) => {
+    if (pepper && it.item_id in pepper) setPepper(p => { const n = { ...p }; delete n[it.item_id]; return n })
     const q = quoteOf(it)
     setLines(l => ({ ...l, [it.item_id]: { ...l[it.item_id], qty, ...(q ? { quote_id: q.id } : {}) } }))
     save.queue({ item_id: it.item_id, qty, ...(q ? { quote_id: q.id } : {}) })
@@ -409,6 +476,9 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
   const visible = order.items.filter(it => (!onlyQty || qtyOf(it) > 0) && (!q || matchesSearch(it, q)))
   const groups = groupRows(visible, groupBy, order, quoteOf, now)
   const lineCount = bySupplier.reduce((n, g) => n + g.lines.length, 0)
+  const waiting = Object.keys(pepper || {})
+  const okPepper = it => setQty(it, pepper[it.item_id])
+  const okAllPepper = () => { for (const it of order.items) if (waiting.includes(it.item_id)) setQty(it, pepper[it.item_id]) }
   const goneLines = order.items.filter(goneOf)
   const grand = prices ? bySupplier.reduce((s, g) => s + g.totals.total, 0) : null
   const hasPars = order.items.some(it => it.par_base != null)
@@ -420,7 +490,7 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
 
   return (
     <div className="flex flex-col min-h-full">
-      <div className={cn('sticky top-0 z-10 bg-background border-b', phone ? 'px-3 py-2' : 'px-4 py-2')}>
+      <div className={cn(!embedded && 'sticky top-0 z-10', 'bg-background border-b', phone ? 'px-3 py-2' : 'px-4 py-2')}>
         <div className="flex items-center gap-2">
           <button type="button" onClick={async () => { await save.flush(); qc.invalidateQueries({ queryKey: ['supply-orders'] }); onBack() }}
             className="w-11 h-11 -ml-2 flex items-center justify-center rounded-lg hover:bg-muted touch-manipulation" aria-label="Back">
@@ -434,7 +504,7 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
             </p>
           </div>
           {mainAction && (
-            <button type="button" className={btn.primary} disabled={!lineCount || goneLines.length > 0} onClick={openReview}>
+            <button type="button" className={btn.primary} disabled={!lineCount || goneLines.length > 0 || waiting.length > 0} onClick={openReview}>
               {mainLabel}{lineCount ? ` (${lineCount})` : ''}
             </button>
           )}
@@ -480,6 +550,15 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
       )}
       <ErrorNote error={withdraw.error || decline.error} />
       {order.notes && <p className="mx-4 mt-3 text-sm rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">{order.notes}</p>}
+      {(waiting.length > 0 || pepperMissing.length > 0) && (
+        <div className="mx-4 mt-3 text-sm rounded-lg bg-violet-50 border border-violet-200 px-3 py-2 flex flex-wrap items-center gap-2" data-testid="order-pepper-note">
+          <span className="flex-1 min-w-[200px]">
+            {waiting.length > 0 && <>{ASSISTANT_NAME} filled in {waiting.length} quantit{waiting.length === 1 ? 'y' : 'ies'}: check each, then OK it or change it. Nothing is saved until you do. </>}
+            {pepperMissing.length > 0 && <>Not on this list: {pepperMissing.join(', ')}.</>}
+          </span>
+          {waiting.length > 1 && <button type="button" className={btn.outline} onClick={okAllPepper} data-testid="order-pepper-ok-all">OK all</button>}
+        </div>
+      )}
       {goneLines.length > 0 && (
         <p className="mx-4 mt-3 text-sm rounded-lg bg-red-50 border border-red-200 px-3 py-2 flex items-start gap-2" data-testid="order-gone-note">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-700" />
@@ -504,7 +583,8 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
                   hasPars={hasPars} hasExtras={hasExtras} readOnly={!editable} asked={requested ? it.requested_qty : undefined}
                   stockDay={stockDayOf(quoteOf(it))} canMark={canMark}
                   onQty={v => setQty(it, v)} onSwitch={() => setSwitching(it)}
-                  onRemove={editable && !it.on_list ? () => removeExtra.mutate(it.item_id) : null} />
+                  onRemove={editable && !it.on_list ? () => removeExtra.mutate(it.item_id) : null}
+                  pepper={waiting.includes(it.item_id)} onPepperOk={() => okPepper(it)} />
               ))}
             </div>
           </section>
@@ -515,13 +595,13 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
       </div>
 
       {lineCount > 0 && (
-        <div className="sticky bottom-0 z-20 mt-auto border-t bg-background px-4 py-2 flex items-center gap-3">
+        <div className={cn(!embedded && 'sticky bottom-0 z-20', 'mt-auto border-t bg-background px-4 py-2 flex items-center gap-3')}>
           <span className="flex-1 min-w-0 text-sm">
             <strong>{lineCount}</strong> line{lineCount === 1 ? '' : 's'} · {bySupplier.length} supplier{bySupplier.length === 1 ? '' : 's'}
             {prices && <> · <strong>{money(grand)}</strong> inc VAT</>}
           </span>
           {mainAction && (
-            <button type="button" className={btn.primary} disabled={goneLines.length > 0} onClick={openReview}>
+            <button type="button" className={btn.primary} disabled={goneLines.length > 0 || waiting.length > 0} onClick={openReview}>
               {mainAction === 'place' ? 'Review & place' : 'Send for approval'}
             </button>
           )}
@@ -680,7 +760,7 @@ function goneWords(gone) {
     : `${q.supplier_name}'s price for ${q.pack_label} has been switched off. Pick another price, or take it off.`
 }
 
-function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, asked, stockDay, canMark, onQty, onSwitch, onRemove }) {
+function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, asked, stockDay, canMark, onQty, onSwitch, onRemove, pepper = false, onPepperOk }) {
   const problem = quote && !gone ? qtyProblem(qty, quote) : null
   // A switched-off price still shows its pack (struck through) as the
   // button that picks another.
@@ -710,7 +790,7 @@ function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, as
   // Below sm the item text gets a line of its own, so Par and remove sit
   // beside the name and the pack, quantity and last figure fit one line.
   return (
-    <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-4 py-3', qty > 0 && 'bg-primary/[0.03]')}>
+    <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-4 py-3', qty > 0 && 'bg-primary/[0.03]', pepper && FILLED_CLASS)} data-pepper={pepper ? 'yes' : undefined}>
       <div className="flex-1 min-w-[180px] flex items-start gap-2">
         <div className="flex-1 min-w-0">
           <p className="font-medium text-sm">{it.name} <StorageBadge storage={it.storage} /></p>
@@ -745,6 +825,7 @@ function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, as
           )}
           {problem && <p className="text-xs text-amber-700">{problem}: will order {fmtNum(fitQty(qty, quote))}</p>}
           {asked != null && asked !== qty && <p className="text-xs text-blue-800">Asked for {fmtNum(asked)}</p>}
+          {pepper && <PepperMark k={'items:' + it.item_id} onAccept={onPepperOk} />}
         </div>
         {(parBtn || removeBtn) && <div className="sm:hidden flex items-center gap-1 shrink-0">{parBtn}{removeBtn}</div>}
       </div>

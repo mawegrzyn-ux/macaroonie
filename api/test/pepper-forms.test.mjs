@@ -49,7 +49,8 @@ test.after(async () => { await claude.close(); await closeApp() })
 test('one list with the sheet (shared/forms.js), each form with its module, level and page', async () => {
   const { FORMS } = await import('../../shared/forms.js')
   assert.equal(OPEN_FORMS, FORMS, 'open_form reads the shared list itself')
-  for (const k of ['cash_up', 'checklist', 'cooking', 'delivery', 'expense', 'holds', 'rota_day', 'sold_out', 'temps', 'wages']) {
+  for (const k of ['cash_up', 'checklist', 'cooking', 'delivery', 'expense', 'holds', 'rota_day', 'sold_out', 'temps', 'wages',
+    'order', 'corrective', 'hs_action', 'booking', 'booking_change']) {
     assert.ok(OPEN_FORMS[k], k)
   }
   for (const [k, f] of Object.entries(OPEN_FORMS)) {
@@ -221,4 +222,49 @@ test('a saved form becomes a line on its card, kept with the chat for a reload, 
   assert.equal((await as(A.admin, ids.a).post(`/api/ai/conversations/${conv}/forms/toolu_f3`, { summary: 'x' })).status, 404)
   assert.equal((await as(B.owner, ids.b).post(`/api/ai/conversations/${conv}/forms/toolu_f3`, { summary: 'x' })).status, 404, 'another group')
   assert.equal((await me.post(`/api/ai/conversations/${conv}/forms/toolu_f3`, { summary: '  ' })).status, 400)
+})
+
+// ── The four forms of F1 added in step 3e ─────────────────
+
+test('the new forms: a supplier order, corrective actions, an H&S action, a new booking', async () => {
+  const order = await tool(A.owner, { form: 'order', venue: venueName, values: { items: [{ name: 'Milk', qty: 6 }, { name: 'Eggs' }] } })
+  assert.equal(order.form_card.title, 'Supplier order')
+  assert.deepEqual(order.form_card.ref, {}, 'an order has no day: the person picks the list and the delivery')
+  assert.deepEqual(order.form_card.values, { items: [{ name: 'Milk', qty: 6 }] }, 'a row with no quantity is left out')
+  assert.match(order.message, /items\[1\] \(no qty\)/)
+
+  const fix = await tool(A.operator, { form: 'corrective', venue: venueName, date: '2026-11-20', values: { reading: 'Walk-in', action: 'Moved stock to the spare fridge' } })
+  assert.equal(fix.form_card.read_only, false, 'operators log corrective actions (Use)')
+  assert.equal(fix.form_card.ref.date, '2026-11-20')
+
+  const act = await tool(A.owner, { form: 'hs_action', venue: venueName, values: { task: 'Fix the door hinge', priority: 'high', due_date: '2026-11-30' } })
+  assert.equal(act.form_card.title, 'New H&S action')
+  assert.deepEqual(act.form_card.values, { task: 'Fix the door hinge', priority: 'high', due_date: '2026-11-30' })
+  await assert.rejects(tool(A.owner, { form: 'hs_action', venue: venueName, values: { priority: 'urgent' } }), /values\.priority/)
+  await assert.rejects(tool(A.owner, { form: 'hs_action', venue: venueName, values: { due_date: 'tomorrow' } }), /values\.due_date/)
+
+  const book = await tool(A.owner, { form: 'booking', venue: venueName, date: '2026-11-28', values: { name: 'Jane Smith', covers: 4, time: '19:30', phone: '07700900123' } })
+  assert.match(book.form_card.title, /^New booking, /)
+  assert.equal(book.form_card.ref.date, '2026-11-28')
+  assert.deepEqual(book.form_card.values, { name: 'Jane Smith', covers: 4, time: '19:30', phone: '07700900123' })
+  await assert.rejects(tool(A.owner, { form: 'booking', venue: venueName, values: { covers: 2.5 } }), /values\.covers/)
+  await assert.rejects(tool(A.owner, { form: 'booking', venue: venueName, values: { time: '7.30pm' } }), /values\.time/)
+  // Bookings need Manage to make one: below it the card is read only and takes no values.
+  const viewer = await tool(A.viewer, { form: 'booking', venue: venueName, values: { name: 'Jane' } })
+  assert.equal(viewer.form_card.read_only, true)
+  assert.equal(viewer.form_card.values, undefined)
+})
+
+test('booking_change finds the booking by the guest\'s name or its reference, on the day', async () => {
+  const { MONDAY } = await import('./support/fixtures/parts.mjs')
+  const day = (await ok(owner.get(`/api/bookings?venue_id=${V}&date=${MONDAY}&limit=200`))).filter(b => !['cancelled', 'no_show'].includes(b.status))
+  const bob = day.find(b => / Bob$/.test(b.guest_name))
+  assert.ok(bob, 'the fixtures book Bob')
+  const byName = await tool(A.owner, { form: 'booking_change', venue: venueName, date: MONDAY, booking: bob.guest_name })
+  assert.deepEqual(byName.form_card.ref.booking, { id: bob.id, guest_name: bob.guest_name, reference: bob.id.slice(0, 8).toUpperCase() })
+  assert.match(byName.form_card.title, /^Booking for .* Bob, /)
+  const byRef = await tool(A.owner, { form: 'booking_change', venue: venueName, date: MONDAY, booking: '#' + bob.id.slice(0, 8) })
+  assert.equal(byRef.form_card.ref.booking.id, bob.id)
+  await assert.rejects(tool(A.owner, { form: 'booking_change', venue: venueName, date: MONDAY }), /Which booking/)
+  await assert.rejects(tool(A.owner, { form: 'booking_change', venue: venueName, date: MONDAY, booking: 'Nobody At All' }), /No booking on .* called/)
 })

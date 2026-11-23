@@ -12,22 +12,28 @@
 // page. A form that keeps drafts (shared/forms.js drafts: true) restores the
 // person's unsaved values when it opens and keeps them as they type
 // (./useFormDraft.js, step 3d). Sold out opens the Online orders window of its
-// own (AvailabilityModal) instead of a sheet: FormOpener picks.
+// own (AvailabilityModal) instead of a sheet, and so do a new booking
+// (NewBookingModal) and a booking's details (BookingDrawer): FormOpener picks.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, X, Loader2 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
-import { TempChecksTable, HoldChecksTable, CookingChecksPanel, DeliveryChecksPanel } from '@/components/foodSafety/shared'
+import { TempChecksTable, HoldChecksTable, CookingChecksPanel, DeliveryChecksPanel, CorrectiveActionsPanel } from '@/components/foodSafety/shared'
 import { ChecklistRunPanel } from '@/components/checklists/shared'
 import { DayView, StatusBadge, SaveIndicator } from '@/pages/CashRecon'
 import { WeekWagesEditor } from '@/components/cashRecon/WagesTable'
 import { PettyCashPanel } from '@/pages/mobile/MobileExpenses'
 import { RotaGrid, RotaDayList, useRotaPerms } from '@/components/staff/rota'
 import { AvailabilityModal } from '@/components/orders/shared'
+import { HSActionLogPanel } from '@/components/hsActionLog/shared'
+import { OrderSheet } from '@/components/purchasing/ordering'
+import NewBookingModal from '@/components/bookings/NewBookingModal'
+import BookingDrawer from '@/components/bookings/BookingDrawer'
+import { useApi } from '@/lib/api'
 import { FORMS } from '@shared/forms.js'
 import { FormFillProvider } from './fill'
 import { useFormDraft } from './useFormDraft'
@@ -69,6 +75,7 @@ export function formTitle(form, meta, date = null) {
   if (form.form === 'expense') return 'Expenses for ' + format(parseISO(form.ref.date), 'EEEE d MMMM')
   if (form.form === 'rota_day') return 'Rota for ' + format(parseISO(form.ref.date), 'EEEE d MMMM')
   if (form.form === 'delivery') return 'Delivery checks for ' + format(parseISO(form.ref?.date ?? date ?? todayIso()), 'EEEE d MMMM')
+  if (form.form === 'corrective') return 'Corrective actions for ' + format(parseISO(form.ref?.date ?? date ?? todayIso()), 'EEEE d MMMM')
   return meta.title
 }
 
@@ -160,6 +167,9 @@ export function FormSheet({ form, venueId, date, onClose, onSaved, linkFor }) {
           {form.form === 'expense' && <PettyCashPanel venueId={venueId} date={form.ref.date} />}
           {form.form === 'delivery' && <DeliveryChecksPanel venueId={venueId} date={form.ref?.date ?? date} />}
           {form.form === 'rota_day' && <RotaDaySheet venueId={venueId} date={form.ref.date} />}
+          {form.form === 'order' && <OrderSheet venueId={venueId} />}
+          {form.form === 'corrective' && <CorrectiveActionsPanel venueId={venueId} date={form.ref?.date ?? date} />}
+          {form.form === 'hs_action' && <HSActionLogPanel venueId={venueId} startNew day={form.ref?.date ?? date} />}
           {form.form === 'wages' && (
             <WeekWagesEditor venueId={venueId} weekStart={form.ref.week} readOnly={!cashUse} canSetDefault={cashManage}
               showBank={!linkFor} hidePaidOnForAll={!!linkFor} onStateChange={setWages} />
@@ -213,8 +223,68 @@ export function FormSheet({ form, venueId, date, onClose, onSaved, linkFor }) {
   )
 }
 
-/** A form from FORMS: the sheet, or for sold out the Online orders window. */
+/** A new booking in its own window (the 'booking' form): the Bookings page's
+ *  NewBookingModal with Pepper's values (or a draft's) and the card's day. */
+function BookingWindow({ form, venueId, date, onClose, onSaved }) {
+  const qc = useQueryClient()
+  const day = form.ref?.date ?? date
+  const draft = useFormDraft({ form: 'booking', venueId, day, pepper: form.values })
+  const lines = useRef([])
+  if (!draft.ready) return null
+  return (
+    <FormFillProvider values={draft.values} marked={draft.marked} onChange={draft.change}
+      onSaved={line => { lines.current.push(line); draft.done() }}>
+      <NewBookingModal venueId={venueId} date={day} prefillTime={draft.values.time ?? null}
+        onClose={onClose}
+        onCreated={d => {
+          qc.invalidateQueries({ queryKey: ['bookings', venueId, d] })
+          if (lines.current.length) onSaved?.(lines.current.join('; '))
+          onClose()
+        }} />
+    </FormFillProvider>
+  )
+}
+
+/** A booking's details in their own window (the 'booking_change' form): the
+ *  Timeline's BookingDrawer, from the day's list as the Timeline reads it. */
+function BookingChangeWindow({ form, venueId, date, onClose, onSaved }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const day = form.ref?.date ?? date
+  const id = form.ref?.booking?.id
+  const changed = useRef(false)
+  const { data: bookings, isError } = useQuery({
+    queryKey: ['bookings', venueId, day],
+    queryFn: () => api.get(`/bookings?venue_id=${venueId}&date=${day}`),
+    enabled: !!venueId && !!id,
+  })
+  const booking = (bookings || []).find(b => b.id === id)
+  const close = () => {
+    if (changed.current) onSaved?.('Changed the booking for ' + (booking?.guest_name || form.ref?.booking?.guest_name || 'the guest'))
+    onClose()
+  }
+  if (!booking) {
+    if (!bookings && !isError) return null
+    return (
+      <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+        <div className="bg-background rounded-xl shadow-xl p-5 max-w-sm space-y-3" onClick={e => e.stopPropagation()} data-testid="booking-change-missing">
+          <p className="text-sm">That booking isn&apos;t on {day} any more. It may have been moved or cancelled.</p>
+          <button type="button" onClick={onClose} className="min-h-[48px] px-5 rounded-md bg-primary text-primary-foreground font-medium touch-manipulation">Close</button>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <BookingDrawer key={booking.id} booking={booking} onClose={close}
+      onUpdated={() => { changed.current = true; qc.invalidateQueries({ queryKey: ['bookings', venueId, day] }) }} />
+  )
+}
+
+/** A form from FORMS: the sheet, or a window of its own (FORMS[...].window):
+ *  sold out (the Online orders window), a new booking, a booking's details. */
 export function FormOpener({ form, venueId, date, onClose, onSaved, linkFor }) {
   if (form.form === 'sold_out') return <AvailabilityModal venueId={venueId} onClose={onClose} />
+  if (form.form === 'booking') return <BookingWindow form={form} venueId={venueId} date={date} onClose={onClose} onSaved={onSaved} />
+  if (form.form === 'booking_change') return <BookingChangeWindow form={form} venueId={venueId} date={date} onClose={onClose} onSaved={onSaved} />
   return <FormSheet form={form} venueId={venueId} date={date} onClose={onClose} onSaved={onSaved} linkFor={linkFor} />
 }

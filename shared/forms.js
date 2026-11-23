@@ -17,7 +17,8 @@
 //            venue and day until Save (F6); forms that save each value as it
 //            is typed (the check grids) or keep a draft of their own (an
 //            order) have none
-//   window   true: it opens a window of its own instead of the sheet
+//   window   true: it opens a window of its own instead of the sheet (sold
+//            out, a new booking, a booking's details)
 //
 // FIELD TYPES (fields: { key: field }):
 //   { type: 'text', max }                     words, one line or a few
@@ -101,6 +102,53 @@ export const FORMS = {
   rota_day: {
     title: 'Rota', module: 'rota', edit: 'manage', path: '/rota', by: 'date',
     fields: {},
+  },
+  // The four of F1 added in step 3e.
+  order: {
+    title: 'Supplier order', module: 'purchasing', edit: 'manage', path: '/purchasing', phone: '/mobile/purchasing', by: null,
+    fields: {
+      items: { type: 'list', max: 60, label: 'Items', of: {
+        name: { type: 'text', max: 120, label: 'Item', required: true },
+        qty:  { type: 'number', min: 0, max: 10000, label: 'Quantity', required: true },
+      } },
+    },
+  },
+  corrective: {
+    title: 'Corrective actions', module: 'food_safety', edit: 'use', path: '/food-safety', by: 'date',
+    fields: {
+      reading: { type: 'text', max: 120, label: 'Reading (fridge, station or dish)' },
+      action:  { type: 'text', max: 500, label: 'Corrective action' },
+    },
+    drafts: true,
+  },
+  hs_action: {
+    title: 'H&S action', module: 'hs_action_log', edit: 'use', path: '/hs-action-log', by: 'date',
+    fields: {
+      task:        { type: 'text', max: 200, label: 'Task' },
+      details:     { type: 'text', max: 1000, label: 'Details' },
+      category:    { type: 'text', max: 80, label: 'Category' },
+      priority:    { type: 'enum', values: ['low', 'medium', 'high', 'critical'], label: 'Priority' },
+      assigned_to: { type: 'text', max: 120, label: 'Assigned to' },
+      due_date:    { type: 'date', label: 'Due date' },
+      notes:       { type: 'text', max: 1000, label: 'Notes' },
+    },
+    drafts: true,
+  },
+  booking: {
+    title: 'New booking', module: 'bookings', edit: 'manage', path: '/bookings', by: 'date',
+    fields: {
+      name:   { type: 'text', max: 120, label: 'Name' },
+      phone:  { type: 'text', max: 40, label: 'Phone' },
+      email:  { type: 'text', max: 200, label: 'Email' },
+      covers: { type: 'int', min: 1, max: 300, label: 'Covers' },
+      time:   { type: 'time', label: 'Time' },
+      notes:  { type: 'text', max: 500, label: 'Notes' },
+    },
+    drafts: true, window: true,
+  },
+  booking_change: {
+    title: 'Change a booking', module: 'bookings', edit: 'manage', path: '/bookings', by: 'date',
+    fields: {}, window: true,
   },
 }
 

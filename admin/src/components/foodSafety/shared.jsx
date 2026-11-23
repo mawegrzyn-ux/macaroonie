@@ -1774,27 +1774,24 @@ export function CookingChecksPanel({ venueId, date }) {
 // unresolved reading for the day and collects a corrective action for
 // each. "Do this later" closes without losing progress — whatever's left
 // stays unresolved (and the badge count reflects it) until reopened.
-export function EndOfDayReview({ venueId, date }) {
+/** The day's readings out of range with no corrective action yet (fridge,
+ *  hold and cooking), each with the route that takes its action: the one
+ *  list EndOfDayReview and CorrectiveActionsPanel work through. */
+export function useUnresolvedReadings(venueId, date) {
   const api = useApi()
-  const qc = useQueryClient()
-  const readOnly = useFoodSafetyReadOnly()
-  const [open, setOpen] = useState(false)
-  const [index, setIndex] = useState(0)
-  const [action, setAction] = useState('')
-
   const enabled = !!venueId
 
-  const { data: tempLogs = [] } = useQuery({
+  const { data: tempLogs = [], isLoading: l1 } = useQuery({
     queryKey: ['fs-temp-logs', venueId, date],
     queryFn: () => api.get(`/food-safety/temp-logs?venue_id=${venueId}&date=${date}`),
     enabled,
   })
-  const { data: holds = [] } = useQuery({
+  const { data: holds = [], isLoading: l2 } = useQuery({
     queryKey: ['fs-holds', venueId, date],
     queryFn: () => api.get(`/food-safety/holds?venue_id=${venueId}&date=${date}`),
     enabled,
   })
-  const { data: cooking = [] } = useQuery({
+  const { data: cooking = [], isLoading: l3 } = useQuery({
     queryKey: ['fs-cooking', venueId, date],
     queryFn: () => api.get(`/food-safety/cooking?venue_id=${venueId}&date=${date}`),
     enabled,
@@ -1805,7 +1802,7 @@ export function EndOfDayReview({ venueId, date }) {
     for (const l of tempLogs) {
       if (l.is_within_range === false && !l.corrective_action) {
         items.push({
-          name: l.equipment_name, temp: l.temperature_c,
+          key: 'temp:' + l.id, name: l.equipment_name, temp: l.temperature_c,
           range: `${l.min_temp_c ?? '—'} to ${l.max_temp_c ?? '—'}°C`,
           endpoint: `/food-safety/temp-logs/${l.id}`, invalidateKey: ['fs-temp-logs', venueId, date],
         })
@@ -1814,7 +1811,7 @@ export function EndOfDayReview({ venueId, date }) {
     for (const h of holds) {
       if (h.is_within_range === false && !h.corrective_action) {
         items.push({
-          name: h.station_name, temp: h.temperature_c,
+          key: 'hold:' + h.id, name: h.station_name, temp: h.temperature_c,
           range: `${h.min_temp_c ?? '—'} to ${h.max_temp_c ?? '—'}°C`,
           endpoint: `/food-safety/holds/${h.id}`, invalidateKey: ['fs-holds', venueId, date],
         })
@@ -1823,13 +1820,26 @@ export function EndOfDayReview({ venueId, date }) {
     for (const c of cooking) {
       if (c.is_within_range === false && !c.corrective_action) {
         items.push({
-          name: c.dish_name, temp: c.core_temp_c, range: '75°C or above',
+          key: 'cooking:' + c.id, name: c.dish_name, temp: c.core_temp_c, range: '75°C or above',
           endpoint: `/food-safety/cooking/${c.id}`, invalidateKey: ['fs-cooking', venueId, date],
         })
       }
     }
     return items
   }, [tempLogs, holds, cooking, venueId, date])
+  return { unresolved, isLoading: enabled && (l1 || l2 || l3) }
+}
+
+export function EndOfDayReview({ venueId, date }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const readOnly = useFoodSafetyReadOnly()
+  const [open, setOpen] = useState(false)
+  const [index, setIndex] = useState(0)
+  const [action, setAction] = useState('')
+
+  const enabled = !!venueId
+  const { unresolved } = useUnresolvedReadings(venueId, date)
 
   const patch = useMutation({
     mutationFn: ({ endpoint, body }) => api.patch(endpoint, body),
@@ -1901,5 +1911,87 @@ export function EndOfDayReview({ venueId, date }) {
         </div>
       )}
     </>
+  )
+}
+
+// The day's corrective actions in one panel (the form sheet's 'corrective'
+// form, Pepper-first step 3e): every reading still out of range with no
+// action, from the same list as EndOfDayReview, each with its own box and
+// Save. In a sheet Pepper filled, its action goes in the box of the reading
+// it names (fridge, station or dish; the first when it names none), marked.
+export function CorrectiveActionsPanel({ venueId, date }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const readOnly = useFoodSafetyReadOnly()
+  const fill = useFormFill()
+  const { unresolved, isLoading } = useUnresolvedReadings(venueId, date)
+  const [texts, setTexts] = useState({})
+  const placed = useRef(false)
+  const pepperKey = useMemo(() => {
+    const v = fill?.values
+    if (!v?.action || !unresolved.length) return null
+    const want = String(v.reading || '').trim().toLowerCase()
+    const hit = want
+      ? unresolved.find(u => String(u.name).toLowerCase() === want) || unresolved.find(u => String(u.name).toLowerCase().includes(want))
+      : unresolved[0]
+    return hit?.key ?? null
+  }, [fill, unresolved])
+  useEffect(() => {
+    if (placed.current || !pepperKey) return
+    placed.current = true
+    setTexts(t => ({ ...t, [pepperKey]: fill.values.action }))
+  }, [pepperKey, fill])
+
+  const patch = useMutation({
+    mutationFn: ({ item, text }) => api.patch(item.endpoint, { corrective_action: text }),
+    onSuccess: (_, { item, text }) => {
+      qc.invalidateQueries({ queryKey: item.invalidateKey })
+      fill?.saved(item.name + ': ' + text, item.key)
+    },
+  })
+
+  if (!venueId) return null
+  if (isLoading) return <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p>
+  if (!unresolved.length) {
+    return (
+      <p className="text-sm py-8 text-center text-emerald-700 flex items-center justify-center gap-2" data-testid="corrective-none">
+        <Check className="w-4 h-4" /> Every reading that day is in range or has its corrective action.
+      </p>
+    )
+  }
+  return (
+    <div className="space-y-3">
+      {readOnly && <ReadOnlyNotice what="the corrective actions" />}
+      {unresolved.map(item => {
+        const text = texts[item.key] ?? ''
+        const mine = item.key === pepperKey
+        return (
+          <div key={item.key} className="rounded-xl border p-3 space-y-2" data-testid="corrective-item">
+            <p className="text-sm">
+              <span className="font-medium">{item.name}</span> was <strong className="text-red-700">{item.temp}°C</strong>, outside {item.range}.
+            </p>
+            <label className="flex flex-wrap items-center gap-2 text-sm font-medium">
+              Corrective action <FilledMark fill={fill} k="action" has={mine} />
+            </label>
+            <textarea value={text} rows={2} disabled={readOnly}
+              onChange={e => {
+                setTexts(t => ({ ...t, [item.key]: e.target.value }))
+                if (mine) { fill?.clear('action'); fill?.change('action', e.target.value); fill?.change('reading', item.name) }
+              }}
+              placeholder="e.g. Adjusted thermostat, moved stock to backup unit, called engineer"
+              className={cn('w-full border rounded px-3 py-2 text-sm bg-background resize-none', filledClass(fill, 'action', mine))} />
+            {!readOnly && (
+              <div className="flex justify-end">
+                <button type="button" disabled={!text.trim() || patch.isPending}
+                  onClick={() => { fill?.clear('action'); patch.mutate({ item, text: text.trim() }) }}
+                  className="bg-primary text-primary-foreground rounded px-4 min-h-[48px] text-sm font-medium disabled:opacity-50 touch-manipulation">
+                  {patch.isPending && patch.variables?.item.key === item.key ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
   )
 }

@@ -15,7 +15,9 @@
 // components/forms/FormSheet.jsx): the six Today forms (fridge and freezer,
 // hot and cold hold, cooking checks, a checklist, the cash-up, the week's
 // wages) and more: delivery checks, the day's expenses with receipts, sold
-// out dishes, the rota for a day. Each needs View on its module: the form
+// out dishes, the rota for a day, and since step 3e a supplier order,
+// corrective actions, an H&S action log entry, a new booking and a booking's
+// details to change. Each needs View on its module: the form
 // shows read only below the level that changes it (`edit`), as on its page.
 //
 // In the staff chat the card opens the form; through the staff connector
@@ -25,7 +27,7 @@ import { z } from 'zod'
 import { ToolError, isStaff, callApi, staffPermissionLevel, levelAtLeast } from '../context.js'
 import { officeOrigin } from '../../services/platformHost.js'
 import { MODULES } from '../../config/modules.js'
-import { DateStr, TimeStr, VenueText, venueFor, venueToday, mondayOf, longDate, pickByName, pickCheckTime } from './util.js'
+import { DateStr, TimeStr, VenueText, venueFor, venueToday, mondayOf, longDate, pickByName, pickCheckTime, reference } from './util.js'
 import { FORMS, FORM_KEYS, FILLABLE_FORMS, fieldsLine } from '../../../../shared/forms.js'
 
 // The forms, one list with the admin's sheet (shared/forms.js): each one's
@@ -35,8 +37,11 @@ export const OPEN_FORMS = FORMS
 const MODULE_LABEL = Object.fromEntries(MODULES.map(m => [m.key, m.label]))
 
 /** The card's title: the form, and its day or week. */
-function cardTitle(key, f, { date, monday, template }) {
+function cardTitle(key, f, { date, monday, template, booking }) {
   if (key === 'checklist') return template.name
+  if (key === 'order') return 'Supplier order'
+  if (key === 'hs_action') return 'New H&S action'
+  if (key === 'booking_change') return 'Booking for ' + booking.guest_name + ', ' + longDate(date)
   if (key === 'wages') return 'Wages, week of ' + longDate(monday)
   if (key === 'sold_out') return 'Sold out dishes'
   if (key === 'cash_up') return 'Cash-up for ' + longDate(date)
@@ -164,6 +169,17 @@ const PLACE = {
   },
 }
 
+/** A booking on the day by its reference or the guest's name (booking_change). */
+async function pickBooking(ctx, venue, date, text) {
+  if (!text) throw new ToolError('Which booking? Give the guest\'s name or the booking\'s reference.', 422)
+  const rows = (await callApi(ctx, 'GET', `/api/bookings?venue_id=${venue.id}&date=${date}&limit=200`) || [])
+    .filter(b => !['cancelled', 'no_show'].includes(b.status))
+  const ref = String(text).trim().replace(/^#/, '').toUpperCase()
+  const byRef = rows.filter(b => reference(b.id) === ref)
+  if (byRef.length === 1) return byRef[0]
+  return pickByName(rows, text, b => b.guest_name, 'booking on ' + longDate(date), 'There are no bookings that day.')
+}
+
 const VALUES_HELP = FILLABLE_FORMS.map(k => k + ' { ' + fieldsLine(FORMS[k].fields) + ' }').join('; ')
 
 // What Pepper is told about this file's tools, gathered by tools/index.js:
@@ -194,8 +210,11 @@ export const formTools = [
       'checks), delivery (delivery checks: temperatures and condition on arrival), checklist (a checklist, by name in ' +
       'checklist; left out = the one due), cash_up (a day\'s cash-up), wages (a week\'s wages; any date in the week), ' +
       'expense (a day\'s petty cash expenses, with receipt photos), sold_out (mark dishes sold out), rota_day (who is on ' +
-      'and the rota for a day). Use it when they ask to do one of these ("do today\'s cash-up", "log the fridge temps", ' +
-      '"open the closing checklist"). date defaults to today at the venue. ' +
+      'and the rota for a day), order (a supplier order: pick the list, then quantities), corrective (corrective actions ' +
+      'for the day\'s out-of-range readings), hs_action (a new H&S action log entry), booking (a new table booking on the ' +
+      'day), booking_change (a booking\'s details to change: the guest\'s name or reference in booking, on the day). ' +
+      'Use it when they ask to do one of these themselves ("do today\'s cash-up", "open the closing checklist", ' +
+      '"I\'ll do the order"), or when there are many values to enter at once. date defaults to today at the venue. ' +
       'values (optional): what the person said or a document they gave states, placed in the form for them to check ' +
       '(each marked as filled by you): ' + VALUES_HELP + '. Never put in a value they didn\'t give: a measured value ' +
       '(a temperature) only when they said the number themselves; names as they said them. Fields left out stay empty. ' +
@@ -205,6 +224,7 @@ export const formTools = [
       venue:     VenueText,
       date:      DateStr.optional().describe('The day (or any day of the week for wages). Defaults to today at the venue.'),
       checklist: z.string().trim().max(120).optional().describe('For form checklist: its name. Left out = the one due.'),
+      booking:   z.string().trim().max(120).optional().describe('For form booking_change: the guest\'s name or the booking\'s 8-character reference, on the day (date).'),
       values:    z.record(z.string(), z.unknown()).optional()
         .describe('Values for the form\'s fields, only what the person said or a document states (see the description).'),
     }),
@@ -234,9 +254,15 @@ export const formTools = [
         if (!pick) throw new ToolError('Which checklist? Due: ' + open.map(d => d.template.name).join(', ') + '.', 422)
         template = pick.template
       }
+      let booking = null
+      if (input.form === 'booking_change') {
+        const b = await pickBooking(ctx, venue, date, input.booking)
+        booking = { id: b.id, guest_name: b.guest_name, reference: reference(b.id) }
+      }
       const ref = f.by === 'week' ? { week: monday } : f.by === 'date' ? { date } : {}
       if (template) ref.template = template
-      const title = cardTitle(input.form, f, { date, monday, template })
+      if (booking) ref.booking = booking
+      const title = cardTitle(input.form, f, { date, monday, template, booking })
       const readOnly = !levelAtLeast(level, f.edit)
       if (ctx.channel !== 'staff_chat') {
         return { form: title, venue: venue.name, url: officeOrigin() + f.path, message: 'Open the page to fill it in.' }

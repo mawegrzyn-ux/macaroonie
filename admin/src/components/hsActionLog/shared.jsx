@@ -7,7 +7,7 @@
 // Dashboard's action_log widget — same convention as the other
 // food-safety/checklist shared panels.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, isPast, parseISO } from 'date-fns'
 import {
@@ -23,6 +23,7 @@ import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { cn } from '@/lib/utils'
+import { useFormFill, FilledMark, filledClass } from '@/components/forms/fill'
 
 const PRIORITY_LABELS = { low: 'Low', medium: 'Medium', high: 'High', critical: 'Critical' }
 const PRIORITY_COLOURS = {
@@ -38,15 +39,30 @@ function todayStr() {
 
 // ── Entry add/edit modal ─────────────────────────────────────────
 
-function EntryModal({ initial, venueId, categories, onClose, onSave, onDelete, isSaving, readOnly }) {
-  const [categoryId, setCategoryId] = useState(initial?.category_id ?? '')
-  const [loggedDate, setLoggedDate] = useState(initial?.logged_date ?? todayStr())
-  const [task, setTask] = useState(initial?.task ?? '')
-  const [details, setDetails] = useState(initial?.details ?? '')
-  const [assignedTo, setAssignedTo] = useState(initial?.assigned_to ?? '')
-  const [dueDate, setDueDate] = useState(initial?.due_date ?? '')
-  const [priority, setPriority] = useState(initial?.priority ?? 'medium')
-  const [notes, setNotes] = useState(initial?.notes ?? '')
+// A new entry in a form sheet Pepper filled (fill, components/forms/fill.jsx)
+// starts from Pepper's values (task, details, category by name, priority,
+// assigned to, due date, notes), each marked until the person changes it or
+// presses OK; `day` is the sheet's day (the date raised).
+function EntryModal({ initial, venueId, categories, onClose, onSave, onDelete, isSaving, readOnly, fill = null, day = null }) {
+  const v = (!initial && fill?.values) || {}
+  const f = initial ? null : fill
+  const has = key => v[key] !== undefined && v[key] !== null
+  const pepperCat = has('category')
+    ? categories.find(c => c.name.toLowerCase() === String(v.category).toLowerCase())
+      || categories.find(c => c.name.toLowerCase().includes(String(v.category).toLowerCase()))
+    : null
+  const [categoryId, setCategoryId] = useState(initial?.category_id ?? pepperCat?.id ?? '')
+  const [loggedDate, setLoggedDate] = useState(initial?.logged_date ?? day ?? todayStr())
+  const [task, setTask] = useState(initial?.task ?? v.task ?? '')
+  const [details, setDetails] = useState(initial?.details ?? v.details ?? '')
+  const [assignedTo, setAssignedTo] = useState(initial?.assigned_to ?? v.assigned_to ?? '')
+  const [dueDate, setDueDate] = useState(initial?.due_date ?? v.due_date ?? '')
+  const [priority, setPriority] = useState(initial?.priority ?? v.priority ?? 'medium')
+  const [notes, setNotes] = useState(initial?.notes ?? v.notes ?? '')
+  // A field the person changes loses Pepper's mark, and goes into the draft.
+  const edit = (key, set, asValue = x => x) => x => { set(x); f?.clear(key); f?.change(key, asValue(x)) }
+  const mark = (key, ok = has(key)) => <FilledMark fill={f} k={key} has={ok} />
+  const tint = (key, ok = has(key)) => filledClass(f, key, ok)
   const [attachmentMediaId, setAttachmentMediaId] = useState(initial?.attachment_media_id ?? null)
   const [attachmentUrl, setAttachmentUrl] = useState(initial?.attachment_url ?? null)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -79,29 +95,29 @@ function EntryModal({ initial, venueId, categories, onClose, onSave, onDelete, i
         <form onSubmit={submit} className="p-5 space-y-4">
           <ReadOnlyFieldset disabled={readOnly} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Task *</label>
-            <input value={task} onChange={e => setTask(e.target.value)} required autoFocus={!readOnly}
+            <label className="flex flex-wrap items-center gap-2 text-sm font-medium mb-1">Task * {mark('task')}</label>
+            <input value={task} onChange={e => edit('task', setTask)(e.target.value)} required autoFocus={!readOnly}
               placeholder="e.g. Replace hinge on the kitchen door"
-              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px] touch-manipulation" />
+              className={cn('w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px] touch-manipulation', tint('task'))} />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Details</label>
-            <textarea value={details} onChange={e => setDetails(e.target.value)} rows={2}
-              className="w-full border rounded px-3 py-2 text-sm bg-background resize-none touch-manipulation" />
+            <label className="flex flex-wrap items-center gap-2 text-sm font-medium mb-1">Details {mark('details')}</label>
+            <textarea value={details} onChange={e => edit('details', setDetails)(e.target.value)} rows={2}
+              className={cn('w-full border rounded px-3 py-2 text-sm bg-background resize-none touch-manipulation', tint('details'))} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium mb-1">Category</label>
-              <select value={categoryId} onChange={e => setCategoryId(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px] touch-manipulation">
+              <label className="flex flex-wrap items-center gap-2 text-sm font-medium mb-1">Category {mark('category', !!pepperCat)}</label>
+              <select value={categoryId} onChange={e => edit('category', setCategoryId, id => categories.find(c => c.id === id)?.name ?? null)(e.target.value)}
+                className={cn('w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px] touch-manipulation', tint('category', !!pepperCat))}>
                 <option value="">None</option>
                 {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Priority</label>
-              <select value={priority} onChange={e => setPriority(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px] touch-manipulation">
+              <label className="flex flex-wrap items-center gap-2 text-sm font-medium mb-1">Priority {mark('priority')}</label>
+              <select value={priority} onChange={e => edit('priority', setPriority)(e.target.value)}
+                className={cn('w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px] touch-manipulation', tint('priority'))}>
                 {Object.entries(PRIORITY_LABELS).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
               </select>
             </div>
@@ -113,22 +129,22 @@ function EntryModal({ initial, venueId, categories, onClose, onSave, onDelete, i
                 className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px] touch-manipulation" />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Due date</label>
-              <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px] touch-manipulation" />
+              <label className="flex flex-wrap items-center gap-2 text-sm font-medium mb-1">Due date {mark('due_date')}</label>
+              <input type="date" value={dueDate} onChange={e => edit('due_date', setDueDate)(e.target.value)}
+                className={cn('w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px] touch-manipulation', tint('due_date'))} />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Assigned to</label>
-            <input value={assignedTo} onChange={e => setAssignedTo(e.target.value)}
+            <label className="flex flex-wrap items-center gap-2 text-sm font-medium mb-1">Assigned to {mark('assigned_to')}</label>
+            <input value={assignedTo} onChange={e => edit('assigned_to', setAssignedTo)(e.target.value)}
               placeholder="e.g. Mike"
-              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px] touch-manipulation" />
+              className={cn('w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px] touch-manipulation', tint('assigned_to'))} />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Notes</label>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+            <label className="flex flex-wrap items-center gap-2 text-sm font-medium mb-1">Notes {mark('notes')}</label>
+            <textarea value={notes} onChange={e => edit('notes', setNotes)(e.target.value)} rows={2}
               placeholder="Progress notes, what was ordered, who to chase, etc."
-              className="w-full border rounded px-3 py-2 text-sm bg-background resize-none touch-manipulation" />
+              className={cn('w-full border rounded px-3 py-2 text-sm bg-background resize-none touch-manipulation', tint('notes'))} />
           </div>
           </ReadOnlyFieldset>
           <div>
@@ -292,7 +308,10 @@ function CategoriesModal({ categories, onClose, mutations }) {
 
 // ── Main panel ────────────────────────────────────────────────────
 
-export function HSActionLogPanel({ venueId }) {
+// In a form sheet (the 'hs_action' form, Pepper-first step 3e) `startNew`
+// opens a new entry at once on the sheet's day, with Pepper's values (or a
+// draft's) in it.
+export function HSActionLogPanel({ venueId, startNew = false, day = null }) {
   const api = useApi()
   const qc = useQueryClient()
   // H&S Action Log = View: the list and each action can be read, nothing
@@ -304,6 +323,8 @@ export function HSActionLogPanel({ venueId }) {
   const [categoryFilter, setCategoryFilter] = useState('')
   const [entryModal, setEntryModal] = useState(null) // 'new' | entry row | null
   const [categoriesOpen, setCategoriesOpen] = useState(false)
+  const fill = useFormFill()
+  const opened = useRef(false)
 
   const enabled = !!venueId
 
@@ -323,11 +344,11 @@ export function HSActionLogPanel({ venueId }) {
 
   const createEntry = useMutation({
     mutationFn: body => api.post('/hs-action-log/entries', body),
-    onSuccess: () => { invalidateEntries(); setEntryModal(null) },
+    onSuccess: (_, body) => { invalidateEntries(); setEntryModal(null); fill?.saved('Added: ' + body.task, 'new:' + body.task) },
   })
   const patchEntry = useMutation({
     mutationFn: ({ id, ...body }) => api.patch(`/hs-action-log/entries/${id}`, body),
-    onSuccess: () => { invalidateEntries(); setEntryModal(null) },
+    onSuccess: (_, body) => { invalidateEntries(); setEntryModal(null); fill?.saved('Changed: ' + body.task, 'entry:' + body.id) },
   })
   const deleteEntry = useMutation({
     mutationFn: id => api.delete(`/hs-action-log/entries/${id}`),
@@ -350,6 +371,13 @@ export function HSActionLogPanel({ venueId }) {
     if (entryModal === 'new') createEntry.mutate(body)
     else patchEntry.mutate({ id: entryModal.id, ...body })
   }
+
+  useEffect(() => {
+    if (opened.current || readOnly || !enabled) return
+    if (!startNew && !(fill && Object.keys(fill.values).length)) return
+    opened.current = true
+    setEntryModal('new')
+  }, [startNew, fill, readOnly, enabled])
 
   if (!enabled) return null
 
@@ -446,6 +474,8 @@ export function HSActionLogPanel({ venueId }) {
           onDelete={canManage ? id => deleteEntry.mutate(id) : null}
           isSaving={createEntry.isPending || patchEntry.isPending}
           readOnly={readOnly}
+          fill={fill}
+          day={day}
         />
       )}
 
