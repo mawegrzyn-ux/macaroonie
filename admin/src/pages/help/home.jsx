@@ -112,6 +112,11 @@ export function Section() {
           ['Cash-up for ... not submitted', 'Yesterday\'s cash-up isn\'t submitted (and the venue was open). Earlier days of the last week too, once the venue uses Cash Recon: a cash-up started or submitted on any day of this week or last'],
           ['Wages to pay for the week of ...', 'Last week\'s cash wages aren\'t all paid: what is due in cash (each total less what goes by bank) is more than what has been marked paid'],
           ['Online orders waiting', 'Online orders are waiting to be accepted'],
+          ['Booking email failed', 'A booking email to a guest failed or bounced today (Email monitor). It stays failed in the log, so mark it done once dealt with'],
+          ['Review to check', 'A review is waiting in the To check inbox (Reviews). One or two stars: Now'],
+          ['Menu screen offline / Till offline', 'A menu screen, till, kitchen screen, kiosk or venue hub stopped answering while the venue trades (from its first sitting, less half an hour, to closing; with no sittings that day, kit seen in the last three hours)'],
+          ['... is sold out', 'A dish is sold out on the till, online and menu screens. Put back on opens the sold out window'],
+          ['Next week\'s rota is empty', 'From Thursday, when nobody is on next week\'s rota yet (Late at the weekend)'],
         ]}
       />
       <P>
@@ -137,6 +142,33 @@ export function Section() {
         page</strong> takes you to the page itself. Other tasks (a supplier order, online orders) open their
         page. If your role can only view an area, the button says <strong>View</strong> and the form is read
         only.
+      </P>
+      <H3>Assign, snooze or skip a task</H3>
+      <P>
+        The <strong>...</strong> button beside a task opens what else you can do with it, each saved on its own:
+      </P>
+      <DataTable
+        head={['Action', 'What it does']}
+        rows={[
+          ['Assign', 'Pick who does it: only people whose role can do the task are listed. Their name (or You) shows on the task. Pick Nobody to clear it'],
+          ['Snooze', 'Hide it from today\'s list for 30 minutes, 1, 2 or 4 hours, or until a time you pick. It comes back by itself (and sends no notices meanwhile)'],
+          ['Skip', 'Take it off the list for the rest of the day. A reason is required: pick one or type your own. Skips and their reasons are kept and shown to the managers'],
+          ['Mark done', 'Only for tasks the list can\'t see finish (a report alert, a failed email, kit offline): off the list for the day'],
+        ]}
+      />
+      <P>
+        Whatever was snoozed, skipped or marked done shows under the tasks in <strong>Off today&apos;s list</strong>,
+        with the reason or the time it comes back; <strong>Bring back</strong> puts it on the list again. You can
+        change a task where your role can do the everyday work of its area (Use, or View where the area has no Use).
+        Every change is kept in the task&apos;s history.
+      </P>
+      <H3>Skipped today and For review</H3>
+      <P>
+        If you manage an area, <strong>Skipped today</strong> under the tasks lists the day&apos;s skips at each of
+        your sites with their reasons, by site and never by person. The report subjects <strong>Today tasks by
+        site</strong> and <strong>Today task changes</strong> (Reports, Your group) count what was finished, went
+        late or was skipped, venue by venue. Under the week, <strong>For review</strong> says how many things are
+        waiting for you (Pepper&apos;s cards, orders to approve, invoices to book in) and opens the For review page.
       </P>
       <H3>Cash-ups and wages on Home</H3>
       <P>

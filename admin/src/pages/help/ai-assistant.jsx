@@ -47,8 +47,9 @@ export function Section() {
         Pepper never changes anything on its own. When it wants to make a change it shows a
         card with the exact details and a button that says what it does (such as{' '}
         <strong>Save rota</strong> or <strong>Refund</strong>). Nothing happens until you press
-        it; press <strong>Cancel</strong> if it's wrong. Each card works once and expires after
-        30 minutes. When something is best done on a page (a full report, setting something
+        it; press <strong>Cancel</strong> if it's wrong. Each card works once. A card you leave unanswered
+        waits on your <strong>For review</strong> page for up to 7 days, so you can approve it later (a table
+        held for a guest still runs out on its own time). When something is best done on a page (a full report, setting something
         up, dragging on the timeline), Pepper gives you a link to that page.
       </P>
       <P>
@@ -238,6 +239,37 @@ export function Section() {
         Any day. You see your own changes; an owner or anyone who manages Pepper can switch to{' '}
         <strong>Everyone</strong> to see who confirmed each change. The list is by time only: it never ranks
         or counts people. Undo is there too while it is still open, on your own changes.
+      </P>
+      <H3>For review</H3>
+      <P>
+        <strong>For review</strong> (in the menu under Home, after Pepper; Home shows how many things wait, with
+        a link) has two tabs. <strong>Waiting</strong> lists what has to be looked at before it takes effect:
+        Pepper&apos;s cards you didn&apos;t answer (they wait 7 days), supplier orders waiting for your approval,
+        and invoices Pepper read for a delivery nobody has booked in yet. Each shows what it is, where it came
+        from (which chat, who asked) and the change, now and after.
+      </P>
+      <DataTable
+        head={['Item', 'Approve', 'Edit', 'Reject']}
+        rows={[
+          ['Pepper\'s card', 'Runs it, the same as its Confirm (type its word first for a card that needs one)', 'Opens the chat it came from', 'The same as Cancel: nothing changes'],
+          ['Supplier order', 'Opens it on the Purchasing page to check and approve', 'The same page', 'Send back: say why, and it goes back as a draft'],
+          ['Invoice read', 'Book the delivery in: opens the delivery with the invoice', '', ''],
+        ]}
+      />
+      <P>
+        Cards of one kind that can be undone (several sold out cards, say) can be approved together with{' '}
+        <strong>Approve all</strong>, after an <strong>Are you sure?</strong>; each still goes through its own
+        Confirm. Nothing about money, pay, allergens or a deletion is ever approved in a group. The second tab
+        is <strong>Done by Pepper</strong>, the same list as its own page.
+      </P>
+      <H3>Pepper and today&apos;s tasks</H3>
+      <P>
+        Pepper reads the same task list Home shows. Ask <em>&ldquo;what&apos;s on my list?&rdquo;</em> or{' '}
+        <em>&ldquo;what is late?&rdquo;</em>, and Brief me on today includes the late tasks. Pepper can also
+        snooze a task (<em>&ldquo;snooze the fridge checks for an hour&rdquo;</em>, with Undo), skip one for the
+        day (<em>&ldquo;skip the weekly checklist, the walk-in is being repaired&rdquo;</em>: always with your
+        reason, and Pepper asks for one if you give none) and give one to someone
+        (<em>&ldquo;give the Fresh Co order to Sam&rdquo;</em>), each on a card you confirm.
       </P>
       <H3>How do I...? questions</H3>
       <P>

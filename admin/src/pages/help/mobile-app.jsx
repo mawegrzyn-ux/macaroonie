@@ -44,7 +44,10 @@ export function Section() {
         phone or computer you are using: <strong>Turn on notices here</strong>, then allow them when the
         browser asks. You get a notice when one of today&apos;s tasks is <strong>due soon</strong> (half an
         hour before a task with a time, like a fridge check) and when it goes <strong>late</strong> (a check
-        missed, yesterday&apos;s cash-up not done), each once, and only for tasks you can do. Choose which
+        missed, yesterday&apos;s cash-up not done), each once, and only for tasks you can do. A task still late
+        two hours on (by its time, or two hours after it first went late) is also sent to the venue&apos;s
+        managers: people who manage that area, if they have late notices on. A snoozed or skipped task sends
+        nothing. Choose which
         venues and areas, switch due soon or late off, and set quiet hours (venue time) when nothing is
         sent; then <strong>Save</strong>. <strong>Send a test</strong> checks it works, and Your devices lists
         where notices go. Tapping a notice opens the Today page. On an iPhone, add the app to the home screen

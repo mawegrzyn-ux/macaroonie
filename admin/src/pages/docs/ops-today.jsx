@@ -52,6 +52,12 @@ export function Section() {
           ['cash (cash_recon)', "cash_up per open day (openDatesOrNull()) of the last CASH_DAYS_BACK (7) and the feed's own day that isn't submitted: the day's own due at closingTime() of its sittings (now / next / later, late once the day has passed), yesterday late, earlier days late only once the venue uses Cash Recon (a report on any day of this week or last); days after the venue's today never", '/api/venues/:id/cash-recon/week/:monday (this week and last), /api/venues/:id/schedule/sittings-for-date'],
           ['wages (cash_recon)', 'wages_to_pay when last week has cash still to pay: per entry max(0, total - bank_amount - cash_amount), one late task with the sum and how many people', '/api/venues/:id/cash-recon/wages/:monday'],
           ['online_orders (web_orders)', 'online_orders when orders are placed but not accepted', '/api/orders'],
+          ['failed_emails (email_templates)', 'failed_email per booking email failed or bounced on the feed\'s day at the venue (now); done by hand', '/api/email-monitoring/log?venue_id='],
+          ['reviews (website)', 'review_to_check per review in the To check inbox (one or two stars now, else later)', '/api/reviews?to_check=true'],
+          ['screens (screens)', 'screen_offline per paired menu screen offline (the tech board\'s state) while offlineMatters()', '/api/tech-board/venues/:id'],
+          ['devices (pos_setup)', 'device_offline per paired till, kitchen screen, kiosk or hub not deviceOnline() while offlineMatters()', '/api/tech-board/venues/:id'],
+          ['sold_out (web_orders)', 'sold_out per dish sold out (one per name across menus; later), action the sold out window', '/api/orders/availability/:venueId'],
+          ['rota (rota)', 'rota_not_ready when next week has staff but no entries, from Thursday (now; late Saturday and Sunday), action the rota at that venue and week', '/api/rota/venues/:id/weeks/:monday'],
         ]}
       />
       <P>
@@ -66,11 +72,47 @@ export function Section() {
         <Mono>date</Mono>, so a feed for another day never counts a day that hasn't passed as missed.
         <Mono> groupFor()</Mono> decides the group (<Mono>GRACE_MINS</Mono> 30, <Mono>NEXT_MINS</Mono> 120) and{' '}
         <Mono>sortTasks()</Mono> the order: group, compliance first, then time (S1). A closed day
-        (<Mono>/api/hs-settings</Mono> <Mono>closed</Mono>) expects no check rounds (R4). There is no task store
-        yet: tasks are worked out on every request, done when their record exists (R2). The response also carries{' '}
+        (<Mono>/api/hs-settings</Mono> <Mono>closed</Mono>) expects no check rounds (R4). Tasks are worked out on
+        every request, done when their record exists (R2); the task store (below) is applied on top. Sources that
+        share a read (the tech board, the day&apos;s sittings) do it once per feed (<Mono>once(s, key, fn)</Mono>,{' '}
+        <Mono>s.memo</Mono>). Kit offline counts only on today&apos;s feed (<Mono>offlineMatters()</Mono>): while the
+        venue trades (its first sitting less <Mono>OPEN_EARLY_MINS</Mono> 30 to <Mono>closingTime()</Mono>) for kit
+        seen in the last day, or with no sittings that day for kit seen in the last three hours. The response also carries{' '}
         <Mono>summary</Mono> (bookings and big parties from <Mono>day_overview</Mono>, people on the rota from{' '}
         <Mono>whos_working</Mono>, the week ahead from Local info), <Mono>counts</Mono> and the <Mono>venues</Mono>{' '}
         for the switch.
+      </P>
+      <H3>The task store (migration 278)</H3>
+      <P>
+        Pepper-first step 5 (<Mono>services/opsTasks.js</Mono>, rules in <Mono>shared/todayTasks.js</Mono>). By venue
+        and the feed&apos;s key, <Mono>ops_task_states</Mono> keeps a task&apos;s <Mono>owner_id</Mono> (a team
+        member, <Mono>users.id</Mono>), <Mono>snoozed_until</Mono>, <Mono>skipped_on</Mono> with{' '}
+        <Mono>skip_reason</Mono> (required: a CHECK ties the two) and who, and <Mono>done_on</Mono> (only{' '}
+        <Mono>MANUAL_DONE_KINDS</Mono>: report_alert, failed_email, screen_offline, device_offline). Every change is a
+        row in <Mono>ops_task_log</Mono> (assigned, unassigned, snoozed, unsnoozed, skipped, unskipped, done, undone,
+        escalated). <Mono>opsToday()</Mono> loads the venue&apos;s states and <Mono>applyStates()</Mono> sets aside a
+        task skipped or done on the feed&apos;s day, or snoozed past now on today&apos;s feed (the real clock), into{' '}
+        <Mono>aside</Mono> (<Mono>{'{ key, title, area, kind, state, reason?, until?, until_text?, owner? }'}</Mono>),
+        and puts <Mono>{'owner { id, name, me }'}</Mono> on the rest. Each task also carries <Mono>can_change</Mono>:{' '}
+        <Mono>stateLevel(module)</Mono> = Use where the module offers it, else View (<Mono>moduleOf(task)</Mono>).
+      </P>
+      <DataTable
+        head={['Route', 'Does']}
+        rows={[
+          ['POST /api/ops/tasks', '{ venue_id, key, date?, action, owner_id?, minutes?, until?, reason? }: assign (owner_id, null clears; the person must be active, signed in once and able to do it: workLevel()), snooze (5 to 1440 minutes, or until HH:MM today at the venue, later than now; today only) / unsnooze, skip (reason 1 to 300 characters) / unskip, done / undone. The task is first found on the person\'s own feed for the day (findTask()): 404 when it isn\'t there, 403 without can_change'],
+          ['GET /api/ops/tasks/people', '?venue_id&key&date: active team members who can do the task, for the Assign picker'],
+          ['GET /api/ops/tasks/history', '?venue_id&key&date: the task\'s ops_task_log rows, newest first'],
+          ['GET /api/ops/skips', '?date (default each venue\'s today): the day\'s skips with reasons by site, only for areas the person manages; never who skipped (decision 8)'],
+        ]}
+      />
+      <P>
+        Admin: <Mono>components/home/TaskActions.jsx</Mono> (<Mono>TaskMoreButton</Mono>, <Mono>TaskActions</Mono>{' '}
+        with Assign / Snooze / Skip / Mark done each saved on its own, <Mono>TaskOwner</Mono>, <Mono>SetAside</Mono>{' '}
+        (Off today&apos;s list, Bring back), <Mono>SkippedToday</Mono> on Home only), used by <Mono>TaskBoard</Mono>{' '}
+        and so on the phone&apos;s Today too. Report subjects <Mono>today.tasks</Mono> (over{' '}
+        <Mono>ops_task_days</Mono>: completion, in time, late, skipped with the reason) and{' '}
+        <Mono>today.task_changes</Mono> (over <Mono>ops_task_log</Mono>), both Venues Manage, in{' '}
+        <Mono>reports/catalogue/today.js</Mono>, with no person columns.
       </P>
       <H3>The week ahead (summary.local)</H3>
       <P>
@@ -164,6 +206,18 @@ export function Section() {
         <Mono>web_push_vapid</Mono>) and <Mono>pushSenders.app</Mono> (Expo&apos;s push service, channel{' '}
         <Mono>tasks</Mono>); a device the service calls gone is deleted, another failure kept in{' '}
         <Mono>last_error</Mono>. Old <Mono>task_notices</Mono> go after 30 days (hourly clean-up).
+      </P>
+      <P>
+        Since Pepper-first step 5b the sweep runs for every active group with a venue: it keeps the feed&apos;s
+        record (<Mono>recordFeed()</Mono> into <Mono>ops_task_days</Mono>: each task seen per venue and day,{' '}
+        <Mono>late_at</Mono> when first seen late, <Mono>finished_at</Mono> once a later sweep no longer sees it or it
+        is marked done, cleared if it comes back, <Mono>skipped</Mono>; areas that errored or aren&apos;t included are
+        left alone) and sends notices only where someone has settings on. Kind <Mono>escalated</Mono>: a task late
+        by more than <Mono>ESCALATE_MINUTES</Mono> (120; <Mono>minutesLate()</Mono>: by its due time, else since{' '}
+        <Mono>late_at</Mono>) goes to the people <Mono>wantsEscalation()</Mono> picks: settings on, the late switch,
+        venue, area, quiet hours, and Manage on the task&apos;s module. It is claimed in <Mono>task_notices</Mono> like
+        the others (the kind CHECK allows it since 278) and logged in <Mono>ops_task_log</Mono>. Snoozed and skipped
+        tasks are off the feed, so they send nothing.
       </P>
       <P>
         <Mono>routes/notices.js</Mono> (<Mono>/api/notices</Mono>, anyone signed in, their own rows only):{' '}
