@@ -66,6 +66,11 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | 44.11.4c No duplicate write on a retried action (an idempotency key per confirmed action) | 10 to 20 min | 2 min (to 19:58) | one PR, below | | 7 files, +150 -11, migration 276 | claude-opus-5-5 / high, fresh agent | The card was already a natural key. About $2. |
 | 44.11.4d Undo for reversible changes: each declares its inverse, an Undo button on the done card for a while | 15 to 25 min | 4 min (to 20:02) | one PR, below | | 9 files, +322 -23 | claude-opus-5-5 / high, fresh agent | Six tools with an inverse. About $4.40. |
 | 44.11.4e The Done by Pepper log: a page of Pepper's changes with Undo where it can | 10 to 20 min (a page, its menu record and migration) | 14 min with the full test run, the browser check and the docs (to 20:16) | 7 min for 4a to 4e: PR #505 opened 20:16:30, CI green first time 20:22:48, merged 20:23 | **45 min for 4a to 4e** (19:37:41 to 20:23) | 19 files, +569 -11, migration 277 | claude-opus-5-5 / high, fresh agent | Two test files fixed before the PR (a delete card's word, the new audit columns' report decision). About $18.60 for the window. Agent about $45, lead about $3; a live eval run on the merged code passed 27 of 27 ($0.06). |
+| 44.11.5a The task store: each Today task's owner, snooze, skip with a reason, done, and its history, kept per task | fourth revision: 3 to 8 min | | one PR, below | | | claude-opus-5-5 / high, fresh agent | Estimated 23 Nov 2026 before starting; plus 6 reading. |
+| 44.11.5b Task actions on Home and the phone: assign, snooze, skip with a reason (decision 7: shown above the store), escalation of late tasks | 3 to 8 min | | one PR, below | | | | |
+| 44.11.5c For review: the Waiting tab (unanswered Confirm cards kept, supplier orders awaiting approval, documents read into lines), Approve, Edit, Reject, same-kind reversible items together | 8 to 15 min (a page and a change to how cards expire) | | one PR, below | | | | |
+| 44.11.5d Six of the missing Today sources | 8 to 15 min (six functions in `SOURCES`) | | one PR, below | | | | |
+| 44.11.5e Pepper reads the feed and acts on tasks (snooze, skip, assign through cards) | 3 to 8 min | | one PR for 5a to 5e: tests, browser and docs 12 to 15, PR 7 | | | | |
 
 ## Running totals
 
