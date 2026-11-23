@@ -13,7 +13,7 @@
 //                          The task is first found on the person's own feed
 //                          for the day, so one they can't see can't be
 //                          changed; then Use on its module where the module
-//                          offers Use, else View (stateLevel()).
+//                          offers Use, else Manage (stateLevel()).
 //   GET  /tasks/people     who a task can be assigned to: active team members
 //                          who can do it (Use where offered, else Manage)
 //   GET  /tasks/history    a task's changes, newest first

@@ -568,7 +568,7 @@ export async function opsToday(ctx, venue, { date, time, levels }) {
         // can_act: the person can do it here, not only look (U1): Use where
         // the module offers it (checks, checklists, H&S actions), else Manage.
         // can_change: the person can assign, snooze or skip it (the task
-        // store): Use where the module offers it, else View (stateLevel()).
+        // store): Use where the module offers it, else Manage (stateLevel()).
         const module = moduleOf(t)
         tasks.push({ ...t, can_act: permissionAtLeast(levels[module], workLevel(module)), can_change: canChange(levels, module) })
       }

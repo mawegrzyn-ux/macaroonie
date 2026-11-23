@@ -94,7 +94,7 @@ export function Section() {
         task skipped or done on the feed&apos;s day, or snoozed past now on today&apos;s feed (the real clock), into{' '}
         <Mono>aside</Mono> (<Mono>{'{ key, title, area, kind, state, reason?, until?, until_text?, owner? }'}</Mono>),
         and puts <Mono>{'owner { id, name, me }'}</Mono> on the rest. Each task also carries <Mono>can_change</Mono>:{' '}
-        <Mono>stateLevel(module)</Mono> = Use where the module offers it, else View (<Mono>moduleOf(task)</Mono>).
+        <Mono>stateLevel(module)</Mono> = Use where the module offers it, else Manage (<Mono>moduleOf(task)</Mono>).
       </P>
       <DataTable
         head={['Route', 'Does']}

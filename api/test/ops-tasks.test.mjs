@@ -30,7 +30,7 @@ after(closeApp)
 
 test('the rules: a skip only with a reason, done by hand only where the feed can\'t see it finish', () => {
   assert.equal(stateLevel('food_safety'), 'use', 'a module with Use needs Use')
-  assert.equal(stateLevel('purchasing'), 'view', 'a module without Use: View')
+  assert.equal(stateLevel('purchasing'), 'manage', 'a module without Use: Manage (View never changes)')
   assert.ok(SKIP_REASONS.length >= 3)
   assert.ok(MANUAL_DONE_KINDS.includes('report_alert'))
   const tasks = [{ key: 'a', title: 'A' }, { key: 'b', title: 'B' }, { key: 'c', title: 'C' }, { key: 'd', title: 'D' }]

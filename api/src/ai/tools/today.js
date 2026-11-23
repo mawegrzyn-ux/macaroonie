@@ -4,7 +4,7 @@
 // 5e): the same feed and task store Home shows (GET /api/ops/today, POST
 // /api/ops/tasks, routes/ops.js), read and changed as the person, so the
 // feed's own permissions hold (a task the person can't see can't be found;
-// changing one needs Use on its module where it has Use, else View).
+// changing one needs Use on its module where it has Use, else Manage).
 //
 //   my_tasks       the person's tasks at a venue for a day, grouped late /
 //                  now / next / later, each with its owner and state, and

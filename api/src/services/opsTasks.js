@@ -45,8 +45,9 @@ export function personName(u) {
   return mail || 'Someone'
 }
 
-/** The level a person needs to change a task's state: Use where its module offers Use, else View. */
-export const stateLevel = module => (levelsOf(module).includes('use') ? 'use' : 'view')
+/** The level a person needs to change a task's state: Use where its module offers Use, else Manage
+ *  (CLAUDE.md rule 5: changes need Manage, everyday work Use where the module has it; View never changes). */
+export const stateLevel = module => (levelsOf(module).includes('use') ? 'use' : 'manage')
 
 /** Whether a person with `levels` may change a task of `module`. */
 export const canChange = (levels, module) => !!module && permissionAtLeast(levels[module], stateLevel(module))
