@@ -9,8 +9,9 @@ import { as, ok, closeApp, getApp, sql } from './support/app.mjs'
 import { resetAndSeed, A, B } from './support/seed.mjs'
 import { fillTenant } from './support/fixtures.mjs'
 import {
-  noticeKind, inQuietHours, wants, sweepNotices, pushSenders, DEFAULT_SETTINGS,
+  noticeKind, inQuietHours, wants, sweepNotices, pushSenders, DEFAULT_SETTINGS, minutesLate, wantsEscalation,
 } from '../src/services/notices.js'
+import { recordFeed } from '../src/services/opsTasks.js'
 import { INTERNAL_AS_PREFIX } from '../src/middleware/auth.js'
 
 const quiet = { info() {}, warn() {}, error() {}, debug() {} }
@@ -133,6 +134,59 @@ test('quiet hours and a gone device', async () => {
   await sweepNotices(await getApp(), quiet, { time: '10:45' })
   const [still] = await sql`SELECT id FROM push_devices WHERE id = ${gone.id}`
   assert.equal(still, undefined, 'a device the push service says is gone is removed')
+})
+
+test('escalation: late by more than two hours, to the venue\'s managers only, once; recorded in the task\'s history', async () => {
+  assert.equal(minutesLate({ group: 'late', due: '09:00' }, '11:30'), 150)
+  assert.equal(minutesLate({ group: 'now', due: '09:00' }, '11:30'), 0, 'not late')
+  const since = new Date(Date.now() - 3 * 3600_000)
+  assert.equal(minutesLate({ group: 'late', due: null }, '11:30', since), 180, 'no time: since first seen late')
+  assert.equal(minutesLate({ group: 'late', due: null }, '11:30', undefined), 0)
+  const manager = { settings: { ...DEFAULT_SETTINGS }, levels: { food_safety: 'manage' } }
+  const user = { settings: { ...DEFAULT_SETTINGS }, levels: { food_safety: 'use' } }
+  const task = { area: 'food_safety', kind: 'fridge_check' }
+  assert.equal(wantsEscalation(manager, { venueId: V, task, time: '11:30' }), true)
+  assert.equal(wantsEscalation(user, { venueId: V, task, time: '11:30' }), false, 'Use is not a manager')
+  assert.equal(wantsEscalation({ ...manager, settings: { ...manager.settings, late: false } }, { venueId: V, task, time: '11:30' }), false)
+
+  await sql`DELETE FROM task_notices WHERE tenant_id = ${ids.a}`
+  await ok(owner.put('/api/notices/settings', { ...DEFAULT_SETTINGS }))
+  sent.length = 0
+  const app = await getApp()
+  await sweepNotices(app, quiet, { time: '11:30' })
+  const up = sent.filter(s => /Late for over 2 hours/.test(s.body))
+  assert.ok(up.length >= 1, 'the 09:00 fridge check, late two and a half hours')
+  assert.ok(up.every(s => s.endpoint?.endsWith('/owner')), 'only the manager (the viewer has a device too)')
+  const [log] = await sql`SELECT * FROM ops_task_log WHERE tenant_id = ${ids.a} AND action = 'escalated' ORDER BY at DESC LIMIT 1`
+  assert.ok(log, 'in the task\'s history')
+  await sweepNotices(app, quiet, { time: '11:40' })
+  assert.equal(sent.filter(s => /Late for over 2 hours/.test(s.body)).length, up.length, 'each once')
+  // The feed's record: each task seen, the late ones with when.
+  const days = await sql`SELECT * FROM ops_task_days WHERE tenant_id = ${ids.a} AND venue_id = ${V}`
+  assert.ok(days.some(d => d.kind === 'fridge_check' && d.late_at), 'went late')
+  const [{ n }] = await sql`SELECT count(*)::int AS n FROM ops_task_days d JOIN venues v ON v.id = d.venue_id WHERE d.tenant_id = ${ids.b} AND v.tenant_id <> ${ids.b}`
+  assert.equal(n, 0, 'each group\'s record with its own venues (every group is recorded, devices or not)')
+})
+
+test('a snoozed task sends nothing; a task that leaves the list is finished in the record', async () => {
+  const feed = await ok(owner.get(`/api/ops/today?venue_id=${V}&time=11:30`))
+  const fridge = feed.tasks.find(t => t.kind === 'fridge_check')
+  await ok(owner.post('/api/ops/tasks', { venue_id: V, key: fridge.key, action: 'snooze', minutes: 60 }))
+  await sql`DELETE FROM task_notices WHERE tenant_id = ${ids.a}`
+  sent.length = 0
+  await sweepNotices(await getApp(), quiet, { time: '11:30' })
+  assert.equal(sent.filter(s => s.title === fridge.title).length, 0, 'snoozed: no notice')
+  await ok(owner.post('/api/ops/tasks', { venue_id: V, key: fridge.key, action: 'unsnooze' }))
+  // recordFeed on its own: a task gone from the next sweep is finished; one that comes back isn't.
+  const day = '2026-01-05'
+  const t = k => ({ key: k, area: 'food_safety', kind: 'fridge_check', title: k, group: 'now' })
+  await recordFeed(ids.a, V, { date: day, tasks: [t('rec:a'), t('rec:b')], aside: [] })
+  await recordFeed(ids.a, V, { date: day, tasks: [t('rec:a')], aside: [{ ...t('rec:c'), state: 'skipped' }] })
+  const rows = await sql`SELECT task_key, finished_at, skipped FROM ops_task_days WHERE venue_id = ${V} AND day = ${day}::date ORDER BY task_key`
+  assert.deepEqual(rows.map(r => [r.task_key, !!r.finished_at, r.skipped]), [['rec:a', false, false], ['rec:b', true, false], ['rec:c', false, true]])
+  await recordFeed(ids.a, V, { date: day, tasks: [t('rec:a'), t('rec:b')], aside: [] })
+  const [b] = await sql`SELECT finished_at FROM ops_task_days WHERE venue_id = ${V} AND day = ${day}::date AND task_key = 'rec:b'`
+  assert.equal(b.finished_at, null, 'back on the list: not finished')
 })
 
 test('the internal act-as sign-in only works inside the process', async () => {

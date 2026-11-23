@@ -73,4 +73,5 @@ export const ACTION_LABELS = {
   delete_report: 'Deleted a report', share_report: 'Shared a report', export_report: 'Kept a report file',
   schedule_report: 'Scheduled a report', change_schedule: 'Changed a report schedule',
   pause_schedule: 'Paused or resumed a report schedule', send_report: 'Emailed a report',
+  snooze_task: 'Snoozed a task', skip_task: 'Skipped a task', assign_task: 'Assigned a task',
 }

@@ -99,6 +99,11 @@ const VOICE_NOTE = '[Said aloud in talk mode, and your answer is read aloud: ans
 const MAX_STEPS      = 12
 const MAX_TOKENS     = 32000
 const ACTION_MINUTES = 30
+// A staff card left unanswered waits For review (Pepper-first step 5c) for
+// up to this many days, to be approved later through its own Confirm. A card
+// whose change holds something (a guest's table hold: describe()'s
+// expiresAt) keeps that hold's end, and the guest chat keeps ACTION_MINUTES.
+export const WAIT_DAYS = 7
 const MAX_MESSAGES   = 300   // stored rows per conversation; then start a new one
 
 // A tool call cut off by MAX_TOKENS never ran: say how to fit it.
@@ -716,9 +721,10 @@ async function handleToolUse(ctx, conv, block, emit) {
     }
 
     const card = await tool.describe(ctx, input)
+    const waits = !card.expiresAt && ctx.channel === 'staff_chat'
     const expires = card.expiresAt
       ? new Date(Math.min(new Date(card.expiresAt).getTime(), Date.now() + ACTION_MINUTES * 60_000))
-      : new Date(Date.now() + ACTION_MINUTES * 60_000)
+      : new Date(Date.now() + (waits ? WAIT_DAYS * 24 * 60 : ACTION_MINUTES) * 60_000)
     const { input: stored, card: cardData } = cardFor(tool, input, card)
     const [row] = await withTenant(conv.tenant_id, tx => tx`
       INSERT INTO ai_pending_actions (tenant_id, conversation_id, tool_use_id, tool, input, card, expires_at)
@@ -728,8 +734,9 @@ async function handleToolUse(ctx, conv, block, emit) {
     emit?.({ type: 'card', card: actionView(row) })
     const mins = Math.max(1, Math.round((expires.getTime() - Date.now()) / 60_000))
     return result('Not done yet: the ' + (ctx.channel === 'guest_chat' ? 'guest' : 'staff member') +
-      ' now sees a card "' + card.title + '" with the details and a Confirm button, valid for ' + mins +
-      ' minutes. Nothing changes until they press it; you will see the outcome in their next message. ' +
+      ' now sees a card "' + card.title + '" with the details and a Confirm button, valid for ' +
+      (waits ? WAIT_DAYS + ' days (it waits on their For review page until then)' : mins + ' minutes') +
+      '. Nothing changes until they press it; you will see the outcome in their next message. ' +
       'Do not call ' + tool.name + ' again for the same change.')
   } catch (err) {
     return result(errorText(err, ctx.log), true)

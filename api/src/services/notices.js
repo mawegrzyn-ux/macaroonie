@@ -6,10 +6,20 @@
 // tasks, the same feed the Today page shows (opsToday()), and sends:
 //   - due soon: a task with a time that is due within the next half hour
 //   - late:     a task the feed has gone late on
+//   - escalated: a task late by more than ESCALATE_MINUTES (by its time,
+//               else since the sweep first saw it late), to the venue's
+//               managers: Manage on the task's module (Pepper-first step 5b)
 // each once per venue, task, day and kind (task_notices, claimed before
 // sending), to the people who can do it (Use where the module offers it,
 // else Manage: the feed's can_act rule) and who want it (user_notify:
-// on, the venue, the area, the kind, outside their quiet hours).
+// on, the venue, the area, the kind, outside their quiet hours; an
+// escalation follows the late switch).
+//
+// The sweep also keeps the feed's record for every group (ops_task_days,
+// recordFeed() in services/opsTasks.js): each task seen per venue and day,
+// when it went late and when it left the list, for the report on
+// completion by site and for escalation. Snoozed and skipped tasks are off
+// the feed (the task store), so they send nothing.
 //
 // The feed is worked out as the group's owner, in-process (the internal
 // act-as sign-in in middleware/auth.js), so it holds every area; each
@@ -29,14 +39,13 @@ import { permissionLevels, INTERNAL_AS_PREFIX } from '../middleware/auth.js'
 import { permissionAtLeast, workLevel } from '../config/modules.js'
 import { opsToday, OPS_MODULES, AREAS } from './opsToday.js'
 import { localParts } from '../ai/tools/util.js'
+import { TASK_AREAS, ESCALATE_MINUTES } from '../../../shared/todayTasks.js'
+import { recordFeed, lateSince } from './opsTasks.js'
 
-export const NOTICE_KINDS = ['due_soon', 'late']
+export const NOTICE_KINDS = ['due_soon', 'late', 'escalated']
 export const DUE_SOON_MINUTES = 30
-export const AREA_LABELS = {
-  food_safety: 'Food safety checks', checklists: 'Checklists', hs_actions: 'H&S actions',
-  purchasing: 'Supplier orders', cash: 'Cash-ups', wages: 'Wages', online_orders: 'Online orders',
-  report_alerts: 'Report alerts',
-}
+// The feed's areas in words: one list (shared/todayTasks.js).
+export const AREA_LABELS = TASK_AREAS
 export const DEFAULT_SETTINGS = {
   enabled: true, venue_ids: [], areas: [], due_soon: true, late: true, quiet_from: null, quiet_to: null,
 }
@@ -96,6 +105,28 @@ export function wants(person, { venueId, task, kind, time }) {
   if (inQuietHours(time, s.quiet_from, s.quiet_to)) return false
   const module = task.kind === 'orders_to_approve' ? 'purchasing_approve' : AREAS[task.area]
   return !!module && permissionAtLeast(person.levels[module], workLevel(module))
+}
+
+/**
+ * How many minutes a late task has been late at `now` (HH:MM, venue time):
+ * by its own time when it has one, else since the sweep first saw it late
+ * (`since`, a Date), else 0.
+ */
+export function minutesLate(task, now, since, nowMs = Date.now()) {
+  if (task.group !== 'late') return 0
+  if (task.due) return Math.max(0, mins(now) - mins(task.due))
+  return since ? Math.max(0, Math.floor((nowMs - since.getTime()) / 60_000)) : 0
+}
+
+/** Whether a manager wants an escalation: their settings (the late switch) and Manage on the task's module. */
+export function wantsEscalation(person, { venueId, task, time }) {
+  const s = person.settings
+  if (!s.enabled || !s.late) return false
+  if (s.venue_ids.length && !s.venue_ids.includes(venueId)) return false
+  if (s.areas.length && !s.areas.includes(task.area)) return false
+  if (inQuietHours(time, s.quiet_from, s.quiet_to)) return false
+  const module = task.kind === 'orders_to_approve' ? 'purchasing_approve' : AREAS[task.area]
+  return !!module && permissionAtLeast(person.levels[module], 'manage')
 }
 
 /** A person's settings, defaults filled in. */
@@ -190,7 +221,8 @@ export async function noticePeople(tenantId) {
 }
 
 function payloadFor(venue, task, kind) {
-  const when = kind === 'late' ? 'Late' : 'Due at ' + task.due
+  const when = kind === 'escalated' ? 'Late for over ' + Math.round(ESCALATE_MINUTES / 60) + ' hours'
+    : kind === 'late' ? 'Late' : 'Due at ' + task.due
   return {
     title: task.title,
     body: [venue.name, when, task.detail].filter(Boolean).join(' · '),
@@ -205,9 +237,11 @@ function payloadFor(venue, task, kind) {
  * moment. Returns { venues, sent }.
  */
 export async function sweepNotices(app, log, { time, date } = {}) {
+  // Every active group: the feed's record is kept for all of them; notices
+  // go only where someone has a device.
   const tenants = await systemSql`
-    SELECT DISTINCT d.tenant_id FROM push_devices d
-      JOIN tenants t ON t.id = d.tenant_id AND t.is_active`
+    SELECT t.id AS tenant_id FROM tenants t
+     WHERE t.is_active AND EXISTS (SELECT 1 FROM venues v WHERE v.tenant_id = t.id AND v.is_active)`
   let venues = 0, sent = 0
   for (const { tenant_id: tenantId } of tenants) {
     try {
@@ -222,7 +256,7 @@ export async function sweepNotices(app, log, { time, date } = {}) {
 
 async function sweepTenant(app, log, tenantId, { time, date }) {
   const people = await noticePeople(tenantId)
-  if (!people.some(p => p.settings.enabled)) return { venues: 0, sent: 0 }
+  const notify = people.some(p => p.settings.enabled)
   // The feed is worked out as an owner, so it holds every area.
   const [owner] = await withTenant(tenantId, tx => tx`
     SELECT id, auth0_user_id, email FROM users
@@ -240,29 +274,48 @@ async function sweepTenant(app, log, tenantId, { time, date }) {
   let sent = 0
   for (const venue of venues) {
     const feed = await opsToday(ctx, venue, { date, time, levels: ownerLevels })
+    await recordFeed(tenantId, venue.id, feed).catch(e => log?.warn?.({ tenantId, venueId: venue.id, err: e?.message }, 'Task notices: the feed record failed'))
+    if (!notify) continue
     const clock = time || localParts(new Date(), venue.timezone).time
+    const since = await lateSince(tenantId, venue.id, feed.date)
     for (const task of feed.tasks) {
-      const kind = noticeKind(task, feed.now)
-      if (!kind) continue
-      const to = people.filter(p => wants(p, { venueId: venue.id, task, kind, time: clock }))
-      if (!to.length) continue
-      // Each once: claimed before it is sent, so two processes never both send it.
-      const [claimed] = await withTenant(tenantId, tx => tx`
-        INSERT INTO task_notices (tenant_id, venue_id, task_key, day, kind, title)
-        VALUES (${tenantId}, ${venue.id}, ${task.key}, ${feed.date}::date, ${kind}, ${task.title})
-        ON CONFLICT (venue_id, task_key, day, kind) DO NOTHING
-        RETURNING task_key`)
-      if (!claimed) continue
-      const payload = payloadFor(venue, task, kind)
-      let reached = 0
-      for (const p of to) reached += await sendToDevices(tenantId, p.devices, payload)
-      await withTenant(tenantId, tx => tx`
-        UPDATE task_notices SET sent_to = ${reached}
-         WHERE venue_id = ${venue.id} AND task_key = ${task.key} AND day = ${feed.date}::date AND kind = ${kind}`)
-      sent += reached
+      const kinds = [noticeKind(task, feed.now)]
+      if (minutesLate(task, feed.now, since.get(task.key)) > ESCALATE_MINUTES) kinds.push('escalated')
+      for (const kind of kinds.filter(Boolean)) {
+        const to = people.filter(p => kind === 'escalated'
+          ? wantsEscalation(p, { venueId: venue.id, task, time: clock })
+          : wants(p, { venueId: venue.id, task, kind, time: clock }))
+        if (!to.length) continue
+        sent += await sendOnce(tenantId, venue, feed, task, kind, to)
+      }
     }
   }
   return { venues: venues.length, sent }
+}
+
+// Each once: claimed before it is sent, so two processes never both send it.
+// An escalation is also a change in the task's history (ops_task_log).
+async function sendOnce(tenantId, venue, feed, task, kind, to) {
+  const [claimed] = await withTenant(tenantId, tx => tx`
+    INSERT INTO task_notices (tenant_id, venue_id, task_key, day, kind, title)
+    VALUES (${tenantId}, ${venue.id}, ${task.key}, ${feed.date}::date, ${kind}, ${task.title})
+    ON CONFLICT (venue_id, task_key, day, kind) DO NOTHING
+    RETURNING task_key`)
+  if (!claimed) return 0
+  const payload = payloadFor(venue, task, kind)
+  let reached = 0
+  for (const p of to) reached += await sendToDevices(tenantId, p.devices, payload)
+  await withTenant(tenantId, async tx => {
+    await tx`
+      UPDATE task_notices SET sent_to = ${reached}
+       WHERE venue_id = ${venue.id} AND task_key = ${task.key} AND day = ${feed.date}::date AND kind = ${kind}`
+    if (kind === 'escalated') {
+      await tx`
+        INSERT INTO ops_task_log (tenant_id, venue_id, task_key, day, area, kind, title, action, by_name)
+        VALUES (${tenantId}, ${venue.id}, ${task.key}, ${feed.date}::date, ${task.area}, ${task.kind}, ${task.title}, 'escalated', 'Task notices')`
+    }
+  })
+  return reached
 }
 
 /** Old task_notices go after 30 days (the hourly clean-up). */

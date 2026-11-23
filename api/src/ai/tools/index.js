@@ -176,7 +176,9 @@ export function shownResult(out) {
  *  A reading tool needs View on one of its area's modules, a change tool Manage,
  *  or the level it names itself (`needs: 'use'`: the everyday H&S work). */
 export function toolAllowed(tool, levels) {
-  if (tool.open || OPEN_SECTIONS.has(tool.section)) return true
+  // An open area's tools are for everyone, unless a tool names its own modules (the task
+  // change tools: Use on a module that has tasks, never View).
+  if (tool.open || (OPEN_SECTIONS.has(tool.section) && !tool.modules)) return true
   // A tool may name its own modules (find_dishes: Menus or the Allergen lookup).
   const modules = tool.modules ?? SECTION_MODULES[tool.section]
   if (!modules) return true

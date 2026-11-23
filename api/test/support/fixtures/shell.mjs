@@ -1,5 +1,5 @@
 // The shell: a menu link hidden from the viewer role (made.viewerRole from
-// dashboards.mjs); last of all (fillLate), push notices.
+// dashboards.mjs); last of all (fillLate), push notices and the task store.
 import { sql } from '../app.mjs'
 
 export const order = 110
@@ -24,7 +24,19 @@ export async function fill(ctx) {
 }
 
 export async function fillLate(ctx) {
-  const { V, mark, tenantId, ids, step, post, put } = ctx
+  const { V, mark, tenantId, ids, step, post, put, get } = ctx
+  // ── The task store (migration 278): a Today task given to the person, and
+  // the feed's record of it for the day (the notices sweep keeps it) ──
+  const feed = await step('today feed', () => get(`/api/ops/today?venue_id=${V}&time=10:00`))
+  const task = feed?.tasks.find(t => t.kind === 'fridge_check') || feed?.tasks[0]
+  if (task) {
+    const people = await step('task people', () => get(`/api/ops/tasks/people?venue_id=${V}&key=${encodeURIComponent(task.key)}`))
+    const me = people?.people.find(p => p.me)
+    if (me) await step('task owner', () => post('/api/ops/tasks', { venue_id: V, key: task.key, action: 'assign', owner_id: me.id }))
+    await sql`INSERT INTO ops_task_days (tenant_id, venue_id, day, task_key, area, kind, title, compliance, late_at)
+              VALUES (${tenantId}, ${V}, current_date, ${task.key}, ${task.area}, ${task.kind}, ${task.title}, ${!!task.compliance}, now())
+              ON CONFLICT DO NOTHING`
+  }
   // ── Push notices (migration 262) ──
   await step('notice settings', () => put('/api/notices/settings', {
     enabled: true, venue_ids: [V], areas: ['food_safety', 'cash'], due_soon: true, late: true, quiet_from: '23:00', quiet_to: '06:00',

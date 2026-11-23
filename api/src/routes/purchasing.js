@@ -61,6 +61,8 @@ const optText = (max = 2000) => z.string().trim().max(max).nullable().optional()
 
 const canSetupView   = requirePermission('purchasing_setup', 'view')
 const canSetup       = requirePermission('purchasing_setup', 'manage')
+// How long an invoice read for a delivery waits For review (GET /invoices/waiting).
+const INVOICE_WAIT_DAYS = 14
 const canRead        = requireAnyPermission(['purchasing', 'purchasing_setup', 'purchasing_approve'], 'view')
 const canOrder       = requirePermission('purchasing', 'manage')
 const canApprove     = requirePermission('purchasing_approve', 'manage')
@@ -1204,6 +1206,31 @@ export default async function purchasingRoutes(app) {
   // product code. ?all=1 adds switched-on suppliers with no live price (a
   // delivery without an order can come from one). Suppliers aren't secret:
   // their names are on every order.
+  // Invoices Pepper read for a delivery that nobody has booked in with them
+  // yet (applied_at empty, the order still to come, read in the last
+  // INVOICE_WAIT_DAYS): For review's Waiting list (Pepper-first step 5c).
+  // The people who can book a delivery in. No prices: the delivery page
+  // shows them to those who may see them.
+  app.get('/invoices/waiting', { preHandler: canOrderOrApprove }, async req => withTenant(req.tenantId, async tx => {
+    const venueId = req.query.venue_id && /^[0-9a-f-]{36}$/i.test(req.query.venue_id) ? req.query.venue_id : null
+    return tx`
+      SELECT i.id, i.po_id, po.number AS po_number, po.venue_id, v.name AS venue_name, s.name AS supplier_name,
+             i.invoice_number, i.invoice_date::text AS invoice_date, i.read_at, i.read_by,
+             jsonb_array_length(CASE WHEN jsonb_typeof(i.lines) = 'array' THEN i.lines ELSE '[]'::jsonb END)::int AS line_count,
+             po.delivery_date::text AS delivery_date
+        FROM purchase_invoices i
+        JOIN purchase_orders po ON po.id = i.po_id AND po.tenant_id = ${req.tenantId}
+        JOIN venues v ON v.id = po.venue_id AND v.tenant_id = ${req.tenantId}
+        JOIN suppliers s ON s.id = po.supplier_id AND s.tenant_id = ${req.tenantId}
+       WHERE i.tenant_id = ${req.tenantId} AND i.applied_at IS NULL
+         AND i.read_at > now() - make_interval(days => ${INVOICE_WAIT_DAYS})
+         AND po.status IN ('to_send', 'sent')
+         ${venueId ? tx`AND po.venue_id = ${venueId}` : tx``}
+       ORDER BY i.read_at DESC
+       LIMIT 50
+    `
+  }))
+
   app.get('/venues/:venueId/suppliers', { preHandler: canRead }, async req => withTenant(req.tenantId, async tx => {
     await loadVenue(tx, req.tenantId, req.params.venueId)
     const all = req.query.all === '1'

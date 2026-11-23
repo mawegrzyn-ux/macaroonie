@@ -1013,6 +1013,45 @@ export function Section() {
         in <Mono>shared/nav/pepper.js</Mono>; migration 277 adds the link after Pepper in existing menus). Tests:{' '}
         <Mono>api/test/pepper-actions.test.mjs</Mono>.
       </P>
+      <H3>For review (step 5c, migration 279)</H3>
+      <P>
+        A staff chat card with no hold of its own now waits <Mono>WAIT_DAYS</Mono> (7, <Mono>ai/chat.js</Mono>)
+        before <Mono>expires_at</Mono>, and the model is told so; a card whose <Mono>describe()</Mono> gives an{' '}
+        <Mono>expiresAt</Mono> (a guest&apos;s table hold, <Mono>confirm_booking</Mono>) keeps the hold&apos;s end, and the
+        guest chat keeps <Mono>ACTION_MINUTES</Mono> (30). A waiting card is still answered through its own{' '}
+        <Mono>POST /api/ai/actions/:id/confirm</Mono> or <Mono>/cancel</Mono>: one write per card, the typed word for a
+        destructive one, the tool&apos;s own checks again.
+      </P>
+      <P>
+        <Mono>GET /api/ai/review</Mono> (<Mono>routes/ai.js</Mono>; anyone signed in, each part on its own module,{' '}
+        <Mono>?count=1</Mono> for Home): the person&apos;s own pending, undecided, unexpired cards in open staff chats
+        (<Mono>kind: &apos;card&apos;</Mono> with class, word, before and after, <Mono>together</Mono> = class
+        reversible); with Purchasing approval Manage, supplier orders <Mono>status=requested</Mono> read through{' '}
+        <Mono>/api/purchasing/orders</Mono> (open <Mono>/purchasing?order=</Mono>, send back through{' '}
+        <Mono>POST /api/purchasing/orders/:id/return</Mono> with a note); and invoices read and not applied through{' '}
+        <Mono>GET /api/purchasing/invoices/waiting</Mono> (Purchasing or Purchasing approval Manage;{' '}
+        <Mono>purchase_invoices</Mono> with no <Mono>applied_at</Mono>, read in the last 14 days, the order still{' '}
+        to_send or sent; no prices). Parts left out are named in <Mono>not_included</Mono>. Price lists and menus
+        read from a photo aren&apos;t kept as drafts, so they aren&apos;t listed. The page:{' '}
+        <Mono>pages/Review.jsx</Mono> at <Mono>/review</Mono> (lazy, <Mono>routes/pepper.jsx</Mono>; record in{' '}
+        <Mono>shared/nav/pepper.js</Mono>, module <Mono>ai_assistant</Mono>; migration 279 adds the link after Pepper),
+        tabs Waiting and Done by Pepper (<Mono>PepperDone</Mono> with <Mono>embedded</Mono>). Approve all for two or more
+        reversible cards of one tool: one confirm call each, after an inline Are you sure. Home&apos;s slot:{' '}
+        <Mono>components/ai/ReviewSlot.jsx</Mono>. Tests: <Mono>api/test/pepper-review.test.mjs</Mono>.
+      </P>
+      <H3>Today&apos;s tasks for Pepper (step 5e)</H3>
+      <P>
+        <Mono>ai/tools/today.js</Mono> (section <Mono>today</Mono>, open: the route checks): <Mono>my_tasks</Mono>{' '}
+        (read; the feed through <Mono>GET /api/ops/today</Mono> as the person, titles and states, never keys or ids),{' '}
+        <Mono>snooze_task</Mono> (reversible, <Mono>inverse</Mono> = unsnooze), <Mono>skip_task</Mono> (consequential, a
+        reason required, editable on the card), <Mono>assign_task</Mono> (consequential, a person by name, me or
+        nobody, picked from <Mono>GET /api/ops/tasks/people</Mono>). Tasks are named in words:{' '}
+        <Mono>matchTasks()</Mono> needs every word (stemmed; weekly = week, temps = fridge) in a task&apos;s title,
+        detail or kind words; several of one kind are taken together (up to 6), different kinds ask which. The card
+        pins the keys, venue and day. <Mono>day_briefing</Mono> has a <Mono>tasks</Mono> part (counts, the late ones,
+        what is off the list). Eval: <Mono>api/eval/tasks/today.mjs</Mono> (snooze the fridge checks, skip the weekly
+        checklist). Tests: <Mono>api/test/pepper-today.test.mjs</Mono>.
+      </P>
     </section>
   )
 }
