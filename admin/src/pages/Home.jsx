@@ -32,6 +32,7 @@ import { cn } from '@/lib/utils'
 import { usePepperPage } from '@/lib/pepperPage'
 import { FormSheet, Go } from '@/components/forms/FormSheet'
 import PinStrip from '@/components/home/Pins'
+import { TaskActions, TaskMoreButton, TaskOwner, SetAside, SkippedToday } from '@/components/home/TaskActions'
 import AskBar, { useAsk } from '@/components/layout/AskBar'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 
@@ -173,6 +174,8 @@ export default function Home() {
           )}
 
           {d && <TaskBoard d={d} onForm={t => setForm({ ...t.action, task: t })} />}
+
+          <SkippedToday />
 
           {d && <WeekAhead d={d} canSetUp={me?.permissions?.local_info === 'manage'} />}
 
@@ -350,10 +353,11 @@ export function TaskBoard({ d, onForm, linkFor }) {
             <span className="ml-auto text-xs opacity-80 hidden sm:inline">{g.note}</span>
           </div>
           <ul className="divide-y">
-            {d.tasks.filter(t => t.group === g.key).map(t => <TaskRow key={t.key} t={t} onForm={onForm} linkFor={linkFor} />)}
+            {d.tasks.filter(t => t.group === g.key).map(t => <TaskRow key={t.key} t={t} d={d} onForm={onForm} linkFor={linkFor} />)}
           </ul>
         </section>
       ))}
+      <SetAside d={d} />
       {d.not_included?.length > 0 && (
         <p className="text-xs text-muted-foreground px-1" data-testid="today-not-included">
           Not shown, as your role can't see them: {d.not_included.map(a => AREA_NAMES[a] || a).join(', ')}.
@@ -366,13 +370,14 @@ export function TaskBoard({ d, onForm, linkFor }) {
   )
 }
 
-function TaskRow({ t, onForm, linkFor }) {
+function TaskRow({ t, d, onForm, linkFor }) {
+  const [more, setMore] = useState(false)
   const Icon = KIND_ICON[t.kind] || ClipboardList
   const label = t.can_act ? t.action.label : 'View'
   const btn = 'shrink-0 inline-flex items-center gap-1.5 min-h-[48px] px-4 rounded-md text-sm font-medium touch-manipulation ' +
     (t.can_act ? 'bg-primary text-primary-foreground hover:opacity-90' : 'border hover:bg-accent')
   return (
-    <li className="flex flex-wrap items-center gap-3 px-4 py-3" data-testid="today-task" data-kind={t.kind} data-group={t.group}>
+    <li className="flex flex-wrap items-center gap-3 px-4 py-3" data-testid="today-task" data-kind={t.kind} data-group={t.group} data-key={t.key}>
       <div className={cn('w-10 h-10 rounded-full flex items-center justify-center shrink-0',
         t.kind === 'corrective_action' ? 'bg-red-100 text-red-700' : 'bg-muted text-foreground')}>
         <Icon className="w-5 h-5" />
@@ -382,10 +387,13 @@ function TaskRow({ t, onForm, linkFor }) {
         <p className="text-sm text-muted-foreground">
           {t.due && <span className="font-medium text-foreground">{t.due} · </span>}{t.detail}
         </p>
+        <TaskOwner owner={t.owner} />
       </div>
       {t.action.form
         ? <button type="button" className={btn} onClick={() => onForm(t)} data-testid="today-task-action">{label}<ChevronRight className="w-4 h-4" /></button>
         : <Go to={t.action.path} linkFor={linkFor} className={btn} data-testid="today-task-action">{label}<ChevronRight className="w-4 h-4" /></Go>}
+      {t.can_change && <TaskMoreButton open={more} onToggle={() => setMore(!more)} />}
+      {more && <TaskActions t={t} d={d} onClose={() => setMore(false)} />}
     </li>
   )
 }
