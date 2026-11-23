@@ -144,13 +144,47 @@ export function Section() {
       <H3>Opening a form from Pepper</H3>
       <P>
         Ask Pepper to open a form and it puts a card in the chat with an <strong>Open</strong> button:{' '}
-        <em>&ldquo;do today&apos;s cash-up&rdquo;</em>, <em>&ldquo;log the fridge temps&rdquo;</em>,{' '}
-        <em>&ldquo;open the closing checklist&rdquo;</em>, <em>&ldquo;add an expense&rdquo;</em>,{' '}
-        <em>&ldquo;who&apos;s on Saturday&rdquo;</em>. Open shows the same form a task on Home opens, over the
-        chat, and you fill it in yourself: Pepper never fills a form&apos;s fields. The forms: fridge and
-        freezer, hot and cold hold, cooking and delivery checks; a checklist; the cash-up; the week&apos;s
-        wages; the day&apos;s expenses with receipts; sold out dishes; and the rota for a day. Each needs
-        access to its area, and shows read only when your role can look but not change.
+        <em>&ldquo;do today&apos;s cash-up&rdquo;</em>, <em>&ldquo;open the closing checklist&rdquo;</em>,{' '}
+        <em>&ldquo;I&apos;ll do the order&rdquo;</em>, <em>&ldquo;add an H&amp;S action&rdquo;</em>,{' '}
+        <em>&ldquo;who&apos;s on Saturday&rdquo;</em>. Open shows the same form its page uses, over the
+        chat, and it saves through the page&apos;s own Save. The forms: fridge and freezer, hot and cold
+        hold, cooking and delivery checks; corrective actions for the day&apos;s readings out of range; a
+        checklist; the cash-up; the week&apos;s wages; the day&apos;s expenses with receipts; sold out
+        dishes; the rota for a day; a supplier order; a new H&amp;S action; a new booking; and a
+        booking&apos;s details to change. Each needs access to its area, and shows read only when your
+        role can look but not change.
+      </P>
+      <P>
+        When you have just one reading or one change to make (<em>&ldquo;the walk-in is reading 3&rdquo;</em>,{' '}
+        <em>&ldquo;book Jane for 4 at 7&rdquo;</em>), Pepper makes it straight away with a Confirm card
+        instead of a form: the card is where you check it.
+      </P>
+      <H3>Values Pepper fills in</H3>
+      <P>
+        Pepper can put into the form what you told it, or what a photo or document you gave it says:
+        the supplier, the items and quantities, notes, the guest&apos;s name and party size, or a reading
+        you said yourself (<em>&ldquo;fridge 2 is 6&rdquo;</em>). It never works out or guesses a reading, a count
+        or an amount: a temperature goes in only when you said the number. The card in the chat lists
+        what Pepper filled in.
+      </P>
+      <P>
+        In the form each value Pepper put in is tinted and marked <strong>Filled by Pepper</strong>. Check
+        it: change it if it is wrong, or press <strong>OK</strong> beside the mark. On the fridge and hold
+        grids and an order&apos;s quantities, nothing is saved until you press OK or change the value, and an
+        order can&apos;t be placed while one of Pepper&apos;s quantities is still waiting (<strong>OK all</strong>{' '}
+        takes them all). Everything else saves only when you press the form&apos;s own Save.
+      </P>
+      <H3>Saved forms and drafts</H3>
+      <P>
+        Once you save a form you opened from the chat and close it, its card shows a short line of what
+        was saved, with an <strong>Edit</strong> button that opens the form again. The line stays when you
+        come back to the chat later or on another device, and Pepper knows what you saved.
+      </P>
+      <P>
+        A delivery check, an expense, a corrective action, a new H&amp;S action and a new booking keep what
+        you have typed but not saved as a draft, for you only: close the form, reload the page or pick it up on
+        another device and it is still there. The draft goes when you save the form, and drafts left for a
+        week are cleared.
       </P>
       <H3>How do I...? questions</H3>
       <P>

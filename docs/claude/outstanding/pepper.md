@@ -56,3 +56,16 @@ Built (0c): the evaluation set in `api/eval/` (27 tasks, harness, `npm run eval 
 - Each trial empties the whole test database, so trials run one after another (no parallel trials).
 - No task covers reports (`build_report`, schedules), new locations, purchasing orders, tips or pay: their end states take longer setups; add them next.
 - The result files stay on the computer that ran them (`api/eval/results/`, not committed): no history of runs to compare against yet.
+
+**53. Filled forms, step 3 follow-ups (Pepper-first, 23 Nov 2026; migration 275)**
+
+Built: one form list (`shared/forms.js`), Pepper's values checked and marked in the sheet, the saved line with Edit on the chat card, drafts on the server, and the order, corrective action, H&S action and booking forms. Not done:
+- **Forms that take no values yet**: cooking checks, a checklist, the cash-up, the wages, sold out, the rota for a day and a booking's details (booking_change: Pepper's `change_booking` does that change with a Confirm card). The cash-up's counts are measured values, so filling them needs the same "only from the person's words" check as temperatures.
+- **The saved line**: the rota for a day and sold out never report what was saved, so their cards get no line. The line is the browser's words of what its form saved (the routes did the saving); the server checks it is one line of the person's own chat, not what it says. A form saved while Pepper is still answering in that chat gets a 409 (busy), and the card says the line wasn't kept in the chat.
+- **Measured values**: only digits (and "minus") in the person's message of this turn count; numbers in words ("six") and a reading said in an earlier message are left out, and Pepper says so.
+- **The order form**: Pepper's items are matched by name on the list the person opens (exact, then starts with, then contains, one match only), in the browser; the server doesn't check the items exist, and Pepper can't pick the list. Names not on the list are listed above the lines.
+- **Drafts**: only the five forms with `drafts: true`. A change typed in the last 800 ms before the tab is closed or the device sleeps may be lost (the draft is kept on the debounce or when the form closes in the app). A form for one record has its values used up after its first Save, so a second delivery or expense in the same sheet starts empty.
+- **The step's measures are not recorded**: the strategy's "share of pre-filled fields saved unchanged", time per task through a filled form and changes reversed within 24 hours need a record of what Pepper placed and what was saved (the usage record or `ai_requests` don't hold it).
+- **Checked in a browser at 1280 px only** (delivery: values, marks, OK, a change, the draft through a reload, Save, the line, reload, Edit; H&S action, order, corrective actions and a new booking opened with their marks). Not checked: booking_change's window, the phone's Today and the phone app at phone width, a touch screen (the grids' keypad with a Pepper reading).
+- **Not run against the live model**: whether Pepper passes `values` well (and only what was said) is for the next live evaluation; no evaluation task covers `open_form` with values yet.
+

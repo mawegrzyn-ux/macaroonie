@@ -416,8 +416,8 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                   </div>
                 )}
 
-                {/* Prefill hint when opened via canvas click */}
-                {prefillTime && (
+                {/* Prefill hint when opened via canvas click (Pepper's time has its own line above) */}
+                {prefillTime && !pHas('time') && (
                   <div className="flex items-center gap-2 text-xs text-primary bg-primary/5 border border-primary/20 rounded-lg px-3 py-2">
                     <span className="font-medium">Clicked time:</span>
                     <span className="font-mono">{prefillTime}</span>

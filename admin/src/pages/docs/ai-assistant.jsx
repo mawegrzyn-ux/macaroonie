@@ -425,8 +425,8 @@ export function Section() {
         <Mono>AiAssistant.jsx</Mono>, and <Mono>changeDetail()</Mono> there). Still kept by hand
         beside the tools: <Mono>ACTION_LABELS</Mono> and <Mono>changeDetail()</Mono>,{' '}
         <Mono>VOICE_CONFIRM_TOOLS</Mono> and <Mono>HEAVY_TOOLS</Mono> in <Mono>chat.js</Mono>,
-        and <Mono>OPEN_FORMS</Mono> in <Mono>tools/forms.js</Mono>, which must match{' '}
-        <Mono>FORMS</Mono> in <Mono>FormSheet.jsx</Mono>.
+        and the forms (since 23 Nov 2026 one list, <Mono>shared/forms.js</Mono>, which{' '}
+        <Mono>open_form</Mono> and <Mono>FormSheet.jsx</Mono> both import).
       </P>
       <H3>Confirm cards (chats)</H3>
       <P>
@@ -822,16 +822,78 @@ export function Section() {
       <Code>{'claude mcp add --transport http macaroonie https://macaroonie.com/mcp/staff/<slug> \\\n  --header "Authorization: Bearer mcp_..."'}</Code>
       <H3>Form cards: open_form</H3>
       <P>
-        <Mono>ai/tools/forms.js</Mono> (core tool): <Mono>open_form</Mono> picks a form of{' '}
-        <Mono>OPEN_FORMS</Mono> (temps, holds, cooking, delivery, checklist, cash_up, wages, expense, sold_out,
-        rota_day; keep in step with <Mono>FORMS</Mono> in <Mono>components/forms/FormSheet.jsx</Mono>), a venue and a
-        day; it needs View on the form&apos;s module, and the card says <Mono>read_only</Mono> below Use (Manage for
-        the rota and sold out). In the staff chat it returns <Mono>form_card</Mono>; elsewhere a link. A tool with{' '}
+        <Mono>ai/tools/forms.js</Mono> (core tool): <Mono>open_form</Mono> picks a form of the one list in{' '}
+        <Mono>shared/forms.js</Mono> (<Mono>FORMS</Mono>, re-exported as <Mono>OPEN_FORMS</Mono>: temps, holds, cooking,
+        delivery, checklist, cash_up, wages, expense, sold_out, rota_day, and since step 3e order, corrective,
+        hs_action, booking, booking_change), a venue and a day; each form has its <Mono>module</Mono>,{' '}
+        <Mono>edit</Mono> level, <Mono>path</Mono> / <Mono>phone</Mono>, <Mono>by</Mono> (date, week or none),{' '}
+        <Mono>fields</Mono>, <Mono>drafts</Mono> and <Mono>window</Mono>. It needs View on the form&apos;s module, and the
+        card says <Mono>read_only</Mono> below <Mono>edit</Mono>. booking_change finds the booking on the day by the
+        guest&apos;s name or its reference (<Mono>pickBooking()</Mono>, the bookings list route) and puts it in{' '}
+        <Mono>ref.booking</Mono>. In the staff chat it returns <Mono>form_card</Mono>; elsewhere a link. A tool with{' '}
         <Mono>display(out)</Mono> shows a card of its own: <Mono>handleToolUse()</Mono> streams it as a{' '}
         <Mono>card</Mono> event and <Mono>displayItems()</Mono> rebuilds it from the stored tool result
         (<Mono>DISPLAY_TOOLS</Mono>), so it is never built from the model&apos;s text. <Mono>ChatView</Mono>&apos;s{' '}
         <Mono>FormCard</Mono> opens <Mono>FormOpener</Mono> (the Today sheet, or <Mono>AvailabilityModal</Mono> for
         sold out).
+      </P>
+      <H3>Pepper&apos;s values in a form (step 3b)</H3>
+      <P>
+        <Mono>open_form</Mono> takes <Mono>values</Mono>, checked by <Mono>checkValues()</Mono> against the
+        form&apos;s declared <Mono>fields</Mono> (types text, number, int, bool, enum, date, time and list of rows,
+        each built into a zod schema by <Mono>fieldSchema()</Mono>): an unknown field or row key is left out and
+        named in the reply&apos;s <Mono>Left out</Mono>; a wrong type or a value out of range refuses the call (422,
+        the model tries again); a list row without a <Mono>required</Mono> field is left out. A{' '}
+        <Mono>measured</Mono> field (a temperature) is kept only when its number is in the person&apos;s own words
+        this turn: <Mono>ctx.said</Mono>, set by <Mono>turn()</Mono> in <Mono>chat.js</Mono>, read by{' '}
+        <Mono>saidNumbers()</Mono> (digits, a minus sign or the word minus). <Mono>PLACE</Mono> then turns names into
+        the venue&apos;s own rows where a form needs it (fridge and hold readings: the unit by name, the check time
+        by <Mono>pickCheckTime()</Mono>, moved to <Mono>tools/util.js</Mono>). A read-only card takes no values. The
+        values go on the card as <Mono>form_card.values</Mono>.
+      </P>
+      <P>
+        Admin: <Mono>components/forms/fill.jsx</Mono>: <Mono>FormFillProvider</Mono> (values, the keys Pepper
+        filled as <Mono>marked</Mono>, <Mono>change()</Mono> for the draft, <Mono>saved()</Mono> for the summary),{' '}
+        <Mono>useFormFill()</Mono> (null outside a filled sheet, so the pages are unchanged), <Mono>FilledMark</Mono>{' '}
+        / <Mono>PepperMark</Mono> (<Mono>pepper-filled</Mono>, OK <Mono>pepper-filled-ok</Mono>), <Mono>filledClass()</Mono>.
+        The panels that take values: <Mono>TempChecksTable</Mono> / <Mono>HoldChecksTable</Mono> (a cell&apos;s{' '}
+        <Mono>proposed</Mono> reading saves only on OK or a change), <Mono>DeliveryModal</Mono>,{' '}
+        <Mono>ExpenseModal</Mono> (category by name), <Mono>CorrectiveActionsPanel</Mono>, the H&amp;S action
+        log&apos;s <Mono>EntryModal</Mono>, <Mono>OrderForm</Mono> (<Mono>matchOrderItems()</Mono>; placing waits
+        while a quantity is marked) and <Mono>NewBookingModal</Mono>. Save goes through each page&apos;s own route.
+      </P>
+      <H3>The saved line on a form card (step 3c)</H3>
+      <P>
+        Each panel tells the sheet what it saved (<Mono>fill.saved(line, key)</Mono>; a later line with the same
+        key replaces it); on closing, <Mono>FormSheet</Mono> hands the lines to <Mono>onSaved</Mono>, and{' '}
+        <Mono>FormCard</Mono> posts them to <Mono>POST /api/ai/conversations/:id/forms/:toolUseId</Mono>{' '}
+        (<Mono>{'{ summary }'}</Mono>, the person&apos;s own chat). <Mono>saveFormCard()</Mono> in <Mono>chat.js</Mono>{' '}
+        checks the call is an <Mono>open_form</Mono> of that chat that made a card, then, inside{' '}
+        <Mono>withHold()</Mono>, appends a hidden note (<Mono>_note: &apos;form&apos;</Mono>,{' '}
+        <Mono>{'_form: { id, summary }'}</Mono>, one line of at most <Mono>FORM_SUMMARY_MAX</Mono> 400) the way a
+        Confirm&apos;s outcome is kept: the model reads it on the next turn (<Mono>clean()</Mono> strips the
+        markers), <Mono>displayItems()</Mono> puts the latest as <Mono>saved</Mono> on the card (with{' '}
+        <Mono>tool_use_id</Mono>, also on the streamed card) and doesn&apos;t show the note. A closed chat refuses
+        it (409). The card shows <Mono>chat-form-saved</Mono> and Edit (<Mono>chat-form-edit</Mono>), which opens
+        the form without Pepper&apos;s values.
+      </P>
+      <H3>Form drafts (step 3d, migration 275)</H3>
+      <DataTable
+        head={['Table / route', 'What']}
+        rows={[
+          ['form_drafts', 'One per person (user_sub), form, venue and day (the form\'s day or its week\'s Monday; null for a form with none; UNIQUE NULLS NOT DISTINCT): form_values jsonb in the shapes shared/forms.js declares, updated_at. RLS enabled and forced. Not read by reports (decisions: out).'],
+          ['GET /api/form-drafts?form=&venue_id=&day=', '{ draft: { values, updated_at } | null }, the caller\'s own. The form needs View on its module and drafts: true; the venue must be the group\'s (404); a form by date or week needs the day (400).'],
+          ['PUT /api/form-drafts', '{ form, venue_id, day?, values }: the whole draft (at most DRAFT_MAX_BYTES 20,000 as JSON).'],
+          ['DELETE /api/form-drafts?form=&venue_id=&day=', 'The caller\'s own draft, after the form is saved.'],
+        ]}
+      />
+      <P>
+        Drafts older than <Mono>DRAFT_DAYS</Mono> (7) are deleted whenever the person&apos;s drafts are read or
+        written (no job). Admin: <Mono>components/forms/useFormDraft.js</Mono> reads the draft before the form
+        mounts, starts the form from the draft&apos;s values with Pepper&apos;s for any field the draft hasn&apos;t
+        (Pepper&apos;s keep their mark unless the draft holds something else), keeps changes debounced
+        (<Mono>DRAFT_DEBOUNCE_MS</Mono> 800, at once when the form closes) and deletes it on Save. A draft is not a
+        save of the record (Standard Design Rule 5 is about the record).
       </P>
       <H3>Model requests (migration 271)</H3>
       <P>
