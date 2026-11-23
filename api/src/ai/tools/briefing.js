@@ -15,6 +15,8 @@
 //   sold_out     sold_out
 //   emails       booking emails that failed (email_log)
 //   screens      menu screens that are offline (screens_status)
+//   tasks        the Today list (my_tasks): how many late, now, next, later,
+//                the late ones by name, and what is off the list (step 5e)
 
 import { z } from 'zod'
 import { ToolError, isStaff } from '../context.js'
@@ -26,8 +28,9 @@ import { cashTools } from './cash.js'
 import { orderTools } from './orders.js'
 import { siteTools } from './site.js'
 import { purchasingTools } from './purchasing.js'
+import { todayTools } from './today.js'
 
-const ALL = [...bookingTools, ...hsTools, ...rotaTools, ...cashTools, ...orderTools, ...siteTools, ...purchasingTools]
+const ALL = [...bookingTools, ...hsTools, ...rotaTools, ...cashTools, ...orderTools, ...siteTools, ...purchasingTools, ...todayTools]
 const tool = name => {
   const t = ALL.find(x => x.name === name)
   if (!t) throw new Error('day_briefing needs the ' + name + ' tool')
@@ -103,6 +106,17 @@ const PARTS = [
     const e = await tool('email_log').run(ctx, { only_failed: true, limit: 5 })
     return { failed_recently: e.failed_recently, latest: e.emails }
   }],
+  // The Today list (the same feed Home shows): the counts, the late tasks by
+  // name and who has them, and what was set aside (skipped with why).
+  ['tasks', async (ctx, v, date) => {
+    const t = await tool('my_tasks').run(ctx, { venue: v.id, date })
+    const late = t.tasks.filter(x => x.group === 'late')
+    return {
+      ...(t.counts ? { counts: t.counts } : {}),
+      ...(late.length ? { late: late.slice(0, 10).map(x => x.task + (x.assigned_to ? ' (' + x.assigned_to + ')' : '')) } : {}),
+      ...(t.off_the_list ? { off_the_list: t.off_the_list.slice(0, 10) } : {}),
+    }
+  }],
   ['screens_offline', async (ctx, v) => {
     const s = await tool('screens_status').run(ctx, { venue: v.id })
     return { offline: s.screens.filter(x => x.status === 'offline') }
@@ -117,7 +131,7 @@ export const order = 140
 // The file's line(s) in the list of what Pepper can do.
 export const promptLines = [
   'day_briefing gives a venue\'s day in one go (bookings and big parties, who is on, H&S due, deliveries, ' +
-    'yesterday\'s cash-up, open online orders, sold out, failed emails, offline screens): use it for "what\'s on ' +
+    'yesterday\'s cash-up, open online orders, sold out, failed emails, offline screens, the late tasks): use it for "what\'s on ' +
     'today?" or "brief me", and lead with what needs doing.',
 ]
 
@@ -131,7 +145,7 @@ export const briefingTools = [
     description:
       'A venue\'s day in one go (default today): bookings and big parties, who is working, health & safety due and out-of-range ' +
       'readings, supplier deliveries due, supplier orders waiting for approval, yesterday\'s cash-up, open online orders, sold out dishes, the day\'s local info ' +
-      '(weather, traffic, events), failed booking emails and offline menu screens. Parts the person can\'t see are left out and listed. Use it for "what\'s on today?", "brief me" or ' +
+      '(weather, traffic, events), failed booking emails, offline menu screens, and the Today task list (late tasks by name, what was skipped and why). Parts the person can\'t see are left out and listed. Use it for "what\'s on today?", "brief me" or ' +
       'the start of a shift, then summarise: the things to act on first, then the rest in a few lines.',
     input: z.object({
       venue: z.string().trim().max(100).optional().describe('Venue name; can be left out when there is one venue'),

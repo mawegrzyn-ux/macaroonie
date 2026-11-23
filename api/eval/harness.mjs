@@ -213,7 +213,7 @@ export async function runTasks(tasks, { trials = 1, baseline = false, before, on
 
 /** Every task in tasks/, checked: unique ids, a known expectation, what each needs. */
 export async function loadTasks() {
-  const files = ['bookings', 'safety', 'people', 'menus', 'group']
+  const files = ['bookings', 'safety', 'people', 'menus', 'group', 'today']
   const tasks = []
   for (const f of files) tasks.push(...(await import('./tasks/' + f + '.mjs')).tasks)
   const seen = new Set()
