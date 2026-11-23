@@ -28,6 +28,9 @@
 //   POST   /tokens                     { name } -> the token, shown once
 //   DELETE /tokens/:id                 revoke
 //   GET    /activity                   audit log of changes made through AI
+//   GET    /done                       Done by Pepper (step 4e): Pepper's changes, the
+//                                      person's own (ai_assistant view) or everyone's
+//                                      (manage), by venue and day, with Undo where open
 //
 //   GET    /platform/tenants           every tenant's limit and usage (platform admin)
 //   PATCH  /platform/tenants/:id       { monthly_token_limit } (platform admin)
@@ -51,8 +54,10 @@ import {
 import { activeKey, keyInfo, checkKey, saveKey, removeKey } from '../ai/apiKey.js'
 import {
   createConversation, loadConversation, runTurn, confirmAction, cancelAction, displayItems, chatContext, isRunning,
-  saveFormCard, FORM_SUMMARY_MAX, undoAction,
+  saveFormCard, FORM_SUMMARY_MAX, undoAction, undoUntil,
 } from '../ai/chat.js'
+import { audienceTools } from '../ai/tools/index.js'
+import { ACTION_LABELS } from '../../../shared/pepperActions.js'
 import { wantsStream, eventStream, errorEvent } from '../ai/sse.js'
 import { staffInstructions } from '../ai/prompts.js'
 import { ASSISTANT_NAME } from '../../../shared/assistant.js'
@@ -407,6 +412,91 @@ export default async function aiRoutes(app) {
        ORDER BY a.created_at DESC
        LIMIT 100
     `)
+  })
+
+  // ── Done by Pepper (Pepper-first step 4e) ───────────────
+  // The audit's staff changes (chat and the staff connector), newest first:
+  // who, when, which tool and its class, what the card said (title, lines,
+  // before and after), how it went, and Undo while it is open on the
+  // person's own reversible changes. Everyone's only with Manage on Pepper;
+  // listed by time, never ranked or counted per person (decision 8).
+  const DoneQuery = z.object({
+    venue_id: z.string().uuid().optional(),
+    day:      YMD.optional(),
+    who:      z.enum(['mine', 'all']).default('mine'),
+  })
+  app.get('/done', { preHandler: requirePermission('ai_assistant', 'view') }, async req => {
+    const q = DoneQuery.safeParse(req.query ?? {})
+    if (!q.success) throw httpError(422, 'Pick a venue, a day (YYYY-MM-DD) and whose changes.')
+    const { venue_id: venueId, day, who } = q.data
+    const canAll = await permissionLevel(req, 'ai_assistant') === 'manage'
+    if (who === 'all' && !canAll) throw httpError(403, 'Only a manager of ' + ASSISTANT_NAME + ' sees everyone\'s changes.')
+    return withTenant(req.tenantId, async tx => {
+      let tz = 'UTC'
+      if (venueId) {
+        const [v] = await tx`SELECT timezone FROM venues WHERE id = ${venueId} AND tenant_id = ${req.tenantId}`
+        if (!v) throw httpError(404, 'Venue not found')
+        tz = v.timezone || 'UTC'
+      } else {
+        const [v] = await tx`SELECT timezone FROM venues WHERE tenant_id = ${req.tenantId} AND is_active = true ORDER BY name LIMIT 1`
+        tz = v?.timezone || 'UTC'
+      }
+      const me = req.user.sub
+      const email = req.user.email || null
+      const rows = await tx`
+        SELECT a.id, a.created_at, a.channel, a.actor, a.user_sub, a.tool, a.ok, a.result, a.action_id, a.undo_of,
+               v.id AS venue_id, v.name AS venue_name,
+               p.id AS card_id, p.tool AS card_tool, p.card, p.status AS card_status, p.result AS card_result,
+               p.decided_at, p.undone_at, c.user_sub AS card_owner
+          FROM ai_actions a
+          LEFT JOIN bookings b ON b.id = a.booking_id AND b.tenant_id = a.tenant_id
+          LEFT JOIN venues v ON v.id = COALESCE(a.venue_id, b.venue_id) AND v.tenant_id = a.tenant_id
+          LEFT JOIN ai_pending_actions p ON p.id = COALESCE(a.action_id, a.undo_of) AND p.tenant_id = a.tenant_id
+          LEFT JOIN ai_conversations c ON c.id = p.conversation_id AND c.tenant_id = a.tenant_id
+         WHERE a.tenant_id = ${req.tenantId}
+           AND a.channel IN ('staff_chat', 'staff_mcp')
+           AND (${who === 'all'} OR a.user_sub = ${me} OR (a.user_sub IS NULL AND ${email}::text IS NOT NULL AND a.actor = ${email}))
+           AND (${!venueId} OR v.id = ${venueId ?? null}::uuid)
+           AND (${!day} OR (a.created_at AT TIME ZONE COALESCE(v.timezone, ${tz}))::date = ${day ?? null}::date)
+         ORDER BY a.created_at DESC
+         LIMIT 200
+      `
+      const classOf = new Map(audienceTools('staff').map(t => [t.name, t.class]))
+      const lines = v => (Array.isArray(v) ? v.map(String) : [])
+      return {
+        can_see_all: canAll,
+        who,
+        rows: rows.map(r => {
+          const mine = r.user_sub === me
+          const card = r.card || null
+          const pending = r.card_id ? { tool: r.card_tool, status: r.card_status, result: r.card_result, decided_at: r.decided_at, undone_at: r.undone_at } : null
+          // Undo from here: the person's own card, on its own row (not an Undo's), while it is open.
+          const until = mine && r.card_owner === me && r.action_id && !r.undo_of && pending ? undoUntil(pending) : null
+          return {
+            id: r.id,
+            at: r.created_at,
+            who: mine ? null : (r.actor || null),
+            mine,
+            channel: r.channel,
+            tool: r.tool,
+            label: r.undo_of ? 'Undid: ' + (ACTION_LABELS[r.tool] || r.tool) : (ACTION_LABELS[r.tool] || r.tool),
+            class: classOf.get(r.tool) || null,
+            ok: r.ok,
+            title: card?.title ?? null,
+            lines: r.undo_of ? [] : lines(card?.lines),
+            before: r.undo_of ? [] : lines(card?.before),
+            after: r.undo_of ? [] : lines(card?.after),
+            message: r.ok ? (r.result?.message ?? null) : (r.result?.error ?? null),
+            venue: r.venue_name ?? null,
+            venue_id: r.venue_id ?? null,
+            undo: !!r.undo_of,
+            undone: !r.undo_of && !!r.undone_at,
+            card_id: until ? r.card_id : null,
+            undo_until: until ? until.toISOString() : null,
+          }
+        }),
+      }
+    })
   })
 
   // ── Platform admin: monthly limits ──────────────────────

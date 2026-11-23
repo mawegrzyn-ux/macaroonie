@@ -1190,7 +1190,7 @@ export const UNDO_MINUTES = 10
 const UNDOABLE = new Map(audienceTools('staff').filter(t => t.inverse && t.class === 'reversible').map(t => [t.name, t]))
 
 /** Until when a card's change can still be undone, or null. */
-function undoUntil(a) {
+export function undoUntil(a) {
   if (a.status !== 'done' || a.undone_at || !a.decided_at || !UNDOABLE.has(a.tool) || !a.result?._undo) return null
   const until = new Date(new Date(a.decided_at).getTime() + UNDO_MINUTES * 60_000)
   return until.getTime() > Date.now() ? until : null

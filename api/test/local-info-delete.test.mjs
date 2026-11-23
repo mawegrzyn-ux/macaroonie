@@ -299,7 +299,10 @@ test('Pepper in the chat: a card from the dry run, pinned to its day and capture
   assert.deepEqual([card.input.from, card.input.source_id, card.input.venue], [today, S, V], 'the day, the capture and the venue are pinned')
   assert.equal(await hiddenOf(items['Ware car boot']), false, 'nothing deleted before Confirm')
 
-  await ok(owner.post(`/api/ai/actions/${card.id}/confirm`, {}))
+  // A deletion is destructive (Pepper-first step 4b): the card's word is typed to confirm it.
+  assert.deepEqual([card.card.class, card.card.confirm_word], ['destructive', 'CONFIRM'])
+  assert.equal((await owner.post(`/api/ai/actions/${card.id}/confirm`, {})).status, 422, 'not without the word')
+  await ok(owner.post(`/api/ai/actions/${card.id}/confirm`, { word: card.card.confirm_word }))
   const [action] = await sql`SELECT status, result FROM ai_pending_actions WHERE id = ${card.id}`
   assert.equal(action.status, 'done', JSON.stringify(action))
   assert.deepEqual([action.result.deleted, action.result.hidden_instead, action.result.kept_hidden], [2, 1, 2])

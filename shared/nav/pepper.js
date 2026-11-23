@@ -16,4 +16,10 @@ export const pages = [
     keywords: 'pepper ai assistant chat connect tokens activity usage mcp claude',
     description: 'Chat with Pepper, the assistant: ask about bookings, the rota, cash, menus and more, connect other AI apps and see what Pepper did.',
   },
+  {
+    path: '/pepper/done', label: 'Done by Pepper', icon: 'ListChecks', module: 'ai_assistant',
+    section: 'Home', order: 61, catalogOrder: 845,
+    keywords: 'pepper done changes log audit undo history what did pepper do confirmed actions',
+    description: "The changes Pepper made: who confirmed each, what changed, and Undo while it's still open. Your own, or everyone's for a manager.",
+  },
 ]

@@ -347,3 +347,109 @@ test('Undo puts a pause, a banner and a checklist back as they were; a failed Un
   const [r] = await sql`SELECT ok FROM ai_actions WHERE tenant_id = ${ids.a} AND undo_of = ${ev.id}`
   assert.equal(r.ok, false)
 })
+
+test('the stock of a supplier\'s price goes back to how it was on Undo', async () => {
+  const [q] = await sql`
+    SELECT q.id, i.name FROM inv_quotes q JOIN inv_items i ON i.id = q.item_id
+     WHERE q.tenant_id = ${ids.a} AND q.out_of_stock_until IS NULL ORDER BY i.name LIMIT 1`
+  assert.ok(q, 'a supplier price from the fixtures')
+  const { card } = await cardFor('set_out_of_stock', { item: q.name, quote_id: q.id, until: ahead(20) })
+  assert.equal(card.class, 'reversible')
+  await ok(owner.post(`/api/ai/actions/${card.id}/confirm`, {}))
+  const until = async () => (await sql`SELECT out_of_stock_until FROM inv_quotes WHERE id = ${q.id}`)[0].out_of_stock_until
+  assert.ok(await until())
+  assert.equal(itemOf(await ok(owner.post(`/api/ai/actions/${card.id}/undo`, {})), card.id).status, 'undone')
+  assert.equal(await until(), null)
+})
+
+// ── 4e: Done by Pepper ───────────────────────────────────────────────
+
+/** The venue-local day a row was written on (so the check holds at midnight). */
+async function dayOf(auditId) {
+  const [r] = await sql`SELECT a.created_at, v.timezone FROM ai_actions a JOIN venues v ON v.id = ${V} WHERE a.id = ${auditId}`
+  return new Intl.DateTimeFormat('en-CA', { timeZone: r.timezone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).format(r.created_at)
+}
+
+test('Done by Pepper lists the person\'s own changes by venue and day, with Undo while it is open', async () => {
+  const dish = await liveDish()
+  const { card } = await cardFor('set_sold_out', { venue: venueName, dishes: [dish.name], sold_out: 'today' })
+  await ok(owner.post(`/api/ai/actions/${card.id}/confirm`, {}))
+  const [row] = await auditRows(card.id)
+  const day = await dayOf(row.id)
+  const res = await ok(owner.get(`/api/ai/done?venue_id=${V}&day=${day}`))
+  assert.equal(res.who, 'mine')
+  assert.equal(res.can_see_all, true)
+  const mine = res.rows.find(r => r.id === row.id)
+  assert.ok(mine, 'the change is listed')
+  assert.deepEqual(
+    { label: mine.label, class: mine.class, mine: mine.mine, venue: mine.venue, ok: mine.ok, who: mine.who },
+    { label: 'Changed sold out dishes', class: 'reversible', mine: true, venue: venueName, ok: true, who: null })
+  assert.equal(mine.title, card.title)
+  assert.deepEqual(mine.before, card.before)
+  assert.deepEqual(mine.after, card.after)
+  assert.equal(mine.card_id, card.id, 'Undo is offered')
+  assert.ok(new Date(mine.undo_until) > new Date())
+  assert.ok(res.rows.every(r => r.mine), 'only the person\'s own')
+  // An earlier Undo shows as its own row, and the change it undid says Undone.
+  const undid = res.rows.find(r => r.undo && /^Undid: /.test(r.label))
+  assert.ok(undid, 'an Undo row')
+  assert.ok(res.rows.some(r => r.undone), 'an undone change')
+  // Undo from the log is the card's own Undo.
+  await ok(owner.post(`/api/ai/actions/${mine.card_id}/undo`, {}))
+  const after = (await ok(owner.get(`/api/ai/done?venue_id=${V}&day=${day}`))).rows.find(r => r.id === row.id)
+  assert.deepEqual([after.undone, after.card_id, after.undo_until], [true, null, null])
+  // Another day or another venue: not listed.
+  const before = new Date(day + 'T12:00:00Z'); before.setUTCDate(before.getUTCDate() - 1)
+  assert.ok(!(await ok(owner.get(`/api/ai/done?venue_id=${V}&day=${before.toISOString().slice(0, 10)}`))).rows.some(r => r.id === row.id))
+  const venue2 = (await ok(owner.get('/api/venues'))).find(v => v.id !== V)
+  if (venue2) assert.ok(!(await ok(owner.get(`/api/ai/done?venue_id=${venue2.id}`))).rows.some(r => r.id === row.id))
+  // A consequential change has no Undo here either.
+  const exp = (await ok(owner.get('/api/ai/done?who=mine'))).rows.find(r => r.tool === 'add_expense')
+  assert.ok(exp)
+  assert.deepEqual([exp.class, exp.card_id, exp.undo_until], ['consequential', null, null])
+})
+
+test('everyone\'s changes need Manage on Pepper; no ranking; other groups see nothing of them', async () => {
+  // A change another person made (written as the audit writes it).
+  await sql`INSERT INTO ai_actions (tenant_id, channel, actor, tool, input, ok, result, user_sub, venue_id)
+            VALUES (${ids.a}, 'staff_chat', 'operator@a.test', 'log_temperature', ${sql.json({})}, true, ${sql.json({ message: 'Logged.' })}, ${A.operator}, ${V})`
+  const operator = as(A.operator, ids.a)
+  const own = await ok(operator.get('/api/ai/done'))
+  assert.equal(own.can_see_all, false)
+  assert.ok(own.rows.length >= 1 && own.rows.every(r => r.tool === 'log_temperature' && r.mine), 'only their own')
+  const refused = await operator.get('/api/ai/done?who=all')
+  assert.equal(refused.status, 403)
+  // A manager sees everyone's, each with who did it; the reply holds rows, not counts per person.
+  const all = await ok(owner.get('/api/ai/done?who=all'))
+  const theirs = all.rows.find(r => r.tool === 'log_temperature' && !r.mine)
+  assert.ok(theirs)
+  assert.equal(theirs.who, 'operator@a.test')
+  assert.equal(theirs.card_id, null, 'nobody undoes another person\'s change')
+  assert.deepEqual(Object.keys(all).sort(), ['can_see_all', 'rows', 'who'])
+  // No access to Pepper: nothing.
+  assert.equal((await as(A.viewer, ids.a).get('/api/ai/done')).status, 403)
+  // Another group: none of A's rows, and A's venue isn't found.
+  const b = as(B.owner, ids.b)
+  const bRows = await ok(b.get('/api/ai/done?who=all'))
+  const aIds = new Set((await sql`SELECT id FROM ai_actions WHERE tenant_id = ${ids.a}`).map(r => r.id))
+  assert.ok(bRows.rows.every(r => !aIds.has(r.id)))
+  assert.equal((await b.get(`/api/ai/done?venue_id=${V}`)).status, 404)
+  assert.equal((await owner.get('/api/ai/done?day=2026-02-31')).status, 422)
+})
+
+test('migration 277 puts Done by Pepper after Pepper in existing menus, once', async () => {
+  const fs = await import('node:fs')
+  const SQL = fs.readFileSync(new URL('../../migrations/277_pepper_done_menu.sql', import.meta.url), 'utf8')
+  await sql`DELETE FROM nav_items WHERE tenant_id = ${ids.a} AND route = '/pepper/done'`
+  const [ai] = await sql`SELECT parent_id, sort_order, hidden_role_ids FROM nav_items WHERE tenant_id = ${ids.a} AND route = '/ai'`
+  assert.ok(ai, 'the Pepper link')
+  await sql.unsafe(SQL)
+  await sql.unsafe(SQL)
+  const links = await sql`SELECT parent_id, sort_order, module, hidden_role_ids FROM nav_items WHERE tenant_id = ${ids.a} AND route = '/pepper/done'`
+  assert.equal(links.length, 1, 'once')
+  assert.equal(links[0].parent_id, ai.parent_id)
+  assert.equal(links[0].sort_order, ai.sort_order + 1, 'straight after Pepper')
+  assert.equal(links[0].module, 'ai_assistant')
+  const siblings = await sql`SELECT route, sort_order FROM nav_items WHERE tenant_id = ${ids.a} AND parent_id IS NOT DISTINCT FROM ${ai.parent_id} ORDER BY sort_order`
+  assert.equal(new Set(siblings.map(s => s.sort_order)).size, siblings.length, 'no two links share a place')
+})

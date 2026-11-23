@@ -747,6 +747,7 @@
     "admin/src/pages/AiAssistant.jsx",
     "admin/src/pages/ConnectAi.jsx",
     "admin/src/pages/NewLocation.jsx",
+    "admin/src/pages/PepperDone.jsx",
     "admin/src/pages/Venues.jsx",
     "admin/src/pages/docs/ai-assistant.jsx",
     "admin/src/pages/docs/store-openings.jsx",

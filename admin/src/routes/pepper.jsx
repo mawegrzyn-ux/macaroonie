@@ -4,10 +4,14 @@
 // (InstallerShell, /install) or 'bare' (no shell). Paths are relative to the
 // shell's own path, as they were in main.jsx.
 
+import React from 'react'
 import ConnectAi from '@/pages/ConnectAi'
 import NewLocation from '@/pages/NewLocation'
 import AiAssistant from '@/pages/AiAssistant'
 import MobileAssistant from '@/pages/mobile/MobileAssistant'
+// Done by Pepper (step 4e): loaded on demand, kept out of the main bundle.
+const PepperDone = React.lazy(() => import('@/pages/PepperDone'))
+const Loading = () => <div className="p-6 text-sm text-muted-foreground">Loading...</div>
 
 export const routes = [
   // An AI app's connector sign-in (migration 181): its own page, no app shell.
@@ -15,5 +19,6 @@ export const routes = [
   { path: 'new-location', shell: 'office', element: <NewLocation /> },
   { path: 'new-location/:id', shell: 'office', element: <NewLocation /> },
   { path: 'ai', shell: 'office', element: <AiAssistant /> },
+  { path: 'pepper/done', shell: 'office', element: <React.Suspense fallback={<Loading />}><PepperDone /></React.Suspense> },
   { path: 'assistant', shell: 'mobile', element: <MobileAssistant /> },
 ]

@@ -15,6 +15,7 @@
 // party size, a note). Changed values go with Confirm and the server checks
 // them with the tool's own rules before anything runs.
 import { useEffect, useMemo, useState } from 'react'
+import { format } from 'date-fns'
 import { Loader2, Check, X, CircleAlert, Pencil, Undo2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
@@ -95,7 +96,7 @@ export default function ActionCard({ card, decide, busy: turnBusy = false }) {
     return () => clearTimeout(t)
   }, [undoAt])
   const canUndo = card.status === 'done' && undoAt > now
-  const untilText = undoAt ? new Date(undoAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+  const untilText = undoAt ? format(new Date(undoAt), 'HH:mm') : ''
   useEffect(() => { setValues(start) }, [start])
   const changed = Object.fromEntries(Object.entries(values).filter(([k, v]) => JSON.stringify(v ?? null) !== JSON.stringify(start[k] ?? null)))
   const wordOk = !destructive || sameWord(word, card.confirm_word)
