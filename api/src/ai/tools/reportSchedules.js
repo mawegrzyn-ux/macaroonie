@@ -445,6 +445,7 @@ export const order = 115
 export const scheduleTools = [
   {
     name: 'schedule_report',
+    class: 'consequential',
     section: 'reports',
     title: 'Reports: email one on a schedule',
     description:
@@ -495,6 +496,7 @@ export const scheduleTools = [
 
   {
     name: 'change_schedule',
+    class: 'consequential',
     section: 'reports',
     title: 'Reports: change a schedule',
     description:
@@ -561,6 +563,7 @@ export const scheduleTools = [
 
   {
     name: 'pause_schedule',
+    class: 'consequential',
     section: 'reports',
     title: 'Reports: pause or resume a schedule',
     description:
@@ -625,6 +628,7 @@ export const scheduleTools = [
 
   {
     name: 'send_report',
+    class: 'consequential',
     section: 'reports',
     title: 'Reports: email one now',
     description:

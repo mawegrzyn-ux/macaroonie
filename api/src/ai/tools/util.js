@@ -106,6 +106,17 @@ export const pence = (p, currency) => money(p == null ? null : Number(p) / 100, 
 
 export const plural = (n, one, many = one + 's') => n + ' ' + (n === 1 ? one : many)
 
+/** Does a call carry allergen data: an allergens list (allergens,
+ *  add_allergens, remove_allergens), even an empty one, at any depth? A dish
+ *  read from a photo with allergens: [] says it has none, which is allergen
+ *  data too. The menu tools escalate such a call to destructive (a named
+ *  sign-off with a typed word, never by voice: PEPPER_FIRST.md 13, decision 9). */
+export function touchesAllergens(v) {
+  if (Array.isArray(v)) return v.some(touchesAllergens)
+  if (!v || typeof v !== 'object') return false
+  return Object.entries(v).some(([k, x]) => (/allergens$/.test(k) && Array.isArray(x)) || touchesAllergens(x))
+}
+
 /** Run a change and write its ai_actions row, ok or not. */
 export async function audited(ctx, tool, input, fn) {
   try {

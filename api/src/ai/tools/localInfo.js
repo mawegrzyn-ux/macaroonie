@@ -216,6 +216,7 @@ export const localInfoTools = [
 
   {
     name: 'add_local_event',
+    class: 'reversible',
     section: 'local_info',
     title: 'Add a local event',
     description:
@@ -266,6 +267,7 @@ export const localInfoTools = [
 
   {
     name: 'run_local_capture',
+    class: 'reversible',
     section: 'local_info',
     title: 'Run a local info capture now',
     description:
@@ -323,6 +325,7 @@ export const localInfoTools = [
 
   {
     name: 'delete_local_info',
+    class: 'destructive',
     section: 'local_info',
     title: 'Delete local info in bulk',
     description:

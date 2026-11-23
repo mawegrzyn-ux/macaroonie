@@ -380,6 +380,7 @@ export const staffTools = [
 
   {
     name: 'create_booking',
+    class: 'consequential',
     title: 'Make a booking',
     description:
       'Books a table at a free time (check_availability first). Email and phone are optional. ' +
@@ -491,6 +492,7 @@ export const staffTools = [
 
   {
     name: 'change_booking',
+    class: 'consequential',
     title: 'Move a booking',
     description:
       'Moves a booking to another date, time or party size (give only what changes). It must be one of the venue\'s ' +
@@ -561,6 +563,7 @@ export const staffTools = [
 
   {
     name: 'set_booking_status',
+    class: 'consequential',
     title: 'Set booking status',
     description:
       'Sets a booking\'s status: unconfirmed, confirmed, reconfirmed, arrived, seated, checked_out, cancelled or no_show. ' +
@@ -596,6 +599,7 @@ export const staffTools = [
 
   {
     name: 'update_guest_details',
+    class: 'destructive',
     title: 'Update guest details',
     description: 'Changes the guest\'s name, email or phone on a booking (party size: use change_booking).',
     input: z.object({
@@ -628,6 +632,7 @@ export const staffTools = [
 
   {
     name: 'add_booking_note',
+    class: 'consequential',
     title: 'Add a staff note',
     description: 'Adds a line to a booking\'s staff notes (kept with the earlier notes; guests never see them).',
     input: z.object({ booking: BookingRef, note: z.string().min(1).max(500) }),

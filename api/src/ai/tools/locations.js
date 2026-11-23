@@ -90,6 +90,7 @@ export const promptLines = [
 export const locationTools = [
   {
     name: 'plan_new_location',
+    class: 'reversible',
     activity: 'Scoped the new location',
     section: 'locations',
     title: 'Plan a new location',
@@ -116,6 +117,7 @@ export const locationTools = [
 
   {
     name: 'answer_location_questions',
+    class: 'reversible',
     activity: 'Passed on the answers',
     section: 'locations',
     title: 'Answer the new location\'s questions',
@@ -145,6 +147,7 @@ export const locationTools = [
 
   {
     name: 'change_location_plan',
+    class: 'reversible',
     activity: 'Changed the new location\'s plan',
     section: 'locations',
     title: 'Change a new location\'s plan',
@@ -217,6 +220,7 @@ export const locationTools = [
 
   {
     name: 'create_location',
+    class: 'consequential',
     section: 'locations',
     title: 'Create the new location',
     description:

@@ -112,6 +112,7 @@ export const siteTools = [
 
   {
     name: 'publish_website',
+    class: 'consequential',
     section: 'website',
     title: 'Publish the website',
     description: 'Publishes every saved website change now (the card lists them). Replaces a scheduled publish.',
@@ -140,6 +141,7 @@ export const siteTools = [
 
   {
     name: 'set_website_banner',
+    class: 'reversible',
     section: 'website',
     title: 'Website banner',
     description:
@@ -210,6 +212,10 @@ export const siteTools = [
 
   {
     name: 'switch_promotion',
+    class: 'consequential',
+    preconditions: [
+      'The promotion must not already be the way asked.',
+    ],
     section: 'website',
     title: 'Turn a promotion on or off',
     description: 'Turns a promotion on or off (it keeps its settings).',
@@ -314,6 +320,7 @@ export const siteTools = [
 
   {
     name: 'record_reviews',
+    class: 'consequential',
     section: 'website',
     title: 'Record reviews from a review site',
     description:
@@ -376,6 +383,7 @@ export const siteTools = [
 
   {
     name: 'moderate_review',
+    class: 'consequential',
     section: 'website',
     title: 'Approve or feature a review',
     description:
@@ -438,6 +446,7 @@ export const siteTools = [
 
   {
     name: 'reload_screen',
+    class: 'reversible',
     section: 'website',
     title: 'Reload a menu screen',
     description: 'Makes a menu screen load its page again (when it looks stuck). It must be online to hear it.',
@@ -500,6 +509,7 @@ export const siteTools = [
 
   {
     name: 'report_issue',
+    class: 'reversible',
     section: 'support',
     title: 'Report an issue',
     description:
@@ -555,6 +565,7 @@ export const siteTools = [
 
   {
     name: 'request_feature',
+    class: 'reversible',
     section: 'support',
     title: 'Request a feature',
     description: 'Adds a feature request to the shared wishlist the platform team works from (other restaurants can vote for it).',

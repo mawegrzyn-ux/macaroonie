@@ -71,7 +71,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { sql, withTenant } from '../config/db.js'
 import { env } from '../config/env.js'
 import { ToolError, makeContext, addUsage, searchesIn, callApi, staffPermissionLevels } from './context.js'
-import { toolsFor, findTool, jsonSchemaOf, parseInput, errorText, CORE_TOOLS, audienceTools } from './tools/index.js'
+import { toolsFor, findTool, jsonSchemaOf, parseInput, errorText, CORE_TOOLS, audienceTools, toolDescription } from './tools/index.js'
 import { chatUnitsLeft, personUnitsLeft, getAiSettings } from './settings.js'
 import { activeKey } from './apiKey.js'
 import { longDate, localParts } from './tools/util.js'
@@ -494,7 +494,7 @@ const WEB_SEARCH = { type: 'web_search_20250305', name: 'web_search', max_uses: 
 /** The tools for a chat. `web`: the staff chat's web search tool as well. */
 export function toolDefs(ctx, { web = false } = {}) {
   const tools = toolsFor(ctx)
-  const defs = tools.map(t => ({ name: t.name, description: t.description, input_schema: jsonSchemaOf(t) }))
+  const defs = tools.map(t => ({ name: t.name, description: toolDescription(t), input_schema: jsonSchemaOf(t) }))
   if (ctx.channel !== 'staff_chat') return defs
   return [
     TOOL_SEARCH,

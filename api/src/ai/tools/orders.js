@@ -216,6 +216,10 @@ export const orderTools = [
 
   {
     name: 'update_online_order',
+    class: 'consequential',
+    preconditions: [
+      'The order must be at a step the action fits; rejecting or cancelling needs a reason, which the guest is told.',
+    ],
     section: 'orders',
     title: 'Move an online order',
     description:
@@ -263,6 +267,11 @@ export const orderTools = [
 
   {
     name: 'refund_online_order',
+    class: 'consequential',
+    preconditions: [
+      'Only a paid order can be refunded, and only up to what is left to refund.',
+      'GloriaFood orders are refunded in GloriaFood.',
+    ],
     section: 'orders',
     title: 'Refund an online order',
     description:
@@ -305,6 +314,7 @@ export const orderTools = [
 
   {
     name: 'pause_online_orders',
+    class: 'reversible',
     section: 'orders',
     title: 'Pause online orders',
     description: 'Stops (paused true) or starts again (paused false) taking online orders at a venue, with an optional message for guests.',
@@ -385,6 +395,10 @@ export const orderTools = [
 
   {
     name: 'set_sold_out',
+    class: 'reversible',
+    preconditions: [
+      'Each dish must be on a live (published) menu at the venue.',
+    ],
     section: 'orders',
     title: 'Mark dishes sold out',
     description:

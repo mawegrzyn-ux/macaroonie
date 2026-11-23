@@ -347,6 +347,7 @@ export const hsTools = [
 
   {
     name: 'log_temperature',
+    class: 'reversible',
     title: 'Log a fridge temperature',
     description:
       'Logs a fridge or freezer temperature for a scheduled check (default: the check due now, today). ' +
@@ -365,6 +366,7 @@ export const hsTools = [
 
   {
     name: 'log_hold_check',
+    class: 'reversible',
     title: 'Log a hold temperature',
     description:
       'Logs a hot or cold hold temperature for a hold station\'s scheduled check (default: the check due now, today). ' +
@@ -381,6 +383,7 @@ export const hsTools = [
 
   {
     name: 'log_cooking_check',
+    class: 'reversible',
     title: 'Log a cooking check',
     description:
       'Logs a dish\'s core temperature (75°C or more passes). The dish is matched against the venue\'s cooking-check ' +
@@ -448,6 +451,7 @@ export const hsTools = [
 
   {
     name: 'log_delivery',
+    class: 'reversible',
     title: 'Log a delivery check',
     description:
       'Logs a delivery check: supplier, whether packaging, damage, quality and temperature were OK, the product ' +
@@ -521,6 +525,7 @@ export const hsTools = [
 
   {
     name: 'add_corrective_action',
+    class: 'reversible',
     title: 'Add a corrective action',
     description:
       'Records what was done about an out-of-range or failed reading already logged (reading_id from ' +
@@ -614,6 +619,10 @@ export const hsTools = [
 
   {
     name: 'tick_checklist',
+    class: 'reversible',
+    preconditions: [
+      'The checklist must be one of the group\'s, for a day it is due.',
+    ],
     title: 'Tick checklist tasks',
     description:
       'Ticks tasks on a checklist for a day (default today): name the tasks, or set all to tick every task. ' +
@@ -713,6 +722,7 @@ export const hsTools = [
 
   {
     name: 'add_hs_action',
+    class: 'reversible',
     title: 'Add an H&S action',
     description: 'Adds an entry to a venue\'s H&S action log (a repair, record, training or cleaning job to do).',
     input: z.object({
@@ -766,6 +776,7 @@ export const hsTools = [
 
   {
     name: 'complete_hs_action',
+    class: 'reversible',
     title: 'Complete an H&S action',
     description: 'Marks an action log entry done (or, with done: false, not done again).',
     input: z.object({ action_id: Id, done: z.boolean().default(true) }),

@@ -268,6 +268,7 @@ export const guestTools = [
 
   {
     name: 'hold_table',
+    class: 'reversible',
     title: 'Hold a table',
     activity: 'Held a table',
     description:
@@ -325,6 +326,7 @@ export const guestTools = [
 
   {
     name: 'confirm_booking',
+    class: 'consequential',
     title: 'Confirm a booking',
     description:
       'Turns a held table into a booking. Only call this after the guest has said yes to the details. ' +
@@ -386,6 +388,7 @@ export const guestTools = [
 
   {
     name: 'release_hold',
+    class: 'reversible',
     title: 'Release a held table',
     activity: 'Released the table',
     description: 'Lets go of a held table when the guest doesn\'t want it after all.',
@@ -399,6 +402,7 @@ export const guestTools = [
 
   {
     name: 'request_booking_code',
+    class: 'reversible',
     title: 'Email a booking code',
     activity: 'Emailed a code',
     description:
@@ -425,6 +429,7 @@ export const guestTools = [
 
   {
     name: 'verify_booking_code',
+    class: 'reversible',
     title: 'Check a booking code',
     activity: 'Checked the code',
     description:
@@ -461,6 +466,7 @@ export const guestTools = [
 
   {
     name: 'change_booking',
+    class: 'consequential',
     title: 'Change a booking',
     description:
       'Moves an unlocked booking to another date, time or party size (give only what changes; times are ' +
@@ -509,6 +515,7 @@ export const guestTools = [
 
   {
     name: 'cancel_booking',
+    class: 'consequential',
     title: 'Cancel a booking',
     description: 'Cancels an unlocked booking. Only call this after the guest has clearly said to cancel.',
     input: z.object({ access_key: z.string() }),
