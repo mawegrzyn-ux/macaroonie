@@ -71,6 +71,10 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | 44.11.5c For review: the Waiting tab (unanswered Confirm cards kept, supplier orders awaiting approval, documents read into lines), Approve, Edit, Reject, same-kind reversible items together | 8 to 15 min (a page and a change to how cards expire) | 6 min (to 22:00) | one PR, below | | 13 files, +677 -22, migration 279 | claude-opus-5-5 / high, fresh agent | About $6.30. |
 | 44.11.5d Six of the missing Today sources | 8 to 15 min (six functions in `SOURCES`) | 6 min (to 22:06) | one PR, below | | 5 files, +287 -5 | claude-opus-5-5 / high, fresh agent | About $2.90. |
 | 44.11.5e Pepper reads the feed and acts on tasks (snooze, skip, assign through cards) | 3 to 8 min | 6 min (to 22:12), then tests, browser and docs 7.5 (to 22:19:30) | 16 min for 5a to 5e: the lead's review and a permission fix 1 min, PR #506 opened 22:21, CI red 22:28 (2 parts), fixed and pushed 22:29, green 22:34:34, merged 22:35 | **63 min for 5a to 5e** (21:32:18 to 22:35) | 8 files, +482 -4; docs 16 files | claude-opus-5-5 / high, fresh agent | Tests and docs about $10.80; agent about $41, lead about $4; live eval on the merged code 29 of 29 ($0.06). |
+| 44.11.6a Shared devices: a device marked shared asks who is acting by PIN before any change; a till PIN is enough for logging checks only (decision 6); changes recorded against that person | fourth revision, raised for auth: 10 to 15 min | | one PR, below | | | claude-opus-5-5 / high, fresh agent | Estimated 23 Nov 2026 before starting; plus 6 reading. |
+| 44.11.6b Capture to For review: a photo, a voice note or a line from the phone waits in For review | 5 to 10 min | | one PR, below | | | | |
+| 44.11.6c The venue's own words for speech: fridge, dish, staff and supplier names help dictation and talk mode | 5 to 10 min | | one PR, below | | | | |
+| 44.11.6d The iPhone app: the office app's iOS config and the parts that differ from Android (no device build here) | 5 to 10 min | | one PR for 6a to 6d: tests, browser and docs 12 to 15, PR 7 | | | | Push and the scanner on a real device need the owner's phone. |
 
 ## Running totals
 
