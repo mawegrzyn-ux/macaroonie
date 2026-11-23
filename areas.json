@@ -1123,11 +1123,13 @@
     "api/src/routes/usage.js",
     "api/src/services/navTree.js",
     "api/src/services/notices.js",
+    "api/src/services/opsTasks.js",
     "api/src/services/opsToday.js",
     "api/src/services/usageRecord.js",
     "api/test/home-pins.test.mjs",
     "api/test/nav-default.test.mjs",
     "api/test/open-page.test.mjs",
+    "api/test/ops-tasks.test.mjs",
     "api/test/ops-today.test.mjs",
     "api/test/task-notices.test.mjs",
     "api/test/usage-record.test.mjs",
@@ -1149,7 +1151,8 @@
     "shared/nav/sections.js",
     "shared/navSearch.js",
     "shared/test/navLinks.test.mjs",
-    "shared/test/navSearch.test.mjs"
+    "shared/test/navSearch.test.mjs",
+    "shared/todayTasks.js"
    ],
    "public": [
     "admin/src/components/FileDropArea.jsx",
@@ -1171,7 +1174,8 @@
     "shared/nav/links.js",
     "shared/nav/sections.js",
     "shared/nav/shell.js",
-    "shared/navSearch.js"
+    "shared/navSearch.js",
+    "shared/todayTasks.js"
    ]
   },
   "till": {

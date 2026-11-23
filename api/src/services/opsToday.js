@@ -7,8 +7,11 @@
 // Each source reads through the admin routes in-process as the person
 // (callApi), so every part keeps its own permission check and tenant filter;
 // a part the person can't see is left out and named (not_included), as the
-// day briefing does. Tasks are worked out on every request (there is no task
-// store yet) and each has a stable key, so one thing to do is one card (C6).
+// day briefing does. Tasks are worked out on every request and each has a
+// stable key, so one thing to do is one card (C6). What people decided about
+// a task (its owner, a snooze, a skip with its reason, done by hand) is kept
+// by that key in the task store (services/opsTasks.js, migration 278) and
+// applied here: a set-aside task leaves `tasks` for `aside`.
 //
 // Groups, against the venue's time now:
 //   late   due more than GRACE_MINS ago, or overdue by nature (a reading out
@@ -26,6 +29,7 @@ import { rotaTools } from '../ai/tools/rota.js'
 import { openDatesOrNull } from './openDays.js'
 import { poNumberLabel, deadlinePassed } from '../../../shared/procurement.js'
 import { weekAhead } from '../../../shared/localInfo.js'
+import { loadStates, applyStates, canChange } from './opsTasks.js'
 
 export const GRACE_MINS = 30
 export const NEXT_MINS = 120
@@ -81,6 +85,9 @@ export const AREAS = {
   online_orders: 'web_orders',
   report_alerts: 'reports',
 }
+
+/** The module a task belongs to: its area's, or Purchasing approval for orders to approve. */
+export const moduleOf = t => (t.kind === 'orders_to_approve' ? 'purchasing_approve' : AREAS[t.area])
 
 /**
  * When a venue closes on a day, from the booking schedule's sittings
@@ -417,8 +424,10 @@ export async function opsToday(ctx, venue, { date, time, levels }) {
       for (const t of await fn(ctx, venue, s)) {
         // can_act: the person can do it here, not only look (U1): Use where
         // the module offers it (checks, checklists, H&S actions), else Manage.
-        const module = t.kind === 'orders_to_approve' ? 'purchasing_approve' : AREAS[area]
-        tasks.push({ ...t, can_act: permissionAtLeast(levels[module], workLevel(module)) })
+        // can_change: the person can assign, snooze or skip it (the task
+        // store): Use where the module offers it, else View (stateLevel()).
+        const module = moduleOf(t)
+        tasks.push({ ...t, can_act: permissionAtLeast(levels[module], workLevel(module)), can_change: canChange(levels, module) })
       }
     } catch (err) {
       if (err instanceof ToolError && err.status === 403) notIncluded.push(area)
@@ -429,14 +438,19 @@ export async function opsToday(ctx, venue, { date, time, levels }) {
   // C6: one card per key, whichever source found it.
   const byKey = new Map()
   for (const t of tasks) if (!byKey.has(t.key)) byKey.set(t.key, t)
-  const list = sortTasks([...byKey.values()])
+  // The task store: owners shown, snoozed / skipped / done set aside.
+  const states = await loadStates(ctx.tenantId, venue.id)
+  const applied = applyStates([...byKey.values()], states, {
+    date: day, isToday: day === now.date, me: ctx.principal?.sub || null, tz: venue.timezone, today: now.date,
+  })
+  const list = sortTasks(applied.tasks)
   const counts = Object.fromEntries(GROUPS.map(g => [g, list.filter(t => t.group === g).length]))
 
   return {
     venue: { id: venue.id, name: venue.name, timezone: venue.timezone },
     date: day, day: longDate(day), now: at, is_today: day === now.date, closed,
     summary: await summary(ctx, venue, s).catch(() => ({})),
-    tasks: list, counts,
+    tasks: list, counts, aside: applied.aside,
     ...(notIncluded.length ? { not_included: notIncluded.sort() } : {}),
     ...(errors.length ? { errors } : {}),
   }

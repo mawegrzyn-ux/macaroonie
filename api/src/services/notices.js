@@ -29,14 +29,12 @@ import { permissionLevels, INTERNAL_AS_PREFIX } from '../middleware/auth.js'
 import { permissionAtLeast, workLevel } from '../config/modules.js'
 import { opsToday, OPS_MODULES, AREAS } from './opsToday.js'
 import { localParts } from '../ai/tools/util.js'
+import { TASK_AREAS } from '../../../shared/todayTasks.js'
 
 export const NOTICE_KINDS = ['due_soon', 'late']
 export const DUE_SOON_MINUTES = 30
-export const AREA_LABELS = {
-  food_safety: 'Food safety checks', checklists: 'Checklists', hs_actions: 'H&S actions',
-  purchasing: 'Supplier orders', cash: 'Cash-ups', wages: 'Wages', online_orders: 'Online orders',
-  report_alerts: 'Report alerts',
-}
+// The feed's areas in words: one list (shared/todayTasks.js).
+export const AREA_LABELS = TASK_AREAS
 export const DEFAULT_SETTINGS = {
   enabled: true, venue_ids: [], areas: [], due_soon: true, late: true, quiet_from: null, quiet_to: null,
 }
