@@ -301,6 +301,8 @@ async function appendMessage(conv, role, content) {
 
 // Our own markers on stored user blocks (never sent to the API):
 //   _note: 'action'   the outcome of a Confirm / Cancel press
+//   _note: 'form'     a form opened from a form card was saved (saveFormCard());
+//                     with _form: { id: the open_form call, summary }
 //   _context          the app's lines before a message (contextNote(): the date
 //                     and time now, the page it was sent from): sent to the
 //                     model, not shown in the chat (_page on older messages)
@@ -310,7 +312,7 @@ async function appendMessage(conv, role, content) {
 const clean = (block, files) => {
   if (!block || typeof block !== 'object') return block
   if (block._attachment) return withFileData(block, files)
-  const { _note, _page, _context, _web, ...rest } = block
+  const { _note, _page, _context, _web, _form, ...rest } = block
   return rest
 }
 
@@ -624,7 +626,7 @@ async function handleToolUse(ctx, conv, block, emit) {
       const out = await tool.run(ctx, input)
       // A tool with a card of its own (open_form): built from its result.
       const item = tool.display?.(out)
-      if (item) emit?.({ type: 'card', card: item })
+      if (item) emit?.({ type: 'card', card: { ...item, tool_use_id: block.id } })
       return result(JSON.stringify(out))
     }
 
@@ -748,6 +750,9 @@ async function turn(ctx, conv, text, attachments, emit, page, voice = false) {
   const files = await claimAttachments(conv, ctx.principal?.sub, attachments)
   if (!files.length && !text) throw new ToolError('Type a message or attach a file.', 422)
   const staff = conv.channel === 'staff_chat'
+  // The person's own words this turn: open_form places a measured value (a
+  // temperature) only when its number is in them (tools/forms.js).
+  ctx.said = text
   const note = staff ? await contextNote(conv.tenant_id, page, ctx) : null
   // Web search: the group's switch, staff chats only, and not while Anthropic
   // is turning the tool down. The message says so when that is news to the chat.
@@ -940,6 +945,43 @@ export async function cancelAction(ctx, conv, actionId) {
   return withHold(conv, BUSY_CARD, () => cancelCard(ctx, conv, actionId))
 }
 
+export const FORM_SUMMARY_MAX = 400
+
+/**
+ * A form opened from a form card was saved (Pepper-first step 3c, F9): the
+ * card shows a short read-only line of what was saved, with Edit. Kept as an
+ * appended hidden note (_note 'form', _form { id, summary }), the way a
+ * Confirm's outcome is, so it comes back with the conversation and tells the
+ * model what the person saved. `toolUseId` must be an open_form call of this
+ * chat that made a card. The summary is the browser's words (what its form
+ * saved through its own routes), kept to one line and FORM_SUMMARY_MAX.
+ */
+export async function saveFormCard(ctx, conv, toolUseId, summary) {
+  return withHold(conv, BUSY_CARD, async () => {
+    const fresh = await loadConversation(conv.tenant_id, conv.id)
+    if (!fresh || fresh.closed_at) throw new ToolError('This chat is closed, so the form\'s summary can\'t be kept in it.', 409)
+    const rows = await loadMessages(conv)
+    let call = null
+    let made = false
+    for (const r of rows) {
+      for (const b of Array.isArray(r.content) ? r.content : []) {
+        if (r.role === 'assistant' && b?.type === 'tool_use' && b.id === toolUseId && b.name === 'open_form') call = b
+        if (r.role === 'user' && b?.type === 'tool_result' && b.tool_use_id === toolUseId && !b.is_error) {
+          try { made = !!JSON.parse(b.content?.[0]?.text ?? 'null')?.form_card } catch { made = false }
+        }
+      }
+    }
+    if (!call || !made) throw new ToolError('That form card isn\'t in this chat.', 404)
+    const line = String(summary || '').replace(/\s+/g, ' ').trim().slice(0, FORM_SUMMARY_MAX)
+    if (!line) throw new ToolError('Say what was saved.', 422)
+    const who = ctx.channel === 'guest_chat' ? 'The guest' : 'The staff member'
+    await appendMessage(conv, 'user', [{
+      type: 'text', _note: 'form', _form: { id: toolUseId, summary: line },
+      text: `[${who} saved the form from the form card: ${line}]`,
+    }])
+  })
+}
+
 async function confirmCard(ctx, conv, actionId, via = 'tap') {
   const action = await loadAction(conv, actionId)
   if (action.status !== 'pending') throw new ToolError('This card has already been ' + (action.status === 'done' ? 'confirmed' : action.status) + '.', 409)
@@ -1076,17 +1118,26 @@ export async function displayItems(conv) {
     if (r.role !== 'assistant' || !Array.isArray(r.content)) continue
     for (const b of r.content) if (b?.type === 'web_search_tool_result') searchResults.set(b.tool_use_id, b)
   }
-  // Each tool call's result, for the tools that show a card of their own (open_form).
+  // Each tool call's result, for the tools that show a card of their own
+  // (open_form), and what was saved from a form card (the latest save wins).
   const toolResults = new Map()
+  const formSaves = new Map()
   for (const r of rows) {
     if (r.role !== 'user' || !Array.isArray(r.content)) continue
-    for (const b of r.content) if (b?.type === 'tool_result' && !b.is_error) toolResults.set(b.tool_use_id, b)
+    for (const b of r.content) {
+      if (b?.type === 'tool_result' && !b.is_error) toolResults.set(b.tool_use_id, b)
+      if (b?._form?.id) formSaves.set(b._form.id, { summary: String(b._form.summary ?? ''), at: r.created_at })
+    }
   }
   const displayOf = b => {
     const tool = DISPLAY_TOOLS.get(b.name)
     const res = tool && toolResults.get(b.id)
     if (!res) return null
-    try { return tool.display(JSON.parse(res.content?.[0]?.text ?? 'null')) } catch { return null }
+    let item = null
+    try { item = tool.display(JSON.parse(res.content?.[0]?.text ?? 'null')) } catch { return null }
+    if (!item) return null
+    const saved = formSaves.get(b.id)
+    return { ...item, tool_use_id: b.id, ...(saved ? { saved } : {}) }
   }
   const items = []
   for (const r of rows) {
@@ -1096,7 +1147,7 @@ export async function displayItems(conv) {
       let shownFiles = false
       for (const b of blocks) {
         if (b.type !== 'text') continue
-        if (b._context || b._page) continue
+        if (b._context || b._page || b._form) continue
         if (b._note) { items.push({ type: 'note', text: b.text.replace(/^\[|\]$/g, '') }); continue }
         items.push({ type: 'user', text: b.text, ...(files.length && !shownFiles ? { attachments: files } : {}) })
         shownFiles = true

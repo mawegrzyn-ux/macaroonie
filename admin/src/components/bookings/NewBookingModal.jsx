@@ -17,6 +17,7 @@ import { z } from 'zod'
 import { X, ChevronRight, Calendar, UserSearch, TriangleAlert, Zap } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, formatTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
+import { useFormFill, FilledMark, PepperMark, filledClass } from '@/components/forms/fill'
 
 // Statuses an operator can assign when creating a booking
 const NEW_BOOKING_STATUSES = ['unconfirmed', 'confirmed', 'reconfirmed', 'arrived', 'seated']
@@ -33,14 +34,30 @@ const GuestSchema = z.object({
   covers:      z.coerce.number().int().min(1),
 })
 
+// In a form sheet Pepper filled (Pepper's open_form 'booking', components/forms/
+// fill.jsx), the day is the card's, and Pepper's time (prefillTime), covers,
+// name, phone, email and notes go in, each marked until the person changes it
+// or presses OK. The booking is still made only by Confirm, through the same
+// routes as here.
 export default function NewBookingModal({ venueId, date: initialDate, prefillTime = null, prefillTableId = null, openManual = false, onClose, onCreated }) {
   const api = useApi()
+  const fill = useFormFill()
+  const pv = fill?.values || {}
+  const pHas = key => pv[key] !== undefined && pv[key] !== null
   const [step,          setStep]       = useState('slot')
   const [bookingDate,   setBookingDate] = useState(initialDate)
   const [tableId,       setTableId]   = useState(null)
   const [combinationId, setComboId]   = useState(null)
   const [selectedSlot,  setSlot]      = useState(null)
-  const [covers,        setCovers]    = useState(2)
+  const [covers,        setCovers]    = useState(pv.covers ?? 2)
+  // Who was booked, for the sheet's line of what was saved.
+  const bookedRef = useRef(null)
+  const created = date => {
+    const g = bookedRef.current
+    if (g) fill?.saved('Booked ' + g.guest_name + ', ' + g.covers + ' covers on ' + date, 'booking')
+    onCreated(date)
+  }
+  const touched = (key, value) => { fill?.clear(key); fill?.change(key, value) }
   const [holdData,      setHoldData]  = useState(null)
   // Manual allocation state — set when admin bypasses the slot resolver
   const [manualAlloc,     setManualAlloc]     = useState(null)  // { date, time, tableIds, unallocated }
@@ -65,7 +82,10 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm({
     resolver: zodResolver(GuestSchema),
-    defaultValues: { covers },
+    defaultValues: {
+      covers,
+      guest_name: pv.name ?? '', guest_email: pv.email ?? '', guest_phone: pv.phone ?? '', guest_notes: pv.notes ?? '',
+    },
   })
   const formCovers   = watch('covers')      ?? covers
   const watchedName  = watch('guest_name')  ?? ''
@@ -212,7 +232,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
       status:      guestData.status ?? bookingStatus,
     }),
     // Hold consumed by confirm_hold() — clear so handleClose doesn't try to delete it again
-    onSuccess: () => { holdDataRef.current = null; setHoldData(null); onCreated(bookingDate) },
+    onSuccess: () => { holdDataRef.current = null; setHoldData(null); created(bookingDate) },
   })
 
   // Admin override — bypasses slot resolver, capacity, and booking window checks.
@@ -239,7 +259,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
     onSuccess: () => {
       const date = (walkInManualRef.current ?? manualAlloc)?.date ?? bookingDate
       walkInManualRef.current = null
-      onCreated(date)
+      created(date)
     },
   })
 
@@ -265,7 +285,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
     onSuccess: () => {
       const date = (walkInDisplaceRef.current ?? displaceAlloc)?.date ?? bookingDate
       walkInDisplaceRef.current = null
-      onCreated(date)
+      created(date)
     },
   })
 
@@ -298,6 +318,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
   }
 
   function onGuestSubmit(data) {
+    bookedRef.current = data
     if (displaceAlloc)    confirmDisplaceMutation.mutate(data)
     else if (manualAlloc) confirmOverrideMutation.mutate(data)
     else                  confirmMutation.mutate(data)
@@ -310,6 +331,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
       guest_name: 'Walk In', guest_email: 'walkin@walkin.com',
       covers, guest_notes: '', guest_phone: null, status: 'seated',
     }
+    bookedRef.current = walkInData
 
     if (displaceAlloc) {
       confirmDisplaceMutation.mutate(walkInData)
@@ -386,8 +408,16 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
             {step === 'slot' && (
               <div className="space-y-4">
 
-                {/* Prefill hint when opened via canvas click */}
-                {prefillTime && (
+                {/* Pepper's time and covers (a form sheet): marked until changed or OK'd */}
+                {fill && ((pHas('time') && fill.filled('time')) || (pHas('covers') && fill.filled('covers'))) && (
+                  <div className="flex flex-wrap items-center gap-2 text-xs rounded-lg px-3 py-2 border border-violet-300 bg-violet-50" data-testid="booking-pepper">
+                    <span className="font-medium">{[pHas('covers') && pv.covers + ' covers', pHas('time') && 'at ' + pv.time].filter(Boolean).join(' ')}</span>
+                    <PepperMark k="when" className="ml-auto" onAccept={() => { fill.clear('time'); fill.clear('covers') }} />
+                  </div>
+                )}
+
+                {/* Prefill hint when opened via canvas click (Pepper's time has its own line above) */}
+                {prefillTime && !pHas('time') && (
                   <div className="flex items-center gap-2 text-xs text-primary bg-primary/5 border border-primary/20 rounded-lg px-3 py-2">
                     <span className="font-medium">Clicked time:</span>
                     <span className="font-mono">{prefillTime}</span>
@@ -409,7 +439,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                     {[1,2,3,4,5,6,7,8].map(n => (
                       <button
                         key={n}
-                        onClick={() => setCovers(n)}
+                        onClick={() => { setCovers(n); touched('covers', n) }}
                         className={cn(
                           'w-12 h-12 rounded-full text-base font-medium border transition-colors touch-manipulation',
                           covers === n
@@ -439,7 +469,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                         return (
                           <button
                             key={slot.slot_time}
-                            onClick={() => setSlot(slot)}
+                            onClick={() => { setSlot(slot); fill?.clear('time') }}
                             title={label ? `Table: ${label}` : undefined}
                             className={cn(
                               'text-sm py-2 px-1 rounded-lg border text-center transition-colors touch-manipulation',
@@ -470,7 +500,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                           return (
                             <button
                               key={`d-${slot.slot_time}`}
-                              onClick={() => setSlot(slot)}
+                              onClick={() => { setSlot(slot); fill?.clear('time') }}
                               title={`Moves: ${(dc.conflicts ?? []).map(c => c.guest_name || `${c.covers} cov`).join(', ')}`}
                               className={cn(
                                 'text-sm py-2 px-1 rounded-lg border text-center transition-colors touch-manipulation',
@@ -553,22 +583,27 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
 
                 <Field label="Full name" error={errors.guest_name?.message}>
                   {/* autoFocus only on desktop — on iOS/Android it would instantly pop the keyboard */}
-                  <input {...register('guest_name')} onFocus={() => setActiveSearchField('name')} className="input" placeholder="Jane Smith" autoFocus={!IS_TOUCH} />
+                  <input {...register('guest_name', { onChange: e => touched('name', e.target.value) })} onFocus={() => setActiveSearchField('name')}
+                    className={cn('input', filledClass(fill, 'name', pHas('name')))} placeholder="Jane Smith" autoFocus={!IS_TOUCH} />
+                  <FilledMark fill={fill} k="name" has={pHas('name')} className="mt-1" />
                 </Field>
                 <Field label="Email" error={errors.guest_email?.message}>
-                  <input {...register('guest_email')} onFocus={() => setActiveSearchField('email')} type="email" inputMode="email" className="input" placeholder="jane@example.com" />
+                  <input {...register('guest_email', { onChange: e => touched('email', e.target.value) })} onFocus={() => setActiveSearchField('email')} type="email" inputMode="email"
+                    className={cn('input', filledClass(fill, 'email', pHas('email')))} placeholder="jane@example.com" />
+                  <FilledMark fill={fill} k="email" has={pHas('email')} className="mt-1" />
                 </Field>
 
                 {/* A3: Phone — type="tel" triggers numeric keypad on iOS/Android */}
                 <Field label="Phone" error={errors.guest_phone?.message}>
                   <input
-                    {...register('guest_phone')}
+                    {...register('guest_phone', { onChange: e => touched('phone', e.target.value) })}
                     onFocus={() => setActiveSearchField('phone')}
                     type="tel"
                     inputMode="tel"
-                    className="input"
+                    className={cn('input', filledClass(fill, 'phone', pHas('phone')))}
                     placeholder="+44 7700 900000"
                   />
+                  <FilledMark fill={fill} k="phone" has={pHas('phone')} className="mt-1" />
                 </Field>
 
                 {/* Mobile customer suggestions — shown inline below fields on small screens */}
@@ -611,13 +646,15 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                 <Field label="Covers" error={errors.covers?.message}>
                   <CoversInput
                     value={Number(formCovers) || 1}
-                    onChange={v => setValue('covers', v, { shouldValidate: true })}
+                    onChange={v => { setValue('covers', v, { shouldValidate: true }); touched('covers', v) }}
                   />
                 </Field>
 
                 <Field label="Guest notes (optional)">
-                  <textarea {...register('guest_notes')} className="input min-h-20 resize-none"
+                  <textarea {...register('guest_notes', { onChange: e => touched('notes', e.target.value) })}
+                    className={cn('input min-h-20 resize-none', filledClass(fill, 'notes', pHas('notes')))}
                     placeholder="Dietary requirements, celebration, accessibility needs…" />
+                  <FilledMark fill={fill} k="notes" has={pHas('notes')} className="mt-1" />
                 </Field>
               </form>
             )}

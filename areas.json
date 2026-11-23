@@ -81,6 +81,8 @@
     "api/test/customers-delete.test.mjs"
    ],
    "public": [
+    "admin/src/components/bookings/BookingDrawer.jsx",
+    "admin/src/components/bookings/NewBookingModal.jsx",
     "api/src/services/broadcastSvc.js",
     "api/src/services/depositSvc.js",
     "api/src/services/emailSvc.js",
@@ -783,6 +785,7 @@
     "api/src/routes/ai.js",
     "api/src/routes/aiApi.js",
     "api/src/routes/documentRead.js",
+    "api/src/routes/formDrafts.js",
     "api/src/routes/mcp.js",
     "api/src/routes/mcpOauth.js",
     "api/src/routes/menuImport.js",
@@ -790,6 +793,7 @@
     "api/src/services/aiJson.js",
     "api/src/services/menuReadAi.js",
     "api/src/services/storeOpeningAi.js",
+    "api/test/form-drafts.test.mjs",
     "api/test/mcp-oauth.test.mjs",
     "api/test/menu-import.test.mjs",
     "api/test/pepper-eval.test.mjs",
@@ -800,6 +804,7 @@
     "api/test/pepper-web-search.test.mjs",
     "api/test/venue-wizard.test.mjs",
     "shared/assistant.js",
+    "shared/forms.js",
     "shared/help.js",
     "shared/storeOpening.js"
    ],
@@ -809,6 +814,7 @@
     "admin/src/components/ai/ChatView.jsx",
     "admin/src/components/ai/attachments.jsx",
     "admin/src/components/ai/mic.jsx",
+    "admin/src/components/forms/fill.jsx",
     "admin/src/lib/pepperPage.js",
     "admin/src/lib/speech.js",
     "api/src/ai/context.js",
@@ -816,6 +822,7 @@
     "api/src/services/menuReadAi.js",
     "api/src/services/storeOpeningAi.js",
     "shared/assistant.js",
+    "shared/forms.js",
     "shared/help.js",
     "shared/nav/pepper.js",
     "shared/storeOpening.js"
@@ -853,6 +860,7 @@
     "shared/test/procurement.test.mjs"
    ],
    "public": [
+    "admin/src/components/purchasing/ordering.jsx",
     "admin/src/components/purchasing/shared.jsx",
     "api/src/services/invoiceReadAi.js",
     "api/src/services/pdfDoc.js",

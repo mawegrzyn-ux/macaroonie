@@ -44,7 +44,8 @@ export class ToolError extends Error {
  *   conversationId  chats only
  */
 export function makeContext(fields) {
-  return { tenantId: null, auth: null, principal: null, actor: null, conversationId: null, ...fields }
+  // said: the person's own words this chat turn (chat.js), for open_form's measured values.
+  return { tenantId: null, auth: null, principal: null, actor: null, conversationId: null, said: '', ...fields }
 }
 
 export const isStaff = ctx => ctx.channel === 'staff_mcp' || ctx.channel === 'staff_chat'

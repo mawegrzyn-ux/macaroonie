@@ -9,7 +9,7 @@ import { startFakeClaude } from './support/fake-claude.mjs'
 
 const claude = await startFakeClaude()
 const { as, getApp, ok, closeApp } = await import('./support/app.mjs')
-const { resetAndSeed, A } = await import('./support/seed.mjs')
+const { resetAndSeed, A, B } = await import('./support/seed.mjs')
 const { fillTenant } = await import('./support/fixtures.mjs')
 const { makeContext } = await import('../src/ai/context.js')
 const { audienceTools, parseInput } = await import('../src/ai/tools/index.js')
@@ -24,10 +24,10 @@ function parseSse(body) {
   })
 }
 const quiet = { info() {}, warn() {}, error() {}, debug() {} }
-async function tool(sub, input, channel = 'staff_chat') {
+async function tool(sub, input, channel = 'staff_chat', said = '') {
   const app = await getApp()
   const ctx = makeContext({
-    app, channel, tenantId: ids.a, log: quiet,
+    app, channel, tenantId: ids.a, log: quiet, said,
     auth: { authorization: 'Bearer test:' + sub }, principal: { sub, email: sub + '@test.local' }, actor: sub + '@test.local',
   })
   const t = audienceTools('staff').find(x => x.name === 'open_form')
@@ -46,9 +46,16 @@ test.before(async () => {
 })
 test.after(async () => { await claude.close(); await closeApp() })
 
-test('the forms match the sheet\'s: ten, each with its module', () => {
-  assert.deepEqual(Object.keys(OPEN_FORMS).sort(),
-    ['cash_up', 'checklist', 'cooking', 'delivery', 'expense', 'holds', 'rota_day', 'sold_out', 'temps', 'wages'])
+test('one list with the sheet (shared/forms.js), each form with its module, level and page', async () => {
+  const { FORMS } = await import('../../shared/forms.js')
+  assert.equal(OPEN_FORMS, FORMS, 'open_form reads the shared list itself')
+  for (const k of ['cash_up', 'checklist', 'cooking', 'delivery', 'expense', 'holds', 'rota_day', 'sold_out', 'temps', 'wages',
+    'order', 'corrective', 'hs_action', 'booking', 'booking_change']) {
+    assert.ok(OPEN_FORMS[k], k)
+  }
+  for (const [k, f] of Object.entries(OPEN_FORMS)) {
+    assert.ok(f.module && f.path.startsWith('/') && ['use', 'manage'].includes(f.edit) && f.fields, k)
+  }
 })
 
 test('a card per form: the day, the week, the venue', async () => {
@@ -111,4 +118,153 @@ test('in the chat: the card streams and comes back with the conversation, from t
   const item = done.items.find(i => i.type === 'form')
   assert.deepEqual(item, card, 'the stored conversation shows the same card')
   assert.ok(!done.items.some(i => i.type === 'step' && /form/i.test(i.text)), 'no step line for it')
+})
+
+// ── Pepper's values (step 3b) ─────────────────────────────
+
+const fridgeName = () => 'Walk-in'
+
+test('values: unknown fields are left out, the rest go on the card for the sheet', async () => {
+  const r = await tool(A.owner, { form: 'delivery', venue: venueName, values: { supplier: 'Fresh Co', notes: 'Two boxes short', colour: 'red' } })
+  assert.deepEqual(r.form_card.values, { supplier: 'Fresh Co', notes: 'Two boxes short' })
+  assert.match(r.message, /Left out: colour \(not a field/)
+  // A form with no fields takes nothing.
+  const cash = await tool(A.owner, { form: 'cash_up', venue: venueName, values: { notes: 'hi' } })
+  assert.equal(cash.form_card.values, undefined)
+})
+
+test('values: a wrong type or out of range refuses the call', async () => {
+  await assert.rejects(tool(A.owner, { form: 'delivery', venue: venueName, values: { accepted: 'yes' } }), /values\.accepted/)
+  await assert.rejects(tool(A.owner, { form: 'expense', venue: venueName, values: { amount: -5 } }), /values\.amount/)
+  await assert.rejects(tool(A.owner, { form: 'expense', venue: venueName, values: { description: 'x'.repeat(201) } }), /values\.description/)
+  await assert.rejects(tool(A.owner, { form: 'temps', venue: venueName, values: { readings: { name: 'Walk-in' } } }), /list of rows/)
+})
+
+test('values: a measured value only when its number is in the person\'s own words', async () => {
+  const said = 'the walk-in is reading 3 and the delivery came in at 4'
+  const temps = await tool(A.owner, { form: 'temps', venue: venueName, values: { readings: [{ name: fridgeName(), temp: 3 }] } }, 'staff_chat', said)
+  const [reading] = temps.form_card.values.readings
+  assert.equal(reading.temp, 3)
+  assert.match(reading.name, /Walk-in$/, 'the venue\'s own name')
+  assert.ok(reading.equipment_id, 'placed by the server, not the model')
+  // A temperature the person never said is left out, and the row with it.
+  const guessed = await tool(A.owner, { form: 'temps', venue: venueName, values: { readings: [{ name: fridgeName(), temp: 2.5 }] } }, 'staff_chat', said)
+  assert.equal(guessed.form_card.values, undefined)
+  assert.match(guessed.message, /measured value the person didn't say/)
+  const delivery = await tool(A.owner, { form: 'delivery', venue: venueName, values: { supplier: 'Fresh Co', product_temp: 7 } }, 'staff_chat', said)
+  assert.deepEqual(delivery.form_card.values, { supplier: 'Fresh Co' }, 'the guessed temperature is left out, the supplier stays')
+  const stated = await tool(A.owner, { form: 'delivery', venue: venueName, values: { product_temp: 4 } }, 'staff_chat', said)
+  assert.equal(stated.form_card.values.product_temp, 4)
+  const minus = await tool(A.owner, { form: 'delivery', venue: venueName, values: { product_temp: -18 } }, 'staff_chat', 'frozen stuff at minus 18')
+  assert.equal(minus.form_card.values.product_temp, -18)
+  // An amount isn't measured: from a receipt or the person's words.
+  const exp = await tool(A.owner, { form: 'expense', venue: venueName, values: { description: 'Milk', amount: 4.2 } })
+  assert.deepEqual(exp.form_card.values, { description: 'Milk', amount: 4.2 })
+})
+
+test('values: an unknown fridge is left out with the reason; read only takes no values', async () => {
+  const r = await tool(A.owner, { form: 'temps', venue: venueName, values: { readings: [{ name: 'No such fridge', temp: 3 }] } }, 'staff_chat', '3')
+  assert.equal(r.form_card.values, undefined)
+  assert.match(r.message, /No such fridge \(No fridge or freezer called/)
+  const viewer = await tool(A.viewer, { form: 'temps', venue: venueName, values: { readings: [{ name: fridgeName(), temp: 3 }] } }, 'staff_chat', '3')
+  assert.equal(viewer.form_card.read_only, true)
+  assert.equal(viewer.form_card.values, undefined)
+})
+
+test('in the chat: the person\'s words decide the measured values, and the card keeps them', async () => {
+  claude.script.push(
+    () => ({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_f2', name: 'open_form',
+      input: { form: 'temps', venue: venueName, values: { readings: [{ name: fridgeName(), temp: 4 }, { name: fridgeName(), temp: 9 }] } } }] }),
+    () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'The form is ready.' }] }),
+  )
+  const res = await as(A.owner, ids.a).post('/api/ai/chat', { message: 'open the fridge checks, the walk-in is 4' }, { accept: 'text/event-stream' })
+  const events = parseSse(res.body)
+  const card = events.find(e => e.type === 'card')?.card
+  assert.deepEqual(card.form.values.readings.map(r => r.temp), [4], 'the 9 nobody said is left out')
+  const done = events[events.length - 1]
+  assert.deepEqual(done.items.find(i => i.type === 'form'), card)
+})
+
+// ── A saved form's line in the chat (step 3c, F9) ─────────
+
+test('a saved form becomes a line on its card, kept with the chat for a reload, and told to the model', async () => {
+  claude.script.push(
+    () => ({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_f3', name: 'open_form', input: { form: 'delivery', venue: venueName, values: { supplier: 'Fresh Co' } } }] }),
+    () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'The delivery check is ready.' }] }),
+  )
+  const me = as(A.owner, ids.a)
+  const first = await ok(me.post('/api/ai/chat', { message: 'log the fresh co delivery' }))
+  const conv = first.conversation_id
+  const card = first.items.find(i => i.type === 'form')
+  assert.equal(card.tool_use_id, 'toolu_f3')
+  assert.equal(card.saved, undefined)
+
+  const saved = await ok(me.post(`/api/ai/conversations/${conv}/forms/toolu_f3`, { summary: 'Fresh Co: accepted,\n 4°C' }))
+  assert.equal(saved.items.find(i => i.type === 'form').saved.summary, 'Fresh Co: accepted, 4°C', 'one line')
+  const again = await ok(me.get(`/api/ai/conversations/${conv}`))
+  const kept = again.items.find(i => i.type === 'form')
+  assert.equal(kept.saved.summary, 'Fresh Co: accepted, 4°C', 'still there after a reload')
+  assert.ok(!again.items.some(i => i.type === 'note' && /saved the form/.test(i.text)), 'the note itself isn\'t shown')
+  // Saved again (Edit): the latest line wins.
+  await ok(me.post(`/api/ai/conversations/${conv}/forms/toolu_f3`, { summary: 'Fresh Co: rejected' }))
+  assert.equal((await ok(me.get(`/api/ai/conversations/${conv}`))).items.find(i => i.type === 'form').saved.summary, 'Fresh Co: rejected')
+
+  // The next turn tells the model what was saved, without our markers.
+  claude.script.push(() => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Noted.' }] }))
+  const before = claude.requests.length
+  await ok(me.post('/api/ai/chat', { conversation_id: conv, message: 'thanks' }))
+  const sent = JSON.stringify(claude.requests[before].body.messages)
+  assert.match(sent, /saved the form from the form card: Fresh Co: rejected/)
+  assert.ok(!sent.includes('"_form"') && !sent.includes('"_note"'), 'our markers stay with us')
+
+  // Only an open_form card of this chat, only the chat's own person, never empty.
+  assert.equal((await me.post(`/api/ai/conversations/${conv}/forms/toolu_nope`, { summary: 'x' })).status, 404)
+  assert.equal((await as(A.admin, ids.a).post(`/api/ai/conversations/${conv}/forms/toolu_f3`, { summary: 'x' })).status, 404)
+  assert.equal((await as(B.owner, ids.b).post(`/api/ai/conversations/${conv}/forms/toolu_f3`, { summary: 'x' })).status, 404, 'another group')
+  assert.equal((await me.post(`/api/ai/conversations/${conv}/forms/toolu_f3`, { summary: '  ' })).status, 400)
+})
+
+// ── The four forms of F1 added in step 3e ─────────────────
+
+test('the new forms: a supplier order, corrective actions, an H&S action, a new booking', async () => {
+  const order = await tool(A.owner, { form: 'order', venue: venueName, values: { items: [{ name: 'Milk', qty: 6 }, { name: 'Eggs' }] } })
+  assert.equal(order.form_card.title, 'Supplier order')
+  assert.deepEqual(order.form_card.ref, {}, 'an order has no day: the person picks the list and the delivery')
+  assert.deepEqual(order.form_card.values, { items: [{ name: 'Milk', qty: 6 }] }, 'a row with no quantity is left out')
+  assert.match(order.message, /items\[1\] \(no qty\)/)
+
+  const fix = await tool(A.operator, { form: 'corrective', venue: venueName, date: '2026-11-20', values: { reading: 'Walk-in', action: 'Moved stock to the spare fridge' } })
+  assert.equal(fix.form_card.read_only, false, 'operators log corrective actions (Use)')
+  assert.equal(fix.form_card.ref.date, '2026-11-20')
+
+  const act = await tool(A.owner, { form: 'hs_action', venue: venueName, values: { task: 'Fix the door hinge', priority: 'high', due_date: '2026-11-30' } })
+  assert.equal(act.form_card.title, 'New H&S action')
+  assert.deepEqual(act.form_card.values, { task: 'Fix the door hinge', priority: 'high', due_date: '2026-11-30' })
+  await assert.rejects(tool(A.owner, { form: 'hs_action', venue: venueName, values: { priority: 'urgent' } }), /values\.priority/)
+  await assert.rejects(tool(A.owner, { form: 'hs_action', venue: venueName, values: { due_date: 'tomorrow' } }), /values\.due_date/)
+
+  const book = await tool(A.owner, { form: 'booking', venue: venueName, date: '2026-11-28', values: { name: 'Jane Smith', covers: 4, time: '19:30', phone: '07700900123' } })
+  assert.match(book.form_card.title, /^New booking, /)
+  assert.equal(book.form_card.ref.date, '2026-11-28')
+  assert.deepEqual(book.form_card.values, { name: 'Jane Smith', covers: 4, time: '19:30', phone: '07700900123' })
+  await assert.rejects(tool(A.owner, { form: 'booking', venue: venueName, values: { covers: 2.5 } }), /values\.covers/)
+  await assert.rejects(tool(A.owner, { form: 'booking', venue: venueName, values: { time: '7.30pm' } }), /values\.time/)
+  // Bookings need Manage to make one: below it the card is read only and takes no values.
+  const viewer = await tool(A.viewer, { form: 'booking', venue: venueName, values: { name: 'Jane' } })
+  assert.equal(viewer.form_card.read_only, true)
+  assert.equal(viewer.form_card.values, undefined)
+})
+
+test('booking_change finds the booking by the guest\'s name or its reference, on the day', async () => {
+  const { MONDAY } = await import('./support/fixtures/parts.mjs')
+  const day = (await ok(owner.get(`/api/bookings?venue_id=${V}&date=${MONDAY}&limit=200`))).filter(b => !['cancelled', 'no_show'].includes(b.status))
+  const bob = day.find(b => / Bob$/.test(b.guest_name))
+  assert.ok(bob, 'the fixtures book Bob')
+  const byName = await tool(A.owner, { form: 'booking_change', venue: venueName, date: MONDAY, booking: bob.guest_name })
+  assert.deepEqual(byName.form_card.ref.booking, { id: bob.id, guest_name: bob.guest_name, reference: bob.id.slice(0, 8).toUpperCase() })
+  assert.match(byName.form_card.title, /^Booking for .* Bob, /)
+  const byRef = await tool(A.owner, { form: 'booking_change', venue: venueName, date: MONDAY, booking: '#' + bob.id.slice(0, 8) })
+  assert.equal(byRef.form_card.ref.booking.id, bob.id)
+  await assert.rejects(tool(A.owner, { form: 'booking_change', venue: venueName, date: MONDAY }), /Which booking/)
+  await assert.rejects(tool(A.owner, { form: 'booking_change', venue: venueName, date: MONDAY, booking: 'Nobody At All' }), /No booking on .* called/)
 })

@@ -12,6 +12,7 @@ import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
+import { useFormFill } from '@/components/forms/fill'
 
 const NOTES_AUTOSAVE_DEBOUNCE_MS = 800
 
@@ -44,6 +45,8 @@ export function ChecklistRunPanel({ template, date, onClose, hideHeader = false,
   // Checklists = View: ticks and notes are shown, nothing can be changed.
   // Use (or Manage) ticks and writes notes.
   const readOnly = !usePermission('checklists').canUse
+  // In a form sheet: what was saved, for the chat's summary (components/forms/fill.jsx).
+  const fill = useFormFill()
   const [checks, setChecks] = useState({})
   const [notes, setNotes] = useState('')
   const notesTimerRef = useRef(null)
@@ -98,7 +101,12 @@ export function ChecklistRunPanel({ template, date, onClose, hideHeader = false,
   const save = useMutation({
     mutationFn: ({ checksOverride, notesOverride } = {}) =>
       api.put('/checklists/instance', buildBody(checksOverride, notesOverride)),
-    onSuccess: invalidate,
+    onSuccess: (_, vars) => {
+      invalidate()
+      const c = vars?.checksOverride ?? checks
+      const items = data?.items ?? []
+      fill?.saved(template.name + ': ' + items.filter(it => c[it.id]).length + ' of ' + items.length + ' ticked', 'checklist')
+    },
   })
 
   function toggleCheck(itemId, checked) {

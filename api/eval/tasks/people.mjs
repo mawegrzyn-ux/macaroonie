@@ -40,8 +40,11 @@ export const tasks = [
   {
     id: 'holiday',
     area: 'rota',
-    why: 'Time off with both ends of the dates.',
-    say: ctx => 'Jo Bloggs is on holiday from ' + ctx.day(10) + ' to ' + ctx.day(14) + '.',
+    // The venue and "unpaid" are said (first live run, 23 Nov 2026): Jo works at two
+    // venues, and paid holiday (set_rota, pto) or unpaid time off is a real choice
+    // Pepper was right to ask about; the task tests the action, not the questions.
+    why: 'Unpaid time off at a named venue, with both ends of the dates.',
+    say: ctx => 'Put Jo Bloggs down for unpaid time off at ' + ctx.venue.name + ' from ' + ctx.day(10) + ' to ' + ctx.day(14) + '.',
     expect: 'change',
     async check(ctx) {
       const rows = await ctx.sql`

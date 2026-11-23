@@ -13,6 +13,9 @@
 //   DELETE /attachments/:id            an upload not sent yet
 //   POST   /actions/:id/confirm        Confirm on a card (runs the change)
 //   POST   /actions/:id/cancel
+//   POST   /conversations/:id/forms/:toolUseId   { summary } a form opened from the
+//                                      chat's form card was saved: the card shows the
+//                                      line with Edit (saveFormCard(), step 3c)
 //
 //   GET    /settings                   switches, this month's usage (units) and each
 //                                      person's (a manager sees everyone), MCP addresses
@@ -46,6 +49,7 @@ import {
 import { activeKey, keyInfo, checkKey, saveKey, removeKey } from '../ai/apiKey.js'
 import {
   createConversation, loadConversation, runTurn, confirmAction, cancelAction, displayItems, chatContext, isRunning,
+  saveFormCard, FORM_SUMMARY_MAX,
 } from '../ai/chat.js'
 import { wantsStream, eventStream, errorEvent } from '../ai/sse.js'
 import { staffInstructions } from '../ai/prompts.js'
@@ -278,6 +282,16 @@ export default async function aiRoutes(app) {
   app.post('/actions/:id/cancel', async req => {
     const conv = await actionConversation(req, req.params.id)
     await run(() => cancelAction(chatContext(app, conv, { req }), conv, req.params.id))
+    return { conversation_id: conv.id, closed: await closedNow(req, conv), items: await displayItems(conv) }
+  })
+
+  // A form opened from a form card was saved: what was saved, for the card.
+  app.post('/conversations/:id/forms/:toolUseId', async req => {
+    await staffChatAllowed(req)
+    const { summary } = z.object({ summary: z.string().trim().min(1).max(FORM_SUMMARY_MAX * 2) }).parse(req.body ?? {})
+    const toolUseId = z.string().max(120).regex(/^[A-Za-z0-9_-]+$/).parse(req.params.toolUseId)
+    const conv = await ownConversation(req, req.params.id)
+    await run(() => saveFormCard(chatContext(app, conv, { req }), conv, toolUseId, summary))
     return { conversation_id: conv.id, closed: await closedNow(req, conv), items: await displayItems(conv) }
   })
 

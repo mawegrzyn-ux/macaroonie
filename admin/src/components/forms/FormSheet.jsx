@@ -4,41 +4,47 @@
 // page uses and saving through the same routes (docs/CHAT_FIRST.md F1-F9).
 // Opened by the tasks on Home (Home.jsx) and the phone's Today (MobileToday.jsx) and by
 // Pepper's form cards (ChatView.jsx, the open_form tool, OUTSTANDING 44 item
-// 3). `form` is { form, ref, task? }: form is a key of FORMS; ref holds the
-// day (date), the week (week) or the checklist (template); task.title names
-// a checklist. Sold out opens the Online orders window of its own
-// (AvailabilityModal) instead of a sheet: FormOpener picks.
+// 3). `form` is { form, ref, task?, values? }: form is a key of FORMS; ref
+// holds the day (date), the week (week) or the checklist (template);
+// task.title names a checklist; values are Pepper's, from the open_form card
+// (step 3b): the panel places them and marks each (./fill.jsx) until the
+// person changes or accepts it, and saves through its own route as on its
+// page. A form that keeps drafts (shared/forms.js drafts: true) restores the
+// person's unsaved values when it opens and keeps them as they type
+// (./useFormDraft.js, step 3d). Sold out opens the Online orders window of its
+// own (AvailabilityModal) instead of a sheet, and so do a new booking
+// (NewBookingModal) and a booking's details (BookingDrawer): FormOpener picks.
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, X, Loader2 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
-import { TempChecksTable, HoldChecksTable, CookingChecksPanel, DeliveryChecksPanel } from '@/components/foodSafety/shared'
+import { TempChecksTable, HoldChecksTable, CookingChecksPanel, DeliveryChecksPanel, CorrectiveActionsPanel } from '@/components/foodSafety/shared'
 import { ChecklistRunPanel } from '@/components/checklists/shared'
 import { DayView, StatusBadge, SaveIndicator } from '@/pages/CashRecon'
 import { WeekWagesEditor } from '@/components/cashRecon/WagesTable'
 import { PettyCashPanel } from '@/pages/mobile/MobileExpenses'
 import { RotaGrid, RotaDayList, useRotaPerms } from '@/components/staff/rota'
 import { AvailabilityModal } from '@/components/orders/shared'
+import { HSActionLogPanel } from '@/components/hsActionLog/shared'
+import { OrderSheet } from '@/components/purchasing/ordering'
+import NewBookingModal from '@/components/bookings/NewBookingModal'
+import BookingDrawer from '@/components/bookings/BookingDrawer'
+import { useApi } from '@/lib/api'
+import { FORMS } from '@shared/forms.js'
+import { FormFillProvider } from './fill'
+import { useFormDraft } from './useFormDraft'
+
+const NO_VALUES = {}
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
 
-// The full page behind each form (F8), and the module each needs.
-export const FORMS = {
-  temps:     { title: 'Fridge and freezer checks', path: '/food-safety', module: 'food_safety' },
-  holds:     { title: 'Hot and cold hold checks',  path: '/food-safety', module: 'food_safety' },
-  cooking:   { title: 'Cooking checks',            path: '/food-safety', module: 'food_safety' },
-  delivery:  { title: 'Delivery checks',           path: '/food-safety', module: 'food_safety' },
-  checklist: { title: 'Checklist',                 path: '/checklists', module: 'checklists' },
-  cash_up:   { title: 'Cash-up',                   path: '/cash-recon', phone: '/mobile/cash-up', module: 'cash_recon' },
-  wages:     { title: 'Wages',                     path: '/cash-recon', phone: '/mobile/wages', module: 'cash_recon' },
-  expense:   { title: 'Expenses',                  path: '/cash-recon', phone: '/mobile/expenses', module: 'cash_recon' },
-  sold_out:  { title: 'Sold out',                  path: '/orders', phone: '/mobile/orders', module: 'web_orders' },
-  rota_day:  { title: 'Rota',                      path: '/rota', module: 'rota' },
-}
+// The forms (shared/forms.js, one list with Pepper's open_form): each one's
+// title, module, full page (F8) and phone page.
+export { FORMS }
 
 /** A link inside the app, or (on the phone app's own host) to the office: linkFor maps it. */
 export function Go({ to, linkFor, ...rest }) {
@@ -69,11 +75,15 @@ export function formTitle(form, meta, date = null) {
   if (form.form === 'expense') return 'Expenses for ' + format(parseISO(form.ref.date), 'EEEE d MMMM')
   if (form.form === 'rota_day') return 'Rota for ' + format(parseISO(form.ref.date), 'EEEE d MMMM')
   if (form.form === 'delivery') return 'Delivery checks for ' + format(parseISO(form.ref?.date ?? date ?? todayIso()), 'EEEE d MMMM')
+  if (form.form === 'corrective') return 'Corrective actions for ' + format(parseISO(form.ref?.date ?? date ?? todayIso()), 'EEEE d MMMM')
   return meta.title
 }
 
-/** F1-F9: the form for a task, the same panel its page uses, saving through the same routes. */
-export function FormSheet({ form, venueId, date, onClose, linkFor }) {
+/** F1-F9: the form for a task, the same panel its page uses, saving through
+ *  the same routes. onSaved(summary): on closing, a line of what was saved
+ *  while it was open (each panel says through ./fill.jsx), if anything was:
+ *  Pepper's form card keeps it with the chat (F9). */
+export function FormSheet({ form, venueId, date, onClose, onSaved, linkFor }) {
   const qc = useQueryClient()
   const { canUse: cashUse, canManage: cashManage } = usePermission('cash_recon')
   const meta = FORMS[form.form] || { title: form.task?.title || 'Form', path: '/' }
@@ -91,8 +101,43 @@ export function FormSheet({ form, venueId, date, onClose, linkFor }) {
   const unsaved = form.form === 'wages' && !!wages?.dirty
   const [asking, setAsking] = useState(false)
   useEffect(() => { if (!unsaved) setAsking(false) }, [unsaved])
-  const close = () => (unsaved ? setAsking(true) : onClose())
-  const saveAndClose = async () => { if (await wages.save()) onClose() }
+  // What was saved while the sheet was open, by key: the latest line per key.
+  const savedLines = useRef(new Map())
+  const addSaved = useCallback((line, key = line) => { if (line) savedLines.current.set(key, line) }, [])
+  // The person's draft of a form that keeps one (step 3d), with Pepper's values.
+  const draft = useFormDraft({ form: form.form, venueId, day: form.ref?.date ?? form.ref?.week ?? date, pepper: form.values })
+  // A form for one record (a delivery check, an expense): once it is saved,
+  // its values are used up, and the draft goes.
+  const [usedUp, setUsedUp] = useState(false)
+  const panelSaved = useCallback((line, key) => {
+    addSaved(line, key)
+    if (draft.on) { draft.done(); setUsedUp(true) }
+  }, [addSaved, draft])
+  const finish = () => {
+    const lines = [...savedLines.current.values()]
+    if (lines.length) onSaved?.(lines.join('; '))
+    onClose()
+  }
+  // The cash-up saves as it is typed, and is submitted from the foot.
+  const wasSubmitted = useRef(null)
+  useEffect(() => {
+    if (form.form !== 'cash_up' || !day?.ready) return
+    if (wasSubmitted.current === null) wasSubmitted.current = !!day.isSubmitted
+    if (day.saved) addSaved('Cash-up figures saved', 'cash')
+    if (day.isSubmitted !== wasSubmitted.current) {
+      addSaved(day.isSubmitted ? 'Cash-up submitted' : 'Cash-up unsubmitted', 'cash')
+      wasSubmitted.current = !!day.isSubmitted
+    }
+  }, [form.form, day?.ready, day?.saved, day?.isSubmitted, addSaved])
+  // The wages: changes waiting, then none and not saving = saved.
+  const wagesDirty = useRef(false)
+  useEffect(() => {
+    if (form.form !== 'wages' || !wages) return
+    if (wagesDirty.current && !wages.dirty && !wages.saving) addSaved('Wages saved', 'wages')
+    wagesDirty.current = !!wages.dirty
+  }, [form.form, wages, addSaved])
+  const close = () => (unsaved ? setAsking(true) : finish())
+  const saveAndClose = async () => { if (await wages.save()) finish() }
   const footBtn = 'min-h-[48px] px-5 rounded-md font-medium touch-manipulation disabled:opacity-50'
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center sm:p-4" onClick={close} data-testid="today-form" data-form={form.form}>
@@ -108,6 +153,11 @@ export function FormSheet({ form, venueId, date, onClose, linkFor }) {
             <X className="w-5 h-5" />
           </button>
         </div>
+        <FormFillProvider values={usedUp ? NO_VALUES : draft.values} marked={draft.marked}
+          onChange={draft.on ? draft.change : undefined} onSaved={panelSaved}>
+        {!draft.ready ? (
+          <div className="p-8 flex justify-center" data-testid="today-form-draft-loading"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+        ) : (
         <div className="p-3 sm:p-4">
           {form.form === 'temps' && <TempChecksTable venueId={venueId} date={date} />}
           {form.form === 'holds' && <HoldChecksTable venueId={venueId} date={date} />}
@@ -117,18 +167,23 @@ export function FormSheet({ form, venueId, date, onClose, linkFor }) {
           {form.form === 'expense' && <PettyCashPanel venueId={venueId} date={form.ref.date} />}
           {form.form === 'delivery' && <DeliveryChecksPanel venueId={venueId} date={form.ref?.date ?? date} />}
           {form.form === 'rota_day' && <RotaDaySheet venueId={venueId} date={form.ref.date} />}
+          {form.form === 'order' && <OrderSheet venueId={venueId} />}
+          {form.form === 'corrective' && <CorrectiveActionsPanel venueId={venueId} date={form.ref?.date ?? date} />}
+          {form.form === 'hs_action' && <HSActionLogPanel venueId={venueId} startNew day={form.ref?.date ?? date} />}
           {form.form === 'wages' && (
             <WeekWagesEditor venueId={venueId} weekStart={form.ref.week} readOnly={!cashUse} canSetDefault={cashManage}
               showBank={!linkFor} hidePaidOnForAll={!!linkFor} onStateChange={setWages} />
           )}
         </div>
+        )}
+        </FormFillProvider>
         <div className="sticky bottom-0 bg-background border-t px-4 py-3 flex flex-wrap items-center justify-end gap-2">
           {asking ? (
             <>
               <p className="mr-auto text-sm font-medium" data-testid="today-unsaved">The changes to the wages aren't saved.</p>
               <button type="button" onClick={() => setAsking(false)} data-testid="today-unsaved-stay"
                 className={cn(footBtn, 'border hover:bg-accent')}>Keep editing</button>
-              <button type="button" onClick={onClose} data-testid="today-unsaved-discard"
+              <button type="button" onClick={finish} data-testid="today-unsaved-discard"
                 className={cn(footBtn, 'border text-destructive hover:bg-destructive/10')}>Close without saving</button>
               <button type="button" onClick={saveAndClose} disabled={wages?.saving} data-testid="today-unsaved-save"
                 className={cn(footBtn, 'bg-primary text-primary-foreground')}>
@@ -168,8 +223,68 @@ export function FormSheet({ form, venueId, date, onClose, linkFor }) {
   )
 }
 
-/** A form from FORMS: the sheet, or for sold out the Online orders window. */
-export function FormOpener({ form, venueId, date, onClose, linkFor }) {
+/** A new booking in its own window (the 'booking' form): the Bookings page's
+ *  NewBookingModal with Pepper's values (or a draft's) and the card's day. */
+function BookingWindow({ form, venueId, date, onClose, onSaved }) {
+  const qc = useQueryClient()
+  const day = form.ref?.date ?? date
+  const draft = useFormDraft({ form: 'booking', venueId, day, pepper: form.values })
+  const lines = useRef([])
+  if (!draft.ready) return null
+  return (
+    <FormFillProvider values={draft.values} marked={draft.marked} onChange={draft.change}
+      onSaved={line => { lines.current.push(line); draft.done() }}>
+      <NewBookingModal venueId={venueId} date={day} prefillTime={draft.values.time ?? null}
+        onClose={onClose}
+        onCreated={d => {
+          qc.invalidateQueries({ queryKey: ['bookings', venueId, d] })
+          if (lines.current.length) onSaved?.(lines.current.join('; '))
+          onClose()
+        }} />
+    </FormFillProvider>
+  )
+}
+
+/** A booking's details in their own window (the 'booking_change' form): the
+ *  Timeline's BookingDrawer, from the day's list as the Timeline reads it. */
+function BookingChangeWindow({ form, venueId, date, onClose, onSaved }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const day = form.ref?.date ?? date
+  const id = form.ref?.booking?.id
+  const changed = useRef(false)
+  const { data: bookings, isError } = useQuery({
+    queryKey: ['bookings', venueId, day],
+    queryFn: () => api.get(`/bookings?venue_id=${venueId}&date=${day}`),
+    enabled: !!venueId && !!id,
+  })
+  const booking = (bookings || []).find(b => b.id === id)
+  const close = () => {
+    if (changed.current) onSaved?.('Changed the booking for ' + (booking?.guest_name || form.ref?.booking?.guest_name || 'the guest'))
+    onClose()
+  }
+  if (!booking) {
+    if (!bookings && !isError) return null
+    return (
+      <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+        <div className="bg-background rounded-xl shadow-xl p-5 max-w-sm space-y-3" onClick={e => e.stopPropagation()} data-testid="booking-change-missing">
+          <p className="text-sm">That booking isn&apos;t on {day} any more. It may have been moved or cancelled.</p>
+          <button type="button" onClick={onClose} className="min-h-[48px] px-5 rounded-md bg-primary text-primary-foreground font-medium touch-manipulation">Close</button>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <BookingDrawer key={booking.id} booking={booking} onClose={close}
+      onUpdated={() => { changed.current = true; qc.invalidateQueries({ queryKey: ['bookings', venueId, day] }) }} />
+  )
+}
+
+/** A form from FORMS: the sheet, or a window of its own (FORMS[...].window):
+ *  sold out (the Online orders window), a new booking, a booking's details. */
+export function FormOpener({ form, venueId, date, onClose, onSaved, linkFor }) {
   if (form.form === 'sold_out') return <AvailabilityModal venueId={venueId} onClose={onClose} />
-  return <FormSheet form={form} venueId={venueId} date={date} onClose={onClose} linkFor={linkFor} />
+  if (form.form === 'booking') return <BookingWindow form={form} venueId={venueId} date={date} onClose={onClose} onSaved={onSaved} />
+  if (form.form === 'booking_change') return <BookingChangeWindow form={form} venueId={venueId} date={date} onClose={onClose} onSaved={onSaved} />
+  return <FormSheet form={form} venueId={venueId} date={date} onClose={onClose} onSaved={onSaved} linkFor={linkFor} />
 }

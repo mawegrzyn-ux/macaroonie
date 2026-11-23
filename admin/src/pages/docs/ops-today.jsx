@@ -142,7 +142,13 @@ export function Section() {
         the Today page (<Mono>Home.jsx</Mono> now, which re-exports <Mono>FormSheet</Mono>) so Pepper&apos;s form cards open the
         same sheet. New forms: delivery (<Mono>DeliveryChecksPanel</Mono>), expense (<Mono>PettyCashPanel</Mono>),
         rota_day (<Mono>RotaDayList</Mono> and the week&apos;s <Mono>RotaGrid</Mono> on that day), sold_out
-        (<Mono>AvailabilityModal</Mono>).
+        (<Mono>AvailabilityModal</Mono>). Since Pepper-first step 3 (23 Nov 2026) the list is{' '}
+        <Mono>shared/forms.js</Mono>, shared with Pepper&apos;s <Mono>open_form</Mono>, and the sheet also opens
+        order (<Mono>OrderSheet</Mono>), corrective (<Mono>CorrectiveActionsPanel</Mono>), hs_action
+        (<Mono>HSActionLogPanel</Mono> with <Mono>startNew</Mono>), and in windows of their own booking
+        (<Mono>NewBookingModal</Mono>) and booking_change (<Mono>BookingDrawer</Mono>). It restores and keeps a
+        draft for the forms with <Mono>drafts</Mono>, and takes Pepper&apos;s values (see the AI assistant
+        section).
       </P>
       <H3>Task notices (migration 262)</H3>
       <P>

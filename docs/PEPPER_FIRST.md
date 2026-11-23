@@ -422,7 +422,8 @@ Item 11 was researched (`reports/AI first back office strategy.md`) and mocked u
 (`docs/mockups/pepper-first/`, published as a Claude Artifact), which is the condition section 11
 set for un-parking it. The report's plan is nine steps (0 to 8) and replaces the phase order in
 section 7 where the two differ. The owner answered ten of its eleven decisions the same day, each
-"Agree", which means the report's recommendation stands. Nothing is built yet.
+"Agree", which means the report's recommendation stands. Steps 0 to 2 were built 22 and 23 Nov 2026
+(PRs #498 to #500; follow-ups in `docs/claude/outstanding/shell.md` 49, 50, 52 and `pepper.md` 51).
 
 1. **What AI-first means: agreed.** The Pepper-first Home and the ask bar in the product. Sell hours
    saved and one platform with Pepper included. "AI-first" is not the headline to franchisees or staff.
@@ -441,9 +442,6 @@ section 7 where the two differ. The owner answered ten of its eleven decisions t
    for logging checks and nothing else.
 7. **Skipping a compliance task: agreed (23 Nov 2026).** A skip only with a reason,
    recorded and shown above the store. It gates the task store in step 5 and nothing before it.
-
-Asked after step 2 (23 Nov 2026): the ask bar hands its words to Pepper's remembered chat, not a new
-one (as the phone's Pepper page already did).
 8. **Usage data about people: agreed.** Managers see task completion by site. The record of pages a
    person opens stays that person's own (section 4.5). Pepper does not rank individuals.
 9. **Model writes to allergens and pay: agreed.** A named person signs off any allergen data a model
@@ -453,7 +451,10 @@ one (as the phone's Pepper page already did).
 11. **Segment and retail: agreed.** Franchised and multi-site quick-service first. Retail limited to
     food-led and franchise retail, after stock on hand, as a test.
 
-Still needed before building: a go-ahead to start step 0 (its runs against the live model cost
-money and need a key in the build environment), decision 7 before step 5, and the parallel-work
-decisions before step 1.
+Asked after step 2 (23 Nov 2026): the ask bar hands its words to Pepper's remembered chat, not a new
+one (as the phone's Pepper page already did); `open_page` offers what permissions allow, by the names
+in the person's own menu, a page outside their menu marked Not in your menu.
+
+Still open: the first run of the evaluation set against the live model (it needs `ANTHROPIC_API_KEY`
+in the environment), and steps 3 to 8.
 

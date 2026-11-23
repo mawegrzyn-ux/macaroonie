@@ -39,7 +39,7 @@ import {
   ToolError, callApi, audit, requireStaffPermission, staffPermissionLevel, levelAtLeast,
 } from '../context.js'
 import { computeHsStatus } from '../../services/hsStatus.js'
-import { DateStr, localParts, longDate, pickByName as pickName } from './util.js'
+import { DateStr, localParts, longDate, pickByName as pickName, pickCheckTime as pickTime } from './util.js'
 import { staffVenue } from './staff.js'
 
 const Id = z.string().uuid()
@@ -61,33 +61,8 @@ const inRange = (t, min, max) => (min == null || t >= min) && (max == null || t 
 const pickByName = (rows, text, nameOf, what) =>
   pickName(rows, text, nameOf, what, 'None are set up for this venue yet (H&S settings).')
 
-/**
- * Which check time a reading is for. Named ("Morning", "09:00") when the
- * person says; else, today, the latest check time that has started (the
- * first if none has); on another day it must be named when there are
- * several. null when the venue has no check times (an extra reading).
- */
-function pickCheckTime(times, wanted, date, venue) {
-  if (!times.length) return null
-  const sorted = [...times].sort((a, b) => String(a.time_of_day).localeCompare(String(b.time_of_day)))
-  const label = t => t.label + ' (' + hhmm(t.time_of_day) + ')'
-  if (wanted) {
-    const w = String(wanted).trim()
-    if (/^\d{1,2}:\d{2}$/.test(w)) {
-      const hit = sorted.find(t => hhmm(t.time_of_day) === w.padStart(5, '0'))
-      if (hit) return hit
-      throw new ToolError('No check at ' + w + '. Check times: ' + sorted.map(label).join(', ') + '.', 404)
-    }
-    return pickByName(sorted, w, t => t.label, 'check time')
-  }
-  const now = venueNow(venue)
-  if (date === now.date) {
-    const started = sorted.filter(t => hhmm(t.time_of_day) <= now.time)
-    return started.length ? started[started.length - 1] : sorted[0]
-  }
-  if (sorted.length === 1) return sorted[0]
-  throw new ToolError('Which check is it for? Check times: ' + sorted.map(label).join(', ') + '.', 422)
-}
+/** Which check time a reading is for (util.js, shared with open_form). */
+const pickCheckTime = (times, wanted, date, venue) => pickTime(times, wanted, date, venue, pickByName)
 
 /** Today's cooking session the same way the Cooking tab picks it. */
 function pickSession(sessions, wanted, date, venue) {
@@ -216,7 +191,10 @@ export const promptLines = [
 export const promptNotes = [
   'Food safety: a reading out of range (or a cooking check under 75°C, or a failed delivery) needs a corrective ' +
     'action: what was done about it. Ask for it and pass it with the reading, or add it afterwards with ' +
-    'add_corrective_action. Never make up a temperature or tick a task the staff member hasn\'t said is done.',
+    'add_corrective_action. Never make up a temperature or tick a task the staff member hasn\'t said is done. ' +
+    'When the person states the values of a check in their message (a reading, or how a delivery arrived), log it ' +
+    'with its logging tool (log_temperature, log_hold_check, log_cooking_check, log_delivery): its card is the ' +
+    'confirmation. open_form is for when they want to fill the form in themselves, or have many values to enter at once.',
 ]
 
 export const hsTools = [
@@ -372,8 +350,9 @@ export const hsTools = [
     title: 'Log a fridge temperature',
     description:
       'Logs a fridge or freezer temperature for a scheduled check (default: the check due now, today). ' +
-      'Logging the same check again replaces the earlier reading. If the reading is out of range, ask what was done ' +
-      'about it and pass it as corrective_action.',
+      'Use it whenever the person states a reading ("the walk-in is reading 3"): the card is the confirmation, so ' +
+      'don\'t open the form for it. Logging the same check again replaces the earlier reading. If the reading is out ' +
+      'of range, ask what was done about it and pass it as corrective_action.',
     input: z.object({ ...TempInput, fridge: z.string().min(1).max(200).describe('The fridge or freezer, by name') }),
     confirm: true,
     needs: 'use',
@@ -472,7 +451,9 @@ export const hsTools = [
     title: 'Log a delivery check',
     description:
       'Logs a delivery check: supplier, whether packaging, damage, quality and temperature were OK, the product ' +
-      'temperature if taken, and whether it was accepted. Anything failed needs a corrective action.',
+      'temperature if taken, and whether it was accepted. Use it whenever the person says how a delivery arrived ' +
+      '("all fine, 4 degrees, accepted"): the card is the confirmation, so don\'t open the form for it. Anything ' +
+      'failed needs a corrective action.',
     input: z.object({
       venue_id:          Id,
       supplier:          z.string().min(1).max(200),

@@ -271,6 +271,14 @@ export default function ChatView({ conversationId, onConversationId, className, 
     },
   })
 
+  // A form opened from a form card was saved (step 3c): the server keeps
+  // the line with the chat, so it is still there after a reload.
+  const formSaved = async (toolUseId, summary) => {
+    if (!conversationId) throw new Error('The chat has no id yet.')
+    const res = await api.post(`/ai/conversations/${conversationId}/forms/${toolUseId}`, { summary })
+    apply(res)
+  }
+
   useEffect(() => {
     const el = listRef.current
     if (el && stick.current) el.scrollTop = el.scrollHeight
@@ -389,9 +397,9 @@ export default function ChatView({ conversationId, onConversationId, className, 
             </div>
           </div>
         )}
-        {shown.map((item, i) => <ChatItem key={item.id || i} item={item} decide={decide} busy={working} linkFor={linkFor} />)}
+        {shown.map((item, i) => <ChatItem key={item.id || item.tool_use_id || i} item={item} decide={decide} busy={working} linkFor={linkFor} onFormSaved={formSaved} />)}
         {pending && <UserBubble text={pending.text} files={pending.files} local />}
-        {live.map((item, i) => <ChatItem key={item.key || item.id || 'l' + i} item={item} decide={decide} busy linkFor={linkFor} />)}
+        {live.map((item, i) => <ChatItem key={item.key || item.id || item.tool_use_id || 'l' + i} item={item} decide={decide} busy linkFor={linkFor} onFormSaved={formSaved} />)}
         {working && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite" data-testid="chat-activity">
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -499,7 +507,7 @@ export default function ChatView({ conversationId, onConversationId, className, 
   )
 }
 
-function ChatItem({ item, decide, busy = false, linkFor = null }) {
+function ChatItem({ item, decide, busy = false, linkFor = null, onFormSaved = null }) {
   if (item.type === 'user') return <UserBubble text={item.text} files={item.attachments} />
   if (item.type === 'assistant') {
     if (!item.text.trim()) return null
@@ -519,7 +527,7 @@ function ChatItem({ item, decide, busy = false, linkFor = null }) {
     )
   }
   if (item.type === 'action') return <ActionCard card={item} decide={decide} busy={busy} />
-  if (item.type === 'form') return <FormCard card={item.form} linkFor={linkFor} />
+  if (item.type === 'form') return <FormCard card={{ ...item.form, tool_use_id: item.tool_use_id, saved: item.saved }} linkFor={linkFor} onFormSaved={onFormSaved} />
   if (item.type === 'nav') return <NavCard pages={item.pages} linkFor={linkFor} />
   return null
 }
@@ -561,32 +569,82 @@ function NavCard({ pages, linkFor }) {
   )
 }
 
+/** What Pepper filled in on a form card, by the fields' labels (a list's rows by their names). */
+function filledLabels(meta, values) {
+  if (!meta || !values) return []
+  return Object.entries(values).flatMap(([k, v]) => {
+    const f = meta.fields?.[k]
+    if (!f) return []
+    if (f.type === 'list') return (Array.isArray(v) ? v : []).map(r => r.name || f.label)
+    return [f.label]
+  })
+}
+
 /** Pepper's form card (open_form, OUTSTANDING 44 item 3): the form, its venue
  *  and day, and Open, which opens the same sheet as the tasks on Home
  *  over the chat. Built by the server from what it found, never from the
  *  model's words. */
-function FormCard({ card, linkFor }) {
+function FormCard({ card, linkFor, onFormSaved }) {
   const [open, setOpen] = useState(false)
   const [opened, setOpened] = useState(false)
+  // F9 (step 3c): after Save, a line of what was saved with Edit. Kept with
+  // the chat by the server (card.saved); shown at once from here.
+  const [local, setLocal] = useState(null)
+  const [keepError, setKeepError] = useState(null)
   const meta = FORMS[card.form]
   if (!meta) return null
+  const saved = local ?? card.saved?.summary ?? null
+  const onSaved = summary => {
+    setLocal(summary)
+    setKeepError(null)
+    if (card.tool_use_id && onFormSaved) {
+      onFormSaved(card.tool_use_id, summary).catch(err => {
+        console.error(err)
+        setKeepError(err.message || 'It couldn\'t be kept in the chat.')
+      })
+    }
+  }
+  const labels = filledLabels(meta, card.values)
   return (
-    <div className="rounded-lg border bg-background overflow-hidden" data-testid="chat-form-card" data-form={card.form}>
+    <div className="rounded-lg border bg-background overflow-hidden" data-testid="chat-form-card" data-form={card.form} data-saved={saved ? 'yes' : 'no'}>
       <div className="section-head px-3 py-2 text-sm font-semibold flex items-center gap-2">
         <ClipboardCheck className="w-4 h-4 shrink-0" /> <span className="min-w-0 truncate">{card.title}</span>
       </div>
       <div className="px-3 py-2 text-sm text-muted-foreground">
         {card.venue}{card.read_only ? ' · read only for you' : ''}
       </div>
-      <div className="px-3 pb-3">
-        <button type="button" onClick={() => { setOpen(true); setOpened(true) }} data-testid="chat-form-open"
-          className="w-full min-h-[48px] rounded-md bg-primary text-primary-foreground font-medium text-sm flex items-center justify-center gap-2 touch-manipulation">
-          {opened ? 'Open again' : 'Open'}
-        </button>
-      </div>
+      {saved ? (
+        <div className="px-3 pb-3 flex flex-wrap items-center gap-2">
+          <p className="flex-[1_1_12rem] min-w-0 text-sm flex items-start gap-1.5" data-testid="chat-form-saved">
+            <Check className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" />
+            <span className="min-w-0 break-words"><span className="font-medium">Saved:</span> {saved}</span>
+          </p>
+          <button type="button" onClick={() => setOpen(true)} data-testid="chat-form-edit"
+            className="ml-auto min-h-[48px] px-4 rounded-md border text-sm font-medium hover:bg-accent touch-manipulation">
+            Edit
+          </button>
+          {keepError && <p className="w-full text-xs text-muted-foreground" data-testid="chat-form-keep-error">Not kept in the chat: {keepError}</p>}
+        </div>
+      ) : (
+        <>
+          {labels.length > 0 && (
+            <p className="px-3 pb-2 text-xs text-violet-700 flex items-start gap-1.5" data-testid="chat-form-filled">
+              <Sparkles className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <span>Filled in by {ASSISTANT_NAME}: {labels.join(', ')}. Check each one before you save.</span>
+            </p>
+          )}
+          <div className="px-3 pb-3">
+            <button type="button" onClick={() => { setOpen(true); setOpened(true) }} data-testid="chat-form-open"
+              className="w-full min-h-[48px] rounded-md bg-primary text-primary-foreground font-medium text-sm flex items-center justify-center gap-2 touch-manipulation">
+              {opened ? 'Open again' : 'Open'}
+            </button>
+          </div>
+        </>
+      )}
       {open && (
-        <FormOpener form={{ form: card.form, ref: card.ref, task: { title: card.title } }} venueId={card.venue_id}
-          date={card.date} onClose={() => setOpen(false)} linkFor={linkFor} />
+        // Pepper's values go in only the first time: once saved, Edit opens the form as it is.
+        <FormOpener form={{ form: card.form, ref: card.ref, task: { title: card.title }, values: saved ? undefined : card.values }}
+          venueId={card.venue_id} date={card.date} onClose={() => setOpen(false)} onSaved={onSaved} linkFor={linkFor} />
       )}
     </div>
   )

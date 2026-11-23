@@ -36,6 +36,7 @@ export const decisions = {
   out: {
     'Tokens, codes and sessions': ['ai_access_tokens', 'ai_oauth_clients', 'ai_oauth_grants', 'ai_booking_codes', 'ai_booking_grants'],
     'Conversations and files': ['ai_messages', 'ai_attachments', 'ai_pending_actions'],
+    'Unsaved form drafts, each person\'s own': ['form_drafts'],
   },
 }
 
