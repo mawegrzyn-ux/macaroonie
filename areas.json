@@ -796,6 +796,7 @@
     "api/test/form-drafts.test.mjs",
     "api/test/mcp-oauth.test.mjs",
     "api/test/menu-import.test.mjs",
+    "api/test/pepper-actions.test.mjs",
     "api/test/pepper-eval.test.mjs",
     "api/test/pepper-forms.test.mjs",
     "api/test/pepper-requests.test.mjs",

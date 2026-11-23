@@ -117,6 +117,14 @@ export function touchesAllergens(v) {
   return Object.entries(v).some(([k, x]) => (/allergens$/.test(k) && Array.isArray(x)) || touchesAllergens(x))
 }
 
+/** A person's surname (the last word of their name), for the word a
+ *  destructive card about them asks for; null when the name has none. */
+export function surnameOf(name) {
+  const words = String(name ?? '').trim().split(/\s+/).filter(w => /\p{L}/u.test(w))
+  if (words.length < 2) return null
+  return words[words.length - 1].replace(/[^\p{L}'-]/gu, '').slice(0, 40) || null
+}
+
 /** Run a change and write its ai_actions row, ok or not. */
 export async function audited(ctx, tool, input, fn) {
   try {

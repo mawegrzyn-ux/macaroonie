@@ -356,6 +356,8 @@ export const hsTools = [
       'of range, ask what was done about it and pass it as corrective_action.',
     input: z.object({ ...TempInput, fridge: z.string().min(1).max(200).describe('The fridge or freezer, by name') }),
     confirm: true,
+    // The reading and what was done, corrected on the card by the person (step 4b).
+    editable: { temperature_c: { label: 'Reading (°C)', kind: 'number' }, corrective_action: { label: 'What was done', kind: 'note' } },
     needs: 'use',
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'food_safety', 'use')

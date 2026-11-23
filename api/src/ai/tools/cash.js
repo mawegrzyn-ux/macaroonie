@@ -417,6 +417,7 @@ export const cashTools = [
     }),
     confirm: true,
     needs: 'use',
+    editable: { description: { label: 'What it was', kind: 'text' }, amount: { label: 'Amount (gross)', kind: 'number' } },
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'cash_recon', 'use')
       const p = await expensePlan(ctx, input)

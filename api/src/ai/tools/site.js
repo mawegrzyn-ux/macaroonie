@@ -40,6 +40,8 @@ async function tzOf(ctx) {
 }
 
 const SEVERITY = { info: 'information', warn: 'warning', alert: 'urgent' }
+/** The website banner in words (a card's before / after line). */
+const bannerLine = (on, text) => (on ? 'Banner on: ' + String(text || '').slice(0, 160) : 'No banner')
 const PRIORITY = { p1: 'P1 (critical)', p2: 'P2 (high)', p3: 'P3 (medium)', p4: 'P4 (low)' }
 
 async function reviewPick(ctx, input) {
@@ -165,6 +167,8 @@ export const siteTools = [
           ? [SEVERITY[input.severity || site.banner_severity || 'info'] + ': ' + (input.text || site.banner_text),
             ...(input.link_url ? ['Link: ' + (input.link_text || input.link_url) + ' (' + input.link_url + ')'] : [])]
           : ['Now: ' + (site.banner_enabled ? site.banner_text : 'already off')],
+        before: [bannerLine(site.banner_enabled, site.banner_text)],
+        after:  [bannerLine(input.on, input.text || site.banner_text)],
         confirmLabel: input.on ? 'Show banner' : 'Turn off',
       }
     },
@@ -225,7 +229,11 @@ export const siteTools = [
       await requireStaffPermission(ctx, 'promotions', 'manage')
       const p = await promoPick(ctx, input)
       if (!!p.is_active === input.on) throw new ToolError(p.name + ' is already ' + (input.on ? 'on' : 'off') + '.', 422)
-      return { title: (input.on ? 'Turn on ' : 'Turn off ') + p.name + '?', lines: [promoSummary(p)], confirmLabel: input.on ? 'Turn on' : 'Turn off' }
+      return {
+        title: (input.on ? 'Turn on ' : 'Turn off ') + p.name + '?', lines: [promoSummary(p)],
+        before: [p.name + ': ' + (p.is_active ? 'on' : 'off')], after: [p.name + ': ' + (input.on ? 'on' : 'off')],
+        confirmLabel: input.on ? 'Turn on' : 'Turn off',
+      }
     },
     async run(ctx, input) {
       await requireStaffPermission(ctx, 'promotions', 'manage')

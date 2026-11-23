@@ -272,9 +272,19 @@ export default async function aiRoutes(app) {
     await staffChatAllowed(req)
     // via: 'voice' = a spoken yes (talk mode): only check cards, only when the
     // group allows it (confirmAction() checks both).
-    const via = z.object({ via: z.enum(['tap', 'voice']).optional() }).catch({}).parse(req.body ?? {}).via ?? 'tap'
+    // word: what the person typed on a destructive card; values: fields they
+    // changed on the card (its tool's editable ones, step 4b), checked by the
+    // tool's own schema in confirmAction().
+    const body = req.body ?? {}
+    const via = z.object({ via: z.enum(['tap', 'voice']).optional() }).catch({}).parse(body).via ?? 'tap'
+    const parsed = z.object({
+      word:   z.string().max(100).optional(),
+      values: z.record(z.string().regex(/^[a-z_]{1,40}$/), z.union([z.string().max(2000), z.number(), z.boolean(), z.null()]))
+        .refine(v => Object.keys(v).length <= 10, 'Too many fields').optional(),
+    }).safeParse(body)
+    if (!parsed.success) throw httpError(422, 'The card\'s fields couldn\'t be read: ' + parsed.error.issues[0].message)
     const conv = await actionConversation(req, req.params.id)
-    await run(() => confirmAction(chatContext(app, conv, { req }), conv, req.params.id, { via }))
+    await run(() => confirmAction(chatContext(app, conv, { req }), conv, req.params.id, { via, word: parsed.data.word ?? null, values: parsed.data.values ?? null }))
     // An anonymise card closes the chat it ran in (ai/erase.js).
     return { conversation_id: conv.id, closed: await closedNow(req, conv), items: await displayItems(conv) }
   })

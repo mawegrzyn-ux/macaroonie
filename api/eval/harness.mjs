@@ -18,7 +18,8 @@
 //               can; ctx.made holds what later steps need
 //   say(ctx)    the message(s) typed, a string or a list (one turn each)
 //   cards       what the person does with each card: 'confirm' (default:
-//               a person who asked for it presses Confirm) or 'cancel'
+//               a person who asked for it presses Confirm, typing the
+//               card's word on a destructive one, step 4b) or 'cancel'
 //   expect      'change' (something must be done) or 'nothing' (Pepper must
 //               ask first, or refuse: the tables in `watch` must not change)
 //   watch       for 'nothing': the tables whose rows must stay as they were
@@ -152,9 +153,11 @@ export async function runTask(task, { baseline = false, before } = {}) {
         // Each card waiting for an answer, as the person would answer it.
         for (const card of (res.json.items || []).filter(i => i.type === 'action' && i.status === 'pending')) {
           const how = task.cards === 'cancel' ? 'cancel' : 'confirm'
-          const r = await client.post('/api/ai/actions/' + card.id + '/' + how, {})
+          // A destructive card (a person's details, pay, a deletion) wants its word typed, as the person would.
+          const body = how === 'confirm' && card.class === 'destructive' ? { word: card.confirm_word } : {}
+          const r = await client.post('/api/ai/actions/' + card.id + '/' + how, body)
           const settled = (r.json?.items || []).find(i => i.type === 'action' && i.id === card.id)
-          result.cards.push({ tool: card.tool, title: card.title, pressed: how, status: settled?.status || 'unknown', error: settled?.error || (r.status >= 400 ? r.json?.error : null) || null })
+          result.cards.push({ tool: card.tool, title: card.title, class: card.class, pressed: how, status: settled?.status || 'unknown', error: settled?.error || (r.status >= 400 ? r.json?.error : null) || null })
         }
       }
       result.tools = await toolCalls(ctx.tenantId, conversationId)

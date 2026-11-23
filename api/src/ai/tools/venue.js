@@ -25,7 +25,7 @@ import { withTenant } from '../../config/db.js'
 import { ToolError, callApi, requireStaffPermission } from '../context.js'
 import {
   DateStr, VenueText, venueFor, venueToday, longDate, shortDate, localParts, zonedInstant, addDays,
-  plural, pickByName, audited, realEmail,
+  plural, pickByName, audited, realEmail, surnameOf,
 } from './util.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -263,7 +263,8 @@ export const venueTools = [
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'customers', 'manage')
       const p = await customerEditPlan(ctx, input)
-      return { title: 'Change ' + p.c.name + '?', lines: p.lines, confirmLabel: 'Save' }
+      // A person's details (destructive): the person types the customer's surname.
+      return { title: 'Change ' + p.c.name + '?', lines: p.lines, confirmLabel: 'Save', confirm_word: surnameOf(p.c.name) }
     },
     async run(ctx, input) {
       await requireStaffPermission(ctx, 'customers', 'manage')
@@ -325,6 +326,7 @@ export const venueTools = [
         warnings: ['Their name, email, phone and notes are erased everywhere. Use this for a GDPR erasure request only.'],
         confirmLabel: 'Anonymise',
         destructive: true,
+        confirm_word: surnameOf(c.name),
       }
     },
     async run(ctx, input) {

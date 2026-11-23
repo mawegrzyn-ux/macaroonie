@@ -156,6 +156,20 @@ async function venueDishes(ctx, venue) {
   })
 }
 
+/** A dish's sold-out state now, in words (the card's before line). */
+const soldOutState = (d, venue) => (!d.sold.length ? 'on'
+  : 'sold out ' + untilText(d.until, venue.timezone) + (d.sold.length < d.ids.length ? ' on some menus' : ''))
+
+const pauseLine = paused => (paused ? 'Online orders paused' : 'Taking online orders')
+
+/** A venue's online ordering pause as it is now (the card's before line, and Undo). */
+async function pauseState(ctx, venue) {
+  const [row] = await withTenant(ctx.tenantId, tx => tx`
+    SELECT is_paused, pause_message FROM ordering_settings WHERE venue_id = ${venue.id} AND tenant_id = ${ctx.tenantId}
+  `)
+  return { is_paused: !!row?.is_paused, pause_message: row?.pause_message ?? null }
+}
+
 const untilText = (until, tz) => (until.some(u => u == null) ? 'until put back'
   : 'until ' + localParts(new Date(Math.max(...until.map(u => new Date(u).getTime()))), tz).time + ' (end of today)')
 
@@ -323,9 +337,13 @@ export const orderTools = [
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'web_orders', 'manage')
       const venue = await venueFor(ctx, input.venue)
+      const was = await pauseState(ctx, venue)
       return {
         title: input.paused ? 'Pause online orders?' : 'Take online orders again?',
         lines: [venue.name, ...(input.message ? ['Message for guests: ' + input.message] : [])],
+        before: [pauseLine(was.is_paused)],
+        after:  [pauseLine(input.paused)],
+        ...(was.is_paused === input.paused ? { warningTitle: 'Check', warnings: [input.paused ? 'Online orders are already paused.' : 'Online orders are already being taken.'] } : {}),
         confirmLabel: input.paused ? 'Pause' : 'Start again',
       }
     },
@@ -417,6 +435,8 @@ export const orderTools = [
       return {
         title: input.sold_out === 'back_on' ? 'Put these back on?' : 'Mark these sold out?',
         lines: [p.venue.name + ': ' + word, ...p.picked.map(d => d.name + (d.menus.length > 1 ? ' (' + d.menus.length + ' menus)' : ''))],
+        before: p.picked.map(d => d.name + ': ' + soldOutState(d, p.venue)),
+        after:  p.picked.map(d => d.name + ': ' + { today: 'sold out until the end of today', until_back: 'sold out until put back', back_on: 'on' }[input.sold_out]),
         ...(p.warnings.length ? { warningTitle: 'Check', warnings: p.warnings } : {}),
         confirmLabel: input.sold_out === 'back_on' ? 'Put back on' : 'Mark sold out',
       }

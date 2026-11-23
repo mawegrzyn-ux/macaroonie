@@ -71,7 +71,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { sql, withTenant } from '../config/db.js'
 import { env } from '../config/env.js'
 import { ToolError, makeContext, addUsage, searchesIn, callApi, staffPermissionLevels } from './context.js'
-import { toolsFor, findTool, jsonSchemaOf, parseInput, errorText, CORE_TOOLS, audienceTools, toolDescription } from './tools/index.js'
+import { toolsFor, findTool, jsonSchemaOf, parseInput, errorText, CORE_TOOLS, audienceTools, toolDescription, classFor, shownResult } from './tools/index.js'
 import { chatUnitsLeft, personUnitsLeft, getAiSettings } from './settings.js'
 import { activeKey } from './apiKey.js'
 import { longDate, localParts } from './tools/util.js'
@@ -610,6 +610,91 @@ async function recordUsage(conv, response) {
   })
 }
 
+// ── Confirm cards by class (Pepper-first step 4b) ────────
+//
+// A card's friction follows what a mistake would cost (the tool's class,
+// tools/index.js, raised for a call by escalate() or describe()'s own
+// `class`): reversible and consequential cards take one tap; a destructive
+// card (a deletion, pay or tips, allergen data, a person's details) takes a
+// typed word as well and is never confirmed by voice (docs/PEPPER_FIRST.md 13,
+// decisions 4 and 9). describe() may say how the record is now and will be
+// (`before` / `after`: lines), and a tool's `editable` fields show on the card
+// to be changed in place; the changed input goes through the tool's own
+// schema and describe() again before anything runs (editCard()).
+
+const CLASS_RANK = { read: 0, reversible: 1, consequential: 2, destructive: 3 }
+const DEFAULT_WORD = 'CONFIRM'
+
+/** The word a destructive card asks for: describe()'s (a guest's surname), else CONFIRM. */
+function confirmWord(word) {
+  const w = String(word ?? '').replace(/\s+/g, ' ').trim().slice(0, 40)
+  return w || DEFAULT_WORD
+}
+const sameWord = (a, b) => String(a ?? '').replace(/\s+/g, ' ').trim().toLowerCase() === String(b ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
+
+/** The input and card to store for a describe() answer: pin merged into the
+ *  input, the call's class, the word a destructive card needs, and the
+ *  fields the person may change on it. */
+function cardFor(tool, input, card) {
+  // pin: what the card was worked out with (the day, the week, which order or
+  // check time) replaces "today" / "now" / a day's order number in the stored
+  // input, so Confirm does what the card says even after midnight.
+  const { expiresAt, pin, class: asked, confirm_word: word, ...cardData } = card
+  const stored = pin ? parseInput(tool, { ...input, ...pin }) : input
+  let klass = classFor(tool, stored)
+  if (CLASS_RANK[asked] > CLASS_RANK[klass]) klass = asked
+  const lines = v => (Array.isArray(v) ? v.map(String).filter(Boolean).slice(0, 20) : undefined)
+  return {
+    input: stored,
+    card: {
+      ...cardData,
+      ...(lines(card.before)?.length ? { before: lines(card.before) } : { before: undefined }),
+      ...(lines(card.after)?.length ? { after: lines(card.after) } : { after: undefined }),
+      class: klass,
+      ...(klass === 'destructive' ? { confirm_word: confirmWord(word) } : {}),
+      ...(tool.editable ? {
+        fields: Object.entries(tool.editable).map(([key, f]) => ({ key, label: f.label, kind: f.kind, value: stored[key] ?? null })),
+      } : {}),
+    },
+  }
+}
+
+/** Fields the person changed on a card: checked against the tool's editable
+ *  list, then the whole input through the tool's own schema and describe()
+ *  (its own checks, a new card) before it is stored. Returns the action as
+ *  it now is, with `changed` (the fields that differ). */
+async function editCard(ctx, conv, action, tool, values) {
+  const allowed = tool.editable || {}
+  const changed = {}
+  for (const [key, v] of Object.entries(values || {})) {
+    if (!allowed[key]) throw new ToolError('"' + key + '" can\'t be changed on this card.', 422)
+    const now = action.input[key] ?? null
+    if (JSON.stringify(v ?? null) !== JSON.stringify(now)) changed[key] = v
+  }
+  if (!Object.keys(changed).length) return { ...action, changed: {} }
+  const next = { ...action.input }
+  for (const [key, v] of Object.entries(changed)) {
+    if (v === null || v === '') delete next[key]
+    else next[key] = v
+  }
+  const input = parseInput(tool, next)
+  const { input: stored, card } = cardFor(tool, input, await tool.describe(ctx, input))
+  const edited = [...new Set([...(action.card.edited || []), ...Object.keys(changed)])]
+  const full = { ...card, edited }
+  const [row] = await withTenant(conv.tenant_id, tx => tx`
+    UPDATE ai_pending_actions SET input = ${tx.json(stored)}, card = ${tx.json(full)}
+     WHERE id = ${action.id} AND tenant_id = ${conv.tenant_id} AND status = 'pending' AND decided_at IS NULL
+    RETURNING *
+  `)
+  if (!row) throw new ToolError('This card is already being confirmed.', 409)
+  return { ...row, changed }
+}
+
+/** "time 20:00, party size 6": what was changed on a card, for the model's note. */
+function changedText(tool, changed) {
+  return Object.entries(changed).map(([k, v]) => (tool.editable?.[k]?.label || k).toLowerCase() + ' ' + (v === null || v === '' ? '(none)' : v)).join(', ')
+}
+
 /** Runs one tool call from the model. Returns the tool_result block. A
  *  listening browser (`emit`) gets the step's line or the card. */
 async function handleToolUse(ctx, conv, block, emit) {
@@ -634,11 +719,7 @@ async function handleToolUse(ctx, conv, block, emit) {
     const expires = card.expiresAt
       ? new Date(Math.min(new Date(card.expiresAt).getTime(), Date.now() + ACTION_MINUTES * 60_000))
       : new Date(Date.now() + ACTION_MINUTES * 60_000)
-    // pin: what the card was worked out with (the day, the week, which order or
-    // check time) replaces "today" / "now" / a day's order number in the stored
-    // input, so Confirm does what the card says even after midnight.
-    const { expiresAt, pin, ...cardData } = card
-    const stored = pin ? parseInput(tool, { ...input, ...pin }) : input
+    const { input: stored, card: cardData } = cardFor(tool, input, card)
     const [row] = await withTenant(conv.tenant_id, tx => tx`
       INSERT INTO ai_pending_actions (tenant_id, conversation_id, tool_use_id, tool, input, card, expires_at)
       VALUES (${conv.tenant_id}, ${conv.id}, ${block.id}, ${tool.name}, ${tx.json(stored)}, ${tx.json(cardData)}, ${expires})
@@ -937,8 +1018,8 @@ async function settle(conv, action, status, result, note) {
 }
 
 /** Runs the card's tool with the stored input. Returns the updated card. */
-export async function confirmAction(ctx, conv, actionId, { via = 'tap' } = {}) {
-  return withHold(conv, BUSY_CARD, () => confirmCard(ctx, conv, actionId, via))
+export async function confirmAction(ctx, conv, actionId, { via = 'tap', word = null, values = null } = {}) {
+  return withHold(conv, BUSY_CARD, () => confirmCard(ctx, conv, actionId, { via, word, values }))
 }
 
 export async function cancelAction(ctx, conv, actionId) {
@@ -982,23 +1063,39 @@ export async function saveFormCard(ctx, conv, toolUseId, summary) {
   })
 }
 
-async function confirmCard(ctx, conv, actionId, via = 'tap') {
-  const action = await loadAction(conv, actionId)
+const cardClass = (tool, action) => action.card?.class || classFor(tool, action.input)
+
+async function confirmCard(ctx, conv, actionId, { via = 'tap', word = null, values = null } = {}) {
+  let action = await loadAction(conv, actionId)
   if (action.status !== 'pending') throw new ToolError('This card has already been ' + (action.status === 'done' ? 'confirmed' : action.status) + '.', 409)
+  const tool = findTool(ctx, action.tool)
+  if (!tool) throw new ToolError('This card\'s tool no longer exists. Ask the assistant again.', 410)
   if (via === 'voice') {
-    if (conv.channel !== 'staff_chat' || !VOICE_CONFIRM_TOOLS.has(action.tool)) {
+    // A destructive card (a deletion, pay or tips, allergen data, a person's
+    // details) needs its word typed on screen, whatever the group's switch says.
+    if (cardClass(tool, action) === 'destructive') {
+      throw new ToolError('This one can never be confirmed by voice: type its word on the card and tap Confirm.', 422)
+    }
+    if (conv.channel !== 'staff_chat' || !VOICE_CONFIRM_TOOLS.has(action.tool) || cardClass(tool, action) !== 'reversible') {
       throw new ToolError('Only checks (a reading or a checklist tick) can be confirmed by voice. Tap Confirm for this one.', 422)
     }
+    if (values && Object.keys(values).length) throw new ToolError('Change the card on screen, then tap Confirm.', 422)
     if (!(await getAiSettings(conv.tenant_id)).voice_confirm) {
       throw new ToolError('Confirming by voice is switched off for this group. Tap Confirm.', 403)
     }
   }
   const who = ctx.channel === 'guest_chat' ? 'The guest' : 'The staff member'
-  const pressed = via === 'voice' ? 'said yes to' : 'pressed Confirm on'
+  let pressed = via === 'voice' ? 'said yes to' : 'pressed Confirm on'
   if (new Date(action.expires_at).getTime() <= Date.now()) {
     await settle(conv, action, 'cancelled', { error: 'expired' },
       `[${who} pressed Confirm on "${action.card.title}" too late: the card had expired and nothing was changed.]`)
     throw new ToolError('This card has expired. Ask the assistant again.', 410)
+  }
+  // Fields changed on the card: the tool's own schema and checks again, a new card.
+  action = await editCard(ctx, conv, action, tool, values)
+  const klass = cardClass(tool, action)
+  if (klass === 'destructive' && !sameWord(word, action.card.confirm_word || DEFAULT_WORD)) {
+    throw new ToolError('Type ' + (action.card.confirm_word || DEFAULT_WORD) + ' on the card to confirm this one.', 422)
   }
   // Claim it first so a double press can't run it twice.
   const [claimed] = await withTenant(conv.tenant_id, tx => tx`
@@ -1007,8 +1104,11 @@ async function confirmCard(ctx, conv, actionId, via = 'tap') {
     RETURNING id
   `)
   if (!claimed) throw new ToolError('This card is already being confirmed.', 409)
+  const edits = Object.keys(action.changed || {}).length ? ' (changed on the card: ' + changedText(tool, action.changed) + ')' : ''
+  if (edits) pressed += edits
 
-  const tool = findTool(ctx, action.tool)
+  // The audit row (context.js audit()) says which card it was and its class.
+  ctx.action = { id: action.id, class: klass }
   let result
   try {
     result = await tool.run(ctx, parseInput(tool, action.input))
@@ -1025,7 +1125,7 @@ async function confirmCard(ctx, conv, actionId, via = 'tap') {
     UPDATE ai_pending_actions SET status = 'done', result = ${tx.json(result)} WHERE id = ${action.id}
   `)
   await appendMessage(conv, 'user', [{ type: 'text', _note: 'action',
-    text: `[${who} ${pressed} "${await titleNow(conv, action)}". Done: ${JSON.stringify(result)}]` }])
+    text: `[${who} ${pressed} "${await titleNow(conv, action)}". Done: ${JSON.stringify(shownResult(result))}]` }])
   return cardView(conv, action.id)
 }
 
@@ -1064,8 +1164,9 @@ function actionView(a) {
     type:   'action',
     id:     a.id,
     tool:   a.tool,
-    // A spoken yes may confirm it, when the group allows (VOICE_CONFIRM_TOOLS).
-    voice_ok: VOICE_CONFIRM_TOOLS.has(a.tool),
+    // A spoken yes may confirm it, when the group allows (VOICE_CONFIRM_TOOLS),
+    // and never a card above reversible.
+    voice_ok: VOICE_CONFIRM_TOOLS.has(a.tool) && (a.card?.class ?? 'reversible') === 'reversible',
     ...a.card,
     status: expired ? 'expired' : a.status,
     result: a.status === 'done' ? (a.result?.message || 'Done.') : null,

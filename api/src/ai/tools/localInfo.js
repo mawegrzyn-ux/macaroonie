@@ -235,6 +235,7 @@ export const localInfoTools = [
       severity: z.enum(SEVERITIES).default('info'),
     }),
     confirm: true,
+    editable: { title: { label: 'Title', kind: 'text' }, time_text: { label: 'Time', kind: 'text' } },
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'local_info', 'manage')
       const venue = input.venue ? await venueFor(ctx, input.venue) : null
