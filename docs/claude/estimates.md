@@ -61,6 +61,11 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | 44.11.3d Drafts that survive a reload or another device (F6): kept on the server per person | 15 to 25 min (a table) | 7 min (to 15:57:36) | one PR, below | | 10 files, +355 -10, migration 275 | claude-opus-5-5 / high, fresh agent | Fixture and report decision added up front (last step's lesson): no CI surprise. About $6.80. |
 | 44.11.3e The four missing forms: order form, corrective action, H&S action, booking create / change (F1) | 20 to 40 min | 6 min after 3d (to 16:03:57), coded while 3d's tests ran | one PR, below | | 9 files, +515 -82 | claude-opus-5-5 / high, fresh agent | Each reuses the page's own panel. About $6.60. |
 | 44.11.3f Fixes from the first live evaluation (not estimated: found during the step) | not estimated | 3 min (to 16:06:43), then docs and the browser check 8 min (to 16:14:51) | 7 min for 3a to 3f: PR #504 opened 16:20:20, CI green first time 16:26:36, merged 16:27 | **56 min for 3a to 3f** (15:31:25 to 16:27, 5 of it the hand-back) | 42 files in all | claude-opus-5-5 / high, fresh agent | Fixes about $2.80, docs about $13. Agent about $47, lead about $3; the live run $0.12. |
+| 44.11.4a Every change tool declares its class (read, reversible, consequential, destructive or personal) and its preconditions; a test fails a change tool without one | third revision: 10 to 20 min (about 100 tools, mechanical) | | one PR, below | | | claude-opus-5-5 / high, fresh agent | Estimated 23 Nov 2026 before starting. |
+| 44.11.4b Confirm cards by class: before and after, fields editable in place, a typed word for destructive or personal changes and never by voice | 15 to 25 min | | one PR, below | | | | |
+| 44.11.4c No duplicate write on a retried action (an idempotency key per confirmed action) | 10 to 20 min | | one PR, below | | | | |
+| 44.11.4d Undo for reversible changes: each declares its inverse, an Undo button on the done card for a while | 15 to 25 min | | one PR, below | | | | |
+| 44.11.4e The Done by Pepper log: a page of Pepper's changes with Undo where it can | 10 to 20 min (a page, its menu record and migration) | | one PR for 4a to 4e: docs and checks 8 to 10, PR 7 | | | | |
 
 ## Running totals
 
