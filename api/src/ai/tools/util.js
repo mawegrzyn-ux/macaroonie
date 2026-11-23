@@ -63,10 +63,17 @@ export async function venueFor(ctx, text) {
   const venues = await tenantVenueList(ctx)
   if (!venues.length) throw new ToolError('There are no venues yet.', 404)
   if (text == null || String(text).trim() === '') {
-    if (venues.length === 1) return venues[0]
+    if (venues.length === 1) return remember(ctx, venues[0])
     throw new ToolError('Which venue? ' + venues.map(v => v.name).join(', ') + '.', 422)
   }
-  return pickByName(venues, text, v => v.name, 'venue')
+  return remember(ctx, pickByName(venues, text, v => v.name, 'venue'))
+}
+
+// The venue a change worked at, for its audit row (context.js audit(): the
+// Done by Pepper log filters by venue). The last one a tool picked.
+export function remember(ctx, venue) {
+  if (ctx && venue?.id) ctx.venue = { id: venue.id, name: venue.name }
+  return venue
 }
 
 /** Today's date (YYYY-MM-DD) at a venue. */

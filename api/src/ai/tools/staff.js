@@ -27,7 +27,7 @@ import { loadBookingById, rescheduleBooking, partySizeLimit, coversLimit } from 
 import { allocateBestFit } from '../../services/occupancySvc.js'
 import {
   DateStr, TimeStr, StaffPartySize, localParts, longDate, whenText, reference, realEmail,
-  venueRules, nearestTimes, asTool, surnameOf,
+  venueRules, nearestTimes, asTool, surnameOf, remember,
 } from './util.js'
 
 const STATUSES = ['unconfirmed', 'confirmed', 'reconfirmed', 'arrived', 'seated', 'checked_out', 'cancelled', 'no_show']
@@ -44,7 +44,7 @@ export async function staffVenue(ctx, venueId) {
      WHERE id = ${venueId} AND tenant_id = ${ctx.tenantId} AND is_active = true
   `
   if (!v) throw new ToolError('Venue not found. Use list_venues.', 404)
-  return v
+  return remember(ctx, v)
 }
 
 /** Booking by id or 8-character reference, in this tenant only. */

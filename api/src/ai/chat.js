@@ -1017,9 +1017,32 @@ async function settle(conv, action, status, result, note) {
   await appendMessage(conv, 'user', [{ type: 'text', text: note, _note: 'action' }])
 }
 
+// A card is its own idempotency key (Pepper-first step 4c): confirmed twice
+// (a double tap, a retried request, a second tab), its tool runs once and
+// every answer is the first one's outcome. A second press that finds the chat
+// held waits for the press holding it (the card is claimed, or about to be)
+// for up to CONFIRM_WAIT_MS, then answers with the card as that press left it.
+const CONFIRM_WAIT_MS = 20_000
+const CLAIM_GRACE_MS  = 1_500   // a press that holds the chat but hasn't claimed the card yet
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+
 /** Runs the card's tool with the stored input. Returns the updated card. */
 export async function confirmAction(ctx, conv, actionId, { via = 'tap', word = null, values = null } = {}) {
-  return withHold(conv, BUSY_CARD, () => confirmCard(ctx, conv, actionId, { via, word, values }))
+  const started = Date.now()
+  for (;;) {
+    try {
+      return await withHold(conv, BUSY_CARD, () => confirmCard(ctx, conv, actionId, { via, word, values }))
+    } catch (err) {
+      if (!(err instanceof ToolError) || err.status !== 409 || err.message !== BUSY_CARD) throw err
+      const [a] = await withTenant(conv.tenant_id, tx => tx`
+        SELECT decided_at FROM ai_pending_actions WHERE id = ${actionId} AND conversation_id = ${conv.id} AND tenant_id = ${conv.tenant_id}
+      `)
+      // Held by something else (a turn): say so now, as before.
+      const waiting = a && (a.decided_at || Date.now() - started < CLAIM_GRACE_MS)
+      if (!waiting || Date.now() - started > CONFIRM_WAIT_MS) throw err
+      await sleep(150)
+    }
+  }
 }
 
 export async function cancelAction(ctx, conv, actionId) {
@@ -1067,7 +1090,9 @@ const cardClass = (tool, action) => action.card?.class || classFor(tool, action.
 
 async function confirmCard(ctx, conv, actionId, { via = 'tap', word = null, values = null } = {}) {
   let action = await loadAction(conv, actionId)
-  if (action.status !== 'pending') throw new ToolError('This card has already been ' + (action.status === 'done' ? 'confirmed' : action.status) + '.', 409)
+  // Already run (step 4c): the first outcome, and nothing runs again.
+  if (action.status === 'done' || action.status === 'failed') return actionView(action)
+  if (action.status !== 'pending') throw new ToolError('This card has already been ' + action.status + '.', 409)
   const tool = findTool(ctx, action.tool)
   if (!tool) throw new ToolError('This card\'s tool no longer exists. Ask the assistant again.', 410)
   if (via === 'voice') {

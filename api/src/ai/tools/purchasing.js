@@ -72,7 +72,7 @@ import {
   minutesToCutoff, deliveryTempOk, receiveStatusFor, poNumberLabel, convertQty, splitProblem,
   deliveryDayProblem, deadlineText, slotText, deadlinePassed, quickOrder, outOfStock,
 } from '../../../../shared/procurement.js'
-import { DateStr, TimeStr, localParts, longDate, pickByName, zonedInstant } from './util.js'
+import { DateStr, TimeStr, localParts, longDate, pickByName, zonedInstant, remember } from './util.js'
 
 const Id = z.string().uuid()
 const PackUnit = z.enum(Object.keys(UNITS))
@@ -218,7 +218,7 @@ async function venueOf(ctx, id) {
      WHERE id = ${id} AND tenant_id = ${ctx.tenantId} AND is_active = true
   `)
   if (!v) throw new ToolError('Venue not found. Use list_venues.', 404)
-  return v
+  return remember(ctx, v)
 }
 
 const venueToday = venue => localParts(new Date(), venue.timezone).date

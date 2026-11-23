@@ -164,3 +164,65 @@ test('a destructive card with no name to type asks for CONFIRM; a dish change wi
   assert.equal((await owner.post(`/api/ai/actions/${card.id}/confirm`, {})).status, 422)
   assert.equal(itemOf(await ok(owner.post(`/api/ai/actions/${card.id}/confirm`, { word: 'confirm' })), card.id).status, 'done')
 })
+
+// ── 4c: one card, one write ──────────────────────────────────────────
+
+const eventsCalled = async title => (await sql`SELECT count(*)::int AS n FROM local_info_items WHERE tenant_id = ${ids.a} AND title = ${title}`)[0].n
+const auditRows = async cardId => sql`SELECT * FROM ai_actions WHERE tenant_id = ${ids.a} AND action_id = ${cardId}`
+// The notes the model reads about a card (the card's title holds the event's own title).
+const notesFor = async (conversation, title) => (await sql`
+  SELECT count(*)::int AS n FROM ai_messages
+   WHERE conversation_id = ${conversation} AND content::text LIKE '%pressed Confirm on%' AND content::text LIKE ${'%' + title + '%'}`)[0].n
+
+test('a card confirmed twice does its work once and answers with the first outcome', async () => {
+  const title = 'Farmers market ' + Math.random().toString(36).slice(2, 6)
+  const { card, conversation } = await cardFor('add_local_event', { venue: venueName, title, starts_on: ahead(9) })
+  const first = itemOf(await ok(owner.post(`/api/ai/actions/${card.id}/confirm`, {})), card.id)
+  assert.equal(first.status, 'done')
+  // A retried request (the reply was lost): the same card, nothing new.
+  const again = await ok(owner.post(`/api/ai/actions/${card.id}/confirm`, {}))
+  const second = itemOf(again, card.id)
+  assert.deepEqual({ status: second.status, result: second.result }, { status: first.status, result: first.result })
+  assert.equal(await eventsCalled(title), 1, 'one event')
+  const rows = await auditRows(card.id)
+  assert.equal(rows.length, 1, 'one audit row for the card')
+  assert.equal(rows[0].user_sub, A.owner)
+  assert.equal(rows[0].venue_id, V, 'the venue it worked at')
+  assert.equal(rows[0].ok, true)
+  assert.equal(await notesFor(conversation, title), 1, 'the model hears it once')
+})
+
+test('two presses at once (two tabs, a double tap): one write, both answered with it', async () => {
+  const title = 'Street fair ' + Math.random().toString(36).slice(2, 6)
+  const { card, conversation } = await cardFor('add_local_event', { venue: venueName, title, starts_on: ahead(10) })
+  const [a, b] = await Promise.all([
+    owner.post(`/api/ai/actions/${card.id}/confirm`, {}),
+    owner.post(`/api/ai/actions/${card.id}/confirm`, {}),
+  ])
+  assert.deepEqual([a.status, b.status], [200, 200], JSON.stringify([a.json, b.json]))
+  assert.equal(itemOf(a.json, card.id).status, 'done')
+  assert.equal(itemOf(b.json, card.id).status, 'done')
+  assert.equal(itemOf(a.json, card.id).result, itemOf(b.json, card.id).result)
+  assert.equal(await eventsCalled(title), 1, 'one event')
+  assert.equal((await auditRows(card.id)).length, 1)
+  assert.equal(await notesFor(conversation, title), 1)
+})
+
+test('a card that failed answers a second press with its failure, without running again', async () => {
+  const title = 'Parade ' + Math.random().toString(36).slice(2, 6)
+  const { card } = await cardFor('add_local_event', { venue: venueName, title, starts_on: ahead(11) })
+  // The venue goes before Confirm: the tool fails when it runs.
+  await sql`UPDATE ai_pending_actions SET input = input || ${sql.json({ venue: 'No such venue' })} WHERE id = ${card.id}`
+  const failed = itemOf(await ok(owner.post(`/api/ai/actions/${card.id}/confirm`, {})), card.id)
+  assert.equal(failed.status, 'failed')
+  const again = itemOf(await ok(owner.post(`/api/ai/actions/${card.id}/confirm`, {})), card.id)
+  assert.equal(again.status, 'failed')
+  assert.equal(again.error, failed.error)
+  assert.equal(await eventsCalled(title), 0)
+  // A cancelled card stays cancelled.
+  const other = (await cardFor('add_local_event', { venue: venueName, title: title + ' 2', starts_on: ahead(11) })).card
+  await ok(owner.post(`/api/ai/actions/${other.id}/cancel`, {}))
+  const late = await owner.post(`/api/ai/actions/${other.id}/confirm`, {})
+  assert.equal(late.status, 409)
+  assert.equal(await eventsCalled(title + ' 2'), 0)
+})
