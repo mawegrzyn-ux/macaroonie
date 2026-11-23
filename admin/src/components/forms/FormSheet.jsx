@@ -12,7 +12,7 @@
 // page. Sold out opens the Online orders window of its own
 // (AvailabilityModal) instead of a sheet: FormOpener picks.
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, X, Loader2 } from 'lucide-react'
@@ -67,8 +67,11 @@ export function formTitle(form, meta, date = null) {
   return meta.title
 }
 
-/** F1-F9: the form for a task, the same panel its page uses, saving through the same routes. */
-export function FormSheet({ form, venueId, date, onClose, linkFor }) {
+/** F1-F9: the form for a task, the same panel its page uses, saving through
+ *  the same routes. onSaved(summary): on closing, a line of what was saved
+ *  while it was open (each panel says through ./fill.jsx), if anything was:
+ *  Pepper's form card keeps it with the chat (F9). */
+export function FormSheet({ form, venueId, date, onClose, onSaved, linkFor }) {
   const qc = useQueryClient()
   const { canUse: cashUse, canManage: cashManage } = usePermission('cash_recon')
   const meta = FORMS[form.form] || { title: form.task?.title || 'Form', path: '/' }
@@ -86,8 +89,34 @@ export function FormSheet({ form, venueId, date, onClose, linkFor }) {
   const unsaved = form.form === 'wages' && !!wages?.dirty
   const [asking, setAsking] = useState(false)
   useEffect(() => { if (!unsaved) setAsking(false) }, [unsaved])
-  const close = () => (unsaved ? setAsking(true) : onClose())
-  const saveAndClose = async () => { if (await wages.save()) onClose() }
+  // What was saved while the sheet was open, by key: the latest line per key.
+  const savedLines = useRef(new Map())
+  const addSaved = useCallback((line, key = line) => { if (line) savedLines.current.set(key, line) }, [])
+  const finish = () => {
+    const lines = [...savedLines.current.values()]
+    if (lines.length) onSaved?.(lines.join('; '))
+    onClose()
+  }
+  // The cash-up saves as it is typed, and is submitted from the foot.
+  const wasSubmitted = useRef(null)
+  useEffect(() => {
+    if (form.form !== 'cash_up' || !day?.ready) return
+    if (wasSubmitted.current === null) wasSubmitted.current = !!day.isSubmitted
+    if (day.saved) addSaved('Cash-up figures saved', 'cash')
+    if (day.isSubmitted !== wasSubmitted.current) {
+      addSaved(day.isSubmitted ? 'Cash-up submitted' : 'Cash-up unsubmitted', 'cash')
+      wasSubmitted.current = !!day.isSubmitted
+    }
+  }, [form.form, day?.ready, day?.saved, day?.isSubmitted, addSaved])
+  // The wages: changes waiting, then none and not saving = saved.
+  const wagesDirty = useRef(false)
+  useEffect(() => {
+    if (form.form !== 'wages' || !wages) return
+    if (wagesDirty.current && !wages.dirty && !wages.saving) addSaved('Wages saved', 'wages')
+    wagesDirty.current = !!wages.dirty
+  }, [form.form, wages, addSaved])
+  const close = () => (unsaved ? setAsking(true) : finish())
+  const saveAndClose = async () => { if (await wages.save()) finish() }
   const footBtn = 'min-h-[48px] px-5 rounded-md font-medium touch-manipulation disabled:opacity-50'
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center sm:p-4" onClick={close} data-testid="today-form" data-form={form.form}>
@@ -103,7 +132,7 @@ export function FormSheet({ form, venueId, date, onClose, linkFor }) {
             <X className="w-5 h-5" />
           </button>
         </div>
-        <FormFillProvider values={form.values}>
+        <FormFillProvider values={form.values} onSaved={addSaved}>
         <div className="p-3 sm:p-4">
           {form.form === 'temps' && <TempChecksTable venueId={venueId} date={date} />}
           {form.form === 'holds' && <HoldChecksTable venueId={venueId} date={date} />}
@@ -125,7 +154,7 @@ export function FormSheet({ form, venueId, date, onClose, linkFor }) {
               <p className="mr-auto text-sm font-medium" data-testid="today-unsaved">The changes to the wages aren't saved.</p>
               <button type="button" onClick={() => setAsking(false)} data-testid="today-unsaved-stay"
                 className={cn(footBtn, 'border hover:bg-accent')}>Keep editing</button>
-              <button type="button" onClick={onClose} data-testid="today-unsaved-discard"
+              <button type="button" onClick={finish} data-testid="today-unsaved-discard"
                 className={cn(footBtn, 'border text-destructive hover:bg-destructive/10')}>Close without saving</button>
               <button type="button" onClick={saveAndClose} disabled={wages?.saving} data-testid="today-unsaved-save"
                 className={cn(footBtn, 'bg-primary text-primary-foreground')}>
@@ -166,7 +195,7 @@ export function FormSheet({ form, venueId, date, onClose, linkFor }) {
 }
 
 /** A form from FORMS: the sheet, or for sold out the Online orders window. */
-export function FormOpener({ form, venueId, date, onClose, linkFor }) {
+export function FormOpener({ form, venueId, date, onClose, onSaved, linkFor }) {
   if (form.form === 'sold_out') return <AvailabilityModal venueId={venueId} onClose={onClose} />
-  return <FormSheet form={form} venueId={venueId} date={date} onClose={onClose} linkFor={linkFor} />
+  return <FormSheet form={form} venueId={venueId} date={date} onClose={onClose} onSaved={onSaved} linkFor={linkFor} />
 }

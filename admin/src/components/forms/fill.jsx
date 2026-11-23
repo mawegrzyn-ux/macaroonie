@@ -16,8 +16,9 @@
 //
 // The provider also carries what the sheet needs from the panel:
 //   change(key, value)  a field's current value, for the draft (step 3d)
-//   saved(line)         a short line of what was just saved (the chat's
-//                       summary after Save, step 3c)
+//   saved(line, key?)   a short line of what was just saved (the chat's
+//                       summary after Save, step 3c); a later line with the
+//                       same key (default: the line) replaces it
 
 import { createContext, useCallback, useContext, useMemo, useState } from 'react'
 import { Sparkles, Check } from 'lucide-react'
@@ -34,7 +35,7 @@ export function FormFillProvider({ values, onChange, onSaved, children }) {
     filled: key => !cleared.has(key),
     clear,
     change: (key, v) => onChange?.(key, v),
-    saved: line => onSaved?.(line),
+    saved: (line, key) => onSaved?.(line, key),
   }), [values, cleared, clear, onChange, onSaved])
   return <FillContext.Provider value={value}>{children}</FillContext.Provider>
 }

@@ -9,7 +9,7 @@ import { startFakeClaude } from './support/fake-claude.mjs'
 
 const claude = await startFakeClaude()
 const { as, getApp, ok, closeApp } = await import('./support/app.mjs')
-const { resetAndSeed, A } = await import('./support/seed.mjs')
+const { resetAndSeed, A, B } = await import('./support/seed.mjs')
 const { fillTenant } = await import('./support/fixtures.mjs')
 const { makeContext } = await import('../src/ai/context.js')
 const { audienceTools, parseInput } = await import('../src/ai/tools/index.js')
@@ -182,4 +182,43 @@ test('in the chat: the person\'s words decide the measured values, and the card 
   assert.deepEqual(card.form.values.readings.map(r => r.temp), [4], 'the 9 nobody said is left out')
   const done = events[events.length - 1]
   assert.deepEqual(done.items.find(i => i.type === 'form'), card)
+})
+
+// ── A saved form's line in the chat (step 3c, F9) ─────────
+
+test('a saved form becomes a line on its card, kept with the chat for a reload, and told to the model', async () => {
+  claude.script.push(
+    () => ({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_f3', name: 'open_form', input: { form: 'delivery', venue: venueName, values: { supplier: 'Fresh Co' } } }] }),
+    () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'The delivery check is ready.' }] }),
+  )
+  const me = as(A.owner, ids.a)
+  const first = await ok(me.post('/api/ai/chat', { message: 'log the fresh co delivery' }))
+  const conv = first.conversation_id
+  const card = first.items.find(i => i.type === 'form')
+  assert.equal(card.tool_use_id, 'toolu_f3')
+  assert.equal(card.saved, undefined)
+
+  const saved = await ok(me.post(`/api/ai/conversations/${conv}/forms/toolu_f3`, { summary: 'Fresh Co: accepted,\n 4°C' }))
+  assert.equal(saved.items.find(i => i.type === 'form').saved.summary, 'Fresh Co: accepted, 4°C', 'one line')
+  const again = await ok(me.get(`/api/ai/conversations/${conv}`))
+  const kept = again.items.find(i => i.type === 'form')
+  assert.equal(kept.saved.summary, 'Fresh Co: accepted, 4°C', 'still there after a reload')
+  assert.ok(!again.items.some(i => i.type === 'note' && /saved the form/.test(i.text)), 'the note itself isn\'t shown')
+  // Saved again (Edit): the latest line wins.
+  await ok(me.post(`/api/ai/conversations/${conv}/forms/toolu_f3`, { summary: 'Fresh Co: rejected' }))
+  assert.equal((await ok(me.get(`/api/ai/conversations/${conv}`))).items.find(i => i.type === 'form').saved.summary, 'Fresh Co: rejected')
+
+  // The next turn tells the model what was saved, without our markers.
+  claude.script.push(() => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Noted.' }] }))
+  const before = claude.requests.length
+  await ok(me.post('/api/ai/chat', { conversation_id: conv, message: 'thanks' }))
+  const sent = JSON.stringify(claude.requests[before].body.messages)
+  assert.match(sent, /saved the form from the form card: Fresh Co: rejected/)
+  assert.ok(!sent.includes('"_form"') && !sent.includes('"_note"'), 'our markers stay with us')
+
+  // Only an open_form card of this chat, only the chat's own person, never empty.
+  assert.equal((await me.post(`/api/ai/conversations/${conv}/forms/toolu_nope`, { summary: 'x' })).status, 404)
+  assert.equal((await as(A.admin, ids.a).post(`/api/ai/conversations/${conv}/forms/toolu_f3`, { summary: 'x' })).status, 404)
+  assert.equal((await as(B.owner, ids.b).post(`/api/ai/conversations/${conv}/forms/toolu_f3`, { summary: 'x' })).status, 404, 'another group')
+  assert.equal((await me.post(`/api/ai/conversations/${conv}/forms/toolu_f3`, { summary: '  ' })).status, 400)
 })

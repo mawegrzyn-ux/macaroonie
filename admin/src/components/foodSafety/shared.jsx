@@ -1592,13 +1592,16 @@ export function CookingChecksPanel({ venueId, date }) {
     enabled,
   })
 
+  // In a form sheet: what was saved, for the chat's summary (components/forms/fill.jsx).
+  const fill = useFormFill()
+  const cookedLine = body => (body.dish_name || 'Dish') + (body.core_temp_c != null ? ' ' + body.core_temp_c + '°C' : '')
   const createCheck = useMutation({
     mutationFn: body => api.post('/food-safety/cooking', body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['fs-cooking', venueId, date] }),
+    onSuccess: (row, body) => { qc.invalidateQueries({ queryKey: ['fs-cooking', venueId, date] }); fill?.saved(cookedLine({ ...body, ...(row || {}) })) },
   })
   const updateCheck = useMutation({
     mutationFn: ({ id, ...body }) => api.patch(`/food-safety/cooking/${id}`, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['fs-cooking', venueId, date] }),
+    onSuccess: (row, body) => { qc.invalidateQueries({ queryKey: ['fs-cooking', venueId, date] }); fill?.saved(cookedLine({ ...body, ...(row || {}) }), 'cooking:' + body.id) },
   })
   const deleteCheck = useMutation({
     mutationFn: id => api.delete(`/food-safety/cooking/${id}`),
