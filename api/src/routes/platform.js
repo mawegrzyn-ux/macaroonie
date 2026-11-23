@@ -86,7 +86,7 @@ export default async function platformRoutes(app) {
     let currentTenant = null
     if (req.tenantId) {
       [currentTenant] = await sql`
-        SELECT id, name, slug, plan, is_active, nav_style FROM tenants WHERE id = ${req.tenantId}
+        SELECT id, name, slug, plan, is_active FROM tenants WHERE id = ${req.tenantId}
       `
     }
 
@@ -164,9 +164,8 @@ export default async function platformRoutes(app) {
       availableTenants = await listMemberships(sub, email)
     }
 
-    // Effective nav tree + launcher tiles for this user's role.
+    // Effective nav tree for this user's role.
     let navTree = []
-    let launcherTiles = []
     if (req.tenantId) {
       const [items, words] = await withTenant(req.tenantId, async tx => [
         await tx`SELECT * FROM nav_items WHERE tenant_id = ${req.tenantId} AND is_active = true`,
@@ -175,10 +174,6 @@ export default async function platformRoutes(app) {
       const fullTree = buildNavTree(items)
       // The Menus link and section say the group's word (migration 269): Catalogues for a shop.
       navTree = renameMenusLinks(pruneNavTree(fullTree, permissions, effectiveRole?.id ?? null, isPlatformAdmin), words.word)
-      launcherTiles = items
-        .filter(i => i.kind === 'link' && i.show_in_launcher
-          && navItemVisible(i, permissions, effectiveRole?.id ?? null, isPlatformAdmin))
-        .sort((a, b) => a.launcher_sort_order - b.launcher_sort_order)
     }
 
     // Overview page tiles, filtered to this user's role (same visibility
@@ -220,7 +215,6 @@ export default async function platformRoutes(app) {
       enabled_modules:   enabledModules,
       permissions,
       nav_tree:          navTree,
-      launcher_tiles:    launcherTiles,
       dashboard_tiles:   dashboardTiles,
       site_theme:        siteTheme,
     }

@@ -1,21 +1,22 @@
 // src/pages/help/navigation.jsx
-// The Help page's "Navigation & Quick Access" section. Help.jsx gathers every file in this
+// The Help page's "Navigation" section. Help.jsx gathers every file in this
 // folder (except parts.jsx) and shows them by order, then id.
 import { H2, H3, P, Mono, InfoBox, DataTable } from './parts.jsx'
 
 export const id = 'navigation'
-export const label = 'Navigation & Quick Access'
+export const label = 'Navigation'
 export const order = 270
 
-// ── NAVIGATION & QUICK ACCESS ───────────────────
+// ── NAVIGATION ───────────────────
 export function Section() {
   return (
     <section id="navigation" data-help="">
-      <H2>Navigation &amp; Quick Access</H2>
+      <H2>Navigation</H2>
       <P>
         An owner can customise the left sidebar for everyone in the restaurant from the
-        <strong> Navigation</strong> page (sidebar nav, under Account) — and can optionally
-        replace the sidebar entirely with a tile-based quick-access screen instead.
+        <strong> Navigation</strong> page (sidebar nav, under Admin). Each person&apos;s own shortcuts
+        are their pins on Home (see Home, Your pins). The Launcher (a tile screen that could replace
+        the sidebar for a whole group) has gone: groups that used it found its tiles as pins on Home.
       </P>
       <H3>Searching the menu</H3>
       <P>
@@ -132,36 +133,8 @@ export function Section() {
           ['Description', 'What the entry is for, 260 characters at most. Shown under its name in the menu search and as its tooltip, and searched. Empty uses the page\'s standard words.'],
           ['Module gate', 'Ties the item to an existing module permission — hidden automatically for any role without access, same as today.'],
           ['Hide for specific roles', 'An extra hide on top of the module gate — hide an otherwise-permitted item from just one or two roles without touching their permissions.'],
-          ['Show as a quick-access tile', 'Also surfaces this link as a tile in Quick access / Launcher mode (see below).'],
         ]}
       />
-      <H3>Sidebar vs. Launcher</H3>
-      <P>
-        The <strong>Sidebar / Launcher</strong> toggle at the top of the Navigation page is
-        restaurant-wide. In <strong>Launcher</strong> mode, the entire sidebar tree is
-        replaced for every user by a full-page tile grid at <Mono>/launcher</Mono>, built
-        from whichever links have "Show as a quick-access tile" turned on. A single
-        "Quick access" link stays in the sidebar so nobody loses their way back to it.
-      </P>
-      <InfoBox type="warn">
-        Switching to Launcher mode before flagging any items hides the whole sidebar with
-        nothing to replace it. If that happens, open the Navigation page (still reachable —
-        it's your safety net) and switch back to Sidebar, or flag the items you want first.
-      </InfoBox>
-      <H3>Personalising Quick access</H3>
-      <P>
-        On the Quick access / Launcher screen itself, each person can tap <strong>Customise</strong>
-        to drag their own tiles into a preferred order or hide ones they don't use — this is
-        personal to your device/browser and doesn't change what anyone else sees.
-        <strong> Reset to admin defaults</strong> clears your personal changes and goes back
-        to the order the admin set up.
-      </P>
-      <InfoBox type="info">
-        This is a different feature from the small <strong>Quick access</strong> widget on the
-        Overview page, which is a separate, always-available set of shortcuts each person
-        picks for themselves from a fixed list — unrelated to the restaurant-wide Navigation
-        designer described here.
-      </InfoBox>
     </section>
   )
 }

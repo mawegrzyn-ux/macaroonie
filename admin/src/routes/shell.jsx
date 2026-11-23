@@ -9,7 +9,6 @@ import { Navigate } from 'react-router-dom'
 import Home from '@/pages/Home'
 import Settings from '@/pages/Settings'
 import NavDesigner from '@/pages/NavDesigner'
-import Launcher from '@/pages/Launcher'
 import MobileHub from '@/pages/mobile/MobileHub'
 import MobileToday from '@/pages/mobile/MobileToday'
 import MobileNotices from '@/pages/mobile/MobileNotices'
@@ -29,7 +28,6 @@ export const routes = [
   { path: 'help', shell: 'office', element: <React.Suspense fallback={<LoadingPage />}><Help /></React.Suspense> },
   { path: 'settings', shell: 'office', element: <Settings /> },
   { path: 'nav-designer', shell: 'office', element: <NavDesigner /> },
-  { path: 'launcher', shell: 'office', element: <Launcher /> },
   { index: true, shell: 'mobile', element: <MobileHub /> },
   { path: 'today', shell: 'mobile', element: <MobileToday /> },
   { path: 'notices', shell: 'mobile', element: <MobileNotices /> },

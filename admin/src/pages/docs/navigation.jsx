@@ -1,17 +1,17 @@
 // src/pages/docs/navigation.jsx
-// The Docs page's "Navigation & Launcher" section. Docs.jsx gathers every file in this
+// The Docs page's "Navigation" section. Docs.jsx gathers every file in this
 // folder (except parts.jsx) and shows them by order, then id.
 import { H2, H3, P, Mono, DataTable, InfoBox } from './parts.jsx'
 
 export const id = 'navigation'
-export const label = 'Navigation & Launcher'
+export const label = 'Navigation'
 export const order = 230
 
 // ── NAVIGATION & LAUNCHER ───────────────────────
 export function Section() {
   return (
     <section id="navigation" data-doc="">
-      <H2>Navigation &amp; Launcher</H2>
+      <H2>Navigation</H2>
       <P>
         Migration 091 replaces the previously-hardcoded <Mono>NAV_SECTIONS</Mono> array in
         <Mono> AppShell.jsx</Mono> with an admin-configurable, arbitrary-depth tree per
@@ -22,8 +22,7 @@ export function Section() {
       <DataTable
         head={['Table / column', 'Purpose']}
         rows={[
-          ['nav_items', 'Self-referencing tree (parent_id → nav_items.id, ON DELETE CASCADE). kind is \'section\' (pure grouping label, no route) or \'link\' (route required). module ties an item to the existing tenant_modules/tenant_roles permission system. hidden_role_ids uuid[] is an ADDITIONAL hide on top of module gating. show_in_launcher + launcher_sort_order mark items that also appear as quick-access tiles.'],
-          ['tenants.nav_style', "'sidebar' (default) or 'launcher' — tenant-wide, toggled via PATCH /api/nav/style."],
+          ['nav_items', 'Self-referencing tree (parent_id → nav_items.id, ON DELETE CASCADE). kind is \'section\' (pure grouping label, no route) or \'link\' (route required). module ties an item to the existing tenant_modules/tenant_roles permission system. hidden_role_ids uuid[] is an ADDITIONAL hide on top of module gating. (show_in_launcher and launcher_sort_order, the Launcher\'s tiles, were dropped by migration 274.)'],
           ['nav_items.description', 'Migration 241. The entry\'s own words on what it is for, at most 260 characters (CHECK nav_items_description_len). NULL = the page\'s standard description from shared/navSearch.js. See Descriptions below.'],
         ]}
       />
@@ -40,10 +39,9 @@ export function Section() {
           ['POST', '/items', 'Create a section or link. New items land at the end of their sibling list.'],
           ['PATCH', '/items/reorder', 'Body { parent_id, ids } — re-sequences sort_order for one sibling list (move up/down).'],
           ['PATCH', '/items/:id/reparent', 'Body { parent_id, index } — moves an item to a new parent at a position. Used for both "indent" (new parent = previous sibling) and "outdent" (new parent = grandparent) from the frontend.'],
-          ['PATCH', '/items/:id', 'Generic field update (label, icon, route, module, description, hidden_role_ids, show_in_launcher, is_active, …). description (also on POST) is trimmed, an empty one becomes null (= the standard words), and one over 260 characters is a 400.'],
+          ['PATCH', '/items/:id', 'Generic field update (label, icon, route, module, description, hidden_role_ids, is_active, …). description (also on POST) is trimmed, an empty one becomes null (= the standard words), and one over 260 characters is a 400.'],
           ['DELETE', '/items/:id', 'Hard delete — children cascade via the FK.'],
           ['POST', '/reset', 'Deletes every nav_items row for the tenant and re-seeds via seedDefaultNav().'],
-          ['PATCH', '/style', 'Body { nav_style } — sidebar ↔ launcher.'],
         ]}
       />
       <H3>The menu search</H3>
@@ -193,20 +191,17 @@ export function Section() {
         <Mono> sort_order</Mono> for the new-siblings list and — if the parent actually
         changed — also re-sequences the old-siblings list to close the gap left behind.
       </P>
-      <H3>/api/me: nav_tree and launcher_tiles</H3>
+      <H3>/api/me: nav_tree</H3>
       <P>
         <Mono>platform.js</Mono>'s <Mono>/api/me</Mono> handler fetches the tenant's active
         <Mono> nav_items</Mono>, builds the tree, and prunes it against the caller's
         effective permissions and role id (<Mono>pruneNavTree()</Mono>): a link is dropped
         if its module is disabled/unpermitted or its own id is in
         <Mono> hidden_role_ids</Mono> for the caller's role; a section is dropped only if
-        every child was pruned. Platform admins bypass all of it. The response also
-        includes <Mono>launcher_tiles</Mono> — the flat set of visible link items with
-        <Mono> show_in_launcher = true</Mono>, sorted by <Mono>launcher_sort_order</Mono>.
+        every child was pruned. Platform admins bypass all of it.
         <Mono> AppShell.jsx</Mono> renders <Mono>nav_tree</Mono> directly instead of a
         hardcoded array (superseding the note about static gating in the RBAC section
-        above); when <Mono>nav_style === 'launcher'</Mono> it renders a single "Quick
-        access" link to <Mono>/launcher</Mono> instead of the tree.
+        above).
       </P>
       <H3>/api/me: site_theme</H3>
       <P>
@@ -303,7 +298,7 @@ export function Section() {
       </P>
       <P>
         Migration 196 (20 Oct 2026) replaced every tenant's menu with the new default tree once: it
-        deletes every <Mono>nav_items</Mono> row, sets <Mono>tenants.nav_style = 'sidebar'</Mono> and
+        deletes every <Mono>nav_items</Mono> row, set <Mono>tenants.nav_style = 'sidebar'</Mono> (a column dropped by 274) and
         re-seeds each tenant from a JSON copy of <Mono>DEFAULT_NAV_TREE</Mono> through a temporary{' '}
         <Mono>pg_temp.seed_nav()</Mono> function (so launcher tiles and designer edits went). The tree has
         eleven sections grouped by job (Home, Service, Money, Health &amp; safety, Stock, People, Menus,
@@ -344,26 +339,19 @@ export function Section() {
         nothing. The nav test runs it on a rebuilt pre-241 menu and checks the places, the roles
         and the second run.
       </P>
-      <H3>Launcher personalisation (admin/src/pages/Launcher.jsx)</H3>
+      <H3>Launcher mode retired (migration 274)</H3>
       <P>
-        Tile order and visibility are per-user, per-tenant, stored in
-        <Mono> localStorage</Mono> under <Mono>maca_launcher_prefs_&#123;tenantId&#125;</Mono> —
-        the same pattern as <Mono>maca_settings</Mono> / <Mono>maca_timeline_prefs</Mono>,
-        not a DB table. The admin's <Mono>launcher_tiles</Mono> order from <Mono>/api/me</Mono>
-        is the default; a viewer's local <Mono>order</Mono>/<Mono>hidden</Mono> arrays are
-        merged on top (<Mono>applyPrefs()</Mono>), and any tile the admin removed (or the
-        viewer no longer has access to) is dropped even if still named in the stored
-        override. "Reset to admin defaults" just clears the localStorage key.
+        Until Pepper-first step 2d a group could replace the sidebar with a tile screen at{' '}
+        <Mono>/launcher</Mono> (<Mono>tenants.nav_style</Mono> <Mono>launcher</Mono>, tiles from{' '}
+        <Mono>nav_items.show_in_launcher</Mono> in <Mono>launcher_sort_order</Mono>, each viewer&apos;s order and
+        hidden tiles in local storage, the designer&apos;s Sidebar / Launcher switch, <Mono>PATCH /api/nav/style</Mono>,{' '}
+        <Mono>/api/me</Mono>&apos;s <Mono>launcher_tiles</Mono>). All of it is gone: the sidebar is the only menu and
+        each person&apos;s pins on Home are their shortcuts. Migration 274 gave each active member of a group that was
+        in launcher mode, with no pins yet, the group&apos;s tiles as pins (in the tiles&apos; order, each page once, at
+        most 12; <Mono>GET /api/pins</Mono> leaves out any the person&apos;s menu doesn&apos;t hold), then dropped the
+        three columns and their index. Tests: <Mono>api/test/home-pins.test.mjs</Mono> (274 on real rows),{' '}
+        <Mono>api/test/nav-default.test.mjs</Mono> (241&apos;s and 243&apos;s SQL replayed without the dropped column).
       </P>
-      <InfoBox type="warn">
-        Switching a tenant to <Mono>nav_style: 'launcher'</Mono> before any nav item has
-        <Mono> show_in_launcher</Mono> set hides the entire sidebar with nothing to replace
-        it. <Mono>Launcher.jsx</Mono>'s header always shows a "Back to full menu" button
-        (visible to <Mono>nav_designer:manage</Mono>) whenever <Mono>nav_style ===
-        'launcher'</Mono> — deliberately NOT conditioned on the tile count, after an earlier
-        version that only showed it in the empty state left a tenant with one tile
-        configured stranded in production.
-      </InfoBox>
     </section>
   )
 }

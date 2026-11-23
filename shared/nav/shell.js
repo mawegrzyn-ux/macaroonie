@@ -21,8 +21,8 @@ export const pages = [
   {
     path: '/nav-designer', label: 'Navigation', icon: 'Compass', module: 'nav_designer',
     section: 'Admin', order: 40, catalogOrder: 880,
-    keywords: 'navigation menu designer sidebar launcher links sections descriptions customise rearrange',
-    description: 'Arrange this menu: sections, links, names, descriptions and who sees what, or switch to quick-access tiles.',
+    keywords: 'navigation menu designer sidebar links sections descriptions customise rearrange',
+    description: 'Arrange this menu: sections, links, names, descriptions and who sees what.',
   },
   {
     path: '/docs', label: 'Documentation', icon: 'BookMarked', module: 'documentation',

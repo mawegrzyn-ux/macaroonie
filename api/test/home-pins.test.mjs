@@ -83,3 +83,42 @@ test('a pin whose page leaves the person\'s menu is not sent; a deleted venue le
   await sql`UPDATE home_pins SET venue_id = NULL WHERE tenant_id = ${ids.a} AND venue_id = ${venueA.id}`
   assert.equal((await ok(op.get('/api/pins'))).pins[1].venue_id, null)
 })
+
+// Launcher mode is gone (migration 274): no tiles or style on /api/me, no style switch.
+test('no launcher: /api/me has no launcher tiles or style, and there is no style switch', async () => {
+  const me = await ok(as(A.owner, ids.a).get('/api/me'))
+  assert.equal(me.launcher_tiles, undefined)
+  assert.equal(me.current_tenant.nav_style, undefined)
+  assert.equal((await as(A.owner, ids.a).patch('/api/nav/style', { nav_style: 'launcher' })).status, 404)
+})
+
+// Migration 274 on real rows: a group in launcher mode gives each member with
+// no pins its tiles as pins (in the tiles' order, each page once, at most 12),
+// then the launcher columns go. The test database has 274 applied, so the
+// columns are put back for the run. Read straight from the table: the API's
+// connections hold plans for nav_items' columns, which the run changes twice.
+test('migration 274: launcher tiles become pins, then launcher mode goes', async () => {
+  const fs = await import('node:fs')
+  const SQL_274 = fs.readFileSync(new URL('../../migrations/274_shell_launcher_retired.sql', import.meta.url), 'utf8')
+  const pinsOf = async (t, sub) => (await sql`SELECT path FROM home_pins WHERE tenant_id = ${t} AND user_sub = ${sub} ORDER BY sort_order`).map(r => r.path)
+  const ownerBefore = await pinsOf(ids.a, A.owner)
+  await sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS nav_style text NOT NULL DEFAULT 'sidebar'`
+  await sql`ALTER TABLE nav_items ADD COLUMN IF NOT EXISTS show_in_launcher boolean NOT NULL DEFAULT false, ADD COLUMN IF NOT EXISTS launcher_sort_order int NOT NULL DEFAULT 0`
+  await sql`UPDATE tenants SET nav_style = 'launcher' WHERE id = ${ids.a}`
+  await sql`DELETE FROM home_pins WHERE tenant_id = ${ids.a} AND user_sub <> ${A.owner}`
+  const tile = (route, n) => sql`UPDATE nav_items SET show_in_launcher = true, launcher_sort_order = ${n} WHERE tenant_id = ${ids.a} AND route = ${route}`
+  await tile('/timeline', 2); await tile('/rota', 1); await tile('/bookings', 3)
+  // Tenant B stays on the sidebar: its flagged link isn't pinned.
+  await sql`UPDATE nav_items SET show_in_launcher = true WHERE tenant_id = ${ids.b} AND route = '/rota'`
+
+  await sql.unsafe(SQL_274)
+
+  assert.deepEqual(await pinsOf(ids.a, A.operator), ['/rota', '/timeline', '/bookings'], 'the tiles, in their order')
+  assert.deepEqual(await pinsOf(ids.a, A.viewer), ['/rota', '/timeline', '/bookings'], 'every member with a login (the API shows each only what their menu holds)')
+  assert.deepEqual(await pinsOf(ids.a, A.owner), ownerBefore, 'someone with pins keeps their own')
+  assert.deepEqual(await pinsOf(ids.b, B.owner), [], 'a group on the sidebar gets none')
+  const cols = await sql`SELECT table_name, column_name FROM information_schema.columns
+                          WHERE (table_name = 'tenants' AND column_name = 'nav_style')
+                             OR (table_name = 'nav_items' AND column_name IN ('show_in_launcher', 'launcher_sort_order'))`
+  assert.equal(cols.length, 0, 'the launcher columns are gone')
+})

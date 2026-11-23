@@ -9,7 +9,7 @@ import * as LucideIcons from 'lucide-react'
 import {
   LogOut, Menu, X, Search,
   Eye, EyeOff, RefreshCw, Maximize2, Minimize2, Columns, LayoutList, Layers,
-  Shield, ChevronDown, Hand, KanbanSquare, LayoutGrid, Sparkles,
+  Shield, ChevronDown, Hand, KanbanSquare, Sparkles,
 } from 'lucide-react'
 import { AskContext, AskOverlay, isAskShortcut } from '@/components/layout/AskBar'
 
@@ -208,7 +208,6 @@ export default function AppShell() {
   const currentTenant     = me?.current_tenant
   const hasTenants        = availableTenants.length > 0
   const canSwitchTenant   = availableTenants.length > 1
-  const isLauncherMode    = currentTenant?.nav_style === 'launcher'
 
   useEffect(() => {
     if (me?.site_theme) applySiteTheme(me.site_theme)
@@ -386,15 +385,7 @@ export default function AppShell() {
           </div>
         )}
         <nav className="flex-1 overflow-y-auto p-2 space-y-3">
-          <>
-          {isLauncherMode ? (
-            // Launcher mode: the sidebar tree is switched off tenant-wide
-            // (Settings → Navigation) in favour of the quick-access tile
-            // grid. Keep one link back to it so nobody's stranded — the
-            // launcher itself surfaces everything else the role can reach.
-            <NavItem item={{ label: 'Quick access', to: '/launcher', icon: LayoutGrid, children: [] }} open={open} />
-          ) : (
-            (me?.nav_tree ?? []).map(node => {
+          {(me?.nav_tree ?? []).map(node => {
               if (node.kind === 'section') {
                 const items = (node.children || []).filter(c => c.kind === 'link').map(c => toNavItem(c, navExact))
                 if (!items.length) return null
@@ -416,7 +407,7 @@ export default function AppShell() {
               }
               return <NavItem key={node.id} item={toNavItem(node, navExact)} open={open} />
             })
-          )}
+          }
           {isPlatformAdmin && (
             <>
               {open && (
@@ -431,7 +422,6 @@ export default function AppShell() {
               </div>
             </>
           )}
-          </>
         </nav>
         {isOnTimeline && (
           <div className={cn('shrink-0 border-t', open ? 'p-2' : 'p-1')}>

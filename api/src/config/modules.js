@@ -246,7 +246,7 @@ export const MODULES = [
     key:    'nav_designer',
     label:  'Navigation',
     core:   true,
-    description: 'Customise the sidebar/launcher nav tree and per-role visibility.',
+    description: 'Customise the sidebar menu tree and per-role visibility.',
     default: { owner: 'manage', admin: 'none', operator: 'none', viewer: 'none' },
   },
   {

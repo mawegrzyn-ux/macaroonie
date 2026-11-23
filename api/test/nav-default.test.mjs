@@ -31,10 +31,13 @@ const SQL_241 = fs.readFileSync(new URL('../../migrations/241_nav_descriptions_d
 const LINKS_241 = [...SQL_241.matchAll(/\(\s*(\d+),\s*'([^']+)',\s*'([^']+)',\s*'([^']+)',\s*'([^']+)',\s*'([^']+)',\s*'([^']+)'\s*\)/g)]
   .map(m => ({ ord: Number(m[1]), route: m[2], label: m[3], icon: m[4], module: m[5], anchor: m[6], fallback: m[7] }))
   .sort((a, b) => a.ord - b.ord)
-const BLOCK_241 = SQL_241.match(/DO \$\$[\s\S]*?END \$\$;/)[0]
+// Migration 274 dropped nav_items.show_in_launcher, which 241 and 243 still
+// write (always false): replayed here without it.
+const noLauncher = text => text.replace(/, show_in_launcher\)/g, ')').replace(/, false(\s+FROM)/g, '$1')
+const BLOCK_241 = noLauncher(SQL_241.match(/DO \$\$[\s\S]*?END \$\$;/)[0])
 // Migration 243: the statement that puts the Reports link into a menu.
 const SQL_243 = fs.readFileSync(new URL('../../migrations/243_reports.sql', import.meta.url), 'utf8')
-const MENU_243 = SQL_243.match(/WITH anchors AS \([\s\S]*?route = '\/reports'\);/)[0]
+const MENU_243 = noLauncher(SQL_243.match(/WITH anchors AS \([\s\S]*?route = '\/reports'\);/)[0])
 // The list (and so the parent) a route's link sits in.
 const siblingsOf = (nodes, r) => {
   for (const n of nodes) {

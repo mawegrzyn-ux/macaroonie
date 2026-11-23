@@ -1084,7 +1084,6 @@
     "admin/src/pages/Docs.jsx",
     "admin/src/pages/Help.jsx",
     "admin/src/pages/Home.jsx",
-    "admin/src/pages/Launcher.jsx",
     "admin/src/pages/NavDesigner.jsx",
     "admin/src/pages/ReservationsWidget.jsx",
     "admin/src/pages/Settings.jsx",
