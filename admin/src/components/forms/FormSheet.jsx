@@ -23,22 +23,13 @@ import { WeekWagesEditor } from '@/components/cashRecon/WagesTable'
 import { PettyCashPanel } from '@/pages/mobile/MobileExpenses'
 import { RotaGrid, RotaDayList, useRotaPerms } from '@/components/staff/rota'
 import { AvailabilityModal } from '@/components/orders/shared'
+import { FORMS } from '@shared/forms.js'
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
 
-// The full page behind each form (F8), and the module each needs.
-export const FORMS = {
-  temps:     { title: 'Fridge and freezer checks', path: '/food-safety', module: 'food_safety' },
-  holds:     { title: 'Hot and cold hold checks',  path: '/food-safety', module: 'food_safety' },
-  cooking:   { title: 'Cooking checks',            path: '/food-safety', module: 'food_safety' },
-  delivery:  { title: 'Delivery checks',           path: '/food-safety', module: 'food_safety' },
-  checklist: { title: 'Checklist',                 path: '/checklists', module: 'checklists' },
-  cash_up:   { title: 'Cash-up',                   path: '/cash-recon', phone: '/mobile/cash-up', module: 'cash_recon' },
-  wages:     { title: 'Wages',                     path: '/cash-recon', phone: '/mobile/wages', module: 'cash_recon' },
-  expense:   { title: 'Expenses',                  path: '/cash-recon', phone: '/mobile/expenses', module: 'cash_recon' },
-  sold_out:  { title: 'Sold out',                  path: '/orders', phone: '/mobile/orders', module: 'web_orders' },
-  rota_day:  { title: 'Rota',                      path: '/rota', module: 'rota' },
-}
+// The forms (shared/forms.js, one list with Pepper's open_form): each one's
+// title, module, full page (F8) and phone page.
+export { FORMS }
 
 /** A link inside the app, or (on the phone app's own host) to the office: linkFor maps it. */
 export function Go({ to, linkFor, ...rest }) {

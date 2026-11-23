@@ -800,6 +800,7 @@
     "api/test/pepper-web-search.test.mjs",
     "api/test/venue-wizard.test.mjs",
     "shared/assistant.js",
+    "shared/forms.js",
     "shared/help.js",
     "shared/storeOpening.js"
    ],
@@ -816,6 +817,7 @@
     "api/src/services/menuReadAi.js",
     "api/src/services/storeOpeningAi.js",
     "shared/assistant.js",
+    "shared/forms.js",
     "shared/help.js",
     "shared/nav/pepper.js",
     "shared/storeOpening.js"

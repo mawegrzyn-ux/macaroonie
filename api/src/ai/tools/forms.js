@@ -7,7 +7,8 @@
 // it never writes a form's fields, and the card is built here from what the
 // server found (form_card), never from the model's text.
 //
-// The forms are the Today page's (components/forms/FormSheet.jsx): the six
+// The forms (shared/forms.js, the same list the sheet in
+// components/forms/FormSheet.jsx opens): the six
 // Today forms (fridge and freezer, hot and cold hold, cooking checks, a
 // checklist, the cash-up, the week's wages) and four more: delivery checks,
 // the day's expenses with receipts, sold out dishes, and the rota for a day.
@@ -22,21 +23,11 @@ import { ToolError, isStaff, callApi, staffPermissionLevel, levelAtLeast } from 
 import { officeOrigin } from '../../services/platformHost.js'
 import { MODULES } from '../../config/modules.js'
 import { DateStr, VenueText, venueFor, venueToday, mondayOf, longDate, pickByName } from './util.js'
+import { FORMS, FORM_KEYS } from '../../../../shared/forms.js'
 
-// Keep in step with FORMS in admin/src/components/forms/FormSheet.jsx.
-export const OPEN_FORMS = {
-  temps:     { title: 'Fridge and freezer checks', module: 'food_safety', path: '/food-safety', by: 'date' },
-  holds:     { title: 'Hot and cold hold checks',  module: 'food_safety', path: '/food-safety', by: 'date' },
-  cooking:   { title: 'Cooking checks',            module: 'food_safety', path: '/food-safety', by: 'date' },
-  delivery:  { title: 'Delivery checks',           module: 'food_safety', path: '/food-safety', by: 'date' },
-  checklist: { title: 'Checklist',                 module: 'checklists',  path: '/checklists',  by: 'date' },
-  cash_up:   { title: 'Cash-up',                   module: 'cash_recon',  path: '/cash-recon',  by: 'date' },
-  wages:     { title: 'Wages',                     module: 'cash_recon',  path: '/cash-recon',  by: 'week' },
-  expense:   { title: 'Expenses',                  module: 'cash_recon',  path: '/cash-recon',  by: 'date' },
-  sold_out:  { title: 'Sold out',                  module: 'web_orders',  path: '/orders',      by: null },
-  rota_day:  { title: 'Rota',                      module: 'rota',        path: '/rota',        by: 'date' },
-}
-const FORM_KEYS = Object.keys(OPEN_FORMS)
+// The forms, one list with the admin's sheet (shared/forms.js): each one's
+// title, module, the level that changes it, its page and its day or week.
+export const OPEN_FORMS = FORMS
 const MODULE_LABEL = Object.fromEntries(MODULES.map(m => [m.key, m.label]))
 
 /** The card's title: the form, and its day or week. */
@@ -110,7 +101,7 @@ export const formTools = [
       const ref = f.by === 'week' ? { week: monday } : f.by === 'date' ? { date } : {}
       if (template) ref.template = template
       const title = cardTitle(input.form, f, { date, monday, template })
-      const readOnly = !levelAtLeast(level, input.form === 'rota_day' || input.form === 'sold_out' ? 'manage' : 'use')
+      const readOnly = !levelAtLeast(level, f.edit)
       if (ctx.channel !== 'staff_chat') {
         return { form: title, venue: venue.name, url: officeOrigin() + f.path, message: 'Open the page to fill it in.' }
       }
