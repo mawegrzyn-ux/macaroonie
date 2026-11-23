@@ -80,7 +80,9 @@ export function Section() {
       <H3>Nav cards in Pepper&apos;s chat</H3>
       <P>
         In the staff chat <Mono>open_page</Mono>&apos;s result carries <Mono>nav_card</Mono>: one entry per page offered,{' '}
-        <Mono>{'{ page, section, icon, link, opens_at }'}</Mono> (section is where the page sits in the standard menu,{' '}
+        <Mono>{'{ page, standard, section, icon, link, opens_at }'}</Mono> (page is the name in the person&apos;s own menu and{' '}
+        <Mono>standard</Mono> the page-list name when it differs; section is where the page sits in their menu, or Not in
+        your menu for a page they can open that their menu leaves out;{' '}
         <Mono>opens_at</Mono> the venue, day, week and tab its link was built with by <Mono>pageLink()</Mono>). The
         tool&apos;s <Mono>display()</Mono> turns it into a <Mono>{'{ type: \'nav\', pages }'}</Mono> item, keeping only links
         into the app; <Mono>chat.js</Mono> streams it as a card and rebuilds it from the stored result in{' '}
