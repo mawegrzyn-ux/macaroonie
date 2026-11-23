@@ -738,8 +738,8 @@ export function Section() {
           ['ai_usage', 'Per tenant, month (first day, UTC), channel: requests, input / output / cache read / cache write tokens, units (migration 174: the tokens weighted by price, usageUnits()) and web_searches (migration 242; each also adds 2,500 to units). The allowance counts units of staff_chat + guest_chat; MCP channels count calls only. Migration 174 backfilled units with the default weights.'],
           ['ai_usage_people (migration 174)', 'Per tenant, day (UTC), user_sub: user_email, requests, units. Staff chat only (written by addUsage() with a person). The daily share and the Settings tab\'s people card read it; rows older than 400 days are deleted by the hourly clean-up. RLS, every query filters tenant_id.'],
           ['ai_conversations / ai_messages', 'Chats. channel staff_chat (user_sub) or guest_chat (guest_key, a random secret the browser keeps). Messages: seq, role, content jsonb (API content blocks). Migration 174: running_until (the one-writer hold), closed_at + closed_reason (erased: read only, see Erasure), index (tenant_id, updated_at) for the retention clean-up. Migration 175: model_tier fast | main (NULL = main; see Model routing). Migration 242: tools_key (a digest of the tool list the chat\'s last turn ran with; NULL = not recorded yet) and thinking_from_seq (replies before this message are sent without their thinking; 0 = all of it). See Web search.'],
-          ['ai_pending_actions', 'Confirm cards: tool_use_id, tool, input, card {title, lines, confirmLabel, destructive}, status pending | done | cancelled | failed, result, expires_at, decided_at (claim).'],
-          ['ai_actions', 'Audit log of every change through AI (all channels): tool, input, ok, result, booking_id (null for anything but bookings), actor. Shown on /ai Activity. redacted_at (migration 174): input and result cleared after a year, or the guest\'s details replaced on erasure.'],
+          ['ai_pending_actions', 'Confirm cards: tool_use_id, tool, input, card {title, lines, before, after, confirmLabel, destructive, class, confirm_word, fields, edited}, status pending | done | cancelled | failed, result (with _undo for a reversible tool, never sent to the model), expires_at, decided_at (claim; the card is the idempotency key). Migration 276: undone_at (Undo claimed / done), undo_error.'],
+          ['ai_actions', 'Audit log of every change through AI (all channels): tool, input, ok, result, booking_id (null for anything but bookings), actor. Shown on /ai Activity and /pepper/done. redacted_at (migration 174): input and result cleared after a year, or the guest\'s details replaced on erasure. Migration 276: action_id (the card it ran from), user_sub (the person), venue_id (ctx.venue, set by venueFor() / staffVenue() / purchasing venueOf()), undo_of (an Undo\'s own row). No foreign keys: the audit outlives chats and venues.'],
           ['ai_booking_codes / ai_booking_grants', 'Emailed codes and access keys (hashes only).'],
           ['ai_access_tokens', 'Staff MCP tokens: sha256 of mcp_ + 40 hex, prefix, user_id, revoked_at, expires_at (migration 179: 30, 90, 180 or 365 days from making it; 90 by default) and read_only (the connector lists and runs only tools without confirm). Forced RLS like every tenant table: auth.js finds the token in system mode; every query filters tenant_id.'],
           ['bookings.source', 'Which AI channel made the booking (NULL = not AI).'],
@@ -760,7 +760,9 @@ export function Section() {
           ['POST /api/ai/store-openings/wizard, /:id/describe', 'The venue setup wizard: a draft without Pepper; Pepper filling the steps from a description. See New locations.'],
           ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub); the list and a chat carry closed (erased, read only), a chat also running (a turn or card holds it). chat { conversation_id?, message, attachments?, page? } returns the whole conversation as display items plus stop_reason and notice; with Accept: text/event-stream it streams (see Streaming above). conversation_id null = a new chat\'s only message was refused and the chat removed. 409 while another turn or a card holds the chat, or when it is closed.'],
           ['POST /api/ai/attachments, GET/DELETE /api/ai/attachments/:id', 'Upload one file (multipart field file) -> { id, name, kind, media_type, bytes }; the file itself, uploader only; remove an unsent upload. See Attached files above.'],
-          ['POST /api/ai/actions/:id/confirm | cancel', 'Confirm cards; hold the chat like a turn (409 while it is busy). The reply carries closed: an anonymise card closes the chat it ran in.'],
+          ['POST /api/ai/actions/:id/confirm | cancel', 'Confirm cards; hold the chat like a turn (409 while a turn holds it). confirm { via?, word?, values? }: word = what was typed on a destructive card (422 without it, 422 for any voice confirm of one); values = editable fields changed on the card (422 for a field the tool doesn\'t list, 400 from the tool\'s schema). A card already done or failed answers with its first outcome (step 4c); a second press while the first holds the chat waits for it. The reply carries closed: an anonymise card closes the chat it ran in.'],
+          ['POST /api/ai/actions/:id/undo', 'Undo on a done card (step 4d): a reversible tool with an inverse, within UNDO_MINUTES (10) of decided_at, the caller\'s own chat only (404 otherwise, also for another tenant). 410 once the window has closed, 422 for a change without Undo. Runs once (undone_at claimed); ai_assistant above none, no model key needed.'],
+          ['GET /api/ai/done', 'Done by Pepper (step 4e): ai_actions of staff_chat and staff_mcp, newest first, 200 at most; venue_id (the tenant\'s, else 404), day (YYYY-MM-DD in the venue\'s time zone; 422 for a date that isn\'t real), who mine (default; ai_assistant view) | all (manage, else 403). Rows: label (ACTION_LABELS), class, title / lines / before / after from the card, message, venue, undo (an Undo\'s row), undone, card_id + undo_until on the caller\'s own open Undo. No counts per person (decision 8).'],
           ['GET/PATCH /api/ai/settings', 'GET: settings, usage (channels, each with web_searches, + chat_units + web_searches for the month), daily_share (units or null), people (peopleUsage(): name or email, requests, units this month, today; everyone for ai_assistant manage, else only the caller\'s own line), MCP addresses. PATCH (ai_assistant manage): the switches (staff_enabled, web_search, guest_mcp_enabled, guest_chat_enabled), person_daily_pct (1-100 or null), chat_retention_days (30 | 90 | 180 | 365); answers { settings } as saved.'],
           ['GET/POST/DELETE /api/ai/tokens[/:id]', 'Own tokens; ai_assistant manage sees and revokes everyone\'s. POST returns the token once.'],
           ['GET /api/ai/activity', 'ai_actions, last 100 (manage).'],
@@ -955,6 +957,61 @@ export function Section() {
         log_cooking_check, tick_checklist; 422) and <Mono>ai_settings.voice_confirm</Mono> is on (403); the chat note
         says it was said. Action items carry <Mono>voice_ok</Mono>; <Mono>/api/ai/status</Mono>{' '}
         <Mono>voice_confirm</Mono>.
+      </P>
+      <H3>Action classes and cards by class (step 4a, 4b)</H3>
+      <P>
+        Every staff tool has a <Mono>class</Mono> (<Mono>CLASSES</Mono> in <Mono>ai/tools/index.js</Mono>): read tools
+        get <Mono>read</Mono>; every tool that changes something declares <Mono>reversible</Mono> (low cost, can be
+        undone), <Mono>consequential</Mono> (bookings, the rota, prices, menus, orders, refunds, cash) or{' '}
+        <Mono>destructive</Mono> (deletions, anonymising, pay, tips and wages, a person&apos;s details, allergen data).
+        Start-up throws for a change tool without one (<Mono>checkClass()</Mono>), and{' '}
+        <Mono>api/test/pepper-tools-registry.test.mjs</Mono> checks the never-list: pay, tips, prices, allergens,
+        deletions and a person&apos;s details are never reversible. <Mono>escalate(input)</Mono> raises a call
+        (<Mono>classFor()</Mono>): <Mono>create_menu</Mono>, <Mono>add_dishes</Mono> and <Mono>update_dish</Mono> with
+        any allergens list (<Mono>touchesAllergens()</Mono> in <Mono>tools/util.js</Mono>) are destructive, the named
+        sign-off of decision 9. <Mono>preconditions</Mono> (sentences) are added to the tool&apos;s description for the
+        model and the connector (<Mono>toolDescription()</Mono>); the connector&apos;s destructiveHint follows the class.
+      </P>
+      <P>
+        <Mono>cardFor()</Mono> in <Mono>ai/chat.js</Mono> stores each card with its class (the tool&apos;s, raised by
+        escalate or by describe()&apos;s own <Mono>class</Mono>), <Mono>before</Mono> / <Mono>after</Mono> lines when
+        describe() gives them (set_sold_out, pause_online_orders, set_website_banner, switch_promotion, change_booking,
+        update_guest_details), <Mono>fields</Mono> for the tool&apos;s <Mono>editable</Mono> inputs (create_booking,
+        change_booking, add_booking_note, add_expense, log_temperature, add_local_event) and, when destructive,{' '}
+        <Mono>confirm_word</Mono> (describe()&apos;s, e.g. <Mono>surnameOf()</Mono> the guest or customer, else
+        CONFIRM). <Mono>editCard()</Mono> applies changed fields: only editable keys, the whole input through the
+        tool&apos;s schema, then describe() again for a new card, before the claim; the model&apos;s note says what was
+        changed on the card. A voice confirm is refused for anything but a reversible card in{' '}
+        <Mono>VOICE_CONFIRM_TOOLS</Mono>, and always for a destructive one. Admin:{' '}
+        <Mono>components/ai/ActionCard.jsx</Mono> (<Mono>BeforeAfter</Mono>, the fields behind Change, the word box,
+        Undo), used by <Mono>ChatView</Mono>.
+      </P>
+      <H3>One write per card, Undo and Done by Pepper (step 4c-4e, migrations 276, 277)</H3>
+      <P>
+        The card&apos;s id is the idempotency key: <Mono>confirmCard()</Mono> answers a done or failed card with its first
+        outcome and runs nothing; <Mono>confirmAction()</Mono> waits up to <Mono>CONFIRM_WAIT_MS</Mono> (20 s) while
+        another press of the same card holds the chat (the card is claimed, or within <Mono>CLAIM_GRACE_MS</Mono>), then
+        answers the same way. <Mono>audit()</Mono> writes the card (<Mono>ctx.action</Mono>), the person and the venue
+        (<Mono>ctx.venue</Mono>) on every row. The staff connector has no card, so no key: a repeated MCP call runs again.
+      </P>
+      <P>
+        Undo: a reversible tool may declare <Mono>inverse(ctx, undo)</Mono>; its run returns <Mono>_undo</Mono> (what was
+        there before, by id), which <Mono>shownResult()</Mono> keeps out of the model&apos;s note and the connector&apos;s
+        reply. <Mono>undoAction()</Mono> (inside <Mono>withHold()</Mono>) checks the card is done, the tool is in{' '}
+        <Mono>UNDOABLE</Mono>, and <Mono>undoUntil()</Mono> (decided_at + <Mono>UNDO_MINUTES</Mono>, 10); claims{' '}
+        <Mono>undone_at</Mono>, runs the inverse as the person through the same routes, writes an audit row with{' '}
+        <Mono>undo_of</Mono>, and appends a note. A failed Undo clears undone_at and keeps <Mono>undo_error</Mono>. With
+        an inverse: set_sold_out, pause_online_orders, set_website_banner, tick_checklist, add_local_event,
+        set_out_of_stock. Reversible without Undo: the food safety logs (deleting a reading needs Manage and leaves a
+        hole in a compliance record), add_corrective_action, add_hs_action, complete_hs_action, run_local_capture,
+        reload_screen, report_issue, request_feature, build_report, copy_report, export_report, order_form and the
+        new-location planner (drafts).
+      </P>
+      <P>
+        Done by Pepper: <Mono>GET /api/ai/done</Mono> in <Mono>routes/ai.js</Mono>, the page{' '}
+        <Mono>pages/PepperDone.jsx</Mono> at <Mono>/pepper/done</Mono> (lazy, <Mono>routes/pepper.jsx</Mono>; menu record
+        in <Mono>shared/nav/pepper.js</Mono>; migration 277 adds the link after Pepper in existing menus). Tests:{' '}
+        <Mono>api/test/pepper-actions.test.mjs</Mono>.
       </P>
     </section>
   )

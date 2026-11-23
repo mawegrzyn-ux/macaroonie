@@ -186,6 +186,59 @@ export function Section() {
         another device and it is still there. The draft goes when you save the form, and drafts left for a
         week are cleared.
       </P>
+      <H3>Confirm cards</H3>
+      <P>
+        Pepper never changes anything until you press Confirm on its card. The card shows what will change
+        in the words you would check it by: the venue, the day, the name, the total. When it changes
+        something that is already there, it shows <strong>Now</strong> beside <strong>After</strong>, so you
+        can see the before and after at a glance (a dish going from on to sold out, a booking from 19:00 to
+        20:00, a guest&apos;s phone number).
+      </P>
+      <P>
+        Some cards let you correct a detail in place: press <strong>Change</strong> on the card, fix the time,
+        the party size, the reading, the amount or the note, and press Confirm. The change is checked
+        again with the same rules before anything is saved, so a time the venue doesn&apos;t take or an
+        amount below zero is refused on the card, and nothing changes.
+      </P>
+      <P>
+        How careful a card is depends on what a mistake would cost:
+      </P>
+      <DataTable
+        head={['Kind of change', 'Examples', 'What the card asks']}
+        rows={[
+          ['Can be undone', 'Sold out, pausing online orders, the website banner, ticking a checklist, a local event, a supplier out of stock, logging a check', 'One tap on Confirm. Afterwards the card offers Undo for 10 minutes where the change can be put back'],
+          ['Checked before it runs', 'Bookings, the rota, prices, menus, orders and refunds, cash-ups and expenses, reports that are sent', 'One tap on Confirm, with the before and after where there is one. No Undo: change it back yourself if needed'],
+          ['Signed off with a typed word', 'Anything deleted, a guest\'s or customer\'s details, staff details, pay, tips and wages, allergen information', 'Type the word the card shows (a guest\'s surname, or CONFIRM) before Confirm works. Never by voice'],
+        ]}
+      />
+      <P>
+        A spoken yes only ever confirms a check (a fridge, hold or cooking reading, or a checklist tick), and
+        only when your group has switched it on. A card that needs a typed word can never be confirmed by
+        voice.
+      </P>
+      <P>
+        Pressing Confirm twice, on two devices or after a dropped connection does the change once: the card
+        simply shows how it went the first time.
+      </P>
+      <H3>Undoing a change</H3>
+      <P>
+        After a change that can be undone, its card shows <strong>Undo</strong> with the time it is open until,
+        10 minutes after you confirmed. Undo puts things back as they were straight away, with no second card:
+        the dish back on (or still sold out, if it was before), online orders taking again, the old banner,
+        the tasks unticked, the event off the calendar. The card then says <strong>Undone</strong>, and Pepper
+        knows. Only the person who confirmed a change can undo it. After 10 minutes, ask Pepper to change it
+        back or change it on its page. A logged reading has no Undo: a food safety record can only be
+        corrected by logging the check again.
+      </P>
+      <H3>Done by Pepper</H3>
+      <P>
+        <strong>Done by Pepper</strong> (in the menu under Home, after Pepper) lists what Pepper changed: what
+        it was, when, at which venue, how it was confirmed (one tap or a typed word), what the card showed
+        with its before and after, and how it went. Undos show as their own lines. Pick a venue and a day, or
+        Any day. You see your own changes; an owner or anyone who manages Pepper can switch to{' '}
+        <strong>Everyone</strong> to see who confirmed each change. The list is by time only: it never ranks
+        or counts people. Undo is there too while it is still open, on your own changes.
+      </P>
       <H3>How do I...? questions</H3>
       <P>
         Ask how to do something in the app (<em>"How do I set up tip pots?"</em>,{' '}
