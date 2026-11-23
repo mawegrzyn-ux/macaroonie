@@ -61,11 +61,11 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | 44.11.3d Drafts that survive a reload or another device (F6): kept on the server per person | 15 to 25 min (a table) | 7 min (to 15:57:36) | one PR, below | | 10 files, +355 -10, migration 275 | claude-opus-5-5 / high, fresh agent | Fixture and report decision added up front (last step's lesson): no CI surprise. About $6.80. |
 | 44.11.3e The four missing forms: order form, corrective action, H&S action, booking create / change (F1) | 20 to 40 min | 6 min after 3d (to 16:03:57), coded while 3d's tests ran | one PR, below | | 9 files, +515 -82 | claude-opus-5-5 / high, fresh agent | Each reuses the page's own panel. About $6.60. |
 | 44.11.3f Fixes from the first live evaluation (not estimated: found during the step) | not estimated | 3 min (to 16:06:43), then docs and the browser check 8 min (to 16:14:51) | 7 min for 3a to 3f: PR #504 opened 16:20:20, CI green first time 16:26:36, merged 16:27 | **56 min for 3a to 3f** (15:31:25 to 16:27, 5 of it the hand-back) | 42 files in all | claude-opus-5-5 / high, fresh agent | Fixes about $2.80, docs about $13. Agent about $47, lead about $3; the live run $0.12. |
-| 44.11.4a Every change tool declares its class (read, reversible, consequential, destructive or personal) and its preconditions; a test fails a change tool without one | third revision: 10 to 20 min (about 100 tools, mechanical) | | one PR, below | | | claude-opus-5-5 / high, fresh agent | Estimated 23 Nov 2026 before starting. |
-| 44.11.4b Confirm cards by class: before and after, fields editable in place, a typed word for destructive or personal changes and never by voice | 15 to 25 min | | one PR, below | | | | |
-| 44.11.4c No duplicate write on a retried action (an idempotency key per confirmed action) | 10 to 20 min | | one PR, below | | | | |
-| 44.11.4d Undo for reversible changes: each declares its inverse, an Undo button on the done card for a while | 15 to 25 min | | one PR, below | | | | |
-| 44.11.4e The Done by Pepper log: a page of Pepper's changes with Undo where it can | 10 to 20 min (a page, its menu record and migration) | | one PR for 4a to 4e: docs and checks 8 to 10, PR 7 | | | | |
+| 44.11.4a Every change tool declares its class (read, reversible, consequential, destructive or personal) and its preconditions; a test fails a change tool without one | third revision: 10 to 20 min (about 100 tools, mechanical) | 5 min (19:44 to 19:49), after 6 min reading the notes and code (19:38 to 19:44, about $7) | one PR, below | | 19 files, +339 -8 | claude-opus-5-5 / high, fresh agent | Estimated 23 Nov 2026 before starting. 101 staff change tools: 24 reversible, 59 consequential, 18 destructive. About $6. |
+| 44.11.4b Confirm cards by class: before and after, fields editable in place, a typed word for destructive or personal changes and never by voice | 15 to 25 min | 7 min (to 19:56) | one PR, below | | 15 files, +531 -86 | claude-opus-5-5 / high, fresh agent | About $6.80. |
+| 44.11.4c No duplicate write on a retried action (an idempotency key per confirmed action) | 10 to 20 min | 2 min (to 19:58) | one PR, below | | 7 files, +150 -11, migration 276 | claude-opus-5-5 / high, fresh agent | The card was already a natural key. About $2. |
+| 44.11.4d Undo for reversible changes: each declares its inverse, an Undo button on the done card for a while | 15 to 25 min | 4 min (to 20:02) | one PR, below | | 9 files, +322 -23 | claude-opus-5-5 / high, fresh agent | Six tools with an inverse. About $4.40. |
+| 44.11.4e The Done by Pepper log: a page of Pepper's changes with Undo where it can | 10 to 20 min (a page, its menu record and migration) | 14 min with the full test run, the browser check and the docs (to 20:16) | 7 min for 4a to 4e: PR #505 opened 20:16:30, CI green first time 20:22:48, merged 20:23 | **45 min for 4a to 4e** (19:37:41 to 20:23) | 19 files, +569 -11, migration 277 | claude-opus-5-5 / high, fresh agent | Two test files fixed before the PR (a delete card's word, the new audit columns' report decision). About $18.60 for the window. Agent about $45, lead about $3; a live eval run on the merged code passed 27 of 27 ($0.06). |
 
 ## Running totals
 
@@ -76,6 +76,7 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | 44.11 step 0 (usage record, model requests, evaluation set), second revision | 3 sub-steps, 1 PR | 0.6 to 1.1 (30 to 60 min build + 6 merge) | 0.83 (50 min; build 41, fix and merge 9) | about 0.97 |
 | 44.11 step 2 (pins, one Home, the ask bar, Launcher retired), second revision | 4 sub-steps, 1 PR | 0.9 to 1.6 (50 to 90 min build + 6 merge) | 1.3 (78 min; build 49, fix and merge 29) | about 1.03 (build alone 0.70, merge 4.8) |
 | 44.11 step 3 (filled forms, drafts, four forms) plus live-eval fixes, second revision | 5 sub-steps + 1 found, 1 PR | 1.3 to 2.4 (70 to 125 min build + 6 to 16 merge) | 0.93 (56 min; build 43, hand-back 5, merge 7) | about 0.52 |
+| 44.11 step 4 (action classes, cards by class, one write per card, Undo, Done by Pepper), third revision | 5 sub-steps, 1 PR | 1.25 to 2.1 (60 to 110 min build + 8 to 10 docs + 7 PR) | 0.75 (45 min; build 38, merge 7) | about 0.45 |
 
 ## The backlog estimates being tested (22 Nov 2026)
 
@@ -201,3 +202,9 @@ next edit). Cost is estimated from each message's tokens at list prices; cached 
 - **The merge took one CI run** (7 minutes against 29 last step): the agent added the fixture row and the report decision with the new table, and searched the tests for removed names, as the notes from step 2 now say.
 - Cost: about $47 for the agent (the first reading and the docs are the dearest windows, $8 and $13), about $3 for the lead.
 - **Third revision of the scale:** 5 to 10 minutes per sub-step where the code it builds on exists and the area notes are current, 10 to 20 where the plan doesn't look inside the code, plus 8 to 10 minutes for docs and checks per step, and 7 per pull request when the notes' test rules are followed.
+
+### 44.11 step 4 against the third revision (23 Nov 2026)
+
+- Estimated 75 to 127 minutes in all; actual 45: **about 45% of the midpoint**, the second step in a row at about half. Build 38 minutes (6 reading, 5, 7, 2, 4, then 14 for 4e with the full test run, the browser check and the docs), the pull request 7 with CI green first time.
+- The sub-steps the plan described in one line took 2 to 7 minutes each, under even the third revision's 10 to 20. What still takes time: reading at the start (6 minutes, about $7), and the last window (tests over 42 files, a browser check, docs: 14 minutes, about $19).
+- **Fourth revision of the scale, for planned Pepper-first steps on code this session knows:** 3 to 8 minutes a sub-step, plus 6 for reading, 12 to 15 for the full tests, browser check and docs, and 7 for the pull request. A step of five sub-steps is then about 45 minutes. Keep the third revision for an area the notes don't cover yet.
