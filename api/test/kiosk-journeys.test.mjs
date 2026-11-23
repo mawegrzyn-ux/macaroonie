@@ -34,7 +34,11 @@ const today = () => new Date().toISOString().slice(0, 10)
 const DISH = '11111111-1111-4111-8111-111111111111'
 const START = { screen: 'start', section: null, orderType: null, lang: 'en', reach: false, prefs: { avoid: [], diet: [] }, basket: [], builder: null, details: { name: 0, tent: 0 }, value: 0, result: null }
 
-function visit({ started = new Date(Date.now() - 600_000), ordered = true, extra = {} } = {}) {
+// Ten minutes ago, but never before midnight UTC: the report reads today, and a run just after midnight
+// would put the visit on yesterday.
+const recently = () => new Date(Math.max(Date.now() - 600_000, Date.parse(today() + 'T00:00:00.500Z')))
+
+function visit({ started = recently(), ordered = true, extra = {} } = {}) {
   const basket = [{ key: 'A', item_id: DISH, qty: 2, selection: {} }]
   const events = [
     { t: 0, k: 'vp', w: 1080, h: 1920 },
