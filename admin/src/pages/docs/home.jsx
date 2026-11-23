@@ -20,8 +20,9 @@ export function Section() {
       <P>
         <Mono>admin/src/pages/Home.jsx</Mono> (the index route in <Mono>admin/src/routes/shell.jsx</Mono>), for every
         group and role (decision 2: it is the Today feed and a search bar, not a chat; a full-screen conversation is
-        never a landing page). From the top: pins (<Mono>home-pins</Mono>), the greeting with{' '}
-        <Mono>Glance</Mono>, the feed&apos;s <Mono>TaskBoard</Mono> with its <Mono>FormSheet</Mono>, and{' '}
+        never a landing page). From the top (since 23 Nov 2026): the greeting with <Mono>Glance</Mono>{' '}
+        (<Mono>today-greeting</Mono>), the ask bar in a tinted card (<Mono>home-ask</Mono>; the inline input is taller with an
+        accent border), pins (<Mono>home-pins</Mono>), the feed&apos;s <Mono>TaskBoard</Mono> with its <Mono>FormSheet</Mono>, and{' '}
         <Mono>WeekAhead</Mono>, all from <Mono>GET /api/ops/today</Mono> as the Today page drew them (see Today, the
         ops front door); step 5 adds For review below. Its page record is <Mono>/</Mono> in{' '}
         <Mono>shared/nav/shell.js</Mono> (Home, icon <Mono>Home</Mono>, no module: the only page without one), first

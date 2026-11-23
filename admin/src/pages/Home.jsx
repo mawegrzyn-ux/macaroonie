@@ -24,7 +24,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Home as HomeIcon, Sun, Sunrise, Moon, RefreshCw, Thermometer, Flame, ListChecks, AlertTriangle, Truck, Send,
   Wallet, ShoppingBag, ClipboardList, CheckCircle2, ExternalLink, ChevronRight, CalendarDays,
-  Users, Loader2, Info, CloudSun, BarChart3, Pin,
+  Users, Loader2, Info, CloudSun, BarChart3, Pin, Sparkles,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
@@ -32,7 +32,8 @@ import { cn } from '@/lib/utils'
 import { usePepperPage } from '@/lib/pepperPage'
 import { FormSheet, Go } from '@/components/forms/FormSheet'
 import PinStrip from '@/components/home/Pins'
-import AskBar from '@/components/layout/AskBar'
+import AskBar, { useAsk } from '@/components/layout/AskBar'
+import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 export { FormSheet }
 import { addDays } from '@shared/localInfo.js'
@@ -107,6 +108,7 @@ export default function Home() {
   const { text: hello, Icon: HelloIcon } = greeting(d?.now)
   const name = firstName(me)
   const suggestions = useMemo(() => dayAsks(d?.tasks || []), [d?.tasks])
+  const canAskAi = !!useAsk()?.canAskAi
 
   return (
     <div className="h-full flex flex-col overflow-hidden bg-page">
@@ -129,16 +131,6 @@ export default function Home() {
 
       <div className="flex-1 min-h-0 overflow-y-auto" data-testid="home">
         <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-4">
-          <AskBar inline suggestions={suggestions} />
-
-          <section className="rounded-lg border bg-background overflow-hidden" data-testid="home-pins">
-            <div className="section-head px-4 py-2.5 flex items-center gap-2">
-              <Pin className="w-4 h-4 shrink-0" />
-              <h2 className="font-semibold">Your pins</h2>
-            </div>
-            <PinStrip className="p-3" />
-          </section>
-
           <div className="rounded-lg border bg-background p-4 sm:p-5" data-testid="today-greeting">
             <div className="flex items-start gap-3">
               <HelloIcon className="w-7 h-7 text-primary shrink-0 mt-0.5" />
@@ -151,6 +143,22 @@ export default function Home() {
             </div>
             {d && <Glance d={d} />}
           </div>
+
+          {/* The ask bar stands out (the owner, 23 Nov 2026): its own tinted card under the greeting. */}
+          <section className="rounded-xl border-2 border-primary/30 bg-primary/5 p-3 sm:p-4 shadow-sm space-y-2" data-testid="home-ask">
+            <p className="flex items-center gap-2 text-sm font-semibold text-primary px-1">
+              <Sparkles className="w-4 h-4 shrink-0" /> {canAskAi ? 'What do you need? Search or ask ' + ASSISTANT_NAME : 'Find a page'}
+            </p>
+            <AskBar inline suggestions={suggestions} />
+          </section>
+
+          <section className="rounded-lg border bg-background overflow-hidden" data-testid="home-pins">
+            <div className="section-head px-4 py-2.5 flex items-center gap-2">
+              <Pin className="w-4 h-4 shrink-0" />
+              <h2 className="font-semibold">Your pins</h2>
+            </div>
+            <PinStrip className="p-3" />
+          </section>
 
           {feed.isLoading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground py-6 justify-center">

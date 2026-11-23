@@ -13,8 +13,8 @@ export function Section() {
       <H2>Home</H2>
       <P>
         <strong>Home</strong> is the first page you see after signing in, and the first link in the main menu.
-        It is the place to start a shift: the ask bar, your pins, a hello with the day at a glance (bookings and covers,
-        parties of 8 or more, how many people are on the rota, and whether the venue is closed today), then
+        It is the place to start a shift: a hello with the day at a glance (bookings and covers, parties of 8 or
+        more, how many people are on the rota, and whether the venue is closed today), the ask bar, your pins, then
         everything that needs doing at the venue, and the week ahead. Pick the venue at the top right if you
         work at more than one; the page remembers it.
       </P>
@@ -26,7 +26,7 @@ export function Section() {
       </P>
       <H3>The ask bar</H3>
       <P>
-        The box at the top of Home finds a page or asks Pepper. Type a few letters or what you want to do
+        The box under the hello on Home (in its own tinted panel) finds a page or asks Pepper. Type a few letters or what you want to do
         (<strong>&ldquo;rota&rdquo;</strong>, <strong>&ldquo;fridge temperatures&rdquo;</strong>,{' '}
         <strong>&ldquo;change staff pay&rdquo;</strong>) and the pages that fit show straight away, with what
         each is for and where it sits in the menu, then any saved reports whose name fits. Tap one to open
@@ -46,8 +46,7 @@ export function Section() {
       <P>
         The same bar opens over any other page: tap <strong>Search or ask</strong> at the top of the menu (or
         the magnifying glass on the narrow menu), press <strong>Ctrl+K</strong> (Cmd+K on a Mac), or press{' '}
-        <strong>/</strong> when you aren&apos;t typing in a box. On Home those keys go to the bar at the top of
-        the page.
+        <strong>/</strong> when you aren&apos;t typing in a box. On Home those keys go to the bar under the hello.
       </P>
       <H3>Your pins</H3>
       <P>
