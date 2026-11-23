@@ -296,15 +296,16 @@ export default function ChatView({ conversationId, onConversationId, className, 
     onError: setError, onStart: () => setError(null),
     blocked: send.isPending || running || hearing === 'confirm',
   })
-  // A question asked on the phone's home (AskPepperBar), sent here once, as
-  // if typed (or said) in this chat.
-  const asked = useRef(false)
+  // A question asked on the phone's home (AskPepperBar) or in the ask bar,
+  // sent here once, as if typed (or said) in this chat: each ask once (the
+  // chat stays open across asks), and only once a turn still running ends.
+  const asked = useRef(null)
   useEffect(() => {
-    if (!ask?.text || asked.current) return
-    asked.current = true
+    if (!ask?.text || asked.current === ask || send.isPending || running) return
+    asked.current = ask
     onAsked?.()
     submit(ask.text, { voice: !!ask.voice })
-  }, [ask])   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ask, send.isPending, running])   // eslint-disable-line react-hooks/exhaustive-deps
   // After a spoken turn: read the answer aloud (if on for this device), then
   // offer a check card to be confirmed by a spoken yes (if the group allows).
   async function afterSpokenTurn(list) {

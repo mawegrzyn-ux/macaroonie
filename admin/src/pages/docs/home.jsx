@@ -61,8 +61,9 @@ export function Section() {
         one is registered (<Mono>registerInline()</Mono>, the <Mono>inline</Mono> bar) and otherwise opens{' '}
         <Mono>AskOverlay</Mono> (<Mono>ask-overlay</Mono>, closed by a pick, Escape, a tap outside or a page change);{' '}
         <Mono>askPepper(words)</Mono> sets <Mono>pepperAsk</Mono> <Mono>{'{ text, id }'}</Mono> and opens the drawer, whose{' '}
-        <Mono>ask</Mono> starts a new chat (the remembered one is left in the history) and sends the words once that
-        chat is on screen (<Mono>ChatView</Mono>&apos;s <Mono>ask</Mono>, keyed by the ask so a second ask still sends).
+        <Mono>ask</Mono> goes into the remembered chat (a new one when none is remembered), as on the phone&apos;s Pepper page;{' '}
+        <Mono>ChatView</Mono>&apos;s <Mono>ask</Mono> sends each ask once (it remembers the last ask object, so a second ask
+        into the same open chat still sends) and waits while a turn is running.
         Opened by the sidebar&apos;s Search or ask (<Mono>ask-open</Mono>, with a Ctrl K hint off touch screens), the
         collapsed rail&apos;s and the touch rail&apos;s search buttons (<Mono>ask-open-rail</Mono>,{' '}
         <Mono>ask-open-touch</Mono>), and <Mono>isAskShortcut()</Mono>: Ctrl or Cmd+K, or / outside a box, never inside a
