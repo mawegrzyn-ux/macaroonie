@@ -9,8 +9,10 @@
 // task.title names a checklist; values are Pepper's, from the open_form card
 // (step 3b): the panel places them and marks each (./fill.jsx) until the
 // person changes or accepts it, and saves through its own route as on its
-// page. Sold out opens the Online orders window of its own
-// (AvailabilityModal) instead of a sheet: FormOpener picks.
+// page. A form that keeps drafts (shared/forms.js drafts: true) restores the
+// person's unsaved values when it opens and keeps them as they type
+// (./useFormDraft.js, step 3d). Sold out opens the Online orders window of its
+// own (AvailabilityModal) instead of a sheet: FormOpener picks.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -28,6 +30,9 @@ import { RotaGrid, RotaDayList, useRotaPerms } from '@/components/staff/rota'
 import { AvailabilityModal } from '@/components/orders/shared'
 import { FORMS } from '@shared/forms.js'
 import { FormFillProvider } from './fill'
+import { useFormDraft } from './useFormDraft'
+
+const NO_VALUES = {}
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
 
@@ -92,6 +97,15 @@ export function FormSheet({ form, venueId, date, onClose, onSaved, linkFor }) {
   // What was saved while the sheet was open, by key: the latest line per key.
   const savedLines = useRef(new Map())
   const addSaved = useCallback((line, key = line) => { if (line) savedLines.current.set(key, line) }, [])
+  // The person's draft of a form that keeps one (step 3d), with Pepper's values.
+  const draft = useFormDraft({ form: form.form, venueId, day: form.ref?.date ?? form.ref?.week ?? date, pepper: form.values })
+  // A form for one record (a delivery check, an expense): once it is saved,
+  // its values are used up, and the draft goes.
+  const [usedUp, setUsedUp] = useState(false)
+  const panelSaved = useCallback((line, key) => {
+    addSaved(line, key)
+    if (draft.on) { draft.done(); setUsedUp(true) }
+  }, [addSaved, draft])
   const finish = () => {
     const lines = [...savedLines.current.values()]
     if (lines.length) onSaved?.(lines.join('; '))
@@ -132,7 +146,11 @@ export function FormSheet({ form, venueId, date, onClose, onSaved, linkFor }) {
             <X className="w-5 h-5" />
           </button>
         </div>
-        <FormFillProvider values={form.values} onSaved={addSaved}>
+        <FormFillProvider values={usedUp ? NO_VALUES : draft.values} marked={draft.marked}
+          onChange={draft.on ? draft.change : undefined} onSaved={panelSaved}>
+        {!draft.ready ? (
+          <div className="p-8 flex justify-center" data-testid="today-form-draft-loading"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+        ) : (
         <div className="p-3 sm:p-4">
           {form.form === 'temps' && <TempChecksTable venueId={venueId} date={date} />}
           {form.form === 'holds' && <HoldChecksTable venueId={venueId} date={date} />}
@@ -147,6 +165,7 @@ export function FormSheet({ form, venueId, date, onClose, onSaved, linkFor }) {
               showBank={!linkFor} hidePaidOnForAll={!!linkFor} onStateChange={setWages} />
           )}
         </div>
+        )}
         </FormFillProvider>
         <div className="sticky bottom-0 bg-background border-t px-4 py-3 flex flex-wrap items-center justify-end gap-2">
           {asking ? (

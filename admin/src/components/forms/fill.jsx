@@ -26,17 +26,21 @@ import { cn } from '@/lib/utils'
 
 const FillContext = createContext(null)
 
-export function FormFillProvider({ values, onChange, onSaved, children }) {
+// values: what the form starts from (Pepper's, and a draft's: step 3d);
+// marked: the keys whose value is Pepper's (null = every key), so a draft's
+// own values carry no mark. A row key ('readings:...') is marked by its
+// field ('readings').
+export function FormFillProvider({ values, marked = null, onChange, onSaved, children }) {
   const [cleared, setCleared] = useState(() => new Set())
   const clear = useCallback(key => setCleared(s => (s.has(key) ? s : new Set(s).add(key))), [])
   const value = useMemo(() => ({
     values: values || {},
     // Pepper's value for a key is still waiting for the person.
-    filled: key => !cleared.has(key),
+    filled: key => !cleared.has(key) && (!marked || marked.has(String(key).split(':')[0])),
     clear,
     change: (key, v) => onChange?.(key, v),
     saved: (line, key) => onSaved?.(line, key),
-  }), [values, cleared, clear, onChange, onSaved])
+  }), [values, marked, cleared, clear, onChange, onSaved])
   return <FillContext.Provider value={value}>{children}</FillContext.Provider>
 }
 
@@ -54,10 +58,15 @@ export const filledClass = (fill, key, has = true) => (fill && has && fill.fille
  *  goes (a grid cell saves its value there). */
 export function FilledMark({ fill, k, has = true, onAccept, className }) {
   if (!fill || !has || !fill.filled(k)) return null
+  return <PepperMark k={k} className={className} onAccept={() => { onAccept?.(); fill.clear(k) }} />
+}
+
+/** The mark itself, for a panel that keeps Pepper's values its own way (an order's quantities). */
+export function PepperMark({ k, onAccept, className }) {
   return (
     <span className={cn('inline-flex items-center gap-1 text-[11px] font-medium text-violet-700', className)} data-testid="pepper-filled" data-key={k}>
       <Sparkles className="w-3 h-3" /> Filled by Pepper
-      <button type="button" onClick={() => { onAccept?.(); fill.clear(k) }} data-testid="pepper-filled-ok"
+      <button type="button" onClick={onAccept} data-testid="pepper-filled-ok"
         className="ml-1 inline-flex items-center justify-center gap-0.5 rounded border border-violet-300 bg-background px-3 min-h-[48px] min-w-[48px] text-violet-700 hover:bg-violet-100 touch-manipulation">
         <Check className="w-3 h-3" /> OK
       </button>
