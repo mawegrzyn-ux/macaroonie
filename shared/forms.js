@@ -31,16 +31,29 @@
 //   { type: 'date' }                          YYYY-MM-DD
 //   { type: 'time' }                          HH:MM
 //   { type: 'list', max, of: { key: field } } rows of fields
-// Every field has a `label` (the mark and the saved summary use it).
+// Every field has a `label` (the mark and the saved summary use it); a list
+// row's `required` fields must be there, or the row is left out.
 
 export const FORMS = {
   temps: {
     title: 'Fridge and freezer checks', module: 'food_safety', edit: 'use', path: '/food-safety', by: 'date',
-    fields: {},
+    fields: {
+      readings: { type: 'list', max: 40, label: 'Readings', of: {
+        name:  { type: 'text', max: 80, label: 'Fridge or freezer', required: true },
+        temp:  { type: 'number', min: -40, max: 40, measured: true, label: 'Temperature', required: true },
+        check: { type: 'text', max: 40, label: 'Check time' },
+      } },
+    },
   },
   holds: {
     title: 'Hot and cold hold checks', module: 'food_safety', edit: 'use', path: '/food-safety', by: 'date',
-    fields: {},
+    fields: {
+      readings: { type: 'list', max: 40, label: 'Readings', of: {
+        name:  { type: 'text', max: 80, label: 'Hold station', required: true },
+        temp:  { type: 'number', min: -40, max: 120, measured: true, label: 'Temperature', required: true },
+        check: { type: 'text', max: 40, label: 'Check time' },
+      } },
+    },
   },
   cooking: {
     title: 'Cooking checks', module: 'food_safety', edit: 'use', path: '/food-safety', by: 'date',
@@ -48,7 +61,14 @@ export const FORMS = {
   },
   delivery: {
     title: 'Delivery checks', module: 'food_safety', edit: 'use', path: '/food-safety', by: 'date',
-    fields: {},
+    fields: {
+      supplier:          { type: 'text', max: 120, label: 'Supplier' },
+      product_temp:      { type: 'number', min: -40, max: 40, measured: true, label: 'Product temperature' },
+      accepted:          { type: 'bool', label: 'Accepted' },
+      corrective_action: { type: 'text', max: 500, label: 'Corrective action' },
+      notes:             { type: 'text', max: 500, label: 'Notes' },
+    },
+    drafts: true,
   },
   checklist: {
     title: 'Checklist', module: 'checklists', edit: 'use', path: '/checklists', by: 'date',
@@ -64,7 +84,15 @@ export const FORMS = {
   },
   expense: {
     title: 'Expenses', module: 'cash_recon', edit: 'use', path: '/cash-recon', phone: '/mobile/expenses', by: 'date',
-    fields: {},
+    fields: {
+      description:  { type: 'text', max: 200, label: 'Description' },
+      amount:       { type: 'number', min: 0, max: 100000, label: 'Amount' },
+      vat_amount:   { type: 'number', min: 0, max: 100000, label: 'VAT' },
+      category:     { type: 'text', max: 80, label: 'Category' },
+      paid_by_card: { type: 'bool', label: 'Paid by card' },
+      notes:        { type: 'text', max: 500, label: 'Notes' },
+    },
+    drafts: true,
   },
   sold_out: {
     title: 'Sold out', module: 'web_orders', edit: 'manage', path: '/orders', phone: '/mobile/orders', by: null,
@@ -77,3 +105,19 @@ export const FORMS = {
 }
 
 export const FORM_KEYS = Object.keys(FORMS)
+
+/** The forms Pepper may put values into. */
+export const FILLABLE_FORMS = FORM_KEYS.filter(k => Object.keys(FORMS[k].fields).length)
+
+/** A form's fields in a line for Pepper's tool description:
+ *  "supplier, product_temp (measured), accepted (yes/no), ...". */
+export function fieldsLine(fields) {
+  const one = (k, f) => {
+    if (f.type === 'list') return k + ': [{ ' + Object.entries(f.of).map(([kk, ff]) => one(kk, ff)).join(', ') + ' }]'
+    const kind = f.type === 'bool' ? 'yes/no' : f.type === 'enum' ? f.values.join(' | ')
+      : f.type === 'date' ? 'YYYY-MM-DD' : f.type === 'time' ? 'HH:MM' : f.type === 'text' ? '' : f.type
+    const notes = [kind, f.measured ? 'measured' : '', f.required ? 'required' : ''].filter(Boolean)
+    return k + (notes.length ? ' (' + notes.join(', ') + ')' : '')
+  }
+  return Object.entries(fields).map(([k, f]) => one(k, f)).join(', ')
+}

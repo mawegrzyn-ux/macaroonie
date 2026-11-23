@@ -561,6 +561,17 @@ function NavCard({ pages, linkFor }) {
   )
 }
 
+/** What Pepper filled in on a form card, by the fields' labels (a list's rows by their names). */
+function filledLabels(meta, values) {
+  if (!meta || !values) return []
+  return Object.entries(values).flatMap(([k, v]) => {
+    const f = meta.fields?.[k]
+    if (!f) return []
+    if (f.type === 'list') return (Array.isArray(v) ? v : []).map(r => r.name || f.label)
+    return [f.label]
+  })
+}
+
 /** Pepper's form card (open_form, OUTSTANDING 44 item 3): the form, its venue
  *  and day, and Open, which opens the same sheet as the tasks on Home
  *  over the chat. Built by the server from what it found, never from the
@@ -578,6 +589,12 @@ function FormCard({ card, linkFor }) {
       <div className="px-3 py-2 text-sm text-muted-foreground">
         {card.venue}{card.read_only ? ' · read only for you' : ''}
       </div>
+      {filledLabels(meta, card.values).length > 0 && (
+        <p className="px-3 pb-2 text-xs text-violet-700 flex items-start gap-1.5" data-testid="chat-form-filled">
+          <Sparkles className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <span>Filled in by {ASSISTANT_NAME}: {filledLabels(meta, card.values).join(', ')}. Check each one before you save.</span>
+        </p>
+      )}
       <div className="px-3 pb-3">
         <button type="button" onClick={() => { setOpen(true); setOpened(true) }} data-testid="chat-form-open"
           className="w-full min-h-[48px] rounded-md bg-primary text-primary-foreground font-medium text-sm flex items-center justify-center gap-2 touch-manipulation">
@@ -585,7 +602,7 @@ function FormCard({ card, linkFor }) {
         </button>
       </div>
       {open && (
-        <FormOpener form={{ form: card.form, ref: card.ref, task: { title: card.title } }} venueId={card.venue_id}
+        <FormOpener form={{ form: card.form, ref: card.ref, task: { title: card.title }, values: card.values }} venueId={card.venue_id}
           date={card.date} onClose={() => setOpen(false)} linkFor={linkFor} />
       )}
     </div>

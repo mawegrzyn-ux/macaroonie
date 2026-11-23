@@ -207,3 +207,34 @@ export async function asTool(fn) {
     throw err
   }
 }
+
+/**
+ * Which check time a fridge or hold reading is for. Named ("Morning",
+ * "09:00") when the person says; else, today, the latest check time that has
+ * started (the first if none has); on another day it must be named when
+ * there are several. null when the venue has no check times (an extra
+ * reading). `pick` is the name matcher (pickByName with the caller's words
+ * for "none set up"). Used by the H&S logging tools and open_form.
+ */
+export function pickCheckTime(times, wanted, date, venue, pick = pickByName) {
+  if (!times.length) return null
+  const hhmm = t => (t ? String(t).slice(0, 5) : null)
+  const sorted = [...times].sort((a, b) => String(a.time_of_day).localeCompare(String(b.time_of_day)))
+  const label = t => t.label + ' (' + hhmm(t.time_of_day) + ')'
+  if (wanted) {
+    const w = String(wanted).trim()
+    if (/^\d{1,2}:\d{2}$/.test(w)) {
+      const hit = sorted.find(t => hhmm(t.time_of_day) === w.padStart(5, '0'))
+      if (hit) return hit
+      throw new ToolError('No check at ' + w + '. Check times: ' + sorted.map(label).join(', ') + '.', 404)
+    }
+    return pick(sorted, w, t => t.label, 'check time')
+  }
+  const now = localParts(new Date(), venue.timezone)
+  if (date === now.date) {
+    const started = sorted.filter(t => hhmm(t.time_of_day) <= now.time)
+    return started.length ? started[started.length - 1] : sorted[0]
+  }
+  if (sorted.length === 1) return sorted[0]
+  throw new ToolError('Which check is it for? Check times: ' + sorted.map(label).join(', ') + '.', 422)
+}

@@ -810,6 +810,7 @@
     "admin/src/components/ai/ChatView.jsx",
     "admin/src/components/ai/attachments.jsx",
     "admin/src/components/ai/mic.jsx",
+    "admin/src/components/forms/fill.jsx",
     "admin/src/lib/pepperPage.js",
     "admin/src/lib/speech.js",
     "api/src/ai/context.js",

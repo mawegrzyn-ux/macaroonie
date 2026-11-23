@@ -748,6 +748,9 @@ async function turn(ctx, conv, text, attachments, emit, page, voice = false) {
   const files = await claimAttachments(conv, ctx.principal?.sub, attachments)
   if (!files.length && !text) throw new ToolError('Type a message or attach a file.', 422)
   const staff = conv.channel === 'staff_chat'
+  // The person's own words this turn: open_form places a measured value (a
+  // temperature) only when its number is in them (tools/forms.js).
+  ctx.said = text
   const note = staff ? await contextNote(conv.tenant_id, page, ctx) : null
   // Web search: the group's switch, staff chats only, and not while Anthropic
   // is turning the tool down. The message says so when that is news to the chat.

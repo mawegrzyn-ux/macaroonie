@@ -4,9 +4,12 @@
 // page uses and saving through the same routes (docs/CHAT_FIRST.md F1-F9).
 // Opened by the tasks on Home (Home.jsx) and the phone's Today (MobileToday.jsx) and by
 // Pepper's form cards (ChatView.jsx, the open_form tool, OUTSTANDING 44 item
-// 3). `form` is { form, ref, task? }: form is a key of FORMS; ref holds the
-// day (date), the week (week) or the checklist (template); task.title names
-// a checklist. Sold out opens the Online orders window of its own
+// 3). `form` is { form, ref, task?, values? }: form is a key of FORMS; ref
+// holds the day (date), the week (week) or the checklist (template);
+// task.title names a checklist; values are Pepper's, from the open_form card
+// (step 3b): the panel places them and marks each (./fill.jsx) until the
+// person changes or accepts it, and saves through its own route as on its
+// page. Sold out opens the Online orders window of its own
 // (AvailabilityModal) instead of a sheet: FormOpener picks.
 
 import { useEffect, useState } from 'react'
@@ -24,6 +27,7 @@ import { PettyCashPanel } from '@/pages/mobile/MobileExpenses'
 import { RotaGrid, RotaDayList, useRotaPerms } from '@/components/staff/rota'
 import { AvailabilityModal } from '@/components/orders/shared'
 import { FORMS } from '@shared/forms.js'
+import { FormFillProvider } from './fill'
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
 
@@ -99,6 +103,7 @@ export function FormSheet({ form, venueId, date, onClose, linkFor }) {
             <X className="w-5 h-5" />
           </button>
         </div>
+        <FormFillProvider values={form.values}>
         <div className="p-3 sm:p-4">
           {form.form === 'temps' && <TempChecksTable venueId={venueId} date={date} />}
           {form.form === 'holds' && <HoldChecksTable venueId={venueId} date={date} />}
@@ -113,6 +118,7 @@ export function FormSheet({ form, venueId, date, onClose, linkFor }) {
               showBank={!linkFor} hidePaidOnForAll={!!linkFor} onStateChange={setWages} />
           )}
         </div>
+        </FormFillProvider>
         <div className="sticky bottom-0 bg-background border-t px-4 py-3 flex flex-wrap items-center justify-end gap-2">
           {asking ? (
             <>

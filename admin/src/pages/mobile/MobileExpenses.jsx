@@ -18,6 +18,7 @@ import { PaidByCardToggle, CardBadge, useReconWeek, getMonday } from '@/pages/Ca
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { ReadReceiptButton, ReceiptNote } from '@/components/cashRecon/ReceiptRead'
+import { useFormFill, FilledMark, filledClass } from '@/components/forms/fill'
 
 function todayStr() {
   return format(new Date(), 'yyyy-MM-dd')
@@ -27,14 +28,28 @@ function fmt(n) {
   return `£${Number(n || 0).toFixed(2)}`
 }
 
+// A new expense in a form sheet Pepper filled (components/forms/fill.jsx)
+// starts from Pepper's values (description, amount, VAT, category by name,
+// paid by card, notes), each marked until the person changes it or presses OK.
 function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onDelete, isSaving, isDeleting }) {
   const isEdit = !!initial
-  const [description, setDescription] = useState(initial?.description ?? '')
-  const [categoryId, setCategoryId] = useState(initial?.category_id ?? null)
-  const [amount, setAmount] = useState(initial?.amount != null ? String(initial.amount) : '')
-  const [vatAmount, setVatAmount] = useState(initial?.vat_amount != null ? String(initial.vat_amount) : '')
-  const [notes, setNotes] = useState(initial?.notes ?? '')
-  const [paidByCard, setPaidByCard] = useState(!!initial?.paid_by_card)
+  const sheetFill = useFormFill()
+  const fill = isEdit ? null : sheetFill
+  const v = fill?.values || {}
+  const has = key => v[key] !== undefined && v[key] !== null
+  const pepperCat = has('category')
+    ? categories.find(c => c.name.toLowerCase() === String(v.category).toLowerCase())
+      || categories.find(c => c.name.toLowerCase().includes(String(v.category).toLowerCase()))
+    : null
+  const [description, setDescription] = useState(initial?.description ?? v.description ?? '')
+  const [categoryId, setCategoryId] = useState(initial?.category_id ?? pepperCat?.id ?? null)
+  const [amount, setAmount] = useState(initial?.amount != null ? String(initial.amount) : v.amount != null ? String(v.amount) : '')
+  const [vatAmount, setVatAmount] = useState(initial?.vat_amount != null ? String(initial.vat_amount) : v.vat_amount != null ? String(v.vat_amount) : '')
+  const [notes, setNotes] = useState(initial?.notes ?? v.notes ?? '')
+  const [paidByCard, setPaidByCard] = useState(isEdit ? !!initial?.paid_by_card : !!v.paid_by_card)
+  // A field the person changes loses Pepper's mark, and goes into the draft.
+  const edit = (key, set, asValue = x => x) => x => { set(x); fill?.clear(key); fill?.change(key, asValue(x)) }
+  const asNum = x => (x === '' ? null : Number(x))
   const [photo, setPhoto] = useState(null) // { file, preview }
   const [read, setRead] = useState(null)    // what Pepper read off the receipt
   const [onReceiptDay, setOnReceiptDay] = useState(false)
@@ -81,20 +96,20 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
             </label>
           )}
           <div>
-            <label className="block text-sm font-medium mb-1">Description *</label>
-            <input value={description} onChange={e => setDescription(e.target.value)} autoFocus
+            <label className="flex flex-wrap items-center gap-2 text-sm font-medium mb-1">Description * <FilledMark fill={fill} k="description" has={has('description')} /></label>
+            <input value={description} onChange={e => edit('description', setDescription)(e.target.value)} autoFocus
               placeholder="e.g. Bar mop delivery"
-              className="w-full border rounded-lg px-3 py-2.5 text-sm bg-background min-h-[44px]" />
+              className={cn('w-full border rounded-lg px-3 py-2.5 text-sm bg-background min-h-[44px]', filledClass(fill, 'description', has('description')))} />
           </div>
 
           {categories.length > 0 && (
             <div>
-              <label className="block text-sm font-medium mb-1.5">Category</label>
-              <div className="flex flex-wrap gap-1.5">
+              <label className="flex flex-wrap items-center gap-2 text-sm font-medium mb-1.5">Category <FilledMark fill={fill} k="category" has={!!pepperCat} /></label>
+              <div className={cn('flex flex-wrap gap-1.5 rounded-lg', filledClass(fill, 'category', !!pepperCat))}>
                 {categories.map(cat => {
                   const active = categoryId === cat.id
                   return (
-                    <button key={cat.id} type="button" onClick={() => setCategoryId(active ? null : cat.id)}
+                    <button key={cat.id} type="button" onClick={() => edit('category', setCategoryId, id => categories.find(c => c.id === id)?.name ?? null)(active ? null : cat.id)}
                       style={active && cat.colour ? { backgroundColor: cat.colour + '33', borderColor: cat.colour, color: cat.colour } : {}}
                       className={cn(
                         'h-9 px-3 rounded-full text-xs font-medium border touch-manipulation',
@@ -112,23 +127,28 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
             <div>
               <label className="block text-sm font-medium mb-1">Gross amount *</label>
               <input type="number" step="0.01" min="0" inputMode="decimal" value={amount}
-                onChange={e => setAmount(e.target.value)} placeholder="0.00"
-                className="w-full border rounded-lg px-3 py-2.5 text-sm bg-background min-h-[44px] font-mono" />
+                onChange={e => edit('amount', setAmount, asNum)(e.target.value)} placeholder="0.00"
+                className={cn('w-full border rounded-lg px-3 py-2.5 text-sm bg-background min-h-[44px] font-mono', filledClass(fill, 'amount', has('amount')))} />
+              <FilledMark fill={fill} k="amount" has={has('amount')} className="mt-1" />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">VAT amount</label>
               <input type="number" step="0.01" min="0" inputMode="decimal" value={vatAmount}
-                onChange={e => setVatAmount(e.target.value)} placeholder="0.00"
-                className="w-full border rounded-lg px-3 py-2.5 text-sm bg-background min-h-[44px] font-mono" />
+                onChange={e => edit('vat_amount', setVatAmount, asNum)(e.target.value)} placeholder="0.00"
+                className={cn('w-full border rounded-lg px-3 py-2.5 text-sm bg-background min-h-[44px] font-mono', filledClass(fill, 'vat_amount', has('vat_amount')))} />
+              <FilledMark fill={fill} k="vat_amount" has={has('vat_amount')} className="mt-1" />
             </div>
           </div>
 
-          <PaidByCardToggle checked={paidByCard} onChange={setPaidByCard} />
+          <div className={cn('rounded-lg', filledClass(fill, 'paid_by_card', has('paid_by_card')))}>
+            <PaidByCardToggle checked={paidByCard} onChange={edit('paid_by_card', setPaidByCard)} />
+          </div>
+          <FilledMark fill={fill} k="paid_by_card" has={has('paid_by_card')} />
 
           <div>
-            <label className="block text-sm font-medium mb-1">Notes (optional)</label>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
-              className="w-full border rounded-lg px-3 py-2.5 text-sm bg-background resize-none" />
+            <label className="flex flex-wrap items-center gap-2 text-sm font-medium mb-1">Notes (optional) <FilledMark fill={fill} k="notes" has={has('notes')} /></label>
+            <textarea value={notes} onChange={e => edit('notes', setNotes)(e.target.value)} rows={2}
+              className={cn('w-full border rounded-lg px-3 py-2.5 text-sm bg-background resize-none', filledClass(fill, 'notes', has('notes')))} />
           </div>
 
           <div>
@@ -193,7 +213,7 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
 // Create / update / delete for any day of a venue. Refreshes the day query
 // (PettyCashPanel) and week-detail (the week list, week grid and dashboard
 // balance widgets).
-function useExpenseActions(venueId, onDone) {
+function useExpenseActions(venueId, onDone, onSaved = null) {
   const api = useApi()
   const qc = useQueryClient()
   const invalidate = date => {
@@ -210,7 +230,7 @@ function useExpenseActions(venueId, onDone) {
       await upload(created.id, photoFile)
       return created
     },
-    onSuccess: (_, v) => { invalidate(v.date); onDone() },
+    onSuccess: (_, v) => { invalidate(v.date); onDone(); onSaved?.(v.body, false) },
   })
   const update = useMutation({
     mutationFn: async ({ id, body, photoFile }) => {
@@ -218,7 +238,7 @@ function useExpenseActions(venueId, onDone) {
       await upload(id, photoFile)
       return updated
     },
-    onSuccess: (_, v) => { invalidate(v.date); onDone() },
+    onSuccess: (_, v) => { invalidate(v.date); onDone(); onSaved?.(v.body, true) },
   })
   const remove = useMutation({
     mutationFn: ({ id }) => api.delete(`/venues/${venueId}/cash-recon/expenses/${id}`),
@@ -280,8 +300,17 @@ function ExpenseRow({ exp, cat, onClick }) {
 export function PettyCashPanel({ venueId, date }) {
   const api = useApi()
   const { canUse } = usePermission('cash_recon')
+  // In a form sheet with Pepper's values (or a draft), a new expense opens with them.
+  const fill = useFormFill()
   const [target, setTarget] = useState(null) // { date, expense | null }
-  const actions = useExpenseActions(venueId, () => setTarget(null))
+  const opened = useRef(false)
+  useEffect(() => {
+    if (opened.current || !canUse || !fill || !Object.keys(fill.values).length) return
+    opened.current = true
+    setTarget({ date, expense: null })
+  }, [canUse, fill, date])
+  const actions = useExpenseActions(venueId, () => setTarget(null), (body, saved) =>
+    fill?.saved((saved ? 'Changed: ' : '') + body.description + ' ' + fmt(body.amount)))
 
   const { data: config } = useQuery({
     queryKey: ['cash-recon-config', venueId],

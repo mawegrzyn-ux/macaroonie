@@ -24,10 +24,10 @@ function parseSse(body) {
   })
 }
 const quiet = { info() {}, warn() {}, error() {}, debug() {} }
-async function tool(sub, input, channel = 'staff_chat') {
+async function tool(sub, input, channel = 'staff_chat', said = '') {
   const app = await getApp()
   const ctx = makeContext({
-    app, channel, tenantId: ids.a, log: quiet,
+    app, channel, tenantId: ids.a, log: quiet, said,
     auth: { authorization: 'Bearer test:' + sub }, principal: { sub, email: sub + '@test.local' }, actor: sub + '@test.local',
   })
   const t = audienceTools('staff').find(x => x.name === 'open_form')
@@ -46,9 +46,15 @@ test.before(async () => {
 })
 test.after(async () => { await claude.close(); await closeApp() })
 
-test('the forms match the sheet\'s: ten, each with its module', () => {
-  assert.deepEqual(Object.keys(OPEN_FORMS).sort(),
-    ['cash_up', 'checklist', 'cooking', 'delivery', 'expense', 'holds', 'rota_day', 'sold_out', 'temps', 'wages'])
+test('one list with the sheet (shared/forms.js), each form with its module, level and page', async () => {
+  const { FORMS } = await import('../../shared/forms.js')
+  assert.equal(OPEN_FORMS, FORMS, 'open_form reads the shared list itself')
+  for (const k of ['cash_up', 'checklist', 'cooking', 'delivery', 'expense', 'holds', 'rota_day', 'sold_out', 'temps', 'wages']) {
+    assert.ok(OPEN_FORMS[k], k)
+  }
+  for (const [k, f] of Object.entries(OPEN_FORMS)) {
+    assert.ok(f.module && f.path.startsWith('/') && ['use', 'manage'].includes(f.edit) && f.fields, k)
+  }
 })
 
 test('a card per form: the day, the week, the venue', async () => {
@@ -111,4 +117,69 @@ test('in the chat: the card streams and comes back with the conversation, from t
   const item = done.items.find(i => i.type === 'form')
   assert.deepEqual(item, card, 'the stored conversation shows the same card')
   assert.ok(!done.items.some(i => i.type === 'step' && /form/i.test(i.text)), 'no step line for it')
+})
+
+// ── Pepper's values (step 3b) ─────────────────────────────
+
+const fridgeName = () => 'Walk-in'
+
+test('values: unknown fields are left out, the rest go on the card for the sheet', async () => {
+  const r = await tool(A.owner, { form: 'delivery', venue: venueName, values: { supplier: 'Fresh Co', notes: 'Two boxes short', colour: 'red' } })
+  assert.deepEqual(r.form_card.values, { supplier: 'Fresh Co', notes: 'Two boxes short' })
+  assert.match(r.message, /Left out: colour \(not a field/)
+  // A form with no fields takes nothing.
+  const cash = await tool(A.owner, { form: 'cash_up', venue: venueName, values: { notes: 'hi' } })
+  assert.equal(cash.form_card.values, undefined)
+})
+
+test('values: a wrong type or out of range refuses the call', async () => {
+  await assert.rejects(tool(A.owner, { form: 'delivery', venue: venueName, values: { accepted: 'yes' } }), /values\.accepted/)
+  await assert.rejects(tool(A.owner, { form: 'expense', venue: venueName, values: { amount: -5 } }), /values\.amount/)
+  await assert.rejects(tool(A.owner, { form: 'expense', venue: venueName, values: { description: 'x'.repeat(201) } }), /values\.description/)
+  await assert.rejects(tool(A.owner, { form: 'temps', venue: venueName, values: { readings: { name: 'Walk-in' } } }), /list of rows/)
+})
+
+test('values: a measured value only when its number is in the person\'s own words', async () => {
+  const said = 'the walk-in is reading 3 and the delivery came in at 4'
+  const temps = await tool(A.owner, { form: 'temps', venue: venueName, values: { readings: [{ name: fridgeName(), temp: 3 }] } }, 'staff_chat', said)
+  const [reading] = temps.form_card.values.readings
+  assert.equal(reading.temp, 3)
+  assert.match(reading.name, /Walk-in$/, 'the venue\'s own name')
+  assert.ok(reading.equipment_id, 'placed by the server, not the model')
+  // A temperature the person never said is left out, and the row with it.
+  const guessed = await tool(A.owner, { form: 'temps', venue: venueName, values: { readings: [{ name: fridgeName(), temp: 2.5 }] } }, 'staff_chat', said)
+  assert.equal(guessed.form_card.values, undefined)
+  assert.match(guessed.message, /measured value the person didn't say/)
+  const delivery = await tool(A.owner, { form: 'delivery', venue: venueName, values: { supplier: 'Fresh Co', product_temp: 7 } }, 'staff_chat', said)
+  assert.deepEqual(delivery.form_card.values, { supplier: 'Fresh Co' }, 'the guessed temperature is left out, the supplier stays')
+  const stated = await tool(A.owner, { form: 'delivery', venue: venueName, values: { product_temp: 4 } }, 'staff_chat', said)
+  assert.equal(stated.form_card.values.product_temp, 4)
+  const minus = await tool(A.owner, { form: 'delivery', venue: venueName, values: { product_temp: -18 } }, 'staff_chat', 'frozen stuff at minus 18')
+  assert.equal(minus.form_card.values.product_temp, -18)
+  // An amount isn't measured: from a receipt or the person's words.
+  const exp = await tool(A.owner, { form: 'expense', venue: venueName, values: { description: 'Milk', amount: 4.2 } })
+  assert.deepEqual(exp.form_card.values, { description: 'Milk', amount: 4.2 })
+})
+
+test('values: an unknown fridge is left out with the reason; read only takes no values', async () => {
+  const r = await tool(A.owner, { form: 'temps', venue: venueName, values: { readings: [{ name: 'No such fridge', temp: 3 }] } }, 'staff_chat', '3')
+  assert.equal(r.form_card.values, undefined)
+  assert.match(r.message, /No such fridge \(No fridge or freezer called/)
+  const viewer = await tool(A.viewer, { form: 'temps', venue: venueName, values: { readings: [{ name: fridgeName(), temp: 3 }] } }, 'staff_chat', '3')
+  assert.equal(viewer.form_card.read_only, true)
+  assert.equal(viewer.form_card.values, undefined)
+})
+
+test('in the chat: the person\'s words decide the measured values, and the card keeps them', async () => {
+  claude.script.push(
+    () => ({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_f2', name: 'open_form',
+      input: { form: 'temps', venue: venueName, values: { readings: [{ name: fridgeName(), temp: 4 }, { name: fridgeName(), temp: 9 }] } } }] }),
+    () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'The form is ready.' }] }),
+  )
+  const res = await as(A.owner, ids.a).post('/api/ai/chat', { message: 'open the fridge checks, the walk-in is 4' }, { accept: 'text/event-stream' })
+  const events = parseSse(res.body)
+  const card = events.find(e => e.type === 'card')?.card
+  assert.deepEqual(card.form.values.readings.map(r => r.temp), [4], 'the 9 nobody said is left out')
+  const done = events[events.length - 1]
+  assert.deepEqual(done.items.find(i => i.type === 'form'), card)
 })

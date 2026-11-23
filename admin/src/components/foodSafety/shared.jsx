@@ -21,6 +21,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
+import { useFormFill, FilledMark, FILLED_CLASS, filledClass } from '@/components/forms/fill'
 
 const AUTOSAVE_DEBOUNCE_MS = 600
 
@@ -146,22 +147,29 @@ export function Badge({ ok, children }) {
 // flagged red; once a corrective action has been recorded (via the
 // end-of-day review, see EndOfDayReview below) it's flagged amber instead,
 // so the "still needs attention" cases stay visually distinct.
-export function TempCell({ equipment, captureTime, existingLog, onSave, isSaving, readOnly }) {
+// In a form sheet Pepper filled (components/forms/fill.jsx), `proposed` is
+// the reading the person said: shown marked, saved only when they press OK or
+// change it, never by being placed.
+export function TempCell({ equipment, captureTime, existingLog, onSave, isSaving, readOnly, proposed = null, fill = null, fillKey = null }) {
+  const pending = proposed != null && !!fill && fill.filled(fillKey)
+  const pendingRef = useRef(pending)
+  pendingRef.current = pending
   // Pre-fill with the lower end of the equipment's normal range (rather
   // than leaving the field blank behind a ghost placeholder) so the
   // operator starts from a plausible passing reading and only needs to
   // nudge the +/- steppers or overtype it — this is a display default
   // only, nothing is saved until the field is actually touched (typed
   // into, stepped, or blurred), so an untouched cell still has no log row.
-  const [value, setValue] = useState(() =>
-    existingLog?.temperature_c != null ? String(existingLog.temperature_c)
+  const [value, setValue] = useState(() => pending ? String(proposed)
+    : existingLog?.temperature_c != null ? String(existingLog.temperature_c)
       : (equipment.min_temp_c != null ? String(equipment.min_temp_c) : ''))
   const timerRef = useRef(null)
 
   // Resync from the server value after a save round-trips — but never
   // while the operator is mid-edit, since this effect only fires when the
-  // *existing log itself* changes.
+  // *existing log itself* changes, nor over Pepper's reading still waiting.
   useEffect(() => {
+    if (pendingRef.current) return
     setValue(existingLog?.temperature_c != null ? String(existingLog.temperature_c)
       : (equipment.min_temp_c != null ? String(equipment.min_temp_c) : ''))
   }, [existingLog?.id, existingLog?.temperature_c, equipment.min_temp_c])
@@ -172,6 +180,7 @@ export function TempCell({ equipment, captureTime, existingLog, onSave, isSaving
     if (raw === '') return
     const temp = Number(raw)
     if (Number.isNaN(temp)) return
+    if (pendingRef.current) fill.clear(fillKey)
     onSave({
       venue_id: equipment.venue_id,
       equipment_id: equipment.id,
@@ -211,12 +220,14 @@ export function TempCell({ equipment, captureTime, existingLog, onSave, isSaving
     'w-16 text-center text-sm font-semibold border rounded-lg px-1 py-2 bg-background min-h-[40px] touch-manipulation',
     unresolved && 'border-red-400 bg-red-50 text-red-700',
     resolved && 'border-amber-300 bg-amber-50 text-amber-700',
+    pending && FILLED_CLASS,
     isSaving && 'opacity-60',
   )
   const cellTitle = resolved ? `Out of range — corrective action logged: ${existingLog.corrective_action}` : undefined
   if (readOnly) return <ReadingDisplay log={existingLog} />
 
   return (
+    <div className="flex flex-col items-start gap-1">
     <div className="flex items-center gap-1">
       <button type="button" onClick={() => bump(-0.5)}
         className="w-10 h-10 shrink-0 rounded-lg border flex items-center justify-center hover:bg-accent touch-manipulation"
@@ -260,6 +271,8 @@ export function TempCell({ equipment, captureTime, existingLog, onSave, isSaving
         />
       )}
     </div>
+    <FilledMark fill={fill} k={fillKey} has={pending} onAccept={() => attemptSave(value)} />
+    </div>
   )
 }
 
@@ -273,6 +286,10 @@ export function TempChecksTable({ venueId, date, emptyState, showType = true }) 
   const api = useApi()
   const qc = useQueryClient()
   const readOnly = useFoodSafetyReadOnly()
+  // Pepper's readings in a form sheet (components/forms/fill.jsx), by fridge and check time.
+  const fill = useFormFill()
+  const proposalOf = (eqId, ctId) => (fill?.values?.readings || [])
+    .find(r => r.equipment_id === eqId && (r.capture_time_id ?? null) === (ctId ?? null))
 
   const enabled = !!venueId
 
@@ -294,7 +311,11 @@ export function TempChecksTable({ venueId, date, emptyState, showType = true }) 
 
   const createTemp = useMutation({
     mutationFn: body => api.post('/food-safety/temp-logs', body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['fs-temp-logs', venueId, date] }),
+    onSuccess: (_, body) => {
+      qc.invalidateQueries({ queryKey: ['fs-temp-logs', venueId, date] })
+      const eq = equipment.find(e => e.id === body.equipment_id)
+      fill?.saved((eq?.name || 'Reading') + ' ' + body.temperature_c + '°C')
+    },
   })
 
   if (!enabled) return null
@@ -343,6 +364,9 @@ export function TempChecksTable({ venueId, date, emptyState, showType = true }) 
                       onSave={body => createTemp.mutate(body)}
                       isSaving={createTemp.isPending}
                       readOnly={readOnly}
+                      proposed={proposalOf(eq.id, ct?.id)?.temp ?? null}
+                      fill={fill}
+                      fillKey={'readings:' + eq.id + ':' + (ct?.id ?? '')}
                     />
                   </td>
                 )
@@ -357,16 +381,23 @@ export function TempChecksTable({ venueId, date, emptyState, showType = true }) 
 
 // ── Delivery checks ─────────────────────────────────────────────
 
-export function DeliveryModal({ venueId, onClose, onSave, isSaving }) {
-  const [vendor, setVendor] = useState('')
+// In a form sheet Pepper filled (fill, components/forms/fill.jsx) it starts
+// from Pepper's values (supplier, product_temp, accepted, corrective_action,
+// notes), each marked until the person changes it or presses OK.
+export function DeliveryModal({ venueId, onClose, onSave, isSaving, fill = null }) {
+  const v = fill?.values || {}
+  const [vendor, setVendor] = useState(v.supplier ?? '')
   const [packaging, setPackaging] = useState(true)
   const [damage, setDamage] = useState(true)
   const [quality, setQuality] = useState(true)
   const [tempOk, setTempOk] = useState(true)
-  const [prodTemp, setProdTemp] = useState('')
-  const [accepted, setAccepted] = useState(true)
-  const [action, setAction] = useState('')
-  const [notes, setNotes] = useState('')
+  const [prodTemp, setProdTemp] = useState(v.product_temp != null ? String(v.product_temp) : '')
+  const [accepted, setAccepted] = useState(v.accepted ?? true)
+  const [action, setAction] = useState(v.corrective_action ?? '')
+  const [notes, setNotes] = useState(v.notes ?? '')
+  // A field the person changes loses Pepper's mark, and goes into the draft.
+  const edit = (key, set, asValue = x => x) => x => { set(x); fill?.clear(key); fill?.change(key, asValue(x)) }
+  const has = key => v[key] !== undefined && v[key] !== null
 
   function submit(e) {
     e.preventDefault()
@@ -401,9 +432,9 @@ export function DeliveryModal({ venueId, onClose, onSave, isSaving }) {
         </div>
         <form onSubmit={submit} className="space-y-3">
           <div>
-            <label className="block text-sm font-medium mb-1">Vendor *</label>
-            <input value={vendor} onChange={e => setVendor(e.target.value)} required
-              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" placeholder="Supplier name" />
+            <label className="flex flex-wrap items-center gap-2 text-sm font-medium mb-1">Vendor * <FilledMark fill={fill} k="supplier" has={has('supplier')} /></label>
+            <input value={vendor} onChange={e => edit('supplier', setVendor)(e.target.value)} required
+              className={cn('w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]', filledClass(fill, 'supplier', has('supplier')))} placeholder="Supplier name" />
           </div>
           <div className="space-y-2 border rounded p-3">
             <p className="text-xs font-medium text-muted-foreground uppercase">Quality ticks</p>
@@ -413,23 +444,27 @@ export function DeliveryModal({ venueId, onClose, onSave, isSaving }) {
             <Tick label="Temperature OK" value={tempOk} onChange={setTempOk} />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Product temp °C</label>
-            <input type="number" step="0.1" value={prodTemp} onChange={e => setProdTemp(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
+            <label className="flex flex-wrap items-center gap-2 text-sm font-medium mb-1">Product temp °C <FilledMark fill={fill} k="product_temp" has={has('product_temp')} /></label>
+            <input type="number" step="0.1" value={prodTemp}
+              onChange={e => edit('product_temp', setProdTemp, x => (x === '' ? null : Number(x)))(e.target.value)}
+              className={cn('w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]', filledClass(fill, 'product_temp', has('product_temp')))} />
           </div>
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} className="rounded" />
-            Accepted
-          </label>
-          <div>
-            <label className="block text-sm font-medium mb-1">Corrective action</label>
-            <input value={action} onChange={e => setAction(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
+          <div className="flex flex-wrap items-center gap-2">
+            <label className={cn('flex items-center gap-2 text-sm cursor-pointer rounded px-1', filledClass(fill, 'accepted', has('accepted')))}>
+              <input type="checkbox" checked={accepted} onChange={e => edit('accepted', setAccepted)(e.target.checked)} className="rounded" />
+              Accepted
+            </label>
+            <FilledMark fill={fill} k="accepted" has={has('accepted')} />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Notes</label>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
-              className="w-full border rounded px-3 py-2 text-sm bg-background resize-none" />
+            <label className="flex flex-wrap items-center gap-2 text-sm font-medium mb-1">Corrective action <FilledMark fill={fill} k="corrective_action" has={has('corrective_action')} /></label>
+            <input value={action} onChange={e => edit('corrective_action', setAction)(e.target.value)}
+              className={cn('w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]', filledClass(fill, 'corrective_action', has('corrective_action')))} />
+          </div>
+          <div>
+            <label className="flex flex-wrap items-center gap-2 text-sm font-medium mb-1">Notes <FilledMark fill={fill} k="notes" has={has('notes')} /></label>
+            <textarea value={notes} onChange={e => edit('notes', setNotes)(e.target.value)} rows={2}
+              className={cn('w-full border rounded px-3 py-2 text-sm bg-background resize-none', filledClass(fill, 'notes', has('notes')))} />
           </div>
           <div className="flex gap-2 pt-2">
             <button type="submit" disabled={isSaving || !vendor.trim()}
@@ -452,7 +487,15 @@ export function DeliveryChecksPanel({ venueId, date, emptyState }) {
   const api = useApi()
   const qc = useQueryClient()
   const readOnly = useFoodSafetyReadOnly()
+  // In a form sheet with Pepper's values (or a draft), the new check opens with them.
+  const fill = useFormFill()
   const [showModal, setShowModal] = useState(false)
+  const opened = useRef(false)
+  useEffect(() => {
+    if (opened.current || readOnly || !fill || !Object.keys(fill.values).length) return
+    opened.current = true
+    setShowModal(true)
+  }, [readOnly, fill])
 
   const enabled = !!venueId
   const { data: deliveries = [], isLoading } = useQuery({
@@ -462,10 +505,13 @@ export function DeliveryChecksPanel({ venueId, date, emptyState }) {
   })
 
   const createDelivery = useMutation({
-    mutationFn: body => api.post('/food-safety/deliveries', body),
-    onSuccess: () => {
+    // The panel's own day: without it the route takes the server's (UTC) date.
+    mutationFn: body => api.post('/food-safety/deliveries', { delivery_date: date, ...body }),
+    onSuccess: (_, body) => {
       qc.invalidateQueries({ queryKey: ['fs-deliveries', venueId, date] })
       setShowModal(false)
+      fill?.saved(body.vendor_name + ': ' + (body.accepted ? 'accepted' : 'rejected') +
+        (body.product_temp_c != null ? ', ' + body.product_temp_c + '°C' : ''))
     },
   })
 
@@ -525,6 +571,7 @@ export function DeliveryChecksPanel({ venueId, date, emptyState }) {
           onClose={() => setShowModal(false)}
           onSave={body => createDelivery.mutate(body)}
           isSaving={createDelivery.isPending}
+          fill={fill}
         />
       )}
     </>
@@ -899,14 +946,19 @@ export function HoldCaptureTimeModal({ initial, venueId, onClose, onSave, isSavi
 // One hold station × capture-time cell — identical interaction to TempCell
 // (autosave on type/stepper, debounced, out-of-range saves immediately —
 // see the note on TempCell) but posts station_id instead of equipment_id.
-function HoldCell({ station, captureTime, existingLog, onSave, isSaving, readOnly }) {
+function HoldCell({ station, captureTime, existingLog, onSave, isSaving, readOnly, proposed = null, fill = null, fillKey = null }) {
+  // Pepper's reading waits for OK or a change, as in TempCell.
+  const pending = proposed != null && !!fill && fill.filled(fillKey)
+  const pendingRef = useRef(pending)
+  pendingRef.current = pending
   // Same lower-end-of-range pre-fill as TempCell — see its comment.
-  const [value, setValue] = useState(() =>
-    existingLog?.temperature_c != null ? String(existingLog.temperature_c)
+  const [value, setValue] = useState(() => pending ? String(proposed)
+    : existingLog?.temperature_c != null ? String(existingLog.temperature_c)
       : (station.min_temp_c != null ? String(station.min_temp_c) : ''))
   const timerRef = useRef(null)
 
   useEffect(() => {
+    if (pendingRef.current) return
     setValue(existingLog?.temperature_c != null ? String(existingLog.temperature_c)
       : (station.min_temp_c != null ? String(station.min_temp_c) : ''))
   }, [existingLog?.id, existingLog?.temperature_c, station.min_temp_c])
@@ -917,6 +969,7 @@ function HoldCell({ station, captureTime, existingLog, onSave, isSaving, readOnl
     if (raw === '') return
     const temp = Number(raw)
     if (Number.isNaN(temp)) return
+    if (pendingRef.current) fill.clear(fillKey)
     onSave({
       venue_id: station.venue_id,
       station_id: station.id,
@@ -952,12 +1005,14 @@ function HoldCell({ station, captureTime, existingLog, onSave, isSaving, readOnl
     'w-16 text-center text-sm font-semibold border rounded-lg px-1 py-2 bg-background min-h-[40px] touch-manipulation',
     unresolved && 'border-red-400 bg-red-50 text-red-700',
     resolved && 'border-amber-300 bg-amber-50 text-amber-700',
+    pending && FILLED_CLASS,
     isSaving && 'opacity-60',
   )
   const cellTitle = resolved ? `Out of range — corrective action logged: ${existingLog.corrective_action}` : undefined
   if (readOnly) return <ReadingDisplay log={existingLog} />
 
   return (
+    <div className="flex flex-col items-start gap-1">
     <div className="flex items-center gap-1">
       <button type="button" onClick={() => bump(-0.5)}
         className="w-10 h-10 shrink-0 rounded-lg border flex items-center justify-center hover:bg-accent touch-manipulation"
@@ -998,6 +1053,8 @@ function HoldCell({ station, captureTime, existingLog, onSave, isSaving, readOnl
         />
       )}
     </div>
+    <FilledMark fill={fill} k={fillKey} has={pending} onAccept={() => attemptSave(value)} />
+    </div>
   )
 }
 
@@ -1009,6 +1066,10 @@ export function HoldChecksTable({ venueId, date, emptyState, showType = true }) 
   const api = useApi()
   const qc = useQueryClient()
   const readOnly = useFoodSafetyReadOnly()
+  // Pepper's readings in a form sheet, by station and check time (as TempChecksTable).
+  const fill = useFormFill()
+  const proposalOf = (stId, ctId) => (fill?.values?.readings || [])
+    .find(r => r.station_id === stId && (r.capture_time_id ?? null) === (ctId ?? null))
 
   const enabled = !!venueId
 
@@ -1030,7 +1091,11 @@ export function HoldChecksTable({ venueId, date, emptyState, showType = true }) 
 
   const createHold = useMutation({
     mutationFn: body => api.post('/food-safety/holds', body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['fs-holds', venueId, date] }),
+    onSuccess: (_, body) => {
+      qc.invalidateQueries({ queryKey: ['fs-holds', venueId, date] })
+      const st = stations.find(x => x.id === body.station_id)
+      fill?.saved((st?.name || 'Reading') + ' ' + body.temperature_c + '°C')
+    },
   })
 
   if (!enabled) return null
@@ -1076,6 +1141,9 @@ export function HoldChecksTable({ venueId, date, emptyState, showType = true }) 
                       onSave={body => createHold.mutate(body)}
                       isSaving={createHold.isPending}
                       readOnly={readOnly}
+                      proposed={proposalOf(st.id, ct?.id)?.temp ?? null}
+                      fill={fill}
+                      fillKey={'readings:' + st.id + ':' + (ct?.id ?? '')}
                     />
                   </td>
                 )
