@@ -14,7 +14,7 @@ export function Section() {
       <H2>Usage record</H2>
       <P>
         Macaroonie keeps a short record of which pages each person opens and what they type in
-        the <strong>Search the menu</strong> box, so the group can see which pages are used and
+        the <strong>ask bar</strong> (Search or ask), so the group can see which pages are used and
         how often a search is handed to Pepper. It is sent quietly in the background:
         nothing on a page waits for it, and if it can't be sent it is simply skipped.
       </P>
@@ -23,7 +23,7 @@ export function Section() {
         head={['When', 'What is kept']}
         rows={[
           ['You open a page', 'The page (its address without anything after a ?, and with record numbers left out), and when.'],
-          ['You search the menu', 'The words you typed last, how many of the menu\'s own links fitted them, whether you pressed Enter or the Pepper button to hand them to Pepper, and what you then opened: a menu link, a saved report, one of Pepper\'s picks, or nothing.'],
+          ['You search in the ask bar', 'The words you typed last, how many of the menu\'s own pages fitted them, whether you handed them to Pepper (Enter, the Ask button, the Ask Pepper row or an ask under the bar), and what you then opened from the bar: a page, a saved report, or nothing.'],
         ]}
       />
       <P>The record is kept for 90 days, then deleted.</P>

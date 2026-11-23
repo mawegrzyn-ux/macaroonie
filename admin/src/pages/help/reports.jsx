@@ -391,9 +391,9 @@ export function Section() {
         building, sharing and schedules stay on the office pages.
       </P>
       <P>
-        <strong>In the menu search:</strong> typing in the search box at the top of the menu also lists
-        reports you can run whose name or description has your words, under <strong>Reports</strong>:
-        your own and your team&apos;s, and the starters you have starred.
+        <strong>In the ask bar:</strong> typing in the ask bar (on Home, or Search or ask at the top of
+        the menu) also lists reports you can run whose name or description has your words, under{' '}
+        <strong>Saved reports</strong>: your own and your team&apos;s, and the starters you have starred.
       </P>
       <P>
         <strong>On Today:</strong> tick <strong>Also raise a task on Today</strong> in a schedule&apos;s window and

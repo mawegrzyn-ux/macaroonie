@@ -1,17 +1,17 @@
 // src/pages/docs/navigation.jsx
-// The Docs page's "Navigation & Launcher" section. Docs.jsx gathers every file in this
+// The Docs page's "Navigation" section. Docs.jsx gathers every file in this
 // folder (except parts.jsx) and shows them by order, then id.
 import { H2, H3, P, Mono, DataTable, InfoBox } from './parts.jsx'
 
 export const id = 'navigation'
-export const label = 'Navigation & Launcher'
+export const label = 'Navigation'
 export const order = 230
 
 // ── NAVIGATION & LAUNCHER ───────────────────────
 export function Section() {
   return (
     <section id="navigation" data-doc="">
-      <H2>Navigation &amp; Launcher</H2>
+      <H2>Navigation</H2>
       <P>
         Migration 091 replaces the previously-hardcoded <Mono>NAV_SECTIONS</Mono> array in
         <Mono> AppShell.jsx</Mono> with an admin-configurable, arbitrary-depth tree per
@@ -22,8 +22,7 @@ export function Section() {
       <DataTable
         head={['Table / column', 'Purpose']}
         rows={[
-          ['nav_items', 'Self-referencing tree (parent_id → nav_items.id, ON DELETE CASCADE). kind is \'section\' (pure grouping label, no route) or \'link\' (route required). module ties an item to the existing tenant_modules/tenant_roles permission system. hidden_role_ids uuid[] is an ADDITIONAL hide on top of module gating. show_in_launcher + launcher_sort_order mark items that also appear as quick-access tiles.'],
-          ['tenants.nav_style', "'sidebar' (default) or 'launcher' — tenant-wide, toggled via PATCH /api/nav/style."],
+          ['nav_items', 'Self-referencing tree (parent_id → nav_items.id, ON DELETE CASCADE). kind is \'section\' (pure grouping label, no route) or \'link\' (route required). module ties an item to the existing tenant_modules/tenant_roles permission system. hidden_role_ids uuid[] is an ADDITIONAL hide on top of module gating. (show_in_launcher and launcher_sort_order, the Launcher\'s tiles, were dropped by migration 274.)'],
           ['nav_items.description', 'Migration 241. The entry\'s own words on what it is for, at most 260 characters (CHECK nav_items_description_len). NULL = the page\'s standard description from shared/navSearch.js. See Descriptions below.'],
         ]}
       />
@@ -40,16 +39,15 @@ export function Section() {
           ['POST', '/items', 'Create a section or link. New items land at the end of their sibling list.'],
           ['PATCH', '/items/reorder', 'Body { parent_id, ids } — re-sequences sort_order for one sibling list (move up/down).'],
           ['PATCH', '/items/:id/reparent', 'Body { parent_id, index } — moves an item to a new parent at a position. Used for both "indent" (new parent = previous sibling) and "outdent" (new parent = grandparent) from the frontend.'],
-          ['PATCH', '/items/:id', 'Generic field update (label, icon, route, module, description, hidden_role_ids, show_in_launcher, is_active, …). description (also on POST) is trimmed, an empty one becomes null (= the standard words), and one over 260 characters is a 400.'],
+          ['PATCH', '/items/:id', 'Generic field update (label, icon, route, module, description, hidden_role_ids, is_active, …). description (also on POST) is trimmed, an empty one becomes null (= the standard words), and one over 260 characters is a 400.'],
           ['DELETE', '/items/:id', 'Hard delete — children cascade via the FK.'],
           ['POST', '/reset', 'Deletes every nav_items row for the tenant and re-seeds via seedDefaultNav().'],
-          ['PATCH', '/style', 'Body { nav_style } — sidebar ↔ launcher.'],
         ]}
       />
       <H3>The menu search</H3>
       <P>
-        The sidebar&apos;s search box (8 Nov 2026) narrows the menu to the links that fit what
-        was typed. The rules are one shared file, <Mono>shared/navSearch.js</Mono>:{' '}
+        The menu search (8 Nov 2026; since Pepper-first step 2c it is the ask bar, see Home, pins and
+        the ask bar) finds the links that fit what was typed. The rules are one shared file, <Mono>shared/navSearch.js</Mono>:{' '}
         <Mono>searchTerms()</Mono> splits the query into words and drops filler
         (<Mono>STOP_WORDS</Mono> — articles, question words and doing-words like
         <Mono> change</Mono>/<Mono>edit</Mono>; when every word is filler the words themselves
@@ -75,58 +73,20 @@ export function Section() {
         the platform-admin pages that live outside the catalogue.
       </P>
       <P>
-        The UI is <Mono>admin/src/components/layout/NavSearch.jsx</Mono> (input + results
-        list), wired in <Mono>AppShell.jsx</Mono>: it searches the role-pruned{' '}
-        <Mono>nav_tree</Mono> (so results never offer a page the person can&apos;t open, and it
-        works in launcher mode too), appends a Platform section for platform admins, clears on
-        Escape or the &times;, and (without Pepper) opens the best match on Enter. The collapsed icon rail and the touch burger rail
-        each have a search button that opens the sidebar with the box focused. Tests:{' '}
+        The UI is the ask bar, <Mono>admin/src/components/layout/AskBar.jsx</Mono>: it searches the role-pruned{' '}
+        <Mono>nav_tree</Mono> (so results never offer a page the person can&apos;t open) with a Platform section
+        added for platform admins (<Mono>searchTreeOf()</Mono>). Tests:{' '}
         <Mono>shared/test/navSearch.test.mjs</Mono> (terms, matching, ranking), plus a drift
         check in <Mono>api/test/nav-default.test.mjs</Mono> — every catalogue route must have
         keywords and no keyword entry may point at a route that is gone, so a new page
         can&apos;t ship without search words.
       </P>
-      <H3>Pepper in the menu search</H3>
       <P>
-        With Pepper (9 Nov 2026), typing still filters locally with no AI; <strong>Enter</strong>{' '}
-        or the Pepper button inside the box calls <Mono>POST /api/ai/nav-search</Mono>{' '}
-        <Mono>{'{ query }'}</Mono> (<Mono>routes/navAi.js</Mono>, under <Mono>/api/ai</Mono> for the
-        proxy timeout; <Mono>requireAuth</Mono> + <Mono>ai_assistant</Mono> view,{' '}
-        <Mono>pepperOn()</Mono>, 20 a minute). The server builds the caller&apos;s own menu with{' '}
-        <Mono>navTreeFor(req)</Mono> (<Mono>services/navTree.js</Mono>: <Mono>nav_items</Mono>{' '}
-        pruned exactly as <Mono>/api/me</Mono> prunes them, now sharing{' '}
-        <Mono>navItemVisible()</Mono> / <Mono>buildNavTree()</Mono> / <Mono>pruneNavTree()</Mono>{' '}
-        with it), flattens it with <Mono>navLinksOf()</Mono>, adds Platform and Backlog for
-        platform admins, and offers each link once as a ref (<Mono>L1</Mono>,{' '}
-        <Mono>L2</Mono>, …) with its label, where it sits, what the page is for (its description,
-        since migration 241) and its <Mono>NAV_KEYWORDS</Mono>: one line per link from{' '}
-        <Mono>linkLines()</Mono>, <Mono>{'L1 | label | in: place | about: description | covers: words'}</Mono>,
-        with line breaks flattened and <Mono>|</Mono> turned into <Mono>/</Mono> in every field, so
-        a description a group typed can&apos;t start a new link line or add a field.{' '}
-        <Mono>askForJson()</Mono> runs with <Mono>model: &apos;fast&apos;</Mono>{' '}
-        (<Mono>AI_MODEL_FAST</Mono>), effort low and <Mono>NAV_SEARCH_SCHEMA</Mono>{' '}
-        (<Mono>{'{ picks: [{ ref, why }], note }'}</Mono>); <Mono>picksFrom()</Mono> maps refs
-        back onto the links, dropping unknown refs and repeats, at most{' '}
-        <Mono>MAX_PICKS</Mono> (5), reasons cut to 140 and the note to 400 characters. Reply:{' '}
-        <Mono>{'{ picks: [{ label, route, icon, path, why }], note }'}</Mono>. The model never
-        sees or returns a route, so it can&apos;t send anyone to a page outside their menu. Usage
-        is counted like every Pepper call (<Mono>addUsage()</Mono> with the person, against the
-        monthly allowance and the daily share).
-      </P>
-      <P>
-        Admin: <Mono>usePepperNavSearch()</Mono> in <Mono>NavSearch.jsx</Mono> keeps one answer
-        for the query it was asked about (<Mono>forQuery(q)</Mono>; a slower answer to an
-        earlier query is ignored), <Mono>NavSearchInput</Mono> gets the Pepper button
-        (<Mono>nav-search-pepper</Mono>, a spinner while asking) and the Enter rule (Pepper&apos;s
-        answer on screen: open its first pick; otherwise ask), and{' '}
-        <Mono>PepperNavResults</Mono> draws the picks (<Mono>nav-pepper-pick</Mono>,{' '}
-        <Mono>nav-pepper-why</Mono>), the note (<Mono>nav-pepper-note</Mono>), Ask in the chat
-        when nothing fits, Show the menu&apos;s own matches, and the loading and error states.
-        The local results show a hint line (<Mono>nav-search-hint</Mono>); the no-match state&apos;s
-        button now asks Pepper to find it. Tests: <Mono>api/test/nav-search-ai.test.mjs</Mono>{' '}
-        (the exact links <Mono>/api/me</Mono> gives the person, picks back as links, the
-        everyday model, usage, a role&apos;s pages never leaking, platform pages, refusals,
-        tenants apart).
+        Pepper&apos;s own menu search (9 Nov 2026: <Mono>POST /api/ai/nav-search</Mono>,{' '}
+        <Mono>routes/navAi.js</Mono>, picks from refs L1..Ln on the everyday model, shown in the sidebar as
+        Pepper&apos;s picks) was retired with step 2c: one of the three page matchers the strategy made into one.
+        Enter in the ask bar now hands the words to Pepper&apos;s chat, whose <Mono>open_page</Mono> finds pages with
+        the same <Mono>searchNavTree()</Mono> and answers with a nav card.
       </P>
       <H3>Descriptions</H3>
       <P>
@@ -148,10 +108,10 @@ export function Section() {
         head={['Where', 'What happens']}
         rows={[
           ['Search (matchLink())', 'A term counts once, at the best place it hits: the link\'s own name 4, its page\'s search words or route 3, its description 2, a section above it 1 (SEARCH_WEIGHTS), each 0.5 less when the hit is another form of the word (a plural). Every term must hit somewhere. Results sort by score, then by how many terms are in the link\'s own name (labelHits), then by name. A section\'s description is shown, never searched through its links.'],
-          ['Results (NavSearch.jsx)', 'Name (nav-search-label, wraps), the description under it (nav-search-description, three lines at most, the whole of it in its tooltip), then where the link sits (nav-search-place, from placeText(): a name said once when a section and the link under it share it).'],
+          ['Results (AskBar.jsx)', 'Name (ask-result-label, wraps), the description under it (two lines at most, the whole of it in its tooltip), then where the link sits (ask-result-place, from placeText(): a name said once when a section and the link under it share it).'],
           ['Sidebar (AppShell.jsx)', 'A link\'s or section\'s tooltip is its description (toNavItem()).'],
           ['Navigation designer', 'Each row shows the description (nav-row-description, data-own when it is the entry\'s own words). The add / edit form has a Description box (nav-description) with the page\'s standard words as its placeholder, a counter to 260 (nav-description-count), a hint (nav-description-hint) and Use the standard words (nav-description-standard). Save waits while it is too long.'],
-          ['Pepper', 'The menu search\'s link lines carry it as about: (linkLines() in routes/navAi.js). open_page returns the page\'s standard description as about (ai/tools/general.js).'],
+          ['Pepper', 'open_page returns the page\'s standard description as about (ai/tools/general.js).'],
         ]}
       />
       <P>
@@ -196,8 +156,7 @@ export function Section() {
         <Mono>main.jsx</Mono> for <Mono>/pos/kiosks/designs/:id</Mono>,{' '}
         <Mono>/pos/printing/designs/:id</Mono> and <Mono>/menus/:id/design</Mono> (keeping the id
         and the <Mono>?query</Mono>), <Mono>/screens?tab=</Mono> in <Mono>Screens.jsx</Mono>,{' '}
-        <Mono>/website?section=</Mono> in <Mono>Website.jsx</Mono>, <Mono>/reservations-widget</Mono>,
-        and saved Overview shortcuts (<Mono>MOVED_SHORTCUTS</Mono> in <Mono>Dashboard.jsx</Mono>).
+        <Mono>/website?section=</Mono> in <Mono>Website.jsx</Mono> and <Mono>/reservations-widget</Mono>.
       </P>
       <P>
         <strong>Which link is lit.</strong> The sidebar lights a link at any address that starts
@@ -232,20 +191,17 @@ export function Section() {
         <Mono> sort_order</Mono> for the new-siblings list and — if the parent actually
         changed — also re-sequences the old-siblings list to close the gap left behind.
       </P>
-      <H3>/api/me: nav_tree and launcher_tiles</H3>
+      <H3>/api/me: nav_tree</H3>
       <P>
         <Mono>platform.js</Mono>'s <Mono>/api/me</Mono> handler fetches the tenant's active
         <Mono> nav_items</Mono>, builds the tree, and prunes it against the caller's
         effective permissions and role id (<Mono>pruneNavTree()</Mono>): a link is dropped
         if its module is disabled/unpermitted or its own id is in
         <Mono> hidden_role_ids</Mono> for the caller's role; a section is dropped only if
-        every child was pruned. Platform admins bypass all of it. The response also
-        includes <Mono>launcher_tiles</Mono> — the flat set of visible link items with
-        <Mono> show_in_launcher = true</Mono>, sorted by <Mono>launcher_sort_order</Mono>.
+        every child was pruned. Platform admins bypass all of it.
         <Mono> AppShell.jsx</Mono> renders <Mono>nav_tree</Mono> directly instead of a
         hardcoded array (superseding the note about static gating in the RBAC section
-        above); when <Mono>nav_style === 'launcher'</Mono> it renders a single "Quick
-        access" link to <Mono>/launcher</Mono> instead of the tree.
+        above).
       </P>
       <H3>/api/me: site_theme</H3>
       <P>
@@ -342,7 +298,7 @@ export function Section() {
       </P>
       <P>
         Migration 196 (20 Oct 2026) replaced every tenant's menu with the new default tree once: it
-        deletes every <Mono>nav_items</Mono> row, sets <Mono>tenants.nav_style = 'sidebar'</Mono> and
+        deletes every <Mono>nav_items</Mono> row, set <Mono>tenants.nav_style = 'sidebar'</Mono> (a column dropped by 274) and
         re-seeds each tenant from a JSON copy of <Mono>DEFAULT_NAV_TREE</Mono> through a temporary{' '}
         <Mono>pg_temp.seed_nav()</Mono> function (so launcher tiles and designer edits went). The tree has
         eleven sections grouped by job (Home, Service, Money, Health &amp; safety, Stock, People, Menus,
@@ -383,26 +339,19 @@ export function Section() {
         nothing. The nav test runs it on a rebuilt pre-241 menu and checks the places, the roles
         and the second run.
       </P>
-      <H3>Launcher personalisation (admin/src/pages/Launcher.jsx)</H3>
+      <H3>Launcher mode retired (migration 274)</H3>
       <P>
-        Tile order and visibility are per-user, per-tenant, stored in
-        <Mono> localStorage</Mono> under <Mono>maca_launcher_prefs_&#123;tenantId&#125;</Mono> —
-        the same pattern as <Mono>maca_settings</Mono> / <Mono>maca_timeline_prefs</Mono>,
-        not a DB table. The admin's <Mono>launcher_tiles</Mono> order from <Mono>/api/me</Mono>
-        is the default; a viewer's local <Mono>order</Mono>/<Mono>hidden</Mono> arrays are
-        merged on top (<Mono>applyPrefs()</Mono>), and any tile the admin removed (or the
-        viewer no longer has access to) is dropped even if still named in the stored
-        override. "Reset to admin defaults" just clears the localStorage key.
+        Until Pepper-first step 2d a group could replace the sidebar with a tile screen at{' '}
+        <Mono>/launcher</Mono> (<Mono>tenants.nav_style</Mono> <Mono>launcher</Mono>, tiles from{' '}
+        <Mono>nav_items.show_in_launcher</Mono> in <Mono>launcher_sort_order</Mono>, each viewer&apos;s order and
+        hidden tiles in local storage, the designer&apos;s Sidebar / Launcher switch, <Mono>PATCH /api/nav/style</Mono>,{' '}
+        <Mono>/api/me</Mono>&apos;s <Mono>launcher_tiles</Mono>). All of it is gone: the sidebar is the only menu and
+        each person&apos;s pins on Home are their shortcuts. Migration 274 gave each active member of a group that was
+        in launcher mode, with no pins yet, the group&apos;s tiles as pins (in the tiles&apos; order, each page once, at
+        most 12; <Mono>GET /api/pins</Mono> leaves out any the person&apos;s menu doesn&apos;t hold), then dropped the
+        three columns and their index. Tests: <Mono>api/test/home-pins.test.mjs</Mono> (274 on real rows),{' '}
+        <Mono>api/test/nav-default.test.mjs</Mono> (241&apos;s and 243&apos;s SQL replayed without the dropped column).
       </P>
-      <InfoBox type="warn">
-        Switching a tenant to <Mono>nav_style: 'launcher'</Mono> before any nav item has
-        <Mono> show_in_launcher</Mono> set hides the entire sidebar with nothing to replace
-        it. <Mono>Launcher.jsx</Mono>'s header always shows a "Back to full menu" button
-        (visible to <Mono>nav_designer:manage</Mono>) whenever <Mono>nav_style ===
-        'launcher'</Mono> — deliberately NOT conditioned on the tile count, after an earlier
-        version that only showed it in the empty state left a tenant with one tile
-        configured stranded in production.
-      </InfoBox>
     </section>
   )
 }

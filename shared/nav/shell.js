@@ -4,12 +4,13 @@
 // NAV_KEYWORDS and NAV_DESCRIPTIONS from them; the fields are described there.
 
 export const pages = [
-  // Today: for everyone signed in (its tasks follow each person's own access), migration 227.
+  // Home: for everyone signed in (its tasks follow each person's own access,
+  // migration 227 for the Today link it replaced), migration 273.
   {
-    path: '/today', label: 'Today', icon: 'Sun',
+    path: '/', label: 'Home', icon: 'Home',
     section: 'Home', order: 10, catalogOrder: 10,
-    keywords: 'today ops tasks due now to do day plan checks morning front door',
-    description: 'What needs doing at a venue today: checks due, checklists, orders to send, deliveries, the cash-up and online orders, each one tap away.',
+    keywords: 'home start today ops tasks due now to do day plan checks morning front door pins shortcuts week ahead',
+    description: 'Where the day starts: search or ask Pepper, your pins, what needs doing at a venue today and the week ahead.',
   },
   {
     path: '/settings', label: 'Settings', icon: 'SlidersHorizontal', module: 'settings',
@@ -20,8 +21,8 @@ export const pages = [
   {
     path: '/nav-designer', label: 'Navigation', icon: 'Compass', module: 'nav_designer',
     section: 'Admin', order: 40, catalogOrder: 880,
-    keywords: 'navigation menu designer sidebar launcher links sections descriptions customise rearrange',
-    description: 'Arrange this menu: sections, links, names, descriptions and who sees what, or switch to quick-access tiles.',
+    keywords: 'navigation menu designer sidebar links sections descriptions customise rearrange',
+    description: 'Arrange this menu: sections, links, names, descriptions and who sees what.',
   },
   {
     path: '/docs', label: 'Documentation', icon: 'BookMarked', module: 'documentation',

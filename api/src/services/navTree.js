@@ -2,8 +2,8 @@
 //
 // The menu (nav_items) as one person sees it: links whose module they can't
 // open, or that are hidden from their role, are left out, and sections left
-// empty go with them. /api/me sends it to the admin (nav_tree), and Pepper's
-// menu search (routes/navAi.js) picks only from it, so it never offers a
+// empty go with them. /api/me sends it to the admin (nav_tree), and the pins
+// (routes/pins.js) and Pepper's open_page check against it, so nothing offers a
 // page the person can't open.
 //
 //   navItemVisible(item, permissions, roleId, isPlatformAdmin)

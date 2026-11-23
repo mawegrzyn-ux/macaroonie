@@ -248,7 +248,7 @@ export function Section() {
         <Mono>SectionCard</Mono> (used by every Cash Recon section — Income, Service
         Charges &amp; Tips, Takings, Wages, Expenses) has a coloured <Mono>header</Mono> bar
         using the <Mono>--site-accent</Mono> CSS variable (see <Mono>/api/me:
-        site_theme</Mono> in the Navigation &amp; Launcher section). The optional{' '}
+        site_theme</Mono> in the Navigation section). The optional{' '}
         <Mono>footer</Mono> prop (the "Total ..." row in each daily-declaration section) is
         deliberately plain (<Mono>bg-muted/30</Mono>, no accent) — an earlier version
         coloured it to match the header, but two accent bars per card (top and bottom) read

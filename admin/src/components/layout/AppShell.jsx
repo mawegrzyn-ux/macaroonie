@@ -1,5 +1,5 @@
 // src/components/layout/AppShell.jsx
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import PageErrorBoundary from '@/components/PageErrorBoundary'
 import FromReport from '@/components/reports/FromReport'
@@ -9,9 +9,9 @@ import * as LucideIcons from 'lucide-react'
 import {
   LogOut, Menu, X, Search,
   Eye, EyeOff, RefreshCw, Maximize2, Minimize2, Columns, LayoutList, Layers,
-  Shield, ChevronDown, Hand, KanbanSquare, LayoutGrid, Sparkles,
+  Shield, ChevronDown, Hand, KanbanSquare, Sparkles,
 } from 'lucide-react'
-import { NavSearchInput, NavSearchResults, PepperNavResults, SavedReportResults, useNavSearchResults, usePepperNavSearch } from '@/components/layout/NavSearch'
+import { AskContext, AskOverlay, isAskShortcut } from '@/components/layout/AskBar'
 
 // nav_items.icon is a plain lucide-react component name (string), set by
 // the nav designer's icon picker — resolve it dynamically instead of
@@ -45,7 +45,7 @@ function MacaroonIcon({ className = 'w-5 h-5' }) {
 }
 import { cn } from '@/lib/utils'
 import { useApi, setSelectedTenant } from '@/lib/api'
-import { usePageUse, useSearchUse } from '@/lib/usage'
+import { usePageUse } from '@/lib/usage'
 import TenantSwitcherModal from '@/components/TenantSwitcherModal'
 import MobileSuggestModal from '@/components/MobileSuggestModal'
 import MobileViewToggle from '@/components/MobileViewToggle'
@@ -208,7 +208,6 @@ export default function AppShell() {
   const currentTenant     = me?.current_tenant
   const hasTenants        = availableTenants.length > 0
   const canSwitchTenant   = availableTenants.length > 1
-  const isLauncherMode    = currentTenant?.nav_style === 'launcher'
 
   useEffect(() => {
     if (me?.site_theme) applySiteTheme(me.site_theme)
@@ -226,61 +225,41 @@ export default function AppShell() {
     setAiOpen(true)
   }
 
-  // The menu search (8 Nov 2026): type what you're after and the menu
-  // narrows to the links that fit (rules in shared/navSearch.js). It
-  // searches the role-pruned nav_tree — in launcher mode too, where it's
-  // the quick way to any page — plus the platform pages for platform
-  // admins. The collapsed sidebar and the touch rail each have a search
-  // button that opens the sidebar with the box focused.
-  const [navQuery, setNavQuery] = useState('')
-  const searchInputRef = useRef(null)
-  const focusSearchOnOpen = useRef(false)
-  const searchTree = useMemo(() => {
-    const tree = me?.nav_tree ?? []
-    if (!isPlatformAdmin) return tree
-    return [...tree, {
-      kind: 'section', id: '_platform', label: 'Platform',
-      children: [
-        { kind: 'link', id: '_platform_home', label: 'Platform', route: '/platform', icon: 'Shield', children: [] },
-        { kind: 'link', id: '_platform_backlog', label: 'Backlog', route: '/backlog', icon: 'KanbanSquare', children: [] },
-      ],
-    }]
-  }, [me?.nav_tree, isPlatformAdmin])
-  const navResults = useNavSearchResults(searchTree, navQuery)
-  const navExact = useMemo(() => exactRoutes(me?.nav_tree ?? []), [me?.nav_tree])
-  // Enter or the Pepper button in the box: Pepper's picks for what was typed
-  // (NavSearch.jsx). Its answer shows only while the box still holds the
-  // words it answered.
-  const pepperSearch = usePepperNavSearch()
-  const pepperAnswer = canAskAi ? pepperSearch.forQuery(navQuery) : null
-  // The usage record (lib/usage.js): pages opened, and each search with
-  // whether it went to Pepper and what it opened.
-  usePageUse()
-  const searchUse = useSearchUse()
-  useEffect(() => { searchUse.typed(navQuery, navResults?.length ?? 0) }, [navQuery, navResults, searchUse])
-  function askPepper() {
-    searchUse.askedPepper()
-    pepperSearch.ask(navQuery)
-  }
-  const pickedFrom = kind => (route, boxKind) => {
-    searchUse.picked(boxKind || kind, route)
-    afterNavPick()
-  }
-  function afterNavPick() {
-    setNavQuery('')
-    pepperSearch.reset()
+  // The ask bar (Pepper-first step 2c, components/layout/AskBar.jsx): on Home
+  // at the top of the page, over any other page as a window opened by the
+  // sidebar's Search or ask, the rails' search buttons, Ctrl or Cmd+K, or /
+  // when no box has the cursor. Its words go to Pepper as a new chat in the
+  // drawer (pepperAsk, AssistantDrawer's ask).
+  const [barOpen, setBarOpen] = useState(false)
+  const [pepperAsk, setPepperAsk] = useState(null)
+  const inlineBar = useRef(null)
+  const openBar = useCallback(() => {
     if (IS_TOUCH) setOpen(false)
-  }
-  function openSearch() {
-    focusSearchOnOpen.current = true
-    setOpen(true)
-  }
+    if (inlineBar.current) inlineBar.current()
+    else setBarOpen(true)
+  }, [])
+  const askPepper = useCallback(words => {
+    setBarOpen(false)
+    if (IS_TOUCH) setOpen(false)
+    setPepperAsk({ text: words, id: Date.now() })
+    setAiOpen(true)
+  }, [])
+  const registerInline = useCallback(focus => {
+    inlineBar.current = focus
+    return () => { if (inlineBar.current === focus) inlineBar.current = null }
+  }, [])
+  const ask = useMemo(() => ({ openBar, askPepper, canAskAi, registerInline }), [openBar, askPepper, canAskAi, registerInline])
   useEffect(() => {
-    if (open && focusSearchOnOpen.current) {
-      focusSearchOnOpen.current = false
-      searchInputRef.current?.focus()
-    }
-  }, [open])
+    const onKey = e => { if (isAskShortcut(e)) { e.preventDefault(); openBar() } }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [openBar])
+  useEffect(() => { setBarOpen(false) }, [location.pathname])
+
+  const navExact = useMemo(() => exactRoutes(me?.nav_tree ?? []), [me?.nav_tree])
+  const hasMenu = (me?.nav_tree?.length ?? 0) > 0 || !!isPlatformAdmin
+  // The usage record (lib/usage.js): pages opened; the bar records its searches.
+  usePageUse()
 
   function switchTenant(tenantId) {
     if (!tenantId) return
@@ -289,6 +268,7 @@ export default function AppShell() {
   }
 
   return (
+    <AskContext.Provider value={ask}>
     <div className="flex h-screen overflow-hidden bg-page">
       {open && (
         <div
@@ -367,13 +347,13 @@ export default function AppShell() {
             </button>
           </div>
         )}
-        {!open && searchTree.length > 0 && (
+        {!open && hasMenu && (
           <div className="shrink-0 border-b flex justify-center py-1.5">
             <button
-              onClick={openSearch}
-              title="Search the menu"
-              aria-label="Search the menu"
-              data-testid="nav-search-open"
+              onClick={openBar}
+              title={'Search or ask ' + ASSISTANT_NAME + ' (Ctrl K)'}
+              aria-label={'Search or ask ' + ASSISTANT_NAME}
+              data-testid="ask-open-rail"
               className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation"
             >
               <Search className="w-4 h-4" />
@@ -390,49 +370,22 @@ export default function AppShell() {
             subtitle="Pick which restaurant to work in."
           />
         )}
-        {open && searchTree.length > 0 && (
+        {open && hasMenu && (
           <div className="shrink-0 px-2 pt-2">
-            <NavSearchInput
-              value={navQuery}
-              onChange={setNavQuery}
-              results={navResults}
-              onPick={pickedFrom('menu')}
-              inputRef={searchInputRef}
-              canAskAi={canAskAi}
-              pepper={pepperAnswer}
-              onAskPepper={askPepper}
-            />
+            <button
+              type="button"
+              onClick={openBar}
+              data-testid="ask-open"
+              className="w-full h-11 flex items-center gap-2 px-2.5 text-sm border rounded-md bg-background text-muted-foreground hover:bg-accent hover:text-foreground touch-manipulation"
+            >
+              <Search className="w-4 h-4 shrink-0" />
+              <span className="flex-1 text-left truncate">{canAskAi ? 'Search or ask' : 'Search for a page'}</span>
+              {!IS_TOUCH && <kbd className="text-[10px] font-sans border rounded px-1 py-0.5 text-muted-foreground shrink-0">Ctrl K</kbd>}
+            </button>
           </div>
         )}
         <nav className="flex-1 overflow-y-auto p-2 space-y-3">
-          {pepperAnswer && navResults ? (
-            <PepperNavResults
-              pepper={pepperAnswer}
-              exact={navExact}
-              onPick={pickedFrom('pepper')}
-              onAskAgain={askPepper}
-              onOpenChat={() => { afterNavPick(); openAi() }}
-              onShowAll={() => pepperSearch.reset()}
-            />
-          ) : navResults ? (<>
-            <NavSearchResults
-              results={navResults}
-              query={navQuery}
-              exact={navExact}
-              onPick={pickedFrom('menu')}
-              canAskAi={canAskAi}
-              onAskAi={askPepper}
-            />
-            <SavedReportResults query={navQuery} enabled={(me?.permissions?.reports ?? 'none') !== 'none'} onPick={pickedFrom('report')} />
-          </>) : (<>
-          {isLauncherMode ? (
-            // Launcher mode: the sidebar tree is switched off tenant-wide
-            // (Settings → Navigation) in favour of the quick-access tile
-            // grid. Keep one link back to it so nobody's stranded — the
-            // launcher itself surfaces everything else the role can reach.
-            <NavItem item={{ label: 'Quick access', to: '/launcher', icon: LayoutGrid, children: [] }} open={open} />
-          ) : (
-            (me?.nav_tree ?? []).map(node => {
+          {(me?.nav_tree ?? []).map(node => {
               if (node.kind === 'section') {
                 const items = (node.children || []).filter(c => c.kind === 'link').map(c => toNavItem(c, navExact))
                 if (!items.length) return null
@@ -454,7 +407,7 @@ export default function AppShell() {
               }
               return <NavItem key={node.id} item={toNavItem(node, navExact)} open={open} />
             })
-          )}
+          }
           {isPlatformAdmin && (
             <>
               {open && (
@@ -469,7 +422,6 @@ export default function AppShell() {
               </div>
             </>
           )}
-          </>)}
         </nav>
         {isOnTimeline && (
           <div className={cn('shrink-0 border-t', open ? 'p-2' : 'p-1')}>
@@ -708,12 +660,13 @@ export default function AppShell() {
               <Menu className="w-5 h-5" />
             </button>
           </div>
-          {searchTree.length > 0 && (
+          {hasMenu && (
             <button
               type="button"
               className="mt-2 w-11 h-11 flex items-center justify-center rounded-md text-muted-foreground hover:bg-accent touch-manipulation"
-              onClick={openSearch}
-              aria-label="Search the menu"
+              onClick={openBar}
+              aria-label={'Search or ask ' + ASSISTANT_NAME}
+              data-testid="ask-open-touch"
             >
               <Search className="w-5 h-5" />
             </button>
@@ -748,7 +701,9 @@ export default function AppShell() {
       )}
       <MobileSuggestModal />
       <MobileViewToggle target="mobile" />
-      <AssistantDrawer open={aiOpen} onClose={() => setAiOpen(false)} />
+      <AssistantDrawer open={aiOpen} onClose={() => setAiOpen(false)} ask={pepperAsk} onAsked={() => setPepperAsk(null)} />
+      {barOpen && <AskOverlay onClose={() => setBarOpen(false)} />}
     </div>
+    </AskContext.Provider>
   )
 }

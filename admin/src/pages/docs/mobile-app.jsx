@@ -61,7 +61,7 @@ export function Section() {
         <Mono>pages/mobile/MobileToday.jsx</Mono> (<Mono>/mobile/today</Mono>, the first tile) is the office
         Today page in one column, built from its exported parts (<Mono>Glance</Mono>,{' '}
         <Mono>TaskBoard</Mono>, <Mono>FormSheet</Mono>, <Mono>greeting()</Mono>, <Mono>readVenue()</Mono>{' '}
-        in <Mono>pages/OpsToday.jsx</Mono>), which take <Mono>linkFor</Mono>: <Mono>opsLink(path)</Mono>{' '}
+        in <Mono>pages/Home.jsx</Mono>), which take <Mono>linkFor</Mono>: <Mono>opsLink(path)</Mono>{' '}
         sends an office path to the phone&apos;s own page (<Mono>/purchasing</Mono> to{' '}
         <Mono>/mobile/purchasing</Mono> with its query, <Mono>/cash-recon</Mono> to{' '}
         <Mono>/mobile/cash-up</Mono>, <Mono>/orders</Mono>, <Mono>/food-safety</Mono> and{' '}

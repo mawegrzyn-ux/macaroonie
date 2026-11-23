@@ -6,15 +6,15 @@
 // depend on their order, so the files need none.
 
 import navRoutes from '../routes/nav.js'
-import navAiRoutes from '../routes/navAi.js'
 import opsRoutes from '../routes/ops.js'
 import noticesRoutes from '../routes/notices.js'
 import usageRoutes from '../routes/usage.js'
+import pinsRoutes from '../routes/pins.js'
 
 export const routes = [
   [navRoutes, { prefix: '/api/nav' }],
-  [navAiRoutes, { prefix: '/api/ai' }],
   [opsRoutes, { prefix: '/api/ops' }],
   [noticesRoutes, { prefix: '/api/notices' }],
   [usageRoutes, { prefix: '/api/usage' }],
+  [pinsRoutes, { prefix: '/api/pins' }],
 ]

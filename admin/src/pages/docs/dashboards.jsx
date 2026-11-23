@@ -60,8 +60,7 @@ export function Section() {
         <Mono>hs_dashboard</Mono> level, else view) and a Dashboards nav link straight after
         the Overview link (<Mono>route = '/'</Mono>), or at the end of the top level when a
         tenant has no Overview link. Its page record (<Mono>shared/nav/dashboards.js</Mono>, which gives{' '}
-        <Mono>ROUTE_CATALOG</Mono> and the standard menu),
-        the Overview <Mono>SHORTCUT_OPTIONS</Mono> and the mobile registry include it.
+        <Mono>ROUTE_CATALOG</Mono> and the standard menu) and the mobile registry include it.
       </P>
       <H3>Dashboards per role (migration 229)</H3>
       <P>

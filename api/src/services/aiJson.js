@@ -19,7 +19,7 @@
 //               an answer too long, when the "read a file" ones don't fit
 //               ({ badRequest, refusal, tooLong })
 //     use:      what the call is for, in Pepper's record of model requests
-//               (USES in ai/context.js: 'invoice_reader', 'nav_search' ...)
+//               (USES in ai/context.js: 'invoice_reader', 'menu_reader' ...)
 //     Returns the parsed answer (an object), or throws an httpError.
 //
 //   pepperOn(tenantId)  throws unless the AI key is set and Pepper is on for

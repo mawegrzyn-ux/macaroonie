@@ -1,9 +1,10 @@
 // shared/navSearch.js — the menu search's one set of rules (8 Nov 2026).
 //
-// The admin's sidebar has a search box: the person types a page's name or
-// what they want to do ("change staff pay", "fridge temperatures") and the
-// menu narrows to the links that fit. The matching lives here so the admin
-// (AppShell's NavSearch) and the tests share one implementation, and
+// The admin's ask bar (components/layout/AskBar.jsx, Pepper-first step 2c):
+// the person types a page's name or what they want to do ("change staff
+// pay", "fridge temperatures") and the links that fit show as they type. The
+// matching lives here so the bar, the pins' page finder, Pepper's open_page
+// and the tests share one implementation, and
 // NAV_KEYWORDS and NAV_DESCRIPTIONS are checked against the API's
 // ROUTE_CATALOG by api/test/nav-default.test.mjs, so a new page can't ship
 // without search words and a description, and a renamed route can't leave

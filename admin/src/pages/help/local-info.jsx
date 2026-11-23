@@ -124,7 +124,7 @@ export function Section() {
         run of a <strong>Traffic</strong>, <strong>Events</strong> or <strong>Incidents</strong> capture (Run now
         included), Pepper compares what was just found with what the venue's captures of that kind already
         hold around the same days, and puts the reports of one event or incident together into one entry. The
-        entry shows once on the calendar, the list, the widget and the Today page, with <strong>2 other reports
+        entry shows once on the calendar, the list, the widget and Home, with <strong>2 other reports
         of this</strong> under it: tap that to see each report as it was found, with its days, place and source
         link. Things that are only alike stay apart (two different markets, a quiz night held every week, two
         events at the same place), and so does anything more than a day apart.

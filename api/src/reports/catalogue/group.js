@@ -41,7 +41,7 @@ export const decisions = {
   ],
   out: {
     'Secrets and keys': ['platform_secrets'],
-    'Layouts and designs with nothing to count': ['nav_items', 'dashboard_tiles'],
+    'Layouts and designs with nothing to count': ['nav_items', 'dashboard_tiles', 'home_pins'],
     'Working state that changes from minute to minute': [
       // Push notices (migration 262): where a person's notices go, their own
       // settings, and which task notices were sent (each once).

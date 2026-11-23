@@ -42,7 +42,7 @@ function hourWords(x) {
 
 /**
  * A day's hours side by side, scrolling sideways. from: the first hour shown
- * (the Today page starts just before now); every hour when left out.
+ * (Home starts just before now); every hour when left out.
  */
 export function HourStrip({ hours, from = null, testId = 'weather-hours' }) {
   const list = (hours || []).filter(x => from == null || x.h >= from)
@@ -76,7 +76,7 @@ export function HourLegend() {
   )
 }
 
-/** First hour the Today page shows: the hour before the first one still ahead. */
+/** First hour Home shows: the hour before the first one still ahead. */
 export function hoursFrom(hours) {
   const next = (hours || []).find(x => !x.recorded)
   return next ? Math.max(0, next.h - 1) : null

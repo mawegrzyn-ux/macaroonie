@@ -1,33 +1,75 @@
-// src/pages/help/today.jsx
-// The Help page's "Today: What Needs Doing" section. Help.jsx gathers every file in this
+// src/pages/help/home.jsx
+// The Help page's "Home" section. Help.jsx gathers every file in this
 // folder (except parts.jsx) and shows them by order, then id.
-import { H2, H3, P, DataTable } from './parts.jsx'
+import { H2, H3, P, InfoBox, DataTable } from './parts.jsx'
 
-export const id = 'today'
-export const label = 'Today: What Needs Doing'
-export const order = 20
+export const id = 'home'
+export const label = 'Home'
+export const order = 15
 
-// ── OVERVIEW PAGE ───────────────────────────────
 export function Section() {
   return (
-    <section id="today" data-help="">
-      <H2>Today: What Needs Doing</H2>
+    <section id="home" data-help="">
+      <H2>Home</H2>
       <P>
-        <strong>Today</strong> (top of the main menu) is the place to start a shift. It says hello,
-        shows the day at a glance (bookings and covers, parties of 8 or more, how many people are on
-        the rota, and whether the venue is closed today), then everything that needs doing at the venue,
-        with Pepper beside it. Pick the venue at the top right if you work at more than one;
-        the page remembers it.
+        <strong>Home</strong> is the first page you see after signing in, and the first link in the main menu.
+        It is the place to start a shift: the ask bar, your pins, a hello with the day at a glance (bookings and covers,
+        parties of 8 or more, how many people are on the rota, and whether the venue is closed today), then
+        everything that needs doing at the venue, and the week ahead. Pick the venue at the top right if you
+        work at more than one; the page remembers it.
       </P>
       <P>
-        Everyone who signs in has Today in their menu, whatever their role: each person sees the
-        tasks of the areas their role can open (the rest are named at the bottom, so nobody is
-        told something is fine when it simply isn&apos;t theirs to see). To take it out of a
-        role&apos;s menu, hide it in the Navigation designer.
+        Everyone who signs in has Home, whatever their role: each person sees the tasks of the areas their
+        role can open (the rest are named under the tasks, so nobody is told something is fine when it simply
+        isn&apos;t theirs to see). The tiles that used to be the home page are on the <strong>Overview</strong>{' '}
+        page (Home section of the menu), and an old link to the Today page opens Home.
       </P>
+      <H3>The ask bar</H3>
+      <P>
+        The box at the top of Home finds a page or asks Pepper. Type a few letters or what you want to do
+        (<strong>&ldquo;rota&rdquo;</strong>, <strong>&ldquo;fridge temperatures&rdquo;</strong>,{' '}
+        <strong>&ldquo;change staff pay&rdquo;</strong>) and the pages that fit show straight away, with what
+        each is for and where it sits in the menu, then any saved reports whose name fits. Tap one to open
+        it. Finding a page this way never waits for Pepper and works with Pepper switched off.
+      </P>
+      <P>
+        The last row is always <strong>Ask Pepper</strong> with your words. Tap it, tap{' '}
+        <strong>Ask</strong>, or press <strong>Enter</strong> without picking a row, and Pepper opens at the
+        side with a new chat that starts with your question. When Pepper answers with a page, it shows a
+        card with the page&apos;s name, where it sits in the menu, the venue, day or tab it opens at, and{' '}
+        <strong>Open</strong>. With a keyboard, the arrow keys move through the rows, Enter opens the one lit,
+        and Escape clears the box. Under the bar, a few questions for the day (Brief me on today, What is
+        booked for tonight?) ask Pepper in one tap.
+      </P>
+      <P>
+        The same bar opens over any other page: tap <strong>Search or ask</strong> at the top of the menu (or
+        the magnifying glass on the narrow menu), press <strong>Ctrl+K</strong> (Cmd+K on a Mac), or press{' '}
+        <strong>/</strong> when you aren&apos;t typing in a box. On Home those keys go to the bar at the top of
+        the page.
+      </P>
+      <H3>Your pins</H3>
+      <P>
+        Pins are your own shortcuts: the pages you open most, one tap away. Tap <strong>Pin a page</strong> (or{' '}
+        <strong>Edit pins</strong> once you have some), then tap a page under <strong>Add a page</strong>; type a
+        few letters in <strong>Find a page</strong> to narrow the list. You can pin up to 12 pages, and only pages
+        in your own menu.
+      </P>
+      <P>
+        A pin can open its page at one venue, and on pages with tabs at one tab: Rota at Ware, or Food safety on
+        its Holds tab. Pick them in the pin&apos;s row; <strong>Any venue</strong> and <strong>First tab</strong>{' '}
+        leave the page as it opens normally. Give a pin a name of your own in its <strong>Own name</strong> box, or
+        leave it empty to use the page&apos;s name. Drag a row by its grip (the six dots) to change the order, and
+        tap the cross to take a pin off. Nothing changes until you tap <strong>Save pins</strong>; Cancel leaves
+        your pins as they were.
+      </P>
+      <InfoBox type="info">
+        Pins are kept with your login, not in the browser, so the same pins show on the office computer, the
+        tablet at the host stand and your phone&apos;s browser. Nobody else sees them, and nobody is told what
+        you pinned. If your role loses a page, its pin stops showing.
+      </InfoBox>
       <H3>This week: weather and local news</H3>
       <P>
-        Under the greeting, <strong>This week</strong> shows the venue&apos;s next seven days from Local
+        Under the tasks, <strong>This week</strong> shows the venue&apos;s next seven days from Local
         info. First a forecast for each day: the highest and lowest temperature, and the rain when there is
         1 mm or more; a day with a weather warning is red, one worth knowing about amber, and a day the
         forecast hasn&apos;t reached stays empty. Then up to five local news items (roadworks, events,
@@ -46,7 +88,7 @@ export function Section() {
         events your team types in, including those saved for every venue (Local info → Captures, Add an
         event). The card shows for people whose role can see Local info. When nothing is held for the week,
         people who can manage Local info get a line pointing at it and everyone else sees nothing. On the
-        phone, Today shows the same card under the greeting.
+        phone, the Today page shows the same card under the greeting.
       </P>
       <H3>Where the tasks come from</H3>
       <P>
@@ -95,7 +137,7 @@ export function Section() {
         page. If your role can only view an area, the button says <strong>View</strong> and the form is read
         only.
       </P>
-      <H3>Cash-ups and wages on the Today page</H3>
+      <H3>Cash-ups and wages on Home</H3>
       <P>
         <strong>Do the cash-up</strong> (or <strong>Carry on</strong> for a day already started) opens the
         day&apos;s declaration: income, service charges and tips, takings, expenses, the wages paid that day
@@ -113,22 +155,10 @@ export function Section() {
         cash wage is paid.
       </P>
       <P>
-        On the phone, Today does the same, and <strong>Open the full page</strong> goes to the phone&apos;s
+        On the phone, the Today page does the same, and <strong>Open the full page</strong> goes to the phone&apos;s
         Cash Up and Wages pages. The Cash Up and Wages tiles on the phone show how many of these are waiting.
         Doing a cash-up or paying wages needs Manage on Cash reconciliation; with View you can look but not
         change anything.
-      </P>
-      <H3>Go to</H3>
-      <P>
-        Your main menu as big tiles, the pages with something to do first, with a count on each.
-        Tap <strong>Everything</strong> to see every page.
-      </P>
-      <H3>Asking Pepper on the Today page</H3>
-      <P>
-        Pepper sits beside the tasks (below them on a narrower screen) with suggestions for the
-        day. It's the same chat as the Pepper panel, so it carries on where you left off; tap
-        <strong> New chat</strong> to start again. Your messages tell Pepper which venue and day
-        you're looking at.
       </P>
     </section>
   )

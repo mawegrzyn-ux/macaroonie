@@ -1,8 +1,9 @@
 // src/pages/NavDesigner.jsx
 //
 // Navigation designer: one shared nav tree per tenant, arbitrary depth,
-// per-role visibility toggles, plus the tenant-wide sidebar/launcher
-// style switch. Outline-editor UI (indent/outdent/move up/down) rather
+// per-role visibility toggles. (The tenant-wide Sidebar / Launcher switch went
+// with Pepper-first step 2d: the sidebar is the only menu, and each person's
+// pins on Home took the launcher tiles' place.) Outline-editor UI (indent/outdent/move up/down) rather
 // than free-form drag-and-drop reparenting — see nav.js for why.
 //
 // Gated on the nav_designer module (owner-only by default, migration 091).
@@ -18,7 +19,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as LucideIcons from 'lucide-react'
 import {
   Compass, Plus, Trash2, Pencil, ChevronUp, ChevronDown, ChevronRight, ChevronLeft,
-  Loader2, X, RotateCcw, LayoutGrid, PanelLeft, FolderPlus, Link2,
+  Loader2, X, RotateCcw, FolderPlus, Link2,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -45,7 +46,6 @@ export default function NavDesigner() {
 
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 60_000 })
   const canManage = me?.permissions?.nav_designer === 'manage' || me?.is_platform_admin
-  const navStyle  = me?.current_tenant?.nav_style || 'sidebar'
 
   const { data: items = [], isLoading } = useQuery({ queryKey: ['nav-items'], queryFn: () => api.get('/nav/items') })
   const { data: routeCatalog = [] } = useQuery({ queryKey: ['nav-route-catalog'], queryFn: () => api.get('/nav/route-catalog') })
@@ -81,10 +81,6 @@ export default function NavDesigner() {
     mutationFn: () => api.post('/nav/reset'),
     onSuccess:  () => { invalidate(); setResetConfirm(false); setResetText('') },
   })
-  const setStyle = useMutation({
-    mutationFn: (nav_style) => api.patch('/nav/style', { nav_style }),
-    onSuccess:  invalidate,
-  })
 
   const tree = useMemo(() => buildTree(items), [items])
   const mutations = { reorder, reparent, delete: deleteItem }
@@ -113,34 +109,15 @@ export default function NavDesigner() {
       <div className="flex items-center justify-between px-6 h-14 border-b shrink-0 bg-background">
         <div>
           <h1 className="font-semibold flex items-center gap-2"><Compass className="w-4 h-4" /> Navigation</h1>
-          <p className="text-xs text-muted-foreground">Sidebar tree + quick-access launcher</p>
+          <p className="text-xs text-muted-foreground">The main menu for everyone in the group</p>
         </div>
-        {canManage && (
-          <div className="flex items-center gap-1 rounded-md border p-0.5">
-            <button onClick={() => setStyle.mutate('sidebar')}
-              className={cn(
-                'px-3 py-1.5 text-xs font-medium rounded touch-manipulation min-h-[36px] inline-flex items-center gap-1.5',
-                navStyle === 'sidebar' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
-              )}>
-              <PanelLeft className="w-3.5 h-3.5" /> Sidebar
-            </button>
-            <button onClick={() => setStyle.mutate('launcher')}
-              className={cn(
-                'px-3 py-1.5 text-xs font-medium rounded touch-manipulation min-h-[36px] inline-flex items-center gap-1.5',
-                navStyle === 'launcher' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
-              )}>
-              <LayoutGrid className="w-3.5 h-3.5" /> Launcher
-            </button>
-          </div>
-        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto p-6 space-y-4">
           <p className="text-sm text-muted-foreground">
-            {navStyle === 'launcher'
-              ? 'Launcher mode is active — the sidebar tree below is hidden for everyone in this tenant. It still controls which pages show up as quick-access tiles.'
-              : 'This tree drives the left sidebar for every user in this tenant. Toggle "Show as a quick-access tile" on a link item to also surface it in launcher mode.'}
+            This tree is the left sidebar for everyone in the group. Each person adds their own shortcuts
+            as pins on Home.
           </p>
 
           {canManage && (
@@ -268,9 +245,6 @@ function NavRow({ node, depth, siblings, index, parent, onEdit, onAddChild, muta
             {node.kind === 'section' && (
               <span className="text-[10px] rounded bg-muted px-1.5 py-0.5 text-muted-foreground">section</span>
             )}
-            {node.show_in_launcher && (
-              <span className="text-[10px] rounded bg-blue-100 text-blue-700 px-1.5 py-0.5">launcher</span>
-            )}
             {node.hidden_role_ids?.length > 0 && (
               <span className="text-[10px] rounded bg-amber-100 text-amber-700 px-1.5 py-0.5">
                 hidden for {node.hidden_role_ids.length} role{node.hidden_role_ids.length > 1 ? 's' : ''}
@@ -361,7 +335,6 @@ function ItemEditor({ mode, node, parentNode, roles, modules, routeCatalog, onCl
   const [route, setRoute]           = useState(node?.route || '')
   const [moduleKey, setModuleKey]   = useState(node?.module || '')
   const [hiddenRoleIds, setHiddenRoleIds] = useState(node?.hidden_role_ids || [])
-  const [showInLauncher, setShowInLauncher] = useState(node?.show_in_launcher || false)
   // The entry's own description ('' = none: the standard words are used).
   const [description, setDescription] = useState(node?.description || '')
 
@@ -394,7 +367,6 @@ function ItemEditor({ mode, node, parentNode, roles, modules, routeCatalog, onCl
       module: moduleKey || null,
       description: description.trim() || null,
       hidden_role_ids: hiddenRoleIds,
-      show_in_launcher: kind === 'link' ? showInLauncher : false,
     })
   }
 
@@ -513,12 +485,6 @@ function ItemEditor({ mode, node, parentNode, roles, modules, routeCatalog, onCl
               Hidden automatically when a viewer's role has no access to this module.
             </p>
           </div>
-          {kind === 'link' && (
-            <label className="flex items-center gap-2 text-sm touch-manipulation min-h-[44px]">
-              <input type="checkbox" checked={showInLauncher} onChange={e => setShowInLauncher(e.target.checked)} className="w-4 h-4" />
-              Show as a quick-access tile in launcher mode
-            </label>
-          )}
           <div>
             <label className="text-sm font-medium block mb-1">Hide for specific roles</label>
             <div className="border rounded-md divide-y">

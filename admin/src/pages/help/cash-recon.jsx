@@ -189,7 +189,7 @@ export function Section() {
         and saved as you go, and the whole week is submitted in one go with <strong>Submit week</strong> on
         the week (the grid or the cards) or the phone&apos;s Cash Up list; a day can&apos;t be submitted on
         its own. Submit week takes every day up to today that has figures (and, with Allow bulk week
-        submission on, the open days with none). The Today page counts a day with figures as done and,
+        submission on, the open days with none). Home counts a day with figures as done and,
         from the Monday, asks for last week to be submitted (late from the Tuesday). Owners and admins can
         <strong> Unsubmit week</strong>. Pepper can submit a week too (&ldquo;submit last week&rsquo;s cash-up&rdquo;).
       </P>

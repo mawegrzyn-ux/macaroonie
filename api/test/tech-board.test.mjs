@@ -55,14 +55,18 @@ test('guards: another group\'s venue, no sign-in', async () => {
   assert.equal((await owner.get('/api/tech-board/venues/not-a-venue')).status, 404)
 })
 
+// Migration 263 as written, less the launcher column migration 274 dropped.
+const SQL_263 = fs.readFileSync(new URL('../../migrations/263_tech_board_menu.sql', import.meta.url), 'utf8')
+  .replace(', show_in_launcher)', ')').replace("'{}'::uuid[]), false", "'{}'::uuid[])")
+
 test('migration 263 puts the link just before Tills, where it was missing', async () => {
   await sql`DELETE FROM nav_items WHERE tenant_id = ${ids.a} AND route = '/pos/board'`
   const [tills] = await sql`SELECT parent_id, sort_order FROM nav_items WHERE tenant_id = ${ids.a} AND route = '/pos/tills'`
-  await sql.unsafe(fs.readFileSync(new URL('../../migrations/263_tech_board_menu.sql', import.meta.url), 'utf8'))
+  await sql.unsafe(SQL_263)
   const [board] = await sql`SELECT parent_id, sort_order, module FROM nav_items WHERE tenant_id = ${ids.a} AND route = '/pos/board'`
   const [after] = await sql`SELECT sort_order FROM nav_items WHERE tenant_id = ${ids.a} AND route = '/pos/tills'`
   assert.deepEqual([board.parent_id, board.sort_order, board.module], [tills.parent_id, tills.sort_order, 'pos_setup'])
   assert.equal(after.sort_order, tills.sort_order + 1, 'Tills moves down one')
-  await sql.unsafe(fs.readFileSync(new URL('../../migrations/263_tech_board_menu.sql', import.meta.url), 'utf8'))
+  await sql.unsafe(SQL_263)
   assert.equal((await sql`SELECT 1 FROM nav_items WHERE tenant_id = ${ids.a} AND route = '/pos/board'`).length, 1, 'run again: no second link')
 })

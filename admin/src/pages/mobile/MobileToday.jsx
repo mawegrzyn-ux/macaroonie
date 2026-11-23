@@ -1,6 +1,6 @@
 // src/pages/mobile/MobileToday.jsx
 //
-// Today on the phone (/mobile/today): the office Today page's greeting, day
+// Today on the phone (/mobile/today): the office Home's greeting, day
 // at a glance and tasks grouped Late / Now / Next / Later (GET /api/ops/today,
 // worked out from data and rules), and the week ahead from Local info
 // (WeekAhead: the forecast and the local news), one column. Forms open in a sheet with the
@@ -14,7 +14,7 @@ import { RefreshCw, Loader2, Sparkles, ChevronRight } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
-import { readVenue, keepVenue, greeting, firstName, Glance, WeekAhead, TaskBoard, FormSheet, Note } from '@/pages/OpsToday'
+import { readVenue, keepVenue, greeting, firstName, Glance, WeekAhead, TaskBoard, FormSheet, Note } from '@/pages/Home'
 import { useTodayFeed, opsLink } from '@/mobile/today'
 
 export default function MobileToday() {

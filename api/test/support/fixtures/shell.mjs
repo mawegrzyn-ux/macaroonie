@@ -7,7 +7,7 @@ export const order = 110
 export const lateOrder = 230
 
 export async function fill(ctx) {
-  const { mark, made, step, post, patch } = ctx
+  const { V, mark, made, step, post, patch, put } = ctx
   const { viewerRole } = made
   const navItem = await step('nav item', () => post('/api/nav/items', { label: mark + ' Link', route: '/rota', parent_id: null }))
   if (navItem && viewerRole) await step('nav item roles', () => patch(`/api/nav/items/${navItem.id}`, { hidden_role_ids: [viewerRole.id] }))
@@ -15,6 +15,11 @@ export async function fill(ctx) {
   await step('usage record', () => post('/api/usage/events', { events: [
     { kind: 'page', path: '/rota' },
     { kind: 'search', query: mark + ' fridge', results: 2, pepper: true, picked: 'pepper', path: '/food-safety' },
+  ] }))
+  // ── Pins on Home (migration 272): a page at a venue and tab, and one plain ──
+  await step('home pins', () => put('/api/pins', { pins: [
+    { path: '/food-safety', venue_id: V, tab: 'holds', label: mark + ' holds' },
+    { path: '/rota' },
   ] }))
 }
 

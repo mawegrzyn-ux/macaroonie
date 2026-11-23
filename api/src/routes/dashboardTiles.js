@@ -21,7 +21,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 // tile" picker only ever offers real, known tiles — same idea as the nav
 // designer's ROUTE_CATALOG.
 export const TILE_CATALOG = [
-  { tile_type: 'quick_access',      label: 'Quick access shortcuts', icon: 'LayoutGrid',    default_col_span: 4, default_height_px: 200 },
+  { tile_type: 'quick_access',      label: 'Your pins',              icon: 'Pin',           default_col_span: 4, default_height_px: 200 },
   { tile_type: 'stats_today',       label: "Today's stats",          icon: 'BarChart3',      default_col_span: 4, default_height_px: 180 },
   { tile_type: 'upcoming_bookings', label: 'Upcoming bookings',      icon: 'CalendarClock',  default_col_span: 2, default_height_px: 420 },
   { tile_type: 'venues_status',     label: 'Venues status',          icon: 'Building2',      default_col_span: 2, default_height_px: 280 },

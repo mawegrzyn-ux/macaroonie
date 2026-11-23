@@ -2,7 +2,7 @@
 //
 // The forms that open in a sheet over the page, each the same panel its own
 // page uses and saving through the same routes (docs/CHAT_FIRST.md F1-F9).
-// Opened by the Today page's tasks (OpsToday.jsx, MobileToday.jsx) and by
+// Opened by the tasks on Home (Home.jsx) and the phone's Today (MobileToday.jsx) and by
 // Pepper's form cards (ChatView.jsx, the open_form tool, OUTSTANDING 44 item
 // 3). `form` is { form, ref, task? }: form is a key of FORMS; ref holds the
 // day (date), the week (week) or the checklist (template); task.title names

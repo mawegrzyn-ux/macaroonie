@@ -12,8 +12,8 @@ export function Section() {
     <section id="overview" data-help="">
       <H2>The Overview Page</H2>
       <P>
-        <strong>Overview</strong> (the home page, sidebar nav) is built from tiles — Quick
-        access shortcuts, today's stats, upcoming bookings, venue status, and (if your
+        <strong>Overview</strong> (the home page, sidebar nav) is built from tiles — your
+        pins, today's stats, upcoming bookings, venue status, and (if your
         owner has added them) H&amp;S status tiles. An owner or admin can click
         <strong> Customise layout</strong> to add, remove, resize, reorder, rename, and set which
         roles can see each tile. To rename a tile, type in its <strong>Name</strong> box and tap
@@ -23,7 +23,7 @@ export function Section() {
       <DataTable
         head={['Tile', 'Shows']}
         rows={[
-          ['Quick access shortcuts', 'Your own personal shortcut picker (see the info box below).'],
+          ['Your pins', 'Your own pins, the same as on Home (see the info box below).'],
           ['Today\'s stats', 'Bookings today, covers today, deposit revenue, upcoming today.'],
           ['Upcoming bookings', 'Today\'s remaining bookings from now, soonest first.'],
           ['Venues status', 'One card per venue with an active/inactive dot and table count.'],
@@ -55,10 +55,11 @@ export function Section() {
         doesn't appear for anyone in that role; there's no partial/blurred state.
       </P>
       <InfoBox type="info">
-        The <strong>Quick access</strong> tile is different from the Overview's own tile
+        The <strong>Your pins</strong> tile is different from the Overview's own tile
         layout: an admin decides whether the tile appears at all (and for which roles), but
-        each person still personalises which shortcuts show up inside it, from a fixed
-        catalog — that part is unrelated to tile layout permissions.
+        what is inside it is each person's own pins, picked from the pages of their own menu
+        with <strong>Edit pins</strong>. They are kept with your login, so the same pins show
+        on any device, and nobody else sees them (see Home, Your pins).
       </InfoBox>
     </section>
   )

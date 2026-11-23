@@ -1,69 +1,45 @@
 // src/pages/help/navigation.jsx
-// The Help page's "Navigation & Quick Access" section. Help.jsx gathers every file in this
+// The Help page's "Navigation" section. Help.jsx gathers every file in this
 // folder (except parts.jsx) and shows them by order, then id.
 import { H2, H3, P, Mono, InfoBox, DataTable } from './parts.jsx'
 
 export const id = 'navigation'
-export const label = 'Navigation & Quick Access'
+export const label = 'Navigation'
 export const order = 270
 
-// ── NAVIGATION & QUICK ACCESS ───────────────────
+// ── NAVIGATION ───────────────────
 export function Section() {
   return (
     <section id="navigation" data-help="">
-      <H2>Navigation &amp; Quick Access</H2>
+      <H2>Navigation</H2>
       <P>
         An owner can customise the left sidebar for everyone in the restaurant from the
-        <strong> Navigation</strong> page (sidebar nav, under Account) — and can optionally
-        replace the sidebar entirely with a tile-based quick-access screen instead.
+        <strong> Navigation</strong> page (sidebar nav, under Admin). Each person&apos;s own shortcuts
+        are their pins on Home (see Home, Your pins). The Launcher (a tile screen that could replace
+        the sidebar for a whole group) has gone: groups that used it found its tiles as pins on Home.
       </P>
       <H3>Searching the menu</H3>
       <P>
-        The box at the top of the sidebar searches the menu. Type a page&apos;s name or what
-        you want to do — <strong>&ldquo;change staff pay&rdquo;</strong>,{' '}
-        <strong>&ldquo;fridge temperatures&rdquo;</strong>, <strong>&ldquo;allergy&rdquo;</strong> —
-        and the menu narrows to the links that fit, best match first, each saying which section
-        it sits in and, under its name, what the page is for. The search looks in those words
-        too, so a page is found by what it does as well as by what it is called. A match in a
-        page&apos;s own name comes first, then its everyday words, then its description.
-        A plural finds the singular and the other way round, so{' '}
+        The ask bar (on Home, or over any page: <strong>Search or ask</strong> at the top of the sidebar,
+        Ctrl+K, or <strong>/</strong>) searches the menu as you type. Type a page&apos;s name or what you want
+        to do — <strong>&ldquo;change staff pay&rdquo;</strong>,{' '}
+        <strong>&ldquo;fridge temperatures&rdquo;</strong>, <strong>&ldquo;allergy&rdquo;</strong> — and the
+        pages that fit show under the box, best match first, each saying what the page is for and which
+        section it sits in. The search looks in those words too, so a page is found by what it does as well
+        as by what it is called. A match in a page&apos;s own name comes first, then its everyday words, then
+        its description. A plural finds the singular and the other way round, so{' '}
         <strong>&ldquo;designers&rdquo;</strong> lists every designer and{' '}
-        <strong>&ldquo;tickets&rdquo;</strong> finds the Receipt &amp; ticket designer.
-        Filler words (how, do, I, change…) are ignored, so a whole question works.
-        Tap a result to open it, or tap the &times; (or press Escape) to bring the full menu
-        back. It only ever offers pages your role can open. When the sidebar is collapsed, the
-        magnifying glass opens it with the box ready to type into. A page
-        renamed in the Navigation designer is still found by its old words — the search knows
-        every page&apos;s everyday vocabulary as well as its label. In Launcher mode the
-        sidebar search still works, so any page is a few letters away even when the tiles
-        don&apos;t show it.
-      </P>
-      <H3>Asking Pepper to search the menu</H3>
-      <P>
-        When you&apos;re not sure what a page is called, ask Pepper. Type what you&apos;re after
-        in your own words — <strong>&ldquo;a guest wants their money back&rdquo;</strong>,{' '}
-        <strong>&ldquo;where do I see what the fryer cooked&rdquo;</strong> — then press{' '}
-        <strong>Enter</strong> or tap the <strong>Pepper button</strong> (the sparkles) at the
-        right of the search box. Pepper reads your words and picks the pages that fit best,
-        each with a line saying why, and writes a short note under them saying which to open
-        first. Tap a pick to open it, or press Enter again to open the first one. Typing again
-        goes back to the plain search; <strong>Show the menu&apos;s own matches</strong> does
-        the same without changing your words. If nothing in your menu does what you asked,
-        Pepper says so and offers the chat instead.
-      </P>
-      <P>
-        Pepper only picks from the pages your role can open, so it never sends you somewhere
-        you can&apos;t go. It needs Pepper switched on for your group and Pepper in your role;
-        without it, Enter opens the best match as before. Each search counts towards the
-        group&apos;s monthly Pepper allowance and your daily share (it&apos;s a small one).
+        <strong>&ldquo;tickets&rdquo;</strong> finds the Receipt &amp; ticket designer. Filler words (how, do,
+        I, change…) are ignored, so a whole question works. It only ever offers pages your role can open, and
+        a page renamed in the Navigation designer is still found by its old words. When nothing fits, or you
+        would rather ask, press Enter and Pepper takes the words (see Home, The ask bar).
       </P>
       <H3>What each menu entry is for</H3>
       <P>
         Every entry in the menu has a short description: a sentence or two, 260 characters at
         most, saying what the page is for. It shows under the entry&apos;s name in the search
         results, as the tooltip when you hold the pointer over a link or a section heading in
-        the sidebar, and on each row of the Navigation page. Pepper reads it too, when it
-        searches the menu for you or gives you a link to a page.
+        the sidebar, and on each row of the Navigation page.
       </P>
       <P>
         Each page comes with standard words. To write your own (your group&apos;s name for a
@@ -118,8 +94,8 @@ export function Section() {
       </P>
       <H3>The standard menu</H3>
       <P>
-        Every group starts with the same menu, grouped by job: <strong>Home</strong> (Today, Local info,
-        Overview, Dashboards, Pepper), <strong>Service</strong> (Timeline, Bookings, Customers, Loyalty,
+        Every group starts with the same menu, grouped by job: <strong>Home</strong> (Home, Local info,
+        Overview, Dashboards, Reports, Pepper), <strong>Service</strong> (Timeline, Bookings, Customers, Loyalty,
         Online orders), <strong>Money</strong> (Till reports, Kiosk analytics, Cash recon, Cash dashboard),{' '}
         <strong>Health &amp; safety</strong>,{' '}
         <strong>Stock</strong> (Purchasing, with Order lists, Inventory and Suppliers under it),{' '}
@@ -157,36 +133,8 @@ export function Section() {
           ['Description', 'What the entry is for, 260 characters at most. Shown under its name in the menu search and as its tooltip, and searched. Empty uses the page\'s standard words.'],
           ['Module gate', 'Ties the item to an existing module permission — hidden automatically for any role without access, same as today.'],
           ['Hide for specific roles', 'An extra hide on top of the module gate — hide an otherwise-permitted item from just one or two roles without touching their permissions.'],
-          ['Show as a quick-access tile', 'Also surfaces this link as a tile in Quick access / Launcher mode (see below).'],
         ]}
       />
-      <H3>Sidebar vs. Launcher</H3>
-      <P>
-        The <strong>Sidebar / Launcher</strong> toggle at the top of the Navigation page is
-        restaurant-wide. In <strong>Launcher</strong> mode, the entire sidebar tree is
-        replaced for every user by a full-page tile grid at <Mono>/launcher</Mono>, built
-        from whichever links have "Show as a quick-access tile" turned on. A single
-        "Quick access" link stays in the sidebar so nobody loses their way back to it.
-      </P>
-      <InfoBox type="warn">
-        Switching to Launcher mode before flagging any items hides the whole sidebar with
-        nothing to replace it. If that happens, open the Navigation page (still reachable —
-        it's your safety net) and switch back to Sidebar, or flag the items you want first.
-      </InfoBox>
-      <H3>Personalising Quick access</H3>
-      <P>
-        On the Quick access / Launcher screen itself, each person can tap <strong>Customise</strong>
-        to drag their own tiles into a preferred order or hide ones they don't use — this is
-        personal to your device/browser and doesn't change what anyone else sees.
-        <strong> Reset to admin defaults</strong> clears your personal changes and goes back
-        to the order the admin set up.
-      </P>
-      <InfoBox type="info">
-        This is a different feature from the small <strong>Quick access</strong> widget on the
-        Overview page, which is a separate, always-available set of shortcuts each person
-        picks for themselves from a fixed list — unrelated to the restaurant-wide Navigation
-        designer described here.
-      </InfoBox>
     </section>
   )
 }

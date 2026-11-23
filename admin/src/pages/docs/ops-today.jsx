@@ -13,10 +13,12 @@ export function Section() {
       <H2>Today (the ops front door)</H2>
       <P>
         The first slice of the chat-first front door in <Mono>docs/CHAT_FIRST.md</Mono> (requirement ids in
-        brackets). <Mono>/today</Mono> (<Mono>admin/src/pages/OpsToday.jsx</Mono>, nav link at the top of Home,
-        migration 221) shows the day at a glance, the tasks for a venue grouped
-        Late / Now / Next / Later, the person's menu as tiles and Pepper beside them. The tasks come from data and
-        rules, never the model (P1, Q1), so the page works with Pepper off.
+        brackets): the day at a glance and the tasks for a venue grouped Late / Now / Next / Later. The tasks come
+        from data and rules, never the model (P1, Q1), so the feed works with Pepper off. It was its own page at{' '}
+        <Mono>/today</Mono> (migration 221) until Pepper-first step 2b made it the heart of Home at <Mono>/</Mono>{' '}
+        (<Mono>admin/src/pages/Home.jsx</Mono>, migration 273; see Home, pins and the ask bar): <Mono>/today</Mono>{' '}
+        now sends to <Mono>/</Mono>, and its menu tiles and side Pepper panel are gone (pins and the ask bar took
+        their place).
       </P>
       <H3>Who has the link</H3>
       <P>
@@ -25,8 +27,9 @@ export function Section() {
         <Mono>ROUTE_CATALOG</Mono> or <Mono>DEFAULT_NAV_TREE</Mono>. Migration 221 had given it the Overview&apos;s
         module (<Mono>dashboard</Mono>) and copied the Overview link&apos;s <Mono>hidden_role_ids</Mono>, so a role
         without the Overview lost Today too: a custom role resolves every module it doesn&apos;t name to{' '}
-        <Mono>none</Mono> (<Mono>resolvePermission()</Mono>). Migration 227 clears both on every group&apos;s{' '}
-        <Mono>/today</Mono> link; the Navigation designer can still hide it from a role.
+        <Mono>none</Mono> (<Mono>resolvePermission()</Mono>). Migration 227 cleared both on every group&apos;s{' '}
+        <Mono>/today</Mono> link, and migration 273 made that link the Home link at <Mono>/</Mono>, again with no
+        module and no hidden roles; the Navigation designer can still hide it from a role.
       </P>
       <H3>GET /api/ops/today</H3>
       <P>
@@ -85,7 +88,7 @@ export function Section() {
         key is left out, and the area isn&apos;t named in <Mono>not_included</Mono> (it holds no tasks).
       </P>
       <P>
-        <Mono>WeekAhead</Mono> (exported from <Mono>OpsToday.jsx</Mono>; <Mono>MobileToday.jsx</Mono> draws it with{' '}
+        <Mono>WeekAhead</Mono> (exported from <Mono>Home.jsx</Mono>; <Mono>MobileToday.jsx</Mono> draws it with{' '}
         <Mono>{'linkFor={opsLink}'}</Mono>) sits under the greeting: a seven-column strip, each day in its own column
         (<Mono>gridColumnStart</Mono> from its offset, so a day without a forecast is a gap), with{' '}
         <Mono>WeatherIcon</Mono> (<Mono>components/localInfo/weather.jsx</Mono>) from the WMO code, the high, the
@@ -121,12 +124,9 @@ export function Section() {
         <Mono>mobile/registry.js</Mono>). Test ids <Mono>today-form</Mono> (<Mono>data-form</Mono>),{' '}
         <Mono>today-form-title</Mono>, <Mono>today-cash-state</Mono> (<Mono>data-status</Mono>),{' '}
         <Mono>today-cash-submit</Mono>, <Mono>today-cash-unsubmit</Mono>, <Mono>today-unsaved</Mono>,{' '}
-        <Mono>today-unsaved-stay</Mono>, <Mono>today-unsaved-discard</Mono>, <Mono>today-unsaved-save</Mono>. The tiles
-        are <Mono>/api/me</Mono>'s <Mono>nav_tree</Mono> links, pages with tasks first (<Mono>AREA_ROUTES</Mono>).
-        Pepper is <Mono>ChatView</Mono> with <Mono>pageAware</Mono> (the page calls <Mono>usePepperPage()</Mono>
-        with the venue and day) and a <Mono>suggestions</Mono> list for the day; the conversation is the drawer's
-        remembered one (<Mono>useRememberedConversation()</Mono>). The venue choice is kept in{' '}
-        <Mono>maca_today_venue</Mono>. Tests: <Mono>api/test/ops-today.test.mjs</Mono>.
+        <Mono>today-unsaved-stay</Mono>, <Mono>today-unsaved-discard</Mono>, <Mono>today-unsaved-save</Mono>. Home
+        calls <Mono>usePepperPage()</Mono> with the venue and day, so Pepper&apos;s drawer knows them. The venue
+        choice is kept in <Mono>maca_today_venue</Mono>. Tests: <Mono>api/test/ops-today.test.mjs</Mono>.
       </P>
       <InfoBox type="info">
         Not built yet from <Mono>docs/CHAT_FIRST.md</Mono>: a task store with owners, snooze, skip and escalation
@@ -139,7 +139,7 @@ export function Section() {
       <P>
         <Mono>components/forms/FormSheet.jsx</Mono>: <Mono>FORMS</Mono> (with each form&apos;s module and phone page),{' '}
         <Mono>Go</Mono>, <Mono>formTitle()</Mono>, <Mono>FormSheet</Mono> and <Mono>FormOpener</Mono>, moved out of{' '}
-        <Mono>OpsToday.jsx</Mono> (which re-exports <Mono>FormSheet</Mono>) so Pepper&apos;s form cards open the
+        the Today page (<Mono>Home.jsx</Mono> now, which re-exports <Mono>FormSheet</Mono>) so Pepper&apos;s form cards open the
         same sheet. New forms: delivery (<Mono>DeliveryChecksPanel</Mono>), expense (<Mono>PettyCashPanel</Mono>),
         rota_day (<Mono>RotaDayList</Mono> and the week&apos;s <Mono>RotaGrid</Mono> on that day), sold_out
         (<Mono>AvailabilityModal</Mono>).

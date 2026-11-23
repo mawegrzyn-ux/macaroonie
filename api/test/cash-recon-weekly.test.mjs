@@ -124,10 +124,13 @@ test('Pepper: submit_cash_day refuses at a weekly venue; submit_cash_week submit
   const { card, out } = await pepper(A.operator, 'submit_cash_week', { venue: name, week: lastMonday })
   assert.match(card.title, /^Submit the week of /)
   assert.ok(card.lines.some(l => l.startsWith('To submit: ')))
-  assert.equal(out.submitted.length, 2)
+  // On a Monday the day filled as yesterday above is last week's Sunday, a third day.
+  assert.equal(out.submitted.length, today === monday ? 3 : 2)
   await assert.rejects(pepper(A.operator, 'submit_cash_week', { venue: name, week: lastMonday }), /already submitted/)
   // Back to each day: the day submit works again.
   await ok(owner.patch(`${C}/settings`, { submit_mode: 'daily' }))
+  // On a Monday yesterday is in the week just submitted: open it again first.
+  if (today === monday) await ok(owner.post(`${C}/week/${lastMonday}/unsubmit`, {}))
   await fill(addDays(today, -1), 60)
   await ok(operator.post(`${C}/daily/${addDays(today, -1)}/submit`, {}))
 })

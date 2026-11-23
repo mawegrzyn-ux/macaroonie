@@ -10,6 +10,10 @@
 //               address. `about` says what the page is for. Given a venue, a
 //               day or week and a tab, the link opens the page there when the
 //               page's address accepts them (shared/nav/links.js pageLink()).
+//               In the staff chat the result also carries nav_card, which the
+//               chat draws as a nav card (display(): the page, where it sits
+//               in the menu, what it opens at, Open), built from the server's
+//               result, never the model's words.
 //   how_do_i    the Help page's passages that best answer a how-to question,
 //               with a link to each (src/ai/helpIndex.js)
 
@@ -138,6 +142,8 @@ export const generalTools = [
         const w = week || (day && keys.includes('week') && !keys.includes('date') ? mondayOf(day) : null)
         return { venue: venue?.id, date: day, week: w, tab }
       }
+      const chat = ctx.channel === 'staff_chat'
+      const cards = []
       const view = p => {
         const link = pageLink(p.route, at(p.route))
         const used = Object.fromEntries(new URLSearchParams(link.split('?')[1] || ''))
@@ -147,6 +153,7 @@ export const generalTools = [
           used.week ? 'week of ' + shortDate(used.week) : null,
           used.tab ? used.tab + ' tab' : null,
         ].filter(Boolean)
+        if (chat) cards.push({ page: p.label, section: p.path || null, icon: p.icon || null, link, opens_at: opensAt })
         return {
           page: p.label,
           ...(NAV_DESCRIPTIONS[p.route] ? { about: NAV_DESCRIPTIONS[p.route] } : {}),
@@ -167,9 +174,17 @@ export const generalTools = [
             (keys.length ? '; it opens at a ' + keys.join(', ') + (tabs.length ? ' (tabs: ' + tabs.join(', ') + ')' : '') : '') +
             '. Say so if it matters.'
         }
-        return out
+        return chat ? { ...out, nav_card: cards } : out
       }
-      return { choices: top.map(view), note: 'More than one page matches: offer the right one.' }
+      const choices = top.map(view)
+      return { choices, note: 'More than one page matches: offer the right one.', ...(chat ? { nav_card: cards } : {}) }
+    },
+    // The chat's card (chat.js): from the result the server made. Only links
+    // into the app (a path), as the chat's own links.
+    display(out) {
+      const pages = (Array.isArray(out?.nav_card) ? out.nav_card : [])
+        .filter(c => typeof c?.link === 'string' && /^\/(?!\/)/.test(c.link) && typeof c.page === 'string')
+      return pages.length ? { type: 'nav', pages } : null
     },
   },
   {

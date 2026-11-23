@@ -116,7 +116,7 @@ export default async function noticesRoutes(app) {
       SELECT id, kind, token FROM push_devices WHERE tenant_id = ${req.tenantId} AND user_sub = ${req.user.sub}`)
     if (!devices.length) throw httpError(422, 'Turn notices on on this device first.')
     const reached = await sendToDevices(req.tenantId, devices, {
-      title: 'Notices are working', body: 'Late and due-soon tasks will come here.', url: '/today', tag: 'test',
+      title: 'Notices are working', body: 'Late and due-soon tasks will come here.', url: '/', tag: 'test',
     })
     return { sent: reached, devices: devices.length }
   })

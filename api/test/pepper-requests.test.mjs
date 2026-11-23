@@ -59,14 +59,6 @@ test('a chat turn keeps one row per model call: where, what for, model, tokens, 
   assert.deepEqual([Number(month.requests), Number(month.input_tokens)], [2, 5400])
 })
 
-test('the menu search is kept as what it was for', async () => {
-  claude.script.push(() => ({ stop_reason: 'end_turn', content: text(JSON.stringify({ picks: [], note: 'Nothing fits.' })), usage: { input_tokens: 2400, output_tokens: 90 } }))
-  await ok(as(A.owner, ids.a).post('/api/ai/nav-search', { query: 'where do I change pay' }))
-  const last = (await rows()).at(-1)
-  assert.equal(last.use, 'nav_search')
-  assert.ok(last.ms >= 0)
-})
-
 test('only model calls are kept: a connector call with no model, or a use not in the list', async () => {
   const before = (await rows()).length
   await addUsage(ids.a, 'staff_mcp')

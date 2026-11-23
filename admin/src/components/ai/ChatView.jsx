@@ -16,7 +16,9 @@
 // can go with a message (attach button, camera on touch devices, paste, or
 // drop onto the chat): see ./attachments.jsx. Links Pepper gives to pages of
 // the app ([Rota](/rota), from its open_page tool) open in the app; other
-// links show as plain text. With web search on for the group (Settings), an
+// links show as plain text. open_page's result also shows as a nav card
+// (NavCard: the page, where it sits in the menu, the venue, day or tab it
+// opens at, and Open), built by the server from its own result. With web search on for the group (Settings), an
 // answer that used the web lists the pages it cites under it (Sources: the
 // only outside links in the chat, opened in a new tab) and each search shows
 // as a line with what was searched for.
@@ -37,7 +39,8 @@ import { cn } from '@/lib/utils'
 import { usePepperPageContext } from '@/lib/pepperPage'
 import { useAttachments, PendingFiles, MessageFiles, ACCEPT } from './attachments'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
-import { FORMS, FormOpener } from '@/components/forms/FormSheet'
+import { FORMS, FormOpener, Go } from '@/components/forms/FormSheet'
+import * as LucideIcons from 'lucide-react'
 import { canListen, canSpeak, listen, speak, stopSpeaking, readAloudOn, setReadAloud, yesOrNo } from '@/lib/speech'
 import { useMic, MicButton } from './mic'
 
@@ -78,7 +81,7 @@ function navLabel(tree, path) {
 /** "/food-safety" -> "Food safety", for a page that isn't in the nav. */
 function pathLabel(path) {
   const words = path.split('/').filter(s => s && !/^[0-9a-f-]{20,}$/i.test(s)).join(' ').replace(/[-_]+/g, ' ')
-  return words ? words[0].toUpperCase() + words.slice(1) : 'Overview'
+  return words ? words[0].toUpperCase() + words.slice(1) : 'Home'
 }
 
 /** What the drawer sends about the page on screen, and how the chip words it. */
@@ -516,11 +519,46 @@ function ChatItem({ item, decide, busy = false, linkFor = null }) {
   }
   if (item.type === 'action') return <ActionCard card={item} decide={decide} busy={busy} />
   if (item.type === 'form') return <FormCard card={item.form} linkFor={linkFor} />
+  if (item.type === 'nav') return <NavCard pages={item.pages} linkFor={linkFor} />
   return null
 }
 
+/** Pepper's nav card (open_page, Pepper-first step 2c): each page offered,
+ *  where it sits in the menu, the venue, day, week or tab its link opens at,
+ *  and Open. Built by the server from its own result (the tool's display()),
+ *  never from the model's words; only links into the app. */
+function NavCard({ pages, linkFor }) {
+  const list = (pages || []).filter(p => /^\/(?!\/)/.test(p?.link || ''))
+  if (!list.length) return null
+  return (
+    <div className="rounded-lg border bg-background overflow-hidden" data-testid="chat-nav-card">
+      {list.map((p, i) => {
+        const Icon = LucideIcons[p.icon] || LucideIcons.Link2
+        return (
+          <div key={p.link} className={cn('flex flex-wrap items-center gap-3 px-3 py-2.5', i > 0 && 'border-t')} data-testid="chat-nav-page" data-link={p.link}>
+            <span className="w-9 h-9 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0"><Icon className="w-4 h-4" /></span>
+            <div className="min-w-0 flex-[1_1_9rem]">
+              <p className="text-sm font-medium leading-tight break-words" data-testid="chat-nav-name">{p.page}</p>
+              {p.section && <p className="text-xs text-muted-foreground leading-tight mt-0.5" data-testid="chat-nav-section">{p.section}</p>}
+              {p.opens_at?.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1" data-testid="chat-nav-at">
+                  {p.opens_at.map(a => <span key={a} className="rounded-full border bg-muted/40 px-2 py-0.5 text-xs">{a}</span>)}
+                </div>
+              )}
+            </div>
+            <Go to={p.link} linkFor={linkFor} data-testid="chat-nav-open"
+              className="ml-auto min-h-[48px] px-4 rounded-md bg-primary text-primary-foreground text-sm font-medium inline-flex items-center gap-1.5 touch-manipulation">
+              Open <LucideIcons.ChevronRight className="w-4 h-4" />
+            </Go>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 /** Pepper's form card (open_form, OUTSTANDING 44 item 3): the form, its venue
- *  and day, and Open, which opens the same sheet as the Today page's tasks
+ *  and day, and Open, which opens the same sheet as the tasks on Home
  *  over the chat. Built by the server from what it found, never from the
  *  model's words. */
 function FormCard({ card, linkFor }) {

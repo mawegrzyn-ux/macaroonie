@@ -12,7 +12,9 @@
 // current parent), both from the frontend computing the right
 // parent_id/index and calling the one endpoint that fits.
 //
-// Mounted at /api/nav (api/src/areas/shell.js).
+// Mounted at /api/nav (api/src/areas/shell.js). The tenant-wide Sidebar /
+// Launcher switch (PATCH /style, tenants.nav_style, nav_items.show_in_launcher)
+// went with Pepper-first step 2d (migration 274): the sidebar is the only menu.
 
 import { z } from 'zod'
 import { withTenant, sql } from '../config/db.js'
@@ -58,7 +60,6 @@ const NavItemBody = z.object({
   route:              z.string().max(200).nullable().optional(),
   module:             z.string().max(60).nullable().optional(),
   hidden_role_ids:    z.array(z.string().uuid()).optional(),
-  show_in_launcher:   z.boolean().optional(),
   sort_order:         z.number().int().optional(),
 }).refine(b => b.kind === 'section' || !!b.route, { message: 'route is required for a link item' })
 
@@ -70,8 +71,6 @@ const NavItemPatch = z.object({
   route:              z.string().max(200).nullable().optional(),
   module:             z.string().max(60).nullable().optional(),
   hidden_role_ids:    z.array(z.string().uuid()).optional(),
-  show_in_launcher:   z.boolean().optional(),
-  launcher_sort_order: z.number().int().optional(),
   is_active:          z.boolean().optional(),
 })
 
@@ -105,10 +104,10 @@ export default async function navRoutes(app) {
          WHERE tenant_id = ${req.tenantId} AND parent_id IS NOT DISTINCT FROM ${body.parent_id ?? null}
       `
       const [row] = await tx`
-        INSERT INTO nav_items (tenant_id, parent_id, kind, label, description, icon, route, module, hidden_role_ids, show_in_launcher, sort_order)
+        INSERT INTO nav_items (tenant_id, parent_id, kind, label, description, icon, route, module, hidden_role_ids, sort_order)
         VALUES (${req.tenantId}, ${body.parent_id ?? null}, ${body.kind}, ${body.label}, ${body.description ?? null}, ${body.icon ?? null},
                 ${body.kind === 'section' ? null : body.route}, ${body.module ?? null},
-                ${body.hidden_role_ids ?? []}, ${body.show_in_launcher ?? false}, ${max_sort + 1})
+                ${body.hidden_role_ids ?? []}, ${max_sort + 1})
         RETURNING *
       `
       return row
@@ -224,15 +223,5 @@ export default async function navRoutes(app) {
       await seedDefaultNav(tx, req.tenantId)
     })
     return { ok: true }
-  })
-
-  app.patch('/style', { preHandler: requirePermission('nav_designer', 'manage') }, async (req) => {
-    const { nav_style } = z.object({ nav_style: z.enum(['sidebar', 'launcher']) }).parse(req.body)
-    const [row] = await withTenant(req.tenantId, tx => tx`
-      UPDATE tenants SET nav_style = ${nav_style}, updated_at = now()
-       WHERE id = ${req.tenantId} RETURNING id, nav_style
-    `)
-    if (!row) throw httpError(404, 'Tenant not found')
-    return row
   })
 }

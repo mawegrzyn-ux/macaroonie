@@ -71,3 +71,18 @@ Built: `usage_events` (pages opened, menu searches with handed to Pepper and wha
 - No median: report figures are sum, average, smallest, largest and counts only, so "median time to the first task" has to wait for a median figure in the report engine.
 - (Fixed 22 Nov 2026 before merging: a report on My pages and searches, or one showing it beside another subject, can't be scheduled, emailed or made a data link: `ownRecordOnly()` in `api/src/reports/catalogue/index.js`, 422 with a reason. The admin still offers those buttons on such a report; they fail with the reason.)
 - Platform admins viewing another group are recorded in that group like members.
+
+**52. One Home and the ask bar, step 2 follow-ups (Pepper-first, 22 Nov 2026, migrations 272 to 274)**
+
+Built: pins kept on the server per person (12 at most, a venue and tab where the page takes them, an own name, drag to reorder), Home at `/` (the bar, pins, the day at a glance, the Today feed, the week ahead), the Overview at `/overview`, `/today` to `/`, the ask bar on Home and over any page (no model call for page and saved-report results; Enter, Ask or an ask under the bar hands the words to Pepper as a new chat), nav cards for `open_page` in the chat, the Launcher retired (its tiles became pins). Not done:
+- The phone app (`/mobile`) keeps its own hub and Today page: no ask bar there yet (the strategy puts it at the bottom, in thumb reach), and the phone hub doesn't show pins.
+- For review (step 5) has a place on Home but nothing in it; suggestions after the pins with a reason (step 7) are not built, nor the Team signal (the plan's `suggest_to_team`: `show_in_launcher` was dropped, not renamed, so step 7 adds its own column).
+- The bar's page rows have no context chips (venue, day or week, tab) as the mock-up shows: a page opens plain from the bar; a pin or Pepper's nav card can carry the context. A star to pin from a search row, a nav card or a menu link is not built (pins are added from the editor only).
+- What a Pepper answer then opened isn't joined to the search in the usage record: a hand-over is kept as `pepper: true` with nothing opened. The `picked = 'pepper'` value is no longer written by anything.
+- A pin can't carry a day or week (the plan's relative period: today, this week, next week): only a venue and a tab.
+- Saved reports can't be pinned (`home_pins.path` must be a page of the person's menu).
+- "cash up" in the bar lists Cash dashboard, Cash recon and Cash Recon link (/pos/recon) at the same score, Cash dashboard first by name; Pepper's `open_page` offers Cash recon through its phrase rule. A tie-break by how often the person opens a page would need the usage record (decision 8 allows a person's own record for their own results).
+- On a 1280 px screen Pepper's drawer covers the right end of Home's bar, its Ask button included (Enter still works, and the drawer has its own box).
+- The browser checks ran on the office at 1280 and 1015 px and a 1024 px touch tablet; no check at phone width of Home in the office shell (the phone app is the phone's front door).
+- A pin whose page left the person's menu is not shown, and the next save drops it for good.
+
