@@ -9,7 +9,9 @@
 // chat card's own Undo). Filtered by venue and day; the person's own by
 // default, everyone's for a manager of Pepper. Listed by time only: Pepper
 // doesn't rank or count people (docs/PEPPER_FIRST.md 13, decision 8).
-// Loaded on demand (rule 24): admin/src/routes/pepper.jsx.
+// Loaded on demand (rule 24): admin/src/routes/pepper.jsx. Also For review's
+// second tab (pages/Review.jsx, step 5c) with `embedded`: no title bar and
+// no scroll container of its own.
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
@@ -30,7 +32,7 @@ const CHANNEL_TEXT = { staff_chat: 'in the chat', staff_mcp: 'from an AI app' }
 const todayIso = () => format(new Date(), 'yyyy-MM-dd')
 const shiftDay = (d, n) => { const x = parseISO(d); x.setDate(x.getDate() + n); return format(x, 'yyyy-MM-dd') }
 
-export default function PepperDone() {
+export default function PepperDone({ embedded = false }) {
   const api = useApi()
   const qc = useQueryClient()
   const { canManage } = usePermission('ai_assistant')
@@ -57,16 +59,8 @@ export default function PepperDone() {
   const rows = data?.rows ?? []
   const everyone = who === 'all'
 
-  return (
-    <div className="h-full overflow-y-auto bg-page">
-      <div className="flex items-center justify-between gap-3 px-4 sm:px-6 min-h-14 py-2 border-b bg-background max-lg:notouch:pl-14">
-        <div className="min-w-0">
-          <h1 className="font-semibold flex items-center gap-2"><ListChecks className="w-4 h-4" /> Done by {ASSISTANT_NAME}</h1>
-          <p className="text-xs text-muted-foreground truncate">What {ASSISTANT_NAME} changed, who confirmed it, and Undo while it is still open</p>
-        </div>
-      </div>
-
-      <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-4">
+  const body = (
+      <div className={cn('max-w-4xl mx-auto space-y-4', !embedded && 'p-4 sm:p-6')}>
         <div className="rounded-lg border bg-background p-3 flex flex-wrap items-center gap-2" data-testid="done-filters">
           <select value={venueId} onChange={e => setVenueId(e.target.value)} aria-label="Venue"
             className="min-h-[44px] rounded-md border bg-background px-3 text-sm touch-manipulation" data-testid="done-venue">
@@ -133,6 +127,17 @@ export default function PepperDone() {
           )}
         </section>
       </div>
+  )
+  if (embedded) return body
+  return (
+    <div className="h-full overflow-y-auto bg-page">
+      <div className="flex items-center justify-between gap-3 px-4 sm:px-6 min-h-14 py-2 border-b bg-background max-lg:notouch:pl-14">
+        <div className="min-w-0">
+          <h1 className="font-semibold flex items-center gap-2"><ListChecks className="w-4 h-4" /> Done by {ASSISTANT_NAME}</h1>
+          <p className="text-xs text-muted-foreground truncate">What {ASSISTANT_NAME} changed, who confirmed it, and Undo while it is still open</p>
+        </div>
+      </div>
+      {body}
     </div>
   )
 }

@@ -14,7 +14,9 @@
 // for each day and the local news, for people who can see Local info.
 // It replaced the Today page (/today, which now sends here) and the
 // Overview's place at / (the tiles are at /overview). A full-screen chat is
-// never the landing page. Step 5 adds For review under the week.
+// never the landing page. Under the tasks: the managers' Skipped today
+// (components/home/TaskActions.jsx) and, under the week, the For review slot
+// (components/ai/ReviewSlot.jsx: what waits, with a link to /review).
 //
 // The parts are exported for the phone's Today (pages/mobile/MobileToday.jsx).
 
@@ -33,6 +35,7 @@ import { usePepperPage } from '@/lib/pepperPage'
 import { FormSheet, Go } from '@/components/forms/FormSheet'
 import PinStrip from '@/components/home/Pins'
 import { TaskActions, TaskMoreButton, TaskOwner, SetAside, SkippedToday } from '@/components/home/TaskActions'
+import ReviewSlot from '@/components/ai/ReviewSlot'
 import AskBar, { useAsk } from '@/components/layout/AskBar'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 
@@ -179,7 +182,8 @@ export default function Home() {
 
           {d && <WeekAhead d={d} canSetUp={me?.permissions?.local_info === 'manage'} />}
 
-          {/* Step 5 of the Pepper-first plan puts For review here: drafts and unanswered cards waiting. */}
+          {/* For review (step 5c): what waits for the person, with a link to /review. */}
+          <ReviewSlot />
         </div>
       </div>
 

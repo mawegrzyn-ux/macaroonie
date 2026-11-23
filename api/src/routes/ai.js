@@ -31,6 +31,11 @@
 //   GET    /done                       Done by Pepper (step 4e): Pepper's changes, the
 //                                      person's own (ai_assistant view) or everyone's
 //                                      (manage), by venue and day, with Undo where open
+//   GET    /review                     For review's Waiting list (step 5c): the person's
+//                                      own cards left unanswered (WAIT_DAYS), supplier
+//                                      orders waiting for their approval and invoices
+//                                      read for a delivery not booked in, each part
+//                                      read as the person; ?count=1 for Home's slot
 //
 //   GET    /platform/tenants           every tenant's limit and usage (platform admin)
 //   PATCH  /platform/tenants/:id       { monthly_token_limit } (platform admin)
@@ -47,14 +52,14 @@ import { sql, withTenant, systemSql, tenantSql } from '../config/db.js'
 import { env } from '../config/env.js'
 import { httpError } from '../middleware/error.js'
 import { requireAuth, requirePermission, requirePlatformAdmin, permissionLevel, newAccessToken } from '../middleware/auth.js'
-import { ToolError, usageMonth } from '../ai/context.js'
+import { ToolError, usageMonth, makeContext, callApi } from '../ai/context.js'
 import {
   getAiSettings, saveAiSettings, monthUsage, chatConfigured, chatUnitsLeft, personUnitsLeft, dailyShare, peopleUsage,
 } from '../ai/settings.js'
 import { activeKey, keyInfo, checkKey, saveKey, removeKey } from '../ai/apiKey.js'
 import {
   createConversation, loadConversation, runTurn, confirmAction, cancelAction, displayItems, chatContext, isRunning,
-  saveFormCard, FORM_SUMMARY_MAX, undoAction, undoUntil,
+  saveFormCard, FORM_SUMMARY_MAX, undoAction, undoUntil, WAIT_DAYS,
 } from '../ai/chat.js'
 import { audienceTools } from '../ai/tools/index.js'
 import { ACTION_LABELS } from '../../../shared/pepperActions.js'
@@ -497,6 +502,96 @@ export default async function aiRoutes(app) {
         }),
       }
     })
+  })
+
+  // ── For review (Pepper-first step 5c) ──────────────────
+  // Waiting: what a person has to look at before it takes effect. Each item
+  // says what it is, where it came from and why, and how to answer it: a card
+  // is approved through its own Confirm (POST /actions/:id/confirm: the typed
+  // word for a destructive one, one write per card) or Cancel; a supplier
+  // order opens its own approval (or goes back with a note); an invoice opens
+  // its delivery. Cards of one kind that can be undone (class reversible) may
+  // be approved together, one Confirm each; nothing above that is (never
+  // money, pay, allergens or a deletion). Open to everyone signed in: each
+  // part needs its own module and is left out (named) without it.
+  app.get('/review', async req => {
+    if (!req.tenantId) throw httpError(404, 'Choose a restaurant group first')
+    const countOnly = req.query?.count === '1'
+    const items = []
+    const notIncluded = []
+    const errors = []
+    if (await permissionLevel(req, 'ai_assistant') !== 'none') {
+      const cards = await withTenant(req.tenantId, tx => tx`
+        SELECT p.id, p.tool, p.card, p.created_at, p.expires_at, p.conversation_id, c.title AS chat_title
+          FROM ai_pending_actions p
+          JOIN ai_conversations c ON c.id = p.conversation_id AND c.tenant_id = p.tenant_id
+         WHERE p.tenant_id = ${req.tenantId} AND c.channel = 'staff_chat' AND c.user_sub = ${req.user.sub}
+           AND c.closed_at IS NULL AND p.status = 'pending' AND p.decided_at IS NULL AND p.expires_at > now()
+         ORDER BY p.created_at DESC
+         LIMIT 100`)
+      for (const a of cards) {
+        const klass = a.card?.class || 'consequential'
+        items.push({
+          kind: 'card', id: a.id, tool: a.tool, label: ACTION_LABELS[a.tool] || a.tool,
+          title: a.card?.title || ACTION_LABELS[a.tool] || a.tool,
+          lines: Array.isArray(a.card?.lines) ? a.card.lines.slice(0, 8).map(String) : [],
+          before: Array.isArray(a.card?.before) ? a.card.before.map(String) : [],
+          after: Array.isArray(a.card?.after) ? a.card.after.map(String) : [],
+          warnings: Array.isArray(a.card?.warnings) ? a.card.warnings.map(String) : [],
+          class: klass, confirm_word: klass === 'destructive' ? (a.card?.confirm_word || 'CONFIRM') : null,
+          confirm_label: a.card?.confirmLabel || 'Confirm',
+          source: 'Proposed by ' + ASSISTANT_NAME + ' in the chat' + (a.chat_title ? ' "' + a.chat_title + '"' : ''),
+          conversation_id: a.conversation_id, at: a.created_at, waits_until: a.expires_at,
+          together: klass === 'reversible',
+        })
+      }
+    } else notIncluded.push('cards')
+
+    const ctx = makeContext({
+      app, channel: 'staff_chat', tenantId: req.tenantId, log: req.log,
+      auth: { authorization: req.headers.authorization },
+      principal: { sub: req.user.sub, email: req.user.email, isPlatformAdmin: !!req.isPlatformAdmin },
+      actor: req.user.email || req.user.sub,
+    })
+    const part = async (name, fn) => {
+      try { await fn() } catch (err) {
+        if (err instanceof ToolError && err.status === 403) notIncluded.push(name)
+        else errors.push({ part: name, message: err instanceof ToolError ? err.message : 'Couldn\'t load this part' })
+      }
+    }
+    if (await permissionLevel(req, 'purchasing_approve') === 'manage') {
+      await part('supplier_orders', async () => {
+        const orders = await callApi(ctx, 'GET', '/api/purchasing/orders?status=requested')
+        for (const o of orders) {
+          items.push({
+            kind: 'supplier_order', id: o.id, label: 'Supplier order',
+            title: 'Supplier order for ' + o.venue_name + (o.list_name ? ' (' + o.list_name + ')' : ''),
+            lines: [o.line_count + (o.line_count === 1 ? ' line' : ' lines') + (o.notes ? ' · ' + String(o.notes).slice(0, 120) : '')],
+            source: 'Asked for by ' + (o.requested_by || 'someone') + ', waiting for approval',
+            venue_id: o.venue_id, at: o.requested_at, open: '/purchasing?order=' + o.id, can_reject: true, together: false,
+          })
+        }
+      })
+    } else notIncluded.push('supplier_orders')
+    await part('invoices', async () => {
+      const rows = await callApi(ctx, 'GET', '/api/purchasing/invoices/waiting')
+      for (const r of rows) {
+        items.push({
+          kind: 'invoice', id: r.id, label: 'Invoice read',
+          title: 'Invoice from ' + r.supplier_name + (r.invoice_number ? ' ' + r.invoice_number : '') + ' for ' + r.venue_name,
+          lines: [r.line_count + (r.line_count === 1 ? ' line read' : ' lines read') + (r.delivery_date ? ' · delivery ' + r.delivery_date : '')],
+          source: 'Read by ' + ASSISTANT_NAME + ' from a photo or PDF' + (r.read_by ? ' for ' + r.read_by : '') + ': not booked in yet',
+          venue_id: r.venue_id, at: r.read_at, open: '/purchasing?po=' + r.po_id, can_reject: false, together: false,
+        })
+      }
+    })
+    if (countOnly) return { count: items.length }
+    return {
+      wait_days: WAIT_DAYS, count: items.length,
+      items: items.sort((a, b) => new Date(b.at) - new Date(a.at)),
+      ...(notIncluded.length ? { not_included: notIncluded } : {}),
+      ...(errors.length ? { errors } : {}),
+    }
   })
 
   // ── Platform admin: monthly limits ──────────────────────
