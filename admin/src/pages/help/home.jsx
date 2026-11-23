@@ -35,7 +35,7 @@ export function Section() {
       <P>
         The last row is always <strong>Ask Pepper</strong> with your words. Tap it, tap{' '}
         <strong>Ask</strong>, or press <strong>Enter</strong> without picking a row, and Pepper opens at the
-        side with a new chat that starts with your question. When Pepper answers with a page, it shows a
+        side and carries on the chat you had open, with your question added (tap the plus at the top of the panel for a fresh chat). When Pepper answers with a page, it shows a
         card with the page&apos;s name, where it sits in the menu, the venue, day or tab it opens at, and{' '}
         <strong>Open</strong>. With a keyboard, the arrow keys move through the rows, Enter opens the one lit,
         and Escape clears the box. Under the bar, a few questions for the day (Brief me on today, What is

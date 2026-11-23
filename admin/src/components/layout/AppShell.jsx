@@ -228,8 +228,8 @@ export default function AppShell() {
   // The ask bar (Pepper-first step 2c, components/layout/AskBar.jsx): on Home
   // at the top of the page, over any other page as a window opened by the
   // sidebar's Search or ask, the rails' search buttons, Ctrl or Cmd+K, or /
-  // when no box has the cursor. Its words go to Pepper as a new chat in the
-  // drawer (pepperAsk, AssistantDrawer's ask).
+  // when no box has the cursor. Its words go into Pepper's remembered chat in
+  // the drawer (pepperAsk, AssistantDrawer's ask).
   const [barOpen, setBarOpen] = useState(false)
   const [pepperAsk, setPepperAsk] = useState(null)
   const inlineBar = useRef(null)

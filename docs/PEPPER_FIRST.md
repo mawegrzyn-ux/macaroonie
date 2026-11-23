@@ -439,8 +439,11 @@ section 7 where the two differ. The owner answered ten of its eleven decisions t
    section 9 still gate step 1.
 6. **Identity on shared devices: agreed.** A PIN person switch before any change. A till PIN is enough
    for logging checks and nothing else.
-7. **Skipping a compliance task: not answered.** The recommendation is a skip only with a reason,
+7. **Skipping a compliance task: agreed (23 Nov 2026).** A skip only with a reason,
    recorded and shown above the store. It gates the task store in step 5 and nothing before it.
+
+Asked after step 2 (23 Nov 2026): the ask bar hands its words to Pepper's remembered chat, not a new
+one (as the phone's Pepper page already did).
 8. **Usage data about people: agreed.** Managers see task completion by site. The record of pages a
    person opens stays that person's own (section 4.5). Pepper does not rank individuals.
 9. **Model writes to allergens and pay: agreed.** A named person signs off any allergen data a model

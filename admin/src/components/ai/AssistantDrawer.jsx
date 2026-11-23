@@ -4,8 +4,10 @@
 // sidebar's "Ask Pepper" button on any page (so staff can keep the timeline in view).
 // Each message says which page is behind the panel (ChatView pageAware).
 // The open conversation is remembered per browser (maca_ai_conversation).
-// `ask` ({ text, id }, from the ask bar through AppShell): a new chat that
-// starts with those words; `onAsked` lets AppShell forget them once sent.
+// `ask` ({ text, id }, from the ask bar through AppShell): those words sent
+// into the remembered chat, as the phone's Pepper page does (a new chat when
+// none is remembered; the owner's choice, 23 Nov 2026); `onAsked` lets
+// AppShell forget them once sent.
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Plus, History, Sparkles, Trash2 } from 'lucide-react'
@@ -80,17 +82,9 @@ export function ConversationList({ activeId, onPick, className }) {
 export default function AssistantDrawer({ open, onClose, ask = null, onAsked = null }) {
   const [conversationId, setConversationId] = useRememberedConversation()
   const [showHistory, setShowHistory] = useState(false)
-  // Words from the ask bar start a new chat: the new chat's view is keyed by
-  // the ask, so a second ask before the first chat has its id still sends.
-  const [askedFor, setAskedFor] = useState(0)
-  useEffect(() => {
-    if (!ask?.id) return
-    setConversationId(null)
-    setShowHistory(false)
-    setAskedFor(ask.id)
-  }, [ask?.id])   // eslint-disable-line react-hooks/exhaustive-deps
-  // Only once the new chat is on screen, never into the chat before it.
-  const sendNow = ask && askedFor === ask.id && !conversationId ? ask : null
+  // Words from the ask bar carry on the remembered chat: shown as soon as
+  // they arrive (the list of earlier chats closes), sent once by ChatView.
+  useEffect(() => { if (ask?.id) setShowHistory(false) }, [ask?.id])
 
   useEffect(() => {
     if (!open) return
@@ -128,8 +122,8 @@ export default function AssistantDrawer({ open, onClose, ask = null, onAsked = n
             <ConversationList activeId={conversationId} onPick={id => { setConversationId(id); setShowHistory(false) }} />
           </div>
         ) : (
-          <ChatView key={conversationId || 'new' + askedFor} conversationId={conversationId} onConversationId={setConversationId} className="flex-1" pageAware
-            ask={sendNow} onAsked={onAsked} />
+          <ChatView key={conversationId || 'new'} conversationId={conversationId} onConversationId={setConversationId} className="flex-1" pageAware
+            ask={ask} onAsked={onAsked} />
         )}
       </aside>
     </>

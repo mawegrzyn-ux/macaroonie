@@ -14,8 +14,8 @@
 // letters, for people with Reports). The last row is always Ask Pepper with
 // the words. Arrow keys move through the rows; Enter opens the row lit, and
 // with none lit hands the words to Pepper (or, without Pepper, opens the
-// first result). Handing over opens Pepper's drawer with a new chat that
-// starts with the words (askPepper() from AppShell, AssistantDrawer's ask);
+// first result). Handing over opens Pepper's drawer and sends the words into
+// the remembered chat (askPepper() from AppShell, AssistantDrawer's ask);
 // Pepper answers a page with a nav card (ChatView's NavCard).
 //
 // The usage record (migration 270): each search goes through useSearchUse()
@@ -40,7 +40,7 @@ const iconOf = name => LucideIcons[name] || LucideIcons.Circle
 
 /**
  * What AppShell lends the bar: openBar() (the overlay, or the bar on Home
- * when it is on screen), askPepper(words) (Pepper's drawer with a new chat),
+ * when it is on screen), askPepper(words) (the words into Pepper's remembered chat),
  * canAskAi, and registerInline(focus) for the bar on Home. null outside the
  * office shell.
  */
