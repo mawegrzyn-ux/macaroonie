@@ -25,6 +25,7 @@ import { z } from 'zod'
 import { ToolError, callApi, isStaff } from '../context.js'
 import { venueFor, VenueText, TimeStr, plural, audited, pickByName } from './util.js'
 import { SKIP_REASONS, REASON_MAX } from '../../../../shared/todayTasks.js'
+import { OPS_MODULES } from '../../services/opsToday.js'
 
 const DAY = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe('YYYY-MM-DD; defaults to today at the venue')
 const MAX_MATCH = 6
@@ -148,6 +149,10 @@ export const todayTools = [
 
   {
     name: 'snooze_task',
+    // The connector lists it to people with Use (or Manage) on a module that has tasks; the
+    // route checks the task's own module (stateLevel()).
+    modules: OPS_MODULES,
+    needs: 'use',
     class: 'reversible',
     title: 'Snooze a task',
     description:
@@ -197,6 +202,10 @@ export const todayTools = [
 
   {
     name: 'skip_task',
+    // The connector lists it to people with Use (or Manage) on a module that has tasks; the
+    // route checks the task's own module (stateLevel()).
+    modules: OPS_MODULES,
+    needs: 'use',
     class: 'consequential',
     title: 'Skip a task for the day',
     description:
@@ -234,6 +243,10 @@ export const todayTools = [
 
   {
     name: 'assign_task',
+    // The connector lists it to people with Use (or Manage) on a module that has tasks; the
+    // route checks the task's own module (stateLevel()).
+    modules: OPS_MODULES,
+    needs: 'use',
     class: 'consequential',
     title: 'Give a task to someone',
     description:
