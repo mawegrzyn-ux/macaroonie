@@ -14,16 +14,23 @@
 //               chat draws as a nav card (display(): the page, where it sits
 //               in the menu, what it opens at, Open), built from the server's
 //               result, never the model's words.
+//               Pages are searched in the person's own menu too (navTreeFor():
+//               a page renamed there is found and shown by its own name, the
+//               standard one beside it), and a page they can open that their
+//               menu leaves out is still offered, marked as not in their menu
+//               (the owner's choice, 23 Nov 2026: permissions decide what can
+//               be opened, the menu only what is tidy for a role).
 //   how_do_i    the Help page's passages that best answer a how-to question,
 //               with a link to each (src/ai/helpIndex.js)
 
 import { z } from 'zod'
-import { ToolError, isStaff, staffPermissionLevel, levelAtLeast } from '../context.js'
+import { ToolError, isStaff, staffPermissionLevel, levelAtLeast, staffReq } from '../context.js'
 import { ROUTE_CATALOG } from '../../routes/nav.js'
 import { DEFAULT_NAV_TREE } from '../../config/defaultNav.js'
 import { NAV_DESCRIPTIONS, NAV_KEYWORDS, searchNavTree, searchTerms, searchWords, wordForms, SEARCH_WEIGHTS } from '../../../../shared/navSearch.js'
 import { pageAccepts, pageLink, isDay } from '../../../../shared/nav/links.js'
 import { officeOrigin } from '../../services/platformHost.js'
+import { navTreeFor, navLinksOf } from '../../services/navTree.js'
 import { searchHelp } from '../helpIndex.js'
 import { DateStr, VenueText, venueFor, mondayOf, shortDate } from './util.js'
 
@@ -32,14 +39,30 @@ const LABEL = new Map(ROUTE_CATALOG.map(p => [p.route, p.label]))
 // The standard menu with only the pages the person can open, each by its
 // page-list name: the tree the menu search walks, so a section's name counts
 // for the pages in it ("health" finds Food safety). A link under one they
-// can't open moves up to its place.
-export function pagesTree(nodes, canSee) {
+// can't open moves up to its place. `own`: the person's own menu
+// (navTreeFor()), each link by the name it has there, links that aren't one
+// of the app's pages (a web address) left out.
+export function pagesTree(nodes, canSee, { own = false } = {}) {
   return (nodes || []).flatMap(n => {
-    const children = pagesTree(n.children, canSee)
+    const children = pagesTree(n.children, canSee, { own })
     if (!n.route) return children.length ? [{ kind: 'section', label: n.label, children }] : []
-    if (!canSee(n)) return children
-    return [{ label: LABEL.get(n.route) || n.label, route: n.route, icon: n.icon, ...(children.length ? { children } : {}) }]
+    if (!canSee(n) || (own && !LABEL.has(n.route))) return children
+    const label = (own && n.label) || LABEL.get(n.route) || n.label
+    return [{ label, route: n.route, icon: n.icon, ...(children.length ? { children } : {}) }]
   })
+}
+
+// Menu search results from more than one tree, each page once: its best
+// score, the first list winning a tie (the person's own menu, so its name).
+export function bestByRoute(...lists) {
+  const best = new Map()
+  for (const list of lists) {
+    for (const r of list || []) {
+      const had = best.get(r.route)
+      if (!had || r.score > had.score) best.set(r.route, r)
+    }
+  }
+  return [...best.values()].sort((a, b) => b.score - a.score || b.labelHits - a.labelHits || a.label.localeCompare(b.label))
 }
 
 // Two words are the same word: as typed, or one a plural of the other.
@@ -124,7 +147,13 @@ export const generalTools = [
       const levels = new Map(await Promise.all(modules.map(async m => [m, await staffPermissionLevel(ctx, m)])))
       const canSee = p => !p.module || levelAtLeast(levels.get(p.module), 'view')
       const pages = ROUTE_CATALOG.filter(canSee)
-      const top = pickPages(searchNavTree(pagesTree(DEFAULT_NAV_TREE, canSee), input.page), input.page)
+      // The person's own menu: its names and places. A group with no menu of
+      // its own has the standard one, and every page is in it.
+      const ownTree = pagesTree(await navTreeFor(staffReq(ctx)), canSee, { own: true })
+      const ownLinks = new Map(navLinksOf(ownTree).map(l => [l.route, l]))
+      const hasMenu = ownLinks.size > 0
+      const found = bestByRoute(searchNavTree(ownTree, input.page), searchNavTree(pagesTree(DEFAULT_NAV_TREE, canSee), input.page))
+      const top = pickPages(found, input.page)
       if (!top.length) {
         throw new ToolError('No page called "' + input.page + '" that you can open. Pages: ' + pages.map(p => p.label).join(', ') + '.', 404)
       }
@@ -145,6 +174,10 @@ export const generalTools = [
       const chat = ctx.channel === 'staff_chat'
       const cards = []
       const view = p => {
+        const mine = ownLinks.get(p.route)
+        const name = mine?.label || LABEL.get(p.route) || p.label
+        const standard = LABEL.get(p.route)
+        const inMenu = !hasMenu || !!mine
         const link = pageLink(p.route, at(p.route))
         const used = Object.fromEntries(new URLSearchParams(link.split('?')[1] || ''))
         const opensAt = [
@@ -153,13 +186,21 @@ export const generalTools = [
           used.week ? 'week of ' + shortDate(used.week) : null,
           used.tab ? used.tab + ' tab' : null,
         ].filter(Boolean)
-        if (chat) cards.push({ page: p.label, section: p.path || null, icon: p.icon || null, link, opens_at: opensAt })
+        if (chat) {
+          cards.push({
+            page: name, ...(standard && standard !== name ? { standard } : {}),
+            section: inMenu ? (mine ? mine.path : p.path) || null : 'Not in your menu',
+            icon: p.icon || null, link, opens_at: opensAt,
+          })
+        }
         return {
-          page: p.label,
+          page: name,
+          ...(standard && standard !== name ? { standard_name: standard } : {}),
+          ...(inMenu ? {} : { in_menu: false, menu_note: 'Not in their menu (hidden from their role, or never added); the link still opens it.' }),
           ...(NAV_DESCRIPTIONS[p.route] ? { about: NAV_DESCRIPTIONS[p.route] } : {}),
           ...(opensAt.length ? { opens_at: opensAt.join(', ') } : {}),
           ...(ctx.channel === 'staff_chat'
-            ? { link: '[' + p.label + '](' + link + ')' }
+            ? { link: '[' + name + '](' + link + ')' }
             : { url: officeOrigin() + link }),
         }
       }

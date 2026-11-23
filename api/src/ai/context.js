@@ -110,8 +110,9 @@ export async function staffPermissionLevels(ctx, moduleKeys) {
   return permissionLevels(staffReq(ctx), moduleKeys)
 }
 
-// The person behind a staff context, in the shape the permission checks take.
-const staffReq = ctx => ({
+// The person behind a staff context, in the shape the permission checks take
+// (and navTreeFor(): open_page reads the person's own menu with it).
+export const staffReq = ctx => ({
   isPlatformAdmin: !!ctx.principal?.isPlatformAdmin,
   tenantId: ctx.tenantId,
   user: { sub: ctx.principal?.sub },

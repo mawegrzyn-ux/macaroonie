@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 import { startFakeClaude } from './support/fake-claude.mjs'
 
 const claude = await startFakeClaude()
-const { as, ok, getApp, closeApp } = await import('./support/app.mjs')
+const { as, ok, sql, getApp, closeApp } = await import('./support/app.mjs')
 const { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } = await import('../src/middleware/auth.js')
 const { resetAndSeed, A, B } = await import('./support/seed.mjs')
 const { NAV_DESCRIPTIONS } = await import('../../shared/navSearch.js')
@@ -255,4 +255,52 @@ test('the nav card shows only links into the app, and no card without pages', ()
     { link: '/no-name' },
   ] })
   assert.deepEqual(shown, { type: 'nav', pages: [{ page: 'Rota', link: '/rota' }] })
+})
+
+// ── open_page and the person's own menu (the owner's choice, 23 Nov 2026) ──
+
+test('open_page finds and shows a renamed page by its own name, and still offers a page hidden from the role', async () => {
+  ids = await resetAndSeed()
+  const owner = as(A.owner, ids.a)
+  const [{ n }] = await sql`SELECT count(*)::int AS n FROM nav_items WHERE tenant_id = ${ids.a}`
+  assert.ok(n > 0, 'the group has a menu of its own')
+  const [role] = await sql`SELECT id FROM tenant_roles WHERE tenant_id = ${ids.a} AND key = 'owner' AND is_builtin`
+  await sql`UPDATE nav_items SET label = 'Staff planner' WHERE tenant_id = ${ids.a} AND route = '/rota'`
+  await sql`UPDATE nav_items SET hidden_role_ids = ARRAY[${role.id}]::uuid[] WHERE tenant_id = ${ids.a} AND route = '/pos/kiosk-designs'`
+  const { token } = await ok(owner.post('/api/ai/tokens', { name: 'Own menu' }))
+
+  // Found by the group's own name, shown by it, the standard name beside it.
+  const own = await openWith(token, { page: 'staff planner' })
+  assert.equal(own.error, false, own.text)
+  assert.equal(own.out.page, 'Staff planner')
+  assert.equal(own.out.standard_name, 'Rota')
+  assert.equal(pathOf(own.out.url), '/rota')
+  // Asked by the standard name: still found, still shown by the group's name.
+  const std = await openWith(token, { page: 'rota' })
+  assert.equal(std.out.page, 'Staff planner')
+  assert.equal(pathOf(std.out.url), '/rota')
+  // Hidden from the role: still offered (they can open it), marked as not in their menu.
+  const hidden = await openWith(token, { page: 'kiosk designer' })
+  assert.equal(hidden.error, false, hidden.text)
+  assert.equal(pathOf(hidden.out.url), '/pos/kiosk-designs')
+  assert.equal(hidden.out.in_menu, false)
+  assert.equal(own.out.in_menu, undefined, 'a page in the menu says nothing about it')
+
+  // In the chat: the card carries the own name, the standard one, and "Not in your menu".
+  claude.script.push(
+    () => ({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_o1', name: 'open_page', input: { page: 'staff planner' } }] }),
+    () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Here.' }] }),
+  )
+  const card = parseSse((await owner.post('/api/ai/chat', { message: 'staff planner' }, { accept: 'text/event-stream' })).body)
+    .find(e => e.type === 'card')?.card
+  assert.equal(card.pages[0].page, 'Staff planner')
+  assert.equal(card.pages[0].standard, 'Rota')
+  assert.equal(card.pages[0].section, 'People')
+  claude.script.push(
+    () => ({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_o2', name: 'open_page', input: { page: 'kiosk designer' } }] }),
+    () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Here.' }] }),
+  )
+  const card2 = parseSse((await owner.post('/api/ai/chat', { message: 'kiosk designer' }, { accept: 'text/event-stream' })).body)
+    .find(e => e.type === 'card')?.card
+  assert.equal(card2.pages[0].section, 'Not in your menu')
 })

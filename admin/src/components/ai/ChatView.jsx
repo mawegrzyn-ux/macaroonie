@@ -539,7 +539,10 @@ function NavCard({ pages, linkFor }) {
           <div key={p.link} className={cn('flex flex-wrap items-center gap-3 px-3 py-2.5', i > 0 && 'border-t')} data-testid="chat-nav-page" data-link={p.link}>
             <span className="w-9 h-9 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0"><Icon className="w-4 h-4" /></span>
             <div className="min-w-0 flex-[1_1_9rem]">
-              <p className="text-sm font-medium leading-tight break-words" data-testid="chat-nav-name">{p.page}</p>
+              <p className="text-sm font-medium leading-tight break-words" data-testid="chat-nav-name">
+                {p.page}
+                {p.standard && <span className="font-normal text-muted-foreground" data-testid="chat-nav-standard"> ({p.standard})</span>}
+              </p>
               {p.section && <p className="text-xs text-muted-foreground leading-tight mt-0.5" data-testid="chat-nav-section">{p.section}</p>}
               {p.opens_at?.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-1" data-testid="chat-nav-at">
