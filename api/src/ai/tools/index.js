@@ -25,7 +25,35 @@
 //                              input) builds that card and checks the call
 //                              can go ahead. Over MCP the client's own app
 //                              asks the person, and run() is called directly.
-//   destructive                cancels or erases (MCP destructiveHint)
+//   destructive                cancels or erases (MCP destructiveHint, with
+//                              class 'destructive')
+//   class                      what a change costs if it is wrong (Pepper-first
+//                              step 4a, CLASSES): 'read' (readOnly tools, set
+//                              here), 'reversible' (low cost, can be undone:
+//                              mark sold out, tick a check), 'consequential'
+//                              (prices, orders, a rota, a refund, bookings) or
+//                              'destructive' (delete, anonymise, anything to
+//                              pay or tips, allergen data, anything about a
+//                              person). Every tool that changes something
+//                              declares one; start-up throws without it. The
+//                              Confirm card's friction follows it (chat.js):
+//                              a destructive card needs a typed word and is
+//                              never confirmed by voice
+//   escalate(input)            optional: a higher class for this call (a dish
+//                              change that touches allergens is destructive)
+//   preconditions              optional: the checks the tool makes before it
+//                              runs, in plain words, added to its description
+//                              (toolDescription())
+//   editable                   optional, confirm tools: { key: { label, kind } }
+//                              input fields the person may change on the card
+//                              (kind 'number' | 'time' | 'text' | 'note'); the
+//                              edited input goes through `input` and
+//                              describe() again (chat.js)
+//   inverse(ctx, undo)         optional, reversible tools: undoes a run from
+//                              the `_undo` its result carried, through the same
+//                              routes; the done card offers Undo for
+//                              UNDO_MINUTES (chat.js). `_undo` never reaches the
+//                              model or an MCP client (shownResult())
 //
 // Guest tools: tools/guest.js (guestTools). Staff tools (Pepper): every
 // other file in this folder that exports `tools` is gathered at start-up
@@ -90,6 +118,60 @@ for (const f of toolFiles) {
   }
 }
 
+// What a tool's change costs if it is wrong (Pepper-first step 4a; see the
+// head of this file). Ranked: a call can only move a tool up (escalate()).
+export const CLASSES = ['read', 'reversible', 'consequential', 'destructive']
+export const CHANGE_CLASSES = ['reversible', 'consequential', 'destructive']
+const CLASS_RANK = Object.fromEntries(CLASSES.map((c, i) => [c, i]))
+export const EDIT_KINDS = ['number', 'time', 'text', 'note']
+
+/** Checks a tool's class and the fields that go with it; a read tool gets 'read'. */
+function checkClass(t) {
+  if (t.readOnly) {
+    if (t.class && t.class !== 'read') throw new Error('Tool ' + t.name + ' only reads but says it is ' + t.class)
+    t.class = 'read'
+  } else if (!CHANGE_CLASSES.includes(t.class)) {
+    throw new Error('Tool ' + t.name + ' changes something but has no class (' + CHANGE_CLASSES.join(', ') + '): ' + t.class)
+  }
+  if (t.inverse && (t.class !== 'reversible' || typeof t.inverse !== 'function')) {
+    throw new Error('Tool ' + t.name + ': only a reversible tool has an inverse (a function)')
+  }
+  if (t.escalate && typeof t.escalate !== 'function') throw new Error('Tool ' + t.name + ': escalate is a function')
+  if (t.preconditions && (!Array.isArray(t.preconditions) || t.preconditions.some(p => typeof p !== 'string' || !p.trim()))) {
+    throw new Error('Tool ' + t.name + ': preconditions are a list of sentences')
+  }
+  if (t.editable) {
+    if (!t.confirm) throw new Error('Tool ' + t.name + ': only a confirm tool has editable fields')
+    const shape = t.input?.shape || {}
+    for (const [key, f] of Object.entries(t.editable)) {
+      if (!shape[key]) throw new Error('Tool ' + t.name + ': editable field ' + key + ' isn\'t in its input')
+      if (!f?.label || !EDIT_KINDS.includes(f.kind)) throw new Error('Tool ' + t.name + ': editable field ' + key + ' needs a label and a kind')
+    }
+  }
+  return t
+}
+
+/** The class of one call: the tool's, or higher when the input asks for it
+ *  (escalate(): a dish change that touches allergens). Never lower. */
+export function classFor(tool, input) {
+  const base = tool.class || (tool.readOnly ? 'read' : 'consequential')
+  const up = tool.escalate?.(input ?? {})
+  return up && CLASS_RANK[up] > CLASS_RANK[base] ? up : base
+}
+
+/** A tool's description with its preconditions, for the model and the connector. */
+export function toolDescription(t) {
+  return t.preconditions?.length ? t.description + ' Before it can run: ' + t.preconditions.join(' ') : t.description
+}
+
+/** A tool's result as the model or an MCP client sees it: without `_undo`
+ *  (ids for Undo, kept with the card and the audit only). */
+export function shownResult(out) {
+  if (!out || typeof out !== 'object' || Array.isArray(out) || !('_undo' in out)) return out
+  const { _undo, ...rest } = out
+  return rest
+}
+
 /** Can a person with these module levels use this staff tool (connector list)?
  *  A reading tool needs View on one of its area's modules, a change tool Manage,
  *  or the level it names itself (`needs: 'use'`: the everyday H&S work). */
@@ -111,7 +193,13 @@ const staffTools = toolFiles.flatMap(f => {
     return { ...t, section: own[0] }
   })
 })
+for (const t of [...staffTools, ...guestTools]) checkClass(t)
+// The guest chat has no typed word on its cards: a guest tool is never destructive.
+for (const t of guestTools) if (t.class === 'destructive' || t.escalate) throw new Error('Guest tool ' + t.name + ' can\'t be destructive')
 const BY_AUDIENCE = { guest: guestTools, staff: staffTools }
+
+/** Staff tools that can be undone (a reversible tool with an inverse), by name. */
+export const UNDO_TOOLS = new Set(staffTools.filter(t => t.inverse).map(t => t.name))
 
 // Loaded in every staff chat request (`core` on the tool); the rest are found
 // with tool search (src/ai/chat.js). The everyday questions: today's

@@ -134,18 +134,30 @@ export async function requireStaffPermission(ctx, moduleKey, level) {
 
 /** Audit log row for a tool call that changed (or tried to change) something:
  *  a booking, or (H&S tools) a check, checklist or action log entry. */
-export async function audit(ctx, { tenantId, tool, input, ok, result, bookingId }) {
+//  Since migration 276 it also keeps the card it ran from (ctx.action, set by
+//  the chat's Confirm: the card is the idempotency key), the person (their
+//  sub) and the venue the tool worked at (ctx.venue, set by venueFor()), for
+//  the Done by Pepper log; an Undo's own row names the card it undid (undoOf).
+export async function audit(ctx, { tenantId, tool, input, ok, result, bookingId, undoOf, venueId }) {
   const tid = tenantId ?? ctx.tenantId ?? null
+  const isUuid = v => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+  const venue = venueId ?? ctx.venue?.id ?? null
   const row = {
     tenant_id: tid, channel: ctx.channel, actor: ctx.actor ?? null, tool,
     input: input ?? null, ok: !!ok, result: result ?? null,
     booking_id: bookingId ?? null, conversation_id: ctx.conversationId ?? null,
+    action_id: isUuid(ctx.action?.id) ? ctx.action.id : null,
+    user_sub: isStaff(ctx) ? (ctx.principal?.sub ?? null) : null,
+    venue_id: isUuid(venue) ? venue : null,
+    undo_of: isUuid(undoOf) ? undoOf : null,
   }
   const insert = tx => tx`
-    INSERT INTO ai_actions (tenant_id, channel, actor, tool, input, ok, result, booking_id, conversation_id)
+    INSERT INTO ai_actions (tenant_id, channel, actor, tool, input, ok, result, booking_id, conversation_id,
+                            action_id, user_sub, venue_id, undo_of)
     VALUES (${row.tenant_id}, ${row.channel}, ${row.actor}, ${row.tool},
             ${row.input === null ? null : tx.json(row.input)}, ${row.ok},
-            ${row.result === null ? null : tx.json(row.result)}, ${row.booking_id}, ${row.conversation_id})
+            ${row.result === null ? null : tx.json(row.result)}, ${row.booking_id}, ${row.conversation_id},
+            ${row.action_id}, ${row.user_sub}, ${row.venue_id}, ${row.undo_of})
   `
   try {
     if (tid) await withTenant(tid, insert)

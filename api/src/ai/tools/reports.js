@@ -823,6 +823,7 @@ export const reportTools = [
 
   {
     name: 'build_report',
+    class: 'reversible',
     section: 'reports',
     title: 'Reports: save a report',
     description:
@@ -868,6 +869,7 @@ export const reportTools = [
 
   {
     name: 'change_report',
+    class: 'consequential',
     section: 'reports',
     title: 'Reports: change a saved report',
     description:
@@ -926,6 +928,7 @@ export const reportTools = [
 
   {
     name: 'copy_report',
+    class: 'reversible',
     section: 'reports',
     title: 'Reports: copy one as your own',
     description:
@@ -962,6 +965,7 @@ export const reportTools = [
 
   {
     name: 'delete_report',
+    class: 'destructive',
     section: 'reports',
     title: 'Reports: delete one',
     description:
@@ -996,6 +1000,7 @@ export const reportTools = [
 
   {
     name: 'share_report',
+    class: 'consequential',
     section: 'reports',
     title: 'Reports: who sees a report',
     description:
@@ -1096,6 +1101,7 @@ export const reportTools = [
 
   {
     name: 'export_report',
+    class: 'reversible',
     section: 'reports',
     title: 'Reports: keep a file of one',
     description:

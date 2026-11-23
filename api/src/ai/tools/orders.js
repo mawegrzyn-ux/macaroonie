@@ -156,6 +156,20 @@ async function venueDishes(ctx, venue) {
   })
 }
 
+/** A dish's sold-out state now, in words (the card's before line). */
+const soldOutState = (d, venue) => (!d.sold.length ? 'on'
+  : 'sold out ' + untilText(d.until, venue.timezone) + (d.sold.length < d.ids.length ? ' on some menus' : ''))
+
+const pauseLine = paused => (paused ? 'Online orders paused' : 'Taking online orders')
+
+/** A venue's online ordering pause as it is now (the card's before line, and Undo). */
+async function pauseState(ctx, venue) {
+  const [row] = await withTenant(ctx.tenantId, tx => tx`
+    SELECT is_paused, pause_message FROM ordering_settings WHERE venue_id = ${venue.id} AND tenant_id = ${ctx.tenantId}
+  `)
+  return { is_paused: !!row?.is_paused, pause_message: row?.pause_message ?? null }
+}
+
 const untilText = (until, tz) => (until.some(u => u == null) ? 'until put back'
   : 'until ' + localParts(new Date(Math.max(...until.map(u => new Date(u).getTime()))), tz).time + ' (end of today)')
 
@@ -216,6 +230,10 @@ export const orderTools = [
 
   {
     name: 'update_online_order',
+    class: 'consequential',
+    preconditions: [
+      'The order must be at a step the action fits; rejecting or cancelling needs a reason, which the guest is told.',
+    ],
     section: 'orders',
     title: 'Move an online order',
     description:
@@ -263,6 +281,11 @@ export const orderTools = [
 
   {
     name: 'refund_online_order',
+    class: 'consequential',
+    preconditions: [
+      'Only a paid order can be refunded, and only up to what is left to refund.',
+      'GloriaFood orders are refunded in GloriaFood.',
+    ],
     section: 'orders',
     title: 'Refund an online order',
     description:
@@ -305,17 +328,28 @@ export const orderTools = [
 
   {
     name: 'pause_online_orders',
+    class: 'reversible',
     section: 'orders',
     title: 'Pause online orders',
     description: 'Stops (paused true) or starts again (paused false) taking online orders at a venue, with an optional message for guests.',
     input: z.object({ venue: VenueText, paused: z.boolean(), message: z.string().trim().max(300).optional() }),
     confirm: true,
+    // Undo: the pause and its message as they were.
+    async inverse(ctx, undo) {
+      await requireStaffPermission(ctx, 'web_orders', 'manage')
+      const row = await callApi(ctx, 'POST', `/api/orders/pause/${undo.venue_id}`, { body: { paused: undo.paused, message: undo.message ?? null } })
+      return { message: row.is_paused ? 'Online orders paused again.' : 'Taking online orders again.' }
+    },
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'web_orders', 'manage')
       const venue = await venueFor(ctx, input.venue)
+      const was = await pauseState(ctx, venue)
       return {
         title: input.paused ? 'Pause online orders?' : 'Take online orders again?',
         lines: [venue.name, ...(input.message ? ['Message for guests: ' + input.message] : [])],
+        before: [pauseLine(was.is_paused)],
+        after:  [pauseLine(input.paused)],
+        ...(was.is_paused === input.paused ? { warningTitle: 'Check', warnings: [input.paused ? 'Online orders are already paused.' : 'Online orders are already being taken.'] } : {}),
         confirmLabel: input.paused ? 'Pause' : 'Start again',
       }
     },
@@ -323,8 +357,12 @@ export const orderTools = [
       await requireStaffPermission(ctx, 'web_orders', 'manage')
       return audited(ctx, 'pause_online_orders', input, async () => {
         const venue = await venueFor(ctx, input.venue)
+        const was = await pauseState(ctx, venue)
         const row = await callApi(ctx, 'POST', `/api/orders/pause/${venue.id}`, { body: { paused: input.paused, message: input.message ?? null } })
-        return { venue: venue.name, paused: row.is_paused, message: row.is_paused ? 'Online orders paused.' : 'Taking online orders again.' }
+        return {
+          venue: venue.name, paused: row.is_paused, message: row.is_paused ? 'Online orders paused.' : 'Taking online orders again.',
+          _undo: { venue_id: venue.id, paused: was.is_paused, message: was.pause_message },
+        }
       })
     },
   },
@@ -385,6 +423,10 @@ export const orderTools = [
 
   {
     name: 'set_sold_out',
+    class: 'reversible',
+    preconditions: [
+      'Each dish must be on a live (published) menu at the venue.',
+    ],
     section: 'orders',
     title: 'Mark dishes sold out',
     description:
@@ -396,6 +438,14 @@ export const orderTools = [
       sold_out: z.enum(['today', 'until_back', 'back_on']),
     }),
     confirm: true,
+    // Undo: every dish back to how it was before, through the same route.
+    async inverse(ctx, undo) {
+      await requireStaffPermission(ctx, 'web_orders', 'manage')
+      for (const i of undo.items) {
+        await callApi(ctx, 'PUT', `/api/orders/availability/${undo.venue_id}/${i.id}`, { body: { sold_out: i.sold_out } })
+      }
+      return { message: 'Back as it was.' }
+    },
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'web_orders', 'manage')
       const p = await soldOutPlan(ctx, input)
@@ -403,6 +453,8 @@ export const orderTools = [
       return {
         title: input.sold_out === 'back_on' ? 'Put these back on?' : 'Mark these sold out?',
         lines: [p.venue.name + ': ' + word, ...p.picked.map(d => d.name + (d.menus.length > 1 ? ' (' + d.menus.length + ' menus)' : ''))],
+        before: p.picked.map(d => d.name + ': ' + soldOutState(d, p.venue)),
+        after:  p.picked.map(d => d.name + ': ' + { today: 'sold out until the end of today', until_back: 'sold out until put back', back_on: 'on' }[input.sold_out]),
         ...(p.warnings.length ? { warningTitle: 'Check', warnings: p.warnings } : {}),
         confirmLabel: input.sold_out === 'back_on' ? 'Put back on' : 'Mark sold out',
       }
@@ -417,7 +469,15 @@ export const orderTools = [
             await callApi(ctx, 'PUT', `/api/orders/availability/${p.venue.id}/${id}`, { body: { sold_out: mode } })
           }
         }
-        return { venue: p.venue.name, dishes: p.picked.map(d => d.name), message: input.sold_out === 'back_on' ? 'Back on.' : 'Marked sold out.' }
+        // Undo (step 4d): each dish back to how it was, per menu item.
+        const was = p.picked.flatMap(d => d.ids.map(id => {
+          const at = d.sold.indexOf(id)
+          return { id, sold_out: at < 0 ? false : d.until[at] == null ? 'indefinite' : 'today' }
+        }))
+        return {
+          venue: p.venue.name, dishes: p.picked.map(d => d.name), message: input.sold_out === 'back_on' ? 'Back on.' : 'Marked sold out.',
+          _undo: { venue_id: p.venue.id, items: was },
+        }
       })
     },
   },

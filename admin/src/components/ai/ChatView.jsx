@@ -43,6 +43,7 @@ import { FORMS, FormOpener, Go } from '@/components/forms/FormSheet'
 import * as LucideIcons from 'lucide-react'
 import { canListen, canSpeak, listen, speak, stopSpeaking, readAloudOn, setReadAloud, yesOrNo } from '@/lib/speech'
 import { useMic, MicButton } from './mic'
+import ActionCard from './ActionCard'
 
 const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 
@@ -263,7 +264,10 @@ export default function ChatView({ conversationId, onConversationId, className, 
   })
 
   const decide = useMutation({
-    mutationFn: ({ id, how, via }) => api.post(`/ai/actions/${id}/${how}`, via ? { via } : {}),
+    // word: what was typed on a destructive card; values: fields changed on the card (step 4b).
+    mutationFn: ({ id, how, via, word, values }) => api.post(`/ai/actions/${id}/${how}`, {
+      ...(via ? { via } : {}), ...(word != null ? { word } : {}), ...(values ? { values } : {}),
+    }),
     onSuccess:  res => { setError(null); apply(res) },
     onError:    err => {
       setError(err.message || 'Something went wrong')
@@ -699,60 +703,6 @@ function UserBubble({ text, files, local = false }) {
         <MessageFiles files={files} local={local} />
         {text}
       </div>
-    </div>
-  )
-}
-
-const STATUS_TEXT = {
-  done:      'Done',
-  cancelled: 'Cancelled, nothing changed',
-  expired:   'Expired, nothing changed',
-  failed:    'Didn\'t go through',
-}
-
-// While a turn is still running (`turnBusy`) its cards can't be answered
-// yet: the server would say the chat is busy.
-function ActionCard({ card, decide, busy: turnBusy = false }) {
-  const busy = turnBusy || (decide.isPending && decide.variables?.id === card.id)
-  const open = card.status === 'pending'
-  return (
-    <div className={cn('rounded-lg border bg-background overflow-hidden', open && 'ring-2 ring-primary/40')}>
-      <div className="section-head px-3 py-2 text-sm font-semibold">{card.title}</div>
-      <div className="px-3 py-2 text-sm space-y-0.5">
-        {(card.lines || []).map((l, i) => <div key={i} className={i === 0 ? 'font-medium' : ''}>{l}</div>)}
-      </div>
-      {card.warnings?.length > 0 && (
-        <div className="mx-3 mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 flex items-start gap-2">
-          <CircleAlert className="w-4 h-4 shrink-0 mt-0.5" />
-          <div>
-            <div className="font-medium">{card.warningTitle || 'Check before confirming'}</div>
-            {card.warnings.map((w, i) => <div key={i}>{w}</div>)}
-          </div>
-        </div>
-      )}
-      {open ? (
-        <div className="flex gap-2 px-3 pb-3">
-          <button type="button" disabled={busy}
-            onClick={() => decide.mutate({ id: card.id, how: 'confirm' })}
-            className={cn('flex-1 min-h-[48px] rounded-md font-medium text-sm flex items-center justify-center gap-2 touch-manipulation disabled:opacity-50',
-              card.destructive ? 'bg-destructive text-destructive-foreground' : 'bg-primary text-primary-foreground')}>
-            {busy && decide.variables?.how === 'confirm' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-            {card.confirmLabel || 'Confirm'}
-          </button>
-          <button type="button" disabled={busy}
-            onClick={() => decide.mutate({ id: card.id, how: 'cancel' })}
-            className="min-h-[48px] px-4 rounded-md border text-sm flex items-center gap-2 touch-manipulation disabled:opacity-50">
-            <X className="w-4 h-4" /> Cancel
-          </button>
-        </div>
-      ) : (
-        <div className={cn('px-3 py-2 text-sm border-t',
-          card.status === 'done' ? 'text-emerald-700 bg-emerald-50' : card.status === 'failed' ? 'text-destructive bg-destructive/10' : 'text-muted-foreground bg-muted/40')}>
-          <span className="font-medium">{STATUS_TEXT[card.status] || card.status}</span>
-          {card.result && <span>: {card.result}</span>}
-          {card.error && <span>: {card.error}</span>}
-        </div>
-      )}
     </div>
   )
 }

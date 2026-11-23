@@ -51,7 +51,7 @@ import { withTenant } from '../../config/db.js'
 import { ToolError, callApi, audit, requireStaffPermission, staffPermissionLevel, levelAtLeast } from '../context.js'
 import { menuSaveBody } from '../../routes/menus.js'
 import { stepRule } from '../../../../shared/combos.js'
-import { pickByName, DateStr, TimeStr, localParts, whenText, zonedInstant } from './util.js'
+import { pickByName, DateStr, TimeStr, localParts, whenText, zonedInstant, touchesAllergens } from './util.js'
 
 // Dishes per create_menu / add_dishes call. A whole menu read from a photo is
 // one tool input the model writes in a single reply (chat.js MAX_TOKENS), so
@@ -864,6 +864,9 @@ export const menuTools = [
   // ── Changes ──
   {
     name: 'create_menu',
+    class: 'consequential',
+    // Allergen data a model read (or typed) needs a named sign-off: decision 9.
+    escalate: input => (touchesAllergens(input) ? 'destructive' : null),
     title: 'Create a menu',
     description:
       'Makes a new menu, for one venue or all venues, optionally with its sections and dishes in the same call: use ' +
@@ -922,6 +925,7 @@ export const menuTools = [
 
   {
     name: 'update_menu',
+    class: 'consequential',
     title: 'Change a menu',
     description: 'Renames a menu, moves it to a venue (or all venues), shows it to guests or hides it (published), or ' +
       'changes its tagline, service times or intro line. Saved to the draft: it reaches guests when the menu is published (publish_menu).',
@@ -957,6 +961,7 @@ export const menuTools = [
 
   {
     name: 'duplicate_menu',
+    class: 'consequential',
     title: 'Copy a menu',
     description: 'Copies a menu (its draft) with all its sections, dishes, footer notes and print designs. The copy is hidden from guests and not live until published.',
     input: z.object({
@@ -989,6 +994,9 @@ export const menuTools = [
 
   {
     name: 'add_dishes',
+    class: 'consequential',
+    // Allergen data a model read (or typed) needs a named sign-off: decision 9.
+    escalate: input => (touchesAllergens(input) ? 'destructive' : null),
     title: 'Add dishes',
     description:
       'Adds dishes to a menu, in sections already on it or new ones (a section with no dishes just adds the section). ' +
@@ -1034,6 +1042,9 @@ export const menuTools = [
 
   {
     name: 'update_dish',
+    class: 'consequential',
+    // Allergen data a model read (or typed) needs a named sign-off: decision 9.
+    escalate: input => (touchesAllergens(input) ? 'destructive' : null),
     title: 'Change a dish',
     description:
       'Changes one dish: name, original name, description, price, calories, note, online ordering on/off, house ' +
@@ -1088,6 +1099,7 @@ export const menuTools = [
 
   {
     name: 'remove_dishes',
+    class: 'destructive',
     title: 'Remove dishes',
     description: 'Takes dishes off a menu for good. To stop selling one online for now, use update_dish with orderable: false instead.',
     input: z.object({
@@ -1122,6 +1134,7 @@ export const menuTools = [
 
   {
     name: 'update_section',
+    class: 'consequential',
     title: 'Change a section',
     description:
       'Renames a section or changes its subtitle, where it shows (show = everywhere; website_hidden = printed menus ' +
@@ -1162,6 +1175,7 @@ export const menuTools = [
 
   {
     name: 'remove_section',
+    class: 'destructive',
     title: 'Remove a section',
     description: 'Takes a section and all its dishes off a menu for good. To hide it instead, use update_section with visibility.',
     input: z.object({ menu: z.string().min(1).max(200), section: z.string().min(1).max(120) }),
@@ -1192,6 +1206,7 @@ export const menuTools = [
 
   {
     name: 'change_prices',
+    class: 'consequential',
     title: 'Change prices',
     description:
       'Changes prices on a menu: the whole menu, some sections, or named dishes. change: percent (e.g. 5 = up 5%, -10 ' +
@@ -1231,6 +1246,7 @@ export const menuTools = [
   // ── Publishing ──
   {
     name: 'publish_menu',
+    class: 'consequential',
     title: 'Publish a menu',
     description:
       'Puts a menu\'s draft live: the website, online ordering, the till, Deliveroo and cooking checks switch to it. ' +
@@ -1277,6 +1293,7 @@ export const menuTools = [
 
   {
     name: 'cancel_menu_publish',
+    class: 'consequential',
     title: 'Cancel a scheduled publish',
     description: 'Withdraws a menu publish scheduled for later, before it goes live. The draft is not changed.',
     input: z.object({

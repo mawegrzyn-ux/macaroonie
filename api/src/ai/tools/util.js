@@ -63,10 +63,17 @@ export async function venueFor(ctx, text) {
   const venues = await tenantVenueList(ctx)
   if (!venues.length) throw new ToolError('There are no venues yet.', 404)
   if (text == null || String(text).trim() === '') {
-    if (venues.length === 1) return venues[0]
+    if (venues.length === 1) return remember(ctx, venues[0])
     throw new ToolError('Which venue? ' + venues.map(v => v.name).join(', ') + '.', 422)
   }
-  return pickByName(venues, text, v => v.name, 'venue')
+  return remember(ctx, pickByName(venues, text, v => v.name, 'venue'))
+}
+
+// The venue a change worked at, for its audit row (context.js audit(): the
+// Done by Pepper log filters by venue). The last one a tool picked.
+export function remember(ctx, venue) {
+  if (ctx && venue?.id) ctx.venue = { id: venue.id, name: venue.name }
+  return venue
 }
 
 /** Today's date (YYYY-MM-DD) at a venue. */
@@ -105,6 +112,25 @@ export function money(n, currency = 'GBP') {
 export const pence = (p, currency) => money(p == null ? null : Number(p) / 100, currency)
 
 export const plural = (n, one, many = one + 's') => n + ' ' + (n === 1 ? one : many)
+
+/** Does a call carry allergen data: an allergens list (allergens,
+ *  add_allergens, remove_allergens), even an empty one, at any depth? A dish
+ *  read from a photo with allergens: [] says it has none, which is allergen
+ *  data too. The menu tools escalate such a call to destructive (a named
+ *  sign-off with a typed word, never by voice: PEPPER_FIRST.md 13, decision 9). */
+export function touchesAllergens(v) {
+  if (Array.isArray(v)) return v.some(touchesAllergens)
+  if (!v || typeof v !== 'object') return false
+  return Object.entries(v).some(([k, x]) => (/allergens$/.test(k) && Array.isArray(x)) || touchesAllergens(x))
+}
+
+/** A person's surname (the last word of their name), for the word a
+ *  destructive card about them asks for; null when the name has none. */
+export function surnameOf(name) {
+  const words = String(name ?? '').trim().split(/\s+/).filter(w => /\p{L}/u.test(w))
+  if (words.length < 2) return null
+  return words[words.length - 1].replace(/[^\p{L}'-]/gu, '').slice(0, 40) || null
+}
 
 /** Run a change and write its ai_actions row, ok or not. */
 export async function audited(ctx, tool, input, fn) {

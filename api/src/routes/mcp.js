@@ -37,7 +37,7 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 import { sql } from '../config/db.js'
 import { requireAuth, permissionLevel, permissionLevels, ACCESS_TOKEN_PREFIX } from '../middleware/auth.js'
 import { makeContext, addUsage, ToolError } from '../ai/context.js'
-import { audienceTools, jsonSchemaOf, parseInput, errorText, toolAllowed, TOOL_MODULE_KEYS } from '../ai/tools/index.js'
+import { audienceTools, jsonSchemaOf, parseInput, errorText, toolAllowed, TOOL_MODULE_KEYS, toolDescription, shownResult } from '../ai/tools/index.js'
 import { getAiSettings } from '../ai/settings.js'
 import { guestInstructions, staffInstructions } from '../ai/prompts.js'
 import { ASSISTANT_NAME } from '../../../shared/assistant.js'
@@ -56,12 +56,12 @@ function buildServer({ name, instructions, tools, makeCtx, onCall, listed = asyn
     tools: (await listed(tools)).map(t => ({
       name:        t.name,
       title:       t.title,
-      description: t.description,
+      description: toolDescription(t),
       inputSchema: jsonSchemaOf(t),
       annotations: {
         title:           t.title,
         readOnlyHint:    !!t.readOnly,
-        destructiveHint: !!t.destructive,
+        destructiveHint: !!t.destructive || t.class === 'destructive',
         idempotentHint:  !!t.readOnly,
         openWorldHint:   false,
       },
@@ -77,7 +77,8 @@ function buildServer({ name, instructions, tools, makeCtx, onCall, listed = asyn
       const why = refuse(tool)
       if (why) throw new ToolError(why, 403)
       const out = await tool.run(ctx, parseInput(tool, request.params.arguments))
-      result = { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }], structuredContent: out }
+      const shown = shownResult(out)
+      result = { content: [{ type: 'text', text: JSON.stringify(shown, null, 2) }], structuredContent: shown }
     } catch (err) {
       result = { content: [{ type: 'text', text: errorText(err, ctx.log) }], isError: true }
     }

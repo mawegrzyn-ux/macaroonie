@@ -27,7 +27,7 @@ import { loadBookingById, rescheduleBooking, partySizeLimit, coversLimit } from 
 import { allocateBestFit } from '../../services/occupancySvc.js'
 import {
   DateStr, TimeStr, StaffPartySize, localParts, longDate, whenText, reference, realEmail,
-  venueRules, nearestTimes, asTool,
+  venueRules, nearestTimes, asTool, surnameOf, remember,
 } from './util.js'
 
 const STATUSES = ['unconfirmed', 'confirmed', 'reconfirmed', 'arrived', 'seated', 'checked_out', 'cancelled', 'no_show']
@@ -44,7 +44,7 @@ export async function staffVenue(ctx, venueId) {
      WHERE id = ${venueId} AND tenant_id = ${ctx.tenantId} AND is_active = true
   `
   if (!v) throw new ToolError('Venue not found. Use list_venues.', 404)
-  return v
+  return remember(ctx, v)
 }
 
 /** Booking by id or 8-character reference, in this tenant only. */
@@ -380,6 +380,7 @@ export const staffTools = [
 
   {
     name: 'create_booking',
+    class: 'consequential',
     title: 'Make a booking',
     description:
       'Books a table at a free time (check_availability first). Email and phone are optional. ' +
@@ -400,6 +401,8 @@ export const staffTools = [
         .describe('Book past the usual party sizes or the time\'s covers limit. Only when the staff member has asked for it.'),
     }),
     confirm: true,
+    // Changed in place on the card (step 4b): checked again before it books.
+    editable: { time: { label: 'Time', kind: 'time' }, party_size: { label: 'Party size', kind: 'number' }, notes: { label: 'Notes', kind: 'note' } },
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'bookings', 'manage')
       const venue = await staffVenue(ctx, input.venue_id)
@@ -491,6 +494,7 @@ export const staffTools = [
 
   {
     name: 'change_booking',
+    class: 'consequential',
     title: 'Move a booking',
     description:
       'Moves a booking to another date, time or party size (give only what changes). It must be one of the venue\'s ' +
@@ -506,6 +510,7 @@ export const staffTools = [
         .describe('Move it past the usual party sizes or the time\'s covers limit. Only when the staff member has asked for it.'),
     }),
     confirm: true,
+    editable: { time: { label: 'Time', kind: 'time' }, party_size: { label: 'Party size', kind: 'number' } },
     async describe(ctx, { booking, date, time, party_size, override_limits }) {
       await requireStaffPermission(ctx, 'bookings', 'manage')
       const b = await staffBooking(ctx, booking)
@@ -517,10 +522,10 @@ export const staffTools = [
         title: over ? 'Move it past the usual limits?' : 'Move this booking?',
         lines: [
           b.guest_name + ', ' + b.venue_name + ' (' + reference(b.id) + ')',
-          'Now: ' + whenText(b.starts_at, b.venue_timezone) + ', ' + people(b.covers),
-          'New: ' + longDate(date || cur.date) + ' at ' + (time || cur.time) + ', ' + people(party_size ?? b.covers),
           ...(over ? [tableLine(plan)] : []),
         ],
+        before: [whenText(b.starts_at, b.venue_timezone) + ', ' + people(b.covers)],
+        after:  [longDate(date || cur.date) + ' at ' + (time || cur.time) + ', ' + people(party_size ?? b.covers)],
         ...(over ? { warningTitle: 'Past the usual limits', warnings: plan.limits } : {}),
         confirmLabel: over ? 'Move anyway' : 'Move booking',
       }
@@ -561,6 +566,7 @@ export const staffTools = [
 
   {
     name: 'set_booking_status',
+    class: 'consequential',
     title: 'Set booking status',
     description:
       'Sets a booking\'s status: unconfirmed, confirmed, reconfirmed, arrived, seated, checked_out, cancelled or no_show. ' +
@@ -596,6 +602,7 @@ export const staffTools = [
 
   {
     name: 'update_guest_details',
+    class: 'destructive',
     title: 'Update guest details',
     description: 'Changes the guest\'s name, email or phone on a booking (party size: use change_booking).',
     input: z.object({
@@ -609,10 +616,14 @@ export const staffTools = [
       await requireStaffPermission(ctx, 'bookings', 'manage')
       const b = await staffBooking(ctx, booking)
       const lines = [b.guest_name + ', ' + whenText(b.starts_at, b.venue_timezone) + ' (' + reference(b.id) + ')']
-      if (fields.guest_name)  lines.push('Name: ' + fields.guest_name)
-      if (fields.guest_email) lines.push('Email: ' + fields.guest_email)
-      if (fields.guest_phone) lines.push('Phone: ' + fields.guest_phone)
-      return { title: 'Update the guest details?', lines, confirmLabel: 'Update' }
+      const before = [], after = []
+      const field = (label, was, now) => { if (now) { before.push(label + ': ' + (was || 'none')); after.push(label + ': ' + now) } }
+      field('Name', b.guest_name, fields.guest_name)
+      field('Email', b.guest_email, fields.guest_email)
+      field('Phone', b.guest_phone, fields.guest_phone)
+      if (!after.length) throw new ToolError('Nothing to change.', 422)
+      // A person's details (destructive): the person types the guest's surname.
+      return { title: 'Update the guest details?', lines, before, after, confirmLabel: 'Update', confirm_word: surnameOf(b.guest_name) }
     },
     async run(ctx, { booking, ...fields }) {
       await requireStaffPermission(ctx, 'bookings', 'manage')
@@ -628,10 +639,12 @@ export const staffTools = [
 
   {
     name: 'add_booking_note',
+    class: 'consequential',
     title: 'Add a staff note',
     description: 'Adds a line to a booking\'s staff notes (kept with the earlier notes; guests never see them).',
     input: z.object({ booking: BookingRef, note: z.string().min(1).max(500) }),
     confirm: true,
+    editable: { note: { label: 'Note', kind: 'note' } },
     async describe(ctx, { booking, note }) {
       await requireStaffPermission(ctx, 'bookings', 'manage')
       const b = await staffBooking(ctx, booking)

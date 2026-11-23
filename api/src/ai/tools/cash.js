@@ -353,6 +353,10 @@ export const cashTools = [
 
   {
     name: 'record_cash_day',
+    class: 'consequential',
+    preconditions: [
+      'A submitted day can\'t change until an owner or admin unsubmits it.',
+    ],
     section: 'cash',
     title: 'Enter Cash Recon figures',
     description:
@@ -395,6 +399,7 @@ export const cashTools = [
 
   {
     name: 'add_expense',
+    class: 'consequential',
     section: 'cash',
     title: 'Add an expense',
     description:
@@ -412,6 +417,7 @@ export const cashTools = [
     }),
     confirm: true,
     needs: 'use',
+    editable: { description: { label: 'What it was', kind: 'text' }, amount: { label: 'Amount (gross)', kind: 'number' } },
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'cash_recon', 'use')
       const p = await expensePlan(ctx, input)
@@ -432,6 +438,10 @@ export const cashTools = [
 
   {
     name: 'submit_cash_day',
+    class: 'consequential',
+    preconditions: [
+      'Something must be entered for the day, and a venue that submits once a week submits the week instead.',
+    ],
     section: 'cash',
     title: 'Submit a Cash Recon day',
     description:
@@ -470,6 +480,7 @@ export const cashTools = [
 
   {
     name: 'submit_cash_week',
+    class: 'consequential',
     section: 'cash',
     title: 'Submit a Cash Recon week',
     description:
@@ -542,6 +553,10 @@ export const cashTools = [
 
   {
     name: 'mark_wages_paid',
+    class: 'destructive',
+    preconditions: [
+      'The week\'s wages must be saved first, and the day paid must be in that week.',
+    ],
     section: 'cash',
     title: 'Mark wages paid',
     description:
@@ -579,6 +594,10 @@ export const cashTools = [
 
   {
     name: 'fill_cash_from_till',
+    class: 'consequential',
+    preconditions: [
+      'Up to 14 days at a time, none after today, and the fields must be mapped in Cash Recon settings.',
+    ],
     section: 'cash',
     title: 'Fill Cash Recon from Loyverse or GloriaFood',
     description:

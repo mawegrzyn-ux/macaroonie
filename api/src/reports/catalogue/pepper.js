@@ -187,7 +187,9 @@ export const subjects = [
     list: ['at', 'what', 'channel', 'who', 'went_through'],
     sort: [{ by: 'at', dir: 'desc' }],
     // What was asked and the answer: never reported (they hold guests' details).
-    skip: ['input', 'result'],
+    // Migration 276 (Done by Pepper): the card a change ran from, the card an
+    // Undo undid, the person and the venue: not offered yet (docs/claude/outstanding/pepper.md 54).
+    skip: ['input', 'result', 'action_id', 'undo_of', 'venue_id', 'user_sub'],
   }),
 
   subject({

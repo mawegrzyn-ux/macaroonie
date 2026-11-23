@@ -25,7 +25,7 @@ import { withTenant } from '../../config/db.js'
 import { ToolError, callApi, requireStaffPermission } from '../context.js'
 import {
   DateStr, VenueText, venueFor, venueToday, longDate, shortDate, localParts, zonedInstant, addDays,
-  plural, pickByName, audited, realEmail,
+  plural, pickByName, audited, realEmail, surnameOf,
 } from './util.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -248,6 +248,7 @@ export const venueTools = [
 
   {
     name: 'update_customer',
+    class: 'destructive',
     section: 'customers',
     title: 'Change a customer',
     description: 'Changes a customer\'s name, email, phone or staff notes (notes are for staff, never shown to the guest). Only what is given changes; null clears.',
@@ -262,7 +263,8 @@ export const venueTools = [
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'customers', 'manage')
       const p = await customerEditPlan(ctx, input)
-      return { title: 'Change ' + p.c.name + '?', lines: p.lines, confirmLabel: 'Save' }
+      // A person's details (destructive): the person types the customer's surname.
+      return { title: 'Change ' + p.c.name + '?', lines: p.lines, confirmLabel: 'Save', confirm_word: surnameOf(p.c.name) }
     },
     async run(ctx, input) {
       await requireStaffPermission(ctx, 'customers', 'manage')
@@ -276,6 +278,7 @@ export const venueTools = [
 
   {
     name: 'unsubscribe_customer',
+    class: 'consequential',
     section: 'customers',
     title: 'Unsubscribe from the newsletter',
     description: 'Takes a customer off the newsletter. Only the guest can sign up again (when they order online).',
@@ -303,6 +306,7 @@ export const venueTools = [
 
   {
     name: 'anonymise_customer',
+    class: 'destructive',
     section: 'customers',
     title: 'Anonymise a customer (GDPR)',
     description:
@@ -322,6 +326,7 @@ export const venueTools = [
         warnings: ['Their name, email, phone and notes are erased everywhere. Use this for a GDPR erasure request only.'],
         confirmLabel: 'Anonymise',
         destructive: true,
+        confirm_word: surnameOf(c.name),
       }
     },
     async run(ctx, input) {
@@ -376,6 +381,7 @@ export const venueTools = [
 
   {
     name: 'close_dates',
+    class: 'consequential',
     section: 'venue',
     title: 'Close for dates',
     description:
@@ -416,6 +422,7 @@ export const venueTools = [
 
   {
     name: 'remove_closure',
+    class: 'destructive',
     section: 'venue',
     title: 'Remove a closure',
     description: 'Removes a closure or other schedule change (named, or the one covering a date), so the usual weekly times apply again.',
@@ -494,6 +501,7 @@ export const venueTools = [
 
   {
     name: 'update_booking_rules',
+    class: 'consequential',
     section: 'venue',
     title: 'Change booking rules',
     description: 'Changes a venue\'s booking rules (only what is given): party sizes, how far ahead, online cut-off, booking length, gap after, hold time, table joining, statuses.',

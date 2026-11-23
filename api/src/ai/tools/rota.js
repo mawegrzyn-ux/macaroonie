@@ -490,6 +490,7 @@ export const rotaTools = [
 
   {
     name: 'set_rota',
+    class: 'consequential',
     section: 'rota',
     title: 'Change the rota',
     description:
@@ -528,6 +529,7 @@ export const rotaTools = [
 
   {
     name: 'copy_rota_week',
+    class: 'consequential',
     section: 'rota',
     title: 'Copy a week\'s rota',
     description:
@@ -654,6 +656,7 @@ export const rotaTools = [
 
   {
     name: 'add_pay_adjustment',
+    class: 'destructive',
     section: 'rota',
     title: 'Add a pay adjustment',
     description:
@@ -710,6 +713,7 @@ export const rotaTools = [
 
   {
     name: 'fill_wages_from_rota',
+    class: 'destructive',
     section: 'rota',
     title: 'Fill wages from the rota',
     description:
@@ -751,6 +755,7 @@ export const rotaTools = [
 
   {
     name: 'adjust_tips',
+    class: 'destructive',
     section: 'rota',
     title: 'Move or adjust tips',
     description:
@@ -810,6 +815,7 @@ export const rotaTools = [
 
   {
     name: 'set_tip_pot_amounts',
+    class: 'destructive',
     section: 'rota',
     title: 'Enter tip pot amounts',
     description:
@@ -852,6 +858,7 @@ export const rotaTools = [
 
   {
     name: 'add_staff_member',
+    class: 'destructive',
     section: 'rota',
     title: 'Add a staff member',
     description:
@@ -890,6 +897,7 @@ export const rotaTools = [
 
   {
     name: 'update_staff_member',
+    class: 'destructive',
     section: 'rota',
     title: 'Change a staff member',
     description:
@@ -924,6 +932,7 @@ export const rotaTools = [
 
   {
     name: 'set_staff_leaving',
+    class: 'destructive',
     section: 'rota',
     title: 'Set a leaving date',
     description:
@@ -966,6 +975,7 @@ export const rotaTools = [
 
   {
     name: 'add_time_off',
+    class: 'consequential',
     section: 'rota',
     title: 'Add time off the rota',
     description:
@@ -1006,6 +1016,7 @@ export const rotaTools = [
 
   {
     name: 'remove_time_off',
+    class: 'destructive',
     section: 'rota',
     title: 'Remove time off the rota',
     description:

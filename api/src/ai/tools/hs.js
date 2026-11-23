@@ -347,6 +347,7 @@ export const hsTools = [
 
   {
     name: 'log_temperature',
+    class: 'reversible',
     title: 'Log a fridge temperature',
     description:
       'Logs a fridge or freezer temperature for a scheduled check (default: the check due now, today). ' +
@@ -355,6 +356,8 @@ export const hsTools = [
       'of range, ask what was done about it and pass it as corrective_action.',
     input: z.object({ ...TempInput, fridge: z.string().min(1).max(200).describe('The fridge or freezer, by name') }),
     confirm: true,
+    // The reading and what was done, corrected on the card by the person (step 4b).
+    editable: { temperature_c: { label: 'Reading (°C)', kind: 'number' }, corrective_action: { label: 'What was done', kind: 'note' } },
     needs: 'use',
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'food_safety', 'use')
@@ -365,6 +368,7 @@ export const hsTools = [
 
   {
     name: 'log_hold_check',
+    class: 'reversible',
     title: 'Log a hold temperature',
     description:
       'Logs a hot or cold hold temperature for a hold station\'s scheduled check (default: the check due now, today). ' +
@@ -381,6 +385,7 @@ export const hsTools = [
 
   {
     name: 'log_cooking_check',
+    class: 'reversible',
     title: 'Log a cooking check',
     description:
       'Logs a dish\'s core temperature (75°C or more passes). The dish is matched against the venue\'s cooking-check ' +
@@ -448,6 +453,7 @@ export const hsTools = [
 
   {
     name: 'log_delivery',
+    class: 'reversible',
     title: 'Log a delivery check',
     description:
       'Logs a delivery check: supplier, whether packaging, damage, quality and temperature were OK, the product ' +
@@ -521,6 +527,7 @@ export const hsTools = [
 
   {
     name: 'add_corrective_action',
+    class: 'reversible',
     title: 'Add a corrective action',
     description:
       'Records what was done about an out-of-range or failed reading already logged (reading_id from ' +
@@ -614,6 +621,10 @@ export const hsTools = [
 
   {
     name: 'tick_checklist',
+    class: 'reversible',
+    preconditions: [
+      'The checklist must be one of the group\'s, for a day it is due.',
+    ],
     title: 'Tick checklist tasks',
     description:
       'Ticks tasks on a checklist for a day (default today): name the tasks, or set all to tick every task. ' +
@@ -627,6 +638,14 @@ export const hsTools = [
     }),
     confirm: true,
     needs: 'use',
+    // Undo: the tasks it changed go back, through the same route; tasks
+    // someone else changed since are left as they are.
+    async inverse(ctx, undo) {
+      await requireStaffPermission(ctx, 'checklists', 'use')
+      const c = await loadChecklist(ctx, undo.checklist_id, undo.date)
+      await saveTicks(ctx, c, tickPlan(c, { tasks: undo.tasks, untick: !undo.untick }))
+      return { message: (undo.untick ? 'Ticked again' : 'Unticked') + ': ' + c.template.name + '.' }
+    },
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'checklists', 'use')
       const c = await loadChecklist(ctx, input.checklist_id, input.date)
@@ -653,14 +672,7 @@ export const hsTools = [
       const plan = tickPlan(c, input)
       const audited = { ...input, date: c.date }
       try {
-        const saved = await callApi(ctx, 'PUT', '/api/checklists/instance', {
-          body: {
-            template_id: c.template.id,
-            date: c.date,
-            items: c.items.map(i => ({ template_item_id: i.id, checked: plan.next.has(i.id), notes: c.values[i.id]?.notes ?? null })),
-            notes: c.instance?.notes ?? null,
-          },
-        })
+        const saved = await saveTicks(ctx, c, plan)
         const result = {
           checklist: c.template.name, date: c.date,
           [input.untick ? 'unticked' : 'ticked']: plan.changed.map(i => i.label),
@@ -669,7 +681,8 @@ export const hsTools = [
           message: saved.status === 'completed' ? 'Done: every task is ticked.' : 'Saved.',
         }
         await audit(ctx, { tool: 'tick_checklist', input: audited, ok: true, result })
-        return result
+        // Undo (step 4d): the same tasks the other way, on the same day.
+        return { ...result, _undo: { checklist_id: input.checklist_id, date: c.date, tasks: plan.changed.map(i => i.id), untick: !!input.untick } }
       } catch (err) {
         await audit(ctx, { tool: 'tick_checklist', input: audited, ok: false, result: { error: err.message } })
         throw err
@@ -713,6 +726,7 @@ export const hsTools = [
 
   {
     name: 'add_hs_action',
+    class: 'reversible',
     title: 'Add an H&S action',
     description: 'Adds an entry to a venue\'s H&S action log (a repair, record, training or cleaning job to do).',
     input: z.object({
@@ -766,6 +780,7 @@ export const hsTools = [
 
   {
     name: 'complete_hs_action',
+    class: 'reversible',
     title: 'Complete an H&S action',
     description: 'Marks an action log entry done (or, with done: false, not done again).',
     input: z.object({ action_id: Id, done: z.boolean().default(true) }),
@@ -868,6 +883,18 @@ async function loadChecklist(ctx, checklistId, date) {
 }
 
 /** Which tasks a tick / untick changes, and the ticks after it. */
+/** Saves a checklist's ticks after a tickPlan(): the whole day's items (rule 13). */
+function saveTicks(ctx, c, plan) {
+  return callApi(ctx, 'PUT', '/api/checklists/instance', {
+    body: {
+      template_id: c.template.id,
+      date: c.date,
+      items: c.items.map(i => ({ template_item_id: i.id, checked: plan.next.has(i.id), notes: c.values[i.id]?.notes ?? null })),
+      notes: c.instance?.notes ?? null,
+    },
+  })
+}
+
 function tickPlan(c, { tasks = [], all, untick }) {
   if (!c.items.length) throw new ToolError(c.template.name + ' has no tasks yet.', 422)
   if (!all && !tasks.length) throw new ToolError('Say which tasks, or set all.', 422)

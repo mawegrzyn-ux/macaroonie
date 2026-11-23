@@ -72,7 +72,7 @@ import {
   minutesToCutoff, deliveryTempOk, receiveStatusFor, poNumberLabel, convertQty, splitProblem,
   deliveryDayProblem, deadlineText, slotText, deadlinePassed, quickOrder, outOfStock,
 } from '../../../../shared/procurement.js'
-import { DateStr, TimeStr, localParts, longDate, pickByName, zonedInstant } from './util.js'
+import { DateStr, TimeStr, localParts, longDate, pickByName, zonedInstant, remember } from './util.js'
 
 const Id = z.string().uuid()
 const PackUnit = z.enum(Object.keys(UNITS))
@@ -218,7 +218,7 @@ async function venueOf(ctx, id) {
      WHERE id = ${id} AND tenant_id = ${ctx.tenantId} AND is_active = true
   `)
   if (!v) throw new ToolError('Venue not found. Use list_venues.', 404)
-  return v
+  return remember(ctx, v)
 }
 
 const venueToday = venue => localParts(new Date(), venue.timezone).date
@@ -1334,6 +1334,7 @@ export const purchasingTools = [
 
   {
     name: 'order_form',
+    class: 'reversible',
     title: 'Open an order',
     activity: 'Opened the order',
     description:
@@ -1405,6 +1406,7 @@ export const purchasingTools = [
   // ── Catalogue changes ──
   {
     name: 'add_inventory_item',
+    class: 'consequential',
     title: 'Add an inventory item',
     description:
       'Adds a product to the inventory, optionally with up to 5 supplier prices. counted_in is how stock and pars ' +
@@ -1467,6 +1469,7 @@ export const purchasingTools = [
 
   {
     name: 'update_inventory_item',
+    class: 'consequential',
     title: 'Change an inventory item',
     description:
       'Changes an inventory item: name, category (null = none; a new name makes the category), storage, code, notes, ' +
@@ -1507,6 +1510,7 @@ export const purchasingTools = [
 
   {
     name: 'add_supplier_price',
+    class: 'consequential',
     title: 'Add a supplier price',
     description:
       'Adds a supplier\'s price for an inventory item: pack (e.g. Case of 6 x 2 kg: pack_name Case, pack_count 6, ' +
@@ -1551,6 +1555,7 @@ export const purchasingTools = [
 
   {
     name: 'update_supplier_price',
+    class: 'consequential',
     title: 'Change a supplier price',
     description:
       'Changes one of an item\'s supplier prices: the price per pack, VAT, pack, supplier code, minimum packs, steps, ' +
@@ -1602,6 +1607,7 @@ export const purchasingTools = [
 
   {
     name: 'set_preferred_supplier',
+    class: 'consequential',
     title: 'Choose the supplier an item is ordered from',
     description:
       'Sets which supplier price an item is ordered on: for every venue (company choice) or one venue (venue_id). ' +
@@ -1641,6 +1647,7 @@ export const purchasingTools = [
 
   {
     name: 'add_supplier',
+    class: 'consequential',
     title: 'Add a supplier',
     description:
       'Adds a supplier: contact details, how orders reach them (email sent by the system, or print / Excel / PDF ' +
@@ -1670,6 +1677,7 @@ export const purchasingTools = [
 
   {
     name: 'update_supplier',
+    class: 'consequential',
     title: 'Change a supplier',
     description:
       'Changes a supplier\'s details or ordering settings, or switches it off (active: false). null clears a field. ' +
@@ -1718,6 +1726,7 @@ export const purchasingTools = [
 
   {
     name: 'create_order_list',
+    class: 'consequential',
     title: 'Create an order list',
     description:
       'Makes an order list: a name, the venues that use it and its items (names or codes, any mix of suppliers). ' +
@@ -1757,6 +1766,7 @@ export const purchasingTools = [
 
   {
     name: 'update_order_list',
+    class: 'consequential',
     title: 'Change an order list',
     description:
       'Changes an order list: rename, notes, switch off (active: false), add or remove venues, add or remove items ' +
@@ -1797,6 +1807,7 @@ export const purchasingTools = [
 
   {
     name: 'set_pars',
+    class: 'consequential',
     title: 'Set pars on an order list',
     description:
       'Sets the par (usual quantity) of items on an order list at one venue. par is in packs of the item\'s ' +
@@ -1835,6 +1846,7 @@ export const purchasingTools = [
 
   {
     name: 'import_price_list',
+    class: 'consequential',
     title: 'Import a price list',
     description:
       'Adds or updates many products and supplier prices at once, the same as the Inventory page\'s import. Either ' +
@@ -1922,6 +1934,7 @@ export const purchasingTools = [
 
   {
     name: 'switch_items',
+    class: 'consequential',
     title: 'Switch inventory items off or on',
     description:
       'Switches several inventory items off (they aren\'t offered on orders or order lists; prices and history are ' +
@@ -1974,6 +1987,7 @@ export const purchasingTools = [
 
   {
     name: 'update_prices_by_code',
+    class: 'consequential',
     title: 'Update a supplier\'s prices by product code',
     description:
       'Updates one supplier\'s prices from their new price list, matched to their prices here by product code: rows ' +
@@ -2030,6 +2044,7 @@ export const purchasingTools = [
   // ── Ordering ──
   {
     name: 'update_order',
+    class: 'consequential',
     title: 'Change the draft order',
     description:
       'Sets quantities on a venue\'s draft order for a list without sending anything: lines (packs; 0 takes a line ' +
@@ -2079,6 +2094,7 @@ export const purchasingTools = [
 
   {
     name: 'import_supplier_basket',
+    class: 'consequential',
     title: 'Bring a supplier\'s basket into an order',
     description:
       'Changes an order to match a supplier\'s basket (what is in their website\'s basket, or their quick order): ' +
@@ -2138,6 +2154,7 @@ export const purchasingTools = [
 
   {
     name: 'set_out_of_stock',
+    class: 'reversible',
     title: 'Mark a supplier price out of stock',
     description:
       'Records what a supplier said about one of their prices: out of stock until a date (until: the first day it ' +
@@ -2155,6 +2172,14 @@ export const purchasingTools = [
       quote_id:      Id.optional().describe('Filled in by the confirm card: leave it out'),
     }),
     confirm: true,
+    // Undo: the out-of-stock date and note as they were, through the same route.
+    async inverse(ctx, undo) {
+      await requireMarkStock(ctx)
+      const r = await callApi(ctx, 'PUT', '/api/purchasing/quotes/' + undo.quote_id + '/stock', {
+        body: undo.until ? { until: String(undo.until).slice(0, 10), note: undo.note ?? null } : { until: null },
+      })
+      return { message: r.out_of_stock_until ? 'Out of stock until ' + longDate(r.out_of_stock_until) + ' again.' : 'In stock again.' }
+    },
     async describe(ctx, input) {
       const p = await stockPlan(ctx, input)
       const lines = [p.name]
@@ -2179,6 +2204,8 @@ export const purchasingTools = [
           body: input.back_in_stock ? { until: null } : { until: input.until, note: input.note ?? null },
         })
         return {
+          // Undo (step 4d): the price's stock as it was.
+          _undo: { quote_id: p.quote.id, until: p.until ?? null, note: p.quote.out_of_stock_note ?? null },
           item: p.item.name, supplier: p.quote.supplier_name, pack: quoteLabel(p.quote),
           ...(r.out_of_stock_until ? { out_of_stock_until: longDate(r.out_of_stock_until) } : { back_in_stock: true }),
           message: r.out_of_stock_until
@@ -2191,6 +2218,7 @@ export const purchasingTools = [
 
   {
     name: 'place_order',
+    class: 'consequential',
     title: 'Place an order',
     description:
       'Places a venue\'s draft order for a list, or with order_id an order waiting for approval (after applying any ' +
@@ -2303,6 +2331,7 @@ export const purchasingTools = [
 
   {
     name: 'request_order',
+    class: 'consequential',
     title: 'Send an order for approval',
     description:
       'Sends a venue\'s draft order for a list for approval (after applying any lines / fill_to_par, as ' +
@@ -2406,6 +2435,7 @@ export const purchasingTools = [
 
   {
     name: 'send_back_order',
+    class: 'consequential',
     title: 'Send an order back',
     description:
       'Sends an order waiting for approval back to be changed (needs Purchasing approval): it becomes a draft again ' +
@@ -2440,6 +2470,7 @@ export const purchasingTools = [
 
   {
     name: 'split_order',
+    class: 'consequential',
     title: 'Split an order for another day',
     description:
       'Splits an order into two for different days (needs Purchasing approval): po for a placed purchase order, or ' +
@@ -2499,6 +2530,7 @@ export const purchasingTools = [
 
   {
     name: 'send_purchase_order',
+    class: 'consequential',
     title: 'Send a purchase order',
     description:
       'how: email sends the purchase order to the supplier now (again, if it was already sent); printed, pdf, excel, ' +
@@ -2562,6 +2594,7 @@ export const purchasingTools = [
 
   {
     name: 'change_purchase_order',
+    class: 'consequential',
     title: 'Change a purchase order',
     description:
       'Changes a purchase order: delivery_date and notes (until it is received), and while it is waiting in To send ' +
@@ -2612,6 +2645,7 @@ export const purchasingTools = [
 
   {
     name: 'cancel_purchase_order',
+    class: 'destructive',
     title: 'Cancel a purchase order',
     description: 'Cancels a purchase order that hasn\'t been received (needs Purchasing approval). If it was already sent, the supplier must be told.',
     input: z.object({ po: z.string().min(1).max(60) }),
@@ -2644,6 +2678,7 @@ export const purchasingTools = [
 
   {
     name: 'receive_delivery',
+    class: 'consequential',
     title: 'Book in a delivery',
     description:
       'Books in a delivery against its purchase order: lines that differ from the order (packs received, and a ' +

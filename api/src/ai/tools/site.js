@@ -40,6 +40,8 @@ async function tzOf(ctx) {
 }
 
 const SEVERITY = { info: 'information', warn: 'warning', alert: 'urgent' }
+/** The website banner in words (a card's before / after line). */
+const bannerLine = (on, text) => (on ? 'Banner on: ' + String(text || '').slice(0, 160) : 'No banner')
 const PRIORITY = { p1: 'P1 (critical)', p2: 'P2 (high)', p3: 'P3 (medium)', p4: 'P4 (low)' }
 
 async function reviewPick(ctx, input) {
@@ -112,6 +114,7 @@ export const siteTools = [
 
   {
     name: 'publish_website',
+    class: 'consequential',
     section: 'website',
     title: 'Publish the website',
     description: 'Publishes every saved website change now (the card lists them). Replaces a scheduled publish.',
@@ -140,6 +143,7 @@ export const siteTools = [
 
   {
     name: 'set_website_banner',
+    class: 'reversible',
     section: 'website',
     title: 'Website banner',
     description:
@@ -153,6 +157,17 @@ export const siteTools = [
       link_text: z.string().trim().max(100).optional(),
     }),
     confirm: true,
+    // Undo: the banner's switch, words, urgency and link as they were.
+    async inverse(ctx, undo) {
+      await requireStaffPermission(ctx, 'website', 'manage')
+      const body = {
+        banner_enabled: !!undo.banner_enabled, banner_text: undo.banner_text ?? null,
+        banner_link_url: undo.banner_link_url ?? null, banner_link_text: undo.banner_link_text ?? null,
+        ...(undo.banner_severity ? { banner_severity: undo.banner_severity } : {}),
+      }
+      await callApi(ctx, 'PATCH', '/api/website/tenant-site', { body })
+      return { message: undo.banner_enabled ? 'The earlier banner is back.' : 'The banner is off again.' }
+    },
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'website', 'manage')
       const site = await callApi(ctx, 'GET', '/api/website/tenant-site')
@@ -163,6 +178,8 @@ export const siteTools = [
           ? [SEVERITY[input.severity || site.banner_severity || 'info'] + ': ' + (input.text || site.banner_text),
             ...(input.link_url ? ['Link: ' + (input.link_text || input.link_url) + ' (' + input.link_url + ')'] : [])]
           : ['Now: ' + (site.banner_enabled ? site.banner_text : 'already off')],
+        before: [bannerLine(site.banner_enabled, site.banner_text)],
+        after:  [bannerLine(input.on, input.text || site.banner_text)],
         confirmLabel: input.on ? 'Show banner' : 'Turn off',
       }
     },
@@ -174,8 +191,11 @@ export const siteTools = [
         if (input.severity) body.banner_severity = input.severity
         if (input.link_url !== undefined) body.banner_link_url = input.link_url || null
         if (input.link_text !== undefined) body.banner_link_text = input.link_text || null
+        const was = await callApi(ctx, 'GET', '/api/website/tenant-site')
         await callApi(ctx, 'PATCH', '/api/website/tenant-site', { body })
-        return { banner: input.on ? 'on' : 'off', message: 'Saved.' }
+        // Undo (step 4d): the banner as it was.
+        const keep = ['banner_enabled', 'banner_text', 'banner_severity', 'banner_link_url', 'banner_link_text']
+        return { banner: input.on ? 'on' : 'off', message: 'Saved.', _undo: Object.fromEntries(keep.map(k => [k, was[k] ?? null])) }
       })
     },
   },
@@ -210,6 +230,10 @@ export const siteTools = [
 
   {
     name: 'switch_promotion',
+    class: 'consequential',
+    preconditions: [
+      'The promotion must not already be the way asked.',
+    ],
     section: 'website',
     title: 'Turn a promotion on or off',
     description: 'Turns a promotion on or off (it keeps its settings).',
@@ -219,7 +243,11 @@ export const siteTools = [
       await requireStaffPermission(ctx, 'promotions', 'manage')
       const p = await promoPick(ctx, input)
       if (!!p.is_active === input.on) throw new ToolError(p.name + ' is already ' + (input.on ? 'on' : 'off') + '.', 422)
-      return { title: (input.on ? 'Turn on ' : 'Turn off ') + p.name + '?', lines: [promoSummary(p)], confirmLabel: input.on ? 'Turn on' : 'Turn off' }
+      return {
+        title: (input.on ? 'Turn on ' : 'Turn off ') + p.name + '?', lines: [promoSummary(p)],
+        before: [p.name + ': ' + (p.is_active ? 'on' : 'off')], after: [p.name + ': ' + (input.on ? 'on' : 'off')],
+        confirmLabel: input.on ? 'Turn on' : 'Turn off',
+      }
     },
     async run(ctx, input) {
       await requireStaffPermission(ctx, 'promotions', 'manage')
@@ -314,6 +342,7 @@ export const siteTools = [
 
   {
     name: 'record_reviews',
+    class: 'consequential',
     section: 'website',
     title: 'Record reviews from a review site',
     description:
@@ -376,6 +405,7 @@ export const siteTools = [
 
   {
     name: 'moderate_review',
+    class: 'consequential',
     section: 'website',
     title: 'Approve or feature a review',
     description:
@@ -438,6 +468,7 @@ export const siteTools = [
 
   {
     name: 'reload_screen',
+    class: 'reversible',
     section: 'website',
     title: 'Reload a menu screen',
     description: 'Makes a menu screen load its page again (when it looks stuck). It must be online to hear it.',
@@ -500,6 +531,7 @@ export const siteTools = [
 
   {
     name: 'report_issue',
+    class: 'reversible',
     section: 'support',
     title: 'Report an issue',
     description:
@@ -555,6 +587,7 @@ export const siteTools = [
 
   {
     name: 'request_feature',
+    class: 'reversible',
     section: 'support',
     title: 'Request a feature',
     description: 'Adds a feature request to the shared wishlist the platform team works from (other restaurants can vote for it).',
