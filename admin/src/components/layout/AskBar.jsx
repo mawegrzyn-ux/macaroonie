@@ -189,7 +189,9 @@ export default function AskBar({ autoFocus = false, onDone, inline = false, sugg
           aria-controls="ask-results"
           aria-activedescendant={cur >= 0 ? 'ask-row-' + cur : undefined}
           data-testid="ask-input"
-          className={cn('w-full h-12 pl-11 rounded-lg border bg-background text-base sm:text-sm touch-manipulation placeholder:text-muted-foreground/80',
+          className={cn('w-full pl-11 rounded-lg bg-background text-base touch-manipulation placeholder:text-muted-foreground/80',
+            // On Home it stands out: taller, an accent border and a ring when it has the cursor.
+            inline ? 'h-14 border-2 border-primary/40 shadow-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15' : 'h-12 border sm:text-sm',
             canAskAi ? 'pr-[6.5rem]' : 'pr-14')}
         />
         <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
