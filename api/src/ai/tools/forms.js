@@ -192,10 +192,12 @@ export const promptLines = [
   'open_form opens a form in the chat for the person to fill in ("do today\'s cash-up", "log the fridge temps", ' +
     '"open the closing checklist", "add an expense", "mark the pad thai sold out myself", "who\'s on Saturday"): ' +
     'fridge and freezer, hold, cooking and delivery checks, a checklist, the cash-up, the week\'s wages, the day\'s ' +
-    'expenses, sold out dishes, the rota for a day. Use it rather than asking for figures one by one when they ' +
-    'want to do the job themselves. You may put values into the form (values) only from what the person said or a ' +
-    'document they gave states; never infer or guess a reading, a count or an amount. The person checks every value ' +
-    'and saves the form themselves.',
+    'expenses, sold out dishes, the rota for a day, a supplier order, corrective actions, an H&S action, a new booking ' +
+    'or a booking\'s details. Use it when the person wants to fill the form in themselves, or has many values to enter ' +
+    'at once. When they have stated the values of one check or one change that a tool records (a reading, a delivery, ' +
+    'a booking, an action), call that tool instead: its card is the confirmation. You may put values into the form ' +
+    '(values) only from what the person said or a document they gave states; never infer or guess a reading, a count ' +
+    'or an amount. The person checks every value and saves the form themselves.',
 ]
 
 export const formTools = [
@@ -214,7 +216,10 @@ export const formTools = [
       'for the day\'s out-of-range readings), hs_action (a new H&S action log entry), booking (a new table booking on the ' +
       'day), booking_change (a booking\'s details to change: the guest\'s name or reference in booking, on the day). ' +
       'Use it when they ask to do one of these themselves ("do today\'s cash-up", "open the closing checklist", ' +
-      '"I\'ll do the order"), or when there are many values to enter at once. date defaults to today at the venue. ' +
+      '"I\'ll do the order"), or when there are many values to enter at once. When the person has stated the values of ' +
+      'one check or one change that a tool records (log_temperature, log_hold_check, log_cooking_check, log_delivery, ' +
+      'create_booking, add_hs_action, add_expense), call that tool instead: its card is the confirmation. With values, ' +
+      'open_form is the fallback when no single tool fits. date defaults to today at the venue. ' +
       'values (optional): what the person said or a document they gave states, placed in the form for them to check ' +
       '(each marked as filled by you): ' + VALUES_HELP + '. Never put in a value they didn\'t give: a measured value ' +
       '(a temperature) only when they said the number themselves; names as they said them. Fields left out stay empty. ' +

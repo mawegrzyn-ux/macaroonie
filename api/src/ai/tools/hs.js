@@ -191,7 +191,10 @@ export const promptLines = [
 export const promptNotes = [
   'Food safety: a reading out of range (or a cooking check under 75°C, or a failed delivery) needs a corrective ' +
     'action: what was done about it. Ask for it and pass it with the reading, or add it afterwards with ' +
-    'add_corrective_action. Never make up a temperature or tick a task the staff member hasn\'t said is done.',
+    'add_corrective_action. Never make up a temperature or tick a task the staff member hasn\'t said is done. ' +
+    'When the person states the values of a check in their message (a reading, or how a delivery arrived), log it ' +
+    'with its logging tool (log_temperature, log_hold_check, log_cooking_check, log_delivery): its card is the ' +
+    'confirmation. open_form is for when they want to fill the form in themselves, or have many values to enter at once.',
 ]
 
 export const hsTools = [
@@ -347,8 +350,9 @@ export const hsTools = [
     title: 'Log a fridge temperature',
     description:
       'Logs a fridge or freezer temperature for a scheduled check (default: the check due now, today). ' +
-      'Logging the same check again replaces the earlier reading. If the reading is out of range, ask what was done ' +
-      'about it and pass it as corrective_action.',
+      'Use it whenever the person states a reading ("the walk-in is reading 3"): the card is the confirmation, so ' +
+      'don\'t open the form for it. Logging the same check again replaces the earlier reading. If the reading is out ' +
+      'of range, ask what was done about it and pass it as corrective_action.',
     input: z.object({ ...TempInput, fridge: z.string().min(1).max(200).describe('The fridge or freezer, by name') }),
     confirm: true,
     needs: 'use',
@@ -447,7 +451,9 @@ export const hsTools = [
     title: 'Log a delivery check',
     description:
       'Logs a delivery check: supplier, whether packaging, damage, quality and temperature were OK, the product ' +
-      'temperature if taken, and whether it was accepted. Anything failed needs a corrective action.',
+      'temperature if taken, and whether it was accepted. Use it whenever the person says how a delivery arrived ' +
+      '("all fine, 4 degrees, accepted"): the card is the confirmation, so don\'t open the form for it. Anything ' +
+      'failed needs a corrective action.',
     input: z.object({
       venue_id:          Id,
       supplier:          z.string().min(1).max(200),
