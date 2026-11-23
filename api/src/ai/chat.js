@@ -70,7 +70,7 @@ import { createHash } from 'node:crypto'
 import Anthropic from '@anthropic-ai/sdk'
 import { sql, withTenant } from '../config/db.js'
 import { env } from '../config/env.js'
-import { ToolError, makeContext, addUsage, searchesIn, callApi, staffPermissionLevels } from './context.js'
+import { ToolError, makeContext, addUsage, searchesIn, callApi, staffPermissionLevels, audit } from './context.js'
 import { toolsFor, findTool, jsonSchemaOf, parseInput, errorText, CORE_TOOLS, audienceTools, toolDescription, classFor, shownResult } from './tools/index.js'
 import { chatUnitsLeft, personUnitsLeft, getAiSettings } from './settings.js'
 import { activeKey } from './apiKey.js'
@@ -1176,6 +1176,72 @@ async function cancelCard(ctx, conv, actionId) {
   return cardView(conv, action.id)
 }
 
+// ── Undo (Pepper-first step 4d) ──────────────────────────
+//
+// A reversible tool with an `inverse` (tools/index.js) can be undone from its
+// done card for UNDO_MINUTES after it ran, by the person whose chat it is
+// (the route only finds a person's own cards). The inverse works from the
+// `_undo` its run returned (kept with the card, never shown to the model),
+// through the same routes the change went through, with no card of its own:
+// undo is itself a reversible change. It runs once (undone_at is claimed
+// first), is audited with undo_of, and the model is told in a note.
+// Consequential and destructive changes have no Undo.
+export const UNDO_MINUTES = 10
+const UNDOABLE = new Map(audienceTools('staff').filter(t => t.inverse && t.class === 'reversible').map(t => [t.name, t]))
+
+/** Until when a card's change can still be undone, or null. */
+function undoUntil(a) {
+  if (a.status !== 'done' || a.undone_at || !a.decided_at || !UNDOABLE.has(a.tool) || !a.result?._undo) return null
+  const until = new Date(new Date(a.decided_at).getTime() + UNDO_MINUTES * 60_000)
+  return until.getTime() > Date.now() ? until : null
+}
+
+/** Undo on a done card. Returns the card as it now is. */
+export async function undoAction(ctx, conv, actionId) {
+  return withHold(conv, BUSY_CARD, () => undoCard(ctx, conv, actionId))
+}
+
+async function undoCard(ctx, conv, actionId) {
+  const action = await loadAction(conv, actionId)
+  if (action.undone_at) return actionView(action)   // once: a second press answers with the first
+  if (action.status !== 'done') throw new ToolError('Only a change that went through can be undone.', 409)
+  const tool = UNDOABLE.get(action.tool)
+  if (!tool || !action.result?._undo) throw new ToolError('This change can\'t be undone here. Ask to change it back, or change it on its page.', 422)
+  if (!undoUntil(action)) {
+    throw new ToolError('Undo was open for ' + UNDO_MINUTES + ' minutes after the change and has closed. Ask to change it back, or change it on its page.', 410)
+  }
+  const fresh = await loadConversation(conv.tenant_id, conv.id)
+  if (!fresh || fresh.closed_at) throw new ToolError('This chat is closed, so its changes can\'t be undone from it.', 409)
+  const [claimed] = await withTenant(conv.tenant_id, tx => tx`
+    UPDATE ai_pending_actions SET undone_at = now(), undo_error = NULL
+     WHERE id = ${action.id} AND tenant_id = ${conv.tenant_id} AND status = 'done' AND undone_at IS NULL
+    RETURNING id
+  `)
+  if (!claimed) return cardView(conv, action.id)
+  const who = 'The staff member'
+  const title = await titleNow(conv, action)
+  const [first] = await withTenant(conv.tenant_id, tx => tx`
+    SELECT venue_id FROM ai_actions WHERE tenant_id = ${conv.tenant_id} AND action_id = ${action.id} AND venue_id IS NOT NULL LIMIT 1
+  `)
+  const row = { tool: tool.name, input: { undo: title }, undoOf: action.id, venueId: first?.venue_id ?? null }
+  ctx.action = null
+  try {
+    const out = await tool.inverse(ctx, action.result._undo)
+    await audit(ctx, { ...row, ok: true, result: shownResult(out) })
+    await appendMessage(conv, 'user', [{ type: 'text', _note: 'action',
+      text: `[${who} pressed Undo on "${title}": it is back as it was before.${out?.message ? ' ' + out.message : ''}]` }])
+  } catch (err) {
+    const message = errorText(err, ctx.log)
+    await withTenant(conv.tenant_id, tx => tx`
+      UPDATE ai_pending_actions SET undone_at = NULL, undo_error = ${message} WHERE id = ${action.id} AND tenant_id = ${conv.tenant_id}
+    `)
+    await audit(ctx, { ...row, ok: false, result: { error: message } })
+    await appendMessage(conv, 'user', [{ type: 'text', _note: 'action',
+      text: `[${who} pressed Undo on "${title}" but it failed, so the change stays: ${message}]` }])
+  }
+  return cardView(conv, action.id)
+}
+
 async function cardView(conv, actionId) {
   const [a] = await withTenant(conv.tenant_id, tx => tx`
     SELECT * FROM ai_pending_actions WHERE id = ${actionId} AND tenant_id = ${conv.tenant_id}
@@ -1193,9 +1259,12 @@ function actionView(a) {
     // and never a card above reversible.
     voice_ok: VOICE_CONFIRM_TOOLS.has(a.tool) && (a.card?.class ?? 'reversible') === 'reversible',
     ...a.card,
-    status: expired ? 'expired' : a.status,
+    status: expired ? 'expired' : a.undone_at ? 'undone' : a.status,
     result: a.status === 'done' ? (a.result?.message || 'Done.') : null,
     error:  a.status === 'failed' ? a.result?.error : null,
+    // Undo (step 4d): until when it can still be undone; why the last Undo failed.
+    undo_until: undoUntil(a)?.toISOString() ?? null,
+    ...(a.undo_error && !a.undone_at ? { undo_error: a.undo_error } : {}),
   }
 }
 

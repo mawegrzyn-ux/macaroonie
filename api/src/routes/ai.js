@@ -13,6 +13,8 @@
 //   DELETE /attachments/:id            an upload not sent yet
 //   POST   /actions/:id/confirm        Confirm on a card (runs the change)
 //   POST   /actions/:id/cancel
+//   POST   /actions/:id/undo           Undo on a done card: a reversible change, for
+//                                      UNDO_MINUTES, its own person only (step 4d)
 //   POST   /conversations/:id/forms/:toolUseId   { summary } a form opened from the
 //                                      chat's form card was saved: the card shows the
 //                                      line with Edit (saveFormCard(), step 3c)
@@ -49,7 +51,7 @@ import {
 import { activeKey, keyInfo, checkKey, saveKey, removeKey } from '../ai/apiKey.js'
 import {
   createConversation, loadConversation, runTurn, confirmAction, cancelAction, displayItems, chatContext, isRunning,
-  saveFormCard, FORM_SUMMARY_MAX,
+  saveFormCard, FORM_SUMMARY_MAX, undoAction,
 } from '../ai/chat.js'
 import { wantsStream, eventStream, errorEvent } from '../ai/sse.js'
 import { staffInstructions } from '../ai/prompts.js'
@@ -286,6 +288,16 @@ export default async function aiRoutes(app) {
     const conv = await actionConversation(req, req.params.id)
     await run(() => confirmAction(chatContext(app, conv, { req }), conv, req.params.id, { via, word: parsed.data.word ?? null, values: parsed.data.values ?? null }))
     // An anonymise card closes the chat it ran in (ai/erase.js).
+    return { conversation_id: conv.id, closed: await closedNow(req, conv), items: await displayItems(conv) }
+  })
+
+  // Undo on a done card (step 4d): a reversible change, within UNDO_MINUTES,
+  // the person's own card only (another person's is not found). No model call,
+  // so it needs only access to Pepper, not the chat being set up.
+  app.post('/actions/:id/undo', async req => {
+    if (await permissionLevel(req, 'ai_assistant') === 'none') throw httpError(403, 'You don\'t have access to ' + ASSISTANT_NAME + '.')
+    const conv = await actionConversation(req, req.params.id)
+    await run(() => undoAction(chatContext(app, conv, { req }), conv, req.params.id))
     return { conversation_id: conv.id, closed: await closedNow(req, conv), items: await displayItems(conv) }
   })
 

@@ -157,6 +157,17 @@ export const siteTools = [
       link_text: z.string().trim().max(100).optional(),
     }),
     confirm: true,
+    // Undo: the banner's switch, words, urgency and link as they were.
+    async inverse(ctx, undo) {
+      await requireStaffPermission(ctx, 'website', 'manage')
+      const body = {
+        banner_enabled: !!undo.banner_enabled, banner_text: undo.banner_text ?? null,
+        banner_link_url: undo.banner_link_url ?? null, banner_link_text: undo.banner_link_text ?? null,
+        ...(undo.banner_severity ? { banner_severity: undo.banner_severity } : {}),
+      }
+      await callApi(ctx, 'PATCH', '/api/website/tenant-site', { body })
+      return { message: undo.banner_enabled ? 'The earlier banner is back.' : 'The banner is off again.' }
+    },
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'website', 'manage')
       const site = await callApi(ctx, 'GET', '/api/website/tenant-site')
@@ -180,8 +191,11 @@ export const siteTools = [
         if (input.severity) body.banner_severity = input.severity
         if (input.link_url !== undefined) body.banner_link_url = input.link_url || null
         if (input.link_text !== undefined) body.banner_link_text = input.link_text || null
+        const was = await callApi(ctx, 'GET', '/api/website/tenant-site')
         await callApi(ctx, 'PATCH', '/api/website/tenant-site', { body })
-        return { banner: input.on ? 'on' : 'off', message: 'Saved.' }
+        // Undo (step 4d): the banner as it was.
+        const keep = ['banner_enabled', 'banner_text', 'banner_severity', 'banner_link_url', 'banner_link_text']
+        return { banner: input.on ? 'on' : 'off', message: 'Saved.', _undo: Object.fromEntries(keep.map(k => [k, was[k] ?? null])) }
       })
     },
   },

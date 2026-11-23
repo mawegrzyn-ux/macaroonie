@@ -236,6 +236,12 @@ export const localInfoTools = [
     }),
     confirm: true,
     editable: { title: { label: 'Title', kind: 'text' }, time_text: { label: 'Time', kind: 'text' } },
+    // Undo: the entry it added comes off the calendar (its own entry only).
+    async inverse(ctx, undo) {
+      await requireStaffPermission(ctx, 'local_info', 'manage')
+      await callApi(ctx, 'DELETE', '/api/local-info/items/' + undo.item_id)
+      return { message: 'Taken off the Local info calendar.' }
+    },
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'local_info', 'manage')
       const venue = input.venue ? await venueFor(ctx, input.venue) : null
@@ -254,14 +260,16 @@ export const localInfoTools = [
       await requireStaffPermission(ctx, 'local_info', 'manage')
       const venue = input.venue ? await venueFor(ctx, input.venue) : null
       return audited(ctx, 'add_local_event', { venue: venue?.name ?? 'every venue', title: input.title, starts_on: input.starts_on }, async () => {
-        await callApi(ctx, 'POST', '/api/local-info/items', { body: {
+        const made = await callApi(ctx, 'POST', '/api/local-info/items', { body: {
           venue_id: venue ? venue.id : null, kind: input.kind, title: input.title,
           details: input.details ?? null, place: input.place ?? null,
           starts_on: input.starts_on, ends_on: input.ends_on ?? null,
           time_text: input.time_text ?? null, severity: input.severity,
         } })
         return { added: input.title, on: input.starts_on + (input.ends_on ? ' to ' + input.ends_on : ''),
-          at: venue?.name ?? 'every venue', message: 'On the Local info calendar.' }
+          at: venue?.name ?? 'every venue', message: 'On the Local info calendar.',
+          // Undo (step 4d): the entry it made comes off again.
+          _undo: { item_id: made.id } }
       })
     },
   },

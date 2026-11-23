@@ -8,12 +8,14 @@
 //   destructive                 the card's word typed in (a guest's surname,
 //                               else CONFIRM) before Confirm is on, and never
 //                               a spoken yes (the server refuses one too)
+// A done reversible change shows Undo until undo_until (10 minutes); Undo
+// runs straight away, with no card of its own, and the card says Undone.
 // `before` / `after` show the record as it is and as it will be; `fields`
 // are the inputs the tool lets the person change on the card (a time, a
 // party size, a note). Changed values go with Confirm and the server checks
 // them with the tool's own rules before anything runs.
 import { useEffect, useMemo, useState } from 'react'
-import { Loader2, Check, X, CircleAlert, Pencil } from 'lucide-react'
+import { Loader2, Check, X, CircleAlert, Pencil, Undo2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 
@@ -22,6 +24,7 @@ const STATUS_TEXT = {
   cancelled: 'Cancelled, nothing changed',
   expired:   'Expired, nothing changed',
   failed:    'Didn\'t go through',
+  undone:    'Undone, back as it was',
 }
 
 const sameWord = (a, b) => String(a ?? '').replace(/\s+/g, ' ').trim().toLowerCase() === String(b ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
@@ -82,6 +85,17 @@ export default function ActionCard({ card, decide, busy: turnBusy = false }) {
   const [values, setValues] = useState(start)
   const [editing, setEditing] = useState(false)
   const [word, setWord] = useState('')
+  // Undo (step 4d): offered until the server's undo_until; the button goes at that time.
+  const undoAt = card.undo_until ? new Date(card.undo_until).getTime() : 0
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const ms = undoAt - Date.now()
+    if (ms <= 0) return undefined
+    const t = setTimeout(() => setNow(Date.now()), Math.min(ms + 500, 2 ** 31 - 1))
+    return () => clearTimeout(t)
+  }, [undoAt])
+  const canUndo = card.status === 'done' && undoAt > now
+  const untilText = undoAt ? new Date(undoAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
   useEffect(() => { setValues(start) }, [start])
   const changed = Object.fromEntries(Object.entries(values).filter(([k, v]) => JSON.stringify(v ?? null) !== JSON.stringify(start[k] ?? null)))
   const wordOk = !destructive || sameWord(word, card.confirm_word)
@@ -152,11 +166,22 @@ export default function ActionCard({ card, decide, busy: turnBusy = false }) {
           </button>
         </div>
       ) : (
-        <div className={cn('px-3 py-2 text-sm border-t',
-          card.status === 'done' ? 'text-emerald-700 bg-emerald-50' : card.status === 'failed' ? 'text-destructive bg-destructive/10' : 'text-muted-foreground bg-muted/40')}>
-          <span className="font-medium">{STATUS_TEXT[card.status] || card.status}</span>
-          {card.result && <span>: {card.result}</span>}
-          {card.error && <span>: {card.error}</span>}
+        <div className={cn('px-3 py-2 text-sm border-t flex flex-wrap items-center gap-x-3 gap-y-2',
+          card.status === 'done' ? 'text-emerald-700 bg-emerald-50' : card.status === 'failed' ? 'text-destructive bg-destructive/10' : 'text-muted-foreground bg-muted/40')}
+          data-testid="card-outcome">
+          <div className="flex-1 min-w-[10rem]">
+            <span className="font-medium">{STATUS_TEXT[card.status] || card.status}</span>
+            {card.status !== 'undone' && card.result && <span>: {card.result}</span>}
+            {card.error && <span>: {card.error}</span>}
+            {card.undo_error && <div className="text-destructive">Undo didn't go through: {card.undo_error}</div>}
+          </div>
+          {canUndo && (
+            <button type="button" disabled={busy} onClick={() => decide.mutate({ id: card.id, how: 'undo' })} data-testid="card-undo"
+              className="min-h-[44px] px-4 rounded-md border border-emerald-700/40 bg-background text-emerald-800 text-sm font-medium flex items-center gap-2 touch-manipulation disabled:opacity-50">
+              {busy && decide.variables?.how === 'undo' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Undo2 className="w-4 h-4" />}
+              Undo <span className="text-xs font-normal text-muted-foreground">until {untilText}</span>
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -334,6 +334,12 @@ export const orderTools = [
     description: 'Stops (paused true) or starts again (paused false) taking online orders at a venue, with an optional message for guests.',
     input: z.object({ venue: VenueText, paused: z.boolean(), message: z.string().trim().max(300).optional() }),
     confirm: true,
+    // Undo: the pause and its message as they were.
+    async inverse(ctx, undo) {
+      await requireStaffPermission(ctx, 'web_orders', 'manage')
+      const row = await callApi(ctx, 'POST', `/api/orders/pause/${undo.venue_id}`, { body: { paused: undo.paused, message: undo.message ?? null } })
+      return { message: row.is_paused ? 'Online orders paused again.' : 'Taking online orders again.' }
+    },
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'web_orders', 'manage')
       const venue = await venueFor(ctx, input.venue)
@@ -351,8 +357,12 @@ export const orderTools = [
       await requireStaffPermission(ctx, 'web_orders', 'manage')
       return audited(ctx, 'pause_online_orders', input, async () => {
         const venue = await venueFor(ctx, input.venue)
+        const was = await pauseState(ctx, venue)
         const row = await callApi(ctx, 'POST', `/api/orders/pause/${venue.id}`, { body: { paused: input.paused, message: input.message ?? null } })
-        return { venue: venue.name, paused: row.is_paused, message: row.is_paused ? 'Online orders paused.' : 'Taking online orders again.' }
+        return {
+          venue: venue.name, paused: row.is_paused, message: row.is_paused ? 'Online orders paused.' : 'Taking online orders again.',
+          _undo: { venue_id: venue.id, paused: was.is_paused, message: was.pause_message },
+        }
       })
     },
   },
@@ -428,6 +438,14 @@ export const orderTools = [
       sold_out: z.enum(['today', 'until_back', 'back_on']),
     }),
     confirm: true,
+    // Undo: every dish back to how it was before, through the same route.
+    async inverse(ctx, undo) {
+      await requireStaffPermission(ctx, 'web_orders', 'manage')
+      for (const i of undo.items) {
+        await callApi(ctx, 'PUT', `/api/orders/availability/${undo.venue_id}/${i.id}`, { body: { sold_out: i.sold_out } })
+      }
+      return { message: 'Back as it was.' }
+    },
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'web_orders', 'manage')
       const p = await soldOutPlan(ctx, input)
@@ -451,7 +469,15 @@ export const orderTools = [
             await callApi(ctx, 'PUT', `/api/orders/availability/${p.venue.id}/${id}`, { body: { sold_out: mode } })
           }
         }
-        return { venue: p.venue.name, dishes: p.picked.map(d => d.name), message: input.sold_out === 'back_on' ? 'Back on.' : 'Marked sold out.' }
+        // Undo (step 4d): each dish back to how it was, per menu item.
+        const was = p.picked.flatMap(d => d.ids.map(id => {
+          const at = d.sold.indexOf(id)
+          return { id, sold_out: at < 0 ? false : d.until[at] == null ? 'indefinite' : 'today' }
+        }))
+        return {
+          venue: p.venue.name, dishes: p.picked.map(d => d.name), message: input.sold_out === 'back_on' ? 'Back on.' : 'Marked sold out.',
+          _undo: { venue_id: p.venue.id, items: was },
+        }
       })
     },
   },

@@ -226,3 +226,124 @@ test('a card that failed answers a second press with its failure, without runnin
   assert.equal(late.status, 409)
   assert.equal(await eventsCalled(title + ' 2'), 0)
 })
+
+// ── 4d: Undo ────────────────────────────────────────────────────────
+
+const dishState = async id => {
+  const av = await ok(owner.get(`/api/orders/availability/${V}`))
+  const i = av.menus.flatMap(m => m.sections.flatMap(s => s.items)).find(x => x.id === id)
+  return i.sold_out || i.sold_out_until ? 'sold out' : 'on'
+}
+
+test('a reversible change offers Undo for 10 minutes; Undo puts it back, once, and is recorded', async () => {
+  const { UNDO_MINUTES } = await import('../src/ai/chat.js')
+  assert.equal(UNDO_MINUTES, 10)
+  const dish = await liveDish()
+  const { card, conversation } = await cardFor('set_sold_out', { venue: venueName, dishes: [dish.name], sold_out: 'until_back' })
+  assert.equal(card.undo_until, null, 'nothing to undo before it runs')
+  const done = itemOf(await ok(owner.post(`/api/ai/actions/${card.id}/confirm`, {})), card.id)
+  assert.equal(done.status, 'done')
+  assert.equal(await dishState(dish.id), 'sold out')
+  const left = new Date(done.undo_until).getTime() - Date.now()
+  assert.ok(left > 9 * 60_000 && left <= 10 * 60_000, 'about 10 minutes: ' + left)
+  // The undo data never reaches the model.
+  const [{ n: leaked }] = await sql`SELECT count(*)::int AS n FROM ai_messages WHERE conversation_id = ${conversation} AND content::text LIKE '%_undo%'`
+  assert.equal(leaked, 0)
+
+  const undone = itemOf(await ok(owner.post(`/api/ai/actions/${card.id}/undo`, {})), card.id)
+  assert.equal(undone.status, 'undone')
+  assert.equal(undone.undo_until, null)
+  assert.equal(await dishState(dish.id), 'on', 'back on')
+  const [row] = await sql`SELECT * FROM ai_actions WHERE tenant_id = ${ids.a} AND undo_of = ${card.id}`
+  assert.equal(row.ok, true)
+  assert.equal(row.user_sub, A.owner)
+  assert.equal(row.venue_id, V)
+  const [{ n: notes }] = await sql`SELECT count(*)::int AS n FROM ai_messages WHERE conversation_id = ${conversation} AND content::text LIKE '%pressed Undo on%'`
+  assert.equal(notes, 1, 'the model is told')
+  // Pressed again: the same card, and nothing runs again.
+  await ok(owner.post(`/api/ai/actions/${card.id}/undo`, {}))
+  const [{ n: rows }] = await sql`SELECT count(*)::int AS n FROM ai_actions WHERE tenant_id = ${ids.a} AND undo_of = ${card.id}`
+  assert.equal(rows, 1)
+})
+
+test('Undo closes after 10 minutes, and only a reversible change has it', async () => {
+  const dish = await liveDish()
+  const { card } = await cardFor('set_sold_out', { venue: venueName, dishes: [dish.name], sold_out: 'today' })
+  await ok(owner.post(`/api/ai/actions/${card.id}/confirm`, {}))
+  await sql`UPDATE ai_pending_actions SET decided_at = now() - interval '11 minutes' WHERE id = ${card.id}`
+  const conv = await sql`SELECT conversation_id FROM ai_pending_actions WHERE id = ${card.id}`
+  const view = (await ok(owner.get('/api/ai/conversations/' + conv[0].conversation_id))).items.find(i => i.id === card.id)
+  assert.equal(view.undo_until, null, 'no Undo shown')
+  const late = await owner.post(`/api/ai/actions/${card.id}/undo`, {})
+  assert.equal(late.status, 410)
+  assert.match(late.json.error, /10 minutes/)
+  assert.equal(await dishState(dish.id), 'sold out', 'still sold out')
+  await ok(owner.put(`/api/orders/availability/${V}/${dish.id}`, { sold_out: false }))
+  // A consequential change (an expense: money) never offers Undo.
+  const exp = (await cardFor('add_expense', { venue: venueName, description: 'Bread', amount: 3 })).card
+  const spent = itemOf(await ok(owner.post(`/api/ai/actions/${exp.id}/confirm`, {})), exp.id)
+  assert.equal(spent.status, 'done')
+  assert.equal(spent.undo_until, null)
+  const no = await owner.post(`/api/ai/actions/${exp.id}/undo`, {})
+  assert.equal(no.status, 422)
+})
+
+test('someone else\'s change can\'t be undone, nor another group\'s', async () => {
+  const title = 'Food festival ' + Math.random().toString(36).slice(2, 6)
+  const { card } = await cardFor('add_local_event', { venue: venueName, title, starts_on: ahead(12) })
+  assert.equal(itemOf(await ok(owner.post(`/api/ai/actions/${card.id}/confirm`, {})), card.id).status, 'done')
+  assert.equal(await eventsCalled(title), 1)
+  const admin = await as(A.admin, ids.a).post(`/api/ai/actions/${card.id}/undo`, {})
+  assert.equal(admin.status, 404, 'another person\'s card is not found')
+  const other = await as(B.owner, ids.b).post(`/api/ai/actions/${card.id}/undo`, {})
+  assert.equal(other.status, 404, 'another group\'s card is not found')
+  assert.equal(await eventsCalled(title), 1, 'still there')
+  // Its own person: the entry comes off the calendar.
+  assert.equal(itemOf(await ok(owner.post(`/api/ai/actions/${card.id}/undo`, {})), card.id).status, 'undone')
+  assert.equal(await eventsCalled(title), 0)
+})
+
+test('Undo puts a pause, a banner and a checklist back as they were; a failed Undo leaves the change', async () => {
+  // Online orders: paused, then Undo starts them again.
+  const pause = (await cardFor('pause_online_orders', { venue: venueName, paused: true })).card
+  assert.deepEqual([pause.before, pause.after], [['Taking online orders'], ['Online orders paused']])
+  await ok(owner.post(`/api/ai/actions/${pause.id}/confirm`, {}))
+  const paused = async () => (await sql`SELECT is_paused FROM ordering_settings WHERE venue_id = ${V}`)[0]?.is_paused
+  assert.equal(await paused(), true)
+  await ok(owner.post(`/api/ai/actions/${pause.id}/undo`, {}))
+  assert.equal(await paused(), false)
+
+  // The website banner: its words and switch as they were.
+  const site = () => ok(owner.get('/api/website/tenant-site'))
+  const was = await site()
+  const banner = (await cardFor('set_website_banner', { on: true, text: 'Closed today: power cut' })).card
+  await ok(owner.post(`/api/ai/actions/${banner.id}/confirm`, {}))
+  assert.equal((await site()).banner_text, 'Closed today: power cut')
+  await ok(owner.post(`/api/ai/actions/${banner.id}/undo`, {}))
+  const back = await site()
+  assert.deepEqual([back.banner_enabled, back.banner_text ?? null], [was.banner_enabled, was.banner_text ?? null])
+
+  // A checklist's ticks: the tasks it ticked are unticked again.
+  const listed = await ok(owner.get(`/api/checklists/templates?venue_id=${V}`))
+  const template = (Array.isArray(listed) ? listed : listed.templates || []).find(t => /Opening$/.test(t.name))
+  assert.ok(template, 'the fixtures\' checklist')
+  {
+    const { card: tick } = await cardFor('tick_checklist', { checklist_id: template.id, all: true })
+    const ticked = itemOf(await ok(owner.post(`/api/ai/actions/${tick.id}/confirm`, {})), tick.id)
+    assert.equal(ticked.status, 'done')
+    assert.ok(ticked.undo_until)
+    const undone = itemOf(await ok(owner.post(`/api/ai/actions/${tick.id}/undo`, {})), tick.id)
+    assert.equal(undone.status, 'undone', JSON.stringify(undone))
+  }
+
+  // An Undo that fails (the entry is already gone) says why and leaves the card done.
+  const title = 'Night market ' + Math.random().toString(36).slice(2, 6)
+  const ev = (await cardFor('add_local_event', { venue: venueName, title, starts_on: ahead(13) })).card
+  await ok(owner.post(`/api/ai/actions/${ev.id}/confirm`, {}))
+  await sql`DELETE FROM local_info_items WHERE tenant_id = ${ids.a} AND title = ${title}`
+  const failed = itemOf(await ok(owner.post(`/api/ai/actions/${ev.id}/undo`, {})), ev.id)
+  assert.equal(failed.status, 'done')
+  assert.match(failed.undo_error, /not found/i)
+  const [r] = await sql`SELECT ok FROM ai_actions WHERE tenant_id = ${ids.a} AND undo_of = ${ev.id}`
+  assert.equal(r.ok, false)
+})

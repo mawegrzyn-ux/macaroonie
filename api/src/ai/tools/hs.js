@@ -638,6 +638,14 @@ export const hsTools = [
     }),
     confirm: true,
     needs: 'use',
+    // Undo: the tasks it changed go back, through the same route; tasks
+    // someone else changed since are left as they are.
+    async inverse(ctx, undo) {
+      await requireStaffPermission(ctx, 'checklists', 'use')
+      const c = await loadChecklist(ctx, undo.checklist_id, undo.date)
+      await saveTicks(ctx, c, tickPlan(c, { tasks: undo.tasks, untick: !undo.untick }))
+      return { message: (undo.untick ? 'Ticked again' : 'Unticked') + ': ' + c.template.name + '.' }
+    },
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'checklists', 'use')
       const c = await loadChecklist(ctx, input.checklist_id, input.date)
@@ -664,14 +672,7 @@ export const hsTools = [
       const plan = tickPlan(c, input)
       const audited = { ...input, date: c.date }
       try {
-        const saved = await callApi(ctx, 'PUT', '/api/checklists/instance', {
-          body: {
-            template_id: c.template.id,
-            date: c.date,
-            items: c.items.map(i => ({ template_item_id: i.id, checked: plan.next.has(i.id), notes: c.values[i.id]?.notes ?? null })),
-            notes: c.instance?.notes ?? null,
-          },
-        })
+        const saved = await saveTicks(ctx, c, plan)
         const result = {
           checklist: c.template.name, date: c.date,
           [input.untick ? 'unticked' : 'ticked']: plan.changed.map(i => i.label),
@@ -680,7 +681,8 @@ export const hsTools = [
           message: saved.status === 'completed' ? 'Done: every task is ticked.' : 'Saved.',
         }
         await audit(ctx, { tool: 'tick_checklist', input: audited, ok: true, result })
-        return result
+        // Undo (step 4d): the same tasks the other way, on the same day.
+        return { ...result, _undo: { checklist_id: input.checklist_id, date: c.date, tasks: plan.changed.map(i => i.id), untick: !!input.untick } }
       } catch (err) {
         await audit(ctx, { tool: 'tick_checklist', input: audited, ok: false, result: { error: err.message } })
         throw err
@@ -881,6 +883,18 @@ async function loadChecklist(ctx, checklistId, date) {
 }
 
 /** Which tasks a tick / untick changes, and the ticks after it. */
+/** Saves a checklist's ticks after a tickPlan(): the whole day's items (rule 13). */
+function saveTicks(ctx, c, plan) {
+  return callApi(ctx, 'PUT', '/api/checklists/instance', {
+    body: {
+      template_id: c.template.id,
+      date: c.date,
+      items: c.items.map(i => ({ template_item_id: i.id, checked: plan.next.has(i.id), notes: c.values[i.id]?.notes ?? null })),
+      notes: c.instance?.notes ?? null,
+    },
+  })
+}
+
 function tickPlan(c, { tasks = [], all, untick }) {
   if (!c.items.length) throw new ToolError(c.template.name + ' has no tasks yet.', 422)
   if (!all && !tasks.length) throw new ToolError('Say which tasks, or set all.', 422)

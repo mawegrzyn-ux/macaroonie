@@ -2172,6 +2172,14 @@ export const purchasingTools = [
       quote_id:      Id.optional().describe('Filled in by the confirm card: leave it out'),
     }),
     confirm: true,
+    // Undo: the out-of-stock date and note as they were, through the same route.
+    async inverse(ctx, undo) {
+      await requireMarkStock(ctx)
+      const r = await callApi(ctx, 'PUT', '/api/purchasing/quotes/' + undo.quote_id + '/stock', {
+        body: undo.until ? { until: String(undo.until).slice(0, 10), note: undo.note ?? null } : { until: null },
+      })
+      return { message: r.out_of_stock_until ? 'Out of stock until ' + longDate(r.out_of_stock_until) + ' again.' : 'In stock again.' }
+    },
     async describe(ctx, input) {
       const p = await stockPlan(ctx, input)
       const lines = [p.name]
@@ -2196,6 +2204,8 @@ export const purchasingTools = [
           body: input.back_in_stock ? { until: null } : { until: input.until, note: input.note ?? null },
         })
         return {
+          // Undo (step 4d): the price's stock as it was.
+          _undo: { quote_id: p.quote.id, until: p.until ?? null, note: p.quote.out_of_stock_note ?? null },
           item: p.item.name, supplier: p.quote.supplier_name, pack: quoteLabel(p.quote),
           ...(r.out_of_stock_until ? { out_of_stock_until: longDate(r.out_of_stock_until) } : { back_in_stock: true }),
           message: r.out_of_stock_until
