@@ -543,6 +543,21 @@ export function Section() {
         press its button. Pepper sees only what your role may see, each question counts towards
         the group&apos;s AI allowance, and it runs at most 20 reports a minute for one person.
       </P>
+      <H3>Other words for a figure, and questions reports don&apos;t cover</H3>
+      <P>
+        Ask in the words your team uses: <em>&ldquo;How many pax did we do last week?&rdquo;</em> finds
+        guests (covers), <em>&ldquo;comps&rdquo;</em> finds discounts, <em>&ldquo;over and short&rdquo;</em>{' '}
+        finds the cash variance. The figures people ask about most (sales, covers, tips, discounts, voids,
+        no-shows, dishes sold, wages, variance, food safety readings) carry these other words, a note on
+        using them right (most questions about sales mean net sales; guests booked and guests who ate are
+        different figures) and example questions. The search in the report builder&apos;s Data panel finds a
+        figure by these words too.
+      </P>
+      <P>
+        When something isn&apos;t in the reports at all (<em>&ldquo;what was our carbon footprint?&rdquo;</em>),
+        Pepper says plainly that reports don&apos;t cover it yet and offers the nearest figures, rather than
+        working something out another way or guessing.
+      </P>
       <H3>Building a report of your own</H3>
       <P>
         With Use or Manage on Reports, tap <strong>New report</strong> on the Reports page and
