@@ -12,8 +12,10 @@ evals for AI agents").
   to Pepper's real chat (`POST /api/ai/chat`), presses Confirm (or Cancel) on every card as a
   person would, then checks the end state. Tokens, cost and time per trial come from Pepper's
   record of model requests (`ai_requests`).
-- `tasks/<area>.mjs`: the tasks, 27 of them, 7 where the right end state is "nothing
-  changed" (Pepper must ask, refuse, or answer without changing anything).
+- `tasks/<area>.mjs`: the tasks, 31 of them, 7 where the right end state is "nothing
+  changed" (Pepper must ask, refuse, or answer without changing anything), and 2 questions
+  about the figures (`tasks/reports.mjs`, step 8A2) graded by what Pepper's reading tools
+  returned (`expect: 'answer'`), still never by Pepper's words.
 - `run.mjs`: the command line. Writes a JSON result to `eval/results/` (not committed).
 
 It lives in `api/eval/` rather than `api/test/`: `npm test` runs every `test/*.test.mjs` on
@@ -35,8 +37,8 @@ Add an object to the file of its area (or a new file, listed in `loadTasks()`):
   async setup(ctx) { /* rows it needs, through ctx.owner (the API) where it can */ },
   say: ctx => 'The walk-in fridge at ' + ctx.venue.name + ' is reading 3 degrees.',
   cards: 'confirm',                           // or 'cancel'
-  expect: 'change',                           // or 'nothing' with watch: ['table', ...]
-  async check(ctx) { /* true, or a sentence saying what is wrong */ },
+  expect: 'change',                           // or 'nothing' with watch: ['table', ...], or 'answer'
+  async check(ctx, chat) { /* true, or a sentence saying what is wrong */ },
   reference: ctx => [{ tool: 'log_temperature', input: { venue_id: ctx.venue.id, fridge: 'Walk-in', temperature_c: 3 } }],
 }
 ```
@@ -48,6 +50,9 @@ Add an object to the file of its area (or a new file, listed in `loadTasks()`):
 - `reference` is what a right answer does: the stand-in model makes exactly those calls in the
   test. Run `node --import ./test/support/register.mjs --test --test-force-exit test/pepper-eval.test.mjs`
   in `api/` (about 90 seconds): the task must pass with it and its check must fail before it.
+- An "answer" task (a question about the figures) checks `chat.calls`, the tool calls in order
+  with what each returned (`{ name, input, result }`): find_fields found the right figure,
+  ask_data counted it, or nothing was worked out where nothing is covered.
 - A "nothing" task watches whole tables, or only the columns that matter where work in the
   background touches a row (`'bookings:id,status,starts_at,...'`: a booking's emails set
   columns of their own).
@@ -80,7 +85,7 @@ Estimates, before the first live run; the result file has the real figure. Every
 sends Pepper's system prompt and its core tools (some 15,000 to 25,000 tokens, read from the
 prompt cache after the first), and a task takes two to five requests. On the default routing
 (chats start on Haiku 5.5 at $0.10 / $0.50 a million tokens in / out) that is about
-$0.005 to $0.02 a task, so **about $0.15 to $0.60 for the 27 tasks**. A chat that moves up to
+$0.005 to $0.02 a task, so **about $0.15 to $0.70 for the 31 tasks**. A chat that moves up to
 Opus 5.5 ($4 / $20) costs about 40 times as much, so with `AI_MODEL_FAST` empty (every chat on
 Opus) reckon **$5 to $15 a run**, and multiply by `--trials`. A run takes some 5 to 15 minutes
 (each trial fills a clean tenant in about 4 seconds, then the model's own time).

@@ -42,12 +42,16 @@ const readingFields = () => ({
 
 /** The usual figures of temperature readings. */
 const readingMeasures = col => ({
-  readings: count({ label: 'Readings' }),
-  out_of_range: count({ label: 'Out of range', where: OUT, about: 'Readings logged outside their limits.' }),
+  readings: count({ label: 'Readings', synonyms: ['temps taken', 'probe readings', 'temperatures logged'] }),
+  out_of_range: count({ label: 'Out of range', where: OUT, about: 'Readings logged outside their limits.',
+    synonyms: ['too warm', 'too cold', 'breaches', 'out of spec', 'failures'],
+    instructions: 'Readings outside their own limits. Whether each one has a corrective action is in unresolved.',
+    examples: ['fridge readings out of range last week'] }),
   unresolved_count: count({ label: 'Out of range, nothing done', where: UNRESOLVED, about: 'Readings out of range with no corrective action written.' }),
-  in_range_rate: ratio('in_range_count', 'readings', { type: 'percent', label: 'In range', about: 'Readings in range out of every reading.' }),
+  in_range_rate: ratio('in_range_count', 'readings', { type: 'percent', label: 'In range', about: 'Readings in range out of every reading.',
+    synonyms: ['compliance', 'pass rate'] }),
   in_range_count: count({ label: 'Readings in range', where: '{t}.is_within_range', about: 'Readings logged inside their limits.' }),
-  average_temp: avg(col, { label: 'Average °C', decimals: 1 }),
+  average_temp: avg(col, { label: 'Average °C', decimals: 1, synonyms: ['average temperature', 'mean temperature'] }),
   lowest_temp: min(col, { label: 'Lowest °C', decimals: 1 }),
   highest_temp: max(col, { label: 'Highest °C', decimals: 1 }),
 })
@@ -117,7 +121,7 @@ export const subjects = [
     venue: 'venue_id',
     date: { sql: '{t}.log_date', label: 'Day' },
     fields: {
-      temperature: number('temperature_c', { label: 'Temperature °C', decimals: 1 }),
+      temperature: number('temperature_c', { label: 'Temperature °C', decimals: 1, synonyms: ['fridge temp', 'reading', 'degrees'] }),
       check_time: checkTime('fs_capture_times'),
       ...readingFields(),
     },
@@ -166,7 +170,7 @@ export const subjects = [
     venue: 'venue_id',
     date: { sql: '{t}.check_date', label: 'Day' },
     fields: {
-      temperature: number('temperature_c', { label: 'Temperature °C', decimals: 1 }),
+      temperature: number('temperature_c', { label: 'Temperature °C', decimals: 1, synonyms: ['fridge temp', 'reading', 'degrees'] }),
       check_time: checkTime('fs_hold_capture_times'),
       ...readingFields(),
     },
@@ -235,7 +239,7 @@ export const subjects = [
     date: { sql: '{t}.check_date', label: 'Day' },
     fields: {
       dish_name: text('dish_name', { label: 'Dish' }),
-      core_temp: number('core_temp_c', { label: 'Core temperature °C', decimals: 1 }),
+      core_temp: number('core_temp_c', { label: 'Core temperature °C', decimals: 1, synonyms: ['probe temperature', 'cooked to'] }),
       held_for: duration('hold_seconds', { label: 'Held for' }),
       ...readingFields(),
     },
@@ -267,7 +271,7 @@ export const subjects = [
       damage_ok: yesno('damage_ok', { label: 'Nothing damaged' }),
       quality_ok: yesno('quality_ok', { label: 'Quality all right' }),
       temp_ok: yesno('temp_ok', { label: 'Temperature all right' }),
-      product_temp: number('product_temp_c', { label: 'Product temperature °C', decimals: 1 }),
+      product_temp: number('product_temp_c', { label: 'Product temperature °C', decimals: 1, synonyms: ['delivery temperature', 'goods in temperature'] }),
       accepted: yesno('accepted', { label: 'Accepted' }),
       passed: yesno({ sql: PASSED }, { label: 'Passed every check' }),
       unresolved: yesno({ sql: '(NOT ' + PASSED + ' AND ' + NO_ACTION + ')' }, { label: 'Failed, nothing done' }),

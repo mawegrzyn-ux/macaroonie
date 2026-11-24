@@ -46,6 +46,16 @@
 //
 // Values leave the catalogue in everyday units, whatever the column holds:
 // money in pounds, percentages as fractions, durations in seconds.
+//
+// What a field or measure means to the people asking (the `ai_context` idea,
+// Pepper-first step 8A2), optional on any of them:
+//   synonyms      other words people use for it: ['covers', 'pax', 'heads'].
+//                 The matchers count them (smart.js rankSubjects(), the
+//                 builder's searchTree(), Pepper's find_fields)
+//   instructions  a sentence on using it right ("Most questions about sales
+//                 mean net sales"), given to the model with it
+//   examples      questions it answers: ['how many covers did we do last week']
+// Never a rule of how it counts (that is `about`, and the SQL).
 
 const COLUMN = /^[a-z_][a-z0-9_]*$/
 const SUBJECT_KEY = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)?$/

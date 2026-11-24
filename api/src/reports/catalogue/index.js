@@ -79,6 +79,15 @@ function build(lists) {
 
     check('id', s.id.sql)
     if (s.where) check('where', s.where)
+    // What it means to the people asking (define.js): words, a sentence, questions.
+    for (const d of [...Object.values(s.fields), ...Object.values(s.measures)]) {
+      const words = v => v == null || (Array.isArray(v) && v.every(x => typeof x === 'string' && x.trim() && x.length <= 120))
+      if (!words(d.synonyms)) fail(d.key + '\'s synonyms are a list of words')
+      if (!words(d.examples)) fail(d.key + '\'s examples are a list of questions')
+      if (d.instructions != null && (typeof d.instructions !== 'string' || !d.instructions.trim() || d.instructions.length > 400)) {
+        fail(d.key + '\'s instructions are a sentence or two')
+      }
+    }
     for (const f of Object.values(s.fields)) {
       check('field ' + f.key, f.sql)
       if (f.bound) check('field ' + f.key + ' bound', f.bound)
@@ -209,6 +218,15 @@ export function worksAcross(subject, m, levels = null) {
   })
 }
 
+/** A field's or measure's words for the people asking (define.js), where it has them. */
+function context(d) {
+  return {
+    ...(d.synonyms?.length ? { synonyms: d.synonyms } : {}),
+    ...(d.instructions ? { instructions: d.instructions } : {}),
+    ...(d.examples?.length ? { examples: d.examples } : {}),
+  }
+}
+
 /**
  * The catalogue without its SQL, for the builder and for Pepper: each
  * subject with its fields, measures and links by key, and `base` (the
@@ -235,6 +253,7 @@ export function catalogueView(levels) {
         ...(f.decimals != null ? { decimals: f.decimals } : {}),
         ...(f.grain === 'week' ? { grain: 'week' } : {}),
         ...(bucketsFor(f.type).length ? { buckets: bucketsFor(f.type) } : {}),
+        ...context(f),
       }
     }
     const measures = {}
@@ -247,6 +266,7 @@ export function catalogueView(levels) {
           ...(m.decimals != null ? { decimals: m.decimals } : {}),
           ...(m.ratio ? { ratio: true } : { agg: m.agg }),
           ...(worksAcross(s, m, levels) ? { across: true } : {}),
+          ...context(m),
         }
       }
     }

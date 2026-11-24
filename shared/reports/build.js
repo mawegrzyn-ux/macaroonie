@@ -140,6 +140,9 @@ export function dataTree(catalogue, subjectKey, { depth = 2 } = {}) {
     return {
       path, what: uses.what, label: def.title || def.label, full: uses.label, about: def.about || '',
       type: uses.type, pii: !!def.pii, trail, uses,
+      // What it means to the people asking (the catalogue's define.js): other
+      // words for it, how to use it, questions it answers.
+      synonyms: def.synonyms || [], instructions: def.instructions || '', examples: def.examples || [],
     }
   }
 
@@ -197,8 +200,9 @@ export function treeNodes(tree) {
 
 /**
  * The nodes that match what was typed: every word must be in the node's
- * name, its folders' names or what it is about. Names that start with the
- * words come first, then names that hold them, then the rest.
+ * name, its other words (synonyms), its folders' names or what it is about.
+ * Names that start with the words come first, then names (or another word
+ * for it) that hold them, then the rest.
  */
 export function searchTree(tree, query) {
   const words = String(query || '').toLowerCase().split(/\s+/).filter(Boolean)
@@ -206,9 +210,10 @@ export function searchTree(tree, query) {
   const scored = []
   treeNodes(tree).forEach((n, i) => {
     const name = (n.label + ' ' + n.full).toLowerCase()
-    const all = (name + ' ' + n.trail.join(' ') + ' ' + n.about).toLowerCase()
+    const also = (n.synonyms || []).join(' ').toLowerCase()
+    const all = (name + ' ' + also + ' ' + n.trail.join(' ') + ' ' + n.about).toLowerCase()
     if (!words.every(w => all.includes(w))) return
-    const rank = name.startsWith(words[0]) ? 0 : words.every(w => name.includes(w)) ? 1 : 2
+    const rank = name.startsWith(words[0]) ? 0 : words.every(w => name.includes(w) || also.includes(w)) ? 1 : 2
     scored.push({ n, rank, i })
   })
   return scored.sort((a, b) => a.rank - b.rank || a.i - b.i).map(x => x.n)

@@ -43,11 +43,11 @@ test('every task passes when the model makes its reference calls, and no change 
   const early = []
   const run = await runTasks(tasks, {
     async before(task, ctx) {
-      if (task.expect === 'change' && (await task.check(ctx)) === true) early.push(task.id)
+      if (['change', 'answer'].includes(task.expect) && (await task.check(ctx, { calls: [] })) === true) early.push(task.id)
       scriptFor(await task.reference(ctx), task.expect === 'nothing' ? 'What time, and for how many?' : 'Done.')
     },
   })
-  assert.deepEqual(early, [], 'checks that already pass before anything is asked')
+  assert.deepEqual(early, [], 'checks that already pass before anything is asked (or with no tool called)')
   const failed = run.results.filter(r => !r.pass).map(r => r.id + ': ' + r.reason + ' ' + JSON.stringify(r.cards))
   assert.deepEqual(failed, [])
   // Each change task's cards were confirmed and went through.
@@ -87,9 +87,29 @@ test('a "nothing" task fails when Pepper changes something anyway, and a cancell
   assert.equal(cancelled.cards[0].status, 'cancelled')
 })
 
-test('baseline: with no message sent, change tasks fail and nothing tasks pass', async () => {
-  const pick = ['petty_cash', 'rota_question'].map(id => tasks.find(t => t.id === id))
+test('an answer task is graded by what the tools returned: the wrong figure, or a guess where nothing is covered, fails', async () => {
+  const covers = tasks.find(t => t.id === 'covers_by_slang')
+  const wrong = await runTask(covers, {
+    async before(t, ctx) {
+      const [find, ask] = await t.reference(ctx)
+      scriptFor([find, { ...ask, input: { plan: { ...ask.input.plan, figures: [{ figure: 'net_sales' }] } } }])
+    },
+  })
+  assert.equal(wrong.pass, false)
+  assert.match(wrong.reason, /counted \["net_sales"\], not covers/)
+  const none = tasks.find(t => t.id === 'not_in_reports')
+  const guessed = await runTask(none, {
+    async before(t, ctx) {
+      scriptFor([...(await t.reference(ctx)), { tool: 'ask_data', input: { plan: { subject: 'till.checks', figures: [{ figure: 'net_sales' }] } } }])
+    },
+  })
+  assert.equal(guessed.pass, false)
+  assert.match(guessed.reason, /worked a figure out anyway: ask_data/)
+})
+
+test('baseline: with no message sent, change and answer tasks fail and nothing tasks pass', async () => {
+  const pick = ['petty_cash', 'rota_question', 'not_in_reports'].map(id => tasks.find(t => t.id === id))
   const run = await runTasks(pick, { baseline: true })
-  assert.deepEqual(run.results.map(r => [r.id, r.pass]), [['petty_cash', false], ['rota_question', true]])
+  assert.deepEqual(run.results.map(r => [r.id, r.pass]), [['petty_cash', false], ['rota_question', true], ['not_in_reports', false]])
   assert.equal(run.totals.requests, 0, 'no model call')
 })
