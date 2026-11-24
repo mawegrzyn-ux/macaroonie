@@ -11,7 +11,7 @@ import { Loader2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { TimeSelect } from '@/components/staff/shared'
-import { Section, Field, inputCls, ErrorNote, Btn, Toggle, Segmented } from './shared'
+import { Section, Field, inputCls, ErrorNote, Btn, Toggle, Segmented, Setting, SettingToggle } from './shared'
 import { MANAGER_ACTIONS } from '@shared/pos/permissions.js'
 
 const LOGOUTS = [
@@ -68,24 +68,24 @@ export function ReceiptSettingsSection({ venueId, setup }) {
   return (
     <Section title="Receipts and payments" hint="Settings for this venue's tills.">
       <div className="grid sm:grid-cols-2 gap-4">
-        <Field label="Trading day starts at" hint="Sales before this time count for the day before.">
+        <Setting label="Trading day starts at" hint="Sales before this time count for the day before.">
           <TimeSelect value={form.day_starts_at} step={30} onChange={v => set({ day_starts_at: v })} label="Trading day starts at" />
-        </Field>
-        <Field label="Sign staff out after" hint="Of no taps. The till goes back to the PIN screen.">
+        </Setting>
+        <Setting label="Sign staff out after" hint="Of no taps. The till goes back to the PIN screen.">
           <Segmented value={form.auto_logout_secs} options={logoutOptions} onChange={v => set({ auto_logout_secs: v })} className="flex-wrap" />
-        </Field>
+        </Setting>
       </div>
       <div className="flex flex-wrap gap-4">
-        <Field label="VAT number" hint="Printed on receipts. Tax rates are set on Menus, Tax rates.">
+        <Setting label="VAT number" hint="Printed on receipts. Tax rates are set on Menus, Tax rates.">
           <input className={cn(inputCls, 'w-48')} value={form.vat_number} maxLength={40} onChange={e => set({ vat_number: e.target.value })} />
-        </Field>
+        </Setting>
       </div>
-      <Field label="Name on receipts" hint="Empty: the venue's name.">
+      <Setting label="Name on receipts" hint="Empty: the venue's name.">
         <input className={inputCls} value={form.receipt_name} maxLength={80} onChange={e => set({ receipt_name: e.target.value })} />
-      </Field>
-      <Field label="Address on receipts" hint="One line each, up to 6.">
+      </Setting>
+      <Setting label="Address on receipts" hint="One line each, up to 6.">
         <textarea className={cn(inputCls, 'h-auto py-2')} rows={3} value={form.receipt_address} onChange={e => set({ receipt_address: e.target.value })} />
-      </Field>
+      </Setting>
       <p className="text-xs text-muted-foreground">
         What receipts, bills and kitchen tickets say and how they look (headings, footers, the order number big) is on the{' '}
         <Link to="/pos/printing" className="font-medium text-foreground underline">Printing</Link> tab.
@@ -96,9 +96,7 @@ export function ReceiptSettingsSection({ venueId, setup }) {
         Discounts the till offers by name are on{' '}
         <Link to="/pos/discounts" className="font-medium text-foreground underline">Discounts</Link>.
       </p>
-      <div>
-        <p className="text-sm font-medium mb-1">Ways to pay</p>
-        <p className="text-xs text-muted-foreground mb-2">Card payments are taken on your own card machine for now; the till records them. Card machine links come later.</p>
+      <Setting group label="Ways to pay" hint="Card payments go to a till's card machine when it has one (Card machines); otherwise staff take them on any machine and the till records them.">
         <div className="rounded-xl border divide-y">
           {form.tenders.map((t, i) => (
             <div key={t.key} className="flex items-center gap-3 px-3 py-1">
@@ -110,17 +108,9 @@ export function ReceiptSettingsSection({ venueId, setup }) {
           ))}
         </div>
         {noTender && <p className="text-xs text-destructive mt-1">Switch on at least one way to pay.</p>}
-      </div>
-      <p className="text-xs text-muted-foreground" data-testid="stream-settings-note">
-        The receipt when a check is paid and how the till asks for the order type, name and tent number are set per{' '}
-        <Link to="/pos/streams" className="font-medium text-foreground underline">revenue stream</Link> (a till can have its own).
-      </p>
-      <div data-testid="manager-approvals">
-        <p className="text-sm font-medium mb-1">Needs a manager every time</p>
-        <p className="text-xs text-muted-foreground mb-2">
-          Switched on, someone whose till role has Approve for others (and, for voids and refunds, that permission too)
-          types their PIN, whatever the person's own role allows. Off: the person's role decides (Till roles).
-        </p>
+      </Setting>
+      <Setting group label="Needs a manager every time" testid="manager-approvals"
+        hint="Switched on, someone whose till role has Approve for others (and, for voids and refunds, that permission too) types their PIN, whatever the person's own role allows. Off: the person's role decides (Till roles).">
         <div className="rounded-xl border divide-y">
           {MANAGER_ACTIONS.map(a => (
             <div key={a.key} className="px-3 py-1">
@@ -128,10 +118,11 @@ export function ReceiptSettingsSection({ venueId, setup }) {
             </div>
           ))}
         </div>
-      </div>
-      <Toggle label="Ask for a tip when paying" checked={form.tips_enabled} onChange={v => set({ tips_enabled: v })} />
+      </Setting>
+      <SettingToggle label="Ask for a tip when paying" checked={form.tips_enabled} onChange={v => set({ tips_enabled: v })} />
       <p className="text-xs text-muted-foreground" data-testid="covers-note">
-        Whether tills ask how many guests (covers) and use courses is set per revenue stream (
+        Whether tills ask how many guests (covers), use courses, print a receipt when a check is paid, and how they ask
+        for the order type, name and tent number are set per revenue stream (
         <Link to="/pos/streams" className="font-medium text-foreground underline">Revenue streams</Link>), and a till can have its own (
         <Link to="/pos/tills" className="font-medium text-foreground underline">Tills</Link>).
       </p>

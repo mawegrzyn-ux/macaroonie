@@ -101,6 +101,37 @@ export function Toggle({ label, hint, checked, onChange, disabled, testid }) {
   )
 }
 
+/**
+ * One setting in its own outlined block (Store tech's setup windows and
+ * sections): the question big and bold, then the control, then the hint in
+ * smaller muted words. Pass `group` when the block holds buttons (Segmented,
+ * chips): a <label> forwards a tap on its words to the first button inside.
+ */
+export function Setting({ label, hint, children, group, testid, className }) {
+  const Tag = group ? 'div' : 'label'
+  return (
+    <Tag className={cn('block rounded-xl border bg-background p-3 sm:p-4 space-y-2', className)} data-testid={testid} data-setting=""
+      {...(group ? { role: 'group', 'aria-label': typeof label === 'string' ? label : undefined } : {})}>
+      <span className="block text-base font-semibold leading-snug">{label}</span>
+      {children}
+      {hint && <span className="block text-sm text-muted-foreground">{hint}</span>}
+    </Tag>
+  )
+}
+
+/** A switch as its own outlined block (Setting's look), the whole block tappable. */
+export function SettingToggle({ label, hint, checked, onChange, disabled, testid, className }) {
+  return (
+    <label className={cn('flex items-start gap-3 rounded-xl border bg-background p-3 sm:p-4 min-h-[48px] cursor-pointer touch-manipulation', disabled && 'opacity-50', className)} data-setting="">
+      <input type="checkbox" checked={!!checked} disabled={disabled} onChange={e => onChange(e.target.checked)} className="w-6 h-6 mt-0.5 shrink-0" data-testid={testid} />
+      <span className="min-w-0">
+        <span className="block text-base font-semibold leading-snug">{label}</span>
+        {hint && <span className="block text-sm text-muted-foreground mt-1">{hint}</span>}
+      </span>
+    </label>
+  )
+}
+
 export function Btn({ children, onClick, variant = 'default', disabled, type = 'button', className, title, ...rest }) {
   return (
     <button {...rest} type={type} title={title} aria-label={title} onClick={onClick} disabled={disabled}

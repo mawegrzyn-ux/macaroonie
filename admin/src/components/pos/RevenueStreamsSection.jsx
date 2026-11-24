@@ -18,7 +18,7 @@ import { Plus, Loader2, Pencil } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
-  Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, SortableRows, Segmented, Btn, ColourPick, Toggle,
+  Section, Modal, inputCls, ErrorNote, ConfirmDelete, SortableRows, Segmented, Btn, ColourPick, Setting, SettingToggle,
 } from './shared'
 import { COVERS_RULES, coversWord, RECEIPT_MODES, ORDER_PROMPTS, receiptWord, promptWord } from './TillsSection'
 import { streamReceiptMode, streamOrderPrompt } from '@shared/pos/tillSettings.js'
@@ -88,8 +88,8 @@ function StreamModal({ venueId, setup, stream, onClose }) {
         </Btn>
         {stream && <ConfirmDelete label="Delete revenue stream" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
       </>}>
-      <Field label="Name"><input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Restaurant, Bar, Kiosk" /></Field>
-      <Field group label="Order types" hint="Which order types tills in this stream offer, and what to ask for when one is picked: No, Ask (can be skipped) or Must (the check can't go to the kitchen or be paid without it).">
+      <Setting label="Name"><input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Restaurant, Bar, Kiosk" /></Setting>
+      <Setting group label="Order types" hint="Which order types tills in this stream offer, and what to ask for when one is picked: No, Ask (can be skipped) or Must (the check can't go to the kitchen or be paid without it).">
         <div className="rounded-xl border divide-y" data-testid="stream-types">
           {form.order_types.map(x => (
             <div key={x.order_type_id} className="p-2 flex flex-wrap items-center gap-2">
@@ -113,27 +113,27 @@ function StreamModal({ venueId, setup, stream, onClose }) {
           ))}
           {!form.order_types.length && <p className="p-3 text-sm text-muted-foreground">No order types yet: add them on the Order types tab.</p>}
         </div>
-      </Field>
+      </Setting>
       {on.length > 1 && (
-        <Field label="New checks start as">
+        <Setting label="New checks start as">
           <select className={inputCls} value={def || ''} onChange={e => set({ default_order_type_id: e.target.value })} aria-label="Default order type">
             {on.map(x => <option key={x.order_type_id} value={x.order_type_id}>{typeName(x.order_type_id)}</option>)}
           </select>
-        </Field>
+        </Setting>
       )}
-      <Field group label="Guests (covers)" hint="When a table's check or a tab opens on a table-service till. Ask: the till asks, and it can be skipped. Must have: no skipping, and a check without them asks again before Send and Pay. Don't ask: no covers. Counter tills never ask.">
+      <Setting group label="Guests (covers)" hint="When a table's check or a tab opens on a table-service till. Ask: the till asks, and it can be skipped. Must have: no skipping, and a check without them asks again before Send and Pay. Don't ask: no covers. Counter tills never ask.">
         <Segmented value={form.covers} options={COVERS_RULES} onChange={v => set({ covers: v })} className="flex-wrap" testid="stream-covers" />
-      </Field>
-      <Toggle label="Use seats" hint="Off: no seat numbers on items and no By seat on the check. Counter tills never use seats." checked={form.seats} onChange={v => set({ seats: v })} />
-      <Toggle label="Use courses" hint="Off: dishes go to the kitchen together, with no course chips on the till. Counter tills never use courses." checked={form.courses} onChange={v => set({ courses: v })} />
-      <Field group label="Receipt when a check is paid" hint="For the stream's checks. Ask: the till offers Close and print or Close, no receipt. A till can have its own (Tills).">
+      </Setting>
+      <SettingToggle label="Use seats" hint="Off: no seat numbers on items and no By seat on the check. Counter tills never use seats." checked={form.seats} onChange={v => set({ seats: v })} />
+      <SettingToggle label="Use courses" hint="Off: dishes go to the kitchen together, with no course chips on the till. Counter tills never use courses." checked={form.courses} onChange={v => set({ courses: v })} />
+      <Setting group label="Receipt when a check is paid" hint="For the stream's checks. Ask: the till offers Close and print or Close, no receipt. A till can have its own (Tills).">
         <Segmented value={form.receipt_mode} options={RECEIPT_MODES} onChange={v => set({ receipt_mode: v })} className="flex-wrap" testid="stream-receipt-mode" />
-      </Field>
-      <Field group label="Asking for the order type, name and tent number"
+      </Setting>
+      <Setting group label="Asking for the order type, name and tent number"
         hint="When a counter order or a tab starts, and when a check is missing a name or tent number, the till takes over the screen with its own keys: letters for the name, digits for the tent number. One screen: the order types and the details together. Two steps: the order type first, then what it asks for. A till can have its own (Tills).">
         <Segmented value={form.order_prompt} options={ORDER_PROMPTS} onChange={v => set({ order_prompt: v })} className="flex-wrap" testid="stream-order-prompt" />
-      </Field>
-      <Field group label="Menus on the till" hint="None picked: every published menu.">
+      </Setting>
+      <Setting group label="Menus on the till" hint="None picked: every published menu.">
         <div className="flex flex-wrap gap-2">
           {setup.menus.map(m => {
             const picked = form.menu_ids.includes(m.id)
@@ -146,9 +146,9 @@ function StreamModal({ venueId, setup, stream, onClose }) {
           })}
           {!setup.menus.length && <p className="text-sm text-muted-foreground">No menus yet: build one on the Menus page.</p>}
         </div>
-      </Field>
-      <Field group label="Colour on the till"><ColourPick value={form.colour} onChange={v => set({ colour: v })} /></Field>
-      {stream && <Toggle label="In use" hint="Off: the till doesn't offer it. Sales already in it stay in reports." checked={form.is_active} onChange={v => set({ is_active: v })} />}
+      </Setting>
+      <Setting group label="Colour on the till"><ColourPick value={form.colour} onChange={v => set({ colour: v })} /></Setting>
+      {stream && <SettingToggle label="In use" hint="Off: the till doesn't offer it. Sales already in it stay in reports." checked={form.is_active} onChange={v => set({ is_active: v })} />}
       <ErrorNote error={save.error || remove.error} />
     </Modal>
   )
