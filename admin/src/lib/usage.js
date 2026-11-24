@@ -17,6 +17,9 @@
 //                    person's sign-in to send with
 //   useSearchUse()   the menu search's record (AppShell): typed(q, n) as
 //                    the box changes, askedPepper(), picked(kind, route)
+//   recordUse({ kind: 'suggestion', rule, act, path })   Home's suggestions
+//                    (components/home/Suggestions.jsx, step 7d): shown,
+//                    opened, pinned, dismissed
 
 import { useEffect, useRef, useCallback, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'

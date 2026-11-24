@@ -12,14 +12,16 @@
 // Nothing is saved until Save (one PUT of the whole list).
 //
 // Shown on Home (pages/Home.jsx) and in the Overview's Quick access tile
-// (pages/Dashboard.jsx); both read the same ['pins'] query.
+// (pages/Dashboard.jsx); both read the same ['pins'] query. Someone with
+// Manage on Navigation can suggest a pin's page to a role from its row
+// (TeamSuggestions.jsx, step 7b).
 
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as LucideIcons from 'lucide-react'
-import { Pin, Pencil, X, Plus, GripVertical, Loader2, Search } from 'lucide-react'
+import { Pin, Pencil, X, Plus, GripVertical, Loader2, Search, Megaphone } from 'lucide-react'
 import { DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -27,6 +29,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { pageAccepts, pageLink } from '@shared/nav/links.js'
 import { searchNavTree } from '@shared/navSearch.js'
+import { SuggestForm, useCanSuggest } from '@/components/home/TeamSuggestions'
 
 export const MAX_PINS = 12
 const LABEL_MAX = 40
@@ -116,6 +119,9 @@ function PinEditor({ pins, links, venues, save, onClose }) {
   const [draft, setDraft] = useState(() => pins.map(withKey))
   const [query, setQuery] = useState('')
   const [error, setError] = useState(null)
+  // Someone with Manage on Navigation can suggest a pinned page to a role (step 7b).
+  const canSuggest = useCanSuggest()
+  const [suggesting, setSuggesting] = useState(null)
   const byRoute = useMemo(() => new Map(links.map(l => [l.route, l])), [links])
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -169,7 +175,8 @@ function PinEditor({ pins, links, venues, save, onClose }) {
               <ul className="space-y-2" data-testid="pins-draft">
                 {draft.map(p => (
                   <PinRow key={p.key} pin={p} page={byRoute.get(p.path)} venues={venues}
-                    onChange={patch => change(p.key, patch)} onRemove={() => setDraft(d => d.filter(x => x.key !== p.key))} />
+                    onChange={patch => change(p.key, patch)} onRemove={() => setDraft(d => d.filter(x => x.key !== p.key))}
+                    onSuggest={canSuggest ? () => setSuggesting(p) : null} />
                 ))}
               </ul>
             </SortableContext>
@@ -202,6 +209,7 @@ function PinEditor({ pins, links, venues, save, onClose }) {
             </div>
           </section>
         </div>
+        {suggesting && <SuggestForm initial={suggesting} onClose={() => setSuggesting(null)} />}
         <div className="shrink-0 border-t p-3 flex items-center gap-2">
           {error && <p className="text-sm text-destructive flex-1 min-w-0" data-testid="pins-error">{error}</p>}
           <button type="button" onClick={onClose} className="ml-auto min-h-[48px] px-4 rounded-md border text-sm touch-manipulation">Cancel</button>
@@ -216,7 +224,7 @@ function PinEditor({ pins, links, venues, save, onClose }) {
   )
 }
 
-function PinRow({ pin, page, venues, onChange, onRemove }) {
+function PinRow({ pin, page, venues, onChange, onRemove, onSuggest }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: pin.key })
   const { keys, tabs } = pageAccepts(pin.path)
   const Icon = iconOf(page?.icon)
@@ -251,6 +259,12 @@ function PinRow({ pin, page, venues, onChange, onRemove }) {
         </select>
       )}
       </div>
+      {onSuggest && (
+        <button type="button" onClick={onSuggest} aria-label={'Suggest ' + (page?.label || pin.path) + ' to a role'} title="Suggest to a role" data-testid="pins-suggest"
+          className="w-12 h-12 shrink-0 flex items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground touch-manipulation">
+          <Megaphone className="w-4 h-4" />
+        </button>
+      )}
       <button type="button" onClick={onRemove} aria-label={'Take ' + (page?.label || pin.path) + ' off'} data-testid="pins-remove"
         className="w-12 h-12 shrink-0 flex items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive touch-manipulation">
         <X className="w-4 h-4" />

@@ -24,6 +24,7 @@ export function Section() {
         rows={[
           ['You open a page', 'The page (its address without anything after a ?, and with record numbers left out), and when.'],
           ['You search in the ask bar', 'The words you typed last, how many of the menu\'s own pages fitted them, whether you handed them to Pepper (Enter, the Ask button, the Ask Pepper row or an ask under the bar), and what you then opened from the bar: a page, a saved report, or nothing.'],
+          ['Home suggests a page to you', 'That it was shown, and whether you opened it, pinned it or dismissed it, with why it was suggested and the page (its address without anything after a ?).'],
         ]}
       />
       <P>The record is kept for 90 days, then deleted.</P>
@@ -34,10 +35,12 @@ export function Section() {
         whoever that is. An owner can't report on anyone else's.
       </P>
       <P>
-        For the group as a whole there are two subjects with no names in them:
-        <strong> Pages opened</strong> (times each page was opened, by day) and
+        For the group as a whole there are three subjects with no names in them:
+        <strong> Pages opened</strong> (times each page was opened, by day),
         <strong> Menu searches</strong> (how many searches, how many were handed
-        to Pepper and their share, how many opened something and how many found no menu match).
+        to Pepper and their share, how many opened something and how many found no menu match) and
+        <strong> Home suggestions</strong> (how often each kind of suggestion was shown, opened, pinned or
+        dismissed, and the tap-through: opened out of shown).
         They don't show who did what, or the words typed. They need View on <Mono>Navigation</Mono>
         (an owner's by default).
       </P>

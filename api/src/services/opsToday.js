@@ -11,7 +11,9 @@
 // stable key, so one thing to do is one card (C6). What people decided about
 // a task (its owner, a snooze, a skip with its reason, done by hand) is kept
 // by that key in the task store (services/opsTasks.js, migration 278) and
-// applied here: a set-aside task leaves `tasks` for `aside`.
+// applied here: a set-aside task leaves `tasks` for `aside`. A source may
+// also note a gap in the set-up it can see (`gaps`: no fridges at the venue),
+// which Home's suggestions offer to whoever manages it (services/suggestions.js).
 //
 // Groups, against the venue's time now:
 //   late   due more than GRACE_MINS ago, or overdue by nature (a reading out
@@ -172,6 +174,15 @@ const SOURCES = {
       q('cooking-sessions'), q('cooking?date=' + s.date), q('deliveries?date=' + s.date),
     ])
     const tasks = []
+    // Gaps in the set-up the feed can see (Home's suggestions, step 7a): no
+    // fridges means no fridge checks will ever be due; fridges with no check
+    // times, the same. Set up from Food safety's H&S settings.
+    const fridges = equipment.filter(u => u.is_active !== false)
+    if (!fridges.length) {
+      s.gaps.push({ key: 'no_fridges', module: 'food_safety', path: '/food-safety', reason: 'No fridges set up at ' + v.name + ' yet' })
+    } else if (!times.some(t => t.is_active !== false)) {
+      s.gaps.push({ key: 'no_check_times', module: 'food_safety', path: '/food-safety', reason: 'No fridge check times set at ' + v.name })
+    }
     // A closed day expects no checks (R4); readings already out of range still need an action.
     if (!s.closed) {
       tasks.push(...checkRounds({ kind: 'fridge_check', form: 'temps', label: 'Fridge and freezer check', units: equipment, times, readings: temps, key: 'equipment_id' }, s))
@@ -556,7 +567,7 @@ export async function opsToday(ctx, venue, { date, time, levels }) {
   const [closed] = await Promise.all([
     callApi(ctx, 'GET', `/api/hs-settings?venue_id=${venue.id}&date=${day}`).then(r => !!r.closed).catch(() => false),
   ])
-  const s = { date: day, now: at, today: now.date, closed, levels, memo: {} }
+  const s = { date: day, now: at, today: now.date, closed, levels, memo: {}, gaps: [] }
 
   const tasks = []
   const notIncluded = []
@@ -594,6 +605,7 @@ export async function opsToday(ctx, venue, { date, time, levels }) {
     date: day, day: longDate(day), now: at, is_today: day === now.date, closed,
     summary: await summary(ctx, venue, s).catch(() => ({})),
     tasks: list, counts, aside: applied.aside,
+    ...(s.gaps.length ? { gaps: s.gaps } : {}),
     ...(notIncluded.length ? { not_included: notIncluded.sort() } : {}),
     ...(errors.length ? { errors } : {}),
   }

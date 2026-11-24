@@ -68,6 +68,55 @@ export function Section() {
         tablet at the host stand and your phone&apos;s browser. Nobody else sees them, and nobody is told what
         you pinned. If your role loses a page, its pin stops showing.
       </InfoBox>
+      <H3>Suggested for you</H3>
+      <P>
+        Under your pins, Home suggests up to four more pages (three on a tablet), in dotted boxes so they never
+        pass for pins. Each says why on its second line, and the reasons come from rules, never from Pepper:
+      </P>
+      <DataTable
+        head={['Reason shown', 'When']}
+        rows={[
+          ['2 tasks late here, 1 task skipped today', 'Tasks on your list at this venue that are late or were skipped point at that page (Food safety, Cash recon, the Rota...). These come first.'],
+          ['Suggested by Sam: Log the hold checks here', 'Someone who designs the menu suggested the page to everyone in your role, with a note (see Suggest a page to a role).'],
+          ['No fridges set up at Ware yet', 'Something isn\'t set up that the day\'s checks need, shown to people who can set it up (Manage on Food safety).'],
+          ['You open this most Fridays around now', 'You opened the page within an hour of now on at least three of the last six same weekdays.'],
+          ['You open this most days', 'You opened the page on at least five of the last fourteen days.'],
+          ['You run this most weeks', 'A report you ran yourself in at least three of the last four weeks (one you can still open).'],
+        ]}
+      />
+      <P>
+        Tap a suggestion to open it (at the venue Home shows, and the tab its reason is about, where the page
+        has them). The pin button beside it adds it to your pins. The cross dismisses it: it stays away for 14
+        days, and one suggested to your role stays away for good. A page you have pinned, one your role can&apos;t
+        open and Home itself are never suggested. The habits are worked out from your own record of pages
+        opened, which nobody else sees.
+      </P>
+      <H3>Suggest a page to a role</H3>
+      <P>
+        If you can manage the menu (<strong>Navigation</strong>, an owner by default), you can point a team at a
+        page: on the <strong>Navigation</strong> page, under <strong>Suggested to roles</strong>, tap{' '}
+        <strong>Suggest a page</strong>; or in <strong>Edit pins</strong> on Home, tap the megaphone on a pin&apos;s
+        row. Pick the page, the venue and tab it should open at (where the page has them), the role, and a short
+        note (140 characters at most), and whether it is signed with your name or your role. Everyone in that
+        role sees it on Home as <strong>Suggested by</strong> you, with your note, until they pin the page or
+        dismiss it. Take one back from the same list (it asks first).
+      </P>
+      <H3>Your sites</H3>
+      <P>
+        If you look after more than one venue and have Manage on <strong>Venues</strong> (owners and admins by
+        default), Home starts with <strong>Your sites</strong>: every venue, the one that needs someone most
+        first. The chips say why: tasks late, checks out of range, a cash-up missing, devices offline, tasks
+        skipped today. Beside each venue, <strong>today</strong> and <strong>week</strong> are the share of its
+        tasks done in time (finished before they went late, out of those that were due); a dash means nothing was
+        due yet. The figure at the top is the same for all your sites together. Tap a venue to switch Home to its
+        day.
+      </P>
+      <P>
+        The figures come from the record Macaroonie keeps of each venue&apos;s tasks every five minutes, so they can
+        be a few minutes behind the venue&apos;s own list. They are by site and never by person. The order is
+        stated: late tasks and checks out of range count 3 each, a missing cash-up and a device offline 2, a skip
+        1; ties go to the site with less done in time today.
+      </P>
       <H3>This week: weather and local news</H3>
       <P>
         Under the tasks, <strong>This week</strong> shows the venue&apos;s next seven days from Local

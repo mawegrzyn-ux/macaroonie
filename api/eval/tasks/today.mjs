@@ -36,7 +36,8 @@ export const tasks = [
       if (!ctx.made.template) throw new Error('weekly checklist: ' + tpl.status + ' ' + tpl.body)
       await ctx.owner.post(`/api/checklists/templates/${ctx.made.template}/items`, { label: 'Walk-in shelves' })
     },
-    say: ctx => 'Skip the weekly checklist at ' + ctx.venue.name + ' today, the walk-in is being repaired.',
+    // Named as it is on the list: "the weekly checklist" alone let Pepper fairly ask which (live run, 24 Nov 2026).
+    say: ctx => 'Skip the Oak Deep clean checklist at ' + ctx.venue.name + ' today, the walk-in is being repaired.',
     expect: 'change',
     async check(ctx) {
       const rows = await stateOf(ctx, 'checklist:%')

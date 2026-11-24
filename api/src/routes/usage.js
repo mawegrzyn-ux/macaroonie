@@ -6,7 +6,8 @@
 // subjects in reports/catalogue/usage.js).
 //
 //   POST /events   { events: [{ kind: 'page', path, at }
-//                             | { kind: 'search', query, results, pepper, picked, path, at }] }
+//                             | { kind: 'search', query, results, pepper, picked, path, at }
+//                             | { kind: 'suggestion', rule, act, path, at }] }
 //                  at most 50 a batch; events that say nothing are dropped,
 //                  never refused, so a page never has to care -> 204
 

@@ -124,6 +124,108 @@ export function Section() {
         Tests: <Mono>api/test/home-pins.test.mjs</Mono>; the fixtures (<Mono>support/fixtures/shell.mjs</Mono>) save two
         pins, one at a venue, so the cross-tenant sweep replays the save as the other group.
       </InfoBox>
+      <H3>Suggestions (step 7a, migration 282)</H3>
+      <P>
+        Up to <Mono>MAX_SUGGESTIONS</Mono> 4 after the pins, sent with the feed as <Mono>suggestions</Mono> on{' '}
+        <Mono>GET /api/ops/today</Mono> (not by <Mono>opsToday()</Mono> itself, so the notices sweep and Pepper don&apos;t pay
+        for them). <Mono>api/src/services/suggestions.js</Mono>: <Mono>gatherFacts(req, ctx, venue, now)</Mono> runs beside the
+        feed (the person&apos;s menu from <Mono>navTreeFor()</Mono>, pins, dismissals, their own <Mono>usage_events</Mono>{' '}
+        pages grouped by day and hour at the venue, their own <Mono>report_runs</Mono> of kind run or export, the team
+        suggestions for their role); then <Mono>suggestionsFor(facts, feed, levels)</Mono> runs <Mono>RULES</Mono> over the
+        facts and the feed&apos;s <Mono>tasks</Mono>, <Mono>aside</Mono> and <Mono>gaps</Mono>. A failure gathering the facts
+        is logged and gives no suggestions, never a failed feed. No model call.
+      </P>
+      <DataTable
+        head={['Rule', 'Finds', 'Reason']}
+        rows={[
+          ['due', 'Pages the feed\'s late tasks and skipped (aside) tasks point at: TASK_PAGES by area, KIND_TABS for holds, cooking and wages. Score: late x 2 + skipped.', 'N tasks late here, N tasks skipped today'],
+          ['team', 'team_suggestions for the person\'s role (effectiveRoleId()), newest first (step 7b).', 'Suggested by <by_label>: <note>'],
+          ['setup', 'The feed\'s gaps (food_safety source: no active fridges, or fridges with no active check times) where the person has Manage on the gap\'s module.', 'No fridges set up at <venue> yet'],
+          ['habit', 'A page opened within HABIT.hoursEitherSide 1 of this hour on HABIT.minDays 3 of the last HABIT.weeks 6 same weekdays (today not counted).', 'You open this most <weekday>s around now'],
+          ['often', 'A page opened on OFTEN.minDays 5 of the last OFTEN.days 14 days (today not counted).', 'You open this most days'],
+          ['weekly_report', 'A saved report or starter the person ran in WEEKLY.minWeeks 3 of the last WEEKLY.weeks 4 weeks (Monday to Sunday, this one included), still in their GET /api/reports list (asked only when one qualifies). Opens /reports/<ref>.', 'You run this most weeks'],
+        ]}
+      />
+      <P>
+        <Mono>suggest(facts)</Mono> ranks by the rule&apos;s place in <Mono>RULES</Mono>, then its score, then the label; keeps
+        a page once (by path and tab) and a key once; drops a page not in the person&apos;s menu, Home, <Mono>/mobile</Mono>,
+        a pinned path and a dismissed key; and gives each <Mono>{'{ key, rule, path, link, label, icon, reason, pin }'}</Mono>:{' '}
+        <Mono>link</Mono> is <Mono>pageLink(path, {'{ venue, tab }'})</Mono> with Home&apos;s venue (a team suggestion&apos;s own
+        venue first), <Mono>pin</Mono> what a pin of it would hold (null for a report). Keys: the page and tab
+        (<Mono>/food-safety#holds</Mono>, whichever rule found it), <Mono>report:&lt;ref&gt;</Mono>,{' '}
+        <Mono>setup:&lt;gap&gt;</Mono>, <Mono>team:&lt;id&gt;</Mono>.
+      </P>
+      <P>
+        <Mono>POST /api/suggestions/hide</Mono> <Mono>{'{ key }'}</Mono> (<Mono>routes/suggestions.js</Mono>, anyone signed in,
+        free on a shared device like the usage record): a row in <Mono>home_suggestion_hides</Mono> (RLS forced; tenant,{' '}
+        <Mono>user_sub</Mono>, <Mono>key</Mono>, <Mono>hidden_until</Mono>) for <Mono>HIDE_DAYS</Mono> 14, null (for good)
+        for a <Mono>team:</Mono> key; 422 for a key of another shape. <Mono>cleanUpUsage()</Mono> (hourly) deletes rows past
+        their time. Admin: <Mono>components/home/Suggestions.jsx</Mono> in Home&apos;s pins card (<Mono>suggestions</Mono>,{' '}
+        <Mono>suggestion</Mono> <Mono>data-key</Mono> <Mono>data-rule</Mono>, <Mono>suggestion-open</Mono>,{' '}
+        <Mono>suggestion-reason</Mono>, <Mono>suggestion-pin</Mono> (the whole list through <Mono>usePins()</Mono>),{' '}
+        <Mono>suggestion-dismiss</Mono>); the fourth is hidden below 1024 px (<Mono>max-lg:hidden</Mono>); a dismissed or
+        pinned one leaves the cached feed at once (<Mono>dropSuggestion()</Mono> in <Mono>Home.jsx</Mono>).
+      </P>
+      <H3>The Team signal (step 7b, migration 283)</H3>
+      <P>
+        <Mono>team_suggestions</Mono> (RLS forced): <Mono>role_id</Mono> (tenant_roles, cascade), <Mono>path</Mono>,{' '}
+        <Mono>venue_id</Mono> (set null when the venue goes), <Mono>tab</Mono>, <Mono>note</Mono> (140),{' '}
+        <Mono>by_sub</Mono>, <Mono>by_label</Mono> (the maker&apos;s name, or their role&apos;s label, as they chose); one per
+        role, page, venue and tab. Navigation (<Mono>nav_designer</Mono>) governs it, as it governs the menu everyone sees.
+      </P>
+      <DataTable
+        head={['Route', 'What it does']}
+        rows={[
+          ['GET /api/suggestions/team', 'View on Navigation: the group\'s team suggestions with role_label, the page\'s label, venue_name; can_manage.'],
+          ['POST /api/suggestions/team', 'Manage on Navigation. { role_id, path, venue_id?, tab?, note?, sign_as: name | role }. The page must be in the maker\'s menu (not /: 400); venue and tab through cleanPin() (dropped where the page doesn\'t take them); a role or venue not the group\'s is 404; the same again 409; a note over 140 is 422. 201 with the row.'],
+          ['DELETE /api/suggestions/team/:suggestionId', 'Manage on Navigation. 204, and its team:<id> dismissals go with it; 404 for an id not the group\'s.'],
+        ]}
+      />
+      <P>
+        Admin: <Mono>components/home/TeamSuggestions.jsx</Mono>: <Mono>TeamSuggestionsCard</Mono> on the Navigation designer
+        (<Mono>team-suggestions</Mono>, <Mono>team-suggestion</Mono>, <Mono>team-suggest-add</Mono>, remove with an inline
+        confirm <Mono>team-suggestion-remove</Mono> / <Mono>-remove-yes</Mono>), <Mono>SuggestForm</Mono> portalled
+        (<Mono>team-suggest-form</Mono>, <Mono>-page</Mono>, <Mono>-venue</Mono>, <Mono>-tab</Mono>, <Mono>-role</Mono>,{' '}
+        <Mono>-note</Mono>, <Mono>-sign-name</Mono> / <Mono>-sign-role</Mono>, <Mono>-save</Mono>), also opened from a pin&apos;s
+        row in the pins editor (<Mono>pins-suggest</Mono>, for <Mono>useCanSuggest()</Mono>). Fixture: a dismissal and a team
+        suggestion to the viewer role in <Mono>support/fixtures/shell.mjs</Mono> (<Mono>kinds</Mono>:{' '}
+        <Mono>suggestionId</Mono>). Report decisions: both tables are out, with <Mono>home_pins</Mono> (layouts with nothing
+        to count).
+      </P>
+      <H3>Your sites (step 7c)</H3>
+      <P>
+        <Mono>GET /api/ops/sites</Mono> (Manage on Venues, the level the report subjects on the task record ask):{' '}
+        <Mono>sitesFor(tenantId)</Mono> in <Mono>api/src/services/sites.js</Mono>. Two queries: the group&apos;s active
+        venues, and one grouped read of <Mono>ops_task_days</Mono> (the feed&apos;s record the notices sweep keeps every five
+        minutes as the group&apos;s owner) from seven days before the earliest venue&apos;s today. No feed is worked out, no
+        route is called, nothing is cached. Per venue, its own today and Monday (its time zone):
+      </P>
+      <DataTable
+        head={['Count', 'Rows of the venue\'s today', 'Weight']}
+        rows={[
+          ['late', 'late_at set, not finished, not skipped, not a corrective action', '3'],
+          ['out_of_range', 'kind corrective_action, not finished, not skipped', '3'],
+          ['cash_up', 'kind cash_up, not finished, not skipped', '2'],
+          ['offline', 'kind screen_offline or device_offline, not finished, not skipped', '2'],
+          ['skipped', 'skipped', '1'],
+        ]}
+      />
+      <P>
+        <Mono>rankSites()</Mono>: score (<Mono>WEIGHTS</Mono>) high first, then the lower share done in time today, then the
+        name; <Mono>siteReasons()</Mono> the chips. <Mono>completion(rows)</Mono>: due = finished, went late or skipped;
+        in window = finished, not skipped, and before it went late (as <Mono>today.tasks</Mono>&apos; Finished in time);
+        share = in window / due, null with none due. The answer: <Mono>{'{ sites: [{ venue_id, name, date, counts, score, reasons, today, week, recorded, seen_at }], today, week }'}</Mono>,
+        never a person. Admin: <Mono>components/home/Sites.jsx</Mono>, first on Home for Manage on Venues with more than
+        one venue (<Mono>home-sites</Mono>, <Mono>sites-group</Mono>, <Mono>site</Mono> <Mono>data-venue</Mono>{' '}
+        <Mono>data-rank</Mono>, <Mono>site-name</Mono>, <Mono>site-reason</Mono>, <Mono>site-today</Mono>,{' '}
+        <Mono>site-week</Mono>); a tap is <Mono>pickSite()</Mono> (Home&apos;s venue, scrolled to the top).
+      </P>
+      <InfoBox type="info">
+        Tests: <Mono>api/test/home-suggestions.test.mjs</Mono> (each rule on fixed dates, the ranking and filter, the
+        feed, dismiss, the team suggestion&apos;s permissions and another group&apos;s ids, the usage kinds),{' '}
+        <Mono>api/test/home-sites.test.mjs</Mono> (the ranking and completion maths across time zones and weeks, the
+        route&apos;s permission and group).
+      </InfoBox>
     </section>
   )
 }

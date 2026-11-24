@@ -5,7 +5,8 @@
 // the person", decision 2). From the top: the ask bar (step 2c,
 // components/layout/AskBar.jsx: pages and saved reports found as you type with
 // no model call, Enter hands the words to Pepper; asks to tap for the day
-// under it), the person's pins (components/home/Pins.jsx), the day at a glance, what needs doing at the
+// under it), the person's pins (components/home/Pins.jsx) and suggestions
+// after them (components/home/Suggestions.jsx, step 7a), the day at a glance, what needs doing at the
 // venue grouped Late / Now / Next / Later (GET /api/ops/today, worked out from
 // data and rules, so it all works with Pepper switched off), each task with
 // one action: a form opened right here (the same shared panels the Food
@@ -18,9 +19,13 @@
 // (components/home/TaskActions.jsx) and, under the week, the For review slot
 // (components/ai/ReviewSlot.jsx: what waits, with a link to /review).
 //
+// Someone with Manage on Venues in a group of several venues sees Your sites
+// first (components/home/Sites.jsx, step 7c): the venues ranked by what
+// needs them, a tap switching Home to that venue.
+//
 // The parts are exported for the phone's Today (pages/mobile/MobileToday.jsx).
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -35,6 +40,8 @@ import { cn } from '@/lib/utils'
 import { usePepperPage } from '@/lib/pepperPage'
 import { FormSheet, Go } from '@/components/forms/FormSheet'
 import PinStrip from '@/components/home/Pins'
+import Suggestions from '@/components/home/Suggestions'
+import Sites from '@/components/home/Sites'
 import { TaskActions, TaskMoreButton, TaskOwner, SetAside, SkippedToday } from '@/components/home/TaskActions'
 import ReviewSlot from '@/components/ai/ReviewSlot'
 import AskBar, { useAsk } from '@/components/layout/AskBar'
@@ -107,6 +114,17 @@ export default function Home() {
   usePepperPage({ venueId: d?.venue?.id, date: d?.date })
 
   function pickVenue(id) { keepVenue(id); setVenueId(id) }
+  // Your sites (step 7c): a tap shows that venue's day, from the top.
+  const scroller = useRef(null)
+  function pickSite(id) {
+    if (id !== d?.venue?.id) pickVenue(id)
+    scroller.current?.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+  const canSites = me?.permissions?.venues === 'manage' || !!me?.is_platform_admin
+  // A suggestion dismissed or pinned leaves the list at once; the next feed brings the rest.
+  function dropSuggestion(key) {
+    qc.setQueryData(['ops-today', venueId], old => (old ? { ...old, suggestions: (old.suggestions || []).filter(x => x.key !== key) } : old))
+  }
   function closeForm() {
     setForm(null)
     qc.invalidateQueries({ queryKey: ['ops-today'] })
@@ -136,8 +154,11 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto" data-testid="home">
+      <div ref={scroller} className="flex-1 min-h-0 overflow-y-auto" data-testid="home">
         <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-4">
+          {/* Above the store (step 7c): for Manage on Venues with more than one venue, first. */}
+          <Sites current={d?.venue?.id} onPick={pickSite} enabled={canSites && (d?.venues?.length || 0) > 1} />
+
           <div className="rounded-lg border bg-background p-4 sm:p-5" data-testid="today-greeting">
             <div className="flex items-start gap-3">
               <HelloIcon className="w-7 h-7 text-primary shrink-0 mt-0.5" />
@@ -165,6 +186,8 @@ export default function Home() {
               <h2 className="font-semibold">Your pins</h2>
             </div>
             <PinStrip className="p-3" />
+            {/* Suggestions after the pins (step 7a): rules on the server, a reason each. */}
+            <Suggestions list={d?.suggestions} onGone={dropSuggestion} />
           </section>
 
           {feed.isLoading && (

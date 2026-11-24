@@ -24,6 +24,7 @@ import {
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { navDescription, DESCRIPTION_MAX } from '@shared/navSearch.js'
+import { TeamSuggestionsCard } from '@/components/home/TeamSuggestions'
 
 function resolveIcon(name) {
   return LucideIcons[name] || LucideIcons.Circle
@@ -143,6 +144,9 @@ export default function NavDesigner() {
               ))
             )}
           </div>
+
+          {/* The Team signal (Pepper-first step 7b): pages suggested to a role, shown on their Home. */}
+          <TeamSuggestionsCard />
 
           {canManage && (
             <div className="border rounded-xl bg-muted/30 p-4">

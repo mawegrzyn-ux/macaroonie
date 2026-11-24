@@ -1,8 +1,11 @@
 // The shell: a menu link hidden from the viewer role (made.viewerRole from
-// dashboards.mjs); last of all (fillLate), push notices and the task store.
+// dashboards.mjs), the usage record, pins, a dismissed suggestion and a team
+// suggestion; last of all (fillLate), push notices and the task store.
 import { sql } from '../app.mjs'
 
 export const order = 110
+// The Team signal (migration 283): a page suggested to a role.
+export const kinds = { suggestionId: ['team_suggestions'] }
 // After Pepper, where the push notices have always been made: the last rows.
 export const lateOrder = 230
 
@@ -21,6 +24,14 @@ export async function fill(ctx) {
     { path: '/food-safety', venue_id: V, tab: 'holds', label: mark + ' holds' },
     { path: '/rota' },
   ] }))
+  // ── Home's suggestions (migrations 282, 283): one dismissed, and a page
+  // suggested to the viewer role with a venue and a tab ──
+  await step('suggestion hide', () => post('/api/suggestions/hide', { key: '/bookings' }))
+  if (viewerRole) {
+    await step('team suggestion', () => post('/api/suggestions/team', {
+      role_id: viewerRole.id, path: '/food-safety', venue_id: V, tab: 'holds', note: mark + ' the hold checks', sign_as: 'role',
+    }))
+  }
 }
 
 export async function fillLate(ctx) {

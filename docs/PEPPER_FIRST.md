@@ -464,3 +464,11 @@ held to the person's own role and the account's), capture to For review, the ven
 speech, and the Office app ready for the iPhone (not built: it needs the owner's Apple account).
 Follow-ups: `docs/claude/outstanding/core.md` 57, `pepper.md` 58, `shell.md` 59.
 
+Step 7 (suggestions and the above-store Home) was built 24 Nov 2026 (migrations 282 to 284): up to four
+rule-based suggestions after the pins with a reason each (due, team, setup, habit, often, a report run most
+weeks), dismissed for 14 days; the Team signal as its own table (a page suggested to a role by Manage on
+Navigation, until pinned or dismissed); Your sites first on Home for Manage on Venues (venues ranked by late
+tasks, checks out of range, cash-ups missing, devices offline and skips, with the share of tasks done in their
+window today and this week, from the feed's record, never by person, decision 8); and the measure, tap-through
+by rule (the report subject `usage.suggestions`). Follow-ups: `docs/claude/outstanding/shell.md` 60.
+
