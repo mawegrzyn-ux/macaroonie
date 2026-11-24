@@ -79,6 +79,12 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | 44.11.7b The Team signal: a manager suggests a page to a role, shown with who suggested it | 5 to 8 min | 8 min (to 01:59:48, 4 of it the sweep, with 7c written meanwhile) | one PR, below | | 9 files, +481 -9, migration 283 | claude-opus-5-5 / high, fresh agent | About $7.50. |
 | 44.11.7c Above the store: for people over several sites, venues ranked by what needs them, completion by site today and this week | 8 to 15 min | about 5 min, written during 7b's sweep (committed 02:00:41) | one PR, below | | 6 files, +357 -3 | claude-opus-5-5 / high, fresh agent | Two queries per request, no cache. |
 | 44.11.7d Measuring suggestions: shown, tapped, dismissed in the usage record, a report figure for tap-through | 3 to 8 min | 3.5 min (to 02:04:13), then tests, browser at two widths and docs 11.6 (to 02:15:49; two fixes the browser found) | 14 min for 7a to 7d: PR #508 opened 02:17, CI green first time 02:26:16; a live run's one failure was the task's wording, fixed and re-run 6 of 6, CI again green 02:29:52, merged 02:30 | **50 min for 7a to 7d** (01:40:05 to 02:30) | 7 files, +143 -7, migration 284 | claude-opus-5-5 / high, fresh agent | Agent about $29 (the cheapest step), lead about $3; live runs $0.26 and $0.01. |
+| 44.11.8a1 The object registry: one record per business object (table, report subject, page and address, actions with class and preconditions, form), per area, gathered; "why not" messages from it | fourth revision, raised (shared, many areas): 10 to 15 min | | PR A, below | | | claude-opus-5-5 / high, fresh agent | Estimated 24 Nov 2026 before starting; plus 6 reading. |
+| 44.11.8a2 The catalogue's synonyms, instructions and examples per field and measure; "not covered" for questions outside it | 8 to 12 min | | PR A, below | | | | |
+| 44.11.8a3 The plain renderer for flat set-up forms (supplier, staff member, expense, closure) from the schema with labels, help and examples | 8 to 12 min | | PR A: tests, browser and docs 12 to 15, PR 7 | | | | |
+| 44.11.8b1 Custom fields per group on a few objects, registered so reports, simple forms and Pepper pick them up | 10 to 15 min | | PR B, below | | | | Plus 6 reading. |
+| 44.11.8b2 A rule built from a sentence, using the registry's actions, confirmed before it runs | 10 to 15 min | | PR B, below | | | | |
+| 44.11.8b3 Product codes (GTIN) on inventory and supplier products, and stock on hand | 8 to 12 min | | PR B: tests, browser and docs 12 to 15, PR 7 | | | | |
 
 ## Running totals
 
