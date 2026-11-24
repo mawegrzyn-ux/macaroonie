@@ -14,9 +14,10 @@
 
 import { useState, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Check, Sparkles } from 'lucide-react'
+import { Loader2, Check, Sparkles, Wand2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { Modal } from '@/components/staff/shared'
 import { Card, btnPrimary, btnOutline } from '@/components/cashRecon/reconShared'
 
 export const pence = p => (p < 0 ? '-' : '') + '£' + (Math.abs(Number(p) || 0) / 100).toFixed(2)
@@ -157,6 +158,7 @@ export function Suggestions({ connectionId, venueId, canManage, onSaved }) {
             {' '}{pct(q.data.threshold)} or more are ticked. Nothing is saved until you accept: each becomes a rule for this venue.
           </p>
           <SaveResult res={res} />
+          <Offers connectionId={connectionId} offers={res?.offers} canManage={canManage} />
           {!rows.length && <p className="text-sm text-muted-foreground">No suggestions: everything open has no match on this venue&apos;s menus.</p>}
           <ProposalRows key={q.dataUpdatedAt} rows={rows} canManage={canManage} onAccept={accept} testid="suggestion-row" />
           {q.data.unmatched.length > 0 && (
@@ -167,6 +169,180 @@ export function Suggestions({ connectionId, venueId, canManage, onSaved }) {
         </>
       )}
     </Card>
+  )
+}
+
+// ── Learning ─────────────────────────────────────────────────────────────────
+
+/** Offers after accepting (learnOffers() on the server): one rule for a group with the same shape. */
+export function Offers({ connectionId, offers, canManage, onDone }) {
+  const api = useApi()
+  const refresh = useRefreshMapping()
+  const [busy, setBusy] = useState(null)
+  const [done, setDone] = useState({})
+  const [err, setErr] = useState('')
+  const left = (offers || []).filter(o => !done[o.key])
+  if (!left.length || !canManage) return null
+  async function take(o) {
+    setBusy(o.key); setErr('')
+    try {
+      if (o.replaces) await api.put(`/integrations/mapping/${connectionId}/rules/${o.replaces}`, o.rule)
+      else await api.post(`/integrations/mapping/${connectionId}/rules`, o.rule)
+      setDone(d => ({ ...d, [o.key]: 'saved' }))
+      refresh()
+      onDone?.()
+    } catch (e) { setErr(e.message) }
+    finally { setBusy(null) }
+  }
+  return (
+    <div className="rounded-xl border border-primary/40 bg-primary/5 p-3 space-y-2" data-testid="learn-offers">
+      <p className="text-sm font-semibold flex items-center gap-2"><Wand2 className="w-4 h-4" /> Make it a pattern rule?</p>
+      {err && <p className="text-sm text-destructive">{err}</p>}
+      {left.map(o => (
+        <div key={o.key} className="flex flex-wrap items-center gap-2" data-testid="learn-offer">
+          <p className="text-sm flex-1 min-w-[12rem]">{o.title}</p>
+          <button type="button" className={btnPrimary} disabled={!!busy} onClick={() => take(o)} data-testid="learn-accept">
+            {busy === o.key ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Make it a rule
+          </button>
+          <button type="button" className={btnOutline} disabled={!!busy} onClick={() => setDone(d => ({ ...d, [o.key]: 'no' }))}>No thanks</button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Pattern rules ────────────────────────────────────────────────────────────
+
+const MATCHES = [
+  { key: 'code:equals', label: 'Code is' }, { key: 'code:starts_with', label: 'Code starts with' },
+  { key: 'name:contains', label: 'Name contains' }, { key: 'category:equals', label: 'Category is' },
+]
+export const patternWords = (r, categories = []) => {
+  const cat = ref => categories.find(c => c.ref === ref)?.name || r.ext_name || 'a category no longer on the till'
+  if (r.kind === 'bucket') return 'Category ' + cat(r.pattern_value) + ', not mapped otherwise'
+  const m = MATCHES.find(x => x.key === r.pattern_field + ':' + r.pattern_op)
+  return (m ? m.label : 'Matches') + ' ' + (r.pattern_field === 'category' ? cat(r.pattern_value) : '"' + r.pattern_value + '"')
+}
+
+const field = 'h-12 w-full rounded-xl border bg-background px-3 text-base touch-manipulation'
+
+/**
+ * A pattern rule (code, name or category -> one of our dishes) or a bucket
+ * (category -> one of our sections, for reports), in a sheet. draft: the
+ * rule; data: the catalogue view; menu: our menus at the venue.
+ */
+export function PatternEditor({ draft, data, menu, connectionId, venueId, canManage, onClose }) {
+  const api = useApi()
+  const refresh = useRefreshMapping()
+  const [r, setR] = useState(() => ({ pattern_field: 'name', pattern_op: 'contains', pattern_value: '', ...draft,
+    venue_id: draft.id ? draft.venue_id : (venueId || null) }))
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const set = patch => setR(x => ({ ...x, ...patch }))
+  const dishes = (menu?.menus || []).flatMap(m => m.sections.flatMap(s => s.items.map(i => ({ ...i, where: m.name + ' · ' + s.title }))))
+  const sections = (menu?.menus || []).flatMap(m => m.sections.map(s => ({ id: s.id, label: m.name + ' · ' + s.title })))
+  const matchKey = r.kind === 'bucket' ? 'category:equals' : r.pattern_field + ':' + r.pattern_op
+  const ro = !canManage
+  function body() {
+    const b = { kind: r.kind, venue_id: r.venue_id || null, pattern_value: r.pattern_value || null, effective_from: r.effective_from || null, note: r.note || null }
+    if (r.kind === 'bucket') return { ...b, target_section_id: r.target_section_id || null }
+    const dish = dishes.find(d => d.id === (r.target_combo_id || r.target_item_id))
+    return { ...b, pattern_field: r.pattern_field, pattern_op: r.pattern_op,
+      target_item_id: dish?.kind === 'combo' ? null : dish?.id || null, target_combo_id: dish?.kind === 'combo' ? dish.id : null,
+      target_option_ids: r.target_option_ids || [], target_item_ids: r.target_item_ids || [] }
+  }
+  async function save() {
+    setBusy(true); setErr('')
+    try {
+      if (r.id) await api.put(`/integrations/mapping/${connectionId}/rules/${r.id}`, body())
+      else await api.post(`/integrations/mapping/${connectionId}/rules`, body())
+      refresh(); onClose()
+    } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  async function remove() {
+    setBusy(true); setErr('')
+    try { await api.delete(`/integrations/mapping/${connectionId}/rules/${r.id}`); refresh(); onClose() }
+    catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  const footer = canManage ? (
+    <>
+      <button type="button" className={btnPrimary} onClick={save} disabled={busy} data-testid="pattern-save">
+        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Save rule
+      </button>
+      {r.id && !confirmDelete && <button type="button" className={btnOutline} onClick={() => setConfirmDelete(true)} disabled={busy}>Delete</button>}
+      {r.id && confirmDelete && (
+        <>
+          <button type="button" className={cn(btnOutline, 'border-destructive text-destructive')} onClick={remove} disabled={busy}>Yes, delete this rule</button>
+          <button type="button" className={btnOutline} onClick={() => setConfirmDelete(false)} disabled={busy}>Keep it</button>
+        </>
+      )}
+    </>
+  ) : null
+  return (
+    <Modal title={r.kind === 'bucket' ? 'Category to a section' : 'Pattern rule'} onClose={onClose} footer={footer}>
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Kind">
+        {[{ key: 'pattern', label: 'Map to a dish' }, { key: 'bucket', label: 'Count under a section' }].map(k => (
+          <button key={k.key} type="button" disabled={ro || !!r.id} aria-pressed={r.kind === k.key}
+            onClick={() => set(k.key === 'bucket' ? { kind: 'bucket', pattern_field: 'category', pattern_op: 'equals', pattern_value: '' } : { kind: 'pattern' })}
+            className={cn('min-h-[48px] px-3 rounded-xl border text-sm touch-manipulation', r.kind === k.key ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted')}>
+            {k.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {r.kind === 'bucket'
+          ? 'Lines in this category that no other rule maps are counted under one of your menu sections in reports, not as a dish.'
+          : 'Lines that no rule maps by item are matched by this, most specific first: code is, code starts with, name contains, category.'}
+      </p>
+      {r.kind !== 'bucket' && (
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-muted-foreground">Match</span>
+          <select className={field} value={matchKey} disabled={ro} aria-label="Match"
+            onChange={e => { const [f, o] = e.target.value.split(':'); set({ pattern_field: f, pattern_op: o, pattern_value: '' }) }}>
+            {MATCHES.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+          </select>
+        </label>
+      )}
+      {matchKey === 'category:equals' ? (
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-muted-foreground">Category on the other till</span>
+          <select className={field} value={r.pattern_value || ''} disabled={ro} onChange={e => set({ pattern_value: e.target.value })} aria-label="Category">
+            <option value="">Choose</option>
+            {(data.categories || []).map(c => <option key={c.ref} value={c.ref}>{c.name}</option>)}
+          </select>
+        </label>
+      ) : (
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-muted-foreground">{r.pattern_field === 'code' ? 'Code (SKU or barcode)' : 'Words in the name'}</span>
+          <input className={field} value={r.pattern_value || ''} disabled={ro} onChange={e => set({ pattern_value: e.target.value })} aria-label="Pattern" data-testid="pattern-value" />
+        </label>
+      )}
+      {r.kind === 'bucket' ? (
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-muted-foreground">Our section</span>
+          <select className={field} value={r.target_section_id || ''} disabled={ro} onChange={e => set({ target_section_id: e.target.value })} aria-label="Section">
+            <option value="">Choose</option>
+            {sections.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </label>
+      ) : (
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-muted-foreground">Our dish</span>
+          <select className={field} value={r.target_combo_id || r.target_item_id || ''} disabled={ro} aria-label="Dish" data-testid="pattern-dish"
+            onChange={e => set({ target_item_id: e.target.value, target_combo_id: null })}>
+            <option value="">Choose</option>
+            {dishes.map(d => <option key={d.id} value={d.id}>{d.name} ({d.where})</option>)}
+          </select>
+        </label>
+      )}
+      <label className="flex items-center gap-3 min-h-[48px]">
+        <input type="checkbox" className="h-5 w-5" checked={!r.venue_id} disabled={ro || !venueId || !!r.id}
+          onChange={e => set({ venue_id: e.target.checked ? null : venueId })} />
+        <span className="text-sm">Every venue on the connection{!venueId ? '' : ' (otherwise this venue only)'}</span>
+      </label>
+      {err && <p className="text-sm text-destructive">{err}</p>}
+    </Modal>
   )
 }
 
@@ -209,6 +385,7 @@ export function PepperProposals({ connectionId, venueId, canManage, onSaved }) {
       </button>
       {err && <p className="text-sm text-destructive">{err}</p>}
       <SaveResult res={res} />
+      <Offers connectionId={connectionId} offers={res?.offers} canManage={canManage} />
       {out && (
         <>
           {!out.asked && <p className="text-sm text-muted-foreground">Nothing left to ask about.</p>}

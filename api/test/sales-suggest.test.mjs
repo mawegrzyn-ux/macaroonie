@@ -53,7 +53,7 @@ env.LOYVERSE_API_URL = fake.url
 timing.paceMs = 0
 timing.backoffMs = 1
 
-let ids, owner, other, mapper, looker, V, V2, conn, MA, MB, our, theirs
+let ids, owner, other, mapper, looker, V, V2, conn, MA, MB, our, theirs, offers
 
 const base = () => `/api/integrations/mapping/${conn.id}`
 const rulesNow = () => sql`SELECT * FROM ext_map_rules WHERE connection_id = ${conn.id} ORDER BY created_at, id`
@@ -159,6 +159,10 @@ test('accepting in bulk makes exact rules through the rule checks; a bad one is 
   assert.equal(res.saved.length, 4)
   assert.deepEqual(res.failed.map(f => f.index), [4])
   assert.match(res.failed[0].error, /isn't on a menu this venue sells/)
+  // Learning: three variants with Size Large went to our Large.
+  offers = res.offers
+  assert.deepEqual(offers.map(o => [o.kind, o.rule.axis_name, o.rule.axis_values.map(v => [v.from, v.option_id]), o.rule.venue_id]),
+    [['axis', 'Size', [['Large', our.large]], V]])
   const rules = await rulesNow()
   assert.equal(rules.length, 4)
   assert.ok(rules.every(r => r.kind === 'exact' && r.venue_id === V))
@@ -252,4 +256,53 @@ test('Pepper: refused when off, for View, for another tenant\'s connection or a 
   } finally {
     await ok(owner.patch('/api/ai/settings', { staff_enabled: true }))
   }
+})
+
+// ── 47.3c Pattern rules and learning ────────────────────────────────────────
+
+const stateOf = async (venue, ref, variant = null) => {
+  const view = await ok(owner.get(base() + '?venue_id=' + venue))
+  const it = view.items.find(i => i.ref === ref)
+  return (variant ? it.variants.find(v => v.ref === variant) : it.variants.length > 1 ? it : it.variants[0] || it).state
+}
+
+test('the learning offer saves one axis rule through the rule save', async () => {
+  const [offer] = offers
+  assert.equal(offer.replaces, null)
+  const saved = await ok(owner.post(base() + '/rules', offer.rule))
+  const [row] = await sql`SELECT kind, axis_name, item_ref, venue_id, axis_values FROM ext_map_rules WHERE id = ${saved.id}`
+  assert.deepEqual([row.kind, row.axis_name, row.item_ref, row.venue_id], ['axis', 'Size', null, V])
+  assert.deepEqual(row.axis_values, [{ from: 'Large', option_id: our.large }])
+})
+
+test('pattern rules: code before name before category, then the bucket; checked like any rule', async () => {
+  const add = body => ok(owner.post(base() + '/rules', { venue_id: V, ...body }))
+  await add({ kind: 'pattern', pattern_field: 'name', pattern_op: 'contains', pattern_value: 'Juice', target_item_id: our.cola })
+  assert.equal((await stateOf(V, 'it-btl-juice')).target, 'Cola', 'name contains')
+  await add({ kind: 'pattern', pattern_field: 'code', pattern_op: 'starts_with', pattern_value: 'btl-', target_item_id: our.water })
+  assert.equal((await stateOf(V, 'it-btl-juice')).target, 'Water', 'a code beats a name')
+  // The category to a section: only what nothing else maps.
+  const bucket = await add({ kind: 'bucket', pattern_value: 'cat-bake', target_section_id: our.bakery })
+  assert.equal((await stateOf(V, 'it-muffin', 'var-muffin-b')).state, 'bucket')
+  assert.equal((await stateOf(V, 'it-brownie')).state, 'kept', 'Pepper\'s accepted keep rule still decides the brownie')
+  await mapping.remapConnection(ids.a, conn.id)
+  const [line] = await sql`
+    SELECT l.map_state, l.section_id, l.rule_id, l.net_pence FROM ext_check_lines l JOIN ext_checks c ON c.id = l.check_id
+     WHERE c.connection_id = ${conn.id} AND c.external_id = '1-1002' AND l.line_kind = 'item'`
+  assert.deepEqual([line.map_state, line.section_id, line.rule_id, line.net_pence], ['bucket', our.bakery, bucket.id, 250], 'the stored croissant is counted under Bakery, money unchanged')
+  const cov = await ok(owner.get(base() + '/coverage?venue_id=' + V))
+  assert.ok(cov.venues[0].bucket >= 250)
+
+  // Refused: an op the field doesn't take, an unknown category, another tenant's section or dish, a section Ware doesn't sell.
+  const bad = async (body, re) => {
+    const res = await owner.post(base() + '/rules', { venue_id: V, ...body })
+    assert.equal(res.status, 422, JSON.stringify(body))
+    if (re) assert.match(res.json.error, re)
+  }
+  await bad({ kind: 'pattern', pattern_field: 'name', pattern_op: 'equals', pattern_value: 'x', target_item_id: our.cola })
+  await bad({ kind: 'pattern', pattern_field: 'category', pattern_op: 'equals', pattern_value: 'cat-nope', target_item_id: our.cola }, /category/)
+  await bad({ kind: 'bucket', pattern_value: 'cat-hot', target_section_id: theirs.section }, /section/)
+  await bad({ kind: 'bucket', pattern_value: 'cat-hot', target_section_id: our.bakery2 }, /isn't on a menu this venue sells/)
+  await bad({ kind: 'pattern', pattern_field: 'code', pattern_op: 'equals', pattern_value: 'X1', target_item_id: theirs.dish })
+  assert.equal((await looker.post(base() + '/rules', { kind: 'bucket', pattern_value: 'cat-hot', target_section_id: our.bakery })).status, 403)
 })

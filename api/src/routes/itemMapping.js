@@ -27,7 +27,13 @@
 //                                              at the venue (its menus only); writes nothing
 //   POST   /:connectionId/rules/bulk           { rules: [rule] }: accepted suggestions or
 //                                              proposals, each checked by cleanRule() as a
-//                                              single save is; { saved, failed }
+//                                              single save is; { saved, failed, offers }:
+//                                              offers are learnOffers() (a group of rules
+//                                              with the same shape as one rule), saved
+//                                              only when accepted (POST or PUT /rules)
+// Pattern and bucket rules (migration 293) save through POST /rules: a
+// pattern's category or a bucket's category is a ref in the catalogue, a
+// bucket's section one on a menu the venue sells.
 // Pepper's proposals are routes/itemMappingAi.js (under /api/ai/).
 //
 // A saved or deleted rule re-maps the connection's stored lines from its
@@ -45,7 +51,9 @@ import { httpError }  from '../middleware/error.js'
 import {
   mappingContext, requestRemap, queueRemap, previewMapping, coverage, venueMenus, recentSales, salesTotal, suggestions, RECENT_DAYS,
 } from '../services/itemMappingSvc.js'
-import { catalogState, ruleKey, RULE_KINDS, AXIS_KINDS, STATE_LABELS } from '../../../shared/itemMapping.js'
+import {
+  catalogState, ruleKey, normaliseRule, learnOffers, RULE_KINDS, AXIS_KINDS, PATTERN_FIELDS, PATTERN_OPS, PATTERN_LABELS, STATE_LABELS,
+} from '../../../shared/itemMapping.js'
 
 const UUID = z.string().uuid()
 const canView   = [requirePermission('cash_recon', 'view')]
@@ -69,7 +77,11 @@ const RuleBody = z.object({
   target_option_ids: z.array(UUID).max(20).optional(),
   target_combo_id:   UUID.nullable().optional(),
   target_group_id:   UUID.nullable().optional(),
-  effective_from:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  pattern_field:     z.enum(PATTERN_FIELDS).nullable().optional(),
+  pattern_op:        z.enum(['equals', 'starts_with', 'contains']).nullable().optional(),
+  pattern_value:     z.string().trim().min(1).max(200).nullable().optional(),
+  target_section_id: UUID.nullable().optional(),
+  effective_from:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   note:              z.string().trim().max(500).nullable().optional(),
 })
 const PreviewBody = z.object({
@@ -120,6 +132,7 @@ export async function cleanRule(tx, tenantId, connectionId, body) {
     item_ref: b.item_ref || null, variant_ref: b.variant_ref || null, option_ref: b.option_ref || null,
     option_refs: dedupe(b.option_refs), axis_kind: null, axis_name: null, axis_group_ref: null, axis_values: [],
     target_item_id: null, target_item_ids: [], target_option_ids: [], target_combo_id: null, target_group_id: null,
+    pattern_field: null, pattern_op: null, pattern_value: null, target_section_id: null,
     effective_from: b.effective_from || null, note: b.note || null, ext_sku: null, ext_name: null,
   }
   const fail = m => { throw httpError(422, m) }
@@ -168,12 +181,34 @@ export async function cleanRule(tx, tenantId, connectionId, body) {
       if (!r.item_ref) fail('Choose the item')
       if (!r.option_refs.length) fail('Choose the modifiers that make the combination')
       r.option_ref = null
+    } else if (b.kind === 'pattern' || b.kind === 'bucket') {
+      // A pattern matches by code, name or category, never by ref.
+      r.item_ref = null; r.variant_ref = null; r.option_ref = null; r.option_refs = []
+      r.pattern_field = b.kind === 'bucket' ? 'category' : (b.pattern_field || fail('Choose what to match: the code, the name or the category'))
+      r.pattern_op = b.kind === 'bucket' ? 'equals' : (b.pattern_op || PATTERN_OPS[r.pattern_field][0])
+      if (!PATTERN_OPS[r.pattern_field].includes(r.pattern_op)) fail(PATTERN_LABELS[r.pattern_field + ':' + PATTERN_OPS[r.pattern_field][0]] + ' is the only match for that')
+      r.pattern_value = b.pattern_value || fail(r.pattern_field === 'category' ? 'Choose the category' : 'Type what to match')
+      if (r.pattern_field === 'category') {
+        const [c] = await tx`
+          SELECT external_id, name FROM ext_catalog
+           WHERE tenant_id = ${tenantId} AND connection_id = ${connectionId} AND kind = 'category' AND external_id = ${r.pattern_value}`
+        if (!c) fail('That category isn\'t in this till\'s catalogue')
+        r.ext_name = c.name
+      } else if (r.pattern_field === 'name' && r.pattern_value.length < 2) fail('Type at least two letters to match')
+      if (b.kind === 'bucket') {
+        r.target_section_id = b.target_section_id || fail('Choose one of our menu sections')
+        const [s] = await tx`
+          SELECT s.id FROM menu_sections s JOIN menus m ON m.id = s.menu_id AND m.tenant_id = s.tenant_id
+           WHERE s.tenant_id = ${tenantId} AND s.id = ${r.target_section_id}
+             AND (${r.venue_id}::uuid IS NULL OR m.venue_id IS NULL OR m.venue_id = ${r.venue_id}::uuid)`
+        if (!s) fail(r.venue_id ? 'That section isn\'t on a menu this venue sells' : 'That section isn\'t one of yours')
+      }
     } else {
       if (!r.item_ref && !r.option_ref) fail('Choose an item, a variant or a modifier option')
       if (r.option_ref) { r.item_ref = null; r.variant_ref = null }
       r.option_refs = []
     }
-    if (b.kind === 'exact' || b.kind === 'combination') {
+    if (b.kind === 'exact' || b.kind === 'combination' || b.kind === 'pattern') {
       r.target_item_id = b.target_item_id || null
       r.target_combo_id = b.target_combo_id || null
       r.target_option_ids = dedupe(b.target_option_ids)
@@ -206,7 +241,7 @@ export async function cleanRule(tx, tenantId, connectionId, body) {
   }
 
   // The fallback by SKU and name, from the catalogue as it is now.
-  if (b.kind !== 'axis') {
+  if (b.kind !== 'axis' && b.kind !== 'pattern' && b.kind !== 'bucket') {
     if (r.option_ref) r.ext_name = option.name
     else if (variant) { r.ext_sku = variant.sku || null; r.ext_name = item.name + (variant.name && variant.name !== 'Default' ? ' · ' + variant.name : '') }
     else if (item) r.ext_name = item.name
@@ -234,6 +269,7 @@ async function saveRule(tx, tenantId, connectionId, r, user, id = null) {
     axis_values: tx.json(r.axis_values), target_item_id: r.target_item_id, target_item_ids: r.target_item_ids,
     target_option_ids: r.target_option_ids, target_combo_id: r.target_combo_id, target_group_id: r.target_group_id,
     ext_sku: r.ext_sku, ext_name: r.ext_name, match_key: r.match_key, effective_from: r.effective_from, note: r.note,
+    pattern_field: r.pattern_field, pattern_op: r.pattern_op, pattern_value: r.pattern_value, target_section_id: r.target_section_id,
   }
   if (id) {
     const [row] = await tx`
@@ -293,6 +329,7 @@ const earlier = (a, b) => (!a ? b : !b ? a : a < b ? a : b)
 function targetLabel(r, names) {
   if (r.kind === 'ignore') return 'Ignored (not a sale)'
   if (r.kind === 'keep') return 'Kept as sold'
+  if (r.kind === 'bucket') return names[r.target_section_id] || 'A section no longer on the menu'
   if (r.kind === 'axis') return r.axis_values.map(v => v.from + ' → ' + (names[v.option_id] || '?')).join(', ')
   const gone = 'Something no longer on the menu'
   const main = r.target_combo_id || r.target_item_id
@@ -353,6 +390,7 @@ async function mappingView(tx, tenantId, conn, venueId) {
     connection: { id: conn.id, name: conn.name, system: conn.system },
     venues, venue_id: venueId, today, days: RECENT_DAYS, remap_pending,
     items, modifiers,
+    categories: Object.entries(categories).map(([ref, name]) => ({ ref, name })).sort((a, b) => a.name.localeCompare(b.name)),
     rules: mc.rules.map(r => ({ ...r, target: targetLabel(r, mc.names) })),
   }
 }
@@ -494,9 +532,13 @@ export default async function itemMappingRoutes(app) {
     const body = BulkBody.parse(req.body || {})
     const out = await withTenant(req.tenantId, async tx => {
       const conn = await ownConnection(tx, req.tenantId, req.params.connectionId)
-      return saveRules(tx, req.tenantId, conn.id, body.rules, by(req))
+      const res = await saveRules(tx, req.tenantId, conn.id, body.rules, by(req))
+      // Learning: a group of rules with the same shape offered as one (saved only if accepted).
+      const mc = await mappingContext(tx, req.tenantId, conn.id)
+      const added = res.saved.map(s => normaliseRule(s.rule))
+      return { ...res, offers: added.length ? learnOffers(added, mc.rules, mc.ctx.catalog, mc.optionInfo) : [] }
     })
     if (out.saved.length) queueRemap(req.tenantId, req.params.connectionId, req.log)
-    return { saved: out.saved.map(s => ({ index: s.index, id: s.id })), failed: out.failed }
+    return { saved: out.saved.map(s => ({ index: s.index, id: s.id })), failed: out.failed, offers: out.offers }
   })
 }

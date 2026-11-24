@@ -45,7 +45,8 @@ export async function loadRules(tx, tenantId, connectionId) {
   const rows = await tx`
     SELECT id, kind, venue_id, item_ref, variant_ref, option_ref, option_refs, axis_kind, axis_name, axis_group_ref,
            axis_values, target_item_id, target_item_ids, target_option_ids, target_combo_id, target_group_id,
-           ext_sku, ext_name, effective_from::text AS effective_from, note, created_by, created_at, updated_at
+           ext_sku, ext_name, pattern_field, pattern_op, pattern_value, target_section_id,
+           effective_from::text AS effective_from, note, created_by, created_at, updated_at
       FROM ext_map_rules WHERE tenant_id = ${tenantId} AND connection_id = ${connectionId}
      ORDER BY created_at, id`
   return rows.map(normaliseRule)
@@ -53,7 +54,7 @@ export async function loadRules(tx, tenantId, connectionId) {
 
 /** Our dishes, combos and options with their list prices and names (the whole group's: ids are checked when rules are saved). */
 export async function loadOurs(tx, tenantId) {
-  const [items, options, prices] = await Promise.all([
+  const [items, options, prices, sections] = await Promise.all([
     tx`SELECT mi.id, mi.name, mi.kind,
               COALESCE(mi.price_pence, (SELECT min(v.price_pence) FROM menu_item_variants v WHERE v.item_id = mi.id AND v.tenant_id = mi.tenant_id), 0) AS price_pence
          FROM menu_items mi WHERE mi.tenant_id = ${tenantId}`,
@@ -61,11 +62,14 @@ export async function loadOurs(tx, tenantId) {
          FROM menu_variant_options o JOIN menu_variant_groups g ON g.id = o.group_id AND g.tenant_id = o.tenant_id
         WHERE o.tenant_id = ${tenantId}`,
     tx`SELECT item_id, option_id, price_pence FROM menu_item_variant_prices WHERE tenant_id = ${tenantId}`,
+    tx`SELECT s.id, s.title, m.name AS menu FROM menu_sections s JOIN menus m ON m.id = s.menu_id AND m.tenant_id = s.tenant_id WHERE s.tenant_id = ${tenantId}`,
   ])
   const names = {}
   for (const i of items) names[i.id] = i.name
   for (const o of options) names[o.id] = o.group_name + ': ' + o.label
-  return { ctx: ourContext({ items, options, itemOptionPrices: prices }), names }
+  for (const s of sections) names[s.id] = 'Section ' + s.title + ' (' + s.menu + ')'
+  const optionInfo = Object.fromEntries(options.map(o => [o.id, { group_id: o.group_id, group_name: o.group_name, label: o.label }]))
+  return { ctx: ourContext({ items, options, itemOptionPrices: prices }), names, optionInfo }
 }
 
 export async function loadCatalogRows(tx, tenantId, connectionId) {
@@ -82,7 +86,7 @@ export async function mappingContext(tx, tenantId, connectionId) {
     loadCatalogRows(tx, tenantId, connectionId),
     loadOurs(tx, tenantId),
   ])
-  return { rules, ctx: { catalog: catalogContext(catalogRows), ours: ours.ctx }, names: ours.names, catalogRows }
+  return { rules, ctx: { catalog: catalogContext(catalogRows), ours: ours.ctx }, names: ours.names, optionInfo: ours.optionInfo, catalogRows }
 }
 
 async function loadLines(tx, tenantId, checkIds) {
@@ -120,7 +124,8 @@ export async function mapChecks(tx, tenantId, connectionId, checkIds, mc = null)
   const rows = [], parts = []
   for (const check of asChecks(lines)) {
     for (const r of mapCheck(check, mc.rules, mc.ctx)) {
-      rows.push({ id: r.id, state: r.state, rule_id: r.rule_id, item_id: r.item_id, option_id: r.option_id, combo_id: r.combo_id, allocated: r.allocated_net_pence })
+      rows.push({ id: r.id, state: r.state, rule_id: r.rule_id, item_id: r.item_id, option_id: r.option_id, combo_id: r.combo_id,
+        section_id: r.section_id, allocated: r.allocated_net_pence })
       for (const p of r.parts) parts.push({ ...p, line_id: r.id, check_id: check.id })
     }
   }
@@ -128,8 +133,9 @@ export async function mapChecks(tx, tenantId, connectionId, checkIds, mc = null)
     await tx`
       UPDATE ext_check_lines l
          SET map_state = x.state, rule_id = x.rule_id, item_id = x.item_id, option_id = x.option_id,
-             combo_id = x.combo_id, allocated_net_pence = x.allocated
-        FROM jsonb_to_recordset(${tx.json(rows)}) AS x(id uuid, state text, rule_id uuid, item_id uuid, option_id uuid, combo_id uuid, allocated integer)
+             combo_id = x.combo_id, section_id = x.section_id, allocated_net_pence = x.allocated
+        FROM jsonb_to_recordset(${tx.json(rows)}) AS x(id uuid, state text, rule_id uuid, item_id uuid, option_id uuid, combo_id uuid,
+             section_id uuid, allocated integer)
        WHERE l.id = x.id AND l.tenant_id = ${tenantId}`
   }
   await tx`DELETE FROM ext_line_parts WHERE tenant_id = ${tenantId} AND check_id = ANY(${checkIds}::uuid[])`
@@ -234,6 +240,7 @@ async function recentCheckIds(tx, tenantId, connectionId, venueId = null) {
 }
 
 function targetOf(r, names) {
+  if (r.state === 'bucket') return names[r.section_id] || 'A section no longer on the menu'
   if (r.state !== 'mapped') return STATE_LABELS[r.state] || ''
   const id = r.combo_id || r.item_id || r.option_id
   return names[id] || 'Something no longer on the menu'
@@ -273,7 +280,7 @@ export async function previewMapping(tx, tenantId, connectionId, { venueId = nul
         }
       }
       const same = a.state === b.state && a.rule_id === b.rule_id && a.item_id === b.item_id && a.combo_id === b.combo_id
-        && a.option_id === b.option_id && JSON.stringify(a.parts.map(p => [p.item_id, p.option_id, p.combo_id, p.net_pence]))
+        && a.option_id === b.option_id && a.section_id === b.section_id && JSON.stringify(a.parts.map(p => [p.item_id, p.option_id, p.combo_id, p.net_pence]))
           === JSON.stringify(b.parts.map(p => [p.item_id, p.option_id, p.combo_id, p.net_pence]))
       if (same) return
       changed++
@@ -295,8 +302,9 @@ export async function previewMapping(tx, tenantId, connectionId, { venueId = nul
 /**
  * Mapping coverage for the last RECENT_DAYS days, from the stored lines:
  * by venue, the item lines' net (sales only, cancelled left out; an item
- * line's net holds its modifiers') mapped, kept as sold, ignored and not
- * mapped, and the share decided (mapped or kept, of what isn't ignored);
+ * line's net holds its modifiers') mapped, kept as sold, in a section (a
+ * bucket rule), ignored and not mapped, and the share decided (mapped, kept
+ * or in a section, of what isn't ignored);
  * and the unmapped items by value.
  */
 export async function coverage(tx, tenantId, connectionId, { venueId = null } = {}) {
@@ -306,6 +314,7 @@ export async function coverage(tx, tenantId, connectionId, { venueId = null } = 
              COALESCE(sum(l.net_pence), 0)::bigint AS total,
              COALESCE(sum(l.net_pence) FILTER (WHERE l.map_state = 'mapped'), 0)::bigint AS mapped,
              COALESCE(sum(l.net_pence) FILTER (WHERE l.map_state = 'kept'), 0)::bigint AS kept,
+             COALESCE(sum(l.net_pence) FILTER (WHERE l.map_state = 'bucket'), 0)::bigint AS bucket,
              COALESCE(sum(l.net_pence) FILTER (WHERE l.map_state = 'ignored'), 0)::bigint AS ignored,
              COALESCE(sum(l.net_pence) FILTER (WHERE l.map_state IS NULL OR l.map_state = 'unmapped'), 0)::bigint AS unmapped
         FROM ext_checks c
@@ -328,15 +337,15 @@ export async function coverage(tx, tenantId, connectionId, { venueId = null } = 
   ])
   const share = v => {
     const base = Number(v.total) - Number(v.ignored)
-    return base > 0 ? Math.round(((Number(v.mapped) + Number(v.kept)) / base) * 1000) / 10 : null
+    return base > 0 ? Math.round(((Number(v.mapped) + Number(v.kept) + Number(v.bucket)) / base) * 1000) / 10 : null
   }
   const rows = venues.map(v => ({
     venue_id: v.venue_id, venue_name: v.venue_name,
-    total: Number(v.total), mapped: Number(v.mapped), kept: Number(v.kept), ignored: Number(v.ignored), unmapped: Number(v.unmapped),
+    total: Number(v.total), mapped: Number(v.mapped), kept: Number(v.kept), bucket: Number(v.bucket), ignored: Number(v.ignored), unmapped: Number(v.unmapped),
     percent: share(v),
   }))
-  const all = rows.reduce((s, v) => ({ total: s.total + v.total, mapped: s.mapped + v.mapped, kept: s.kept + v.kept, ignored: s.ignored + v.ignored, unmapped: s.unmapped + v.unmapped }),
-    { total: 0, mapped: 0, kept: 0, ignored: 0, unmapped: 0 })
+  const all = rows.reduce((s, v) => ({ total: s.total + v.total, mapped: s.mapped + v.mapped, kept: s.kept + v.kept, bucket: s.bucket + v.bucket, ignored: s.ignored + v.ignored, unmapped: s.unmapped + v.unmapped }),
+    { total: 0, mapped: 0, kept: 0, bucket: 0, ignored: 0, unmapped: 0 })
   return {
     days: RECENT_DAYS, venues: rows, all: { ...all, percent: share(all) },
     unmapped: unmapped.map(u => ({ ...u, net_pence: Number(u.net_pence) })),

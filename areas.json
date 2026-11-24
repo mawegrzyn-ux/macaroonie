@@ -152,7 +152,8 @@
     "shared/itemMapping.js",
     "shared/loyverse.js",
     "shared/test/externalSales.test.mjs",
-    "shared/test/itemMapping.test.mjs"
+    "shared/test/itemMapping.test.mjs",
+    "shared/test/itemMappingPatterns.test.mjs"
    ],
    "public": [
     "admin/src/components/orders/shared.jsx",
