@@ -40,9 +40,9 @@ test('the page is told which phone it is on', () => {
   }
 })
 
-test('the iPhone settings: both platforms, a bundle id, a reason for every permission asked', () => {
+test('the iPhone settings: Android only until the Apple account is set up, a bundle id, a reason for every permission asked', () => {
   const e = appJson.expo
-  assert.deepEqual(e.platforms, ['android', 'ios'])
+  assert.deepEqual(e.platforms, ['android'], 'ios is added by OFFICE_IOS=1 (app.config.js) until the Apple account is ready')
   assert.equal(e.ios.bundleIdentifier, 'com.macaroonie.office')
   for (const k of ['NSCameraUsageDescription', 'NSMicrophoneUsageDescription', 'NSSpeechRecognitionUsageDescription', 'NSPhotoLibraryUsageDescription']) {
     assert.ok(e.ios.infoPlist[k]?.length > 20, k)

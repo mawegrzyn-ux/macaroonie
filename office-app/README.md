@@ -96,7 +96,7 @@ yearly), which only the owner can join and sign in to.
 
 What is set up in the code:
 
-- `app.json`: `platforms` has `ios`; `ios.bundleIdentifier`
+- `app.json`: `platforms` is Android only until the Apple account is set up (Build from GitHub on expo.dev builds every platform listed, and an iPhone build fails without the account); `OFFICE_IOS=1` adds `ios` through `app.config.js` (CI's iPhone bundle check uses it), and once the account is ready add `"ios"` to `platforms` for good; `ios.bundleIdentifier`
   `com.macaroonie.office`; `ios.supportsTablet` false (phones only, like the
   phone pages); `ios.infoPlist` has the reason shown for each permission the
   app asks for: the camera (scanning, photos), the microphone and speech
@@ -141,7 +141,7 @@ What the owner does, once:
    → production → Push Notifications → set up a push key. EAS makes the key
    on the Apple account and keeps it for Expo's push service, which the API
    already sends to. Nothing changes on the server.
-4. **The first build**: in `office-app/`, `npx eas build -p ios --profile
+4. **The first build**: first add `"ios"` to `platforms` in `app.json` (it is left out until now so expo.dev's Build from GitHub doesn't try an iPhone build), then in `office-app/`, `npx eas build -p ios --profile
    preview` for iPhones registered with `npx eas device:create` (internal), or
    `npx eas build -p ios --profile app-store` for TestFlight. EAS asks to sign
    in to the Apple account and makes the certificate and provisioning
