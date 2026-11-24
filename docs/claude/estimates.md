@@ -75,6 +75,10 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | 44.11.6b Capture to For review: a photo, a voice note or a line from the phone waits in For review | 5 to 10 min | 5 min (to 00:18) | one PR, below | | 18 files, +654 -21, migration 281 | claude-opus-5-5 / high, fresh agent | About $5.80. |
 | 44.11.6c The venue's own words for speech: fridge, dish, staff and supplier names help dictation and talk mode | 5 to 10 min | 3 min (to 00:21) | one PR, below | | 12 files, +412 -14 | claude-opus-5-5 / high, fresh agent | About $4.70. |
 | 44.11.6d The iPhone app: the office app's iOS config and the parts that differ from Android (no device build here) | 5 to 10 min | 4 min (to 00:25), then tests, browser at 1280 and 390, docs 11.5 (to 00:36:30) | 19 min for 6a to 6d: the lead's review and making iOS opt-in 1 min, PR #507 opened 00:38, CI red 00:46:30 (a Tuesday-only cash test), fixed 00:47, green 00:55:15, merged 00:55:30 | **61 min for 6a to 6d** (23:54:19 to 00:55:30) | 16 files, +317 -41 | claude-opus-5-5 / high, fresh agent | Push and the scanner on a real device need the owner's phone. Agent about $51, lead about $4; live eval on the merged code 29 of 29 ($0.06). |
+| 44.11.7a Suggestions on Home: up to four, rule-based, each with its reason, dismissable (no model) | fourth revision: 5 to 10 min | | one PR, below | | | claude-opus-5-5 / high, fresh agent | Estimated 24 Nov 2026 before starting; plus 6 reading. |
+| 44.11.7b The Team signal: a manager suggests a page to a role, shown with who suggested it | 5 to 8 min | | one PR, below | | | | |
+| 44.11.7c Above the store: for people over several sites, venues ranked by what needs them, completion by site today and this week | 8 to 15 min | | one PR, below | | | | |
+| 44.11.7d Measuring suggestions: shown, tapped, dismissed in the usage record, a report figure for tap-through | 3 to 8 min | | one PR for 7a to 7d: tests, browser and docs 12 to 15, PR 7 | | | | |
 
 ## Running totals
 
