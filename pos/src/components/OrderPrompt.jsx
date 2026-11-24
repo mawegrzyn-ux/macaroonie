@@ -3,7 +3,8 @@
 // its own (letters for the name, digits for the tent number), so it works
 // the same on every tablet and a keyboard plugged in still types.
 //
-// Two ways, per venue or per till (orderPromptOf() in lib/checkOps.js):
+// Two ways, per revenue stream or per till (orderPromptOf() in
+// shared/pos/tillSettings.js):
 //   one  one screen: the order types, the name and the tent number together
 //   two  two steps: the order type first (big buttons), then the name and
 //        tent number that type asks for

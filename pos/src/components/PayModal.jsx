@@ -4,7 +4,8 @@
 // machine approves it (payment.added naming the attempt). Split the bill
 // evenly, by items, or any amounts. Exact cash and Exact card pay the amount
 // in one tap. Once it is all paid, the receipt follows the till's choice
-// (receiptModeOf: ask, always print, or don't print).
+// (receiptModeOf: ask, always print, or don't print; the till's own choice,
+// else the check's revenue stream's).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Banknote, CreditCard, Ticket, Wallet, CircleDot, Check, Printer, X, Ban, Split, ListChecks, Nfc, Loader2, AlertTriangle, PenLine } from 'lucide-react'
@@ -58,7 +59,7 @@ export default function PayModal({ check, onClose, onClosed, sendOnClose = false
 
   const amountP = Math.min(poundsToPence(amount), Math.max(0, t.balance))
   const paidOff = t.balance <= 0
-  const receiptMode = receiptModeOf(config)
+  const receiptMode = receiptModeOf(config, check.revenue_stream_id)
   // One tap: the amount shown, in cash, or on the card machine (else a card recorded by hand).
   const exactCash = tenders.find(x => x.key === 'cash') || null
   const exactCard = tenders.find(x => x.key === 'card_integrated') || tenders.find(x => x.key === 'card_external') || null

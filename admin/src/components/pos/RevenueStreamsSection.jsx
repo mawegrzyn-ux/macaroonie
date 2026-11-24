@@ -6,8 +6,10 @@
 // offers and, per type, whether to ask for a customer name and a tent number
 // (off, ask, must have), and the type new checks start as; whether its tills
 // ask how many guests (covers: off, ask, must), use courses (migration 231)
-// and number seats (migration 246); a till can choose its own, and counter
-// tills use none of them. The charges its checks get are on
+// and number seats (migration 246), the receipt when a check is paid and
+// how a new order's order type, name and tent number are asked (migration
+// 296, venue settings before); a till can choose its own, and counter tills
+// use no covers, courses or seats. The charges its checks get are on
 // Store tech > Charges (the location's matrix of streams by order types).
 
 import { useState } from 'react'
@@ -18,7 +20,8 @@ import { cn } from '@/lib/utils'
 import {
   Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, SortableRows, Segmented, Btn, ColourPick, Toggle,
 } from './shared'
-import { COVERS_RULES, coversWord } from './TillsSection'
+import { COVERS_RULES, coversWord, RECEIPT_MODES, ORDER_PROMPTS, receiptWord, promptWord } from './TillsSection'
+import { streamReceiptMode, streamOrderPrompt } from '@shared/pos/tillSettings.js'
 
 const PROMPTS = [
   { value: 'off', label: 'No' },
@@ -53,6 +56,8 @@ function StreamModal({ venueId, setup, stream, onClose }) {
     covers: stream?.covers || 'ask',
     courses: stream ? stream.courses !== false : true,
     seats: stream ? stream.seats !== false : true,
+    receipt_mode: streamReceiptMode(stream),
+    order_prompt: streamOrderPrompt(stream),
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const setType = (id, patch) => set({ order_types: form.order_types.map(x => (x.order_type_id === id ? { ...x, ...patch } : x)) })
@@ -63,6 +68,7 @@ function StreamModal({ venueId, setup, stream, onClose }) {
     name: form.name.trim(), menu_ids: form.menu_ids, colour: form.colour, is_active: form.is_active,
     default_order_type_id: def, order_types: form.order_types,
     covers: form.covers, courses: form.courses, seats: form.seats,
+    receipt_mode: form.receipt_mode, order_prompt: form.order_prompt,
   })
   const save = useMutation({
     mutationFn: () => stream ? api.patch(`/pos/revenue-streams/${stream.id}`, body()) : api.post(`/pos/venues/${venueId}/revenue-streams`, body()),
@@ -120,6 +126,13 @@ function StreamModal({ venueId, setup, stream, onClose }) {
       </Field>
       <Toggle label="Use seats" hint="Off: no seat numbers on items and no By seat on the check. Counter tills never use seats." checked={form.seats} onChange={v => set({ seats: v })} />
       <Toggle label="Use courses" hint="Off: dishes go to the kitchen together, with no course chips on the till. Counter tills never use courses." checked={form.courses} onChange={v => set({ courses: v })} />
+      <Field group label="Receipt when a check is paid" hint="For the stream's checks. Ask: the till offers Close and print or Close, no receipt. A till can have its own (Tills).">
+        <Segmented value={form.receipt_mode} options={RECEIPT_MODES} onChange={v => set({ receipt_mode: v })} className="flex-wrap" testid="stream-receipt-mode" />
+      </Field>
+      <Field group label="Asking for the order type, name and tent number"
+        hint="When a counter order or a tab starts, and when a check is missing a name or tent number, the till takes over the screen with its own keys: letters for the name, digits for the tent number. One screen: the order types and the details together. Two steps: the order type first, then what it asks for. A till can have its own (Tills).">
+        <Segmented value={form.order_prompt} options={ORDER_PROMPTS} onChange={v => set({ order_prompt: v })} className="flex-wrap" testid="stream-order-prompt" />
+      </Field>
       <Field group label="Menus on the till" hint="None picked: every published menu.">
         <div className="flex flex-wrap gap-2">
           {setup.menus.map(m => {
@@ -172,6 +185,7 @@ export default function RevenueStreamsSection({ venueId, setup }) {
                     {rs.default_order_type_id && typeName(rs.default_order_type_id) && ' · starts as ' + typeName(rs.default_order_type_id)}
                     {' · '}{menuNames(rs.menu_ids).join(', ') || 'all menus'}
                     {' · covers: '}{coversWord(rs.covers)}{rs.seats === false ? ' · no seats' : ''}{rs.courses === false ? ' · no courses' : ''}
+                    {' · receipt: '}{receiptWord(streamReceiptMode(rs))}{' · prompt: '}{promptWord(streamOrderPrompt(rs))}
                   </p>
                 </div>
                 <Btn onClick={() => setEditing(rs)} title={'Edit ' + rs.name}><Pencil className="w-4 h-4" /></Btn>

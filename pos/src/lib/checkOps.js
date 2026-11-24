@@ -8,9 +8,9 @@ import { combosWithItem, stepWithItem, comboOf } from '@shared/combos.js'
 import { configItem, dealItem, comboCtx, autoCombosFor, checkOffers } from '@shared/pos/offers.js'
 import { chargesWhere, chargeList, chargeFromList } from '@shared/pos/charges.js'
 import { heldCourses } from '@shared/pos/checks.js'
-import { counterTill, leaveUnsent } from '@shared/pos/tillSettings.js'
+import { counterTill, leaveUnsent, receiptModeOf, orderPromptOf } from '@shared/pos/tillSettings.js'
 
-export { counterTill, leaveUnsent }
+export { counterTill, leaveUnsent, receiptModeOf, orderPromptOf }
 import { dispatch, dispatchMany, getState, currentChecks, soldOutMap } from './store.js'
 
 // Offers, item choices and combo lookups live in shared/pos/offers.js (the
@@ -304,26 +304,9 @@ export function openCheck({ mode, table_id = null, tab_name = null, covers = nul
   return r.ok ? { ok: true, checkId } : r
 }
 
-/**
- * What happens to the receipt when a check is paid: the till's own choice
- * (Store tech, Tills) else the venue's: 'ask' | 'always' | 'never'.
- */
-export function receiptModeOf(config) {
-  const own = config?.device?.settings?.receipt_mode
-  if (own && own !== 'venue') return own
-  return config?.settings?.receipt_mode || 'ask'
-}
-
-/**
- * How the till asks for a new order's order type, name and tent number
- * (components/OrderPrompt.jsx, migration 226): the till's own choice
- * (Store tech, Tills) else the venue's: 'one' (one screen) | 'two' (two steps).
- */
-export function orderPromptOf(config) {
-  const own = config?.device?.settings?.order_prompt
-  if (own === 'one' || own === 'two') return own
-  return config?.settings?.order_prompt === 'two' ? 'two' : 'one'
-}
+// receiptModeOf(config, streamId) and orderPromptOf(config, streamId): the
+// till's own choice, else the revenue stream's (shared/pos/tillSettings.js,
+// re-exported above).
 
 /**
  * Whether a new order in a stream has anything to ask: a choice of order

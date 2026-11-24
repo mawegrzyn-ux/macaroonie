@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import { installerHref } from '@/lib/hosts'
 import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, ago, NumberBox, Toggle } from './shared'
 import { CardMachinePick, useCardReaders } from './CardMachinesSection'
+import { RECEIPT_MODE_KEYS, ORDER_PROMPT_KEYS, streamReceiptMode, streamOrderPrompt } from '@shared/pos/tillSettings.js'
 
 const MODES = [
   { value: 'table', label: 'Table service' },
@@ -260,8 +261,8 @@ function TillModal({ venueId, setup, device, onClose }) {
     receipt_printer_id: s.receipt_printer_id || '',
     card_reader: s.card_reader || 'none',
     order_numbers: orderRangeOf(device),
-    receipt_mode: s.receipt_mode || 'venue',
-    order_prompt: s.order_prompt || 'venue',
+    receipt_mode: RECEIPT_MODE_KEYS.includes(s.receipt_mode) ? s.receipt_mode : 'stream',
+    order_prompt: ORDER_PROMPT_KEYS.includes(s.order_prompt) ? s.order_prompt : 'stream',
     till_layout: s.till_layout || 'venue',
     covers: s.covers || 'stream',
     courses: s.courses || 'stream',
@@ -358,15 +359,15 @@ function TillModal({ venueId, setup, device, onClose }) {
             {receiptPrinters.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </Field>
-        <Field label="Receipt when a check is paid" hint={'Venue setting: ' + (RECEIPT_MODES.find(m => m.value === (setup.settings.receipt_mode || 'ask'))?.label || 'Ask') + ' (Receipts and payments).'}>
+        <Field label="Receipt when a check is paid" hint={'As the stream: ' + receiptWord(streamReceiptMode(streamFor(setup, form.revenue_stream_id))) + ' (Revenue streams). The check\'s stream decides when staff move a check to another.'}>
           <select className={inputCls} value={form.receipt_mode} onChange={e => set({ receipt_mode: e.target.value })} data-testid="till-receipt-mode">
-            <option value="venue">As the venue</option>
+            <option value="stream">As the revenue stream</option>
             {RECEIPT_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
         </Field>
-        <Field label="Asking for the order type, name and tent number" hint={'Venue setting: ' + (ORDER_PROMPTS.find(m => m.value === (setup.settings.order_prompt || 'one'))?.label || 'One screen') + ' (Receipts and payments).'}>
+        <Field label="Asking for the order type, name and tent number" hint={'As the stream: ' + promptWord(streamOrderPrompt(streamFor(setup, form.revenue_stream_id))) + ' (Revenue streams).'}>
           <select className={inputCls} value={form.order_prompt} onChange={e => set({ order_prompt: e.target.value })} data-testid="till-order-prompt">
-            <option value="venue">As the venue</option>
+            <option value="stream">As the revenue stream</option>
             {ORDER_PROMPTS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
         </Field>
@@ -466,22 +467,27 @@ export const coversWord = v => (COVERS_RULES.find(m => m.value === (v || 'ask'))
 /** The stream a till is in: its own, else the first active one (as the till does). */
 const streamFor = (setup, id) => setup.revenue_streams.find(r => r.id === id) || setup.revenue_streams.find(r => r.is_active) || null
 
-/** What happens to the receipt when a check is paid (pos_settings.receipt_mode, migration 224). */
+/**
+ * What happens to the receipt when a check is paid (a revenue stream's
+ * receipt_mode since migration 296, or a till's own).
+ */
 export const RECEIPT_MODES = [
   { value: 'ask', label: 'Ask each time' },
   { value: 'always', label: 'Always print' },
   { value: 'never', label: 'Don\'t print' },
 ]
+export const receiptWord = v => (RECEIPT_MODES.find(m => m.value === v) || RECEIPT_MODES[0]).label.toLowerCase()
 
 /**
- * How the till asks for a new order's order type, name and tent number
- * (pos_settings.order_prompt, migration 226): both take over the screen with
- * the till's own keys.
+ * How the till asks for a new order's order type, name and tent number (a
+ * revenue stream's order_prompt since migration 296, or a till's own): both
+ * take over the screen with the till's own keys.
  */
 export const ORDER_PROMPTS = [
   { value: 'one', label: 'One screen' },
   { value: 'two', label: 'Two steps' },
 ]
+export const promptWord = v => (ORDER_PROMPTS.find(m => m.value === v) || ORDER_PROMPTS[0]).label.toLowerCase()
 
 /** The address a device of this kind opens (Store tech's device_urls). */
 export const deviceUrl = (setup, kind) => setup.device_urls?.[kind] || setup.till_url

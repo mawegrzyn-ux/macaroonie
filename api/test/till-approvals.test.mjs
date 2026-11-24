@@ -72,38 +72,34 @@ before(async () => {
 })
 after(closeApp)
 
-test('the receipt choice and the switches: saved per venue, cleaned, refused for viewers and other groups', async () => {
+// The receipt choice is a revenue stream's since migration 296 (till-order-prompt.test.mjs).
+test('the switches: saved per venue, cleaned, refused for viewers and other groups', async () => {
   const setup = await ok(owner.get('/api/pos/venues/' + V + '/setup'))
-  assert.equal(setup.settings.receipt_mode, 'ask')
   assert.deepEqual(setup.settings.approvals, { delete_unsent: false, void_sent: false, cancel_order: false, refund: false, remove_charge: false })
-  const saved = await ok(owner.patch(`/api/pos/venues/${V}/settings`, { receipt_mode: 'always', approvals: { void_sent: true } }))
-  assert.equal(saved.receipt_mode, 'always')
+  const saved = await ok(owner.patch(`/api/pos/venues/${V}/settings`, { approvals: { void_sent: true } }))
   assert.deepEqual(saved.approvals, { delete_unsent: false, void_sent: true, cancel_order: false, refund: false, remove_charge: false })
-  // Left out of a later save, both stay.
+  // Left out of a later save, they stay.
   const again = await ok(owner.patch(`/api/pos/venues/${V}/settings`, { tips_enabled: true }))
-  assert.equal(again.receipt_mode, 'always')
   assert.equal(again.approvals.void_sent, true)
-  assert.equal((await owner.patch(`/api/pos/venues/${V}/settings`, { receipt_mode: 'sometimes' })).status, 400)
   assert.equal((await owner.patch(`/api/pos/venues/${V}/settings`, { approvals: { everything: true } })).status, 400)
   // Typing a discount is a till role's Type a discount now (migration 246), not a venue switch.
   assert.equal((await owner.patch(`/api/pos/venues/${V}/settings`, { approvals: { custom_discount: true } })).status, 400)
-  assert.equal((await viewer.patch(`/api/pos/venues/${V}/settings`, { receipt_mode: 'never' })).status, 403)
-  assert.equal((await as(B.owner, ids.b).patch(`/api/pos/venues/${V}/settings`, { receipt_mode: 'never' })).status, 404)
-  const [row] = await sql`SELECT receipt_mode, approvals FROM pos_settings WHERE venue_id = ${V}`
-  assert.equal(row.receipt_mode, 'always')
+  assert.equal((await viewer.patch(`/api/pos/venues/${V}/settings`, { approvals: { refund: true } })).status, 403)
+  assert.equal((await as(B.owner, ids.b).patch(`/api/pos/venues/${V}/settings`, { approvals: { refund: true } })).status, 404)
+  const [row] = await sql`SELECT approvals FROM pos_settings WHERE venue_id = ${V}`
   assert.deepEqual(row.approvals, { delete_unsent: false, void_sent: true, cancel_order: false, refund: false, remove_charge: false })
 })
 
-test('a till has its own receipt choice; both reach the till in its config', async () => {
+test('a till has its own receipt choice; it and the switches reach the till in its config', async () => {
   const d = await ok(owner.patch('/api/pos/devices/' + till.id, { settings: { mode: 'table', receipt_mode: 'never' } }))
   assert.equal(d.settings.receipt_mode, 'never')
   assert.equal((await owner.patch('/api/pos/devices/' + till.id, { settings: { mode: 'table', receipt_mode: 'bogus' } })).status, 400)
   const cfg = await device(till, 'GET', '/pos-api/config')
   assert.equal(cfg.status, 200, cfg.body)
   assert.equal(cfg.json.device.settings.receipt_mode, 'never')
-  assert.equal(cfg.json.settings.receipt_mode, 'always')
+  assert.equal(cfg.json.revenue_streams[0].receipt_mode, 'ask', 'the stream\'s, for "as the stream"')
   assert.equal(cfg.json.settings.approvals.void_sent, true)
-  await ok(owner.patch('/api/pos/devices/' + till.id, { settings: { mode: 'table', receipt_mode: 'venue' } }))
+  await ok(owner.patch('/api/pos/devices/' + till.id, { settings: { mode: 'table', receipt_mode: 'stream' } }))
 })
 
 test('the sequencer: voiding a sent item needs a manager while the switch is on', async () => {
