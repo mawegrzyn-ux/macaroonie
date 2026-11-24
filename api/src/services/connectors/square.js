@@ -562,6 +562,14 @@ export async function revokeToken(accessToken, cfg = oauthConfig()) {
   await call('POST', '/oauth2/revoke', { body: { client_id: cfg.applicationId, access_token: accessToken } })
 }
 
+/** On disconnect: an OAuth connection's grant revoked (a pasted token is the merchant's own to delete). */
+export async function revoke(conn) {
+  const cfg = oauthConfig()
+  if (conn.auth_kind !== 'oauth' || !cfg || !conn.access_token) return false
+  await revokeToken(conn.access_token, cfg)
+  return true
+}
+
 // Refresh an OAuth token this long before it runs out (Square's last 30 days).
 export const REFRESH_BEFORE_MS = 7 * 86400_000
 

@@ -257,6 +257,32 @@ export async function clientFor(conn, mod = connectorFor(conn.system)) {
 }
 
 /**
+ * Disconnects a connection: its webhook at the other till removed and an
+ * OAuth grant given back (connector revoke(); both best effort, one call
+ * each), then the connection, its venue links and every sale kept from it
+ * (ON DELETE CASCADE). Returns false when it isn't the tenant's.
+ */
+export async function disconnect(tenantId, connectionId, log = null) {
+  const [conn] = await withTenant(tenantId, tx => tx`SELECT * FROM pos_connections WHERE id = ${connectionId} AND tenant_id = ${tenantId}`)
+  if (!conn) return false
+  const mod = connectorFor(conn.system)
+  if (mod) {
+    try {
+      if (conn.webhook_id) await (await clientFor(conn, mod)).deleteWebhook(conn.webhook_id)
+    } catch (e) { log?.warn?.({ err: errorText(e), connectionId }, 'Webhook not removed at the other till') }
+    if (mod.revoke) {
+      await mod.revoke({ ...conn, access_token: unseal(conn.access_token) })
+        .catch(e => log?.warn?.({ err: errorText(e), connectionId }, 'Access not given back at the other till'))
+    }
+  }
+  await withTenant(tenantId, async tx => {
+    await tx`DELETE FROM pos_connection_venues WHERE connection_id = ${connectionId} AND tenant_id = ${tenantId}`
+    await tx`DELETE FROM pos_connections WHERE id = ${connectionId} AND tenant_id = ${tenantId}`
+  })
+  return true
+}
+
+/**
  * What a sale's normalise() may need from the stored catalogue: a
  * variation's item and SKU (a Square order names only the variation), and a
  * modifier option's group name.
