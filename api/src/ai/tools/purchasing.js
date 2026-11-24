@@ -70,9 +70,9 @@ import {
   packBaseQty, packLabel, fmtNum, formatBase, perUnitLabel, unitPrice, quotePrice, chooseQuote,
   fitQty, qtyProblem, packsToPar, lineAmounts, orderTotals, supplierForVenue, nextDeliveryDate,
   minutesToCutoff, deliveryTempOk, receiveStatusFor, poNumberLabel, convertQty, splitProblem,
-  deliveryDayProblem, deadlineText, slotText, deadlinePassed, quickOrder, outOfStock,
+  deliveryDayProblem, deadlineText, slotText, deadlinePassed, quickOrder, outOfStock, countToBase,
 } from '../../../../shared/procurement.js'
-import { DateStr, TimeStr, localParts, longDate, pickByName, zonedInstant, remember, CustomIn, customPlan } from './util.js'
+import { DateStr, TimeStr, localParts, longDate, pickByName, zonedInstant, remember, CustomIn, customPlan, VenueText, venueFor } from './util.js'
 import { barcodeProblem } from '../../../../shared/catalogue.js'
 
 const Id = z.string().uuid()
@@ -315,6 +315,7 @@ function itemView(it, { venue, venueName, cur }) {
         quote_id: q.id,
         supplier: q.supplier_name + (q.supplier_active === false ? ' (supplier switched off)' : ''),
         ...(q.supplier_code ? { supplier_code: q.supplier_code } : {}),
+        ...(q.barcode ? { barcode: q.barcode } : {}),
         ...(q.product_name ? { product_name: q.product_name } : {}),
         pack: packLabel(q),
         price: priceText(q, venue ? quotePrice(q, venue.id) : q.price, it.base_unit, cur),
@@ -414,6 +415,7 @@ const PriceFields = {
   price:          z.number().min(0).max(10000000).describe('Price per pack, ex VAT'),
   vat_rate:       z.number().min(0).max(100).optional().describe('VAT %, default 0'),
   supplier_code:  z.string().max(100).optional().describe('The supplier\'s product code'),
+  barcode:        z.string().max(20).optional().describe('The barcode on the supplier\'s product (GTIN-8, 12, 13 or 14 digits), as read'),
   product_name:   z.string().max(200).optional().describe('The supplier\'s own name for it when it differs from the item, e.g. a brand ("Heinz Tomato Ketchup")'),
   min_qty:        z.number().positive().max(100000).optional().describe('Fewest packs per order'),
   order_multiple: z.number().positive().max(100000).optional().describe('Packs are ordered in steps of this'),
@@ -424,6 +426,7 @@ function quoteBody(p, supplierId) {
   return {
     supplier_id: supplierId,
     ...(p.supplier_code ? { supplier_code: p.supplier_code } : {}),
+    ...(p.barcode ? { barcode: p.barcode } : {}),
     ...(p.product_name ? { product_name: p.product_name } : {}),
     ...(p.pack_name ? { pack_name: p.pack_name } : {}),
     pack_count: p.pack_count ?? 1,
@@ -1148,7 +1151,7 @@ export const sections = {
 // The file's line(s) in the list of what Pepper can do.
 export const promptLines = [
   'Purchasing: the inventory and supplier prices, suppliers, order lists and pars, price list imports, filling ' +
-    'and placing orders, sending, changing and receiving supplier orders.',
+    'and placing orders, sending, changing and receiving supplier orders, stock on hand (stock_on_hand) and stock counts (count_stock).',
 ]
 // How to use them: a paragraph each, after the list.
 export const promptNotes = [
@@ -1240,6 +1243,90 @@ export const purchasingTools = [
         ...(hits.length > shown.length ? { showing: shown.length, note: 'Narrow the search to see the rest.' } : {}),
         items: out,
       }
+    },
+  },
+
+  {
+    name: 'stock_on_hand',
+    title: 'Stock on hand',
+    activity: 'Looked at stock on hand',
+    description:
+      'How much of an inventory item there is at a venue: its last stock count plus what was delivered since (the ' +
+      'Inventory page\'s Stock tab, the same figures). Sales aren\'t taken off (no dish is linked to the items it ' +
+      'uses), so say so. items: a few names, codes or barcodes; or low: true for every item below its par at the venue ' +
+      '(pars from its order lists); with neither, every counted item. For "how much rice have we got?".',
+    input: z.object({
+      venue: VenueText,
+      items: z.array(z.string().trim().min(1).max(200)).max(20).optional(),
+      low:   z.boolean().optional().describe('Only items below their par at the venue'),
+    }),
+    readOnly: true,
+    async run(ctx, input) {
+      await requireRead(ctx)
+      const venue = await venueFor(ctx, input.venue)
+      const tz = venue.timezone || 'Europe/London'
+      const st = await callApi(ctx, 'GET', '/api/stock/venues/' + venue.id)
+      const rows = st.items.map(i => ({ ...i, id: i.item_id, quotes: (i.quote_barcodes || []).map(barcode => ({ barcode })) }))
+      let picked
+      if (input.items?.length) picked = [...new Map(input.items.map(t => { const r = pickItem(rows, t); return [r.id, r] })).values()]
+      else if (input.low) picked = rows.filter(r => r.low)
+      else picked = rows.filter(r => r.on_hand != null || r.received_since > 0)
+      const at = when => { const l = localParts(when, tz); return longDate(l.date) + ' ' + l.time }
+      return {
+        venue: venue.name,
+        note: st.note,
+        items: picked.slice(0, 60).map(r => ({
+          name: r.name,
+          on_hand: r.on_hand == null ? 'never counted here' : formatBase(r.on_hand, r.base_unit),
+          ...(r.counted_at ? { last_count: formatBase(r.counted, r.base_unit) + ' on ' + at(r.counted_at) } : {}),
+          ...(r.received_since ? { received_since: formatBase(r.received_since, r.base_unit) } : {}),
+          ...(r.par_base != null ? { par: formatBase(r.par_base, r.base_unit) } : {}),
+          ...(r.low ? { low: true } : {}),
+        })),
+        ...(picked.length > 60 ? { showing: 60, of: picked.length } : {}),
+        ...(!picked.length ? { message: input.low ? 'Nothing is below its par at ' + venue.name + ' (only counted items with a par can be).' : 'Nothing has been counted or delivered at ' + venue.name + ' yet.' } : {}),
+      }
+    },
+  },
+
+  {
+    name: 'count_stock',
+    class: 'consequential',
+    title: 'Record a stock count',
+    activity: 'Recorded a stock count',
+    description:
+      'Records a stock count at a venue for one or more inventory items (the Stock tab\'s count sheet): how much is ' +
+      'there now, each in a unit that fits the item (kg or g for an item by weight, l or ml by volume, each by count). ' +
+      'Only what the person counted, in their numbers: never work a count out. A count is the new start for stock on ' +
+      'hand; a wrong one is put right by counting again. Needs Manage on Purchasing or Purchasing setup.',
+    input: z.object({
+      venue: VenueText,
+      counts: z.array(z.object({
+        item: z.string().trim().min(1).max(200).describe('Name, code or barcode'),
+        qty:  z.number().min(0).max(100000000),
+        unit: z.enum(Object.keys(UNITS)).optional().describe('Leave out for the item\'s own unit'),
+      })).min(1).max(100),
+      note: z.string().trim().max(500).optional(),
+    }),
+    confirm: true,
+    async describe(ctx, input) {
+      const p = await countPlan(ctx, input)
+      return {
+        title: 'Record this count at ' + p.venue.name + '?',
+        lines: p.lines.map(l => l.item.name + ': ' + fmtNum(l.qty) + ' ' + UNITS[l.unit].label +
+          (l.was != null ? ' (was ' + formatBase(l.was, l.item.base_unit) + ')' : '')),
+        ...(input.note ? { warningTitle: 'Note', warnings: [input.note] } : {}),
+        confirmLabel: 'Record count',
+      }
+    },
+    async run(ctx, input) {
+      const p = await countPlan(ctx, input)
+      return audited(ctx, 'count_stock', input, async () => {
+        const out = await callApi(ctx, 'POST', '/api/stock/venues/' + p.venue.id + '/counts', {
+          body: { lines: p.lines.map(l => ({ item_id: l.item.id, qty: l.qty, unit: l.unit })), ...(input.note ? { note: input.note } : {}) },
+        })
+        return { venue: p.venue.name, counted: out.lines, message: 'Count recorded: ' + plural(out.lines, 'item') + '.' }
+      })
     },
   },
 
@@ -1528,7 +1615,7 @@ export const purchasingTools = [
     title: 'Add a supplier price',
     description:
       'Adds a supplier\'s price for an inventory item: pack (e.g. Case of 6 x 2 kg: pack_name Case, pack_count 6, ' +
-      'pack_size 2, pack_unit kg), price per pack ex VAT, VAT, the supplier\'s code, minimum packs and steps. ' +
+      'pack_size 2, pack_unit kg), price per pack ex VAT, VAT, the supplier\'s code, its barcode, minimum packs and steps. ' +
       'venue_prices sets a different price at some venues. To change an existing price use update_supplier_price.',
     input: z.object({
       item:         z.string().min(1).max(200).describe('Name, code or item_id'),
@@ -1543,6 +1630,7 @@ export const purchasingTools = [
         title: 'Add this price for ' + p.item.name + '?',
         lines: [
           ...priceLines(input, p.sup.name, p.item.base_unit, p.cur),
+          ...(input.barcode ? ['Barcode: ' + input.barcode] : []),
           ...p.venuePrices.map(v => v.name + ' pays ' + money(v.price, p.cur)),
           ...(p.cheapest ? ['It becomes the cheapest price per ' + perUnitLabel(p.item.base_unit) + ' for ' + p.item.name] : []),
         ],
@@ -1572,7 +1660,7 @@ export const purchasingTools = [
     class: 'consequential',
     title: 'Change a supplier price',
     description:
-      'Changes one of an item\'s supplier prices: the price per pack, VAT, pack, supplier code, minimum packs, steps, ' +
+      'Changes one of an item\'s supplier prices: the price per pack, VAT, pack, supplier code, barcode, minimum packs, steps, ' +
       'or switches it off (active: false). Name the supplier, and which (supplier code or pack) when it has several ' +
       'prices for the item. venue_prices sets a venue\'s own price (null = back to the company price). Old prices ' +
       'are kept in the price history.',
@@ -1587,6 +1675,7 @@ export const purchasingTools = [
       pack_size:      z.number().positive().max(10000000).optional(),
       pack_unit:      PackUnit.optional(),
       supplier_code:  z.string().max(100).nullable().optional(),
+      barcode:        z.string().max(20).nullable().optional().describe('The barcode on the supplier\'s product (GTIN); null clears'),
       product_name:   z.string().max(200).nullable().optional().describe('The supplier\'s own name or brand; null clears it'),
       min_qty:        z.number().positive().max(100000).nullable().optional(),
       order_multiple: z.number().positive().max(100000).nullable().optional(),
@@ -2777,6 +2866,27 @@ export const purchasingTools = [
 
 // ── Plans (shared by describe and run) ─────────────────────
 
+/** A count's lines: each item found by name, code or barcode, its quantity in a unit that fits it. */
+async function countPlan(ctx, input) {
+  const levels = await Promise.all(['purchasing', 'purchasing_setup'].map(m => staffPermissionLevel(ctx, m)))
+  if (!levels.includes('manage')) throw new ToolError('You don\'t have permission to count stock. Ask an owner or admin.', 403)
+  const venue = await venueFor(ctx, input.venue)
+  const st = await callApi(ctx, 'GET', '/api/stock/venues/' + venue.id)
+  const rows = st.items.map(i => ({ ...i, id: i.item_id, quotes: (i.quote_barcodes || []).map(barcode => ({ barcode })) }))
+  const seen = new Set()
+  const lines = input.counts.map(c => {
+    const item = pickItem(rows, c.item)
+    if (seen.has(item.id)) throw new ToolError(item.name + ' is in the count twice.', 422)
+    seen.add(item.id)
+    const unit = c.unit || item.base_unit
+    if (countToBase(c.qty, unit, item.base_unit) == null) {
+      throw new ToolError(item.name + ' is counted ' + COUNTED[item.base_unit] + ', not in ' + unit + '.', 422)
+    }
+    return { item, qty: c.qty, unit, was: item.on_hand }
+  })
+  return { venue, lines }
+}
+
 /** A barcode's problem (barcodeProblem() in shared/catalogue.js, the route's rule) refuses the card. */
 function checkBarcode(v) {
   const p = v ? barcodeProblem(v) : null
@@ -2872,6 +2982,7 @@ async function itemChangePlan(ctx, input) {
 }
 
 async function newPricePlan(ctx, input) {
+  checkBarcode(input.barcode)
   const [items, sups, venues] = await Promise.all([loadItems(ctx), loadSuppliers(ctx), tenantVenues(ctx)])
   const item = pickItem(items, input.item)
   const sup = pickSupplier(sups, input.supplier)
@@ -2900,6 +3011,7 @@ async function newPricePlan(ctx, input) {
 }
 
 async function priceChangePlan(ctx, input) {
+  checkBarcode(input.barcode)
   const [items, venues] = await Promise.all([loadItems(ctx), tenantVenues(ctx)])
   const item = pickItem(items, input.item)
   const quote = pickQuote(item.name, item.quotes, input.supplier, input.which)
@@ -2934,7 +3046,7 @@ async function priceChangePlan(ctx, input) {
     body.vat_rate = input.vat_rate
     lines.push('VAT: ' + fmtNum(quote.vat_rate) + '% to ' + fmtNum(input.vat_rate) + '%')
   }
-  for (const [k, label] of [['supplier_code', 'Supplier code'], ['product_name', 'Product name'], ['min_qty', 'Minimum packs'], ['order_multiple', 'Steps of']]) {
+  for (const [k, label] of [['supplier_code', 'Supplier code'], ['barcode', 'Barcode'], ['product_name', 'Product name'], ['min_qty', 'Minimum packs'], ['order_multiple', 'Steps of']]) {
     if (input[k] === undefined) continue
     const v = input[k] === '' ? null : input[k]
     if ((v ?? null) === (quote[k] ?? null)) continue

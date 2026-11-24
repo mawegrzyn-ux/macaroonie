@@ -133,6 +133,7 @@ export function StockOnHand({ onOpenItem }) {
                 <span className="min-w-0">
                   <span className="font-medium block truncate">{i.name}</span>
                   <span className="text-xs text-muted-foreground">{[i.category_name, i.code, i.barcode].filter(Boolean).join(' · ')}</span>
+                  {i.low && <span className="mt-0.5 block w-fit rounded bg-amber-100 px-1.5 text-[11px] font-medium text-amber-900" data-testid="stock-low">Below par ({formatBase(i.par_base, i.base_unit)})</span>}
                 </span>
                 <span className="text-right tabular-nums font-medium" data-testid="stock-on-hand">{i.on_hand == null ? <span className="text-muted-foreground font-normal">Not counted</span> : formatBase(i.on_hand, i.base_unit)}</span>
                 <span className="text-right tabular-nums hidden sm:block">{i.received_since ? '+' + formatBase(i.received_since, i.base_unit) : '–'}</span>

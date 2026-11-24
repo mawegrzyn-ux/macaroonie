@@ -801,6 +801,8 @@ export function poNumberLabel(n) {
 //     -> { on_hand, counted, counted_at, received_since, used_since, sales_counted }
 //   countToBase(qty, unit, baseUnit)  a counted quantity in its unit (kg, l, each...)
 //                                     as the item's base unit, or null when they don't fit
+//   stockLow(onHand, par)             below the venue's par (step 9b): false when either
+//                                     is unknown (never counted, no par)
 
 export function stockOnHand({ count = null, receipts = [], usage = null } = {}) {
   const since = count?.at ? new Date(count.at).getTime() : null
@@ -823,4 +825,10 @@ export function countToBase(qty, unit, baseUnit) {
   const n = Number(qty)
   if (!u || !b || u.kind !== b.kind || !Number.isFinite(n) || n < 0) return null
   return round4(n * u.factor / b.factor)
+}
+
+export function stockLow(onHand, par) {
+  if (onHand == null || par == null) return false
+  const p = Number(par)
+  return Number.isFinite(p) && p > 0 && Number(onHand) < p
 }
