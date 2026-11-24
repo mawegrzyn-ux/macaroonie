@@ -102,7 +102,7 @@ test('Your sites: the venue that needs it first, its reasons, completion today a
   const out = await ok(owner.get('/api/ops/sites'))
   assert.deepEqual(out.sites.slice(0, 2).map(s => s.venue_id), [V2, V], 'the site that needs it first')
   const [two, one] = out.sites
-  assert.deepEqual(two.counts, { late: 4, skipped: 1, out_of_range: 1, cash_up: 1, offline: 0 })
+  assert.deepEqual(two.counts, { late: 3, skipped: 1, out_of_range: 1, cash_up: 1, offline: 0 }, 'the reading out of range counted once, not also as late')
   assert.deepEqual(two.reasons.map(r => r.key), ['late', 'out_of_range', 'cash_up', 'skipped'])
   assert.deepEqual(two.today, { due: 5, in_window: 0, share: 0 })
   assert.deepEqual(one.today, { due: 3, in_window: 2, share: 66.7 })

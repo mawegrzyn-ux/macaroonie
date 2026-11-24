@@ -242,7 +242,9 @@ export async function gatherFacts(req, ctx, venue, now) {
     SELECT id, path, venue_id, tab, note, by_label, created_at FROM team_suggestions
      WHERE tenant_id = ${req.tenantId} AND role_id = ${roleId}
      ORDER BY created_at DESC LIMIT 20`) : []
-  const menu = new Map(navLinksOf(tree).map(l => [l.route, l]))
+  // A page linked twice in the menu goes by its first link's name.
+  const menu = new Map()
+  for (const l of navLinksOf(tree)) if (!menu.has(l.route)) menu.set(l.route, l)
   // A report run most weeks: only one the person can still open (the
   // reports route's own list, as them), and only worth asking when one qualifies.
   const facts = { now, venueId: venue.id, menu, team, runs: rows.runs, usage: rows.usage, reports: new Map() }

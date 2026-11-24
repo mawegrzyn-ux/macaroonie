@@ -13,7 +13,9 @@ export function Section() {
       <H2>Usage record</H2>
       <P>
         Pages opened in the admin and searches in the menu box (the ask bar), with whether a search was
-        handed to Pepper and what it opened: the record step 0 of the Pepper-first plan asks for
+        handed to Pepper and what it opened, and since step 7d Home&apos;s suggestions shown, opened, pinned and
+        dismissed (kind <Mono>suggestion</Mono>, columns <Mono>rule</Mono> and <Mono>act</Mono>, migration 284):
+        the record step 0 of the Pepper-first plan asks for
         (<Mono>reports/AI first back office strategy.md</Mono>, "0. Prove and instrument"). One table,
         <Mono> usage_events</Mono> (migration 270, RLS enabled and forced), kept 90 days.
       </P>
@@ -24,11 +26,12 @@ export function Section() {
           ['admin/src/lib/usage.js', 'recordUse() queues an event; flush() sends up to 50 to POST /api/usage/events every 15 s, when the queue fills and when the tab is hidden or closed (fetch with keepalive). A failed batch is dropped; nothing waits on it.'],
           ['usePageUse()', 'In AppShell and MobileShell: one page event per change of location.pathname (never the query string); lends the queue the Auth0 token getter.'],
           ['useSearchUse()', 'In the ask bar (components/layout/AskBar.jsx, on Home and over any page): typed(q, n) as the box changes, askedPepper() when the words are handed to Pepper (Enter with no row lit, Ask, the Ask Pepper row, an ask under the bar), picked(kind, route) when a page (menu) or a saved report (report) is opened from the bar. One row per search: ended by a pick, a hand-over (the box empties), an emptied box, new words after a hand-over, or the tab hidden. A search of one letter that went nowhere is not sent. Since step 2c nothing records picked pepper: what Pepper\'s answer then opened is not joined to the search.'],
+          ['recordUse({ kind: \'suggestion\', rule, act, path })', 'Home\'s suggestions (components/home/Suggestions.jsx, step 7d, migration 284): act shown (once per suggestion while Home is open, the first three below 1024 px), opened, pinned or dismissed; rule one of the RULES keys in services/suggestions.js. usageRow() drops an unknown rule or act; the path is cleaned like a page\'s.'],
           ['api/src/routes/usage.js', 'POST /api/usage/events { events } (requireAuth, any member of the group, at most 50, 120 batches a minute): 204. Each event is cleaned by usageRow(): an odd one is dropped, never refused.'],
           ['api/src/services/usageRecord.js', 'usagePath(): the path only, each part that is a uuid, a number or a long key as :id, letters, digits and / _ : . ~ - only, 200 characters. usageRow(), recordUsage(), cleanUpUsage() (the hourly ai-cleanup job, KEEP_DAYS 90).'],
         ]}
       />
-      <H3>Reading it: three report subjects</H3>
+      <H3>Reading it: four report subjects</H3>
       <P>
         In <Mono>api/src/reports/catalogue/usage.js</Mono>, area Your group. Decision 8 of the strategy: the
         record of what a person opens stays theirs, and Pepper does not rank people.
@@ -39,6 +42,7 @@ export function Section() {
           ['usage.mine (My pages and searches)', 'No module: anyone who can use reports', 'Its rule is {t}.user_sub = {me}: only the person running it, the words typed included (pii, so a schedule to outsiders leaves them out).'],
           ['usage.pages (Pages opened)', 'View on nav_designer', 'Times opened, pages, days; no person, no words.'],
           ['usage.searches (Menu searches)', 'View on nav_designer', 'Searches, handed to Pepper and their share, opened something and its share, Pepper picks opened, no menu match; no person, no words.'],
+          ['usage.suggestions (Home suggestions)', 'View on nav_designer', 'Shown, opened, pinned, dismissed and their shares of shown (Tap-through is opened / shown), by rule (Why it was suggested), what happened and page; no person. The measure of step 7.'],
         ]}
       />
       <P>

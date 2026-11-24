@@ -1,0 +1,7 @@
+# Home suggests pages, managers can point a role at a page, and owners see their sites first
+
+- Under your pins, Home now suggests up to four pages, each with the reason on its second line: tasks late or skipped there, a page your manager suggested to your role, something not set up yet (no fridges at a venue), a page you open most Fridays around now or most days, or a report you run most weeks. Tap to open it, the pin to keep it, the cross to dismiss it for 14 days. They come from rules, never from Pepper, and only ever offer pages your role can open.
+- Whoever manages the menu (Navigation, an owner by default) can suggest a page to a role with a short note, from the Navigation page (Suggested to roles) or from a pin's row in Edit pins. Everyone in that role sees "Suggested by" with the note until they pin it or dismiss it.
+- If you look after several venues and have Manage on Venues, Home starts with Your sites: every venue, the one that needs someone first, with why (tasks late, checks out of range, a cash-up missing, devices offline, skips today) and the share of its tasks done in time today and this week. Tap a venue to switch Home to it. By site, never by person.
+- How suggestions are used is counted with no names: the report subject Home suggestions shows how often each kind is shown, opened, pinned or dismissed (tap-through). Your own suggestions are in My pages and searches.
+- Migrations 282 (home_suggestion_hides), 283 (team_suggestions) and 284 (the usage record's suggestion events).

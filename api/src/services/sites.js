@@ -99,7 +99,8 @@ export async function sitesFor(tenantId, now = new Date()) {
     const days = venues.map(v => localParts(now, v.timezone).date).sort()
     const rows = await tx`
       SELECT venue_id, day::text AS day,
-             count(*) FILTER (WHERE late_at IS NOT NULL AND finished_at IS NULL AND NOT skipped)::int AS late,
+             -- Late: a corrective action is late from the start; it counts as out of range, not twice.
+             count(*) FILTER (WHERE late_at IS NOT NULL AND finished_at IS NULL AND NOT skipped AND kind <> 'corrective_action')::int AS late,
              count(*) FILTER (WHERE skipped)::int AS skipped,
              count(*) FILTER (WHERE kind = 'corrective_action' AND finished_at IS NULL AND NOT skipped)::int AS out_of_range,
              count(*) FILTER (WHERE kind = 'cash_up' AND finished_at IS NULL AND NOT skipped)::int AS cash_up,
