@@ -22,9 +22,16 @@
 //   GET  /skips            the day's skips with their reasons, by site, for
 //                          the areas the person manages (decision 8: by site,
 //                          never by person)
+//   GET  /sites            above the store (step 7c, services/sites.js): every
+//                          venue ranked by what needs it today (late tasks,
+//                          checks out of range, cash-ups missing, devices
+//                          offline, skips), with completion today and this
+//                          week, from the feed's record. Manage on Venues (the
+//                          level that runs the sites, as the report subjects
+//                          on the task record ask). By site, never by person.
 
 import { z } from 'zod'
-import { requireAuth, permissionLevels } from '../middleware/auth.js'
+import { requireAuth, requirePermission, permissionLevels } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { tenantSql, withTenant } from '../config/db.js'
 import { permissionAtLeast, workLevel } from '../config/modules.js'
@@ -33,6 +40,7 @@ import { opsToday, OPS_MODULES, AREAS, moduleOf } from '../services/opsToday.js'
 import { changeTask, taskHistory, canChange, personName, localParts, TaskError } from '../services/opsTasks.js'
 import { REASON_MAX, SNOOZE_MAX_MINUTES } from '../../../shared/todayTasks.js'
 import { gatherFacts, suggestionsFor } from '../services/suggestions.js'
+import { sitesFor } from '../services/sites.js'
 
 const realDay = d => { const t = Date.parse(d + 'T12:00:00Z'); return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === d }
 const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(realDay, 'Not a real date')
@@ -176,6 +184,12 @@ export default async function opsRoutes(app) {
     if (!q.success) throw httpError(422, 'Say which venue and task.')
     const { venue, task } = await findTask(req, q.data.venue_id, q.data.key, q.data.date)
     return { key: task.key, title: task.title, history: await taskHistory(req.tenantId, venue.id, task.key) }
+  })
+
+  // Above the store (step 7c): the group's venues ranked, from the feed's record.
+  app.get('/sites', { preHandler: requirePermission('venues', 'manage') }, async req => {
+    if (!req.tenantId) throw httpError(404, 'Choose a restaurant group first')
+    return sitesFor(req.tenantId)
   })
 
   // The day's skips by site (decision 7: shown above the store), for the
