@@ -814,13 +814,16 @@
     "api/test/pepper-review.test.mjs",
     "api/test/pepper-today.test.mjs",
     "api/test/pepper-tools-registry.test.mjs",
+    "api/test/pepper-venue-words.test.mjs",
     "api/test/pepper-voice.test.mjs",
     "api/test/pepper-web-search.test.mjs",
     "api/test/venue-wizard.test.mjs",
     "shared/assistant.js",
     "shared/forms.js",
     "shared/help.js",
-    "shared/storeOpening.js"
+    "shared/storeOpening.js",
+    "shared/test/venueWords.test.mjs",
+    "shared/venueWords.js"
    ],
    "public": [
     "admin/src/components/ai/AskPepperBar.jsx",
@@ -841,7 +844,8 @@
     "shared/forms.js",
     "shared/help.js",
     "shared/nav/pepper.js",
-    "shared/storeOpening.js"
+    "shared/storeOpening.js",
+    "shared/venueWords.js"
    ]
   },
   "purchasing": {

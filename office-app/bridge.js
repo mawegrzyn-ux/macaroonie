@@ -59,7 +59,7 @@ export function bridgeScript(version) {
         o = o || {};
         var id = 'l' + (++seq);
         listeners[id] = { onText: o.onText, onEnd: o.onEnd, onError: o.onError };
-        post({ id: id, type: 'speech.listen', args: { lang: o.lang, continuous: !!o.continuous } });
+        post({ id: id, type: 'speech.listen', args: { lang: o.lang, continuous: !!o.continuous, hints: Array.isArray(o.hints) ? o.hints.slice(0, 300) : undefined } });
         return function () { post({ id: id, type: 'speech.stop', args: {} }); };
       },
       speak: function (o) { return call('speech.speak', o); },
@@ -76,11 +76,21 @@ export const eventScript = (id, name, value) => `window.__macaOffice && window._
 
 /**
  * The app's side. services: { auth, push, speech, scanner } (speech.listen
- * takes { lang, continuous, onText, onEnd, onError } and returns stop());
+ * takes { lang, continuous, hints, onText, onEnd, onError } and returns stop();
+ * hints: the venue's own words, cleanHints());
  * run(script)
  * runs JavaScript in the page; allowed(url) says whether the page the
  * message came from may use the bridge. Returns handle(data, url).
  */
+/** The venue's words a page asks the recogniser to expect: strings only, capped. */
+export const MAX_HINTS = 300
+export const HINT_MAX = 60
+export function cleanHints(list) {
+  if (!Array.isArray(list)) return undefined
+  const out = list.filter(h => typeof h === 'string').map(h => h.trim()).filter(h => h && h.length <= HINT_MAX).slice(0, MAX_HINTS)
+  return out.length ? out : undefined
+}
+
 export function makeHandler({ services, run, allowed }) {
   const stops = new Map()
   return async function handle(data, url) {
@@ -92,6 +102,7 @@ export function makeHandler({ services, run, allowed }) {
       const stop = services.speech.listen({
         lang: msg.args?.lang,
         continuous: !!msg.args?.continuous,
+        hints: cleanHints(msg.args?.hints),
         onText: (text, final) => run(eventScript(msg.id, 'text', { text, final: !!final })),
         onError: message => run(eventScript(msg.id, 'error', String(message || 'Couldn\'t hear that.'))),
         onEnd: () => { stops.delete(msg.id); run(eventScript(msg.id, 'end', null)) },

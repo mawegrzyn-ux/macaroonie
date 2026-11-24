@@ -15,6 +15,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { prepareFile } from './attachments'
 import { canListen, listen } from '@/lib/speech'
+import { useVenueWords } from './venueWords'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 const NOTE_MAX = 2000
@@ -55,6 +56,7 @@ function CaptureSheet({ venueId, onClose, onSaved }) {
   const [error, setError] = useState(null)
   const stop = useRef(null)
   const fileRef = useRef(null)
+  const words = useVenueWords(venue || null)
   useEffect(() => { if (!venue && venues.length) setVenue(venues[0].id) }, [venues, venue])
   useEffect(() => () => { stop.current?.(); if (photo?.preview) URL.revokeObjectURL(photo.preview) }, [])   // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -75,7 +77,8 @@ function CaptureSheet({ venueId, onClose, onSaved }) {
     setMode('voice'); setError(null); setHearing(true)
     const start = note ? note + ' ' : ''
     stop.current = listen({
-      onText: t => setNote((start + t).slice(0, NOTE_MAX)),
+      hints: words.hints,
+      onText: t => setNote((start + words.fix(t)).slice(0, NOTE_MAX)),
       onEnd: () => setHearing(false),
       onError: m => { setError(m); setHearing(false) },
     })

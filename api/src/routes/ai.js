@@ -51,7 +51,7 @@ import { z } from 'zod'
 import { sql, withTenant, systemSql, tenantSql } from '../config/db.js'
 import { env } from '../config/env.js'
 import { httpError } from '../middleware/error.js'
-import { requireAuth, requirePermission, requirePlatformAdmin, permissionLevel, newAccessToken } from '../middleware/auth.js'
+import { requireAuth, requirePermission, requirePlatformAdmin, permissionLevel, permissionLevels, newAccessToken } from '../middleware/auth.js'
 import { FREE } from '../middleware/sharedDevice.js'
 import { waitingCaptures } from './captures.js'
 import { ToolError, usageMonth, makeContext, callApi, staffAuthOf, staffPrincipalOf } from '../ai/context.js'
@@ -68,6 +68,7 @@ import { ACTION_LABELS } from '../../../shared/pepperActions.js'
 import { wantsStream, eventStream, errorEvent } from '../ai/sse.js'
 import { staffInstructions } from '../ai/prompts.js'
 import { ASSISTANT_NAME } from '../../../shared/assistant.js'
+import { venueWordList, firstNameOf, MAX_WORDS } from '../../../shared/venueWords.js'
 import { saveUpload, loadOwnAttachment, deleteUnsent, MAX_BYTES, MAX_PER_MESSAGE } from '../ai/attachments.js'
 
 // A real day: 2026-02-31 matches the pattern but isn't one.
@@ -610,6 +611,50 @@ export default async function aiRoutes(app) {
       ...(notIncluded.length ? { not_included: notIncluded } : {}),
       ...(errors.length ? { errors } : {}),
     }
+  })
+
+  // ── The venue's own words for speech (Pepper-first step 6c) ──
+  // Fridge and hold station names, dish names, staff first names and supplier
+  // names (shared/venueWords.js), for the recogniser's hints and the snap
+  // after it. From the data, no table of its own; each group only with View
+  // on its module. venue_id: that venue's (dishes of the group's menus with
+  // no venue too); without it, every venue's, up to MAX_WORDS.
+  app.get('/venue-words', async req => {
+    if (!req.tenantId) throw httpError(404, 'Choose a restaurant group first')
+    const q = z.object({ venue_id: z.string().uuid().optional() }).safeParse(req.query ?? {})
+    if (!q.success) throw httpError(422, 'venue_id must be a venue')
+    const venueId = q.data.venue_id ?? null
+    const lv = await permissionLevels(req, ['food_safety', 'menus', 'staff', 'rota', 'purchasing', 'purchasing_setup'])
+    const can = (...keys) => keys.some(k => lv[k] && lv[k] !== 'none')
+    return withTenant(req.tenantId, async tx => {
+      if (venueId) {
+        const [v] = await tx`SELECT id FROM venues WHERE id = ${venueId} AND tenant_id = ${req.tenantId}`
+        if (!v) throw httpError(404, 'Venue not found')
+      }
+      const names = rows => rows.map(r => r.name)
+      const places = can('food_safety') ? names(await tx`
+        SELECT name FROM fs_equipment WHERE tenant_id = ${req.tenantId} AND is_active = true AND (${!venueId} OR venue_id = ${venueId})
+        UNION
+        SELECT name FROM fs_hold_stations WHERE tenant_id = ${req.tenantId} AND is_active = true AND (${!venueId} OR venue_id = ${venueId})`) : []
+      const dishes = can('menus') ? names(await tx`
+        SELECT DISTINCT i.name FROM menu_items i
+          JOIN menu_sections s ON s.id = i.section_id AND s.tenant_id = i.tenant_id
+          JOIN menus m ON m.id = s.menu_id AND m.tenant_id = i.tenant_id
+         WHERE i.tenant_id = ${req.tenantId} AND m.is_published = true
+           AND (${!venueId} OR m.venue_id IS NULL OR m.venue_id = ${venueId})
+         LIMIT ${MAX_WORDS}`) : []
+      const staff = can('staff', 'rota') ? names(await tx`
+        SELECT name FROM cash_staff
+         WHERE tenant_id = ${req.tenantId} AND is_active = true AND (left_on IS NULL OR left_on >= current_date)
+           AND (${!venueId} OR venue_id = ${venueId})`).map(firstNameOf) : []
+      const suppliers = can('purchasing', 'purchasing_setup') ? names(await tx`
+        SELECT s.name FROM suppliers s
+         WHERE s.tenant_id = ${req.tenantId}
+         ORDER BY EXISTS (SELECT 1 FROM supplier_venues sv WHERE sv.supplier_id = s.id AND sv.tenant_id = s.tenant_id
+                           AND (${!venueId} OR sv.venue_id = ${venueId})) DESC, s.name
+         LIMIT 100`) : []
+      return { venue_id: venueId, words: venueWordList([places, suppliers, staff, dishes]) }
+    })
   })
 
   // ── Platform admin: monthly limits ──────────────────────

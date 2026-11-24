@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
-import { bridgeScript, makeHandler, CALLS } from '../bridge.js'
+import { bridgeScript, makeHandler, CALLS, cleanHints, MAX_HINTS } from '../bridge.js'
 
 /** A page with the bridge on it, wired to an app handler. */
 function wire(services, { allowed = () => true, url = 'https://ops.macaroonie.com/mobile' } = {}) {
@@ -57,6 +57,16 @@ test('speech: continuous listening is asked for through the bridge, and stop() r
   await new Promise(resolve => window.MacaroonieOffice.speech.listen({ onEnd: resolve }).call())
   assert.deepEqual(asked, [true, false])
   assert.equal(stopped, 2)
+})
+
+test('speech: the venue\'s words go to the recogniser as hints, cleaned and capped (step 6c)', async () => {
+  const asked = []
+  const { window } = wire({ ...services, speech: { ...services.speech, listen(o) { asked.push(o.hints); setTimeout(o.onEnd, 1); return () => {} } } })
+  await new Promise(resolve => window.MacaroonieOffice.speech.listen({ hints: ['Walk-in fridge', ' Fresh Co ', 7, '', 'x'.repeat(61)], onEnd: resolve }))
+  await new Promise(resolve => window.MacaroonieOffice.speech.listen({ onEnd: resolve }))
+  assert.deepEqual(asked, [['Walk-in fridge', 'Fresh Co'], undefined])
+  assert.equal(cleanHints(Array.from({ length: 400 }, (_, i) => 'w' + i)).length, MAX_HINTS)
+  assert.equal(cleanHints('nope'), undefined)
 })
 
 test('a failure comes back as the page\'s error; an unknown call is refused', async () => {

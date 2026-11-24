@@ -88,7 +88,7 @@ ExpoSpeechRecognitionModule.addListener('end', () => {
 })
 
 const speech = {
-  listen({ lang, continuous, onText, onEnd, onError }) {
+  listen({ lang, continuous, hints, onText, onEnd, onError }) {
     const session = createSession({ continuous: !!continuous && continuousWorks })
     const mine = { onText, onEnd, onError, session, started: false, stopped: false }
     hearing = mine
@@ -98,7 +98,9 @@ const speech = {
       // Let go before the microphone opened: nothing to listen to.
       if (mine.stopped) { hearing = null; onEnd?.(); return }
       mine.started = true
-      ExpoSpeechRecognitionModule.start({ lang: lang || 'en-GB', interimResults: true, continuous: session.continuous })
+      // hints: the venue's own words (fridges, dishes, staff, suppliers) as the
+      // recogniser's contextual strings (Android 13 and up, iOS).
+      ExpoSpeechRecognitionModule.start({ lang: lang || 'en-GB', interimResults: true, continuous: session.continuous, ...(hints?.length ? { contextualStrings: hints } : {}) })
     })
     return () => {
       if (hearing !== mine || mine.stopped) return
