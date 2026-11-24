@@ -40,7 +40,8 @@ import { officeOrigin } from '../../services/platformHost.js'
 import { CATALOGUE } from '../../reports/catalogue/index.js'
 import { PEPPER_HEADER } from '../../reports/access.js'
 import { PLAN, planOf } from '../../reports/plan.js'
-import { rankSubjects, typeText, usesText, stem, indexWords } from '../../reports/smart.js'
+import { rankSubjects, typeText, usesText, stem, indexWords, topicCoverage, contextParts } from '../../reports/smart.js'
+import { resolvePath } from '../../../../shared/reports/paths.js'
 import { dataTree, treeNodes, paramInputs, paramWords } from '../../../../shared/reports/build.js'
 import { describeReport } from '../../../../shared/reports/describe.js'
 import { tableModel } from '../../../../shared/reports/table.js'
@@ -115,12 +116,15 @@ function subjectView(cat, s) {
   }
 }
 
-// One line per figure or field: path | name | kind | what it can be | about.
+// One line per figure or field: path | name | kind | what it can be | about,
+// then what it means to the people asking (the catalogue's synonyms,
+// instructions and examples): also: ... | note: ... | e.g. ...
 function nodeLine(cat, subjectKey, n) {
   const parts = [n.path, n.full, typeText(cat, subjectKey, n)]
   const uses = usesText(n.uses)
   if (uses) parts.push(uses)
   if (n.about && !n.trail.length) parts.push(clip(n.about, 160))
+  parts.push(...contextParts(n))
   return parts.join(' | ')
 }
 
@@ -133,7 +137,7 @@ function matchNodes(tree, topic) {
   if (!words.length) return []
   return treeNodes(tree)
     .map((n, i) => {
-      const have = new Set(indexWords([n.label, n.full, n.trail.join(' '), n.about].join(' ')).map(stem))
+      const have = new Set(indexWords([n.label, n.full, n.trail.join(' '), n.about, ...(n.synonyms || [])].join(' ')).map(stem))
       const hits = words.filter(w => have.has(w)).length
       return { n, i, hits, figure: n.what === 'measure' ? 1 : 0 }
     })
@@ -168,6 +172,57 @@ function subjectInFull(cat, s, topic) {
     if (hits.length) out.best_for_the_topic = hits
   }
   return out
+}
+
+// The words of a topic no subject has, near the fields that have something
+// like them: [{ subject, path, name }], the closest first (letters in common).
+const trigrams = w => { const t = '  ' + w + ' '; const out = new Set(); for (let i = 0; i < t.length - 2; i++) out.add(t.slice(i, i + 3)); return out }
+function likeness(a, b) {
+  const x = trigrams(a), y = trigrams(b)
+  let both = 0
+  for (const g of x) if (y.has(g)) both++
+  return both / (x.size + y.size - both)
+}
+const NEAREST = 6
+const NEAR_LIKENESS = 0.45
+
+/**
+ * find_fields for a topic none of whose words any subject has (8A2): a plain
+ * "not covered", with the nearest figures and fields (by spelling: a typo
+ * finds its word) or, when nothing is near, the areas reports do cover.
+ */
+function notCovered(cat, topic, cover) {
+  const near = []
+  for (const s of baseSubjects(cat)) {
+    const tree = dataTree(cat, s.key, { depth: 0 })
+    for (const n of [...tree.figures, ...tree.fields]) {
+      const words = [n.label, ...(n.synonyms || [])].flatMap(indexWords)
+      const best = Math.max(0, ...cover.words.flatMap(w => words.map(x => likeness(w, x))))
+      if (best >= NEAR_LIKENESS) near.push({ score: best, line: s.key + ' ' + n.path + ' | ' + s.label + ': ' + n.full })
+    }
+  }
+  near.sort((a, b) => b.score - a.score)
+  return {
+    covered: false,
+    answer: 'That is not something reports cover yet: no report holds ' + cover.words.map(w => '"' + w + '"').join(' or ') + '.',
+    ...(near.length
+      ? { nearest: near.slice(0, NEAREST).map(x => x.line) }
+      : { reports_cover: (cat.areas || []).filter(a => baseSubjects(cat).some(s => s.area === a.key)).map(a => a.label) }),
+    note: 'Say so plainly and offer what is nearest; never work a figure out another way or guess one.',
+  }
+}
+
+/** What the figures of a plan need saying with them (the catalogue's instructions). */
+function figureNotes(plan) {
+  const out = []
+  for (const f of Array.isArray(plan?.figures) ? plan.figures : []) {
+    const path = f?.figure || f?.field
+    if (!path) continue
+    const subject = f.from && CATALOGUE.subjects[f.from] ? f.from : plan.subject
+    const r = resolvePath(CATALOGUE, subject, path)
+    if (r.ok && r.def?.instructions) out.push((r.def.label || path) + ': ' + r.def.instructions)
+  }
+  return [...new Set(out)]
 }
 
 // ── Reports ──────────────────────────────────────────────────
@@ -522,7 +577,9 @@ export const promptNotes = [
     'paths with find_fields first (a report is about one subject: dishes sold, checks, payments, online orders, ' +
     'bookings...), then pass a plan. Ask for totals, averages and rates as figures and read them from the rows: ' +
     'never add figures up or work a rate out yourself. Say the period the answer covers and anything the tool says ' +
-    'it assumed or couldn\'t do; when a choice is ambiguous the tool asks, so pass its question on. explain_figure ' +
+    'it assumed or couldn\'t do; when a choice is ambiguous the tool asks, so pass its question on. A question reports ' +
+    'don\'t cover (find_fields answers covered: false) gets "that is not something reports cover yet" and the nearest ' +
+    'figures, never a guess; figure_notes on an answer are the app\'s own words on using those figures. explain_figure ' +
     'says what a figure counts (net sales leaves out voided dishes; takings are what was paid). To keep a report, ' +
     'build_report with the same plan; to change a saved one, change the plan get_report gives; a starter report is ' +
     'copied first (copy_report). Reports show only what the person\'s role may see. For a file of a report (a ' +
@@ -550,8 +607,10 @@ export const reportTools = [
       'deposits...) and each subject\'s figures and fields, as the paths ask_data and build_report take. Give a topic in words ' +
       '("dishes sold by hour", "tips by server", "no-shows") to find the subject and the paths that fit, or a subject to list ' +
       'everything it has. Lines read: path | name | kind | what it can be (figure, group by day/week/..., filter) | about. ' +
+      'A line may go on with also: (other words people use for it), note: (how to use it right) and e.g. (questions it answers). ' +
       'Prefer a subject\'s figures over adding up a field (figures carry the app\'s rules: net sales leaves voided dishes out); ' +
-      'explain_figure says exactly what one counts.',
+      'explain_figure says exactly what one counts. When it answers covered: false, reports don\'t hold that: say so plainly and ' +
+      'offer the nearest, never work a figure out another way; not_found lists words no report has.',
     input: z.object({
       topic: z.string().trim().max(200).optional().describe('What the report or question is about, in words'),
       subject: z.string().trim().max(80).optional().describe('A subject key (till.lines) or name, to list everything it has'),
@@ -563,6 +622,9 @@ export const reportTools = [
       if (!input.topic) throw new ToolError('Give a topic in words, or a subject to list.', 422)
       const base = baseSubjects(cat)
       if (!base.length) return { subjects: [], note: 'Your role can\'t report on anything yet.' }
+      // A topic none of whose words any subject has: not covered, never a guess.
+      const cover = topicCoverage(cat, input.topic)
+      if (cover.words.length && !cover.found.length) return notCovered(cat, input.topic, cover)
       const ranked = rankSubjects(cat, input.topic).slice(0, SUBJECTS_FOUND)
       const subjects = ranked.map(r => cat.subjects[r.key]).filter(Boolean)
       return {
@@ -574,6 +636,11 @@ export const reportTools = [
           return { ...view, ...(hits.length ? { matching: hits } : {}), figures: tree.figures.map(n => n.path + ' | ' + n.full) }
         }),
         note: 'One subject per report. find_fields with a subject lists all of it, linked things included (a dish line\'s check, server, venue).',
+        ...(cover.missing.length ? {
+          not_found: cover.missing,
+          not_found_note: 'No report has these words. If they are names (a venue, a dish, a person, a supplier) the subjects above ' +
+            'may still answer it; if they are what the question is about, say plainly that reports don\'t cover it yet, never guess a figure.',
+        } : {}),
       }
     },
   },
@@ -812,9 +879,11 @@ export const reportTools = [
       await requireStaffPermission(ctx, 'reports', 'use')
       const out = await runPlan(ctx, input.plan, { rows: input.rows ?? SHOWN_ROWS })
       if (!out.result) throw new ToolError(out.problem || 'The report couldn\'t be run', 422)
+      const notes = figureNotes(input.plan)
       return {
         name: out.name,
         ...answerWords(out),
+        ...(notes.length ? { figure_notes: notes } : {}),
         ...tableOf(out.result, input.rows ?? SHOWN_ROWS),
         keep_it: 'Not saved. build_report saves it with the same plan.',
       }

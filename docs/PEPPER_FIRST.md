@@ -472,3 +472,11 @@ tasks, checks out of range, cash-ups missing, devices offline and skips, with th
 window today and this week, from the feed's record, never by person, decision 8); and the measure, tap-through
 by rule (the report subject `usage.suggestions`). Follow-ups: `docs/claude/outstanding/shell.md` 60.
 
+Step 8, part A (the registry, the catalogue's context, the plain form renderer) was built 24 Nov 2026 (no
+migration): decision 5 as the object registry (`shared/registry/<area>.js`, one record per business object
+naming its table, report subjects, pages, Pepper's change tools and forms, with the catalogue's subject names
+as keys; actions read their class, checks and undo from the tool) and `what_can_i_do`; synonyms, instructions
+and examples on the catalogue's most asked-about fields, with "not covered" for a question no report holds;
+decision 3's deterministic renderer for flat set-up forms (`api/src/forms/`, `PlainForm`), four forms drawn
+from their route's own schema (a new supplier, staff member, expense, closure). Follow-ups:
+`docs/claude/outstanding/pepper.md` 61.

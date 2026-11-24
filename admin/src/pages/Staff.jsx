@@ -21,6 +21,7 @@ import { UsersRound, Plus, Loader2, LogOut, CalendarOff, ChevronDown } from 'luc
 import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
+import { PlainForm } from '@/components/forms/PlainForm'
 import { cn } from '@/lib/utils'
 import { PAY_TYPES, staffRateLabel } from '@/pages/CashRecon'
 import { PAY_METHODS, payMethodLabel } from '@shared/payMethod.js'
@@ -566,8 +567,16 @@ export default function Staff() {
         </div>
       </div>
 
-      {editing && (
-        <StaffEditor venueId={venueId} initial={editing === 'new' ? null : editing} live={live}
+      {/* A new staff member: the plain form drawn from the route's schema (the
+          same one Pepper's open_form opens, Pepper-first 8A3); per-shift rates,
+          leaving dates and time off are set by opening them afterwards. */}
+      {editing === 'new' && (
+        <Modal title="Add staff member" onClose={() => setEditing(null)}>
+          <PlainForm formKey="staff_member" venueId={venueId} onSaved={() => setEditing(null)} onCancel={() => setEditing(null)} />
+        </Modal>
+      )}
+      {editing && editing !== 'new' && (
+        <StaffEditor venueId={venueId} initial={editing} live={live}
           roles={roles} shifts={shifts} onClose={() => setEditing(null)} />
       )}
     </div>

@@ -14,6 +14,7 @@ import documentReadRoutes from '../routes/documentRead.js'
 import aiApiRoutes from '../routes/aiApi.js'
 import formDraftRoutes from '../routes/formDrafts.js'
 import captureRoutes from '../routes/captures.js'
+import plainFormRoutes from '../routes/plainForms.js'
 
 export const routes = [
   // AI: MCP connectors (guest + staff) and the chats (migration 148)
@@ -28,4 +29,6 @@ export const routes = [
   [formDraftRoutes, { prefix: '/api/form-drafts' }],
   // Capture to For review (migration 281, Pepper-first step 6b)
   [captureRoutes, { prefix: '/api/ai/captures' }],
+  // The plain forms' fields, from their routes' schemas (Pepper-first step 8A3)
+  [plainFormRoutes, { prefix: '/api/forms' }],
 ]

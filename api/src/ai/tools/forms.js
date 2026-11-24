@@ -27,8 +27,10 @@ import { z } from 'zod'
 import { ToolError, isStaff, callApi, staffPermissionLevel, levelAtLeast } from '../context.js'
 import { officeOrigin } from '../../services/platformHost.js'
 import { MODULES } from '../../config/modules.js'
-import { DateStr, TimeStr, VenueText, venueFor, venueToday, mondayOf, longDate, pickByName, pickCheckTime, reference } from './util.js'
+import { DateStr, TimeStr, VenueText, venueFor, venueToday, mondayOf, longDate, pickByName, pickCheckTime, reference, tenantVenueList } from './util.js'
 import { FORMS, FORM_KEYS, FILLABLE_FORMS, fieldsLine } from '../../../../shared/forms.js'
+import { PLAIN_FORMS, plainFields } from '../../forms/index.js'
+import { checkPlainValues, plainFieldsLine } from '../../forms/plain.js'
 
 // The forms, one list with the admin's sheet (shared/forms.js): each one's
 // title, module, the level that changes it, its page, its day or week and
@@ -46,6 +48,7 @@ function cardTitle(key, f, { date, monday, template, booking }) {
   if (key === 'sold_out') return 'Sold out dishes'
   if (key === 'cash_up') return 'Cash-up for ' + longDate(date)
   if (key === 'rota_day') return 'Rota for ' + longDate(date)
+  if (!f.by) return f.title
   return f.title + ', ' + longDate(date)
 }
 
@@ -180,7 +183,12 @@ async function pickBooking(ctx, venue, date, text) {
   return pickByName(rows, text, b => b.guest_name, 'booking on ' + longDate(date), 'There are no bookings that day.')
 }
 
-const VALUES_HELP = FILLABLE_FORMS.map(k => k + ' { ' + fieldsLine(FORMS[k].fields) + ' }').join('; ')
+// The fields Pepper may fill, per form: a plain form's are its route's own
+// (api/src/forms/, step 8A3), the rest are declared in shared/forms.js.
+const VALUES_HELP = [
+  ...FILLABLE_FORMS.map(k => k + ' { ' + fieldsLine(FORMS[k].fields) + ' }'),
+  ...Object.entries(PLAIN_FORMS).map(([k, def]) => k + ' { ' + plainFieldsLine(k, def) + ' }'),
+].join('; ')
 
 // What Pepper is told about this file's tools, gathered by tools/index.js:
 // the place in the list (order, then the file name), the areas the tools
@@ -192,10 +200,10 @@ export const promptLines = [
   'open_form opens a form in the chat for the person to fill in ("do today\'s cash-up", "log the fridge temps", ' +
     '"open the closing checklist", "add an expense", "mark the pad thai sold out myself", "who\'s on Saturday"): ' +
     'fridge and freezer, hold, cooking and delivery checks, a checklist, the cash-up, the week\'s wages, the day\'s ' +
-    'expenses, sold out dishes, the rota for a day, a supplier order, corrective actions, an H&S action, a new booking ' +
-    'or a booking\'s details. Use it when the person wants to fill the form in themselves, or has many values to enter ' +
-    'at once. When they have stated the values of one check or one change that a tool records (a reading, a delivery, ' +
-    'a booking, an action), call that tool instead: its card is the confirmation. You may put values into the form ' +
+    'expenses, sold out dishes, the rota for a day, a supplier order, corrective actions, an H&S action, a new booking, ' +
+    'a booking\'s details, a new supplier, a new staff member or closed dates. Use it when the person wants to fill ' +
+    'the form in themselves, or has many values to enter at once. When they have stated the values of one check or ' +
+    'one change that a tool records (a reading, a delivery, a booking, an action), call that tool instead: its card is the confirmation. You may put values into the form ' +
     '(values) only from what the person said or a document they gave states; never infer or guess a reading, a count ' +
     'or an amount. The person checks every value and saves the form themselves.',
 ]
@@ -211,14 +219,17 @@ export const formTools = [
       'form: temps (fridge and freezer temperature checks), holds (hot and cold hold checks), cooking (cooking ' +
       'checks), delivery (delivery checks: temperatures and condition on arrival), checklist (a checklist, by name in ' +
       'checklist; left out = the one due), cash_up (a day\'s cash-up), wages (a week\'s wages; any date in the week), ' +
-      'expense (a day\'s petty cash expenses, with receipt photos), sold_out (mark dishes sold out), rota_day (who is on ' +
-      'and the rota for a day), order (a supplier order: pick the list, then quantities), corrective (corrective actions ' +
+      'expense (a new petty cash expense on the day, with a receipt photo, above the day\'s list), sold_out (mark ' +
+      'dishes sold out), rota_day (who is on and the rota for a day), order (a supplier order: pick the list, then quantities), corrective (corrective actions ' +
       'for the day\'s out-of-range readings), hs_action (a new H&S action log entry), booking (a new table booking on the ' +
-      'day), booking_change (a booking\'s details to change: the guest\'s name or reference in booking, on the day). ' +
+      'day), booking_change (a booking\'s details to change: the guest\'s name or reference in booking, on the day), ' +
+      'supplier (a new supplier), staff_member (a new staff member at the venue), closure (close the venue to bookings ' +
+      'on some dates). ' +
       'Use it when they ask to do one of these themselves ("do today\'s cash-up", "open the closing checklist", ' +
       '"I\'ll do the order"), or when there are many values to enter at once. When the person has stated the values of ' +
       'one check or one change that a tool records (log_temperature, log_hold_check, log_cooking_check, log_delivery, ' +
-      'create_booking, add_hs_action, add_expense), call that tool instead: its card is the confirmation. With values, ' +
+      'create_booking, add_hs_action, add_expense, add_supplier, add_staff_member, close_dates), call that tool ' +
+      'instead: its card is the confirmation. With values, ' +
       'open_form is the fallback when no single tool fits. date defaults to today at the venue. ' +
       'values (optional): what the person said or a document they gave states, placed in the form for them to check ' +
       '(each marked as filled by you): ' + VALUES_HELP + '. Never put in a value they didn\'t give: a measured value ' +
@@ -241,9 +252,15 @@ export const formTools = [
       if (!levelAtLeast(level, 'view')) {
         throw new ToolError('You don\'t have access to ' + (MODULE_LABEL[f.module] || f.module) + ', so that form can\'t open. Ask an owner or admin.', 403)
       }
-      // Checked before anything else, so a bad value is refused the same everywhere.
-      const checked = checkValues(input.form, input.values, ctx.said)
-      const venue = await venueFor(ctx, input.venue)
+      // Checked before anything else, so a bad value is refused the same everywhere:
+      // a plain form's by its route's own schema (8A3).
+      const checked = PLAIN_FORMS[input.form]
+        ? checkPlainValues(input.form, PLAIN_FORMS[input.form], input.values)
+        : checkValues(input.form, input.values, ctx.said)
+      // A form for the whole group (a supplier) opens at any venue: none is asked for.
+      const venue = f.group && !input.venue
+        ? (await tenantVenueList(ctx))[0] ?? await venueFor(ctx, input.venue)
+        : await venueFor(ctx, input.venue)
       const date = input.date || venueToday(venue)
       const monday = mondayOf(date)
       let template = null
@@ -277,10 +294,15 @@ export const formTools = [
         : PLACE[input.form] ? await PLACE[input.form](ctx, venue, date, checked.values, left) : checked.values
       if (readOnly && Object.keys(checked.values).length) left.push('every value (this person can only read this form)')
       const filled = Object.keys(values)
+      // A plain form's labels come from its route's schema (shared/forms.js has none): the card names them.
+      const labels = PLAIN_FORMS[input.form] && filled.length
+        ? plainFields(input.form).filter(f => filled.includes(f.key)).map(f => f.label)
+        : null
       return {
         form_card: {
           form: input.form, title, venue_id: venue.id, venue: venue.name, date, ref, read_only: readOnly,
           ...(filled.length ? { values } : {}),
+          ...(labels ? { labels } : {}),
         },
         message: 'A card for "' + title + '" with an Open button is in the chat' + (readOnly ? ' (read only for this person)' : '') + '.' +
           (filled.length ? ' Your values are in the form, marked for the person to check: ' + filled.join(', ') + '.' : '') +

@@ -357,6 +357,7 @@ export function Section() {
           ['report_issue / list_issues / request_feature', 'issue_log manage / view, feature_requests manage', 'POST, GET /api/issues, POST /api/feature-requests', 'list_issues keeps only this tenant\'s rows (the route lists every tenant only for a platform admin asking with ?scope=all)'],
           ['open_page', 'the page\'s own module, view', 'DEFAULT_NAV_TREE pruned to the pages the person can view (pagesTree(), page-list names from ROUTE_CATALOG), searched with the menu search\'s searchNavTree() (shared/navSearch.js); pageLink() (shared/nav/links.js)', 'Since 22 Nov 2026 one matcher: the menu search\'s ranking, then pickPages(): a page whose whole name or address was asked for; else the pages whose search words hold the phrase word for word when it has a filler word ("cash up", "page designer"); else the best with any page within one place (label 4 - keywords 3) of it as choices (at most 6). Its own synonyms (ALSO) are now the pages\' keywords. Optional venue (by name, venueFor()), date, week (any day; its Monday), tab: the link carries only what the page accepts (opens_at says where; note says what it left out). staff_chat gets [Label](/route?venue=..) that ChatView renders as an in-app Link (only paths starting with one /), MCP gets the full address on officeOrigin(); several matches return choices, each link built for its own page. Since 23 Nov 2026 the person\'s own menu too: navTreeFor(staffReq(ctx)) through pagesTree(..., { own: true }) is searched beside the standard tree and bestByRoute() keeps each page once (the own menu winning a tie); page is the name in their menu, standard_name the page-list name when it differs, and a page they can view that their menu leaves out (hidden from their role, never added) is still offered with in_menu: false. A group with no nav_items has the standard menu'],
           ['how_do_i', 'none (anyone with Pepper; OPEN_TOOLS)', 'searchHelp() in ai/helpIndex.js', 'Up to three Help passages, each with [Help: heading](/help#anchor) in the chat or the full address over MCP; nothing found = answers [] and a note to say so'],
+          ['what_can_i_do', 'none (open area); each change judged by its tool\'s own modules and level', 'findObjects() in shared/registry/index.js, objectActions() in ai/registry.js, staffPermissionLevels()', 'you_can (card by class, before_it_runs from preconditions, undo) / you_cant (why_not: the permission) / forms / page; a change asked about that no tool makes gets a note'],
           ['day_briefing', 'each part its own (the reading tools it calls)', 'day_overview, whos_working, hs_status, purchase_orders (due today, and late: true as orders_running_late), order_requests, cash_day, online_orders, sold_out, email_log, screens_status (tools/briefing.js PARTS)', 'One venue, default today; a part refused with 403 goes in not_included, any other failure is an error line for that part only'],
         ]}
       />
@@ -1095,6 +1096,60 @@ export function Section() {
         <Mono>contextualStrings</Mono> (Android 13 and up, iOS); the browser&apos;s Web Speech API takes none.
         Tests: <Mono>shared/test/venueWords.test.mjs</Mono>, <Mono>api/test/pepper-venue-words.test.mjs</Mono>,{' '}
         <Mono>office-app/test/bridge.test.mjs</Mono>.
+      </P>
+      <H3>The object registry (step 8A1)</H3>
+      <P>
+        A registry over what exists (decision 5), no engine and no table: one record per business object in its
+        area&apos;s file, <Mono>shared/registry/&lt;area&gt;.js</Mono> (<Mono>objects</Mono>, and{' '}
+        <Mono>notObjects</Mono>: the area&apos;s report subjects that are no object, by reason), listed by name in{' '}
+        <Mono>shared/registry/files.js</Mono> and gathered by <Mono>shared/registry/index.js</Mono>{' '}
+        (<Mono>OBJECT_LIST</Mono>, <Mono>OBJECTS</Mono>, <Mono>NOT_OBJECTS</Mono>, <Mono>findObjects()</Mono>,{' '}
+        <Mono>openLink()</Mono>, <Mono>objectOfSubject()</Mono>, <Mono>objectsOfAction()</Mono>,{' '}
+        <Mono>registryProblems()</Mono>). A record: <Mono>key</Mono> (the report subject&apos;s key where one
+        exists, else <Mono>area.name</Mono>), <Mono>label</Mono>, <Mono>plural</Mono>, <Mono>words</Mono>,{' '}
+        <Mono>table</Mono>, <Mono>subjects</Mono> (its own first), <Mono>page</Mono> (a path of{' '}
+        <Mono>shared/nav</Mono>), <Mono>open</Mono> (<Mono>{'{ page, with }'}</Mono>: the address that opens one,
+        built by <Mono>pageLink()</Mono>), <Mono>actions</Mono> (Pepper tool names) and <Mono>forms</Mono> (keys of{' '}
+        <Mono>shared/forms.js</Mono>). It lives in <Mono>shared/</Mono> because it names only shared things
+        (pages, forms) and plain names, so the admin can use it without a call. An action&apos;s class,
+        preconditions and undo are never copied into a record: <Mono>api/src/ai/registry.js</Mono>{' '}
+        (<Mono>objectActions()</Mono>, <Mono>registryKnown()</Mono>) reads them from the tool.{' '}
+        <Mono>what_can_i_do</Mono> (<Mono>tools/general.js</Mono>, read, open area) answers from it with the
+        person&apos;s levels (<Mono>staffPermissionLevels()</Mono>, the connector&apos;s rule): the changes they
+        may make (the card each shows by class, <Mono>before_it_runs</Mono> from the tool&apos;s preconditions,
+        undo), the ones they can&apos;t with the permission each needs (<Mono>why_not</Mono>), the forms and the
+        page. It imports <Mono>../registry.js</Mono> when it runs, never at load (that module reads every tool).
+        Tests: <Mono>shared/test/registry.test.mjs</Mono>, <Mono>api/test/pepper-registry.test.mjs</Mono> (a
+        tool, subject, page, form or table that doesn&apos;t exist; a change tool in no record; a subject in
+        none and not listed as no object).
+      </P>
+      <H3>Plain forms drawn from the route&apos;s schema (step 8A3)</H3>
+      <P>
+        Flat set-up forms (decision 3: a deterministic renderer, the model never makes up fields, layout or
+        validation): <Mono>supplier</Mono>, <Mono>staff_member</Mono>, <Mono>expense</Mono> and{' '}
+        <Mono>closure</Mono>, each <Mono>plain: true</Mono> in <Mono>shared/forms.js</Mono> with{' '}
+        <Mono>fields: {'{}'}</Mono>. Each area defines its own in <Mono>api/src/forms/&lt;area&gt;.js</Mono>{' '}
+        (listed in <Mono>forms/files.js</Mono>, gathered by <Mono>forms/index.js</Mono>:{' '}
+        <Mono>PLAIN_FORMS</Mono>, <Mono>plainFields()</Mono>): <Mono>schema</Mono> (the zod object the route
+        validates with, exported from the route: <Mono>SupplierBody</Mono>, <Mono>StaffBody</Mono>,{' '}
+        <Mono>ExpenseBody</Mono>, <Mono>ExceptionBody</Mono>), <Mono>save</Mono>, <Mono>fields</Mono> (label,
+        help, examples, kind, choices, options, when, start), <Mono>from</Mono>, <Mono>leave</Mono> (every schema
+        field is drawn, given or left out with why, or start-up stops), <Mono>attach</Mono>,{' '}
+        <Mono>saved</Mono>. <Mono>forms/plain.js</Mono>: <Mono>fieldList()</Mono> (zod unwrapped: text, email,
+        tel, url, textarea, number, int, money, bool, choice, date, time; a uuid picks from the group&apos;s list,
+        by name), <Mono>plainFieldsLine()</Mono> (open_form&apos;s description),{' '}
+        <Mono>checkPlainValues()</Mono> (Pepper&apos;s values through the route&apos;s own field schemas: a value
+        it refuses refuses the call, a field the form doesn&apos;t draw is left out).{' '}
+        <Mono>GET /api/forms/:key</Mono> (<Mono>routes/plainForms.js</Mono>, View on the form&apos;s module,{' '}
+        <Mono>read_only</Mono> below its edit level) gives the list. Admin:{' '}
+        <Mono>components/forms/PlainForm.jsx</Mono> draws it with the rules in <Mono>shared/plainForm.js</Mono>{' '}
+        (<Mono>layoutOf()</Mono>, <Mono>controlOf()</Mono>, <Mono>startOf()</Mono>, <Mono>problemOf()</Mono>,{' '}
+        <Mono>bodyOf()</Mono>, <Mono>savedLine()</Mono>), marks Pepper&apos;s values (<Mono>fill.jsx</Mono>), keeps
+        drafts and saves through the form&apos;s own route; used by <Mono>FormSheet</Mono> and by the Suppliers
+        (New supplier), Staff (Add staff) and Schedule (New exception) pages. Test ids <Mono>plain-form</Mono>,{' '}
+        <Mono>plain-field-&lt;key&gt;</Mono>, <Mono>plain-input-&lt;key&gt;</Mono>, <Mono>plain-save</Mono>,{' '}
+        <Mono>plain-saved</Mono>, <Mono>plain-problem-&lt;key&gt;</Mono>. Tests:{' '}
+        <Mono>api/test/pepper-plain-forms.test.mjs</Mono>, <Mono>shared/test/plainForm.test.mjs</Mono>.
       </P>
     </section>
   )

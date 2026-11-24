@@ -282,6 +282,25 @@ export function Section() {
       <P>
         The parts below go into each area in more detail.
       </P>
+      <H3>What can I do with this?</H3>
+      <P>
+        Ask Pepper what can be done with something (<em>&ldquo;what can I do with suppliers?&rdquo;</em>,{' '}
+        <em>&ldquo;can I delete a booking?&rdquo;</em>, <em>&ldquo;why can&apos;t I submit the cash-up?&rdquo;</em>)
+        and it answers from the app&apos;s own list of what exists: the changes it can make for you, the kind of
+        card each one shows, the checks each makes before it runs (a submitted day can&apos;t be changed, for
+        example), whether it can be undone, the form that edits it and the page that lists it. A change your
+        role can&apos;t make says which permission it needs, so you know whom to ask.
+      </P>
+      <H3>New suppliers, staff, expenses and closed dates as one form</H3>
+      <P>
+        Adding a supplier, a staff member, an expense or dates the venue is closed is one simple form,
+        the same wherever it opens: from Pepper (<em>&ldquo;add Fresh Co as a supplier, they take orders by
+        email&rdquo;</em> with <em>&ldquo;I&apos;ll fill it in&rdquo;</em>), from New supplier on the Suppliers page,
+        Add staff on the Staff page, New exception on the Schedule page, or the day&apos;s expenses. Its boxes,
+        their names and their rules come from what the app accepts when you save, so the form can&apos;t ask for
+        something the app would refuse. What Pepper put in is marked <strong>Filled by Pepper</strong> until you
+        change it or press OK, and nothing is saved until you press Save.
+      </P>
       <H3>Booking past the usual limits</H3>
       <P>
         Each venue has a usual party size (Rules page) and each booking time can have a covers

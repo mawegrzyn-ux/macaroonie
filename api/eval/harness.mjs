@@ -20,12 +20,18 @@
 //   cards       what the person does with each card: 'confirm' (default:
 //               a person who asked for it presses Confirm, typing the
 //               card's word on a destructive one, step 4b) or 'cancel'
-//   expect      'change' (something must be done) or 'nothing' (Pepper must
+//   expect      'change' (something must be done), 'nothing' (Pepper must
 //               ask first, or refuse: the tables in `watch` must not change)
+//               or 'answer' (a question answered from Pepper's reading
+//               tools: graded by what the tools returned, still never by
+//               Pepper's words; Pepper-first step 8A2)
 //   watch       for 'nothing': the tables whose rows must stay as they were
 //               ('bookings', or 'bookings:id,status,starts_at' for some columns)
-//   check(ctx)  for 'change': resolves to true, or to a sentence saying what
-//               is wrong (false = "the end state is wrong")
+//   check(ctx, chat)  for 'change' and 'answer': resolves to true, or to a
+//               sentence saying what is wrong (false = "the end state is
+//               wrong"). chat: { calls: [{ name, input, result }] }, the
+//               trial's tool calls in order with what each returned (the
+//               parsed JSON, or { error } when it refused)
 //   reference(ctx)  the tool calls a right answer makes, [{ tool, input }]:
 //               the stand-in model replays them in the tests, which proves
 //               the setup and the check (not the model); [] for 'nothing'
@@ -105,11 +111,20 @@ export async function cleanTenant() {
 
 const textOf = items => (items || []).filter(i => i.type === 'assistant').map(i => i.text).filter(Boolean).join('\n')
 
-/** The tool calls Pepper made in the chat, by name, in order. */
+/** The tool calls Pepper made in the chat, in order: [{ name, input, result }]
+ *  (the result as stored for the model: its JSON, or { error } when it refused). */
 async function toolCalls(tenantId, conversationId) {
   if (!conversationId) return []
-  const rows = await sql`SELECT content FROM ai_messages WHERE tenant_id = ${tenantId} AND conversation_id = ${conversationId} AND role = 'assistant' ORDER BY seq`
-  return rows.flatMap(r => (Array.isArray(r.content) ? r.content : []).filter(b => b.type === 'tool_use').map(b => b.name))
+  const rows = await sql`SELECT role, content FROM ai_messages WHERE tenant_id = ${tenantId} AND conversation_id = ${conversationId} ORDER BY seq`
+  const blocks = role => rows.filter(r => r.role === role).flatMap(r => (Array.isArray(r.content) ? r.content : []))
+  const results = new Map(blocks('user').filter(b => b.type === 'tool_result').map(b => [b.tool_use_id, b]))
+  const parsed = b => {
+    if (!b) return null
+    const text = (Array.isArray(b.content) ? b.content : []).filter(c => c.type === 'text').map(c => c.text).join('')
+    if (b.is_error) return { error: text }
+    try { return JSON.parse(text) } catch { return { text } }
+  }
+  return blocks('assistant').filter(b => b.type === 'tool_use').map(b => ({ name: b.name, input: b.input, result: parsed(results.get(b.id)) }))
 }
 
 /** What the trial's model requests added up to (ai_requests, migration 271), since its first message. */
@@ -135,6 +150,7 @@ export async function runTask(task, { baseline = false, before } = {}) {
   const started = Date.now()
   const ctx = await cleanTenant()
   const result = { id: task.id, area: task.area, expect: task.expect, pass: false, reason: '', reply: '', tools: [], cards: [] }
+  let calls = []
   let since = new Date()
   try {
     await task.setup?.(ctx)
@@ -160,7 +176,8 @@ export async function runTask(task, { baseline = false, before } = {}) {
           result.cards.push({ tool: card.tool, title: card.title, class: card.class, pressed: how, status: settled?.status || 'unknown', error: settled?.error || (r.status >= 400 ? r.json?.error : null) || null })
         }
       }
-      result.tools = await toolCalls(ctx.tenantId, conversationId)
+      calls = await toolCalls(ctx.tenantId, conversationId)
+      result.tools = calls.map(c => c.name)
     }
     if (!result.reason) {
       if (task.expect === 'nothing') {
@@ -169,7 +186,7 @@ export async function runTask(task, { baseline = false, before } = {}) {
         result.pass = changed.length === 0
         result.reason = result.pass ? '' : 'changed: ' + changed.join(', ')
       } else {
-        const verdict = await task.check(ctx)
+        const verdict = await task.check(ctx, { calls })
         result.pass = verdict === true
         result.reason = result.pass ? '' : (typeof verdict === 'string' ? verdict : 'the end state is wrong')
       }
@@ -213,7 +230,7 @@ export async function runTasks(tasks, { trials = 1, baseline = false, before, on
 
 /** Every task in tasks/, checked: unique ids, a known expectation, what each needs. */
 export async function loadTasks() {
-  const files = ['bookings', 'safety', 'people', 'menus', 'group', 'today']
+  const files = ['bookings', 'safety', 'people', 'menus', 'group', 'today', 'reports']
   const tasks = []
   for (const f of files) tasks.push(...(await import('./tasks/' + f + '.mjs')).tasks)
   const seen = new Set()
@@ -223,9 +240,9 @@ export async function loadTasks() {
     if (seen.has(t.id)) fail('the id is used twice')
     seen.add(t.id)
     if (!t.area || typeof t.say !== 'function' || typeof t.reference !== 'function') fail('needs an area, say(ctx) and reference(ctx)')
-    if (t.expect === 'change' && typeof t.check !== 'function') fail('a change needs check(ctx)')
+    if (['change', 'answer'].includes(t.expect) && typeof t.check !== 'function') fail('a change or an answer needs check(ctx, chat)')
     if (t.expect === 'nothing' && !(Array.isArray(t.watch) && t.watch.length)) fail('nothing changing needs the tables to watch')
-    if (!['change', 'nothing'].includes(t.expect)) fail('expect is change or nothing')
+    if (!['change', 'nothing', 'answer'].includes(t.expect)) fail('expect is change, nothing or answer')
     if (t.as && !PEOPLE[t.as]) fail('as is owner, admin, operator or viewer')
   }
   return tasks

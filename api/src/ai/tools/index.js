@@ -78,7 +78,7 @@
 // reports.js (the report builder: figures from the data, saved reports,
 // past runs), reportSchedules.js (report schedules and sends), site.js
 // (website, promotions, reviews, menu screens, booking emails, support),
-// general.js (open_page, how_do_i), forms.js (open_form) and briefing.js
+// general.js (open_page, how_do_i, what_can_i_do), forms.js (open_form) and briefing.js
 // (day_briefing).
 
 import { FILES } from './files.js'

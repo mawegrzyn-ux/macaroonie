@@ -14,6 +14,9 @@
 // (./useFormDraft.js, step 3d). Sold out opens the Online orders window of its
 // own (AvailabilityModal) instead of a sheet, and so do a new booking
 // (NewBookingModal) and a booking's details (BookingDrawer): FormOpener picks.
+// A flat set-up form (shared/forms.js plain: true: a new supplier, staff
+// member, expense or closure) is drawn by PlainForm from its route's schema
+// (Pepper-first 8A3); the expense form has the day's list under it.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -37,6 +40,7 @@ import { useApi } from '@/lib/api'
 import { FORMS } from '@shared/forms.js'
 import { FormFillProvider } from './fill'
 import { useFormDraft } from './useFormDraft'
+import { PlainForm } from './PlainForm'
 
 const NO_VALUES = {}
 
@@ -164,7 +168,10 @@ export function FormSheet({ form, venueId, date, onClose, onSaved, linkFor }) {
           {form.form === 'cooking' && <CookingChecksPanel venueId={venueId} date={date} />}
           {form.form === 'checklist' && <ChecklistRunPanel template={form.ref.template} date={date} />}
           {form.form === 'cash_up' && <DayView venueId={venueId} date={form.ref.date} hideHeader onStateChange={setDay} />}
-          {form.form === 'expense' && <PettyCashPanel venueId={venueId} date={form.ref.date} />}
+          {meta.plain && (
+            <PlainForm formKey={form.form} venueId={venueId} date={form.ref?.date ?? date} className={form.form === 'expense' ? 'mb-6' : ''} />
+          )}
+          {form.form === 'expense' && <PettyCashPanel venueId={venueId} date={form.ref.date} listOnly />}
           {form.form === 'delivery' && <DeliveryChecksPanel venueId={venueId} date={form.ref?.date ?? date} />}
           {form.form === 'rota_day' && <RotaDaySheet venueId={venueId} date={form.ref.date} />}
           {form.form === 'order' && <OrderSheet venueId={venueId} />}

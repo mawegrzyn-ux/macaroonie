@@ -1523,6 +1523,28 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
         report as saved with the period and venues showing, not changes in the builder that aren&apos;t
         saved or rows opened up.
       </InfoBox>
+      <H3>The catalogue&apos;s context: synonyms, instructions, examples (Pepper-first 8A2)</H3>
+      <P>
+        Any field or measure may carry <Mono>synonyms</Mono> (other words people use: a list),{' '}
+        <Mono>instructions</Mono> (a sentence or two on using it right, never how it counts: that is{' '}
+        <Mono>about</Mono> and the SQL) and <Mono>examples</Mono> (questions it answers), the{' '}
+        <Mono>ai_context</Mono> idea (<Mono>define.js</Mono>); <Mono>build()</Mono> in{' '}
+        <Mono>catalogue/index.js</Mono> refuses other shapes at start-up and <Mono>catalogueView()</Mono> passes
+        them on (<Mono>context()</Mono>). 54 fields and figures have them (till, bookings, cash, staff, safety,
+        online). They are used by the smart builder&apos;s word index (<Mono>subjectDocs()</Mono>: synonyms count
+        as a name but not towards a subject&apos;s length) and its slice (<Mono>contextParts()</Mono>: also,
+        note, e.g. on the subject&apos;s own lines), by <Mono>searchTree()</Mono> in{' '}
+        <Mono>shared/reports/build.js</Mono> (<Mono>dataTree()</Mono> nodes carry them), and by Pepper&apos;s{' '}
+        <Mono>find_fields</Mono> (its matcher and its lines) and <Mono>ask_data</Mono>{' '}
+        (<Mono>figure_notes</Mono>: the instructions of the figures a plan counts).{' '}
+        <Mono>topicCoverage()</Mono> (<Mono>smart.js</Mono>) splits a topic&apos;s words into found and missing;
+        a topic none of whose words any subject has gets <Mono>covered: false</Mono> from{' '}
+        <Mono>find_fields</Mono> (<Mono>notCovered()</Mono>: the nearest fields by spelling,{' '}
+        <Mono>NEAR_LIKENESS</Mono>, or the areas reports cover), and words found nowhere are listed as{' '}
+        <Mono>not_found</Mono>. Instructions never name a subject key (the smart builder is shown refs only).
+        Tests: <Mono>api/test/reports-context.test.mjs</Mono>; evaluation tasks <Mono>covers_by_slang</Mono> and{' '}
+        <Mono>not_in_reports</Mono> (<Mono>api/eval/tasks/reports.mjs</Mono>, <Mono>expect: &apos;answer&apos;</Mono>).
+      </P>
     </section>
   )
 }

@@ -6,7 +6,9 @@
   "docs/claude/outstanding/{area}.md",
   "admin/src/routes/{area}.jsx",
   "shared/nav/{area}.js",
+  "shared/registry/{area}.js",
   "api/src/areas/{area}.js",
+  "api/src/forms/{area}.js",
   "api/test/support/fixtures/{area}.mjs"
  ],
  "shared": [
@@ -23,7 +25,8 @@
   "docs/claude/OUTSTANDING.md",
   "docs/claude/backup/**",
   "scripts/check-areas.mjs",
-  "docs/claude/estimates.md"
+  "docs/claude/estimates.md",
+  "api/src/forms/files.js"
  ],
  "areas": {
   "bookings": {
@@ -772,6 +775,7 @@
     "api/src/ai/erase.js",
     "api/src/ai/helpIndex.js",
     "api/src/ai/prompts.js",
+    "api/src/ai/registry.js",
     "api/src/ai/settings.js",
     "api/src/ai/sse.js",
     "api/src/ai/tools/briefing.js",
@@ -793,6 +797,8 @@
     "api/src/ai/tools/today.js",
     "api/src/ai/tools/util.js",
     "api/src/ai/tools/venue.js",
+    "api/src/forms/index.js",
+    "api/src/forms/plain.js",
     "api/src/routes/ai.js",
     "api/src/routes/aiApi.js",
     "api/src/routes/captures.js",
@@ -801,6 +807,7 @@
     "api/src/routes/mcp.js",
     "api/src/routes/mcpOauth.js",
     "api/src/routes/menuImport.js",
+    "api/src/routes/plainForms.js",
     "api/src/routes/storeOpenings.js",
     "api/src/services/aiJson.js",
     "api/src/services/menuReadAi.js",
@@ -812,6 +819,8 @@
     "api/test/pepper-captures.test.mjs",
     "api/test/pepper-eval.test.mjs",
     "api/test/pepper-forms.test.mjs",
+    "api/test/pepper-plain-forms.test.mjs",
+    "api/test/pepper-registry.test.mjs",
     "api/test/pepper-requests.test.mjs",
     "api/test/pepper-review.test.mjs",
     "api/test/pepper-today.test.mjs",
@@ -823,7 +832,10 @@
     "shared/assistant.js",
     "shared/forms.js",
     "shared/help.js",
+    "shared/plainForm.js",
     "shared/storeOpening.js",
+    "shared/test/plainForm.test.mjs",
+    "shared/test/registry.test.mjs",
     "shared/test/venueWords.test.mjs",
     "shared/venueWords.js"
    ],
@@ -835,10 +847,13 @@
     "admin/src/components/ai/ReviewSlot.jsx",
     "admin/src/components/ai/attachments.jsx",
     "admin/src/components/ai/mic.jsx",
+    "admin/src/components/forms/PlainForm.jsx",
     "admin/src/components/forms/fill.jsx",
     "admin/src/lib/pepperPage.js",
     "admin/src/lib/speech.js",
     "api/src/ai/context.js",
+    "api/src/forms/index.js",
+    "api/src/forms/plain.js",
     "api/src/services/aiJson.js",
     "api/src/services/menuReadAi.js",
     "api/src/services/storeOpeningAi.js",
@@ -846,6 +861,7 @@
     "shared/forms.js",
     "shared/help.js",
     "shared/nav/pepper.js",
+    "shared/plainForm.js",
     "shared/storeOpening.js",
     "shared/venueWords.js"
    ]
@@ -938,6 +954,7 @@
     "api/test/reports-cash.test.mjs",
     "api/test/reports-catalogue.test.mjs",
     "api/test/reports-content.test.mjs",
+    "api/test/reports-context.test.mjs",
     "api/test/reports-data-links.test.mjs",
     "api/test/reports-engine.test.mjs",
     "api/test/reports-extras.test.mjs",
@@ -997,6 +1014,8 @@
     "admin/src/components/website-builder/shared.jsx",
     "admin/src/lib/linked.js",
     "api/src/ai/tools/reportSchedules.js",
+    "api/src/reports/catalogue/decisions.js",
+    "api/src/reports/catalogue/index.js",
     "api/src/services/cashReconSvc.js",
     "api/src/services/pdfBrowser.js",
     "api/src/services/privateStore.js",

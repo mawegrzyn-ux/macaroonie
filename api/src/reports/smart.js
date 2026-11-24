@@ -161,9 +161,14 @@ function subjectDocs(catalogue) {
     // till subjects share, so it pushed the subject a request is about out of
     // the few listed in full ("how many checks" ranked Checks fifth). The
     // slice still shows it beside the figure.
-    for (const m of Object.values(s.measures)) add(m.label, 2)
+    // Other words people use for a figure or field (its synonyms, define.js)
+    // count as its name does, but don't make the subject longer: they are
+    // the same thing said another way, so a subject with many of them isn't
+    // less about each of its own words (BM25's length counts against it).
+    const alt = (t, w) => { for (const x of indexWords(t)) tf.set(x, (tf.get(x) || 0) + w) }
+    for (const m of Object.values(s.measures)) { add(m.label, 2); alt(list(m.synonyms).join(' '), 2) }
     for (const f of Object.values(s.fields)) {
-      add(f.title || f.label, 2); add(f.about, 1)
+      add(f.title || f.label, 2); add(f.about, 1); alt(list(f.synonyms).join(' '), 2)
       // What a field's choices can be counts once a word: Pepper's changes
       // name nearly a hundred kinds, several about bookings ("Made a booking",
       // "Moved a booking", ...), and each "booking" counted made it the best fit
@@ -229,6 +234,40 @@ export function rankSubjects(catalogue, request, pinned = null) {
 }
 
 // ── The slice: what the model is shown ───────────────────────
+
+/**
+ * A figure's or field's words for the people asking (the catalogue's
+ * synonyms, instructions and examples, define.js), as parts of its line:
+ * ['also: covers, pax', 'note: ...', 'e.g. ...']. Only on the subject's own
+ * figures and fields (not each linked thing's), to keep the slice short.
+ */
+export function contextParts(n) {
+  if (!n || n.trail?.length) return []
+  const out = []
+  if (n.synonyms?.length) out.push('also: ' + n.synonyms.join(', '))
+  if (n.instructions) out.push('note: ' + clip(n.instructions, 200))
+  if (n.examples?.length) out.push('e.g. ' + n.examples.slice(0, 2).map(e => '"' + e + '"').join(', '))
+  return out
+}
+
+/**
+ * How much of a topic the catalogue covers, as this person sees it: the
+ * words that say what it is about (indexWords(): no filler, no "last week"),
+ * those found in some subject they can report on (a name, a synonym, what it
+ * is about, the global SYNONYMS), and those found nowhere. A topic none of
+ * whose words is found is not something reports cover (find_fields says so
+ * rather than guessing). Words found nowhere may be names (a venue, a dish,
+ * a person) or what the question is really about: the model is told which.
+ *   -> { words, found, missing }
+ */
+export function topicCoverage(catalogue, topic) {
+  const docs = subjectDocs(catalogue)
+  const words = [...new Set(indexWords(topic))]
+  const known = t => docs.some(d => d.tf.has(t))
+  const found = [], missing = []
+  for (const w of words) ([w, ...(SYNONYMS[w] || [])].some(known) ? found : missing).push(w)
+  return { words, found, missing }
+}
 
 const AGG_WORDS = { sum: 'sum', avg: 'avg', min: 'min', max: 'max', count_distinct: 'count-different' }
 
@@ -302,6 +341,7 @@ export function buildSlice(catalogue, request, pinned = null) {
       const uses = usesText(n.uses)
       if (uses) parts.push(uses)
       if (n.about && !n.trail.length) parts.push(clip(n.about, 110))
+      parts.push(...contextParts(n))
       lines.push('  ' + parts.join(' | '))
     }
     if (tree.figures.length) { lines.push(' Figures:'); tree.figures.forEach(node) }
@@ -398,7 +438,7 @@ export const ANSWER_SCHEMA = obj({
 
 export const SYSTEM = `You turn a request for a report into a report definition for Macaroonie, the app a restaurant group runs on. You never see the data: the app builds what you answer, runs it and shows it to the person who asked.
 
-What can be reported on is listed after these instructions: subjects (S refs), and for the ones listed in full their figures, fields and what each row belongs to (F refs). Use only refs that are listed. Never make one up, and never write a table or column name.
+What can be reported on is listed after these instructions: subjects (S refs), and for the ones listed in full their figures, fields and what each row belongs to (F refs). Use only refs that are listed. Never make one up, and never write a table or column name. A line may end with "also:" (other words people use for it: a request in those words means this one), "note:" (how to use it right) and "e.g." (requests it answers).
 
 How to answer:
 - subject: one S ref, the kind of row being counted (dishes sold for anything per dish or per section, checks for anything per check, per server or per table, payments for tenders and tips, trading days for a day's totals as the Z report has them). Empty when nothing listed fits: then say why in couldnt. Picking a subject listed in a line only is fine, for subject or in also: you will be shown it in full and asked again.

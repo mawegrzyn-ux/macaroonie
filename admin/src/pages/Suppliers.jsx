@@ -21,6 +21,7 @@ import {
   useSuppliers, usePurchasingMeta, NumInput, Drawer, Card, Toggle, DayPicker, daysLabel, btn, money, perUnit,
 } from '@/components/purchasing/shared'
 import { SEND_METHODS, packLabel } from '@shared/procurement.js'
+import { PlainForm } from '@/components/forms/PlainForm'
 
 const METHOD_ICON = { email: Mail, print: Printer, excel: FileSpreadsheet, pdf: FileText }
 const METHOD_TEXT = {
@@ -77,7 +78,15 @@ export default function Suppliers() {
           )}
         </div>
       </div>
-      {openId && <SupplierDrawer key={openId} id={openId === 'new' ? null : openId} canEdit={canEdit}
+      {/* A new supplier: the plain form drawn from the route's schema (the same
+          one Pepper's open_form opens, Pepper-first 8A3); once saved, its own
+          drawer opens for the rest (delivery days, venues, prices). */}
+      {openId === 'new' && (
+        <Drawer title="New supplier" onClose={() => setOpenId(null)}>
+          <PlainForm formKey="supplier" onSaved={row => (row?.id ? setOpenId(row.id) : setOpenId(null))} onCancel={() => setOpenId(null)} />
+        </Drawer>
+      )}
+      {openId && openId !== 'new' && <SupplierDrawer key={openId} id={openId} canEdit={canEdit}
         onCreated={id => setOpenId(id)} onClose={() => setOpenId(null)} />}
     </div>
   )
