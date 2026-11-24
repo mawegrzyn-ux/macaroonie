@@ -32,7 +32,7 @@
 import { systemSql, withTenant } from '../config/db.js'
 import { queue as syncQueue } from '../jobs/sales-sync.js'
 import {
-  mapCheck, normaliseRule, catalogContext, ourContext, soldName, catalogState, STATE_LABELS,
+  mapCheck, normaliseRule, catalogContext, ourContext, soldName, catalogState, STATE_LABELS, coverageShare,
 } from '../../../shared/itemMapping.js'
 import { matchIndex, matchThing, AUTO_MATCH } from '../../../shared/itemMatch.js'
 
@@ -335,10 +335,7 @@ export async function coverage(tx, tenantId, connectionId, { venueId = null } = 
          AND (l.map_state IS NULL OR l.map_state = 'unmapped')
        GROUP BY l.item_ref, l.variant_ref ORDER BY sum(l.net_pence) DESC NULLS LAST LIMIT 50`,
   ])
-  const share = v => {
-    const base = Number(v.total) - Number(v.ignored)
-    return base > 0 ? Math.round(((Number(v.mapped) + Number(v.kept) + Number(v.bucket)) / base) * 1000) / 10 : null
-  }
+  const share = coverageShare
   const rows = venues.map(v => ({
     venue_id: v.venue_id, venue_name: v.venue_name,
     total: Number(v.total), mapped: Number(v.mapped), kept: Number(v.kept), bucket: Number(v.bucket), ignored: Number(v.ignored), unmapped: Number(v.unmapped),

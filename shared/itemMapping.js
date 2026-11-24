@@ -55,6 +55,22 @@ export const STATE_LABELS = {
 // How many accepted rules with the same shape make an offer.
 export const LEARN_MIN = 3
 
+// Mapping coverage (docs/SALES_IMPORT.md 4.5): the share of an other till's
+// item value (item lines of sales that weren't cancelled) that is decided:
+// mapped to our menus, kept as sold or counted under a section. Ignored
+// lines (not sales) are left out of both sides. The Item mapping page
+// (itemMappingSvc.js coverage()) and the "every till" report subjects
+// (reports/catalogue/sales.js) both count by these lists.
+export const COVERAGE_DECIDED = ['mapped', 'kept', 'bucket']
+export const COVERAGE_LEFT_OUT = ['ignored']
+
+/** Coverage in percent (one decimal) from net sums by state ({ total, mapped, kept, ... }), or null with nothing to count. */
+export function coverageShare(sums) {
+  const n = k => Number(sums?.[k]) || 0
+  const base = n('total') - COVERAGE_LEFT_OUT.reduce((s, k) => s + n(k), 0)
+  return base > 0 ? Math.round((COVERAGE_DECIDED.reduce((s, k) => s + n(k), 0) / base) * 1000) / 10 : null
+}
+
 const low = s => String(s ?? '').trim().toLowerCase()
 const list = v => (Array.isArray(v) ? v : [])
 const day = v => (v == null || v === '' ? null : (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10))
