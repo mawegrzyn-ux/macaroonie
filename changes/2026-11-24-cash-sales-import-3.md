@@ -1,0 +1,9 @@
+# Sales from other tills, phase 3: suggestions, Pepper and quicker ways to map a whole catalogue
+
+- **Suggestions** on the Item mapping page (with a venue picked): what is still not mapped there, each with its best match on that venue's menus (the same product code or barcode first, then a name like it; a variant's Large and Oat find your Size and Milk options), how sure it is and why. Those at 90% or more are ticked; accept one or all the ticked ones at once. Nothing is saved until you accept.
+- **Make it a pattern rule?** After accepting, a group with the same shape (three or more variants called Large going to your Size: Large, or three items to one dish whose codes start the same) is offered as one rule that also covers items the till adds later.
+- **Pattern rules** (under Rules): everything whose code is or starts with some text, whose name contains a word, or that is in one of the till's categories becomes one dish; and **Category to a section**, counting a category no other rule maps under one of your menu sections in reports.
+- **Ask Pepper** proposes a rule for up to 40 of what the suggestions didn't tick (a dish, a dish with options, an option axis, ignore or keep), with its reason and how sure it is; accept them like suggestions. Uses your Pepper allowance.
+- **Create missing dishes**: tick items your menus don't have, choose a section, confirm: the dishes are made at the till's prices (variants as an option group with the dish's own prices) and mapped as they are made, in the menu's draft. Needs Menus manage too.
+- **Copy from another venue**: copies another venue's rules to this one, finding each dish, option and section by name on this venue's menus; you see what will be copied and what can't be matched before confirming.
+- Migration 293 (pattern and category-to-section rules, the section on each mapped line).

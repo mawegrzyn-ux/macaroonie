@@ -15,6 +15,10 @@
 // Values are kept as the strings Deliveroo uses: prices in pounds without
 // trailing zeros ("13.5"), tax rate "20", allergens "eggs,milk".
 
+import { normName, nameScore, rankDishes, AUTO_MATCH } from './itemMatch.js'
+
+export { nameScore, rankDishes, AUTO_MATCH }
+
 export const FILL_FIELDS = [
   { key: 'delivery_price',      label: 'Delivery price', def: true },
   { key: 'tax_rate',            label: 'VAT rate',       def: true },
@@ -51,8 +55,7 @@ export const DEFAULT_ALLERGEN_CODES = {
   peanuts: ['peanuts'], sesame: ['sesame_seeds'], soya: ['soybeans'], sulphites: ['sulphur_dioxide_sulphites'],
 }
 
-const norm = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-  .replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim()
+const norm = normName
 
 /** Default allergen and dietary maps for a tenant's tags (keyed by tag code). */
 export function defaultMaps(tags = []) {
@@ -166,45 +169,8 @@ export function dishValues(dish, { settings = {}, tags = [] } = {}) {
 
 // ── Matching ───────────────────────────────────────────────────
 
-const SMALL = new Set(['the', 'with', 'and', 'of', 'a', 'in', 'on'])
-// Pack words Deliveroo names often carry and menus don't: "Coke Can", "Still Water 330ml".
-const PACK = /^(can|cans|bottle|bottles|btl|glass|tin|pint|\d+(\.\d+)?\s?(ml|cl|l|ltr|litre|g|kg|oz))$/
-const words = s => norm(s).split(' ').filter(w => w && !SMALL.has(w))
-const unpacked = s => norm(s).replace(/\b(\d+(\.\d+)?) (ml|cl|l|ltr|litre|g|kg|oz)\b/g, '$1$3').split(' ').filter(w => !PACK.test(w)).join(' ')
-const forms = s => {
-  const out = [norm(s)]
-  const add = v => { if (v && !out.includes(v)) out.push(v) }
-  add(norm(String(s ?? '').replace(/\([^)]*\)/g, ' ')))
-  for (const m of String(s ?? '').matchAll(/\(([^)]*)\)/g)) add(norm(m[1]))
-  add(unpacked(s))
-  return out
-}
-
-/** 0..1: how well two names match. */
-export function nameScore(a, b) {
-  const fa = forms(a), fb = forms(b)
-  if (!fa[0] || !fb[0]) return 0
-  if (fa[0] === fb[0]) return 1
-  const squash = list => list.map(x => x.replace(/ /g, ''))
-  if (fa.some(x => fb.includes(x)) || squash(fa).some(x => squash(fb).includes(x))) return 0.95
-  const wa = new Set(words(a)), wb = new Set(words(b))
-  if (!wa.size || !wb.size) return 0
-  let common = 0
-  for (const w of wa) if (wb.has(w)) common++
-  const jaccard = common / (wa.size + wb.size - common)
-  const contains = fa[0].includes(fb[0]) || fb[0].includes(fa[0])
-  return Math.round(Math.min(0.89, contains ? Math.max(0.75, jaccard) : jaccard) * 100) / 100
-}
-
-/** Dishes ranked for a Deliveroo name: [{ dish, score }], best first, score > 0.3. */
-export function rankDishes(name, dishes) {
-  return dishes
-    .map(d => ({ dish: d, score: Math.max(...[d.name, d.native_name, d.kitchen_name].filter(Boolean).map(n => nameScore(name, n)), 0) }))
-    .filter(x => x.score > 0.3)
-    .sort((a, b) => b.score - a.score || a.dish.name.localeCompare(b.dish.name))
-}
-
-export const AUTO_MATCH = 0.9
+// nameScore(), rankDishes() and AUTO_MATCH live in shared/itemMatch.js (one
+// implementation: the item mapping's suggestions use them too).
 
 /**
  * How a row is matched: a saved link wins (dish or skip); else the best dish

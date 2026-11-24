@@ -22,6 +22,27 @@
 //   PUT    /:connectionId/rules/:ruleId        a rule changed (the whole rule)
 //   DELETE /:connectionId/rules/:ruleId
 //
+// Phase 3 (docs/SALES_IMPORT.md 4.3, 4.5):
+//   GET    /:connectionId/suggestions?venue_id=  suggested targets for what is still unmapped
+//                                              at the venue (its menus only); writes nothing
+//   POST   /:connectionId/rules/bulk           { rules: [rule] }: accepted suggestions or
+//                                              proposals, each checked by cleanRule() as a
+//                                              single save is; { saved, failed, offers }:
+//                                              offers are learnOffers() (a group of rules
+//                                              with the same shape as one rule), saved
+//                                              only when accepted (POST or PUT /rules)
+//   POST   /:connectionId/create-dishes        { venue_id, section_id, keys }: Create missing
+//                                              dishes (services/itemMappingMake.js); needs
+//                                              Menus manage as well
+//   POST   /:connectionId/copy-preview         { from_venue_id, to_venue_id }: what Copy from
+//                                              another venue would copy, re-pointed by name,
+//                                              and what it can't match; writes nothing
+//   POST   /:connectionId/copy                 the same, saved (the plan is worked out again)
+// Pattern and bucket rules (migration 293) save through POST /rules: a
+// pattern's category or a bucket's category is a ref in the catalogue, a
+// bucket's section one on a menu the venue sells.
+// Pepper's proposals are routes/itemMappingAi.js (under /api/ai/).
+//
 // A saved or deleted rule re-maps the connection's stored lines from its
 // effective_from in the background (itemMappingSvc.requestRemap()). Reads
 // and Preview need Cash reconciliation view; rules need manage. Every id is
@@ -35,9 +56,13 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 import {
-  mappingContext, requestRemap, queueRemap, previewMapping, coverage, venueMenus, RECENT_DAYS,
+  mappingContext, requestRemap, queueRemap, previewMapping, coverage, venueMenus, recentSales, salesTotal, suggestions, RECENT_DAYS,
 } from '../services/itemMappingSvc.js'
-import { catalogState, ruleKey, RULE_KINDS, AXIS_KINDS, STATE_LABELS } from '../../../shared/itemMapping.js'
+import {
+  catalogState, ruleKey, normaliseRule, learnOffers, RULE_KINDS, AXIS_KINDS, PATTERN_FIELDS, PATTERN_OPS, PATTERN_LABELS, STATE_LABELS,
+} from '../../../shared/itemMapping.js'
+import { makeContext, staffAuthOf, staffPrincipalOf } from '../ai/context.js'
+import { createMissing, copyPlan } from '../services/itemMappingMake.js'
 
 const UUID = z.string().uuid()
 const canView   = [requirePermission('cash_recon', 'view')]
@@ -61,7 +86,11 @@ const RuleBody = z.object({
   target_option_ids: z.array(UUID).max(20).optional(),
   target_combo_id:   UUID.nullable().optional(),
   target_group_id:   UUID.nullable().optional(),
-  effective_from:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  pattern_field:     z.enum(PATTERN_FIELDS).nullable().optional(),
+  pattern_op:        z.enum(['equals', 'starts_with', 'contains']).nullable().optional(),
+  pattern_value:     z.string().trim().min(1).max(200).nullable().optional(),
+  target_section_id: UUID.nullable().optional(),
+  effective_from:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   note:              z.string().trim().max(500).nullable().optional(),
 })
 const PreviewBody = z.object({
@@ -70,8 +99,16 @@ const PreviewBody = z.object({
   remove:   z.array(UUID).max(50).default([]),
 })
 const VenueQuery = z.object({ venue_id: UUID.optional() })
+// Each rule is checked by cleanRule() on its own (a bad one is reported, the others saved).
+const BulkBody = z.object({ rules: z.array(z.record(z.any())).min(1).max(200) })
+const CreateBody = z.object({
+  venue_id:   UUID,
+  section_id: UUID,
+  keys:       z.array(z.string().trim().min(3).max(220)).min(1).max(60),   // MAX_CREATE in services/itemMappingMake.js
+})
+const CopyBody = z.object({ from_venue_id: UUID, to_venue_id: UUID })
 
-async function ownConnection(tx, tenantId, id) {
+export async function ownConnection(tx, tenantId, id) {
   if (!UUID.safeParse(id).success) throw httpError(404, 'Connection not found')
   const [c] = await tx`SELECT id, system, name FROM pos_connections WHERE id = ${id} AND tenant_id = ${tenantId}`
   if (!c) throw httpError(404, 'Connection not found')
@@ -85,7 +122,7 @@ async function linkedVenues(tx, tenantId, connectionId) {
      WHERE l.tenant_id = ${tenantId} AND l.connection_id = ${connectionId} ORDER BY v.name`
 }
 
-async function ownLinkedVenue(tx, tenantId, connectionId, venueId) {
+export async function ownLinkedVenue(tx, tenantId, connectionId, venueId) {
   if (!venueId) return null
   const [v] = await tx`
     SELECT l.venue_id FROM pos_connection_venues l JOIN venues v ON v.id = l.venue_id AND v.tenant_id = l.tenant_id
@@ -110,6 +147,7 @@ export async function cleanRule(tx, tenantId, connectionId, body) {
     item_ref: b.item_ref || null, variant_ref: b.variant_ref || null, option_ref: b.option_ref || null,
     option_refs: dedupe(b.option_refs), axis_kind: null, axis_name: null, axis_group_ref: null, axis_values: [],
     target_item_id: null, target_item_ids: [], target_option_ids: [], target_combo_id: null, target_group_id: null,
+    pattern_field: null, pattern_op: null, pattern_value: null, target_section_id: null,
     effective_from: b.effective_from || null, note: b.note || null, ext_sku: null, ext_name: null,
   }
   const fail = m => { throw httpError(422, m) }
@@ -158,12 +196,34 @@ export async function cleanRule(tx, tenantId, connectionId, body) {
       if (!r.item_ref) fail('Choose the item')
       if (!r.option_refs.length) fail('Choose the modifiers that make the combination')
       r.option_ref = null
+    } else if (b.kind === 'pattern' || b.kind === 'bucket') {
+      // A pattern matches by code, name or category, never by ref.
+      r.item_ref = null; r.variant_ref = null; r.option_ref = null; r.option_refs = []
+      r.pattern_field = b.kind === 'bucket' ? 'category' : (b.pattern_field || fail('Choose what to match: the code, the name or the category'))
+      r.pattern_op = b.kind === 'bucket' ? 'equals' : (b.pattern_op || PATTERN_OPS[r.pattern_field][0])
+      if (!PATTERN_OPS[r.pattern_field].includes(r.pattern_op)) fail(PATTERN_LABELS[r.pattern_field + ':' + PATTERN_OPS[r.pattern_field][0]] + ' is the only match for that')
+      r.pattern_value = b.pattern_value || fail(r.pattern_field === 'category' ? 'Choose the category' : 'Type what to match')
+      if (r.pattern_field === 'category') {
+        const [c] = await tx`
+          SELECT external_id, name FROM ext_catalog
+           WHERE tenant_id = ${tenantId} AND connection_id = ${connectionId} AND kind = 'category' AND external_id = ${r.pattern_value}`
+        if (!c) fail('That category isn\'t in this till\'s catalogue')
+        r.ext_name = c.name
+      } else if (r.pattern_field === 'name' && r.pattern_value.length < 2) fail('Type at least two letters to match')
+      if (b.kind === 'bucket') {
+        r.target_section_id = b.target_section_id || fail('Choose one of our menu sections')
+        const [s] = await tx`
+          SELECT s.id FROM menu_sections s JOIN menus m ON m.id = s.menu_id AND m.tenant_id = s.tenant_id
+           WHERE s.tenant_id = ${tenantId} AND s.id = ${r.target_section_id}
+             AND (${r.venue_id}::uuid IS NULL OR m.venue_id IS NULL OR m.venue_id = ${r.venue_id}::uuid)`
+        if (!s) fail(r.venue_id ? 'That section isn\'t on a menu this venue sells' : 'That section isn\'t one of yours')
+      }
     } else {
       if (!r.item_ref && !r.option_ref) fail('Choose an item, a variant or a modifier option')
       if (r.option_ref) { r.item_ref = null; r.variant_ref = null }
       r.option_refs = []
     }
-    if (b.kind === 'exact' || b.kind === 'combination') {
+    if (b.kind === 'exact' || b.kind === 'combination' || b.kind === 'pattern') {
       r.target_item_id = b.target_item_id || null
       r.target_combo_id = b.target_combo_id || null
       r.target_option_ids = dedupe(b.target_option_ids)
@@ -196,7 +256,7 @@ export async function cleanRule(tx, tenantId, connectionId, body) {
   }
 
   // The fallback by SKU and name, from the catalogue as it is now.
-  if (b.kind !== 'axis') {
+  if (b.kind !== 'axis' && b.kind !== 'pattern' && b.kind !== 'bucket') {
     if (r.option_ref) r.ext_name = option.name
     else if (variant) { r.ext_sku = variant.sku || null; r.ext_name = item.name + (variant.name && variant.name !== 'Default' ? ' · ' + variant.name : '') }
     else if (item) r.ext_name = item.name
@@ -224,6 +284,7 @@ async function saveRule(tx, tenantId, connectionId, r, user, id = null) {
     axis_values: tx.json(r.axis_values), target_item_id: r.target_item_id, target_item_ids: r.target_item_ids,
     target_option_ids: r.target_option_ids, target_combo_id: r.target_combo_id, target_group_id: r.target_group_id,
     ext_sku: r.ext_sku, ext_name: r.ext_name, match_key: r.match_key, effective_from: r.effective_from, note: r.note,
+    pattern_field: r.pattern_field, pattern_op: r.pattern_op, pattern_value: r.pattern_value, target_section_id: r.target_section_id,
   }
   if (id) {
     const [row] = await tx`
@@ -236,6 +297,36 @@ async function saveRule(tx, tenantId, connectionId, r, user, id = null) {
     INSERT INTO ext_map_rules ${tx({ ...cols, tenant_id: tenantId, connection_id: connectionId, created_by: user })}
     RETURNING id, effective_from::text AS effective_from`
   return row
+}
+
+/**
+ * Several rules saved in one go (accepted suggestions, Pepper's proposals,
+ * Create missing dishes, Copy from another venue): each checked by
+ * cleanRule() and saved as the single-rule route saves it, in a savepoint of
+ * its own, so one refused rule leaves the others saved. Marks the
+ * connection for one re-map from the earliest day (the caller queues it
+ * after the commit). Returns { saved: [{ index, id, rule }], failed:
+ * [{ index, error }] }.
+ */
+export async function saveRules(tx, tenantId, connectionId, bodies, user) {
+  const saved = [], failed = []
+  let from = null
+  for (const [index, body] of bodies.entries()) {
+    try {
+      const row = await tx.savepoint(async sp => {
+        const r = await cleanRule(sp, tenantId, connectionId, body)
+        return { ...(await saveRule(sp, tenantId, connectionId, r, user)), rule: r }
+      })
+      saved.push({ index, id: row.id, rule: { ...row.rule, id: row.id } })
+      from = earlier(from, row.effective_from)
+    } catch (err) {
+      if (err?.name === 'ZodError') { failed.push({ index, error: 'That rule isn\'t complete' }); continue }
+      if (!err?.statusCode || err.statusCode >= 500) throw err
+      failed.push({ index, error: err.message })
+    }
+  }
+  if (from) await requestRemap(tx, tenantId, connectionId, from)
+  return { saved, failed }
 }
 
 async function ownRule(tx, tenantId, connectionId, ruleId) {
@@ -253,6 +344,7 @@ const earlier = (a, b) => (!a ? b : !b ? a : a < b ? a : b)
 function targetLabel(r, names) {
   if (r.kind === 'ignore') return 'Ignored (not a sale)'
   if (r.kind === 'keep') return 'Kept as sold'
+  if (r.kind === 'bucket') return names[r.target_section_id] || 'A section no longer on the menu'
   if (r.kind === 'axis') return r.axis_values.map(v => v.from + ' → ' + (names[v.option_id] || '?')).join(', ')
   const gone = 'Something no longer on the menu'
   const main = r.target_combo_id || r.target_item_id
@@ -262,22 +354,11 @@ function targetLabel(r, names) {
 
 /** The catalogue page's data: the other till's catalogue with states and sales, the rules, the venues. */
 async function mappingView(tx, tenantId, conn, venueId) {
-  const [mc, venues, [{ today, remap_pending }], sales, optionSales] = await Promise.all([
+  const [mc, venues, [{ today, remap_pending }], { items: sales, options: optionSales }] = await Promise.all([
     mappingContext(tx, tenantId, conn.id),
     linkedVenues(tx, tenantId, conn.id),
     tx`SELECT current_date::text AS today, remap_from IS NOT NULL AS remap_pending FROM pos_connections WHERE id = ${conn.id} AND tenant_id = ${tenantId}`,
-    tx`
-      SELECT l.item_ref, l.variant_ref, count(*)::int AS lines, COALESCE(sum(l.qty), 0)::float8 AS qty, COALESCE(sum(l.net_pence), 0)::bigint AS net_pence
-        FROM ext_checks c JOIN ext_check_lines l ON l.check_id = c.id AND l.tenant_id = c.tenant_id AND l.line_kind = 'item'
-       WHERE c.tenant_id = ${tenantId} AND c.connection_id = ${conn.id} AND c.kind = 'sale' AND NOT c.cancelled
-         AND c.business_date >= current_date - ${RECENT_DAYS}::int AND (${venueId}::uuid IS NULL OR c.venue_id = ${venueId}::uuid)
-       GROUP BY l.item_ref, l.variant_ref`,
-    tx`
-      SELECT l.option_ref, count(*)::int AS lines, COALESCE(sum(l.qty), 0)::float8 AS qty, COALESCE(sum(l.net_pence), 0)::bigint AS net_pence
-        FROM ext_checks c JOIN ext_check_lines l ON l.check_id = c.id AND l.tenant_id = c.tenant_id AND l.line_kind IN ('modifier', 'condiment')
-       WHERE c.tenant_id = ${tenantId} AND c.connection_id = ${conn.id} AND c.kind = 'sale' AND NOT c.cancelled
-         AND c.business_date >= current_date - ${RECENT_DAYS}::int AND (${venueId}::uuid IS NULL OR c.venue_id = ${venueId}::uuid)
-       GROUP BY l.option_ref`,
+    recentSales(tx, tenantId, conn.id, venueId),
   ])
   const scope = { venue_id: venueId, date: today }
   const state = thing => {
@@ -289,7 +370,7 @@ async function mappingView(tx, tenantId, conn, venueId) {
         : null,
     }
   }
-  const money = rows => ({ lines: rows.reduce((n, r) => n + r.lines, 0), qty: rows.reduce((n, r) => n + Number(r.qty), 0), net_pence: rows.reduce((n, r) => n + Number(r.net_pence), 0) })
+  const money = salesTotal
   const live = mc.catalogRows.filter(r => !r.deleted_at)
   const categories = Object.fromEntries(live.filter(r => r.kind === 'category').map(r => [r.external_id, r.name]))
   const items = live.filter(r => r.kind === 'item').map(it => {
@@ -324,6 +405,7 @@ async function mappingView(tx, tenantId, conn, venueId) {
     connection: { id: conn.id, name: conn.name, system: conn.system },
     venues, venue_id: venueId, today, days: RECENT_DAYS, remap_pending,
     items, modifiers,
+    categories: Object.entries(categories).map(([ref, name]) => ({ ref, name })).sort((a, b) => a.name.localeCompare(b.name)),
     rules: mc.rules.map(r => ({ ...r, target: targetLabel(r, mc.names) })),
   }
 }
@@ -445,5 +527,74 @@ export default async function itemMappingRoutes(app) {
     })
     queueRemap(req.tenantId, req.params.connectionId, req.log)
     return { ok: true }
+  })
+
+  // ── Phase 3 ────────────────────────────────────────────────────────────────
+
+  // Suggested targets for what is still unmapped at a venue (its menus only). Writes nothing.
+  app.get('/:connectionId/suggestions', { preHandler: canView }, async req => {
+    const q = VenueQuery.parse(req.query || {})
+    if (!q.venue_id) throw httpError(422, 'Choose a venue first: suggestions come from the menus it sells')
+    return withTenant(req.tenantId, async tx => {
+      const conn = await ownConnection(tx, req.tenantId, req.params.connectionId)
+      const venueId = await ownLinkedVenue(tx, req.tenantId, conn.id, q.venue_id)
+      return suggestions(tx, req.tenantId, conn.id, venueId)
+    })
+  })
+
+  // Several rules at once (accepted suggestions or proposals): each checked as a single save is.
+  app.post('/:connectionId/rules/bulk', { preHandler: canManage }, async req => {
+    const body = BulkBody.parse(req.body || {})
+    const out = await withTenant(req.tenantId, async tx => {
+      const conn = await ownConnection(tx, req.tenantId, req.params.connectionId)
+      const res = await saveRules(tx, req.tenantId, conn.id, body.rules, by(req))
+      // Learning: a group of rules with the same shape offered as one (saved only if accepted).
+      const mc = await mappingContext(tx, req.tenantId, conn.id)
+      const added = res.saved.map(s => normaliseRule(s.rule))
+      return { ...res, offers: added.length ? learnOffers(added, mc.rules, mc.ctx.catalog, mc.optionInfo) : [] }
+    })
+    if (out.saved.length) queueRemap(req.tenantId, req.params.connectionId, req.log)
+    return { saved: out.saved.map(s => ({ index: s.index, id: s.id })), failed: out.failed, offers: out.offers }
+  })
+
+  // Create missing dishes: needs Menus manage too (the menus routes check it again, as the person).
+  app.post('/:connectionId/create-dishes', { preHandler: [...canManage, requirePermission('menus', 'manage')] }, async req => {
+    const body = CreateBody.parse(req.body || {})
+    const { connectionId, venueId } = await withTenant(req.tenantId, async tx => {
+      const conn = await ownConnection(tx, req.tenantId, req.params.connectionId)
+      return { connectionId: conn.id, venueId: await ownLinkedVenue(tx, req.tenantId, conn.id, body.venue_id) }
+    })
+    const ctx = makeContext({
+      app, channel: 'staff_chat', tenantId: req.tenantId, log: req.log,
+      auth: staffAuthOf(req), principal: staffPrincipalOf(req), actor: req.user.email || req.user.sub,
+    })
+    return createMissing(ctx, { connectionId, venueId, sectionId: body.section_id, keys: body.keys, user: by(req) })
+  })
+
+  // Copy from another venue: what would be copied (View may look), then the copy itself.
+  const copyView = async (tx, req, body) => {
+    const conn = await ownConnection(tx, req.tenantId, req.params.connectionId)
+    const from = await ownLinkedVenue(tx, req.tenantId, conn.id, body.from_venue_id)
+    const to = await ownLinkedVenue(tx, req.tenantId, conn.id, body.to_venue_id)
+    return { conn, plan: await copyPlan(tx, req.tenantId, conn.id, from, to) }
+  }
+  const copyWords = plan => ({
+    copy: plan.copy.map(c => ({ from_rule_id: c.from_rule_id, rule: c.rule, changed: c.changed, target: targetLabel(c.normal, plan.names) })),
+    unmatched: plan.unmatched.map(u => ({ from_rule_id: u.from_rule_id, rule: u.rule, why: u.why, target: targetLabel(u.rule, plan.names) })),
+    existing: plan.existing.map(e => ({ from_rule_id: e.from_rule_id, rule: e.rule, target: targetLabel(e.rule, plan.names) })),
+  })
+  app.post('/:connectionId/copy-preview', { preHandler: canView }, async req => {
+    const body = CopyBody.parse(req.body || {})
+    return withTenant(req.tenantId, async tx => copyWords((await copyView(tx, req, body)).plan))
+  })
+  app.post('/:connectionId/copy', { preHandler: canManage }, async req => {
+    const body = CopyBody.parse(req.body || {})
+    const out = await withTenant(req.tenantId, async tx => {
+      const { conn, plan } = await copyView(tx, req, body)
+      const res = plan.copy.length ? await saveRules(tx, req.tenantId, conn.id, plan.copy.map(c => c.rule), by(req)) : { saved: [], failed: [] }
+      return { saved: res.saved.map(s => ({ index: s.index, id: s.id })), failed: res.failed, ...copyWords({ ...plan, copy: [] }) }
+    })
+    if (out.saved.length) queueRemap(req.tenantId, req.params.connectionId, req.log)
+    return { saved: out.saved, failed: out.failed, unmatched: out.unmatched, existing: out.existing }
   })
 }

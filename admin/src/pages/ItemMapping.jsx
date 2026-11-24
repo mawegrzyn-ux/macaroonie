@@ -14,6 +14,9 @@
 //     to value), ignore or keep as sold; its scope and effective_from;
 //     Preview shows what the last 30 days' lines would become before saving.
 // Saving or deleting re-maps the stored sales in the background.
+// Phase 3 (components/cashRecon/MappingTools.jsx), for the venue picked:
+// Suggestions, Pepper's proposals, pattern offers after accepting, Create
+// missing dishes and Copy from another venue.
 //
 // Permissions (Cash reconciliation): View sees it and previews; Manage
 // saves and deletes rules (the API's guards are the real check).
@@ -22,13 +25,14 @@ import { useState, useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
-import { ArrowLeft, Loader2, Plus, Search, Check, Trash2, Eye, Pencil, Shuffle, Layers, X } from 'lucide-react'
+import { ArrowLeft, Loader2, Plus, Search, Check, Trash2, Eye, Pencil, Shuffle, Layers, X, Wand2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { Modal } from '@/components/staff/shared'
 import { Card, inputCls, btnPrimary, btnOutline, btnDanger } from '@/components/cashRecon/reconShared'
+import { Suggestions, PepperProposals, PatternEditor, patternWords, CreateMissing, CopyFromVenue } from '@/components/cashRecon/MappingTools'
 
 const pence = p => (p < 0 ? '-' : '') + '£' + (Math.abs(Number(p) || 0) / 100).toFixed(2)
 const dayLabel = d => (d ? format(new Date(d + 'T12:00:00'), 'd MMM yyyy') : '')
@@ -39,6 +43,7 @@ const STATE_STYLE = {
   ignored:  'bg-muted text-muted-foreground',
   note:     'bg-muted text-muted-foreground',
   in_combo: 'bg-violet-100 text-violet-800',
+  bucket:   'bg-violet-100 text-violet-800',
   unmapped: 'bg-amber-100 text-amber-800',
 }
 const KINDS = [
@@ -47,6 +52,8 @@ const KINDS = [
   { key: 'axis', label: 'Option axis', short: 'Axis' },
   { key: 'ignore', label: 'Ignore', short: 'Ignore' },
   { key: 'keep', label: 'Keep as sold', short: 'Keep' },
+  { key: 'pattern', label: 'Pattern', short: 'Pattern' },
+  { key: 'bucket', label: 'Category to a section', short: 'Section' },
 ]
 const kindLabel = k => KINDS.find(x => x.key === k)?.label || k
 
@@ -58,6 +65,7 @@ function StateBadge({ s }) {
 export default function ItemMapping() {
   const api = useApi()
   const perm = usePermission('cash_recon')
+  const menusPerm = usePermission('menus')
   const [params, setParams] = useSearchParams()
   const { data: conns } = useQuery({ queryKey: ['integrations'], queryFn: () => api.get('/integrations/connections') })
   const connections = conns?.connections || []
@@ -143,6 +151,10 @@ export default function ItemMapping() {
               if (variant && item.variants.length > 1) editThing({ item_ref: item.ref, variant_ref: variant.ref }, variant.state)
               else if (item) editThing({ item_ref: item.ref }, item.state)
             }} />
+            <Suggestions connectionId={connectionId} venueId={venueId} canManage={perm.canManage} />
+            <PepperProposals connectionId={connectionId} venueId={venueId} canManage={perm.canManage} />
+            <CreateMissing connectionId={connectionId} venueId={venueId} menu={menu.data} canManage={perm.canManage} canMenus={menusPerm.canManage} />
+            <CopyFromVenue connectionId={connectionId} venueId={venueId} venues={data.venues} canManage={perm.canManage} describe={r => matchLabel(r, data)} />
             <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] items-start">
               <Catalogue data={data} filter={filter} setFilter={setFilter} search={search} setSearch={setSearch} onEdit={editThing} />
               <Rules data={data} canManage={perm.canManage} venueId={venueId}
@@ -153,9 +165,11 @@ export default function ItemMapping() {
         )}
       </div>
 
-      {editing && data && menu.data && (
-        <RuleEditor key={editing.id || 'new'} draft={editing} data={data} menu={menu.data} connectionId={connectionId}
-          venueId={venueId} canManage={perm.canManage} onClose={() => setEditing(null)} />
+      {editing && data && menu.data && (editing.kind === 'pattern' || editing.kind === 'bucket'
+        ? <PatternEditor key={editing.id || 'new'} draft={editing} data={data} menu={menu.data} connectionId={connectionId}
+            venueId={venueId} canManage={perm.canManage} onClose={() => setEditing(null)} />
+        : <RuleEditor key={editing.id || 'new'} draft={editing} data={data} menu={menu.data} connectionId={connectionId}
+            venueId={venueId} canManage={perm.canManage} onClose={() => setEditing(null)} />
       )}
     </div>
   )
@@ -180,11 +194,13 @@ function Coverage({ cov, pending, onPick }) {
             {v.total > 0 && <>
               <div className="bg-green-500" style={{ width: Math.max(0, v.mapped / v.total * 100) + '%' }} />
               <div className="bg-sky-400" style={{ width: Math.max(0, v.kept / v.total * 100) + '%' }} />
+              <div className="bg-violet-400" style={{ width: Math.max(0, (v.bucket || 0) / v.total * 100) + '%' }} />
               <div className="bg-gray-300" style={{ width: Math.max(0, v.ignored / v.total * 100) + '%' }} />
             </>}
           </div>
           <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3">
             <span>Mapped {pence(v.mapped)}</span><span>Kept as sold {pence(v.kept)}</span>
+            {v.bucket > 0 && <span>In a section {pence(v.bucket)}</span>}
             <span>Ignored {pence(v.ignored)}</span><span>Not mapped {pence(v.unmapped)}</span><span>Of {pence(v.total)}</span>
           </div>
         </div>
@@ -296,6 +312,7 @@ function Catalogue({ data, filter, setFilter, search, setSearch, onEdit }) {
 
 /** A rule's match in words, from the catalogue. */
 function matchLabel(r, data) {
+  if (r.kind === 'pattern' || r.kind === 'bucket') return patternWords(r, data.categories)
   const item = data.items.find(i => i.ref === r.item_ref)
   const variant = item?.variants.find(v => v.ref === r.variant_ref)
   const option = ref => {
@@ -321,6 +338,7 @@ function Rules({ data, canManage, venueId, onEdit, onNew }) {
         <div className="flex flex-wrap gap-2">
           <button type="button" className={btnOutline} onClick={() => onNew('combination')}><Plus className="w-4 h-4" /> Combination</button>
           <button type="button" className={btnOutline} onClick={() => onNew('axis')}><Layers className="w-4 h-4" /> Option axis</button>
+          <button type="button" className={btnOutline} onClick={() => onNew('pattern')} data-testid="new-pattern"><Wand2 className="w-4 h-4" /> Pattern</button>
         </div>
       )}
       {!rules.length && <p className="text-sm text-muted-foreground">No rules yet. Tap an item in the catalogue to map it.</p>}
