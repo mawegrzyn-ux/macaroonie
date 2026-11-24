@@ -9,16 +9,21 @@
 // list). Dismiss (x) hides it for 14 days (a manager's team suggestion for
 // good): POST /api/suggestions/hide. Dotted, so they never pass for pins. At
 // 1024 px and below the fourth is left out (the strip keeps to one or two rows).
+// Each one shown, opened, pinned or dismissed goes into the person's usage
+// record (lib/usage.js, kind 'suggestion', step 7d).
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import * as LucideIcons from 'lucide-react'
 import { Pin, X, Lightbulb, Loader2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { usePins, MAX_PINS } from '@/components/home/Pins'
+import { recordUse } from '@/lib/usage'
 
 const iconOf = name => LucideIcons[name] || LucideIcons.Circle
+// The usage record (step 7d): the person's own; the group sees tap-through by rule only.
+const track = (s, act) => recordUse({ kind: 'suggestion', rule: s.rule, act, path: s.path })
 
 /** `list`: the feed's suggestions; `onGone(key)`: take one off the shown list (dismissed or pinned). */
 export default function Suggestions({ list, onGone }) {
@@ -26,6 +31,18 @@ export default function Suggestions({ list, onGone }) {
   const { pins, save } = usePins()
   const [busy, setBusy] = useState(null)
   const [error, setError] = useState(null)
+  // Each suggestion counted as shown once while Home is open (the feed comes again every minute).
+  const counted = useRef(new Set())
+  const shownKeys = (list || []).slice(0, 4).map(s => s.key).join('|')
+  useEffect(() => {
+    // At 1024 px and below the fourth isn't drawn: not shown.
+    const n = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 1023px)').matches ? 3 : 4
+    for (const s of (list || []).slice(0, n)) {
+      if (counted.current.has(s.key)) continue
+      counted.current.add(s.key)
+      track(s, 'shown')
+    }
+  }, [shownKeys]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!list?.length) return null
   const current = pins.data?.pins || []
   const full = current.length >= MAX_PINS
@@ -34,6 +51,7 @@ export default function Suggestions({ list, onGone }) {
     setBusy(s.key); setError(null)
     try {
       await api.post('/suggestions/hide', { key: s.key })
+      track(s, 'dismissed')
       onGone(s.key)
     } catch (err) {
       console.error(err)
@@ -44,6 +62,7 @@ export default function Suggestions({ list, onGone }) {
     setBusy(s.key); setError(null)
     try {
       await save.mutateAsync([...current, { ...s.pin, label: null }])
+      track(s, 'pinned')
       onGone(s.key)
     } catch (err) {
       console.error(err)
@@ -62,7 +81,7 @@ export default function Suggestions({ list, onGone }) {
           return (
             <li key={s.key} data-testid="suggestion" data-key={s.key} data-rule={s.rule}
               className={cn('flex items-stretch rounded-lg border-2 border-dashed border-primary/30 bg-background min-w-0', i >= 3 && 'max-lg:hidden')}>
-              <Link to={s.link} data-testid="suggestion-open"
+              <Link to={s.link} data-testid="suggestion-open" onClick={() => track(s, 'opened')}
                 className="flex-1 min-w-0 flex items-center gap-2 min-h-[56px] pl-3 pr-1 py-1.5 rounded-l-lg hover:bg-accent touch-manipulation">
                 <Icon className="w-4 h-4 shrink-0 text-primary" />
                 <span className="min-w-0 leading-tight">

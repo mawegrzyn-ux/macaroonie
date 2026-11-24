@@ -15,6 +15,9 @@
 //   usage.searches   the group's searches: how many, how many handed to
 //                    Pepper and their share, what was opened; no person and
 //                    no words typed (they can name a guest or a colleague).
+//   usage.suggestions  Home's suggestions (step 7d): shown, opened, pinned
+//                    and dismissed by rule and page, and the tap-through
+//                    (opened out of shown); no person.
 //                    Both need View on Navigation (the menu's designer, an
 //                    owner by default): which pages are used is the question
 //                    a menu is designed from.
@@ -26,7 +29,13 @@ import { subject, text, number, yesno, choice, moment, count, countDistinct, rat
 import { ASSISTANT_NAME } from '../../../../shared/assistant.js'
 
 const DAY = '({t}.at AT TIME ZONE {tz})::date'
-const KINDS = { page: 'A page opened', search: 'A menu search' }
+const KINDS = { page: 'A page opened', search: 'A menu search', suggestion: 'A suggestion on Home' }
+// Home's suggestions (step 7d): what happened to one, and the rule that found it (services/suggestions.js RULES).
+const ACTS = { shown: 'Shown', opened: 'Opened', pinned: 'Pinned', dismissed: 'Dismissed' }
+const RULE_NAMES = {
+  due: 'Tasks late or skipped there', team: 'Suggested to the role', setup: 'A gap in the set-up',
+  habit: 'Opened around this time most weeks', often: 'Opened most days', weekly_report: 'A report run most weeks',
+}
 const PICKED = { menu: 'One of the menu\'s matches', report: 'A saved report', pepper: 'One of ' + ASSISTANT_NAME + '\'s picks' }
 const GROUP_MODULE = 'nav_designer'
 
@@ -109,11 +118,44 @@ export const subjects = [
   }),
 
   subject({
+    key: 'usage.suggestions',
+    label: 'Home suggestions',
+    one: 'suggestion event',
+    area: 'shared',
+    module: GROUP_MODULE,
+    about: 'Each time Home showed someone in the group a suggestion, and each time one was opened, pinned or dismissed, with the rule that found it and its page (kept 90 days). Tap-through is opened out of shown. Who it was shown to isn\'t reported here.',
+    from: 'usage_events',
+    where: "{t}.kind = 'suggestion'",
+    name: 'page',
+    date: { sql: DAY, bound: '{t}.at', label: 'Day' },
+    fields: {
+      at: moment('at', { label: 'When' }),
+      rule: choice('rule', RULE_NAMES, { label: 'Why it was suggested' }),
+      act: choice('act', ACTS, { label: 'What happened' }),
+      page: text('path', { label: 'Page', empty: 'None' }),
+    },
+    measures: {
+      events: count({ label: 'Events' }),
+      shown: count({ label: 'Shown', where: "{t}.act = 'shown'" }),
+      opened: count({ label: 'Opened', where: "{t}.act = 'opened'" }),
+      pinned: count({ label: 'Pinned', where: "{t}.act = 'pinned'" }),
+      dismissed: count({ label: 'Dismissed', where: "{t}.act = 'dismissed'" }),
+      tap_through: ratio('opened', 'shown', { type: 'percent', label: 'Tap-through (%)', about: 'Suggestions opened out of suggestions shown.' }),
+      pin_rate: ratio('pinned', 'shown', { type: 'percent', label: 'Pinned (%)' }),
+      dismiss_rate: ratio('dismissed', 'shown', { type: 'percent', label: 'Dismissed (%)' }),
+    },
+    list: ['at', 'rule', 'act', 'page'],
+    sort: [{ by: 'at', dir: 'desc' }],
+    // The person: never in a group-wide subject.
+    skip: ['created_at'],
+  }),
+
+  subject({
     key: 'usage.mine',
     label: 'My pages and searches',
     one: 'page or search of mine',
     area: 'shared',
-    about: 'The pages you opened and what you searched for in the menu box, over the last 90 days: only ever your own, whoever runs the report.',
+    about: 'The pages you opened, what you searched for in the menu box and the suggestions Home showed you, over the last 90 days: only ever your own, whoever runs the report.',
     from: 'usage_events',
     where: '{t}.user_sub = {me}',
     name: 'page',
@@ -126,6 +168,8 @@ export const subjects = [
       to_pepper: yesno('pepper', { label: 'Handed to ' + ASSISTANT_NAME }),
       opened: choice('picked', PICKED, { label: 'Opened', empty: 'Nothing' }),
       matches: number('results', { label: 'Menu matches' }),
+      suggestion: choice('act', ACTS, { label: 'Suggestion', empty: '' }),
+      rule: choice('rule', RULE_NAMES, { label: 'Why it was suggested', empty: '' }),
     },
     measures: {
       events: count({ label: 'Pages and searches' }),

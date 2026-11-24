@@ -237,6 +237,45 @@ test('a report the person runs most weeks, opened from the suggestion', async ()
   assert.ok(!(await feed(operator)).suggestions.some(s => s.rule === 'weekly_report'), 'the owner\'s runs, not the operator\'s')
 })
 
+// ── Measuring (step 7d, migration 284) ─────────────────────────
+test('suggestions shown, opened, pinned and dismissed go into the person\'s own record; the group sees tap-through by rule, no person', async () => {
+  await sql`DELETE FROM usage_events WHERE tenant_id = ${ids.a} AND kind = 'suggestion'`
+  const ev = (rule, act, path) => ({ kind: 'suggestion', rule, act, path })
+  const admin = as(A.admin, ids.a)
+  assert.equal((await admin.post('/api/usage/events', { events: [
+    ev('habit', 'shown', '/rota'), ev('habit', 'opened', '/rota?venue=' + V),
+    ev('due', 'shown', '/food-safety'), ev('due', 'dismissed', '/food-safety'),
+    ev('team', 'shown', '/menus'), ev('team', 'pinned', '/menus'),
+    ev('nonsense', 'shown', '/rota'), ev('habit', 'liked', '/rota'), { kind: 'suggestion', act: 'shown' },
+  ] })).status, 204)
+  await ok(owner.post('/api/usage/events', { events: [ev('habit', 'shown', '/bookings'), ev('habit', 'shown', '/timeline')] }))
+  const rows = await sql`SELECT user_sub, rule, act, path FROM usage_events WHERE tenant_id = ${ids.a} AND kind = 'suggestion' ORDER BY user_sub, at, act`
+  assert.equal(rows.length, 8, 'unknown rules and acts dropped')
+  assert.ok(rows.every(r => !r.path || !r.path.includes('?')), 'the path only, never the venue in the address')
+  // The group's figure: tap-through by rule, no person.
+  const res = await ok(owner.post('/api/reports/preview', { spec: {
+    subject: 'usage.suggestions', kind: 'summary', rows: ['rule'],
+    values: ['shown', 'opened', 'pinned', 'dismissed', 'tap_through'].map(measure => ({ measure })),
+  } }))
+  // Each row's cells: rule, shown, opened, pinned, dismissed, tap-through.
+  const byRule = Object.fromEntries(res.rows.map(r => [r.cells[0], r.cells.slice(1)]))
+  assert.deepEqual(byRule.habit.slice(0, 4), [3, 1, 0, 0])
+  assert.ok(Math.abs(byRule.habit[4] - 1 / 3) < 1e-5, JSON.stringify(byRule.habit))
+  assert.deepEqual(byRule.team.slice(0, 4), [1, 0, 1, 0])
+  assert.deepEqual(byRule.due.slice(0, 4), [1, 0, 0, 1])
+  assert.ok(Math.abs(res.totals.cells[5] - 1 / 5) < 1e-6, 'the group: one opened of five shown')
+  const { CATALOGUE } = await import('../src/reports/catalogue/index.js')
+  const s = CATALOGUE.subjects['usage.suggestions']
+  const sqls = [...Object.values(s.fields), ...Object.values(s.measures)].map(x => x.sql || '').join(' ')
+  assert.ok(!/user_sub|query/.test(sqls), 'reads no person')
+  assert.deepEqual(Object.keys(s.links), [])
+  assert.equal(s.module, 'nav_designer')
+  assert.equal((await admin.post('/api/reports/preview', { spec: { subject: 'usage.suggestions', kind: 'list', rows: ['rule'] } })).status, 403, 'Navigation View for the group figure (an admin has none)')
+  // The person's own: theirs only.
+  const mine = await ok(admin.post('/api/reports/preview', { spec: { subject: 'usage.mine', kind: 'list', rows: ['what', 'page', 'suggestion', 'rule'] } }))
+  assert.equal(mine.rows.filter(r => r.cells[0] === 'suggestion').length, 6, 'the admin\'s six, not the owner\'s two')
+})
+
 // ── The Team signal (step 7b, migration 283) ───────────────────
 test('a page suggested to a role shows to that role until pinned or dismissed; Manage on Navigation only', async () => {
   const roles = await ok(owner.get('/api/access/roles'))

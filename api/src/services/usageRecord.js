@@ -11,8 +11,14 @@
 // of the menu's own matches, whether it went to Pepper and what was opened.
 // Who opened a page is kept so the person can see their own record; the
 // group-wide report subjects carry no person (decision 8 of the strategy).
+// Since step 7d (migration 284) also Home's suggestions: each one shown,
+// opened, pinned or dismissed, with the rule that found it and its page.
 
 import { withTenant, systemSql } from '../config/db.js'
+import { RULES } from './suggestions.js'
+
+export const SUGGESTION_ACTS = ['shown', 'opened', 'pinned', 'dismissed']
+const SUGGESTION_RULES = RULES.map(r => r.key)
 
 export const KEEP_DAYS = 90
 export const MAX_EVENTS = 50
@@ -68,6 +74,10 @@ export function usageRow(e, now = Date.now()) {
       picked, path: picked ? usagePath(e.path) : null,
     }
   }
+  if (e.kind === 'suggestion') {
+    if (!SUGGESTION_RULES.includes(e.rule) || !SUGGESTION_ACTS.includes(e.act)) return null
+    return { kind: 'suggestion', at: new Date(at), path: usagePath(e.path), query: null, results: null, pepper: false, picked: null, rule: e.rule, act: e.act }
+  }
   return null
 }
 
@@ -76,8 +86,8 @@ export async function recordUsage(tenantId, userSub, events, now = Date.now()) {
   const rows = (Array.isArray(events) ? events : []).slice(0, MAX_EVENTS).map(e => usageRow(e, now)).filter(Boolean)
   if (!rows.length || !tenantId || !userSub) return 0
   await withTenant(tenantId, tx => tx`
-    INSERT INTO usage_events ${tx(rows.map(r => ({ ...r, tenant_id: tenantId, user_sub: userSub })),
-      'tenant_id', 'user_sub', 'kind', 'at', 'path', 'query', 'results', 'pepper', 'picked')}
+    INSERT INTO usage_events ${tx(rows.map(r => ({ rule: null, act: null, ...r, tenant_id: tenantId, user_sub: userSub })),
+      'tenant_id', 'user_sub', 'kind', 'at', 'path', 'query', 'results', 'pepper', 'picked', 'rule', 'act')}
   `)
   return rows.length
 }
