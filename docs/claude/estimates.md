@@ -103,6 +103,9 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | 47.3b Pepper for what's left: one model call per batch with refs, a proposed rule per item with its reason and confidence, counted as usage | 7 to 10 min | | one PR, below | | | | A new model reader: a live run before the PR (the 8B lesson). |
 | 47.3c Pattern rules (code equals or starts with, name contains, category to target, category to a section) and learning: a group of accepted rules with the same shape offered as one pattern | 6 to 9 min | | one PR, below | | | | |
 | 47.3d Create missing dishes (unmapped items made as our dishes with their variants as an option group, mapped as made) and Copy from another venue (by name) | 8 to 12 min (writes into the menus area) | | one PR: tests, browser and docs 12, a live run 5, PR 7 plus 8 of CI slack | | | | |
+| 47.4a Cash Recon from stored checks: the Loyverse fill reads `ext_checks` (no live call), one figure rule in `shared/externalSales.js` in place of `summariseReceipts()`, a day fillable again after a late sync | fourth revision (the reports area is new to this item, so not halved): 8 to 12 min | | one PR, below | | | | Estimated 24 Nov 2026 before starting (item 47 phase 4, `docs/SALES_IMPORT.md` 3.5 and 6); plus 6 reading (the reports area's notes). |
+| 47.4b "Sales, every till" report subjects: our till's projections and the stored sales together with a source field, sales by our dish across tills (mapped parts), tenders, and a mapping coverage figure; catalogue decisions and coverage | 12 to 18 min (the reports area: strict tests, a large notes file) | | one PR, below | | | | |
+| 47.4c Today and Pepper: Today's sales figures and Pepper's till_day and ask_data include a Loyverse venue's stored sales, named by source | 6 to 10 min | | one PR: tests, browser and docs 12, a live eval run 5, PR 7 plus 8 of CI slack | | | | |
 
 ## Running totals
 
