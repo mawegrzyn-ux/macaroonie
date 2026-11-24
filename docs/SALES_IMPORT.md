@@ -232,3 +232,6 @@ the sums of their parts.
 - **D5** Webhooks plus a 15-minute catch-up (recommended), or a nightly pull?
 - **D6** Where the page lives: Store tech → Item mapping, or a new Integrations section with the
   connections, mapping and sync status together?
+
+**Answered by the user, 24 Nov 2026:** D1 own tables, shown with ours through "every till" subjects; D2 Macaroonie is the menu master, with Create missing dishes; D3 only Loyverse customer ids, no personal data; D4 13 months on connecting; D5 webhooks plus a 15-minute catch-up; D6 a new Integrations section (connections, mapping and sync status together). Item 47 can be built from phase 1.
+
