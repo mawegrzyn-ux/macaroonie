@@ -8,6 +8,9 @@ import { combosWithItem, stepWithItem, comboOf } from '@shared/combos.js'
 import { configItem, dealItem, comboCtx, autoCombosFor, checkOffers } from '@shared/pos/offers.js'
 import { chargesWhere, chargeList, chargeFromList } from '@shared/pos/charges.js'
 import { heldCourses } from '@shared/pos/checks.js'
+import { counterTill, leaveUnsent } from '@shared/pos/tillSettings.js'
+
+export { counterTill, leaveUnsent }
 import { dispatch, dispatchMany, getState, currentChecks, soldOutMap } from './store.js'
 
 // Offers, item choices and combo lookups live in shared/pos/offers.js (the
@@ -65,7 +68,7 @@ export function promptsFor(config, streamId, typeId) {
  * Send button shows only when the till's own setting asks for it
  * (counterSends). A table-service till has no Counter page.
  */
-export const counterTill = config => config?.device?.settings?.mode === 'counter'
+// counterTill(config): shared/pos/tillSettings.js (re-exported below).
 
 /**
  * Whether the till asks how many guests a check has when it opens (Store
@@ -171,16 +174,7 @@ export function swipeLeftAction(check, config) {
   return order.find(k => can[k]) || null
 }
 
-/**
- * What leaving a table-service order with items not sent to the kitchen does
- * (Store tech > Tills): 'leave' (the default) or 'ask' (Stay on the order,
- * Leave without sending, Send and leave). Counter tills always leave: their
- * orders go to the kitchen as they are paid.
- */
-export function leaveUnsent(config) {
-  if (counterTill(config)) return 'leave'
-  return config?.device?.settings?.leave_unsent === 'ask' ? 'ask' : 'leave'
-}
+// leaveUnsent(config): shared/pos/tillSettings.js (re-exported below).
 
 /**
  * Whether a dish on the order can be taken off from its own button (Store

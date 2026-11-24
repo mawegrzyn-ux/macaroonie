@@ -327,7 +327,8 @@ const DeviceSettings = z.object({
   // when the check has both ('send' or absent = sends what is new, 'fire' =
   // fires the course waiting; each falls back to the other, and a swipe
   // always asks first); leaving a table-service order with items not sent
-  // ('leave' or absent = leaves, 'ask' = asks whether to send them first);
+  // ('ask' or absent = asks whether to send them first, 'leave' = leaves;
+  // migration 295 made ask the default);
   // and, with item counts on, taking one off a counted dish (a swipe left
   // on its row in a list, a long press on a button; absent = no).
   swipe_left:         z.enum(['send', 'fire']).optional(),

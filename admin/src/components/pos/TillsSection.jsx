@@ -271,7 +271,7 @@ function TillModal({ venueId, setup, device, onClose }) {
     tables: s.tables !== false,
     phone_tables: s.phone_tables === 'list' ? 'list' : 'tiles',
     swipe_left: s.swipe_left === 'fire' ? 'fire' : 'send',
-    leave_unsent: s.leave_unsent === 'ask' ? 'ask' : 'leave',
+    leave_unsent: s.leave_unsent === 'leave' ? 'leave' : 'ask',
     item_counts: s.item_counts === true,
     count_take_off: s.count_take_off === true,
   })
@@ -407,11 +407,11 @@ function TillModal({ venueId, setup, device, onClose }) {
             </select>
           </Field>
           <Field label="Leaving an order with items not sent" hint={form.leave_unsent === 'ask'
-            ? 'Back, the top bar\'s pages, the till menu and Sign out ask first: Send and leave, Leave without sending, or Stay on the order.'
-            : 'The till just leaves: the items wait on the order until someone sends them.'}>
+            ? 'Back (the arrow or a layout\'s Back to tables button), the top bar\'s pages, the till menu and Sign out ask first: Send and leave, Leave without sending, or Stay on the order. This is the default.'
+            : 'The till just leaves: the items wait on the order until someone sends them, and nobody is warned.'}>
             <select className={inputCls} value={form.leave_unsent} onChange={e => set({ leave_unsent: e.target.value })} data-testid="till-leave-unsent">
+              <option value="ask">Ask whether to send them (default)</option>
               <option value="leave">Just leave</option>
-              <option value="ask">Ask whether to send them</option>
             </select>
           </Field>
           <Field group label="On a phone" hint={form.phone_tables === 'list'
