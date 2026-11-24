@@ -101,6 +101,9 @@ export const decisions = {
   ],
   out: {
     'Secrets and keys': ['pos_connections'],
+    // Other tills' documents as received (migration 289): the normalised
+    // ext_* rows are what reports will read.
+    'Raw copies kept to normalise again': ['ext_documents'],
     'Working state that changes from minute to minute': [
       // What each fill last wrote into a Cash Recon field (migration 260): the
       // scheduled fill's memory of hand changes, not a figure of its own.

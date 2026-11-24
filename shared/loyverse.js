@@ -13,6 +13,8 @@
 //
 // All money here is in pence (integers) to keep sums exact.
 
+import { toPence } from './externalSales.js'
+
 export const TOTAL_KINDS = {
   gross_sales:     { label: 'Gross sales',     hint: 'Every item sold, before discounts and refunds (as in Loyverse\'s sales summary).' },
   net_sales:       { label: 'Net sales',       hint: 'Gross sales less refunds and discounts.' },
@@ -66,7 +68,8 @@ export function needsCategories(mappings) {
   return MAPPING_GROUPS.some(g => Object.values(mappings?.[g] || {}).some(ts => (ts || []).some(t => t.kind === 'category')))
 }
 
-const pence = v => Math.round(Number(v || 0) * 100)
+// Decimal amounts to pence: the one rule for every other till (shared/externalSales.js).
+const pence = toPence
 
 /**
  * One trading day's figures from its receipts. Cancelled receipts are left
