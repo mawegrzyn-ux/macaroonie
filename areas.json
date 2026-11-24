@@ -132,6 +132,7 @@
     "api/src/services/connectors/**",
     "api/src/services/gloriafoodSvc.js",
     "api/src/services/itemMappingAi.js",
+    "api/src/services/itemMappingMake.js",
     "api/src/services/itemMappingSvc.js",
     "api/src/services/loyverseSvc.js",
     "api/src/services/reconFill.js",

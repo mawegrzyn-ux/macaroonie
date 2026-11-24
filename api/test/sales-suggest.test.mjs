@@ -306,3 +306,82 @@ test('pattern rules: code before name before category, then the bucket; checked 
   await bad({ kind: 'pattern', pattern_field: 'code', pattern_op: 'equals', pattern_value: 'X1', target_item_id: theirs.dish })
   assert.equal((await looker.post(base() + '/rules', { kind: 'bucket', pattern_value: 'cat-hot', target_section_id: our.bakery })).status, 403)
 })
+
+// ── 47.3d Create missing dishes, Copy from another venue ────────────────────
+
+const strip = body => ({ ...body, sections: body.sections.map(s => ({ ...s, items: s.items.filter(i => i.name !== 'Muffin') })) })
+
+test('Create missing dishes: the dish, an option group, per-dish prices and the rules; the menu otherwise unchanged', async () => {
+  const CREATE = base() + '/create-dishes'
+  const body = { venue_id: V, section_id: our.bakery, keys: ['v:var-muffin-b', 'v:var-muffin-c', 'o:opt-syrup'] }
+  assert.equal((await mapper.post(CREATE, body)).status, 403, 'needs Menus manage too')
+  assert.equal((await looker.post(CREATE, body)).status, 403)
+  assert.equal((await other.post(CREATE, body)).status, 404)
+  assert.equal((await owner.post(CREATE, { ...body, section_id: theirs.section })).status, 422, 'another tenant\'s section')
+  assert.equal((await owner.post(CREATE, { ...body, section_id: our.bakery2 })).status, 422, 'a section of a menu Ware doesn\'t sell')
+  const before = menuSaveBody(await menuOf(owner, MA))
+
+  const res = await ok(owner.post(CREATE, body))
+  assert.deepEqual(res.dishes.map(d => [d.name, d.price_pence, d.options]), [['Muffin', 240, 2]])
+  assert.equal(res.groups.length, 1)
+  assert.equal(res.groups[0].made, true)
+  assert.equal(res.groups[0].name, 'Flavour')
+  assert.equal(res.rules.saved.length, 2)
+  assert.deepEqual(res.rules.failed, [])
+
+  const after = await menuOf(owner, MA)
+  const muffin = dishByName(after, 'Muffin')
+  assert.equal(after.sections.find(s => s.items.some(i => i.id === muffin.id)).id, our.bakery)
+  assert.equal(muffin.price_pence, 240)
+  const g = muffin.variant_groups[0]
+  assert.equal(g.group_id, res.groups[0].id)
+  const price = label => g.options.find(o => o.label === label)
+  assert.deepEqual([price('Blueberry').price_pence, price('Chocolate').price_pence, price('Chocolate').overridden], [0, 20, true], 'the dish\'s own option prices')
+  const [grp] = await sql`SELECT price_mode, tenant_id FROM menu_variant_groups WHERE id = ${g.group_id}`
+  assert.deepEqual([grp.price_mode, grp.tenant_id], ['extra', ids.a])
+  assert.deepEqual(strip(menuSaveBody(after)), before, 'everything else on the menu as it was')
+
+  // The rules map the variants to the dish and its options.
+  const rules = await sql`SELECT variant_ref, target_item_id, target_option_ids FROM ext_map_rules WHERE connection_id = ${conn.id} AND target_item_id = ${muffin.id} ORDER BY variant_ref`
+  assert.deepEqual(rules.map(r => [r.variant_ref, r.target_option_ids[0] === price(r.variant_ref === 'var-muffin-b' ? 'Blueberry' : 'Chocolate').option_id]),
+    [['var-muffin-b', true], ['var-muffin-c', true]])
+  assert.equal((await stateOf(V, 'it-muffin', 'var-muffin-c')).target, 'Muffin + Flavour: Chocolate')
+  // Made once: asking again finds nothing open.
+  assert.equal((await owner.post(CREATE, body)).status, 422)
+})
+
+test('Copy from another venue: re-pointed by name, what can\'t be matched reported, nothing saved until confirmed', async () => {
+  const body = { from_venue_id: V, to_venue_id: V2 }
+  const fromRules = (await rulesNow()).filter(r => r.venue_id === V)
+  const p = await ok(looker.post(base() + '/copy-preview', body))
+  const find = (list, pred) => list.find(c => pred(c.rule))
+  assert.equal(find(p.copy, r => r.variant_ref === 'var-latte-l').rule.target_item_id, our.latte2, 'Latte re-pointed to Hertford\'s Latte')
+  assert.equal(find(p.copy, r => r.variant_ref === 'var-latte-l').changed, true)
+  assert.deepEqual(find(p.copy, r => r.variant_ref === 'var-lrg-oat').rule.target_option_ids, [our.large, our.oat], 'options are the group\'s own')
+  assert.equal(find(p.copy, r => r.kind === 'bucket').rule.target_section_id, our.bakery2, 'Bakery found by its title')
+  assert.ok(find(p.copy, r => r.kind === 'keep' && r.item_ref === 'it-brownie'))
+  assert.ok(find(p.copy, r => r.kind === 'axis'))
+  assert.match(find(p.unmatched, r => r.item_ref === 'it-tea').why, /Breakfast tea/)
+  assert.ok(find(p.unmatched, r => r.variant_ref === 'var-mocha-l'), 'no Mocha at Hertford')
+  assert.ok(find(p.unmatched, r => r.variant_ref === 'var-muffin-b'))
+  assert.equal(p.copy.length + p.unmatched.length + p.existing.length, fromRules.length)
+  assert.ok(p.copy.every(c => c.rule.venue_id === V2))
+  assert.equal((await rulesNow()).filter(r => r.venue_id === V2).length, 0, 'the preview saves nothing')
+
+  assert.equal((await looker.post(base() + '/copy', body)).status, 403)
+  assert.equal((await other.post(base() + '/copy-preview', body)).status, 404)
+  assert.equal((await owner.post(base() + '/copy-preview', { from_venue_id: V, to_venue_id: V })).status, 422)
+  const stray = (await sql`SELECT id FROM venues WHERE slug = 'zqx-stray-ss'`)[0].id
+  assert.equal((await owner.post(base() + '/copy-preview', { from_venue_id: V, to_venue_id: stray })).status, 422, 'a venue not on the connection')
+
+  const done = await ok(owner.post(base() + '/copy', body))
+  assert.equal(done.saved.length, p.copy.length)
+  assert.deepEqual(done.failed, [])
+  assert.equal(done.unmatched.length, p.unmatched.length)
+  const copied = (await rulesNow()).filter(r => r.venue_id === V2)
+  assert.equal(copied.length, p.copy.length)
+  assert.ok(copied.every(r => ![our.latte, our.fw, our.bakery].includes(r.target_item_id || r.target_section_id)), 'nothing points at Ware\'s menu')
+  const again = await ok(owner.post(base() + '/copy-preview', body))
+  assert.equal(again.copy.length, 0)
+  assert.equal(again.existing.length, p.copy.length)
+})

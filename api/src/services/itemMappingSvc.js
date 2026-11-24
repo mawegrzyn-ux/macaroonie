@@ -429,7 +429,8 @@ export const salesTotal = rows => ({
  * variant (kind 'item'), each variant of an item with several ('variant'),
  * each modifier option ('option'), with its name, variant values, SKU,
  * barcode, price at the venue's store, category, state under the rules and
- * last 30 days' sales. Only what is still open (an item unmapped, a modifier
+ * last 30 days' sales. Only what is still open (an item unmapped or only in a
+ * section by a bucket rule, a modifier
  * option only a note) unless `all`. Biggest sellers first.
  */
 export async function openThings(tx, tenantId, connectionId, venueId, { mc = null, all = false } = {}) {
@@ -484,7 +485,7 @@ export async function openThings(tx, tenantId, connectionId, venueId, { mc = nul
       })
     }
   }
-  const open = all ? out : out.filter(t => (t.kind === 'option' ? t.state === 'note' : t.state === 'unmapped'))
+  const open = all ? out : out.filter(t => (t.kind === 'option' ? t.state === 'note' : (t.state === 'unmapped' || t.state === 'bucket')))
   return open.sort((x, y) => y.sales.net_pence - x.sales.net_pence || x.name.localeCompare(y.name)
     || String(x.variant_name || '').localeCompare(String(y.variant_name || '')))
 }

@@ -31,6 +31,13 @@
 //                                              offers are learnOffers() (a group of rules
 //                                              with the same shape as one rule), saved
 //                                              only when accepted (POST or PUT /rules)
+//   POST   /:connectionId/create-dishes        { venue_id, section_id, keys }: Create missing
+//                                              dishes (services/itemMappingMake.js); needs
+//                                              Menus manage as well
+//   POST   /:connectionId/copy-preview         { from_venue_id, to_venue_id }: what Copy from
+//                                              another venue would copy, re-pointed by name,
+//                                              and what it can't match; writes nothing
+//   POST   /:connectionId/copy                 the same, saved (the plan is worked out again)
 // Pattern and bucket rules (migration 293) save through POST /rules: a
 // pattern's category or a bucket's category is a ref in the catalogue, a
 // bucket's section one on a menu the venue sells.
@@ -54,6 +61,8 @@ import {
 import {
   catalogState, ruleKey, normaliseRule, learnOffers, RULE_KINDS, AXIS_KINDS, PATTERN_FIELDS, PATTERN_OPS, PATTERN_LABELS, STATE_LABELS,
 } from '../../../shared/itemMapping.js'
+import { makeContext, staffAuthOf, staffPrincipalOf } from '../ai/context.js'
+import { createMissing, copyPlan } from '../services/itemMappingMake.js'
 
 const UUID = z.string().uuid()
 const canView   = [requirePermission('cash_recon', 'view')]
@@ -92,6 +101,12 @@ const PreviewBody = z.object({
 const VenueQuery = z.object({ venue_id: UUID.optional() })
 // Each rule is checked by cleanRule() on its own (a bad one is reported, the others saved).
 const BulkBody = z.object({ rules: z.array(z.record(z.any())).min(1).max(200) })
+const CreateBody = z.object({
+  venue_id:   UUID,
+  section_id: UUID,
+  keys:       z.array(z.string().trim().min(3).max(220)).min(1).max(60),   // MAX_CREATE in services/itemMappingMake.js
+})
+const CopyBody = z.object({ from_venue_id: UUID, to_venue_id: UUID })
 
 export async function ownConnection(tx, tenantId, id) {
   if (!UUID.safeParse(id).success) throw httpError(404, 'Connection not found')
@@ -540,5 +555,46 @@ export default async function itemMappingRoutes(app) {
     })
     if (out.saved.length) queueRemap(req.tenantId, req.params.connectionId, req.log)
     return { saved: out.saved.map(s => ({ index: s.index, id: s.id })), failed: out.failed, offers: out.offers }
+  })
+
+  // Create missing dishes: needs Menus manage too (the menus routes check it again, as the person).
+  app.post('/:connectionId/create-dishes', { preHandler: [...canManage, requirePermission('menus', 'manage')] }, async req => {
+    const body = CreateBody.parse(req.body || {})
+    const { connectionId, venueId } = await withTenant(req.tenantId, async tx => {
+      const conn = await ownConnection(tx, req.tenantId, req.params.connectionId)
+      return { connectionId: conn.id, venueId: await ownLinkedVenue(tx, req.tenantId, conn.id, body.venue_id) }
+    })
+    const ctx = makeContext({
+      app, channel: 'staff_chat', tenantId: req.tenantId, log: req.log,
+      auth: staffAuthOf(req), principal: staffPrincipalOf(req), actor: req.user.email || req.user.sub,
+    })
+    return createMissing(ctx, { connectionId, venueId, sectionId: body.section_id, keys: body.keys, user: by(req) })
+  })
+
+  // Copy from another venue: what would be copied (View may look), then the copy itself.
+  const copyView = async (tx, req, body) => {
+    const conn = await ownConnection(tx, req.tenantId, req.params.connectionId)
+    const from = await ownLinkedVenue(tx, req.tenantId, conn.id, body.from_venue_id)
+    const to = await ownLinkedVenue(tx, req.tenantId, conn.id, body.to_venue_id)
+    return { conn, plan: await copyPlan(tx, req.tenantId, conn.id, from, to) }
+  }
+  const copyWords = plan => ({
+    copy: plan.copy.map(c => ({ from_rule_id: c.from_rule_id, rule: c.rule, changed: c.changed, target: targetLabel(c.normal, plan.names) })),
+    unmatched: plan.unmatched.map(u => ({ from_rule_id: u.from_rule_id, rule: u.rule, why: u.why, target: targetLabel(u.rule, plan.names) })),
+    existing: plan.existing.map(e => ({ from_rule_id: e.from_rule_id, rule: e.rule, target: targetLabel(e.rule, plan.names) })),
+  })
+  app.post('/:connectionId/copy-preview', { preHandler: canView }, async req => {
+    const body = CopyBody.parse(req.body || {})
+    return withTenant(req.tenantId, async tx => copyWords((await copyView(tx, req, body)).plan))
+  })
+  app.post('/:connectionId/copy', { preHandler: canManage }, async req => {
+    const body = CopyBody.parse(req.body || {})
+    const out = await withTenant(req.tenantId, async tx => {
+      const { conn, plan } = await copyView(tx, req, body)
+      const res = plan.copy.length ? await saveRules(tx, req.tenantId, conn.id, plan.copy.map(c => c.rule), by(req)) : { saved: [], failed: [] }
+      return { saved: res.saved.map(s => ({ index: s.index, id: s.id })), failed: res.failed, ...copyWords({ ...plan, copy: [] }) }
+    })
+    if (out.saved.length) queueRemap(req.tenantId, req.params.connectionId, req.log)
+    return { saved: out.saved, failed: out.failed, unmatched: out.unmatched, existing: out.existing }
   })
 }

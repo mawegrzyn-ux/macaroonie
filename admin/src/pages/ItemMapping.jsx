@@ -32,7 +32,7 @@ import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { Modal } from '@/components/staff/shared'
 import { Card, inputCls, btnPrimary, btnOutline, btnDanger } from '@/components/cashRecon/reconShared'
-import { Suggestions, PepperProposals, PatternEditor, patternWords } from '@/components/cashRecon/MappingTools'
+import { Suggestions, PepperProposals, PatternEditor, patternWords, CreateMissing, CopyFromVenue } from '@/components/cashRecon/MappingTools'
 
 const pence = p => (p < 0 ? '-' : '') + '£' + (Math.abs(Number(p) || 0) / 100).toFixed(2)
 const dayLabel = d => (d ? format(new Date(d + 'T12:00:00'), 'd MMM yyyy') : '')
@@ -65,6 +65,7 @@ function StateBadge({ s }) {
 export default function ItemMapping() {
   const api = useApi()
   const perm = usePermission('cash_recon')
+  const menusPerm = usePermission('menus')
   const [params, setParams] = useSearchParams()
   const { data: conns } = useQuery({ queryKey: ['integrations'], queryFn: () => api.get('/integrations/connections') })
   const connections = conns?.connections || []
@@ -152,6 +153,8 @@ export default function ItemMapping() {
             }} />
             <Suggestions connectionId={connectionId} venueId={venueId} canManage={perm.canManage} />
             <PepperProposals connectionId={connectionId} venueId={venueId} canManage={perm.canManage} />
+            <CreateMissing connectionId={connectionId} venueId={venueId} menu={menu.data} canManage={perm.canManage} canMenus={menusPerm.canManage} />
+            <CopyFromVenue connectionId={connectionId} venueId={venueId} venues={data.venues} canManage={perm.canManage} describe={r => matchLabel(r, data)} />
             <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] items-start">
               <Catalogue data={data} filter={filter} setFilter={setFilter} search={search} setSearch={setSearch} onEdit={editThing} />
               <Rules data={data} canManage={perm.canManage} venueId={venueId}

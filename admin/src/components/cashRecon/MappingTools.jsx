@@ -346,6 +346,189 @@ export function PatternEditor({ draft, data, menu, connectionId, venueId, canMan
   )
 }
 
+// ── Create missing dishes ────────────────────────────────────────────────────
+
+/**
+ * Our dishes made from what is still unmapped at the venue, in one section
+ * of a menu it sells; an item's variants become an option group with the
+ * dish's own prices, and the rules are saved as they are made. Needs Menus
+ * manage too.
+ */
+export function CreateMissing({ connectionId, venueId, menu, canManage, canMenus }) {
+  const api = useApi()
+  const refresh = useRefreshMapping()
+  const [picked, setPicked] = useState({})
+  const [sectionId, setSectionId] = useState('')
+  const [confirm, setConfirm] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [res, setRes] = useState(null)
+  const q = useQuery({
+    queryKey: ['item-mapping-suggest', connectionId, venueId],
+    queryFn: () => api.get(`/integrations/mapping/${connectionId}/suggestions?venue_id=${venueId}`),
+    enabled: !!connectionId && !!venueId && canManage,
+  })
+  const items = useMemo(() => {
+    const all = [...(q.data?.suggestions || []), ...(q.data?.unmatched || [])].filter(t => t.kind !== 'option')
+    const byItem = new Map()
+    for (const t of all) {
+      if (!byItem.has(t.item_ref)) byItem.set(t.item_ref, { item_ref: t.item_ref, name: t.name, keys: [], variants: [], price: null, sales: 0 })
+      const it = byItem.get(t.item_ref)
+      it.keys.push(t.key)
+      if (t.variant_name) it.variants.push(t.variant_name)
+      if (t.price_pence != null) it.price = it.price == null ? t.price_pence : Math.min(it.price, t.price_pence)
+      it.sales += t.sales?.net_pence || 0
+    }
+    return [...byItem.values()].sort((a, b) => b.sales - a.sales || a.name.localeCompare(b.name))
+  }, [q.data])
+  const sections = (menu?.menus || []).flatMap(m => m.sections.map(s => ({ id: s.id, label: m.name + ' · ' + s.title })))
+  if (!venueId || !canManage) return null
+  const chosen = items.filter(i => picked[i.item_ref])
+  const section = sections.find(s => s.id === sectionId)
+  async function create() {
+    setBusy(true); setErr('')
+    try {
+      const out = await api.post(`/integrations/mapping/${connectionId}/create-dishes`, { venue_id: venueId, section_id: sectionId, keys: chosen.flatMap(i => i.keys) })
+      setRes(out); setPicked({}); setConfirm(false)
+      refresh()
+    } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  return (
+    <Card title="Create missing dishes">
+      <p className="text-xs text-muted-foreground">
+        For a venue moving to your menus: tick what the other till sells that you don&apos;t have, choose a section, and
+        the dishes are made with the till&apos;s prices (its variants as an option group with this dish&apos;s own prices) and
+        mapped as they are made. They go into the menu&apos;s draft: publish the menu when you&apos;re ready.
+      </p>
+      {!canMenus && <p className="text-sm text-muted-foreground">Making dishes needs Menus manage as well.</p>}
+      {res && (
+        <div className="text-sm space-y-1" data-testid="create-result">
+          <p className="text-green-800">Made {res.dishes.map(d => d.name).join(', ') || 'nothing'}{res.groups.filter(g => g.made).length ? '; new option groups ' + res.groups.filter(g => g.made).map(g => g.name).join(', ') : ''}. {res.rules.saved.length} rules saved.</p>
+          {res.skipped.map(s => <p key={s.name} className="text-muted-foreground">{s.name}: {s.why}</p>)}
+          {res.rules.failed.map(f => <p key={f.index} className="text-destructive">{f.error}</p>)}
+        </div>
+      )}
+      {q.isLoading && <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />}
+      {canMenus && items.length > 0 && (
+        <>
+          <div className="max-h-80 overflow-y-auto space-y-1.5 pr-1">
+            {items.map(i => (
+              <div key={i.item_ref} className="flex items-center gap-2 rounded-xl border bg-background p-1.5" data-testid="missing-row">
+                <Tick on={!!picked[i.item_ref]} label={'Tick ' + i.name} onClick={() => setPicked(p => ({ ...p, [i.item_ref]: !p[i.item_ref] }))} />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-medium truncate">{i.name}</span>
+                  <span className="block text-xs text-muted-foreground truncate">{i.variants.length ? i.variants.join(', ') : 'One price'}{i.price != null ? ' · from ' + pence(i.price) : ''}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-muted-foreground">Into the section</span>
+            <select className={field} value={sectionId} onChange={e => { setSectionId(e.target.value); setConfirm(false) }} aria-label="Section" data-testid="create-section">
+              <option value="">Choose</option>
+              {sections.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          </label>
+          {err && <p className="text-sm text-destructive">{err}</p>}
+          {!confirm ? (
+            <button type="button" className={btnPrimary} disabled={!chosen.length || !sectionId || busy} onClick={() => setConfirm(true)} data-testid="create-dishes">
+              <Wand2 className="w-4 h-4" /> Create {chosen.length} {chosen.length === 1 ? 'dish' : 'dishes'}
+            </button>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm">Make {chosen.length} {chosen.length === 1 ? 'dish' : 'dishes'} in {section?.label}?</span>
+              <button type="button" className={btnPrimary} onClick={create} disabled={busy} data-testid="create-confirm">
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Yes, create them
+              </button>
+              <button type="button" className={btnOutline} onClick={() => setConfirm(false)} disabled={busy}>Not yet</button>
+            </div>
+          )}
+        </>
+      )}
+      {q.data && !items.length && <p className="text-sm text-muted-foreground">Every item is mapped at this venue.</p>}
+    </Card>
+  )
+}
+
+// ── Copy from another venue ──────────────────────────────────────────────────
+
+/** A venue's rules copied to this venue, re-pointed by name; a preview first, then Copy with a confirm. */
+export function CopyFromVenue({ connectionId, venueId, venues, canManage, describe }) {
+  const api = useApi()
+  const refresh = useRefreshMapping()
+  const [from, setFrom] = useState('')
+  const [plan, setPlan] = useState(null)
+  const [confirm, setConfirm] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [res, setRes] = useState(null)
+  const others = (venues || []).filter(v => v.venue_id !== venueId)
+  if (!venueId || !others.length) return null
+  const body = () => ({ from_venue_id: from, to_venue_id: venueId })
+  async function preview() {
+    setBusy(true); setErr(''); setRes(null); setConfirm(false)
+    try { setPlan(await api.post(`/integrations/mapping/${connectionId}/copy-preview`, body())) }
+    catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  async function copy() {
+    setBusy(true); setErr('')
+    try { setRes(await api.post(`/integrations/mapping/${connectionId}/copy`, body())); setPlan(null); setConfirm(false); refresh() }
+    catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  const Line = ({ c, tone }) => (
+    <div className={cn('rounded-lg border px-3 py-2 text-sm', tone)} data-testid="copy-line">
+      <span className="font-medium">{describe(c.rule)}</span> <span className="text-muted-foreground">→ {c.target}</span>
+      {c.why && <span className="block text-xs text-destructive">{c.why}</span>}
+      {c.changed && <span className="block text-xs text-muted-foreground">Found by name on this venue&apos;s menus</span>}
+    </div>
+  )
+  return (
+    <Card title="Copy from another venue">
+      <p className="text-xs text-muted-foreground">
+        Copies another venue&apos;s own rules to this one, finding each dish, option and section by name on this
+        venue&apos;s menus. You see what will be copied first; nothing is saved until you confirm.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <select className={cn(field, 'w-auto flex-1 min-w-[12rem]')} value={from} onChange={e => { setFrom(e.target.value); setPlan(null) }} aria-label="Copy from" data-testid="copy-from">
+          <option value="">Copy from</option>
+          {others.map(v => <option key={v.venue_id} value={v.venue_id}>{v.venue_name}</option>)}
+        </select>
+        <button type="button" className={btnOutline} disabled={!from || busy} onClick={preview} data-testid="copy-preview">
+          {busy && !plan ? <Loader2 className="w-4 h-4 animate-spin" /> : null} See what will be copied
+        </button>
+      </div>
+      {err && <p className="text-sm text-destructive">{err}</p>}
+      {res && (
+        <div className="text-sm" data-testid="copy-result">
+          <p className="text-green-800">Copied {res.saved.length} {res.saved.length === 1 ? 'rule' : 'rules'}.</p>
+          {res.unmatched.length > 0 && <p className="text-muted-foreground">{res.unmatched.length} couldn&apos;t be matched and were left out.</p>}
+          {res.failed.map(f => <p key={f.index} className="text-destructive">{f.error}</p>)}
+        </div>
+      )}
+      {plan && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium">{plan.copy.length} to copy</p>
+          {plan.copy.map(c => <Line key={c.from_rule_id} c={c} />)}
+          {plan.unmatched.length > 0 && <p className="text-sm font-medium">{plan.unmatched.length} can&apos;t be matched here</p>}
+          {plan.unmatched.map(c => <Line key={c.from_rule_id} c={c} tone="bg-amber-50" />)}
+          {plan.existing.length > 0 && <p className="text-xs text-muted-foreground">{plan.existing.length} this venue already has a rule for (left as they are).</p>}
+          {canManage && plan.copy.length > 0 && (!confirm ? (
+            <button type="button" className={btnPrimary} onClick={() => setConfirm(true)} disabled={busy} data-testid="copy-go">Copy {plan.copy.length} {plan.copy.length === 1 ? 'rule' : 'rules'}</button>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm">Copy {plan.copy.length} rules to this venue?</span>
+              <button type="button" className={btnPrimary} onClick={copy} disabled={busy} data-testid="copy-confirm">
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Yes, copy them
+              </button>
+              <button type="button" className={btnOutline} onClick={() => setConfirm(false)} disabled={busy}>Not yet</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 // ── Pepper ───────────────────────────────────────────────────────────────────
 
 export function PepperProposals({ connectionId, venueId, canManage, onSaved }) {
