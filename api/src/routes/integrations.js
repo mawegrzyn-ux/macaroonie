@@ -318,15 +318,24 @@ export default async function integrationsRoutes(app) {
 
 // ── Webhooks ────────────────────────────────────────────────────────────────
 // The other till calls /webhooks/<system>/<token> when something changes.
-// The token (24 random bytes, its sha256 stored) finds the connection; the
-// body is never trusted or read: a sync is asked for, which reads the other
-// till with our own token. Answered at once.
+// The token (24 random bytes, its sha256 stored) finds the connection;
+// Square's calls are also checked against its signature over the raw body
+// (x-square-hmacsha256-signature) when the connection has the key. The body
+// is never trusted: a sync is asked for, which reads the other till with our
+// own token. Answered at once. JSON bodies come in raw (a Buffer) in this
+// plugin only, so a signature is checked over the exact bytes sent.
+export const WEBHOOK_SYSTEMS = ['loyverse', 'square']
+
 export async function salesWebhookRoutes(app) {
-  app.post('/webhooks/loyverse/:token', {
-    config: { rateLimit: { max: 240, timeWindow: '1 minute', keyGenerator: req => 'sw:' + String(req.params?.token || '') } },
-  }, async (req, reply) => {
-    const ok = await webhookPoke('loyverse', String(req.params.token || ''), req.log)
-    if (!ok) return reply.code(404).send({ error: 'Unknown address' })
-    return { ok: true }
-  })
+  app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req, body, done) => done(null, body))
+  for (const system of WEBHOOK_SYSTEMS) {
+    app.post('/webhooks/' + system + '/:token', {
+      config: { rateLimit: { max: 240, timeWindow: '1 minute', keyGenerator: req => 'sw:' + String(req.params?.token || '') } },
+    }, async (req, reply) => {
+      const rawBody = Buffer.isBuffer(req.body) ? req.body : (typeof req.body === 'string' ? req.body : null)
+      const ok = await webhookPoke(system, String(req.params.token || ''), req.log, { rawBody, headers: req.headers })
+      if (!ok) return reply.code(404).send({ error: 'Unknown address' })
+      return { ok: true }
+    })
+  }
 }
