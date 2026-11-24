@@ -239,10 +239,12 @@ export default function AppShell() {
     if (inlineBar.current) inlineBar.current()
     else setBarOpen(true)
   }, [])
-  const askPepper = useCallback(words => {
+  // opts.files: chat files to send with the words; opts.fresh: in a new chat
+  // (a capture opened from For review, migration 281).
+  const askPepper = useCallback((words, opts = {}) => {
     setBarOpen(false)
     if (IS_TOUCH) setOpen(false)
-    setPepperAsk({ text: words, id: Date.now() })
+    setPepperAsk({ text: words, id: Date.now(), files: opts.files || null, fresh: !!opts.fresh })
     setAiOpen(true)
   }, [])
   const registerInline = useCallback(focus => {

@@ -25,7 +25,10 @@ export default function MobileAssistant() {
   // Taken off the address at once, so Back or a reload doesn't send it again.
   useEffect(() => {
     if (location.state?.ask) navigate(location.pathname, { replace: true, state: null })
+    // A capture opened from For review (migration 281) starts a new chat.
+    if (location.state?.ask?.fresh) setConversationId(null)
   }, [])   // eslint-disable-line react-hooks/exhaustive-deps
+  const askHere = ask?.fresh && conversationId ? null : ask
 
   if (status && !status.can_chat) {
     return (
@@ -59,7 +62,7 @@ export default function MobileAssistant() {
         </div>
       ) : (
         <ChatView key={conversationId || 'new'} conversationId={conversationId} onConversationId={setConversationId} className="flex-1" linkFor={opsLink} talkMode
-          ask={ask} onAsked={() => setAsk(null)} />
+          ask={askHere} onAsked={() => setAsk(null)} />
       )}
     </div>
   )

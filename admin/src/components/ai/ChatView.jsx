@@ -22,8 +22,9 @@
 // answer that used the web lists the pages it cites under it (Sources: the
 // only outside links in the chat, opened in a new tab) and each search shows
 // as a line with what was searched for.
-// ask ({ text, voice }, the phone's Pepper page): a question from the phone's
+// ask ({ text, voice, files }, the phone's Pepper page): a question from the phone's
 // home, sent once when the chat opens; onAsked() then lets the parent forget it.
+// files: chat files already uploaded (a capture opened from For review).
 // With pageAware (the drawer only), each message also says which page the
 // person is on, and the venue and day or week that page shows
 // (usePepperPage(), lib/pepperPage.js), so "who is on here?" needs no venue
@@ -293,10 +294,11 @@ export default function ChatView({ conversationId, onConversationId, className, 
     stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
   }
 
-  function submit(text, { voice = false } = {}) {
+  function submit(text, { voice = false, files: given = null } = {}) {
     const message = (text ?? draft).trim()
-    if ((!message && !att.ready.length) || send.isPending || running || att.uploading) return
-    const files = att.take().filter(f => f.status === 'ready')
+    if ((!message && !att.ready.length && !given?.length) || send.isPending || running || att.uploading) return
+    // given: files already uploaded elsewhere (a capture opened from For review).
+    const files = (given || att.take()).filter(f => f.status === 'ready')
     setDraft('')
     send.mutate({ message, files, page: sentPage, voice })
   }
@@ -316,7 +318,7 @@ export default function ChatView({ conversationId, onConversationId, className, 
     if (!ask?.text || asked.current === ask || send.isPending || running) return
     asked.current = ask
     onAsked?.()
-    submit(ask.text, { voice: !!ask.voice })
+    submit(ask.text, { voice: !!ask.voice, files: ask.files?.length ? ask.files.map((f, n) => ({ ...f, key: 'ask-' + n, status: 'ready' })) : null })
   }, [ask, send.isPending, running])   // eslint-disable-line react-hooks/exhaustive-deps
   // After a spoken turn: read the answer aloud (if on for this device), then
   // offer a check card to be confirmed by a spoken yes (if the group allows).

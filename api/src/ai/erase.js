@@ -24,6 +24,8 @@ import { sql, systemSql, withTenant } from '../config/db.js'
 
 const REMOVED = '[removed]'
 const MIN_LENGTH = 3
+/** A capture opened or dismissed this many days ago is cleared, with its photo (migration 281). */
+export const CAPTURE_KEEP_DAYS = 30
 
 /** The identifiers worth matching: trimmed, long enough, no repeats. */
 function cleanIdentifiers(values) {
@@ -182,9 +184,23 @@ export async function cleanUpAi(log) {
              AND (input IS DISTINCT FROM '{}'::jsonb OR result IS NOT NULL)
           RETURNING id
         `
-        const uploads = await tx`
+        // A capture's photo (migration 281) waits with its capture; a capture
+        // opened or dismissed CAPTURE_KEEP_DAYS ago goes, with its photo.
+        await tx`
           DELETE FROM ai_attachments
-           WHERE tenant_id = ${t.id} AND conversation_id IS NULL AND created_at < now() - interval '1 day'
+           WHERE tenant_id = ${t.id} AND id IN (
+             SELECT attachment_id FROM ai_captures
+              WHERE tenant_id = ${t.id} AND status <> 'waiting' AND attachment_id IS NOT NULL
+                AND handled_at < now() - make_interval(days => ${CAPTURE_KEEP_DAYS}))
+        `
+        await tx`
+          DELETE FROM ai_captures
+           WHERE tenant_id = ${t.id} AND status <> 'waiting' AND handled_at < now() - make_interval(days => ${CAPTURE_KEEP_DAYS})
+        `
+        const uploads = await tx`
+          DELETE FROM ai_attachments a
+           WHERE a.tenant_id = ${t.id} AND a.conversation_id IS NULL AND a.created_at < now() - interval '1 day'
+             AND NOT EXISTS (SELECT 1 FROM ai_captures c WHERE c.attachment_id = a.id AND c.tenant_id = a.tenant_id)
           RETURNING id
         `
         const codes = await tx`

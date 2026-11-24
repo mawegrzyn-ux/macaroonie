@@ -53,6 +53,7 @@ import { env } from '../config/env.js'
 import { httpError } from '../middleware/error.js'
 import { requireAuth, requirePermission, requirePlatformAdmin, permissionLevel, newAccessToken } from '../middleware/auth.js'
 import { FREE } from '../middleware/sharedDevice.js'
+import { waitingCaptures } from './captures.js'
 import { ToolError, usageMonth, makeContext, callApi, staffAuthOf, staffPrincipalOf } from '../ai/context.js'
 import {
   getAiSettings, saveAiSettings, monthUsage, chatConfigured, chatUnitsLeft, personUnitsLeft, dailyShare, peopleUsage,
@@ -598,6 +599,10 @@ export default async function aiRoutes(app) {
         })
       }
     })
+    // Captures (migration 281): a photo, a voice note or a line, waiting to be opened in Pepper.
+    const captures = await waitingCaptures(req)
+    if (captures) items.push(...captures)
+    else notIncluded.push('captures')
     if (countOnly) return { count: items.length }
     return {
       wait_days: WAIT_DAYS, count: items.length,

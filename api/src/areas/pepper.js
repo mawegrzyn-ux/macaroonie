@@ -13,6 +13,7 @@ import menuImportRoutes from '../routes/menuImport.js'
 import documentReadRoutes from '../routes/documentRead.js'
 import aiApiRoutes from '../routes/aiApi.js'
 import formDraftRoutes from '../routes/formDrafts.js'
+import captureRoutes from '../routes/captures.js'
 
 export const routes = [
   // AI: MCP connectors (guest + staff) and the chats (migration 148)
@@ -25,4 +26,6 @@ export const routes = [
   [aiApiRoutes, { prefix: '/ai-api' }],
   // Form drafts (migration 275, Pepper-first step 3d)
   [formDraftRoutes, { prefix: '/api/form-drafts' }],
+  // Capture to For review (migration 281, Pepper-first step 6b)
+  [captureRoutes, { prefix: '/api/ai/captures' }],
 ]
