@@ -75,10 +75,10 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | 44.11.6b Capture to For review: a photo, a voice note or a line from the phone waits in For review | 5 to 10 min | 5 min (to 00:18) | one PR, below | | 18 files, +654 -21, migration 281 | claude-opus-5-5 / high, fresh agent | About $5.80. |
 | 44.11.6c The venue's own words for speech: fridge, dish, staff and supplier names help dictation and talk mode | 5 to 10 min | 3 min (to 00:21) | one PR, below | | 12 files, +412 -14 | claude-opus-5-5 / high, fresh agent | About $4.70. |
 | 44.11.6d The iPhone app: the office app's iOS config and the parts that differ from Android (no device build here) | 5 to 10 min | 4 min (to 00:25), then tests, browser at 1280 and 390, docs 11.5 (to 00:36:30) | 19 min for 6a to 6d: the lead's review and making iOS opt-in 1 min, PR #507 opened 00:38, CI red 00:46:30 (a Tuesday-only cash test), fixed 00:47, green 00:55:15, merged 00:55:30 | **61 min for 6a to 6d** (23:54:19 to 00:55:30) | 16 files, +317 -41 | claude-opus-5-5 / high, fresh agent | Push and the scanner on a real device need the owner's phone. Agent about $51, lead about $4; live eval on the merged code 29 of 29 ($0.06). |
-| 44.11.7a Suggestions on Home: up to four, rule-based, each with its reason, dismissable (no model) | fourth revision: 5 to 10 min | | one PR, below | | | claude-opus-5-5 / high, fresh agent | Estimated 24 Nov 2026 before starting; plus 6 reading. |
-| 44.11.7b The Team signal: a manager suggests a page to a role, shown with who suggested it | 5 to 8 min | | one PR, below | | | | |
-| 44.11.7c Above the store: for people over several sites, venues ranked by what needs them, completion by site today and this week | 8 to 15 min | | one PR, below | | | | |
-| 44.11.7d Measuring suggestions: shown, tapped, dismissed in the usage record, a report figure for tap-through | 3 to 8 min | | one PR for 7a to 7d: tests, browser and docs 12 to 15, PR 7 | | | | |
+| 44.11.7a Suggestions on Home: up to four, rule-based, each with its reason, dismissable (no model) | fourth revision: 5 to 10 min | 7 min (01:44:35 to 01:51:52), after 4 reading | one PR, below | | 11 files, +706 -8, migration 282 | claude-opus-5-5 / high, fresh agent | Estimated 24 Nov 2026 before starting; plus 6 reading. Six rules, about $5.50 (reading $4.40). |
+| 44.11.7b The Team signal: a manager suggests a page to a role, shown with who suggested it | 5 to 8 min | 8 min (to 01:59:48, 4 of it the sweep, with 7c written meanwhile) | one PR, below | | 9 files, +481 -9, migration 283 | claude-opus-5-5 / high, fresh agent | About $7.50. |
+| 44.11.7c Above the store: for people over several sites, venues ranked by what needs them, completion by site today and this week | 8 to 15 min | about 5 min, written during 7b's sweep (committed 02:00:41) | one PR, below | | 6 files, +357 -3 | claude-opus-5-5 / high, fresh agent | Two queries per request, no cache. |
+| 44.11.7d Measuring suggestions: shown, tapped, dismissed in the usage record, a report figure for tap-through | 3 to 8 min | 3.5 min (to 02:04:13), then tests, browser at two widths and docs 11.6 (to 02:15:49; two fixes the browser found) | 14 min for 7a to 7d: PR #508 opened 02:17, CI green first time 02:26:16; a live run's one failure was the task's wording, fixed and re-run 6 of 6, CI again green 02:29:52, merged 02:30 | **50 min for 7a to 7d** (01:40:05 to 02:30) | 7 files, +143 -7, migration 284 | claude-opus-5-5 / high, fresh agent | Agent about $29 (the cheapest step), lead about $3; live runs $0.26 and $0.01. |
 
 ## Running totals
 
@@ -92,6 +92,7 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | 44.11 step 4 (action classes, cards by class, one write per card, Undo, Done by Pepper), third revision | 5 sub-steps, 1 PR | 1.25 to 2.1 (60 to 110 min build + 8 to 10 docs + 7 PR) | 0.75 (45 min; build 38, merge 7) | about 0.45 |
 | 44.11 step 5 (task store, escalation, six sources, For review, Pepper task tools), fourth revision | 5 sub-steps, 1 PR | 0.8 to 1.3 (50 to 80 min) | 1.05 (63 min; build 46.5, review 1, merge 16) | about 0.97 |
 | 44.11 step 6 (shared devices and PINs, capture, venue words, iPhone-ready), fourth revision | 4 sub-steps, 1 PR | 0.8 to 1.2 (50 to 73 min) | 1.02 (61 min; build 41.5, review 1, merge 19) | about 0.99 |
+| 44.11 step 7 (suggestions, Team signal, Your sites, measuring), fourth revision | 4 sub-steps, 1 PR | 0.77 to 1.15 (46 to 69 min) | 0.83 (50 min; build 35, merge 14) | about 0.87 |
 
 ## The backlog estimates being tested (22 Nov 2026)
 
@@ -239,3 +240,9 @@ next edit). Cost is estimated from each message's tokens at list prices; cached 
 - The pull request took 19 against 7: one CI run lost to a cash test that only fails on a Tuesday (yesterday is this week's Monday, already submitted by the test before), the third date flake in that file; and 1 minute of the lead's review keeping the Office app Android-only on expo.dev until the Apple account exists.
 - The date flakes cost about 8 minutes a time. A whole-suite rule would be cheaper than fixing one a day: run the API tests at a fixed clock (a test helper that sets the venue's "today" to a mid-week noon) for any test that names days. Listed for infra.
 - Cost about $55.
+
+### 44.11 step 7 against the fourth revision (24 Nov 2026)
+
+- Estimated 46 to 69 minutes in all; actual 50: **on the estimate (87% of the midpoint)**, the third in a row on the fourth revision. CI was green first time; the extra 4 minutes of the pull request were a second CI run for an evaluation task's wording.
+- Build 35: reading 4, 7a 7, 7b 8 (half of it waiting on the sweep, with 7c written meanwhile), 7c about 5, 7d 3.5, tests, browser and docs 11.6. Cheapest step yet at about $32 in all: fewer, smaller files, and the agent overlapped writing with the sweep.
+- **The scale has settled:** across steps 5 to 7 the fourth revision landed at 97%, 99% and 87% of its midpoint. Keep it, with 10 to 15 minutes for a sub-step that adds several tables or touches auth, and 8 minutes of slack when CI may hit a date-only test.
