@@ -277,7 +277,9 @@ export const generalTools = [
       'Steps from the app\'s own Help guide: how to set something up or do a job on a page, where a setting is, what a figure means ' +
       '("how do I set up tip pots?", "where do I add a fridge?", "what does variance mean?"). Returns the best-matching Help passages, ' +
       'each with a link. Answer from them in your own words, briefly, and give the link to the most useful one. ' +
-      'Use it before guessing how the app works; if nothing matches, say so rather than making steps up.',
+      'Use it before guessing how the app works; if nothing matches, say so rather than making steps up. ' +
+      'Not for questions about the group\'s own figures ("what was our ... last month?", even one reports may not hold): ' +
+      'those go to find_fields or ask_data, which say when reports don\'t cover it.',
     input: z.object({ question: z.string().trim().min(3).max(300) }),
     readOnly: true,
     async run(ctx, input) {
