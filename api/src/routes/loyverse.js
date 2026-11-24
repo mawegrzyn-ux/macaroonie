@@ -30,6 +30,7 @@ import { httpError }  from '../middleware/error.js'
 import { checkToken, tokenHint, loadCatalog, loadStores, venueDays, datesBetween, LoyverseError } from '../services/loyverseSvc.js'
 import { fillReconDay, reconFields } from '../services/reconFill.js'
 import { seal, unseal } from '../services/vault.js'
+import { startHistory, markRequested, requestSync, setupWebhook } from '../services/salesImportSvc.js'
 import { isValidTerm, sumTerms, MAPPING_GROUPS } from '../../../shared/loyverse.js'
 
 const UUID = z.string().uuid()
@@ -220,8 +221,13 @@ export default async function loyverseRoutes(app) {
       `
       return c
     })
+    // Sales import (migration 288): a webhook address registered with
+    // Loyverse when it allows (else shown on the Integrations page), and a
+    // first sync of the master data.
+    const webhook = await setupWebhook(req.tenantId, row.id).catch(e => ({ registered: false, error: e.message }))
+    requestSync(req.tenantId, row.id, req.log)
     reply.code(201)
-    return connectionView({ ...row, venue_count: 0 })
+    return { ...connectionView({ ...row, venue_count: 0 }), webhook }
   })
 
   app.patch('/connections/:id', { preHandler: canSetup }, async req => {
@@ -328,10 +334,13 @@ export default async function loyverseRoutes(app) {
         WHERE pos_connection_venues.tenant_id = ${req.tenantId}
       `
       const moved = !before || before.connection_id !== conn.id || before.location_id !== store.id
-      // HISTORY-1D
+      if (moved) {
+        await startHistory(tx, req.tenantId, venueId)
+        await markRequested(tx, req.tenantId, conn.id)
+      }
       const link = await loadLink(tx, req.tenantId, venueId)
       if (!link) throw httpError(404, 'Venue not found')
-      // SYNC-1D
+      if (moved) requestSync(req.tenantId, conn.id, req.log)
       return { link: linkView(link) }
     })
   })

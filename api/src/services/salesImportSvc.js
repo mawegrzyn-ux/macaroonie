@@ -6,11 +6,30 @@
 // payments, discounts and taxes; ext_catalog for master data).
 //
 //   storeDocuments(tx, ...)   upsert raw copies; returns the ones that changed
+//   saveSale(), saveCatalog() write the normalised rows
+//   syncConnection()          one connection's sync: master data, the
+//                             catch-up by updated time, then each linked
+//                             venue's history import, within a time budget;
+//                             claimed so only one process runs it at a time
+//   sweepDue()                the sync job: every connection whose catch-up is
+//                             due (CATCH_UP_MINUTES), was asked for, or has
+//                             history left; and the raw copies' clean-up
+//   requestSync()             queue a connection's sync now (Sync now, the
+//                             webhook, a new link); never awaited in a request
+//   startHistory()            a venue's history import, HISTORY_MONTHS back
+//   setupWebhook(), webhookPoke()   the webhook address and what it does
 //   RAW_KEEP_DAYS             how long a raw copy is kept after its last fetch
 
-import { createHash } from 'node:crypto'
-import { systemSql } from '../config/db.js'
-import { stableJson } from '../../../shared/externalSales.js'
+import { createHash, randomBytes } from 'node:crypto'
+import { systemSql, withTenant } from '../config/db.js'
+import { unseal } from './vault.js'
+import { officeOrigin } from './platformHost.js'
+import * as loyverse from './connectors/loyverse.js'
+import { queue as syncQueue } from '../jobs/sales-sync.js'
+import { stableJson, CATCH_UP_MINUTES, HISTORY_MONTHS } from '../../../shared/externalSales.js'
+
+const CONNECTORS = { loyverse }
+export const connectorFor = system => CONNECTORS[system] || null
 
 export const RAW_KEEP_DAYS = 400
 
@@ -155,4 +174,266 @@ export async function saveCatalog(tx, { tenantId, connectionId, docs, catalogRow
     }
   }
   return n
+}
+
+// ── Sync ────────────────────────────────────────────────────────────────────
+
+// Each run stops starting new pages after this long; history carries on in
+// the next run (queued straight away). The claim outlasts it.
+export const RUN_BUDGET_MS = 4 * 60_000
+const CLAIM_MINUTES = 10
+// The catch-up reads back this far before its last high-water mark, so a
+// receipt changed while the last run read is not missed.
+const OVERLAP_MS = 5 * 60_000
+// A first catch-up (before any history) starts this far back.
+const FIRST_CATCH_UP_MS = 2 * 24 * 3600_000
+// History is read in windows of this many days (one cursor each).
+const HISTORY_WINDOW_DAYS = 31
+
+const errorText = e => String(e?.message || e || 'Something went wrong').slice(0, 500)
+
+/** Queue a sync of this connection now. Fire and forget (rule 17). */
+export function requestSync(tenantId, connectionId, log = null) {
+  syncQueue.add('sync', { tenantId, connectionId }, {
+    jobId: 'sync:' + connectionId, removeOnComplete: true, removeOnFail: 20,
+  }).catch(err => log?.warn?.({ err: err?.message, connectionId }, 'Sales sync not queued (Redis?)'))
+}
+
+/** Mark a connection as wanting a sync (the job's next minute picks it up if the queue add is lost). */
+export async function markRequested(tx, tenantId, connectionId) {
+  await tx`UPDATE pos_connections SET sync_requested_at = now() WHERE id = ${connectionId} AND tenant_id = ${tenantId}`
+}
+
+/** A venue's history import, from HISTORY_MONTHS back to now. */
+export async function startHistory(tx, tenantId, venueId) {
+  await tx`
+    UPDATE pos_connection_venues
+       SET history_from = now() - make_interval(months => ${HISTORY_MONTHS}),
+           history_to = now(),
+           history_next_from = now() - make_interval(months => ${HISTORY_MONTHS}),
+           history_cursor = NULL, history_count = 0, history_done_at = NULL, updated_at = now()
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
+}
+
+/** A fresh webhook token: { token, hash, hint }. The token goes in the address only. */
+export function newWebhookToken() {
+  const token = randomBytes(24).toString('base64url')
+  return { token, hash: loyverse.hashToken(token), hint: token.slice(-4) }
+}
+
+async function linkedVenues(tx, tenantId, connectionId) {
+  return tx`
+    SELECT l.venue_id, l.location_id, l.day_starts_at, v.timezone,
+           l.history_from, l.history_to, l.history_next_from, l.history_cursor, l.history_count, l.history_done_at
+      FROM pos_connection_venues l
+      JOIN venues v ON v.id = l.venue_id AND v.tenant_id = l.tenant_id
+     WHERE l.tenant_id = ${tenantId} AND l.connection_id = ${connectionId}`
+}
+
+/**
+ * One page of sale documents: raw copies stored; for linked stores, the ones
+ * that are new, changed or not yet normalised become checks. Returns counts.
+ */
+async function savePage(tenantId, conn, mod, docs, byLocation) {
+  return withTenant(tenantId, async tx => {
+    const changed = await storeDocuments(tx, { tenantId, connectionId: conn.id, docs })
+    const changedIds = new Set(changed.map(d => d.external_id))
+    const ids = docs.map(d => d.external_id)
+    const have = new Set((await tx`
+      SELECT external_id FROM ext_checks
+       WHERE tenant_id = ${tenantId} AND connection_id = ${conn.id} AND external_id = ANY(${ids}::text[])`).map(r => r.external_id))
+    const stored = new Map(changed.map(d => [d.external_id, d.id]))
+    let checks = 0
+    for (const d of docs) {
+      const venue = byLocation.get(d.payload.store_id)
+      if (!venue) continue
+      if (!changedIds.has(d.external_id) && have.has(d.external_id)) continue
+      let documentId = stored.get(d.external_id)
+      if (!documentId) {
+        const [row] = await tx`SELECT id FROM ext_documents WHERE tenant_id = ${tenantId} AND connection_id = ${conn.id} AND kind = 'sale' AND external_id = ${d.external_id}`
+        documentId = row?.id ?? null
+      }
+      await saveSale(tx, { tenantId, connectionId: conn.id, venueId: venue.venue_id, documentId, currency: conn.currency, sale: mod.normalise(d, venue) })
+      checks++
+    }
+    return { docs: docs.length, changed: changed.length, checks }
+  })
+}
+
+/**
+ * Syncs one connection (historyPages: stop the history after that many pages,
+ * for tests). Returns { skipped } when another process holds it or
+ * it is paused, else its counts and `more` (history left for the next run);
+ * on failure the error is kept on the connection and returned as `error`.
+ */
+export async function syncConnection(tenantId, connectionId, { log = null, budgetMs = RUN_BUDGET_MS, historyPages = Infinity } = {}) {
+  const started = Date.now()
+  const [conn] = await withTenant(tenantId, tx => tx`
+    UPDATE pos_connections
+       SET sync_claimed_until = now() + make_interval(mins => ${CLAIM_MINUTES}), last_sync_at = now()
+     WHERE id = ${connectionId} AND tenant_id = ${tenantId} AND status <> 'paused'
+       AND (sync_claimed_until IS NULL OR sync_claimed_until < now())
+    RETURNING *, now() AS run_at`)
+  if (!conn) return { skipped: 'busy or paused' }
+  const mod = connectorFor(conn.system)
+  const counts = { catalog: 0, sales: 0, checks: 0, history: 0 }
+  let more = false
+  try {
+    if (!mod) throw new Error('No connector for ' + conn.system)
+    const client = mod.connector({ token: unseal(conn.access_token) })
+    const venues = await withTenant(tenantId, tx => linkedVenues(tx, tenantId, conn.id))
+    const byLocation = new Map(venues.map(v => [v.location_id, v]))
+    let pages = 0
+    const outOfTime = () => Date.now() - started > budgetMs || pages >= historyPages
+
+    // Master data: what changed since the last run (everything the first time).
+    const catalogFrom = new Date()
+    const catalogDocs = await client.fetchCatalog(conn.catalog_synced_to)
+    await withTenant(tenantId, async tx => {
+      const changed = await storeDocuments(tx, { tenantId, connectionId: conn.id, docs: catalogDocs })
+      counts.catalog = await saveCatalog(tx, { tenantId, connectionId: conn.id, docs: changed, catalogRows: mod.catalogRows })
+      await tx`UPDATE pos_connections SET catalog_synced_to = ${new Date(catalogFrom.getTime() - OVERLAP_MS)} WHERE id = ${conn.id} AND tenant_id = ${tenantId}`
+    })
+
+    // Catch-up: receipts changed since the last high-water mark, every store.
+    const salesTo = new Date(conn.run_at)
+    const salesFrom = conn.sales_synced_to
+      ? new Date(new Date(conn.sales_synced_to).getTime() - OVERLAP_MS)
+      : new Date(salesTo.getTime() - FIRST_CATCH_UP_MS)
+    let cursor = null
+    do {
+      const page = await client.fetchSales({ from: salesFrom, to: salesTo, by: 'updated', cursor })
+      const r = await savePage(tenantId, conn, mod, page.docs, byLocation)
+      counts.sales += r.docs; counts.checks += r.checks
+      cursor = page.cursor
+    } while (cursor)
+    await withTenant(tenantId, tx => tx`
+      UPDATE pos_connections SET sales_synced_to = ${salesTo} WHERE id = ${conn.id} AND tenant_id = ${tenantId}`)
+
+    // History: each linked venue's store, a window at a time, resumable.
+    for (const v of venues) {
+      if (!v.history_from || v.history_done_at) continue
+      let next = new Date(v.history_next_from || v.history_from)
+      const to = new Date(v.history_to)
+      let pageCursor = v.history_cursor
+      let count = v.history_count || 0
+      while (next < to) {
+        if (outOfTime()) { more = true; break }
+        const end = new Date(Math.min(to.getTime(), next.getTime() + HISTORY_WINDOW_DAYS * 86400_000))
+        const page = await client.fetchSales({ from: next, to: end, by: 'created', locationId: v.location_id, cursor: pageCursor })
+        pages++
+        const r = await savePage(tenantId, conn, mod, page.docs, byLocation)
+        counts.history += r.docs; counts.checks += r.checks; count += r.docs
+        pageCursor = page.cursor
+        if (!pageCursor) next = end
+        const done = next >= to
+        await withTenant(tenantId, tx => tx`
+          UPDATE pos_connection_venues
+             SET history_next_from = ${next}, history_cursor = ${pageCursor}, history_count = ${count},
+                 history_done_at = ${done ? new Date() : null}
+           WHERE tenant_id = ${tenantId} AND venue_id = ${v.venue_id} AND connection_id = ${conn.id}`)
+      }
+      if (more) break
+    }
+
+    const [after] = await withTenant(tenantId, tx => tx`
+      UPDATE pos_connections
+         SET last_sync_ok_at = now(), last_sync_error = NULL, status = 'active', last_sync_counts = ${tx.json(counts)},
+             sync_claimed_until = NULL
+       WHERE id = ${conn.id} AND tenant_id = ${tenantId}
+      RETURNING sync_requested_at > ${conn.run_at} AS asked_again`)
+    if (more || after?.asked_again) requestSync(tenantId, conn.id, log)
+    return { ...counts, more }
+  } catch (e) {
+    const message = errorText(e)
+    log?.warn?.({ err: message, connectionId: conn.id }, 'Sales sync failed')
+    await withTenant(tenantId, tx => tx`
+      UPDATE pos_connections
+         SET last_sync_error = ${message}, sync_claimed_until = NULL,
+             status = ${e?.tokenProblem ? 'error' : conn.status},
+             last_sync_counts = ${tx.json(counts)}
+       WHERE id = ${conn.id} AND tenant_id = ${tenantId}`).catch(() => {})
+    return { ...counts, error: message }
+  }
+}
+
+/**
+ * The sync job (every minute): each connection whose catch-up is due, that
+ * was asked for since its last run, or has history left, synced in turn.
+ * System mode only finds them; each sync runs as its tenant. Also clears
+ * old raw copies. Returns how many connections ran.
+ */
+export async function sweepDue(log = null) {
+  const due = await systemSql`
+    SELECT c.id, c.tenant_id FROM pos_connections c
+     WHERE c.status <> 'paused'
+       AND (c.sync_claimed_until IS NULL OR c.sync_claimed_until < now())
+       AND (c.last_sync_at IS NULL
+            OR c.last_sync_at < now() - make_interval(mins => ${CATCH_UP_MINUTES})
+            OR c.sync_requested_at > c.last_sync_at
+            OR EXISTS (SELECT 1 FROM pos_connection_venues l
+                        WHERE l.connection_id = c.id AND l.tenant_id = c.tenant_id
+                          AND l.history_from IS NOT NULL AND l.history_done_at IS NULL))
+     ORDER BY c.last_sync_at NULLS FIRST
+     LIMIT 50`
+  let ran = 0
+  for (const c of due) {
+    const r = await syncConnection(c.tenant_id, c.id, { log })
+    if (!r.skipped) ran++
+  }
+  await sweepRawDocuments().catch(err => log?.warn?.({ err: err?.message }, 'Raw sales copies not cleared'))
+  return ran
+}
+
+// ── Webhook ─────────────────────────────────────────────────────────────────
+
+export const webhookUrl = (system, token) => officeOrigin() + '/webhooks/' + system + '/' + token
+
+/**
+ * A new webhook address for a connection: a fresh token (its sha256 stored,
+ * the address returned this once), registered with the other till when its
+ * API allows (the old registration removed first). Returns { url, registered,
+ * error }. Called from requests: the other till is asked at most twice.
+ */
+export async function setupWebhook(tenantId, connectionId) {
+  const conn = await withTenant(tenantId, async tx => {
+    const [c] = await tx`SELECT * FROM pos_connections WHERE id = ${connectionId} AND tenant_id = ${tenantId}`
+    return c
+  })
+  if (!conn) return null
+  const mod = connectorFor(conn.system)
+  const { token, hash, hint } = newWebhookToken()
+  const url = webhookUrl(conn.system, token)
+  let webhookId = null, error = null
+  if (mod) {
+    const client = mod.connector({ token: unseal(conn.access_token) })
+    if (conn.webhook_id) await client.deleteWebhook(conn.webhook_id).catch(() => {})
+    try { webhookId = (await client.registerWebhook(url)).id } catch (e) { error = errorText(e) }
+  }
+  await withTenant(tenantId, tx => tx`
+    UPDATE pos_connections
+       SET webhook_token_hash = ${hash}, webhook_token_hint = ${hint}, webhook_id = ${webhookId}, updated_at = now()
+     WHERE id = ${connectionId} AND tenant_id = ${tenantId}`)
+  return { url, registered: !!webhookId, error }
+}
+
+/**
+ * The webhook: the token in the address finds the connection (system mode:
+ * the token is how the tenant is found), checked in constant time. The body
+ * is never read: the call only asks for a sync, which reads the other till
+ * with our own token. Returns true when a sync was asked for.
+ */
+export async function webhookPoke(system, token, log = null) {
+  if (!/^[A-Za-z0-9_-]{20,64}$/.test(String(token || ''))) return false
+  const mod = connectorFor(system)
+  if (!mod) return false
+  const [c] = await systemSql`
+    SELECT id, tenant_id, webhook_token_hash FROM pos_connections
+     WHERE system = ${system} AND webhook_token_hash = ${mod.hashToken(token)}`
+  if (!c || !mod.verifyWebhook({ token, storedHash: c.webhook_token_hash })) return false
+  await withTenant(c.tenant_id, tx => tx`
+    UPDATE pos_connections SET sync_requested_at = now(), webhook_last_at = now()
+     WHERE id = ${c.id} AND tenant_id = ${c.tenant_id}`)
+  requestSync(c.tenant_id, c.id, log)
+  return true
 }
