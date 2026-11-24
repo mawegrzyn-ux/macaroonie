@@ -1,5 +1,5 @@
 // src/pages/docs/integrations.jsx
-// The Docs page's "Integrations" section: sales from other tills, phases 1 and 2
+// The Docs page's "Integrations" section: sales from other tills, phases 1 to 5
 // (docs/SALES_IMPORT.md). Docs.jsx gathers every file in this folder (except
 // parts.jsx) and shows them by order, then id.
 import { H2, H3, P, Mono, DataTable, InfoBox } from './parts.jsx'
@@ -13,7 +13,7 @@ export function Section() {
     <section id="integrations" data-doc="">
       <H2>Integrations: sales from other tills</H2>
       <P>
-        Phases 1 to 4 of the sales import (migrations 288 to 293, 24 Nov 2026; plan in{' '}
+        Phases 1 to 5 of the sales import (migrations 288 to 294, 24 Nov 2026; plan in{' '}
         <Mono>docs/SALES_IMPORT.md</Mono>). Pipeline:{' '}
         <Mono>connector -&gt; raw store -&gt; normalised sales + master data -&gt; mapping -&gt; readers</Mono>.
         Since phase 4 (no migration) nothing reads Loyverse&apos;s <Mono>/receipts</Mono> but the sync:
@@ -162,6 +162,56 @@ export function Section() {
           ['Report subjects', 'reports/catalogue/sales.js (area Till sales, module pos_reports, order 25): sales.checks, sales.dishes, sales.tenders, each a UNION ALL of our projections (pos_checks / pos_check_lines / pos_payments with pos_days for the trading day) and the stored sales, with source (SALE_SOURCES: macaroonie, loyverse, ...). Counted as our till counts: closed checks, receipts not cancelled; dishes of closed checks not voided; another till\'s refund receipts and refunded lines are rows of their own (kind refund), counted by Refunded, never taken off sales. sales.dishes: a mapped line is one row per ext_line_parts part (net = its share; gross and discount on the main part; an option part carries its dish\'s id and name, so a dish adds up with its options as on our till; qty_sold leaves option rows out), other item lines by their name as sold (soldName), bucket lines with their section_id, ignored lines not counted. Mapping coverage = mapped_value / other_till_sales by COVERAGE_DECIDED / COVERAGE_LEFT_OUT (shared/itemMapping.js; coverageShare() is the Item mapping page\'s). sales.tenders: another till\'s tip sits on the receipt\'s biggest payment (amount less the tip), a refund\'s amount positive.'],
         ]}
       />
+      <H3>Square (phase 5, migration 294)</H3>
+      <P>
+        Square runs through the same pipeline: <Mono>salesImportSvc.js</Mono> picks the connector by{' '}
+        <Mono>pos_connections.system</Mono> (<Mono>connectorFor()</Mono>), makes its client with{' '}
+        <Mono>clientFor(conn)</Mono> (a connector&apos;s <Mono>prepare()</Mono> may renew an OAuth token
+        first; the new tokens are sealed and stored), finds a sale&apos;s venue by{' '}
+        <Mono>doc.location_id</Mono> and hands <Mono>normalise(doc, venue, refs)</Mono> what the stored
+        catalogue knows (<Mono>saleRefs()</Mono>: a variation&apos;s item and SKU, a modifier&apos;s list
+        name). The catch-up passes the linked locations (<Mono>locationIds</Mono>). Shared helpers
+        moved to <Mono>connectors/common.js</Mono> (<Mono>ConnectorError</Mono>, <Mono>hashToken()</Mono>,{' '}
+        <Mono>tokenMatches()</Mono>, <Mono>sameSecret()</Mono>).
+      </P>
+      <DataTable
+        head={['Part', 'What it does']}
+        rows={[
+          ['connectors/square.js', 'connector({ token, environment }): merchant() (GET /v2/merchants/me, the token check), listLocations() (GET /v2/locations, inactive left out), fetchCatalog(since) (POST /v2/catalog/search for ITEM, ITEM_VARIATION, MODIFIER_LIST, MODIFIER, CATEGORY, TAX, DISCOUNT, deleted ones too when since is set; one copy per object; a lone changed MODIFIER reads its list again with batch-retrieve; the locations as store documents), fetchSales({ from, to, by, locationIds, cursor }) (POST /v2/orders/search, COMPLETED and CANCELED, date_time_filter and sort on created_at (history) or updated_at (catch-up), at most 10 locations a search, the group walked inside the cursor "<group>:<square cursor>"), registerWebhook(url) / deleteWebhook(id) (webhook subscriptions: order.created, order.updated, catalog.version.updated; the answer carries the signature key). Square-Version header SQUARE_VERSION; BASE_URLS production / sandbox (tests point both at the stand-in); 429 waits Retry-After, else doubling.'],
+          ['normalise()', 'An ITEM_VARIATION is the sold thing: variant_ref = catalog_object_id, item_ref = its item from refs.variantItem. Money with moneyPence() (shared/externalSales.js: Square\'s Money is already in pence, never divided). Line net = gross_sales_money less total_discount_money (an added tax is not in it, an included one is, as Loyverse\'s). Modifiers are lines under their item; service charges are charge lines (no parent) and charge_pence; applied taxes and discounts per line plus the order\'s own; tax types ADDITIVE / INCLUSIVE stored as ADDED / INCLUDED. An order with returns[] and no line items is a refund check, refund_for = source_order_id, amounts from return_amounts, payments from refunds[] (name Refund). State CANCELED: cancelled, cancelled_at = updated_at. Tenders: payment_type_ref = the tender type (CARD, CASH, ...), amount includes the tip, card brand only.'],
+          ['Personal data', 'saleDoc() drops ticket_name, metadata, each fulfilment\'s details (recipient, notes, addresses: only uid, type, state kept), a tender\'s note and every card field but the brand; stripPersonal() also takes recipient, email_address, buyer_email_address, shipping_address, billing_address, given_name, family_name, nickname anywhere. A location document drops its email, phone, address and links. The customer is customer_id only.'],
+          ['catalogRows()', 'item (category from reporting_category / categories / category_id; attrs.option1_name "Variation" when it has more than one variation, so an axis rule can map them), variant (parent_ref the item, sku, price, attrs.option1_value its name, location overrides as stores), modifier (the list) + modifier_option rows, category, tax, discount, store.'],
+          ['OAuth', 'oauthConfig() is null unless SQUARE_APPLICATION_ID and SQUARE_APPLICATION_SECRET are set (a sandbox app\'s id starts with "sandbox-"). signState() / readState(): base64url JSON { tenant, person, name, expiry 15 min, nonce } + HMAC-SHA256 with the app secret; refused when changed, expired, or for another tenant or person. authorizeUrl() (scopes MERCHANT_PROFILE_READ ITEMS_READ ORDERS_READ PAYMENTS_READ), obtainToken(), refreshToken(), revokeToken() (Authorization: Client <secret>), prepare() refreshes an OAuth token a week before token_expires_at, revoke() on disconnect.'],
+          ['Webhook', 'verifyWebhook(): the address\'s token against its sha256, then, when the connection has webhook_signature_key, x-square-hmacsha256-signature = base64(HMAC-SHA256(key, notification URL + raw body)) in constant time. salesWebhookRoutes parses JSON as a Buffer (that plugin only) and loops over WEBHOOK_SYSTEMS. Still only a trigger.'],
+        ]}
+      />
+      <DataTable
+        head={['Route', 'What it does']}
+        rows={[
+          ['GET /api/square/oauth', 'Cash Recon view: { available, environment, redirect_url } (or { available: false }).'],
+          ['POST /api/square/oauth/start', 'Owner/admin + Cash Recon manage: { name } -> { url } (Square\'s authorize page with the signed state).'],
+          ['GET /api/square/oauth/callback', 'No sign-in (Square\'s redirect URL): only renames code and state (or error) onto /integrations as square_code / square_state / square_error and redirects. The admin\'s Auth0 provider takes any ?code=&state= as its own callback, which is why they can\'t land on the page directly.'],
+          ['POST /api/square/oauth/finish', '{ code, state }: readState() must give this tenant and person (403 before Square is asked otherwise); ObtainToken; the merchant read; a new connection (auth_kind oauth) or new tokens on the tenant\'s connection for that merchant; webhook set up, first sync queued.'],
+          ['POST /api/square/connections', '{ name, access_token, environment }: checked with merchant(), sealed; the same merchant twice by token is 409.'],
+          ['PATCH /api/square/connections/:id', '{ access_token?, environment?, signature_key? (null clears) }.'],
+          ['POST /api/square/connections/:id/test', 'Checks the stored token (renewing an OAuth one if due).'],
+          ['PATCH /api/integrations/connections/:id', 'Now also { name } (any system).'],
+          ['DELETE /api/integrations/connections/:id', 'disconnect(): webhook removed at the other till and revoke() where the connector has it (best effort), then the connection, its links and sales.'],
+          ['GET /api/integrations/connections/:id/locations', 'The other till\'s locations, asked live with the connection\'s token.'],
+          ['PUT / DELETE /api/integrations/connections/:id/venues/:venueId', '{ location_id, day_starts_at }: links a venue to one of the account\'s locations (checked live; one venue per location; a new or moved link starts the history; moving to another system clears the Cash Recon mapping). DELETE unlinks; sales kept stay.'],
+          ['POST /webhooks/square/:token', 'Square\'s webhook (signed when the key is set).'],
+        ]}
+      />
+      <P>
+        pos_connections gains environment (production | sandbox), auth_kind (token | oauth), refresh_token and
+        webhook_signature_key (both sealed: vault SEALED) with webhook_signature_hint, and token_expires_at; a unique
+        index on (tenant, system, merchant_id) for Square. Cash Recon&apos;s fill stays Loyverse&apos;s:{' '}
+        <Mono>reconLinks.js</Mono> and <Mono>reconRetrieve.js</Mono> now join <Mono>system = &apos;loyverse&apos;</Mono>,
+        so a Square venue is not offered it. The every-till subjects, Today and till_day read Square&apos;s stored
+        sales with Source Square unchanged. Tests: api/test/sales-square.test.mjs against
+        api/test/support/fake-square.mjs. Square&apos;s developer site couldn&apos;t be reached when this was built: the
+        field names are from API v2 as remembered (outstanding item 47).
+      </P>
       <InfoBox>
         Loyverse field names come from what the Cash Recon fill already reads and the plan&apos;s section 2;
         Loyverse&apos;s documentation site couldn&apos;t be reached when this was built, so updated_at_min,

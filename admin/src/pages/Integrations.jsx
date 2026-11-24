@@ -10,10 +10,11 @@
 //
 // Square (phase 5): a pasted access token per environment (production or
 // sandbox), or Sign in with Square when the server has the OAuth app's
-// settings (GET /api/square/oauth). Square sends the person back here with
-// ?code=&state=; the page hands both to POST /api/square/oauth/finish (the
-// API checks the state is this tenant's and this person's) and clears them
-// from the address. Square's webhook signature key can be pasted.
+// settings (GET /api/square/oauth). Square sends the person back through
+// the API's callback to here with ?square_code=&square_state=; the page
+// hands both to POST /api/square/oauth/finish (the API checks the state is
+// this tenant's and this person's) and clears them from the address.
+// Square's webhook signature key can be pasted.
 //
 // Permissions (Cash reconciliation): View sees it, Manage syncs and fetches
 // history, owners and admins with Manage set accounts, links, the webhook
@@ -128,8 +129,10 @@ const LABEL = { loyverse: 'Loyverse', square: 'Square' }
 const ENVIRONMENTS = [['production', 'Production (live sales)'], ['sandbox', 'Sandbox (Square test account)']]
 
 /**
- * Square sends the person back to /integrations?code=&state= after Sign in
- * with Square (or ?error=). The code and state go to the API once, and the
+ * After Sign in with Square, Square sends the person to the API's
+ * /api/square/oauth/callback, which sends them on here with
+ * ?square_code=&square_state= (or square_error=): Auth0's sign-in would take
+ * a plain ?code=&state= as its own. They go to the API once, and the
  * address is cleared so a reload doesn't send them again.
  */
 function useSquareReturn() {
@@ -138,15 +141,15 @@ function useSquareReturn() {
   const [params, setParams] = useSearchParams()
   const [s, setS] = useState({ state: 'idle' })
   const sent = useRef(false)
-  const code = params.get('code')
-  const state = params.get('state')
-  const denied = params.get('error')
+  const code = params.get('square_code')
+  const state = params.get('square_state')
+  const denied = params.get('square_error')
   useEffect(() => {
     if (sent.current || (!code && !denied)) return
     sent.current = true
     setParams({}, { replace: true })
     if (denied || !state) {
-      setS({ state: 'error', error: 'Square didn\'t connect the account' + (denied ? ' (' + (params.get('error_description') || denied) + ')' : '') + '. Try again.' })
+      setS({ state: 'error', error: 'Square didn\'t connect the account' + (denied ? ' (' + (params.get('square_error_description') || denied) + ')' : '') + '. Try again.' })
       return
     }
     setS({ state: 'busy' })

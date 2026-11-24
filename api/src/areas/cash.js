@@ -7,7 +7,7 @@
 
 import cashReconRoutes from '../routes/cashRecon.js'
 import loyverseRoutes from '../routes/loyverse.js'
-import squareRoutes from '../routes/square.js'
+import squareRoutes, { squareReturnRoutes } from '../routes/square.js'
 import gloriafoodRoutes from '../routes/gloriafood.js'
 import integrationsRoutes, { salesWebhookRoutes } from '../routes/integrations.js'
 import itemMappingRoutes from '../routes/itemMapping.js'
@@ -26,4 +26,6 @@ export const routes = [
   [itemMappingAiRoutes, { prefix: '/api/ai/sales-mapping' }],
   // Sales from other tills' webhooks at the root: POST /webhooks/loyverse/:token, /webhooks/square/:token
   [salesWebhookRoutes, {}],
+  // Where Square sends the person back after Sign in with Square (no sign-in on that request).
+  [squareReturnRoutes, {}],
 ]

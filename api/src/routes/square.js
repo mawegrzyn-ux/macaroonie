@@ -16,6 +16,10 @@
 //                                    checked with Square first
 //   PATCH /connections/:id           { access_token?, environment?, signature_key? }
 //   POST  /connections/:id/test      check the saved token again
+//   GET   /oauth/callback            (squareReturnRoutes, no sign-in) where Square sends the
+//                                    person back: redirects to /integrations with
+//                                    ?square_code=&square_state= (or square_error=) and
+//                                    does nothing else; the page then calls /oauth/finish
 //
 // All owner/admin with Cash reconciliation manage (as Loyverse's setup).
 // Tokens, refresh tokens and the webhook signature key are sealed (rule 10)
@@ -31,8 +35,34 @@ import { seal }       from '../services/vault.js'
 import { officeOrigin } from '../services/platformHost.js'
 import { requestSync, setupWebhook, markRequested, clientFor } from '../services/salesImportSvc.js'
 import {
-  connector, ConnectorError, ENVIRONMENTS, oauthConfig, signState, readState, authorizeUrl, obtainToken, redirectPath,
+  connector, ConnectorError, ENVIRONMENTS, oauthConfig, signState, readState, authorizeUrl, obtainToken, redirectPath, RETURN_PAGE,
 } from '../services/connectors/square.js'
+
+/**
+ * Square's redirect back after Sign in with Square: the browser comes here
+ * with ?code=&state= (or ?error=&error_description=). Nothing is checked or
+ * stored here (the person isn't signed in on this request); the values are
+ * only renamed onto the Integrations page, which hands them to POST
+ * /api/square/oauth/finish with the person's sign-in, where the state is
+ * checked. Registered at the root, outside squareRoutes' sign-in hook.
+ */
+export async function squareReturnRoutes(app) {
+  const clean = (v, max) => (typeof v === 'string' && v.length <= max && /^[A-Za-z0-9._~+/=-]+$/.test(v) ? v : null)
+  app.get(redirectPath, async (req, reply) => {
+    const q = req.query || {}
+    const out = new URLSearchParams()
+    const code = clean(q.code, 500), state = clean(q.state, 2000)
+    if (code && state) {
+      out.set('square_code', code)
+      out.set('square_state', state)
+    } else {
+      out.set('square_error', clean(q.error, 100) || 'no_code')
+      const said = typeof q.error_description === 'string' ? q.error_description.replace(/[^\w .,'-]/g, '').slice(0, 200) : ''
+      if (said) out.set('square_error_description', said)
+    }
+    return reply.code(302).header('location', RETURN_PAGE + '?' + out.toString()).send()
+  })
+}
 
 const UUID = z.string().uuid()
 const canSetup = [requireRole('admin', 'owner'), requirePermission('cash_recon', 'manage')]

@@ -498,8 +498,14 @@ export function oauthConfig() {
   return { applicationId: id, secret, environment: String(id).startsWith('sandbox-') ? 'sandbox' : 'production' }
 }
 
-/** The page Square sends the person back to (the Integrations page reads code and state). */
-export const redirectPath = '/integrations'
+/**
+ * Where Square sends the person back (the redirect URL registered on the
+ * app): an API route that only renames ?code=&state= to ?square_code=&
+ * square_state= on the Integrations page. The admin's Auth0 sign-in takes
+ * any page's ?code=&state= as its own callback, so they can't land there.
+ */
+export const redirectPath = '/api/square/oauth/callback'
+export const RETURN_PAGE = '/integrations'
 
 // How long a state is good for.
 export const STATE_MINUTES = 15
