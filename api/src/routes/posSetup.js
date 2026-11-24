@@ -170,12 +170,9 @@ const SettingsBody = z.object({
   pull:                      PullBody.optional(),
   // Hub first (migration 218): devices on the venue network talk to the venue hub first.
   hub_first:                 z.boolean().optional(),
-  // Migration 224: the receipt when a check is paid, and actions that need a
-  // manager every time (shared/pos/permissions.js MANAGER_ACTIONS).
-  receipt_mode:              z.enum(['ask', 'always', 'never']).optional(),
-  // Migration 226: how the till asks for a new order's order type, name and
-  // tent number: one screen, or two steps (the order type first).
-  order_prompt:              z.enum(['one', 'two']).optional(),
+  // Migration 224: actions that need a manager every time
+  // (shared/pos/permissions.js MANAGER_ACTIONS). The receipt when a check is
+  // paid and the order prompt are the revenue stream's (migration 296).
   // Migration 228: the till layout this venue's tills use (null = the standard screen).
   till_layout_id:            UUID.nullable().optional(),
   // Migration 246: the layout (made for a phone) tills draw on a phone-sized screen.
@@ -245,6 +242,11 @@ const StreamBody = z.object({
   courses:                   z.boolean().default(true),
   // Migration 246: seat numbers on its checks, a switch of their own.
   seats:                     z.boolean().default(true),
+  // Migration 296 (venue settings before): the receipt when a check is paid,
+  // and how the till asks a new order's order type, name and tent number:
+  // one screen, or two steps (the order type first).
+  receipt_mode:              z.enum(['ask', 'always', 'never']).default('ask'),
+  order_prompt:              z.enum(['one', 'two']).default('one'),
 })
 
 const PrinterBody = z.object({
@@ -293,12 +295,11 @@ const DeviceSettings = z.object({
   card_reader:        z.union([z.literal('none'), UUID]).optional(),
   // A venue hub (migration 195): installs its new versions by itself (absent = yes).
   auto_update:        z.boolean().optional(),
-  // A till's own receipt when a check is paid (migration 224): 'venue' (or
-  // absent) = the venue's Receipts and payments setting.
-  receipt_mode:       z.enum(['venue', 'ask', 'always', 'never']).optional(),
-  // A till's own order prompt (migration 226): 'venue' (or absent) = the
-  // venue's Receipts and payments setting.
-  order_prompt:       z.enum(['venue', 'one', 'two']).optional(),
+  // A till's own receipt when a check is paid (migration 224) and order
+  // prompt (migration 226): 'stream' (or absent) = the check's revenue
+  // stream's (migration 296; shared/pos/tillSettings.js).
+  receipt_mode:       z.enum(['stream', 'ask', 'always', 'never']).optional(),
+  order_prompt:       z.enum(['stream', 'one', 'two']).optional(),
   // A till's own screen layout (migration 228): 'venue' (or absent) = the
   // venue's, 'standard' = the standard screen, or a pos_till_layouts id.
   till_layout:        z.union([z.enum(['venue', 'standard']), UUID]).optional(),
@@ -327,7 +328,8 @@ const DeviceSettings = z.object({
   // when the check has both ('send' or absent = sends what is new, 'fire' =
   // fires the course waiting; each falls back to the other, and a swipe
   // always asks first); leaving a table-service order with items not sent
-  // ('leave' or absent = leaves, 'ask' = asks whether to send them first);
+  // ('ask' or absent = asks whether to send them first, 'leave' = leaves;
+  // migration 295 made ask the default);
   // and, with item counts on, taking one off a counted dish (a swipe left
   // on its row in a list, a long press on a button; absent = no).
   swipe_left:         z.enum(['send', 'fire']).optional(),
@@ -1030,8 +1032,9 @@ export default async function posSetupRoutes(app) {
       await checkMenus(tx, req.tenantId, venueId, body.menu_ids)
       const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM pos_revenue_streams WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
       const [rs] = await tx`
-        INSERT INTO pos_revenue_streams (tenant_id, venue_id, name, menu_ids, colour, sort_order, is_active, covers, courses, seats)
-        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.menu_ids}, ${body.colour ?? null}, ${n}, ${body.is_active}, ${body.covers}, ${body.courses}, ${body.seats})
+        INSERT INTO pos_revenue_streams (tenant_id, venue_id, name, menu_ids, colour, sort_order, is_active, covers, courses, seats, receipt_mode, order_prompt)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.menu_ids}, ${body.colour ?? null}, ${n}, ${body.is_active}, ${body.covers}, ${body.courses}, ${body.seats},
+                ${body.receipt_mode}, ${body.order_prompt})
         RETURNING id`
       await writeStreamTypes(tx, req.tenantId, rs.id, body, true)
       return streamOut(tx, req.tenantId, venueId, rs.id)
@@ -1050,7 +1053,8 @@ export default async function posSetupRoutes(app) {
         UPDATE pos_revenue_streams
            SET name = ${body.name}, menu_ids = ${body.menu_ids},
                colour = ${body.colour ?? null}, is_active = ${body.is_active},
-               covers = ${body.covers}, courses = ${body.courses}, seats = ${body.seats}
+               covers = ${body.covers}, courses = ${body.courses}, seats = ${body.seats},
+               receipt_mode = ${body.receipt_mode}, order_prompt = ${body.order_prompt}
          WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       await writeStreamTypes(tx, req.tenantId, id, body, false)
       return { ...(await streamOut(tx, req.tenantId, rs.venue_id, id)), venue_id: rs.venue_id }

@@ -830,7 +830,7 @@ export function OrderTypeModal({ check, config, onClose, focus = null, start = '
   return (
     <OrderPrompt title="Order type" types={types} typeId={check.order_type_id || types[0]?.type.id || null}
       promptsOf={id => checkPrompts(config, check, id)} name={check.tab_name || ''} tent={check.tent || ''}
-      style={orderPromptOf(config)} start={start} doneLabel="Save" noteFor={noteFor} onDone={save} onClose={onClose} />
+      style={orderPromptOf(config, check.revenue_stream_id)} start={start} doneLabel="Save" noteFor={noteFor} onDone={save} onClose={onClose} />
   )
 }
 

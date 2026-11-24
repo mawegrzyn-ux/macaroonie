@@ -191,7 +191,7 @@ export default function Counter() {
       {soldOutItem && <SoldOutModal item={soldOutItem} config={config} onClose={() => setSoldOutItem(null)} onAdd={pick} />}
       {prompt && (
         <OrderPrompt title="New order" types={types} typeId={typeId} promptsOf={id => promptsFor(config, streamId, id)}
-          name={answers?.name || ''} tent={answers?.tent || ''} style={orderPromptOf(config)}
+          name={answers?.name || ''} tent={answers?.tent || ''} style={orderPromptOf(config, streamId)}
           doneLabel={prompt.then === 'hold' ? 'Done' : 'Start order'}
           onDone={answered} onClose={() => setPrompt(null)} />
       )}

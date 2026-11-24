@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, Wifi, WifiOff, X, Accessibility } from 'lucide-react'
-import { kioskFontsUrl, kioskFontStack, partColours } from '@shared/kiosk.js'
+import { kioskFontsUrl, kioskFontStack, kioskTextVars, partColours } from '@shared/kiosk.js'
 import { useKiosk, bootKiosk, bootPreview, bootShare, bootReplay, textsFor, restart, loadConfig, setReach, getState, disconnect, moveKiosk } from './store.js'
 import { whenSafeToReload, idleFor } from '../lib/appUpdate.js'
 import { belongsHere } from '../lib/appHost.js'
@@ -44,6 +44,8 @@ function useDesignStyle(design) {
       '--k-sheet': c.surface === 'transparent' ? c.background : c.surface,
       '--k-radius': design.brand.radius + 'px',
       '--k-font-head': kioskFontStack(design.brand.font_heading), '--k-font-body': kioskFontStack(design.brand.font_body),
+      // Text sizes: body, headings, buttons and prices (kiosk.css).
+      ...kioskTextVars(design),
     }
   }, [design])
   // The design's fonts, once per change.

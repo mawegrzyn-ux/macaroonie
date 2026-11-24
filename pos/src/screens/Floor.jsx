@@ -442,7 +442,7 @@ function NewTabModal({ onClose, onOpen }) {
   }
   return (
     <OrderPrompt title="New tab" types={types} typeId={defaultTypeId(config, streamId)} promptsOf={promptsOf}
-      style={orderPromptOf(config)} doneLabel={coversRule === 'off' ? 'Open tab' : 'Next'} onDone={answered} onClose={onClose}
+      style={orderPromptOf(config, streamId)} doneLabel={coversRule === 'off' ? 'Open tab' : 'Next'} onDone={answered} onClose={onClose}
       noteFor={() => 'A tab is a check without a table: bar tabs, people waiting, collections.'} />
   )
 }

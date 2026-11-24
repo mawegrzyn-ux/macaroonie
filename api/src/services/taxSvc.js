@@ -65,7 +65,7 @@ export async function loadOrderTypes(tx, tenantId) {
  */
 export async function loadStreams(tx, tenantId, venueId, { activeOnly = false } = {}) {
   const [streams, settings] = await Promise.all([
-    tx`SELECT id, name, menu_ids, colour, sort_order, is_active, default_order_type_id, covers, courses, seats
+    tx`SELECT id, name, menu_ids, colour, sort_order, is_active, default_order_type_id, covers, courses, seats, receipt_mode, order_prompt
          FROM pos_revenue_streams
         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ${activeOnly ? tx`AND is_active` : tx``}
         ORDER BY sort_order, name`,

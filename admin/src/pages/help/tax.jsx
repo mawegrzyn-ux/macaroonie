@@ -86,8 +86,11 @@ export function Section() {
         tills offer and, for each one, <strong>Name</strong> and <strong>Tent</strong>: No, Ask
         (can be skipped) or Must (the check can&apos;t go to the kitchen or be paid without it).
         <strong> New checks start as</strong> picks the type a new check starts with. Each stream
-        also picks its menus and a colour, and whether its checks ask for guests, number seats and use
-        courses (see Till (POS) → Guests, seats and courses). A till belongs to one (Tills
+        also picks its menus and a colour, whether its checks ask for guests, number seats and use
+        courses (see Till (POS) → Guests, seats and courses), whether a receipt prints when one of its
+        checks is paid (Ask each time, Always print, Don&apos;t print) and how the till asks for a new
+        order&apos;s order type, name and tent number (One screen or Two steps). A till can have its own
+        of each (Tills tab). A till belongs to one (Tills
         tab) and a floor area can name one; staff can move a check to another on the till (More →
         Revenue stream). Till reports show sales by stream and by order type.
       </P>

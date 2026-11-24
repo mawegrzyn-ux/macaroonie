@@ -170,11 +170,9 @@ export function settingsView(s) {
     vat_number: s.vat_number, receipt_name: s.receipt_name, receipt_address: s.receipt_address || [],
     tenders, tips_enabled: s.tips_enabled,
     auto_logout_secs: s.auto_logout_secs,
-    // Migration 224: the receipt when a check is paid, and what needs a manager.
-    receipt_mode: s.receipt_mode || 'ask',
+    // Migration 224: what needs a manager. (The receipt when a check is paid
+    // and the order prompt are the revenue stream's since migration 296.)
     approvals: normaliseApprovals(s.approvals),
-    // Migration 226: the order type / name / tent prompt, one screen or two steps.
-    order_prompt: s.order_prompt === 'two' ? 'two' : 'one',
     // Migration 228: the till layout the venue's tills use (null = the standard screen).
     till_layout_id: s.till_layout_id || null,
     // Migration 246: the layout tills draw on a phone-sized screen (null = the built-in phone screen).

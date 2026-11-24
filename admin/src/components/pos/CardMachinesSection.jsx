@@ -13,7 +13,7 @@ import { Plus, Loader2, Pencil, CreditCard, RefreshCw, AlertTriangle, KeyRound }
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
-import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, money, ago } from './shared'
+import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, money, ago, Setting } from './shared'
 import StripeAccountCard, { useStripeAccount } from '@/components/orders/StripeAccountCard'
 
 const PROVIDERS = [
@@ -55,18 +55,20 @@ export function useCardReaders(venueId) {
 }
 
 /** The card machine picker in a till's or kiosk's settings. */
-export function CardMachinePick({ venueId, value, onChange, kiosk = false }) {
+export function CardMachinePick({ venueId, value, onChange, kiosk = false, boxed = false }) {
   const { data: readers = [], isLoading } = useCardReaders(venueId)
   const missing = value && value !== 'none' && !readers.some(r => r.id === value) && !isLoading
+  // boxed: its own outlined block (the till window's Setting look).
+  const Box = boxed ? Setting : Field
   return (
-    <Field label="Card machine" hint={kiosk
+    <Box label="Card machine" hint={kiosk
       ? 'The card machine guests pay on. None: guests pay at the counter only (if the design allows it). Card machines are added in the Card machines tab.'
       : 'Card machine payments are sent to this machine and recorded when it approves them. None: staff take cards on any machine and tap Card. Card machines are added in the Card machines tab.'}>
       <select className={inputCls} value={missing ? 'none' : (value || 'none')} onChange={e => onChange(e.target.value)} data-testid="device-card-machine">
         <option value="none">None</option>
         {readers.map(r => <option key={r.id} value={r.id}>{r.name} ({r.provider_label}{r.test ? ', test' : ''})</option>)}
       </select>
-    </Field>
+    </Box>
   )
 }
 

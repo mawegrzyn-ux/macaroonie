@@ -225,6 +225,21 @@ test('the bottom bar and side menu colours: not set until set, saved in lower ca
   for (const k of ['bar', 'bar_text', 'rail', 'rail_text']) assert.equal(cleared.settings.brand.colors[k], null, k + ' cleared')
 })
 
+test('text sizes: 100% until set, cleaned on save, a copy and the kiosk get them', async () => {
+  const before = (await ok(owner.get('/api/pos/kiosk-designs'))).find(d => d.id === design.id).settings
+  assert.deepEqual(before.brand.text_sizes, { body: 100, headings: 100, buttons: 100, prices: 100 })
+  const text_sizes = { body: 120, headings: 300, buttons: 50, prices: 'big', other: 5 }
+  const saved = await ok(owner.put(`/api/pos/kiosk-designs/${design.id}`, { name: design.name, settings: { ...before, brand: { ...before.brand, text_sizes } } }))
+  assert.deepEqual(saved.settings.brand.text_sizes, { body: 120, headings: 150, buttons: 90, prices: 100 }, 'clamped, a wrong value back to 100, unknown keys dropped')
+  const [row] = await sql`SELECT settings FROM kiosk_designs WHERE id = ${design.id}`
+  assert.deepEqual(row.settings.brand.text_sizes, saved.settings.brand.text_sizes, 'stored cleaned')
+  const copy = await ok(owner.post('/api/pos/kiosk-designs', { name: 'Sizes', copy_from: design.id }))
+  assert.equal(copy.settings.brand.text_sizes.headings, 150)
+  const link = await ok(owner.post(`/api/pos/kiosk-designs/${design.id}/preview`, { venue_id: mine.ids.venue }))
+  assert.equal((await preview(link.token)).json.design.brand.text_sizes.body, 120, 'the kiosk gets them')
+  await ok(owner.put(`/api/pos/kiosk-designs/${design.id}`, { name: design.name, settings: before }))
+})
+
 test('picture fit: banners, featured tiles, start and reach pictures keep how they fill their space; the banner shape; a copy and the kiosk get them', async () => {
   const before = (await ok(owner.get('/api/pos/kiosk-designs'))).find(d => d.id === design.id).settings
   const fit = { mode: 'contain', focus: 'bottom right', size: 55, bg: 'primary' }

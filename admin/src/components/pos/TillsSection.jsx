@@ -14,8 +14,9 @@ import { Plus, Loader2, Pencil, MonitorSmartphone, Link2, Smartphone, RotateCcw 
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { installerHref } from '@/lib/hosts'
-import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, ago, NumberBox, Toggle } from './shared'
+import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, ago, NumberBox, Setting, SettingToggle } from './shared'
 import { CardMachinePick, useCardReaders } from './CardMachinesSection'
+import { RECEIPT_MODE_KEYS, ORDER_PROMPT_KEYS, streamReceiptMode, streamOrderPrompt } from '@shared/pos/tillSettings.js'
 
 const MODES = [
   { value: 'table', label: 'Table service' },
@@ -226,15 +227,16 @@ export function orderRangeOf(device) {
   return { from: r?.from ?? null, to: r?.to ?? null }
 }
 export const orderRangeReady = r => Number.isInteger(r.from) && Number.isInteger(r.to) && r.from >= 1 && r.from <= r.to
-export function OrderNumbersField({ setup, device, value, onChange }) {
+export function OrderNumbersField({ setup, device, value, onChange, boxed = false }) {
   if (!device) {
     return <p className="text-xs text-muted-foreground" data-testid="order-numbers-new">It gets its own block of counter order numbers (the next free one, e.g. 100-199). You can change it here afterwards.</p>
   }
   const clash = orderRangeReady(value) && setup.devices.find(d => d.id !== device.id && !d.revoked_at
     && (d.kind === 'terminal' || d.kind === 'kiosk') && d.settings?.order_numbers
     && d.settings.order_numbers.from <= value.to && value.from <= d.settings.order_numbers.to)
+  const Box = boxed ? Setting : Field
   return (
-    <Field group label="Order numbers" hint={'Counter orders from this ' + (device.kind === 'kiosk' ? 'kiosk' : 'till') + ' get these numbers, going round. Its checks are numbered ' + (device.short_code || 'T1') + '-1, ' + (device.short_code || 'T1') + '-2, ... each trading day.'}>
+    <Box group label="Order numbers" hint={'Counter orders from this ' + (device.kind === 'kiosk' ? 'kiosk' : 'till') + ' get these numbers, going round. Its checks are numbered ' + (device.short_code || 'T1') + '-1, ' + (device.short_code || 'T1') + '-2, ... each trading day.'}>
       <div className="flex items-center gap-2" data-testid="order-numbers">
         <NumberBox value={value.from} min={1} max={9999} onChange={v => onChange({ ...value, from: v })} ariaLabel="Order numbers from" />
         <span className="text-sm text-muted-foreground">to</span>
@@ -242,7 +244,7 @@ export function OrderNumbersField({ setup, device, value, onChange }) {
       </div>
       {!orderRangeReady(value) && <p className="text-xs text-destructive mt-1">Type two numbers from 1 to 9999, the first no bigger than the second.</p>}
       {clash && <p className="text-xs text-destructive mt-1" data-testid="order-numbers-clash">{clash.name} uses {clash.settings.order_numbers.from}-{clash.settings.order_numbers.to}. Pick numbers no other till or kiosk here uses.</p>}
-    </Field>
+    </Box>
   )
 }
 
@@ -260,8 +262,8 @@ function TillModal({ venueId, setup, device, onClose }) {
     receipt_printer_id: s.receipt_printer_id || '',
     card_reader: s.card_reader || 'none',
     order_numbers: orderRangeOf(device),
-    receipt_mode: s.receipt_mode || 'venue',
-    order_prompt: s.order_prompt || 'venue',
+    receipt_mode: RECEIPT_MODE_KEYS.includes(s.receipt_mode) ? s.receipt_mode : 'stream',
+    order_prompt: ORDER_PROMPT_KEYS.includes(s.order_prompt) ? s.order_prompt : 'stream',
     till_layout: s.till_layout || 'venue',
     covers: s.covers || 'stream',
     courses: s.courses || 'stream',
@@ -271,7 +273,7 @@ function TillModal({ venueId, setup, device, onClose }) {
     tables: s.tables !== false,
     phone_tables: s.phone_tables === 'list' ? 'list' : 'tiles',
     swipe_left: s.swipe_left === 'fire' ? 'fire' : 'send',
-    leave_unsent: s.leave_unsent === 'ask' ? 'ask' : 'leave',
+    leave_unsent: s.leave_unsent === 'leave' ? 'leave' : 'ask',
     item_counts: s.item_counts === true,
     count_take_off: s.count_take_off === true,
   })
@@ -324,123 +326,123 @@ function TillModal({ venueId, setup, device, onClose }) {
       {!device && <ShownCodeField setup={setup} kind="terminal" value={code} onChange={setCode} autoFocus />}
       {!device && <ReusePick setup={setup} kind="terminal" value={reuseId} onChange={setReuseId} />}
       {!reuseId && <>
-        <Field label="Name" hint="Shown on the till and in reports, e.g. Front till, Bar.">
+        <Setting label="Name" hint="Shown on the till and in reports, e.g. Front till, Bar.">
           <input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Front till" />
-        </Field>
-        <Field group label="Opens in" hint={form.mode === 'counter'
+        </Setting>
+        <Setting group label="Opens in" hint={form.mode === 'counter'
           ? 'Counter service only: no floor, tables, tabs, guests, seats or courses. Orders go to the kitchen as they are paid.'
           : 'Table service only: tables and tabs, no counter orders.'}>
           <Segmented value={form.mode} options={MODES} onChange={v => set({ mode: v })} testid="till-mode" />
-        </Field>
-        <Field label="Revenue stream" hint="Where its sales are counted unless staff pick another on the check. It also decides the order types the till offers.">
+        </Setting>
+        <Setting label="Revenue stream" hint="Where its sales are counted unless staff pick another on the check. It also decides the order types the till offers.">
           <select className={inputCls} value={form.revenue_stream_id} onChange={e => set({ revenue_stream_id: e.target.value })}>
             <option value="">First one in the list</option>
             {setup.revenue_streams.filter(r => r.is_active).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
-        </Field>
+        </Setting>
         {form.mode === 'table' && (
-          <Field group label="Tables" hint={form.tables ? 'The floor with its tables, and tabs.' : 'Only tabs and orders: the page is called Orders.'}>
+          <Setting group label="Tables" hint={form.tables ? 'The floor with its tables, and tabs.' : 'Only tabs and orders: the page is called Orders.'}>
             <Segmented value={form.tables ? 'on' : 'off'} options={[{ value: 'on', label: 'Tables and tabs' }, { value: 'off', label: 'Only tabs' }]}
               onChange={v => set({ tables: v === 'on' })} testid="till-tables" />
-          </Field>
+          </Setting>
         )}
         {form.mode === 'table' && form.tables && (
-          <Field label="Floor area" hint="The part of the floor plan it opens on.">
+          <Setting label="Floor area" hint="The part of the floor plan it opens on.">
             <select className={inputCls} value={form.floor_area_id} onChange={e => set({ floor_area_id: e.target.value })}>
               <option value="">First area</option>
               {setup.floor_areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
-          </Field>
+          </Setting>
         )}
-        <Field label="Receipt printer" hint="Bills and receipts from this till. With none, or one plugged into this till, it prints them through its own browser; a network printer prints through the venue hub (Printers tab).">
+        <Setting label="Receipt printer" hint="Bills and receipts from this till. With none, or one plugged into this till, it prints them through its own browser; a network printer prints through the venue hub (Printers tab).">
           <select className={inputCls} value={form.receipt_printer_id} onChange={e => set({ receipt_printer_id: e.target.value })}>
             <option value="">None</option>
             {receiptPrinters.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-        </Field>
-        <Field label="Receipt when a check is paid" hint={'Venue setting: ' + (RECEIPT_MODES.find(m => m.value === (setup.settings.receipt_mode || 'ask'))?.label || 'Ask') + ' (Receipts and payments).'}>
+        </Setting>
+        <Setting label="Receipt when a check is paid" hint={'As the stream: ' + receiptWord(streamReceiptMode(streamFor(setup, form.revenue_stream_id))) + ' (Revenue streams). The check\'s stream decides when staff move a check to another.'}>
           <select className={inputCls} value={form.receipt_mode} onChange={e => set({ receipt_mode: e.target.value })} data-testid="till-receipt-mode">
-            <option value="venue">As the venue</option>
+            <option value="stream">As the revenue stream</option>
             {RECEIPT_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
-        </Field>
-        <Field label="Asking for the order type, name and tent number" hint={'Venue setting: ' + (ORDER_PROMPTS.find(m => m.value === (setup.settings.order_prompt || 'one'))?.label || 'One screen') + ' (Receipts and payments).'}>
+        </Setting>
+        <Setting label="Asking for the order type, name and tent number" hint={'As the stream: ' + promptWord(streamOrderPrompt(streamFor(setup, form.revenue_stream_id))) + ' (Revenue streams).'}>
           <select className={inputCls} value={form.order_prompt} onChange={e => set({ order_prompt: e.target.value })} data-testid="till-order-prompt">
-            <option value="venue">As the venue</option>
+            <option value="stream">As the revenue stream</option>
             {ORDER_PROMPTS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
-        </Field>
-        <Field label="Screen layout" hint={'Venue setting: ' + layoutName(setup, setup.settings.till_layout_id) + ' (Store tech → Till layouts). On a phone-sized screen a till draws only a layout made for a phone; with any other it shows the built-in phone screen.'}>
+        </Setting>
+        <Setting label="Screen layout" hint={'Venue setting: ' + layoutName(setup, setup.settings.till_layout_id) + ' (Store tech → Till layouts). On a phone-sized screen a till draws only a layout made for a phone; with any other it shows the built-in phone screen.'}>
           <select className={inputCls} value={form.till_layout} onChange={e => set({ till_layout: e.target.value })} data-testid="till-layout">
             <option value="venue">As the venue</option>
             <option value="standard">The standard screen</option>
             {(setup.till_layouts || []).map(l => <option key={l.id} value={l.id}>{l.name}{l.phone ? ' (phone)' : ''}</option>)}
           </select>
-        </Field>
+        </Setting>
         {form.mode === 'table' && <>
-          <Field label="Guests (covers)" hint={'As the stream: ' + coversWord(streamFor(setup, form.revenue_stream_id)?.covers) + ' (Revenue streams). Asked when a table or a tab opens.'}>
+          <Setting label="Guests (covers)" hint={'As the stream: ' + coversWord(streamFor(setup, form.revenue_stream_id)?.covers) + ' (Revenue streams). Asked when a table or a tab opens.'}>
             <select className={inputCls} value={form.covers} onChange={e => set({ covers: e.target.value })} data-testid="till-covers">
               <option value="stream">As the revenue stream</option>
               {COVERS_RULES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
             </select>
-          </Field>
-          <Field label="Seats" hint={'As the stream: ' + (streamFor(setup, form.revenue_stream_id)?.seats === false ? 'no seats' : 'seats') + ' (Revenue streams). Seat numbers on items, and By seat on the check.'}>
+          </Setting>
+          <Setting label="Seats" hint={'As the stream: ' + (streamFor(setup, form.revenue_stream_id)?.seats === false ? 'no seats' : 'seats') + ' (Revenue streams). Seat numbers on items, and By seat on the check.'}>
             <select className={inputCls} value={form.seats} onChange={e => set({ seats: e.target.value })} data-testid="till-seats">
               <option value="stream">As the revenue stream</option>
               <option value="on">Use seats</option>
               <option value="off">No seats</option>
             </select>
-          </Field>
-          <Field label="Courses" hint={'As the stream: ' + (streamFor(setup, form.revenue_stream_id)?.courses === false ? 'no courses' : 'courses') + ' (Revenue streams).'}>
+          </Setting>
+          <Setting label="Courses" hint={'As the stream: ' + (streamFor(setup, form.revenue_stream_id)?.courses === false ? 'no courses' : 'courses') + ' (Revenue streams).'}>
             <select className={inputCls} value={form.courses} onChange={e => set({ courses: e.target.value })} data-testid="till-courses">
               <option value="stream">As the revenue stream</option>
               <option value="on">Use courses</option>
               <option value="off">No courses</option>
             </select>
-          </Field>
-          <Field label="Pay with items not sent to the kitchen" hint={form.unsent_at_pay === 'send'
+          </Setting>
+          <Setting label="Pay with items not sent to the kitchen" hint={form.unsent_at_pay === 'send'
             ? 'Paying sends what is not sent yet and fires the courses waiting.'
             : 'Pay says what the kitchen has not been told yet: Send and pay, or Pay without sending.'}>
             <select className={inputCls} value={form.unsent_at_pay} onChange={e => set({ unsent_at_pay: e.target.value })} data-testid="till-unsent-at-pay">
               <option value="ask">Warn first</option>
               <option value="send">Send and fire them as it is paid</option>
             </select>
-          </Field>
-          <Field label="Leaving an order with items not sent" hint={form.leave_unsent === 'ask'
-            ? 'Back, the top bar\'s pages, the till menu and Sign out ask first: Send and leave, Leave without sending, or Stay on the order.'
-            : 'The till just leaves: the items wait on the order until someone sends them.'}>
+          </Setting>
+          <Setting label="Leaving an order with items not sent" hint={form.leave_unsent === 'ask'
+            ? 'Back (the arrow or a layout\'s Back to tables button), the top bar\'s pages, the till menu and Sign out ask first: Send and leave, Leave without sending, or Stay on the order. This is the default.'
+            : 'The till just leaves: the items wait on the order until someone sends them, and nobody is warned.'}>
             <select className={inputCls} value={form.leave_unsent} onChange={e => set({ leave_unsent: e.target.value })} data-testid="till-leave-unsent">
+              <option value="ask">Ask whether to send them (default)</option>
               <option value="leave">Just leave</option>
-              <option value="ask">Ask whether to send them</option>
             </select>
-          </Field>
-          <Field group label="On a phone" hint={form.phone_tables === 'list'
+          </Setting>
+          <Setting group label="On a phone" hint={form.phone_tables === 'list'
             ? 'Tables and tabs as rows: swipe right to pay, left to send what is new or fire the course waiting. A swipe left always asks first.'
             : 'Tables as tiles, tabs as a list.'}>
             <Segmented value={form.phone_tables} options={[{ value: 'tiles', label: 'Tiles' }, { value: 'list', label: 'Rows to swipe' }]}
               onChange={v => set({ phone_tables: v })} testid="till-phone-tables" />
-          </Field>
+          </Setting>
           {form.phone_tables === 'list' && (
-            <Field group label="Swipe left" hint="What a swipe left does first when a check has both items not sent and a course waiting. When it has only one of them, the swipe does that one.">
+            <Setting group label="Swipe left" hint="What a swipe left does first when a check has both items not sent and a course waiting. When it has only one of them, the swipe does that one.">
               <Segmented value={form.swipe_left} options={[{ value: 'send', label: 'Send what is new' }, { value: 'fire', label: 'Fire the course waiting' }]}
                 onChange={v => set({ swipe_left: v })} testid="till-swipe-left" />
-            </Field>
+            </Setting>
           )}
         </>}
         {form.mode === 'counter' && (
-          <Toggle label="Show a Send button" checked={form.counter_send} onChange={v => set({ counter_send: v })}
+          <SettingToggle label="Show a Send button" checked={form.counter_send} onChange={v => set({ counter_send: v })}
             hint="Off: counter orders go to the kitchen as they are paid. On: staff can also send an order before it is paid." />
         )}
-        <Toggle label="Show on dish buttons how many are on the order" checked={form.item_counts} onChange={v => set({ item_counts: v })}
+        <SettingToggle label="Show on dish buttons how many are on the order" checked={form.item_counts} onChange={v => set({ item_counts: v })}
           hint="A small number on each dish's button: how many of it the order already has." testid="till-item-counts" />
         {form.item_counts && (
           <div className="pl-8">
-            <Toggle label="Take one off from the dish's button" checked={form.count_take_off} onChange={v => set({ count_take_off: v })} testid="till-count-take-off"
+            <SettingToggle label="Take one off from the dish's button" checked={form.count_take_off} onChange={v => set({ count_take_off: v })} testid="till-count-take-off"
               hint="A long press on a dish's button takes one off the order (a swipe left on a list's row, where a long press marks it sold out). One the kitchen already has opens the void window, asking why." />
           </div>
         )}
-        <CardMachinePick venueId={venueId} value={form.card_reader} onChange={v => set({ card_reader: v })} />
-        <OrderNumbersField setup={setup} device={device} value={form.order_numbers} onChange={v => set({ order_numbers: v })} />
+        <CardMachinePick venueId={venueId} value={form.card_reader} onChange={v => set({ card_reader: v })} boxed />
+        <OrderNumbersField setup={setup} device={device} value={form.order_numbers} onChange={v => set({ order_numbers: v })} boxed />
       </>}
       <ErrorNote error={save.error || remove.error} />
     </Modal>
@@ -466,22 +468,27 @@ export const coversWord = v => (COVERS_RULES.find(m => m.value === (v || 'ask'))
 /** The stream a till is in: its own, else the first active one (as the till does). */
 const streamFor = (setup, id) => setup.revenue_streams.find(r => r.id === id) || setup.revenue_streams.find(r => r.is_active) || null
 
-/** What happens to the receipt when a check is paid (pos_settings.receipt_mode, migration 224). */
+/**
+ * What happens to the receipt when a check is paid (a revenue stream's
+ * receipt_mode since migration 296, or a till's own).
+ */
 export const RECEIPT_MODES = [
   { value: 'ask', label: 'Ask each time' },
   { value: 'always', label: 'Always print' },
   { value: 'never', label: 'Don\'t print' },
 ]
+export const receiptWord = v => (RECEIPT_MODES.find(m => m.value === v) || RECEIPT_MODES[0]).label.toLowerCase()
 
 /**
- * How the till asks for a new order's order type, name and tent number
- * (pos_settings.order_prompt, migration 226): both take over the screen with
- * the till's own keys.
+ * How the till asks for a new order's order type, name and tent number (a
+ * revenue stream's order_prompt since migration 296, or a till's own): both
+ * take over the screen with the till's own keys.
  */
 export const ORDER_PROMPTS = [
   { value: 'one', label: 'One screen' },
   { value: 'two', label: 'Two steps' },
 ]
+export const promptWord = v => (ORDER_PROMPTS.find(m => m.value === v) || ORDER_PROMPTS[0]).label.toLowerCase()
 
 /** The address a device of this kind opens (Store tech's device_urls). */
 export const deviceUrl = (setup, kind) => setup.device_urls?.[kind] || setup.till_url

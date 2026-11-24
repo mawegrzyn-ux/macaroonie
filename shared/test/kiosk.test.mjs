@@ -10,6 +10,7 @@ import {
   configImages, MAX_SAVED_PICTURES, configVideos, MAX_SAVED_VIDEOS, guestFit, countFits, cleanPrefs, prefsOn, kioskOrder, basketCheck, kioskStaff, kioskFontsUrl, UI_TEXT, ALLERGEN_NAMES, KIOSK_LANGUAGES, DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES,
   groupLook, ENTRANCE_KEYS, bundleParts, bundleLayout, bundleBox, BUNDLE_MAX, PART_COLORS, PART_FOLLOWS, COLOR_LABELS, partColours,
   DONE_MAIN, DONE_LINES, DONE_DEFAULT_LINES, doneLook, doneInfo, doneGaps, isEmail, emailHint,
+  TEXT_SIZE_PARTS, textSizes, kioskTextVars,
   pictureFit, fitLayout, PICTURE_FITS, PICTURE_FOCUS, PICTURE_BGS, BANNER_SHAPES, BANNER_RATIOS, BANNER_TYPES, BANNER_RATIO_MIN, BANNER_RATIO_MAX, BANNER_SIDE_MAX, bannerRatio, KIOSK_SCREENS, SCREEN_MIN, SCREEN_MAX, SHAPE_SLACK, ZOOM_SLACK, ZOOM_MIN, ZOOM_MAX, kioskBox, kioskZoom, screenSize,
 } from '../kiosk.js'
 import { contrast } from '../themeKit.js'
@@ -1301,4 +1302,22 @@ test('e-receipt email addresses: rough check and the hint shown back', () => {
     assert.notEqual(UI_TEXT[lang].receipt_waiting, UI_TEXT[lang].receipt_sent)
     assert.match(UI_TEXT[lang].table_done, /\{n\}/)
   }
+})
+
+test('text sizes: cleaned to steps of 5 in each part\'s range, 100 when missing or wrong, and turned into CSS', () => {
+  assert.deepEqual(normaliseDesign({}).brand.text_sizes, { body: 100, headings: 100, buttons: 100, prices: 100 }, 'an old design renders as before')
+  assert.deepEqual(TEXT_SIZE_PARTS.map(p => p.key), ['body', 'headings', 'buttons', 'prices'])
+  assert.deepEqual(
+    textSizes({ body: 200, headings: 10, buttons: 80, prices: 112 }),
+    { body: 150, headings: 80, buttons: 90, prices: 110 },
+    'over the top, under the bottom (buttons stop at 90), rounded to a step')
+  assert.deepEqual(textSizes({ body: '120', headings: NaN, buttons: null, prices: Infinity }), { body: 100, headings: 100, buttons: 100, prices: 100 }, 'not a number: 100')
+  assert.deepEqual(textSizes('big'), { body: 100, headings: 100, buttons: 100, prices: 100 })
+  assert.equal(normaliseDesign({ brand: { text_sizes: { body: 125, extra: 3 } } }).brand.text_sizes.extra, undefined, 'unknown keys dropped')
+  // The CSS: body scales the root, the rest are shares of the base over the body's.
+  const vars = kioskTextVars(normaliseDesign({}))
+  assert.deepEqual(Object.values(vars), ['1', '1', '1', '1'])
+  assert.deepEqual(Object.keys(vars).map(k => k.slice(2)), ['k-fs-body', 'k-fs-head', 'k-fs-button', 'k-fs-price'])
+  assert.deepEqual(Object.values(kioskTextVars({ brand: { text_sizes: { body: 120, headings: 150, buttons: 90, prices: 120 } } })), ['1.2', '1.25', '0.75', '1'])
+  assert.equal(Object.values(kioskTextVars({ brand: { text_sizes: { body: 'x', headings: 130 } } }))[1], '1.3', 'cleaned before use')
 })
