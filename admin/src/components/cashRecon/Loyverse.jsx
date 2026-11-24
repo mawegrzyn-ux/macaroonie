@@ -301,7 +301,10 @@ function VenueLinkCard({ venueId, config, canSetup }) {
     setSaving(true); setError(null); setSaved(false)
     try {
       const store = catalog?.stores?.find(s => s.id === d.store_id)
-      await api.put(`/loyverse/venues/${venueId}/link`, { ...d, store_name: store?.name ?? null })
+      await api.put(`/loyverse/venues/${venueId}/link`, {
+        connection_id: d.connection_id, store_id: d.store_id, store_name: store?.name ?? null, day_starts_at: d.day_starts_at,
+      })
+      await api.put(`/loyverse/venues/${venueId}/mappings`, { mappings: d.mappings })
       await qc.invalidateQueries({ queryKey: ['loyverse-link', venueId] })
       qc.invalidateQueries({ queryKey: ['loyverse-connections'] })
       setSaved(true); setTimeout(() => setSaved(false), 2500)

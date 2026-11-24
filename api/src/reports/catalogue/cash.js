@@ -96,11 +96,11 @@ export const order = 50
 export const decisions = {
   settings: [
     'cash_venue_settings', 'cash_wage_defaults',
-    // Which Loyverse store each venue's till figures come from
-    'loyverse_venue_links',
+    // Which other till's store each venue's sales come from (migration 288)
+    'pos_connection_venues',
   ],
   out: {
-    'Secrets and keys': ['loyverse_connections'],
+    'Secrets and keys': ['pos_connections'],
     'Working state that changes from minute to minute': [
       // What each fill last wrote into a Cash Recon field (migration 260): the
       // scheduled fill's memory of hand changes, not a figure of its own.

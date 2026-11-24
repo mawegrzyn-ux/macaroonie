@@ -274,7 +274,8 @@ export function Section() {
         <Mono>sc</Mono>, the same keys every filler maps by. <Mono>LINK_SOURCES</Mono> holds one
         entry per system: <Mono>pos</Mono> (<Mono>pos_settings.recon_map</Mono>, revenue
         streams and tenders by name, set in Store tech, <Mono>where.route</Mono>),{' '}
-        <Mono>loyverse</Mono> and <Mono>gloriafood</Mono> (<Mono>*_venue_links.mappings</Mono>,
+        <Mono>loyverse</Mono> (<Mono>pos_connection_venues.mappings</Mono>) and{' '}
+        <Mono>gloriafood</Mono> (<Mono>gloriafood_venue_links.mappings</Mono>,
         worded by each one's <Mono>termLabel()</Mono>, <Mono>where.tab</Mono>). A system not set
         up at the venue is left out; a field nothing fills has no entry. The settings tabs
         (<Mono>useReconLinks()</Mono>, <Mono>LinkedFrom</Mono>, <Mono>LinkedSystems</Mono> in{' '}
@@ -285,11 +286,17 @@ export function Section() {
       <H3>Loyverse (migration 154)</H3>
       <P>
         Fills a day's income, SC and takings rows from the venue's Loyverse POS sales. Two
-        tables: <Mono>loyverse_connections</Mono> (a tenant's Loyverse account: an access token
-        stored as typed and never returned by any route, <Mono>token_hint</Mono> = last 4,
-        business name / currency from <Mono>GET /merchant</Mono>, <Mono>last_error</Mono> when
-        Loyverse rejects it) and <Mono>loyverse_venue_links</Mono> (one per venue: connection,
-        <Mono>store_id</Mono>, <Mono>day_starts_at</Mono> HH:MM, <Mono>mappings</Mono> jsonb).
+        tables, made general for every other till in migration 288 (see Integrations):{' '}
+        <Mono>pos_connections</Mono> (a tenant's account on another till, <Mono>system</Mono>{' '}
+        'loyverse': an access token sealed and never returned by any route,{' '}
+        <Mono>token_hint</Mono> = last 4, business name / currency from{' '}
+        <Mono>GET /merchant</Mono>, <Mono>last_error</Mono> when Loyverse rejects it) and{' '}
+        <Mono>pos_connection_venues</Mono> (one per venue: connection, <Mono>location_id</Mono>{' '}
+        = the Loyverse store, <Mono>day_starts_at</Mono> HH:MM, <Mono>mappings</Mono> jsonb). The
+        store and day start are set on the Integrations page (<Mono>PUT /api/loyverse/venues/:id/link</Mono>);
+        the mapping on the Loyverse tab here (<Mono>PUT /api/loyverse/venues/:id/mappings</Mono>).
+        The fill still reads <Mono>/receipts</Mono> live (moving it onto the stored checks is
+        phase 4 of the sales import).
         <Mono>cash_daily_reports.loyverse_filled_at</Mono> / <Mono>loyverse_filled_by</Mono>{' '}
         record the last fill; <Mono>GET .../week-detail/:week</Mono> returns them (and
         GloriaFood's) per day as <Mono>days[date].filled</Mono>{' '}
