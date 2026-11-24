@@ -606,6 +606,33 @@ export function Section() {
         tool to book one in. Tests: <Mono>api/test/purchasing-no-order.test.mjs</Mono>; the fixtures switch it
         on and book one in for the tenant sweep.
       </P>
+      <H3>Barcodes and stock on hand (migration 287, Pepper-first 8B3)</H3>
+      <P>
+        <Mono>inv_items.barcode</Mono> and <Mono>inv_quotes.barcode</Mono>: a GTIN-8, 12, 13 or 14, its check digit
+        checked by <Mono>barcodeProblem()</Mono> (<Mono>shared/catalogue.js</Mono>, the rule dishes use) in{' '}
+        <Mono>ItemBody</Mono> / <Mono>QuoteBody</Mono> (<Mono>Barcode</Mono> in <Mono>routes/inventory.js</Mono>);
+        the own code stays <Mono>code</Mono> / <Mono>supplier_code</Mono>. <Mono>GET /venues/:id/catalog?search=</Mono>{' '}
+        matches a whole barcode (item or live price; a price&apos;s barcode gives <Mono>matched_quote_id</Mono>);{' '}
+        <Mono>quoteView()</Mono> carries <Mono>barcode</Mono>; Pepper&apos;s <Mono>pickItem()</Mono> and{' '}
+        <Mono>find_inventory_items</Mono> match it.
+      </P>
+      <P>
+        Stock on hand: <Mono>stock_counts</Mono> (venue, <Mono>counted_at</Mono>, who, note) and{' '}
+        <Mono>stock_count_lines</Mono> (item, <Mono>qty_base</Mono> in the item&apos;s base unit). The rule:{' '}
+        <Mono>stockOnHand()</Mono> and <Mono>countToBase()</Mono> in <Mono>shared/procurement.js</Mono> (the last
+        count plus receipts after it, less usage when recipes exist: none do, so <Mono>sales_counted: false</Mono>).{' '}
+        <Mono>loadStockOnHand()</Mono> (<Mono>services/stockSvc.js</Mono>) reads counts and received lines
+        (received_qty x the line&apos;s pack_base_qty at <Mono>received_at</Mono>, deliveries without an order
+        included). Routes <Mono>/api/stock</Mono> (<Mono>routes/stock.js</Mono>): <Mono>GET /venues/:venueId</Mono>,{' '}
+        <Mono>GET /venues/:venueId/counts</Mono>, <Mono>GET /counts/:id</Mono> (View on any purchasing module),{' '}
+        <Mono>POST /venues/:venueId/counts</Mono> (Manage on Purchasing or Purchasing setup; units must fit, the
+        group&apos;s items, no item twice, up to 14 days back). Report subject <Mono>purchasing.stock</Mono>{' '}
+        (work <Mono>stock_on_hand</Mono>, <Mono>reports/work/stock.js</Mono>). Admin:{' '}
+        <Mono>components/purchasing/stockOnHand.jsx</Mono> (the Inventory page&apos;s <Mono>?tab=stock</Mono>; test
+        ids <Mono>stock-row</Mono>, <Mono>stock-on-hand</Mono>, <Mono>stock-count-open</Mono>,{' '}
+        <Mono>stock-count-line</Mono>, <Mono>stock-count-save</Mono>). Tests:{' '}
+        <Mono>api/test/purchasing-stock-on-hand.test.mjs</Mono>.
+      </P>
       <H3>Permissions and prices</H3>
       <P>
         Module group <Mono>purchasing</Mono>: <Mono>purchasing</Mono> (fill in orders, send, receive;

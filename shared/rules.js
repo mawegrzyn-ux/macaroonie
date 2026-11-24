@@ -104,11 +104,11 @@ export function ruleProblem(rule) {
   const name = String(rule.name ?? '').trim()
   if (!name || name.length > 80) return 'A rule needs a short name'
   const t = TRIGGERS[rule.trigger]
-  if (!t) return 'A rule starts from one of: ' + Object.values(TRIGGERS).map(x => x.label.toLowerCase()).join('; ')
+  if (!t) return 'A rule starts from one of: ' + Object.values(TRIGGERS).map(x => x.label.replace(/^./, c => c.toLowerCase())).join('; ')
   const cond = rule.conditions || {}
   for (const [k, v] of Object.entries(cond)) {
     const c = t.conditions[k]
-    if (!c) return '"' + k + '" isn\'t something to check when ' + t.label.toLowerCase()
+    if (!c) return '"' + k + '" isn\'t something to check when ' + t.label.replace(/^./, c => c.toLowerCase())
     if (c.type === 'number' && !Number.isFinite(v)) return c.label + ' is a number'
     if (c.type === 'yesno' && typeof v !== 'boolean') return c.label + ' is yes or no'
     if (c.type === 'text' && (typeof v !== 'string' || !v.trim() || v.length > 80)) return c.label + ' is a few words'
@@ -116,7 +116,7 @@ export function ruleProblem(rule) {
   }
   const a = RULE_ACTIONS[rule.action_tool]
   if (!a) {
-    return 'A rule can only ' + Object.values(RULE_ACTIONS).map(x => x.label.toLowerCase()).join(' or ') +
+    return 'A rule can only ' + Object.values(RULE_ACTIONS).map(x => x.label.replace(/^./, c => c.toLowerCase())).join(' or ') +
       ': never ' + NEVER_WORDS + '.'
   }
   const input = rule.action_input || {}
@@ -126,11 +126,11 @@ export function ruleProblem(rule) {
     if (typeof v !== 'string' || v.length > (f.max || 100)) return a.label + ': ' + f.label + ' is text of up to ' + (f.max || 100) + ' characters'
     if (f.choices && !f.choices.includes(v)) return a.label + ': ' + f.label + ' is one of ' + f.choices.join(', ')
     for (const [, p] of v.matchAll(PLACEHOLDER)) {
-      if (!t.fields.includes(p)) return a.label + ': {' + p + '} isn\'t known when ' + t.label.toLowerCase() + ' (use ' + t.fields.map(x => '{' + x + '}').join(', ') + ')'
+      if (!t.fields.includes(p)) return a.label + ': {' + p + '} isn\'t known when ' + t.label.replace(/^./, c => c.toLowerCase()) + ' (use ' + t.fields.map(x => '{' + x + '}').join(', ') + ')'
     }
   }
   for (const [k, f] of Object.entries(a.fields)) {
-    if (f.required && !String(input[k] ?? '').trim()) return a.label + ' needs its ' + f.label.toLowerCase()
+    if (f.required && !String(input[k] ?? '').trim()) return a.label + ' needs its ' + f.label.replace(/^./, c => c.toLowerCase())
   }
   const perDay = rule.per_day ?? DEFAULT_PER_DAY
   if (!Number.isInteger(perDay) || perDay < 1 || perDay > MAX_PER_DAY) return 'A rule runs 1 to ' + MAX_PER_DAY + ' times a day'
@@ -191,15 +191,15 @@ export function ruleLines(rule, { venueName = null } = {}) {
   const ifs = Object.entries(c).map(([k, v]) => {
     const d = t?.conditions[k]
     if (!d) return k
-    if (d.type === 'yesno') return d.label + ': ' + (v ? 'yes' : 'no')
-    if (d.type === 'choice') return d.label + ': ' + (d.choices[v] || v)
-    return d.label + ' ' + (d.type === 'number' ? num(v) : '"' + v + '"')
+    if (d.type === 'yesno') return d.label.replace(/^./, c => c.toLowerCase()) + ': ' + (v ? 'yes' : 'no')
+    if (d.type === 'choice') return d.label.replace(/^./, c => c.toLowerCase()) + ': ' + (d.choices[v] || v)
+    return d.label.replace(/^./, c => c.toLowerCase()) + ' ' + (d.type === 'number' ? num(v) : '"' + v + '"')
   })
   const what = Object.entries(rule.action_input || {}).map(([k, v]) => (a?.fields[k]?.label || k) + ': ' + v)
   return [
-    'When ' + (t ? t.label.toLowerCase() : rule.trigger) + (venueName ? ' at ' + venueName : rule.venue_id ? '' : ' at any venue'),
+    'When ' + (t ? t.label.replace(/^./, c => c.toLowerCase()) : rule.trigger) + (venueName ? ' at ' + venueName : rule.venue_id ? '' : ' at any venue'),
     ...ifs.map(x => 'If ' + x),
-    'Then: ' + (a ? a.label.toLowerCase() : rule.action_tool) + (what.length ? ' (' + what.join('; ') + ')' : ''),
+    'Then: ' + (a ? a.label.replace(/^./, c => c.toLowerCase()) : rule.action_tool) + (what.length ? ' (' + what.join('; ') + ')' : ''),
     'At most ' + (rule.per_day ?? DEFAULT_PER_DAY) + ' times a day',
   ]
 }

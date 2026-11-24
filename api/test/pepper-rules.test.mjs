@@ -127,15 +127,15 @@ test('make_rule: the sentence read by the model as data, a Confirm card, saved o
   assert.equal(req.output_config.format.type, 'json_schema')
   assert.equal(t.class, 'consequential')
   assert.ok(card.lines.some(l => /^When a fridge or freezer reading is logged at /.test(l)), card.lines.join(' | '))
-  assert.ok(card.lines.includes('If Reads above (°C) 8'))
+  assert.ok(card.lines.includes('If reads above (°C) 8'), card.lines.join(' | '))
   assert.ok(card.pin?.rule, 'the card pins the rule it showed')
-  assert.equal((await sql`SELECT count(*)::int AS n FROM pepper_rules WHERE tenant_id = ${ids.a}`)[0].n, 0, 'nothing saved before Confirm')
+  assert.equal((await sql`SELECT count(*)::int AS n FROM pepper_rules WHERE tenant_id = ${ids.a} AND name = 'Warm fridge'`)[0].n, 0, 'nothing saved before Confirm')
   // Confirm runs the pinned rule: no second model call.
   const before = claude.requests.length
   const out = await t.run(await ctxOf(), parseInput(t, { sentence, ...card.pin }))
   assert.equal(claude.requests.length, before)
   assert.equal(out.rule, 'Warm fridge')
-  const [row] = await sql`SELECT id, venue_id, created_by_sub, sentence, enabled FROM pepper_rules WHERE tenant_id = ${ids.a}`
+  const [row] = await sql`SELECT id, venue_id, created_by_sub, sentence, enabled FROM pepper_rules WHERE tenant_id = ${ids.a} AND name = 'Warm fridge'`
   assert.deepEqual([row.venue_id, row.created_by_sub, row.sentence, row.enabled], [V, A.owner, sentence, true])
   ruleId = row.id
   const [usage] = await sql`SELECT use FROM ai_requests WHERE tenant_id = ${ids.a} ORDER BY created_at DESC LIMIT 1`

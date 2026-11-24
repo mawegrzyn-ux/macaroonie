@@ -1545,6 +1545,18 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
         Tests: <Mono>api/test/reports-context.test.mjs</Mono>; evaluation tasks <Mono>covers_by_slang</Mono> and{' '}
         <Mono>not_in_reports</Mono> (<Mono>api/eval/tasks/reports.mjs</Mono>, <Mono>expect: &apos;answer&apos;</Mono>).
       </P>
+      <H3>A group&apos;s own fields in the catalogue (Pepper-first 8B1)</H3>
+      <P>
+        The catalogue is per request: <Mono>reportPerson()</Mono> reads <Mono>tenantCatalogue(tenantId)</Mono>{' '}
+        (<Mono>catalogue/index.js</Mono>), the built-in <Mono>CATALOGUE</Mono> with the group&apos;s own fields
+        (<Mono>custom_fields</Mono>, migration 285) added to their objects&apos; subjects as{' '}
+        <Mono>cf_&lt;key&gt;</Mono> (<Mono>customCatalogue()</Mono>; SQL from <Mono>fieldSql()</Mono> in{' '}
+        <Mono>shared/customFields.js</Mono>, typed, null when a value doesn&apos;t fit). It goes on{' '}
+        <Mono>p.catalogue</Mono> and <Mono>ctx.catalogue</Mono>; <Mono>catalogueView(levels, catalogue)</Mono>{' '}
+        shows it to the builder and Pepper; <Mono>compileReport()</Mono> reads <Mono>env.catalogue</Mono> for the
+        call; <Mono>runReport()</Mono> / <Mono>streamList()</Mono> read it when a run comes without one. Stock on
+        hand is the subject <Mono>purchasing.stock</Mono> (work <Mono>stock_on_hand</Mono>, migration 287).
+      </P>
     </section>
   )
 }

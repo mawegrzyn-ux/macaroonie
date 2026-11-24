@@ -364,10 +364,7 @@ export default function Settings() {
         </div>
 
         {/* ── Rules made from a sentence (migration 286, Pepper-first step 8B2) ── */}
-        <div className="space-y-2">
-          <h2 className="text-sm font-semibold">Rules</h2>
-          <Suspense fallback={null}><RuleSettings /></Suspense>
-        </div>
+        <Suspense fallback={null}><RuleSettings /></Suspense>
 
         {/* ── Interface ────────────────────────────────────── */}
         <SectionCard title="Interface">

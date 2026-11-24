@@ -81,6 +81,7 @@ function ValueInput({ def, value, onChange, disabled }) {
   )
 }
 
+const NO_FIELDS = []
 const startOf = (def, v) => (v === undefined || v === null ? '' : def.type === 'yesno' ? !!v : String(v))
 
 /**
@@ -89,8 +90,10 @@ const startOf = (def, v) => (v === undefined || v === null ? '' : def.type === '
  */
 export function CustomFieldsCard({ objectKey, values, canEdit, onSave, className }) {
   const { data } = useCustomFields(objectKey)
-  const defs = data?.fields || []
-  const start = useMemo(() => Object.fromEntries(defs.map(d => [d.field_key, startOf(d, values?.[d.field_key])])), [defs, values])
+  const defs = data?.fields || NO_FIELDS
+  // Keyed by what the values are, so a parent's new object with the same values doesn't reset what is being typed.
+  const valuesKey = JSON.stringify(values || {})
+  const start = useMemo(() => Object.fromEntries(defs.map(d => [d.field_key, startOf(d, values?.[d.field_key])])), [defs, valuesKey])
   const [form, setForm] = useState(start)
   const [saved, setSaved] = useState(false)
   useEffect(() => { setForm(start) }, [start])

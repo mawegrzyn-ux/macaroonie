@@ -5,7 +5,7 @@ What is not built, known limits and follow-ups in this area (`docs/claude/areas/
 **16. Purchasing — follow-ups** *(Purchasing shipped with migration 153)*
 - Approval is by role only (migration 180): no "orders over a set value need approval" rule, and approvers aren't told when a request comes in (no email or push; they see the count on the Order tab and in Pepper's day briefing).
 - Splitting moves whole quantities between two orders of the same supplier; it can't send part of an order to another supplier, and a split PO that the supplier already had relies on them reading the Amended copy (nothing is phoned or confirmed).
-- Stock counts: pars are a usual quantity; there is no stock on hand, so "order to par" can't subtract what's on the shelf yet.
+- Stock counts: pars are a usual quantity; stock on hand exists since migration 287 (item 63) but "order to par" doesn't subtract what's on the shelf yet.
 - Invoices and credit notes: no invoice matching against received quantities, no credit tracking for shortages beyond the line note.
 - Costs: nothing feeds Cash Recon or a COGS / recipe costing view yet; `purchase_order_lines` hold the prices paid.
 - `emailPo()` runs inside the request after the order is saved (one email per supplier); a slow provider makes Place order slow. Move to the notification queue if that shows up.
@@ -29,3 +29,13 @@ What is not built, known limits and follow-ups in this area (`docs/claude/areas/
 - Nothing yet uses invoice prices beyond the price list prompt (no credit notes, no invoice matching report, no cost reporting from received lines).
 - Invoice files are stored like receipts (`/uploads/...`, public URLs on the local driver) and kept with the order; readings never applied are kept too (no clean-up).
 - Receipt reading doesn't split one receipt into several expenses or read a receipt from a card statement; the category is picked only from the venue's own categories by exact name.
+
+**63. Product codes and stock on hand, step 8B3 follow-ups (Pepper-first, 24 Nov 2026, migration 287)**
+
+Built: a barcode (GTIN, check digit checked) on inventory items and supplier prices, found by the inventory search, the order form's search and the Office app's scanner; stock on hand per item per venue (last count plus what was received since), a count sheet on the Inventory page's Stock tab, and the report subject Stock on hand.
+- **Sales aren't taken off**: no dish is linked to the items it uses (no recipes), so on hand is the count plus deliveries, and every place that shows it says so. Waste, transfers between venues and returns to the supplier aren't recorded either. `stockOnHand()` already takes `usage` for when recipes exist.
+- **Barcodes aren't unique** (two items may carry the same one; a scan then lists both), aren't in the CSV / Excel import or the price list update, and aren't on order documents. A barcode is only a GTIN: an own code stays the free-text item code. The till doesn't scan inventory items (they aren't sold).
+- **Counts are per venue at a moment**: no count sheets by area or shelf, no par-based "order to par" using on hand yet (the Stock counts note above: pars don't subtract stock yet), no variance report between counts, no undo or correction of a count (count again). A count's time can be up to 14 days back, not later.
+- **What was received** is each booked-in line's received quantity in its packs at the order's booking-in time; a delivery corrected later changes the figure from then on. Lines whose item was deleted don't count.
+- **The Stock tab is on the Inventory page**, which needs Purchasing setup; ordering staff with Purchasing only can read stock through the API and reports but have no page for it yet (the phone app has none).
+- Pepper has no stock tool: "how much rice do we have" goes through ask_data and the report subject. It reads and sets barcodes on inventory items, not on supplier prices.

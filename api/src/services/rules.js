@@ -100,7 +100,7 @@ export function toRule(answer, venues) {
   const action = clip(answer.action, 60)
   if (!RULE_ACTIONS[action]) {
     throw httpError(422, 'A rule can\'t do that (' + (action || 'that action') + '). Rules can only ' +
-      Object.values(RULE_ACTIONS).map(a => a.label.toLowerCase()).join(' or ') + ', and never change ' + NEVER_WORDS + '.' +
+      Object.values(RULE_ACTIONS).map(a => a.label.replace(/^./, c => c.toLowerCase())).join(' or ') + ', and never change ' + NEVER_WORDS + '.' +
       (clip(answer.why_not, 200) ? ' ' + clip(answer.why_not, 200) : ''), { code: 'never_list' })
   }
   const t = TRIGGERS[answer.trigger]
@@ -184,7 +184,7 @@ export async function checkRule(req, raw) {
   const mods = toolModules(tool)
   const levels = await permissionLevels(req, mods)
   if (mods.length && !mods.some(m => permissionAtLeast(levels[m], toolNeeds(tool)))) {
-    throw httpError(403, 'You can\'t ' + RULE_ACTIONS[rule.action_tool].label.toLowerCase() + ' yourself, so a rule can\'t do it for you.')
+    throw httpError(403, 'You can\'t ' + RULE_ACTIONS[rule.action_tool].label.replace(/^./, c => c.toLowerCase()) + ' yourself, so a rule can\'t do it for you.')
   }
   return { rule, venue }
 }
