@@ -83,7 +83,8 @@ const SYSTEM = [
   'sentence asks for any of these, or for an action not listed, set action to a few words for what was asked (not one ' +
   'of the names above), understood true, and why_not saying so. If the sentence isn\'t a rule at all, understood false ' +
   'and why_not says what is missing. Leave the rest "".',
-  'venue: the ref (V1, V2...) of the venue the sentence names, or "" for every venue. name: a short name for the rule ' +
+  'venue: the ref (V1, V2...) from the Venues list of the venue the sentence names (the ref, not the name), or "" only when ' +
+  'the sentence names no venue (then it is for every venue). name: a short name for the rule ' +
   '(under 60 characters). per_day: a number when the sentence limits how often ("at most 3 times a day"), else "".',
 ]
 
@@ -119,9 +120,13 @@ export function toRule(answer, venues) {
     const v = clip(answer.action_input?.[k], d.max || 100)
     if (v) action_input[k] = v
   }
-  const ref = clip(answer.venue, 10).toUpperCase()
-  const m = /^V(\d+)$/.exec(ref)
-  const venue = m ? venues[Number(m[1]) - 1] : null
+  // The ref, or the venue's name when the model wrote that instead. A venue named but not
+  // found is refused: a rule never widens to every venue on its own.
+  const said = clip(answer.venue, 80).trim()
+  const m = /^V(\d+)$/i.exec(said)
+  const venue = !said ? null
+    : (m ? venues[Number(m[1]) - 1] : venues.find(v => v.name.trim().toLowerCase() === said.toLowerCase())) || null
+  if (said && !venue) throw httpError(422, 'Pepper couldn\'t tell which venue that rule is for. Say the venue\'s name as it is in the app.', { code: 'venue_unclear' })
   const perDay = parseInt(clip(answer.per_day, 5), 10)
   const raw = {
     name: clip(answer.name, 80) || t.label,

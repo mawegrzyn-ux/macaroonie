@@ -99,7 +99,10 @@ test('the parser\'s output is validated: refs back to ids, numbers read, and any
     name: 'Warm fridge', trigger: 'fridge_reading', conditions: { above: 8 }, venue_id: V, action_tool: 'add_hs_action',
     action_input: { task: 'Check {equipment}: it read {temperature}', priority: 'high', assigned_to: 'the manager' }, per_day: 5,
   })
-  assert.equal(toRule(answer({ ...FRIDGE, venue: 'V9' }), venues).venue_id, null, 'an unknown ref is no venue, never a guess')
+  assert.throws(() => toRule(answer({ ...FRIDGE, venue: 'V9' }), venues), e => e.code === 'venue_unclear', 'an unknown ref is refused, never every venue')
+  assert.throws(() => toRule(answer({ ...FRIDGE, venue: 'Nowhere' }), venues), e => e.code === 'venue_unclear')
+  assert.equal(toRule(answer({ ...FRIDGE, venue: venueName.toUpperCase() }), venues).venue_id, V, 'the venue\'s name when the model wrote that instead of its ref')
+  assert.equal(toRule(answer({ ...FRIDGE, venue: '' }), venues).venue_id, null, 'no venue named: every venue')
   assert.throws(() => toRule(answer({ understood: false, why_not: 'No action given' }), venues), /isn't a rule.*No action given/)
   assert.throws(() => toRule(answer({ ...FRIDGE, action: 'refund the order' }), venues), e => e.code === 'never_list' && /never change money, pay, prices/.test(e.message))
   assert.throws(() => toRule(answer({ ...FRIDGE, action: 'change_prices' }), venues), e => e.code === 'never_list')
@@ -125,6 +128,11 @@ test('make_rule: the sentence read by the model as data, a Confirm card, saved o
   assert.match(JSON.stringify(req.messages), /<sentence>[^<]*fridge reads above 8/, 'the sentence goes in as data')
   assert.ok(!JSON.stringify(req).includes(V), 'venues go as refs, never ids')
   assert.equal(req.output_config.format.type, 'json_schema')
+  assert.ok(JSON.stringify(req).split('"cache_control"').length - 1 <= 4, 'at most four cache marks: the API refuses more')
+  // A rule the model wrote itself is never shown: the card is the sentence as the reader read it.
+  claude.script.push(body => reply({ ...FRIDGE, venue: new RegExp('(V\\d+): ' + venueName).exec(JSON.stringify(body.messages))?.[1] || 'V1' })())
+  const own = await t.describe(await ctxOf(), parseInput(t, { sentence, rule: { name: 'Mine', trigger: 'fridge_reading', conditions: {}, venue_id: null, action_tool: 'add_hs_action', action_input: { task: 'x' }, per_day: 5 } }))
+  assert.equal(own.pin.rule.conditions.above, 8, 'the model\'s own rule is ignored')
   assert.equal(t.class, 'consequential')
   assert.ok(card.lines.some(l => /^When a fridge or freezer reading is logged at /.test(l)), card.lines.join(' | '))
   assert.ok(card.lines.includes('If reads above (°C) 8'), card.lines.join(' | '))

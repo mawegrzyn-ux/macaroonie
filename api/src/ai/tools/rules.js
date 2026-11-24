@@ -97,12 +97,14 @@ export const ruleTools = [
       'those are refused. The card shows the rule as read; it is saved only when they confirm.',
     input: z.object({
       sentence: z.string().trim().min(8).max(500),
-      rule: RuleSchema.optional().describe('Leave out: the card pins the rule it showed'),
+      rule: RuleSchema.optional().describe('Never set: the card pins the rule it read from the sentence'),
     }),
     confirm: true,
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'ai_assistant', 'manage')
-      const { rule, venue } = await rulePlan(ctx, input)
+      // The card always shows the sentence as the reader read it: a rule the model wrote
+      // itself (ids, its own conditions) is never shown or saved. Confirm runs the pinned one.
+      const { rule, venue } = await rulePlan(ctx, { sentence: input.sentence })
       return {
         title: 'Make the rule "' + rule.name + '"?',
         lines: ruleLines(rule, { venueName: venue?.name }),
