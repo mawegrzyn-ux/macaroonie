@@ -171,10 +171,10 @@ export function Section() {
         choice is kept in <Mono>maca_today_venue</Mono>. Tests: <Mono>api/test/ops-today.test.mjs</Mono>.
       </P>
       <InfoBox type="info">
-        Not built yet from <Mono>docs/CHAT_FIRST.md</Mono>: a task store with owners, snooze, skip and escalation
-        (sections 3 and 5), manual and learned tasks (C3, L1-L6), watchers and push (M1-M7), forms inside the chat
-        itself (F1 in the conversation, F6, F7), the shared-device person switch (U2) and the per-group chat-first
-        switch (G1). Adding a source: a function in <Mono>SOURCES</Mono> with its module in <Mono>AREAS</Mono>,
+        Not built yet from <Mono>docs/CHAT_FIRST.md</Mono>: manual and learned tasks (C3, L1-L6), watchers beyond
+        the task notices (M1-M7), forms inside the chat itself (F1 in the conversation, F6, F7) and the per-group
+        chat-first switch (G1). The task store (sections 3 and 5) came with Pepper-first step 5 (The task store,
+        below) and the shared-device person switch (U2) with step 6a (Shared devices and the person switch). Adding a source: a function in <Mono>SOURCES</Mono> with its module in <Mono>AREAS</Mono>,
         reading through the routes with <Mono>callApi()</Mono>, and a row in this table.
       </InfoBox>
       <H3>The form sheet</H3>

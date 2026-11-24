@@ -319,6 +319,20 @@ export function Section() {
         and the order form&apos;s Scan button (<Mono>canScan()</Mono> / <Mono>scanBarcode()</Mono>). The hub hides a
         tile with a <Mono>module</Mono> the role has none of (the Allergens tile).
       </P>
+      <H3>Capture, This device and the iPhone build (step 6)</H3>
+      <P>
+        The hub and Today have <Mono>CaptureButton</Mono> (see Pepper: Captures). <Mono>/mobile/device</Mono>{' '}
+        (<Mono>MobileDevice</Mono>, tile <Mono>device</Mono>) holds <Mono>OfficePinSettings</Mono> and{' '}
+        <Mono>SharedDeviceSettings</Mono> (see Shared devices); <Mono>MobileShell</Mono> mounts{' '}
+        <Mono>SharedDeviceLayer</Mono>. The Office app builds for both platforms (<Mono>app.json</Mono>{' '}
+        <Mono>platforms</Mono>, <Mono>ios.infoPlist</Mono> reason strings, <Mono>app.config.js</Mono> push mode,{' '}
+        <Mono>eas.json</Mono> <Mono>app-store</Mono> profile); its bridge tells the page{' '}
+        <Mono>MacaroonieOffice.platform</Mono> (<Mono>lib/push.js</Mono> labels the device). What differs on an
+        iPhone: <Mono>office-app/layout.js</Mono> (<Mono>pagePadding()</Mono>, <Mono>keyboardEvents()</Mono>),{' '}
+        <Mono>speechCore.js</Mono> (<Mono>cumulative</Mono>), <Mono>scanCore.js</Mono> (<Mono>scannedCode()</Mono>:
+        a UPC-A read as EAN-13). Not built yet: <Mono>eas build -p ios</Mono> needs the owner&apos;s Apple
+        developer account (<Mono>office-app/README.md</Mono>). Tests: <Mono>office-app/test/ios.test.mjs</Mono>.
+      </P>
     </section>
   )
 }

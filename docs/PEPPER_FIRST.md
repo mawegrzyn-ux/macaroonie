@@ -458,3 +458,9 @@ in the person's own menu, a page outside their menu marked Not in your menu.
 Still open: the first run of the evaluation set against the live model (it needs `ANTHROPIC_API_KEY`
 in the environment), and steps 3 to 8.
 
+Step 6 (phone and shared devices) was built 24 Nov 2026 (migrations 280, 281): decision 6 as a
+server-judged PIN person switch on devices marked shared (a till PIN for checks only, an office PIN
+held to the person's own role and the account's), capture to For review, the venue's own words for
+speech, and the Office app ready for the iPhone (not built: it needs the owner's Apple account).
+Follow-ups: `docs/claude/outstanding/core.md` 57, `pepper.md` 58, `shell.md` 59.
+

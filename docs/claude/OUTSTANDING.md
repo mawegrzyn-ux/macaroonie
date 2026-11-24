@@ -10,7 +10,7 @@ What is not built, known limits and follow-ups now live in one file per area, `d
 |---|---|
 | [`bookings`](outstanding/bookings.md) | 1, 4, 6 |
 | [`cash`](outstanding/cash.md) | 2, 12, 17, 20, 47 |
-| [`core`](outstanding/core.md) | 4, 7 |
+| [`core`](outstanding/core.md) | 4, 7, 57 |
 | [`dashboards`](outstanding/dashboards.md) | 38 |
 | [`general`](outstanding/general.md) | 42, 44, 46 |
 | [`hs`](outstanding/hs.md) | - |
@@ -22,11 +22,11 @@ What is not built, known limits and follow-ups now live in one file per area, `d
 | [`loyalty`](outstanding/loyalty.md) | 34 |
 | [`menus`](outstanding/menus.md) | 19, 21, 25, 40, 48 |
 | [`ordering`](outstanding/ordering.md) | 14, 36 |
-| [`pepper`](outstanding/pepper.md) | 15, 28, 31, 51, 53, 54, 56 |
+| [`pepper`](outstanding/pepper.md) | 15, 28, 31, 51, 53, 54, 56, 58 |
 | [`purchasing`](outstanding/purchasing.md) | 16, 32 |
 | [`reports`](outstanding/reports.md) | 41 |
 | [`rota`](outstanding/rota.md) | - |
 | [`screens`](outstanding/screens.md) | 22 |
-| [`shell`](outstanding/shell.md) | 9, 10, 11, 37, 13, 49, 50, 52, 55 |
+| [`shell`](outstanding/shell.md) | 9, 10, 11, 37, 13, 49, 50, 52, 55, 59 |
 | [`till`](outstanding/till.md) | 18, 24, 27, 30, 39 |
 | [`website`](outstanding/website.md) | 3, 5 |

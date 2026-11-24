@@ -96,3 +96,12 @@ Built: unanswered staff cards wait 7 days (not 30 minutes) and are approved late
 - **The step's measure** "median age of items waiting" isn't counted (cards' `created_at` against their answer would give it).
 - Checked in a browser at 1280 px only (a waiting card approved, the Done tab, the menu link), not at 1015 px or on the phone (the phone has no For review page).
 
+
+**58. Capture to For review and the venue's words, step 6b and 6c follow-ups (Pepper-first, 24 Nov 2026, migration 281)**
+
+Built: a Capture button on the phone's hub and Today (a photo through the chat's upload checks, a voice note's words, a typed line), kept with who, when and the venue; For review lists captures with Open in Pepper (a new chat with it attached) and Dismiss; no model call until opened. `GET /api/ai/venue-words` and `snapToWords()` for dictation, talk mode and the voice note; the Office app's recogniser gets the words as hints.
+- **One photo per capture**, images only (no PDF: a capture is a phone photo); the photo is the chat's 5 MB image limit after `prepareFile()` shrinks it.
+- **Who sees captures**: the account that made it and Pepper managers. On a shared device every capture belongs to the device's account (`user_sub`) with the person's name, so the person can't find their own capture later from their own phone unless they manage Pepper.
+- **The capture button is on the phone pages only** (the office has the chat's own attachments); For review is an office page, so captures are opened at a desk (Open in Pepper from the phone's For review would need a phone page for it).
+- **The venue's words**: dishes come from published menus' draft tables (names, not the live release); words are per venue or all the group's, capped at 300 (fridges and hold stations, then suppliers, staff, dishes). Single words under 7 letters only match exactly, so a short staff name misheard isn't put right. The browser's Web Speech API takes no hints. The step's measure "share of voice entries corrected before saving" isn't counted.
+- **Not checked on a phone**: the hints on a real Android 13+ or iPhone recogniser, and whether the snap helps in a noisy kitchen (docs/PEPPER_FIRST.md 4.7's trial).

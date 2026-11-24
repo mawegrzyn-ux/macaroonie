@@ -31,7 +31,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow, parseISO } from 'date-fns'
-import { Inbox, Loader2, Check, X, Pencil, ExternalLink, Sparkles, Truck, FileText, CircleAlert, Camera } from 'lucide-react'
+import { Inbox, Loader2, Check, X, Pencil, ExternalLink, Sparkles, Truck, FileText, CircleAlert, Camera, Mic, Type } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { BeforeAfter } from '@/components/ai/ActionCard'
@@ -43,6 +43,7 @@ const PepperDone = React.lazy(() => import('@/pages/PepperDone'))
 const CHAT_KEY = 'maca_ai_conversation'   // the chat the Pepper page opens (AssistantDrawer.jsx)
 const BTN = 'inline-flex items-center justify-center gap-1.5 min-h-[48px] px-4 rounded-md text-sm font-medium touch-manipulation disabled:opacity-50'
 const KIND_ICON = { card: Sparkles, supplier_order: Truck, invoice: FileText, capture: Camera }
+const CAPTURE_ICON = { photo: Camera, voice: Mic, text: Type }
 const CLASS_TEXT = {
   reversible:    { label: 'Can be undone', tone: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
   consequential: { label: 'Check before it runs', tone: 'bg-sky-50 text-sky-800 border-sky-200' },
@@ -191,7 +192,7 @@ function Together({ group }) {
 }
 
 function Item({ item }) {
-  const Icon = KIND_ICON[item.kind] || Inbox
+  const Icon = (item.kind === 'capture' && CAPTURE_ICON[item.capture]) || KIND_ICON[item.kind] || Inbox
   const cls = item.class && CLASS_TEXT[item.class]
   return (
     <li className="px-4 py-3 space-y-2" data-testid="review-item" data-kind={item.kind}>

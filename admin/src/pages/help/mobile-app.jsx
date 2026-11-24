@@ -55,12 +55,19 @@ export function Section() {
       </P>
       <H3>The Macaroonie Office app</H3>
       <P>
-        <strong>Macaroonie Office</strong> is the phone app for Android (an iPhone version is planned). It
+        <strong>Macaroonie Office</strong> is the phone app for Android, and ready to be built for the iPhone
+        (that needs the owner&apos;s Apple developer account, so it isn&apos;t in the App Store yet). It
         shows the same phone pages, signs you in through the phone&apos;s browser (Google sign-in works),
         and adds what a web page can&apos;t do well: notices that always arrive, Pepper listening through the
         phone&apos;s own speech recognition, and a barcode scanner (the <strong>Scan</strong> button in a
         supplier order&apos;s Add an item). Turn notices on in its Notices page as above. It is a different
         app from Macaroonie Player, the app on tills, kitchen screens, kiosks and menu screens.
+      </P>
+      <P>
+        The home screen and Today have a <strong>Capture</strong> button (a photo, a voice note or a line kept
+        for For review: see the AI assistant section). <strong>This device</strong> on the home screen is where
+        you set your own <strong>office PIN</strong> and where an owner or admin marks a phone or tablet as{' '}
+        <strong>shared</strong> (see Shared devices and PINs).
       </P>
       <P>
         More mobile-optimised pages will appear on the <strong>/mobile</strong> hub screen

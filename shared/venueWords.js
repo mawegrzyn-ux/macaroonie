@@ -90,7 +90,7 @@ export function snapToWords(text, words) {
   if (!src || !Array.isArray(words) || !words.length) return { text: src, changes: [] }
   // Word tokens (letters, digits, inner hyphens and apostrophes) with where they sit.
   const tokens = []
-  const re = /[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g
+  const re = /[A-Za-z0-9]+(?:['\u2019-][A-Za-z0-9]+)*/g
   let m
   while ((m = re.exec(src))) tokens.push({ t: m[0], start: m.index, end: m.index + m[0].length, num: isNumberish(m[0]) })
   if (!tokens.length) return { text: src, changes: [] }
