@@ -31,6 +31,7 @@ import { checkToken, tokenHint, loadCatalog, loadStores, venueDays, datesBetween
 import { fillReconDay, reconFields } from '../services/reconFill.js'
 import { seal, unseal } from '../services/vault.js'
 import { startHistory, markRequested, requestSync, setupWebhook } from '../services/salesImportSvc.js'
+import { connector } from '../services/connectors/loyverse.js'
 import { isValidTerm, sumTerms, MAPPING_GROUPS } from '../../../shared/loyverse.js'
 
 const UUID = z.string().uuid()
@@ -281,7 +282,10 @@ export default async function loyverseRoutes(app) {
   app.delete('/connections/:id', { preHandler: canSetup }, async req => {
     const id = UUID.parse(req.params.id)
     return withTenant(req.tenantId, async tx => {
-      await ownConnection(tx, req.tenantId, id)
+      const c = await ownConnection(tx, req.tenantId, id)
+      // Its webhook at Loyverse goes too (best effort); its stored sales
+      // (ext_*) go with the connection (ON DELETE CASCADE).
+      if (c.webhook_id) connector({ token: c.access_token }).deleteWebhook(c.webhook_id).catch(() => {})
       await tx`DELETE FROM pos_connection_venues WHERE connection_id = ${id} AND tenant_id = ${req.tenantId}`
       await tx`DELETE FROM pos_connections WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       return { ok: true }
