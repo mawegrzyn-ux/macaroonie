@@ -136,6 +136,8 @@ test.before(async () => {
   V2 = filled.ids.venue2
   await sql`DELETE FROM usage_events WHERE tenant_id = ${ids.a}`
   await sql`DELETE FROM home_pins WHERE tenant_id = ${ids.a}`
+  await sql`DELETE FROM home_suggestion_hides WHERE tenant_id = ${ids.a}`
+  await sql`DELETE FROM team_suggestions WHERE tenant_id = ${ids.a}`
 })
 test.after(closeApp)
 
@@ -233,4 +235,76 @@ test('a report the person runs most weeks, opened from the suggestion', async ()
   assert.equal(r.reason, 'You run this most weeks')
   assert.equal(r.pin, null, 'a report can\'t be pinned')
   assert.ok(!(await feed(operator)).suggestions.some(s => s.rule === 'weekly_report'), 'the owner\'s runs, not the operator\'s')
+})
+
+// ── The Team signal (step 7b, migration 283) ───────────────────
+test('a page suggested to a role shows to that role until pinned or dismissed; Manage on Navigation only', async () => {
+  const roles = await ok(owner.get('/api/access/roles'))
+  const opRole = roles.find(r => r.key === 'operator')
+  const ownRole = roles.find(r => r.key === 'owner')
+  const made = await ok(owner.post('/api/suggestions/team', {
+    role_id: opRole.id, path: '/food-safety', venue_id: V, tab: 'cooking', note: '  Log the   cooking checks here ', sign_as: 'name',
+  }))
+  assert.equal(made.role_label, opRole.label)
+  assert.equal(made.label, 'Food safety')
+  assert.equal(made.note, 'Log the cooking checks here')
+  assert.equal(made.by_label, 'a-owner', 'the maker\'s name (here the start of their email)')
+  const shown = (await feed(operator)).suggestions.find(s => s.key === 'team:' + made.id)
+  assert.ok(shown, 'the operator sees it')
+  assert.equal(shown.rule, 'team')
+  assert.equal(shown.reason, 'Suggested by a-owner: Log the cooking checks here')
+  assert.equal(shown.link, `/food-safety?venue=${V}&tab=cooking`)
+  assert.ok(!(await feed(owner)).suggestions.some(s => s.key === 'team:' + made.id), 'not another role')
+  // Pinned: gone while it is a pin.
+  await ok(operator.put('/api/pins', { pins: [{ path: '/food-safety' }] }))
+  assert.ok(!(await feed(operator)).suggestions.some(s => s.key === 'team:' + made.id), 'pinned')
+  await ok(operator.put('/api/pins', { pins: [] }))
+  assert.ok((await feed(operator)).suggestions.some(s => s.key === 'team:' + made.id))
+  // Dismissed: for good.
+  assert.equal((await operator.post('/api/suggestions/hide', { key: 'team:' + made.id })).status, 204)
+  const [h] = await sql`SELECT hidden_until FROM home_suggestion_hides WHERE tenant_id = ${ids.a} AND user_sub = ${A.operator} AND key = ${'team:' + made.id}`
+  assert.equal(h.hidden_until, null, 'for good')
+  assert.ok(!(await feed(operator)).suggestions.some(s => s.key === 'team:' + made.id))
+  // Signed with the maker's role.
+  const byRole = await ok(owner.post('/api/suggestions/team', { role_id: opRole.id, path: '/rota', sign_as: 'role' }))
+  assert.equal(byRole.by_label, ownRole.label)
+  assert.equal(byRole.venue_id, null)
+  const list = await ok(owner.get('/api/suggestions/team'))
+  assert.equal(list.can_manage, true)
+  for (const id of [made.id, byRole.id]) assert.ok(list.suggestions.some(s => s.id === id))
+})
+
+test('team suggestions: who may, what is refused, and another group\'s ids are 404', async () => {
+  const roles = await ok(owner.get('/api/access/roles'))
+  const opRole = roles.find(r => r.key === 'operator')
+  const bRoles = await ok(as(B.owner, ids.b).get('/api/access/roles'))
+  const bVenue = await ok(as(B.owner, ids.b).post('/api/venues', { name: 'Team Elsewhere', slug: 'team-elsewhere', timezone: 'Europe/London' }))
+  const body = { role_id: opRole.id, path: '/timeline' }
+  // Navigation is the owner's by default: an admin, an operator and a viewer can't.
+  for (const who of [as(A.admin, ids.a), operator, viewer]) {
+    assert.equal((await who.post('/api/suggestions/team', body)).status, 403)
+    assert.equal((await who.get('/api/suggestions/team')).status, 403)
+  }
+  assert.equal((await owner.post('/api/suggestions/team', { ...body, role_id: bRoles[0].id })).status, 404, 'another group\'s role')
+  assert.equal((await owner.post('/api/suggestions/team', { ...body, path: '/rota', venue_id: bVenue.id })).status, 404, 'another group\'s venue')
+  assert.equal((await owner.post('/api/suggestions/team', { ...body, path: '/nowhere' })).status, 400, 'not a page of the menu')
+  assert.equal((await owner.post('/api/suggestions/team', { ...body, path: '/' })).status, 400, 'not Home')
+  assert.equal((await owner.post('/api/suggestions/team', { ...body, note: 'x'.repeat(141) })).status, 422)
+  assert.equal((await owner.post('/api/suggestions/team', { path: '/timeline' })).status, 422, 'a role')
+  const one = await ok(owner.post('/api/suggestions/team', body))
+  assert.equal((await owner.post('/api/suggestions/team', body)).status, 409, 'the same page to the same role once')
+  // A page that doesn't take a venue or a tab: both dropped (cleanPin()).
+  const plain = await ok(owner.post('/api/suggestions/team', { role_id: opRole.id, path: '/menus', venue_id: V, tab: 'x' }))
+  assert.equal(plain.venue_id, null)
+  assert.equal(plain.tab, null)
+  // Another group: can't see, can't remove.
+  assert.ok(!(await ok(as(B.owner, ids.b).get('/api/suggestions/team'))).suggestions.some(s => s.id === one.id))
+  assert.equal((await as(B.owner, ids.b).delete('/api/suggestions/team/' + one.id)).status, 404)
+  assert.equal((await owner.delete('/api/suggestions/team/not-an-id')).status, 404)
+  assert.equal((await operator.delete('/api/suggestions/team/' + one.id)).status, 403)
+  // Removed: its dismissals go with it.
+  await ok(operator.post('/api/suggestions/hide', { key: 'team:' + one.id }))
+  assert.equal((await owner.delete('/api/suggestions/team/' + one.id)).status, 204)
+  assert.equal((await owner.delete('/api/suggestions/team/' + one.id)).status, 404)
+  assert.equal((await sql`SELECT count(*)::int AS n FROM home_suggestion_hides WHERE key = ${'team:' + one.id}`)[0].n, 0)
 })

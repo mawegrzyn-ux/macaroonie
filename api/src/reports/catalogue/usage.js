@@ -33,6 +33,22 @@ const GROUP_MODULE = 'nav_designer'
 /** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
 export const order = 175
 
+/**
+ * This area's tables that no subject reads, and why (decisions.js gathers
+ * them): settings (how something is set up) and out ({ reason: [tables] }).
+ */
+export const decisions = {
+  settings: [],
+  out: {
+    'Layouts and designs with nothing to count': [
+      // Home's suggestions (Pepper-first step 7): what each person dismissed
+      // (their own, like their pins, decision 8) and the pages a manager
+      // suggested to a role. How suggestions are used is in usage_events.
+      'home_suggestion_hides', 'team_suggestions',
+    ],
+  },
+}
+
 export const subjects = [
   subject({
     key: 'usage.pages',

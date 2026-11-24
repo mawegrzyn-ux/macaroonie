@@ -26,6 +26,7 @@ import { withTenant } from '../config/db.js'
 import { permissionAtLeast } from '../config/modules.js'
 import { callApi } from '../ai/context.js'
 import { navTreeFor, navLinksOf } from './navTree.js'
+import { effectiveRoleId } from './roles.js'
 import { pageLink } from '../../../shared/nav/links.js'
 
 export const MAX_SUGGESTIONS = 4
@@ -212,8 +213,9 @@ export async function gatherFacts(req, ctx, venue, now) {
   const me = req.user.sub
   const since = addDays(now.date, -Math.max(HABIT.weeks * 7, OFTEN.days) - 1)
   const runsFrom = addDays(mondayOf(now.date), -7 * (WEEKLY.weeks - 1))
-  const [tree, rows] = await Promise.all([
+  const [tree, roleId, rows] = await Promise.all([
     navTreeFor(req),
+    effectiveRoleId(req),
     withTenant(req.tenantId, async tx => ({
       pins: await tx`SELECT path FROM home_pins WHERE tenant_id = ${req.tenantId} AND user_sub = ${me}`,
       hides: await tx`
@@ -235,7 +237,11 @@ export async function gatherFacts(req, ctx, venue, now) {
            AND created_at >= (${runsFrom}::date - 1)::timestamp AT TIME ZONE ${tz}`,
     })),
   ])
-  const team = []
+  // What a manager suggested to the person's role (step 7b, migration 283).
+  const team = roleId ? await withTenant(req.tenantId, tx => tx`
+    SELECT id, path, venue_id, tab, note, by_label, created_at FROM team_suggestions
+     WHERE tenant_id = ${req.tenantId} AND role_id = ${roleId}
+     ORDER BY created_at DESC LIMIT 20`) : []
   const menu = new Map(navLinksOf(tree).map(l => [l.route, l]))
   // A report run most weeks: only one the person can still open (the
   // reports route's own list, as them), and only worth asking when one qualifies.
