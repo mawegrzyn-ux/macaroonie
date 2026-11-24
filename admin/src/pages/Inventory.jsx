@@ -6,15 +6,18 @@
 // comes from its quotes. Which quote is ordered: a venue's choice, else the
 // company choice (star), else the cheapest per kg / litre / each
 // (chooseQuote in shared/procurement.js, same as the API). A price can be
-// marked out of stock until a date (StockControl, migration 234).
-// API: routes/inventory.js.
+// marked out of stock until a date (StockControl, migration 234). Since
+// migration 287 (Pepper-first 8B3): a barcode (GTIN) on items and supplier
+// prices, found by the search and the Office app's scanner, and the Stock tab
+// (?tab=stock: stock on hand per venue and stock counts, stockOnHand.jsx).
+// API: routes/inventory.js, routes/stock.js.
 
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Package, Plus, Search, Star, History, Upload, Tags, Loader2, Store, Download, AlertTriangle, ClipboardCheck, RefreshCw,
-  CheckSquare, Square, X,
+  CheckSquare, Square, X, ScanLine,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -28,6 +31,10 @@ import {
 } from '@shared/procurement.js'
 import { CatalogueCheckModal, SwitchItemsModal, PriceUpdateModal } from '@/components/purchasing/catalogue'
 import { StockBadge, StockControl } from '@/components/purchasing/stock'
+import { CustomFieldsCard } from '@/components/forms/CustomFields'
+import { StockOnHand } from '@/components/purchasing/stockOnHand'
+import { canScan, scanBarcode } from '@/lib/officeApp'
+import { barcodeProblem } from '@shared/catalogue.js'
 
 const PACK_NAMES = ['Case', 'Box', 'Bag', 'Tray', 'Tub', 'Bottle', 'Tin', 'Jar', 'Pack', 'Crate', 'Sack', 'Each']
 
@@ -48,7 +55,10 @@ export default function Inventory() {
   const [switching, setSwitching] = useState(null)
   const [switched, setSwitched] = useState(null)
   const openId = params.get('item')
-  const setOpenId = id => setParams(id ? { item: id } : {}, { replace: true })
+  const tab = params.get('tab') === 'stock' ? 'stock' : 'items'
+  const keepTab = p => (tab === 'stock' ? { ...p, tab: 'stock' } : p)
+  const setOpenId = id => setParams(keepTab(id ? { item: id } : {}), { replace: true })
+  const setTab = t => setParams(t === 'stock' ? { tab: 'stock' } : {}, { replace: true })
 
   const { data: meta } = usePurchasingMeta()
   const { data: items = [], isLoading, error } = useQuery({ queryKey: ['inv-items'], queryFn: () => api.get('/inventory/items') })
@@ -63,8 +73,9 @@ export default function Inventory() {
       if (status === 'off' && i.is_active) return false
       if (categoryId === 'none' ? i.category_id : categoryId && i.category_id !== categoryId) return false
       if (supplierId && !i.quotes.some(x => x.supplier_id === supplierId)) return false
-      if (q && !i.name.toLowerCase().includes(q) && !(i.code || '').toLowerCase().includes(q)
-        && !i.quotes.some(x => (x.supplier_code || '').toLowerCase().includes(q) || (x.product_name || '').toLowerCase().includes(q))) return false
+      if (q && !i.name.toLowerCase().includes(q) && !(i.code || '').toLowerCase().includes(q) && i.barcode !== q.replace(/\s+/g, '')
+        && !i.quotes.some(x => (x.supplier_code || '').toLowerCase().includes(q) || (x.product_name || '').toLowerCase().includes(q)
+          || x.barcode === q.replace(/\s+/g, ''))) return false
       return true
     })
   }, [items, search, categoryId, supplierId, status])
@@ -107,12 +118,22 @@ export default function Inventory() {
 
       <div className="flex-1 overflow-y-auto">
         <div className="p-4 space-y-3 max-w-6xl mx-auto">
+          <Segmented value={tab} onChange={setTab}
+            options={[{ value: 'items', label: 'Items' }, { value: 'stock', label: 'Stock on hand' }]} />
+          {tab === 'stock' ? <StockOnHand onOpenItem={setOpenId} /> : (<>
           <div className="flex flex-wrap gap-2">
             <div className="relative flex-1 min-w-[200px]">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, item or supplier code"
-                className={cn(inputCls, 'pl-9')} />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, code or barcode"
+                className={cn(inputCls, 'pl-9')} data-testid="inv-search" />
             </div>
+            {/* In the Macaroonie Office app: the camera reads a barcode into the search. */}
+            {canScan() && (
+              <button type="button" className={btn.outline} aria-label="Scan a barcode" data-testid="inv-scan"
+                onClick={async () => { const code = await scanBarcode().catch(() => null); if (code) setSearch(code) }}>
+                <ScanLine className="w-4 h-4" />
+              </button>
+            )}
             <select value={categoryId} onChange={e => setCategoryId(e.target.value)} className={cn(inputCls, 'w-auto')} aria-label="Category">
               <option value="">All categories</option>
               {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -141,6 +162,7 @@ export default function Inventory() {
             <ItemTable rows={rows} onOpen={selecting ? toggle : setOpenId} total={items.length}
               picked={selecting ? picked : null} />
           )}
+          </>)}
         </div>
       </div>
 
@@ -262,7 +284,7 @@ function ItemTable({ rows, onOpen, total, picked = null }) {
 
 // ── Item drawer ─────────────────────────────────────────────────
 
-const EMPTY_ITEM = { name: '', category_id: null, base_unit: 'g', storage: 'ambient', code: '', notes: '', is_active: true }
+const EMPTY_ITEM = { name: '', category_id: null, base_unit: 'g', storage: 'ambient', code: '', barcode: '', notes: '', is_active: true }
 
 function ItemDrawer({ itemId, canEdit, onCreated, onClose, onOpenItem }) {
   const api = useApi()
@@ -304,6 +326,8 @@ function ItemDrawer({ itemId, canEdit, onCreated, onClose, onOpenItem }) {
 
       {item && (
         <>
+          <CustomFieldsCard objectKey="purchasing.items" values={item.custom} canEdit={canEdit}
+            onSave={async custom => refresh(await api.patch('/inventory/items/' + item.id, { custom }))} />
           <Card title="Supplier prices"
             actions={canEdit && <button type="button" className={btn.outline} onClick={() => setQuoteEdit({})}><Plus className="w-4 h-4" />Add price</button>}
             bodyClass="p-0">
@@ -367,10 +391,11 @@ function ItemForm({ item, canEdit, onSaved, onOpenItem }) {
   const api = useApi()
   const { data: categories = [] } = useCategories()
   const { data: allItems = [] } = useQuery({ queryKey: ['inv-items'], queryFn: () => api.get('/inventory/items') })
-  const initial = item ? { ...EMPTY_ITEM, ...item, code: item.code || '', notes: item.notes || '' } : EMPTY_ITEM
+  const initial = item ? { ...EMPTY_ITEM, ...item, code: item.code || '', barcode: item.barcode || '', notes: item.notes || '' } : EMPTY_ITEM
   const [form, setForm] = useState(initial)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
-  const dirty = ['name', 'category_id', 'base_unit', 'storage', 'code', 'notes', 'is_active'].some(k => (form[k] ?? '') !== (initial[k] ?? ''))
+  const dirty = ['name', 'category_id', 'base_unit', 'storage', 'code', 'barcode', 'notes', 'is_active'].some(k => (form[k] ?? '') !== (initial[k] ?? ''))
+  const barcodeWrong = form.barcode.trim() ? barcodeProblem(form.barcode) : null
   const hasQuotes = !!item?.quotes?.length
   // Another item with this name (case and spaces at the ends don't count):
   // staff can't tell the two apart on an order.
@@ -379,7 +404,7 @@ function ItemForm({ item, canEdit, onSaved, onOpenItem }) {
   const save = useMutation({
     mutationFn: () => {
       const body = { name: form.name.trim(), category_id: form.category_id || null, base_unit: form.base_unit,
-        storage: form.storage, code: form.code, notes: form.notes, is_active: form.is_active }
+        storage: form.storage, code: form.code, barcode: form.barcode, notes: form.notes, is_active: form.is_active }
       return item ? api.patch(`/inventory/items/${item.id}`, body) : api.post('/inventory/items', body)
     },
     onSuccess: saved => onSaved(saved),
@@ -387,7 +412,7 @@ function ItemForm({ item, canEdit, onSaved, onOpenItem }) {
   return (
     <Card title="Item"
       actions={canEdit && (
-        <button type="button" className={btn.primary} disabled={!form.name.trim() || (item && !dirty) || save.isPending} onClick={() => save.mutate()}>
+        <button type="button" className={btn.primary} disabled={!form.name.trim() || (item && !dirty) || !!barcodeWrong || save.isPending} onClick={() => save.mutate()}>
           {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />}{item ? 'Save' : 'Create'}
         </button>
       )}>
@@ -413,6 +438,18 @@ function ItemForm({ item, canEdit, onSaved, onOpenItem }) {
             </select>
           </Field>
           <Field label="Item code" hint="Your own code, optional"><input className={inputCls} value={form.code} disabled={!canEdit} onChange={e => set('code', e.target.value)} /></Field>
+          <Field label="Barcode" hint={barcodeWrong || 'The GTIN on the product (8, 12, 13 or 14 digits), optional'}>
+            <div className="flex gap-2">
+              <input className={cn(inputCls, barcodeWrong && 'border-destructive')} inputMode="numeric" value={form.barcode} disabled={!canEdit}
+                onChange={e => set('barcode', e.target.value)} data-testid="inv-barcode" />
+              {canEdit && canScan() && (
+                <button type="button" className={btn.outline} aria-label="Scan the barcode"
+                  onClick={async () => { const code = await scanBarcode().catch(() => null); if (code) set('barcode', code) }}>
+                  <ScanLine className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </Field>
         </div>
         <Field label="Counted in" hint={hasQuotes ? 'Fixed while it has supplier prices' : 'How pack sizes and pars are measured'}>
           <Segmented value={form.base_unit} disabled={!canEdit || hasQuotes} onChange={v => set('base_unit', v)}
@@ -476,12 +513,12 @@ function QuoteModal({ item, quote, onClose, onSaved }) {
   const { data: suppliers = [] } = useSuppliers()
   const units = unitsForBase(item.base_unit)
   const [f, setF] = useState(() => quote ? {
-    supplier_id: quote.supplier_id, supplier_code: quote.supplier_code || '', product_name: quote.product_name || '', pack_name: quote.pack_name || 'pack',
+    supplier_id: quote.supplier_id, supplier_code: quote.supplier_code || '', barcode: quote.barcode || '', product_name: quote.product_name || '', pack_name: quote.pack_name || 'pack',
     pack_count: quote.pack_count, pack_qty: quote.pack_qty, pack_unit: quote.pack_unit, price: quote.price,
     vat_rate: quote.vat_rate, min_qty: quote.min_qty, order_multiple: quote.order_multiple, notes: quote.notes || '',
     is_active: quote.is_active,
   } : {
-    supplier_id: suppliers.find(s => s.is_active)?.id || '', supplier_code: '', product_name: '', pack_name: 'Case', pack_count: 1,
+    supplier_id: suppliers.find(s => s.is_active)?.id || '', supplier_code: '', barcode: '', product_name: '', pack_name: 'Case', pack_count: 1,
     pack_qty: null, pack_unit: units.includes('kg') ? 'kg' : units.includes('l') ? 'l' : units[0], price: null,
     vat_rate: 0, min_qty: null, order_multiple: null, notes: '', is_active: true,
   })
@@ -494,7 +531,8 @@ function QuoteModal({ item, quote, onClose, onSaved }) {
     },
     onSuccess: saved => { onSaved(saved); onClose() },
   })
-  const ok = f.supplier_id && pbq && f.price != null
+  const barcodeWrong = f.barcode?.trim() ? barcodeProblem(f.barcode) : null
+  const ok = f.supplier_id && pbq && f.price != null && !barcodeWrong
   return (
     <Modal title={quote ? `Edit price · ${quote.supplier_name}` : `Add a price for ${item.name}`} onClose={onClose}
       footer={<>
@@ -516,6 +554,9 @@ function QuoteModal({ item, quote, onClose, onSaved }) {
             </Field>
             <Field label="Supplier's product code"><input className={inputCls} value={f.supplier_code} onChange={e => set('supplier_code', e.target.value)} /></Field>
           </div>
+          <Field label="Barcode" hint={barcodeWrong || 'The GTIN on their product, optional: a scan finds this price'}>
+            <input className={cn(inputCls, barcodeWrong && 'border-destructive')} inputMode="numeric" value={f.barcode} onChange={e => set('barcode', e.target.value)} />
+          </Field>
           <Field label="Supplier's product name" hint={`Optional: what ${suppliers.find(s => s.id === f.supplier_id)?.name || 'the supplier'} calls it, e.g. a brand, when it isn't just "${item.name}". It goes on their copy of the order.`}>
             <input className={inputCls} value={f.product_name} onChange={e => set('product_name', e.target.value)} placeholder={item.name} maxLength={200} />
           </Field>

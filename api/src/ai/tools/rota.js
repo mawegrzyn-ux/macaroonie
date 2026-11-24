@@ -37,7 +37,7 @@ import { ToolError, callApi, requireStaffPermission, staffPermissionLevel, level
 import { span } from '../../services/rotaCalc.js'
 import {
   DateStr, TimeStr, VenueText, venueFor, venueToday, longDate, shortDate, mondayOf, addDays,
-  money, plural, pickByName, audited,
+  money, plural, pickByName, audited, CustomIn, customPlan,
 } from './util.js'
 
 const hhmm = t => (t ? String(t).slice(0, 5) : null)
@@ -873,6 +873,7 @@ export const rotaTools = [
       rate: z.number().min(0).max(100000).optional().describe('£ an hour (hourly), or the fixed amount'),
       pay_method: z.enum(['cash', 'bank', 'split']).default('cash'),
       bank_amount: z.number().min(0).max(100000).optional().describe('Split only: paid by bank each week, the rest in cash'),
+      custom: CustomIn,
     }),
     confirm: true,
     async describe(ctx, input) {
@@ -913,6 +914,7 @@ export const rotaTools = [
       rate: z.number().min(0).max(100000).nullable().optional(),
       pay_method: z.enum(['cash', 'bank', 'split']).optional(),
       bank_amount: z.number().min(0).max(100000).nullable().optional(),
+      custom: CustomIn,
     }),
     confirm: true,
     async describe(ctx, input) {
@@ -1170,9 +1172,11 @@ async function newStaffPlan(ctx, input) {
   }
   const staff = await callApi(ctx, 'GET', `/api/rota/venues/${venue.id}/staff`)
   const same = staff.filter(s => s.name.trim().toLowerCase() === input.name.trim().toLowerCase())
+  const custom = await customPlan(ctx, 'staff.people', input.custom, { create: true })
+  if (Object.keys(custom.values).length) body.custom = custom.values
   return {
     venue, body,
-    lines: [venue.name, 'Name: ' + input.name, ...(role ? ['Role: ' + role.name] : []), ...payLines(body, venue.currency)],
+    lines: [venue.name, 'Name: ' + input.name, ...(role ? ['Role: ' + role.name] : []), ...payLines(body, venue.currency), ...custom.lines],
     warnings: [
       ...(same.length ? [venue.name + ' already has someone called ' + same[0].name + (same[0].is_active ? '' : ' (switched off)') + '.'] : []),
       ...(input.rate == null ? ['No rate: pay works out at ' + money(0, venue.currency) + ' until one is set.'] : []),
@@ -1214,6 +1218,8 @@ async function editStaffPlan(ctx, input) {
     const now = PAY_METHOD[next.pay_method] + (next.pay_method === 'split' && next.bank_amount != null ? ' (' + money(next.bank_amount, cur) + ' by bank)' : '')
     lines.push('Paid by: ' + was + ' → ' + now)
   }
+  const custom = await customPlan(ctx, 'staff.people', input.custom, { current: person.custom })
+  if (custom.lines.length) { body.custom = custom.values; lines.push(...custom.lines) }
   if (!Object.keys(body).length) throw new ToolError('Nothing to change.', 422)
   return { venue, person, body, lines }
 }

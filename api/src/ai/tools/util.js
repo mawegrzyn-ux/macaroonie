@@ -3,6 +3,8 @@
 import { z } from 'zod'
 import { sql, withTenant } from '../../config/db.js'
 import { ToolError, audit } from '../context.js'
+import { loadDefinitions } from '../../services/customFields.js'
+import { checkValues, valueText } from '../../../../shared/customFields.js'
 
 export const DateStr  = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD')
 export const TimeStr  = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'time must be HH:MM (24-hour, restaurant local time)')
@@ -263,4 +265,40 @@ export function pickCheckTime(times, wanted, date, venue, pick = pickByName) {
   }
   if (sorted.length === 1) return sorted[0]
   throw new ToolError('Which check is it for? Check times: ' + sorted.map(label).join(', ') + '.', 422)
+}
+
+// ── The group's own fields (Pepper-first step 8B1, migration 285) ─────────
+// A tool that adds or changes a customer, staff member, supplier or inventory
+// item takes them by their names (labels), as the person says them; the
+// definitions decide what is kept (shared/customFields.js), and the route
+// checks again.
+
+export const CustomIn = z.record(
+  z.string().trim().min(1).max(60),
+  z.union([z.string().max(600), z.number(), z.boolean(), z.null()]),
+).optional().describe('The group\'s own fields, by their names as the group named them: { "Payment terms": "30 days", ' +
+  '"Halal": true }. null clears one. Only fields the group has set up (what_can_i_do lists them; a wrong name is ' +
+  'refused with the list). Only what the person said.')
+
+/**
+ * The values of the group's own fields for a tool, from their names: ->
+ * { values (by key, for the route's `custom`), lines (for the card) }.
+ * Refuses (422) a name the group has no field for, or a value its field
+ * doesn't take, naming the fields. `create`: every required field is needed.
+ */
+export async function customPlan(ctx, objectKey, raw, { create = false, current = {} } = {}) {
+  const defs = await withTenant(ctx.tenantId, tx => loadDefinitions(tx, ctx.tenantId, objectKey))
+  if (raw == null && !(create && defs.some(d => d.required))) return { values: {}, lines: [] }
+  const { values, problems } = checkValues(defs, raw || {}, { byLabel: true, create })
+  if (problems.length) {
+    throw new ToolError('The group\'s own fields: ' + problems.join('; ') + (defs.length ? '.' : '. This group has set up none here.'), 422)
+  }
+  const lines = []
+  for (const [k, v] of Object.entries(values)) {
+    const d = defs.find(x => x.field_key === k)
+    const was = current?.[k]
+    if (!create && (v === null ? was == null : was === v)) { delete values[k]; continue }
+    lines.push(d.label + ': ' + (v === null ? 'cleared' : (was != null && !create ? valueText(d, was) + ' to ' : '') + valueText(d, v)))
+  }
+  return { values, lines }
 }

@@ -7,9 +7,15 @@
 //
 //   CATALOGUE              { subjects: { key: subject } } with the SQL (server only)
 //   AREAS                  the headings subjects are listed under
-//   catalogueView(levels)  what the browser and Pepper get: labels, types
-//                          and links, no SQL, and only what the person's
-//                          role may see
+//   catalogueView(levels, catalogue?)  what the browser and Pepper get:
+//                          labels, types and links, no SQL, and only what
+//                          the person's role may see
+//   tenantCatalogue(tenantId)  the catalogue with the group's own fields
+//                          (migration 285, Pepper-first step 8B1) on their
+//                          objects' subjects: CATALOGUE itself when the group
+//                          has none. Read per request (reportPerson()), so
+//                          a new field shows at once in every process
+//   customCatalogue(byObject)  the same from definitions already read
 //
 // Each area's subjects are a file of their own in this folder, gathered from
 // it (below): `export const order = <number>` (where they come),
@@ -25,6 +31,8 @@ import { ASSISTANT_NAME } from '../../../../shared/assistant.js'
 import { NUMERIC_TYPES } from '../../../../shared/reports/format.js'
 import { bucketsFor } from '../../../../shared/reports/paths.js'
 import { LIMITS } from '../../../../shared/reports/spec.js'
+import { CUSTOM_OBJECTS, fieldSql } from '../../../../shared/customFields.js'
+import { definitionsFor } from '../../services/customFields.js'
 
 export const AREAS = [
   { key: 'till', label: 'Till sales' },
@@ -185,6 +193,44 @@ function gathered(files) {
 
 export const CATALOGUE = build(gathered(gather(FILES, 'subjects')))
 
+// ── The group's own fields (Pepper-first step 8B1) ──────────────────────
+// Each definition is a field of its object's subject (the registry's key is
+// the subject's), keyed cf_<field_key> so it never meets a built-in field.
+// Its SQL reads the row's `custom` column (fieldSql(), the key checked there);
+// nothing else about the subject changes. On customers and staff a value may
+// be about the person, so it counts as personal data (pii).
+const CUSTOM_FIELD_TYPES = { text: 'text', number: 'number', yesno: 'yesno', date: 'date', choice: 'choice' }
+const PERSONAL = new Set(['guests.customers', 'staff.people'])
+export const customFieldKey = fieldKey => 'cf_' + fieldKey
+
+export function customCatalogue(byObject) {
+  const subjects = { ...CATALOGUE.subjects }
+  let any = false
+  for (const [objectKey, defs] of Object.entries(byObject || {})) {
+    const base = CATALOGUE.subjects[objectKey]
+    if (!base || !CUSTOM_OBJECTS[objectKey] || !defs?.length) continue
+    const fields = { ...base.fields }
+    for (const d of defs) {
+      const key = customFieldKey(d.field_key)
+      if (fields[key]) continue
+      fields[key] = {
+        key, label: d.label, type: CUSTOM_FIELD_TYPES[d.type], sql: fieldSql(d), col: null, custom: true,
+        about: 'A field of your group\'s own' + (d.help ? ': ' + d.help : '.'),
+        ...(d.type === 'choice' ? { labels: Object.fromEntries((d.options || []).map(o => [o, o])) } : {}),
+        ...(PERSONAL.has(objectKey) ? { pii: true } : {}),
+      }
+    }
+    subjects[objectKey] = { ...base, fields }
+    any = true
+  }
+  return any ? { subjects } : CATALOGUE
+}
+
+export async function tenantCatalogue(tenantId) {
+  if (!tenantId) return CATALOGUE
+  return customCatalogue(await definitionsFor(tenantId))
+}
+
 /** Every module a subject, field, figure or link of the catalogue asks for. */
 export const CATALOGUE_MODULES = [...new Set(Object.values(CATALOGUE.subjects).flatMap(s => [
   s.module,
@@ -236,9 +282,9 @@ function context(d) {
  * `across` when it can also be a figure of a report about something that
  * has several of these rows.
  */
-export function catalogueView(levels) {
+export function catalogueView(levels, catalogue = CATALOGUE) {
   const subjects = {}
-  for (const s of Object.values(CATALOGUE.subjects)) {
+  for (const s of Object.values(catalogue.subjects)) {
     const base = canReportOn(s, levels)
     const fields = {}
     for (const f of Object.values(s.fields)) {
@@ -253,6 +299,7 @@ export function catalogueView(levels) {
         ...(f.decimals != null ? { decimals: f.decimals } : {}),
         ...(f.grain === 'week' ? { grain: 'week' } : {}),
         ...(bucketsFor(f.type).length ? { buckets: bucketsFor(f.type) } : {}),
+        ...(f.custom ? { custom: true } : {}),
         ...context(f),
       }
     }
@@ -273,7 +320,7 @@ export function catalogueView(levels) {
     const links = {}
     for (const l of Object.values(s.links)) {
       if (l.hidden || !canSee(l, levels)) continue
-      const to = CATALOGUE.subjects[l.to]
+      const to = catalogue.subjects[l.to]
       // Counting another subject's rows needs that subject; looking one row up doesn't.
       if (l.many && !canReportOn(to, levels)) continue
       links[l.key] = { key: l.key, label: l.label, to: l.to, ...(l.many ? { many: true } : {}), ...(l.about ? { about: l.about } : {}) }

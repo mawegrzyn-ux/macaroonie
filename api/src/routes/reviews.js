@@ -11,6 +11,8 @@ import { httpError }  from '../middleware/error.js'
 import { env }        from '../config/env.js'
 import { reviewScrapeQueue } from '../jobs/queues.js'
 import { webLink }    from '../../../shared/links.js'
+import { fireRulesLater } from '../ai/ruleRunner.js'
+import { nowAt } from '../../../shared/procurement.js'
 
 // Reviews belong to the website: view reads, manage changes.
 const PERM = {
@@ -239,8 +241,27 @@ export default async function reviewsRoutes(app) {
          now(), ${req.user?.email ?? null})
       RETURNING *
     `)
+    await reviewRules(app, req, rows)
     return rows[0]
   })
+
+  // The group's rules on new reviews (Pepper-first step 8B2): each new
+  // review at a venue, after it is saved, never waited for.
+  async function reviewRules(app, req, rows) {
+    const withVenue = rows.filter(r => r.venue_id)
+    if (!withVenue.length) return
+    const venues = await withTenant(req.tenantId, tx => tx`
+      SELECT id, name, timezone FROM venues WHERE tenant_id = ${req.tenantId} AND id = ANY(${withVenue.map(r => r.venue_id)}::uuid[])`)
+    for (const r of withVenue) {
+      const v = venues.find(x => x.id === r.venue_id)
+      if (!v) continue
+      fireRulesLater(app, req.tenantId, {
+        trigger: 'review_low', key: r.id, day: nowAt(v.timezone).date,
+        venue_id: v.id, venue: v.name, stars: r.rating == null ? null : Number(r.rating),
+        platform: r.platform, reviewer: r.reviewer_name || '',
+      }, req.log)
+    }
+  }
 
   // ── POST /reviews/record ──────────────────────────────────
   // Reviews read off a review site's page (Google, TripAdvisor, Just Eat,
@@ -253,7 +274,8 @@ export default async function reviewsRoutes(app) {
   app.post('/record', { preHandler: PERM.manage }, async (req) => {
     const body = RecordBody.parse(req.body)
 
-    return withTenant(req.tenantId, async tx => {
+    const fresh = []
+    const out = await withTenant(req.tenantId, async tx => {
       const venues = await tx`
         SELECT id, name FROM venues
          WHERE id = ${body.venue_id} AND tenant_id = ${req.tenantId}`
@@ -285,9 +307,9 @@ export default async function reviewsRoutes(app) {
             review_date = COALESCE(reviews.review_date, EXCLUDED.review_date),
             rating      = COALESCE(reviews.rating, EXCLUDED.rating),
             updated_at  = now()
-          RETURNING (xmax = 0) AS inserted
+          RETURNING (xmax = 0) AS inserted, id, venue_id, platform, rating, reviewer_name
         `
-        if (rows[0]?.inserted) added++
+        if (rows[0]?.inserted) { added++; fresh.push(rows[0]) }
         else already++
       }
 
@@ -304,6 +326,8 @@ export default async function reviewsRoutes(app) {
         to_check: st.to_check, newest_review: st.newest_review,
       }
     })
+    await reviewRules(app, req, fresh)
+    return out
   })
 
   // ── PATCH /reviews/:id ────────────────────────────────────

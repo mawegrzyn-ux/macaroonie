@@ -72,7 +72,8 @@ import {
   minutesToCutoff, deliveryTempOk, receiveStatusFor, poNumberLabel, convertQty, splitProblem,
   deliveryDayProblem, deadlineText, slotText, deadlinePassed, quickOrder, outOfStock,
 } from '../../../../shared/procurement.js'
-import { DateStr, TimeStr, localParts, longDate, pickByName, zonedInstant, remember } from './util.js'
+import { DateStr, TimeStr, localParts, longDate, pickByName, zonedInstant, remember, CustomIn, customPlan } from './util.js'
+import { barcodeProblem } from '../../../../shared/catalogue.js'
 
 const Id = z.string().uuid()
 const PackUnit = z.enum(Object.keys(UNITS))
@@ -235,6 +236,10 @@ function pickItem(items, text, what = 'inventory item') {
   const raw = String(text ?? '').trim()
   const byCode = items.filter(i => i.code && i.code.toLowerCase() === raw.toLowerCase())
   if (byCode.length === 1) return byCode[0]
+  // A barcode (migration 287): the item's own, or a supplier product's.
+  const scan = raw.replace(/\s+/g, '')
+  const byBarcode = /^[0-9]{8,14}$/.test(scan) ? items.filter(i => i.barcode === scan || (i.quotes || []).some(q => q.barcode === scan)) : []
+  if (byBarcode.length === 1) return byBarcode[0]
   return pickByName(items, raw, i => i.name, what,
     'The inventory is empty. Add items with add_inventory_item or import_price_list.')
 }
@@ -296,6 +301,7 @@ function itemView(it, { venue, venueName, cur }) {
     item_id: it.id,
     name: it.name,
     ...(it.code ? { code: it.code } : {}),
+    ...(it.barcode ? { barcode: it.barcode } : {}),
     category: it.category_name ?? null,
     counted: COUNTED[it.base_unit],
     storage: it.storage,
@@ -1173,8 +1179,8 @@ export const purchasingTools = [
     title: 'Find inventory items',
     activity: 'Searched the inventory',
     description:
-      'Searches the purchasing inventory (the products the company buys) by name, our code or a supplier\'s ' +
-      'product code (e.g. MEA161), category or supplier. ' +
+      'Searches the purchasing inventory (the products the company buys) by name, our code, a supplier\'s ' +
+      'product code (e.g. MEA161), a barcode (GTIN), category or supplier. ' +
       'Each item comes with its supplier prices: pack, price ex VAT, price per kg / litre / each, VAT, venue prices and ' +
       'which price is the company or a venue\'s choice. Give venue_id to see which supplier that venue orders it from. ' +
       'history: true adds the recent price changes when up to 5 items match. Needs Purchasing setup.',
@@ -1203,7 +1209,7 @@ export const purchasingTools = [
       if (input.search) {
         const s = input.search.trim().toLowerCase()
         // Our code or a supplier's product code, exactly: those first.
-        const exact = i => (i.code || '').toLowerCase() === s || i.quotes.some(q => (q.supplier_code || '').toLowerCase() === s)
+        const exact = i => (i.code || '').toLowerCase() === s || i.barcode === s || i.quotes.some(q => (q.supplier_code || '').toLowerCase() === s || q.barcode === s)
         const words = i => [i.name, i.code, ...i.quotes.flatMap(q => [q.supplier_code, q.product_name])].filter(Boolean).join(' ')
         hits = hits.filter(i => exact(i) || has(words(i), input.search))
           .sort((a, b) => Number(exact(b)) - Number(exact(a)))
@@ -1418,8 +1424,10 @@ export const purchasingTools = [
       storage:    Storage.optional().describe('Default ambient'),
       category:   z.string().max(100).optional(),
       code:       z.string().max(60).optional().describe('Your own item code'),
+      barcode:    z.string().max(20).optional().describe('The barcode on the product (GTIN-8, 12, 13 or 14 digits), as read'),
       notes:      z.string().max(2000).optional(),
       prices:     z.array(PriceInput).max(5).optional(),
+      custom:     CustomIn,
     }),
     confirm: true,
     async describe(ctx, input) {
@@ -1431,7 +1439,9 @@ export const purchasingTools = [
           input.name + ': counted ' + COUNTED[p.base] + ', ' + (input.storage || 'ambient'),
           ...(p.cat ? ['Category: ' + p.cat.name + (p.cat.isNew ? ' (new category)' : '')] : []),
           ...(input.code ? ['Code: ' + input.code] : []),
+          ...(input.barcode ? ['Barcode: ' + input.barcode] : []),
           ...(input.notes ? ['Notes: ' + input.notes] : []),
+          ...p.custom.lines,
           ...(p.prices.length ? p.prices.flatMap(x => priceLines(x, x.sup.name, p.base, p.cur)) : ['No supplier prices yet (it can\'t be ordered until it has one)']),
         ],
         ...(p.warnings.length ? { warningTitle: 'Check', warnings: p.warnings } : {}),
@@ -1448,6 +1458,8 @@ export const purchasingTools = [
           body: {
             name: input.name, base_unit: p.base, storage: input.storage || 'ambient', category_id: categoryId,
             ...(input.code ? { code: input.code } : {}), ...(input.notes ? { notes: input.notes } : {}),
+            ...(input.barcode ? { barcode: input.barcode } : {}),
+            ...(Object.keys(p.custom.values).length ? { custom: p.custom.values } : {}),
           },
         })
         const failed = []
@@ -1482,8 +1494,10 @@ export const purchasingTools = [
       storage:    Storage.optional(),
       category:   z.string().max(100).nullable().optional(),
       code:       z.string().max(60).nullable().optional(),
+      barcode:    z.string().max(20).nullable().optional().describe('The barcode on the product (GTIN); null clears'),
       notes:      z.string().max(2000).nullable().optional(),
       active:     z.boolean().optional(),
+      custom:     CustomIn,
     }),
     confirm: true,
     async describe(ctx, input) {
@@ -1652,7 +1666,7 @@ export const purchasingTools = [
     description:
       'Adds a supplier: contact details, how orders reach them (email sent by the system, or print / Excel / PDF ' +
       'sent by staff), order cutoff, lead days, delivery days, minimum order and delivery charge.',
-    input: z.object({ name: z.string().trim().min(1).max(200), ...SupplierFields }),
+    input: z.object({ name: z.string().trim().min(1).max(200), ...SupplierFields, custom: CustomIn }),
     confirm: true,
     async describe(ctx, input) {
       await requireSetup(ctx)
@@ -1660,7 +1674,7 @@ export const purchasingTools = [
       return {
         title: 'Add ' + input.name + ' as a supplier?',
         lines: Object.entries(p.body).filter(([k]) => k !== 'name')
-          .map(([k, v]) => SUPPLIER_LABELS[k] + ': ' + supplierValue(k, v, p.cur)),
+          .map(([k, v]) => SUPPLIER_LABELS[k] + ': ' + supplierValue(k, v, p.cur)).concat(p.custom.lines),
         ...(p.warnings.length ? { warningTitle: 'Check', warnings: p.warnings } : {}),
         confirmLabel: 'Add supplier',
       }
@@ -1669,7 +1683,9 @@ export const purchasingTools = [
       await requireSetup(ctx)
       const p = await newSupplierPlan(ctx, input)
       return audited(ctx, 'add_supplier', input, async () => {
-        const s = await callApi(ctx, 'POST', '/api/suppliers', { body: p.body })
+        const s = await callApi(ctx, 'POST', '/api/suppliers', {
+          body: { ...p.body, ...(Object.keys(p.custom.values).length ? { custom: p.custom.values } : {}) },
+        })
         return { supplier_id: s.id, name: s.name, message: 'Supplier added.' }
       })
     },
@@ -1701,6 +1717,7 @@ export const purchasingTools = [
         delivery_slot_to:      TimeStr.nullable().optional(),
         use_supplier_settings: z.boolean().optional(),
       }).optional(),
+      custom:   CustomIn,
     }),
     confirm: true,
     async describe(ctx, input) {
@@ -2760,7 +2777,14 @@ export const purchasingTools = [
 
 // ── Plans (shared by describe and run) ─────────────────────
 
+/** A barcode's problem (barcodeProblem() in shared/catalogue.js, the route's rule) refuses the card. */
+function checkBarcode(v) {
+  const p = v ? barcodeProblem(v) : null
+  if (p) throw new ToolError(p + '.', 422)
+}
+
 async function newItemPlan(ctx, input) {
+  checkBarcode(input.barcode)
   const [items, cats, sups, cur] = await Promise.all([loadItems(ctx), loadCategories(ctx), loadSuppliers(ctx), tenantCurrency(ctx)])
   const same = items.find(i => i.name.toLowerCase() === input.name.trim().toLowerCase())
   if (same) {
@@ -2781,10 +2805,12 @@ async function newItemPlan(ctx, input) {
     if (!sup.is_active) warnings.push(sup.name + ' is switched off, so this price won\'t be ordered on until it is back on.')
     return { ...x, sup }
   })
-  return { base, cat, prices, cur, warnings }
+  const custom = await customPlan(ctx, 'purchasing.items', input.custom, { create: true })
+  return { base, cat, prices, cur, warnings, custom }
 }
 
 async function itemChangePlan(ctx, input) {
+  checkBarcode(input.barcode)
   const [items, cats] = await Promise.all([loadItems(ctx), loadCategories(ctx)])
   const item = pickItem(items, input.item)
   const body = {}
@@ -2817,7 +2843,7 @@ async function itemChangePlan(ctx, input) {
       lines.push('Category: ' + show(item.category_name) + ' to ' + (c ? c.name : want + ' (new category)'))
     }
   }
-  for (const [k, label] of [['code', 'Code'], ['notes', 'Notes']]) {
+  for (const [k, label] of [['code', 'Code'], ['barcode', 'Barcode'], ['notes', 'Notes']]) {
     if (input[k] === undefined) continue
     const v = input[k]?.trim() || null
     if (v === (item[k] || null)) continue
@@ -2839,6 +2865,8 @@ async function itemChangePlan(ctx, input) {
       }
     }
   }
+  const custom = await customPlan(ctx, 'purchasing.items', input.custom, { current: item.custom })
+  if (custom.lines.length) { body.custom = custom.values; lines.push(...custom.lines) }
   if (!lines.length) throw new ToolError('Nothing to change: ' + item.name + ' already has those details.', 422)
   return { item, body, lines, newCategory }
 }
@@ -2961,7 +2989,8 @@ async function newSupplierPlan(ctx, input) {
   const body = supplierBody({ ...input, name: input.name.trim() })
   const warnings = []
   if ((body.send_method ?? 'email') === 'email' && !body.email) warnings.push('Orders go by email but there\'s no email address yet, so they will wait in To send.')
-  return { body, cur, warnings }
+  const custom = await customPlan(ctx, 'purchasing.suppliers', input.custom, { create: true })
+  return { body, cur, warnings, custom }
 }
 
 /** One venue's supplier settings as the venues PUT takes them (times as HH:MM). */
@@ -3031,6 +3060,8 @@ async function supplierChangePlan(ctx, input) {
       ].join(', '))
     }
   }
+  const custom = await customPlan(ctx, 'purchasing.suppliers', input.custom, { current: sup.custom })
+  if (custom.lines.length) { body.custom = custom.values; lines.push(...custom.lines) }
   if (!lines.length) throw new ToolError('Nothing to change: ' + sup.name + ' already has those details.', 422)
   const sendMethod = body.send_method ?? sup.send_method
   const email = body.email !== undefined ? body.email : sup.email

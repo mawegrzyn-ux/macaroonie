@@ -14,6 +14,7 @@
 // real ones, as till test sales are.
 
 import { subject, text, number, money, percent, yesno, choice, date, moment, duration, sum, avg, count, ratio, one, many } from './define.js'
+import { STOCK_TABLES } from '../work/stock.js'
 
 const PRICES = 'purchasing_setup'
 const pounds = (src, opts = {}) => money(src, { unit: 'pounds', needs: PRICES, ...opts })
@@ -339,7 +340,39 @@ export const subjects = [
     },
     list: ['name', 'send_method', 'cutoff', 'delivery_days', 'active'],
     sort: [{ by: 'name', dir: 'asc' }],
-    skip: ['cc_emails', 'email_attachment', 'updated_at'],
+    // custom: the group's own fields (migration 285), offered per group (customCatalogue() in index.js).
+    skip: ['cc_emails', 'email_attachment', 'updated_at', 'custom'],
+  }),
+
+  // Stock on hand (migration 287, Pepper-first step 8B3): worked out in code
+  // by the Stock tab's rule (work/stock.js, stockOnHand() in shared/procurement.js).
+  subject({
+    key: 'purchasing.stock',
+    label: 'Stock on hand',
+    one: 'item at a venue',
+    area: 'purchasing',
+    module: 'purchasing',
+    about: 'Each inventory item at each venue that was counted or received there: its last stock count, what was received since and what that leaves on hand now, in the item\'s own unit (grams, millilitres or each). Sales aren\'t taken off: no dish is linked to the items it uses yet (no recipes). Not by period: it is now.',
+    from: { work: 'stock_on_hand', tables: STOCK_TABLES },
+    idType: 'text',
+    venue: 'venue_id',
+    fields: {
+      on_hand: number('on_hand', { label: 'On hand', synonyms: ['stock', 'stock level', 'in stock', 'how much we have'], about: 'The last count plus what was received since. Empty until the item is counted at the venue.' }),
+      counted: number('counted', { label: 'Last count' }),
+      counted_at: moment('counted_at', { label: 'Counted at' }),
+      received_since: number('received_since', { label: 'Received since the count', about: 'Delivered and booked in at the venue after the last count (everything received, when never counted).' }),
+      never_counted: yesno('never_counted', { label: 'Never counted' }),
+    },
+    measures: {
+      total_on_hand: sum('on_hand', { label: 'Total on hand', about: 'Added up in each item\'s own unit: only add up items counted the same way.' }),
+      items: count({ label: 'Items' }),
+      uncounted: count({ label: 'Items never counted', where: '{t}.never_counted' }),
+    },
+    links: {
+      item: one('purchasing.items', 'item_id', { label: 'Item' }),
+    },
+    list: ['item.name', 'venue.name', 'on_hand', 'item.base_unit', 'counted_at', 'received_since'],
+    sort: [{ by: 'item.name', dir: 'asc' }],
   }),
 
   subject({
@@ -354,6 +387,7 @@ export const subjects = [
     fields: {
       name: text('name'),
       code: text('code', { label: 'Our code' }),
+      barcode: text('barcode', { label: 'Barcode', synonyms: ['GTIN', 'EAN', 'product code'], about: 'The barcode on the product (a GTIN), as the scanner reads it.' }),
       base_unit: choice('base_unit', UNITS, { label: 'Measured in' }),
       storage: choice('storage', STORAGE),
       active: yesno('is_active', { label: 'In use' }),
@@ -370,7 +404,8 @@ export const subjects = [
     },
     list: ['name', 'category.name', 'code', 'base_unit', 'storage', 'active'],
     sort: [{ by: 'name', dir: 'asc' }],
-    skip: ['updated_at'],
+    // custom: the group's own fields (migration 285), offered per group (customCatalogue() in index.js).
+    skip: ['updated_at', 'custom'],
   }),
 
   subject({
@@ -408,6 +443,7 @@ export const subjects = [
       product_name: text('product_name', { label: 'Their product name' }),
       supplier_code: text('supplier_code', { label: 'Their code' }),
       pack_name: text('pack_name', { label: 'Pack' }),
+      barcode: text('barcode', { label: 'Barcode', synonyms: ['GTIN', 'EAN'], about: 'The barcode on the supplier\'s product (a GTIN).' }),
       pack_count: number('pack_count', { label: 'In a pack', decimals: 0 }),
       pack_qty: number('pack_qty', { label: 'Each holds' }),
       pack_unit: text('pack_unit', { label: 'Unit' }),

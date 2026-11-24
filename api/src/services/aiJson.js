@@ -95,8 +95,13 @@ export async function askForJson({ tenantId, person, system, schema, content, ma
   if (mine !== null && mine <= 0) throw httpError(429, 'You\'ve used your share of the AI allowance for today. It starts again tomorrow.')
 
   const texts = Array.isArray(system) ? system.filter(Boolean) : [system]
+  // Each part is cached on its own up to four parts; past that only the last (which caches
+  // every part before it too): the API refuses more than four marks in a request, and a
+  // reader with six system parts failed live on it.
+  const marked = i => texts.length <= 4 || i === texts.length - 1
   const blocks = extra => texts.map((text, i) => ({
-    type: 'text', text: i === texts.length - 1 ? text + extra : text, cache_control: { type: 'ephemeral' },
+    type: 'text', text: i === texts.length - 1 ? text + extra : text,
+    ...(marked(i) ? { cache_control: { type: 'ephemeral' } } : {}),
   }))
   const params = {
     model: model === 'fast' ? (env.AI_MODEL_FAST || env.AI_MODEL) : env.AI_MODEL,

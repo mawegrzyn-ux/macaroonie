@@ -22,6 +22,11 @@ export const objects = [
     actions: ['add_supplier_price', 'update_supplier_price', 'set_preferred_supplier', 'import_price_list', 'update_prices_by_code', 'set_out_of_stock'],
   },
   {
+    key: 'purchasing.stock', label: 'Stock on hand', plural: 'Stock on hand', words: ['stock count', 'stocktake', 'stock level', 'in stock'],
+    table: 'stock_counts', subjects: ['purchasing.stock'],
+    page: '/inventory',
+  },
+  {
     key: 'purchasing.order_lists', label: 'Order list', plural: 'Order lists', words: ['pars', 'par levels'],
     table: 'order_lists',
     page: '/purchasing/lists',

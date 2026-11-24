@@ -32,12 +32,16 @@ export const order = 160
  * them): settings (how something is set up) and out ({ reason: [tables] }).
  */
 export const decisions = {
-  settings: ['ai_settings'],
+  // custom_fields (migration 285): a group's own fields; their values are fields of their objects' subjects (index.js customCatalogue()).
+  // pepper_rules (migration 286): rules made from a sentence; their runs are in the audit (ai_actions.rule_id).
+  settings: ['ai_settings', 'custom_fields', 'pepper_rules'],
   out: {
     'Tokens, codes and sessions': ['ai_access_tokens', 'ai_oauth_clients', 'ai_oauth_grants', 'ai_booking_codes', 'ai_booking_grants'],
     // ai_captures (migration 281): a photo, a voice note or a line waiting on For review.
     'Conversations and files': ['ai_messages', 'ai_attachments', 'ai_pending_actions', 'ai_captures'],
     'Unsaved form drafts, each person\'s own': ['form_drafts'],
+    // pepper_rule_firings (migration 286): each rule's claim on an event and the day's count, for the cap.
+    'A rule\'s claim on each event and its runs that day (the changes are in Pepper\'s audit)': ['pepper_rule_firings'],
   },
 }
 
@@ -190,7 +194,8 @@ export const subjects = [
     // What was asked and the answer: never reported (they hold guests' details).
     // Migration 276 (Done by Pepper): the card a change ran from, the card an
     // Undo undid, the person and the venue: not offered yet (docs/claude/outstanding/pepper.md 54).
-    skip: ['input', 'result', 'action_id', 'undo_of', 'venue_id', 'user_sub', 'shared_device_id'],
+    // rule_id (migration 286): the rule a change came from; its actor already says "Rule: <name>".
+    skip: ['input', 'result', 'action_id', 'undo_of', 'venue_id', 'user_sub', 'shared_device_id', 'rule_id'],
   }),
 
   subject({

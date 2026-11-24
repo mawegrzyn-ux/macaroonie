@@ -41,6 +41,7 @@ import { opsToday, OPS_MODULES, AREAS } from './opsToday.js'
 import { localParts } from '../ai/tools/util.js'
 import { TASK_AREAS, ESCALATE_MINUTES } from '../../../shared/todayTasks.js'
 import { recordFeed, lateSince } from './opsTasks.js'
+import { fireRules } from '../ai/ruleRunner.js'
 
 export const NOTICE_KINDS = ['due_soon', 'late', 'escalated']
 export const DUE_SOON_MINUTES = 30
@@ -275,6 +276,13 @@ async function sweepTenant(app, log, tenantId, { time, date }) {
   for (const venue of venues) {
     const feed = await opsToday(ctx, venue, { date, time, levels: ownerLevels })
     await recordFeed(tenantId, venue.id, feed).catch(e => log?.warn?.({ tenantId, venueId: venue.id, err: e?.message }, 'Task notices: the feed record failed'))
+    // The group's rules on late tasks (Pepper-first step 8B2): once per task and day, whether or not anyone gets notices.
+    for (const task of feed.tasks.filter(t => noticeKind(t, feed.now) === 'late')) {
+      await fireRules(app, tenantId, {
+        trigger: 'task_late', key: venue.id + ':' + task.key + ':' + feed.date, day: feed.date,
+        venue_id: venue.id, venue: venue.name, task: task.title, due: task.due || '', area: TASK_AREAS[task.area] || task.area, area_key: task.area,
+      }, log).catch(e => log?.warn?.({ tenantId, venueId: venue.id, err: e?.message }, 'Task notices: a rule failed'))
+    }
     if (!notify) continue
     const clock = time || localParts(new Date(), venue.timezone).time
     const since = await lateSince(tenantId, venue.id, feed.date)

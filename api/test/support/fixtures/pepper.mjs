@@ -1,13 +1,29 @@
 // Pepper: an access token for the connectors, the AI settings, a chat
 // with a message and a card waiting for an answer (written here: chats only
-// come from the model), a form draft (migration 275) and a capture (281).
+// come from the model), a form draft (migration 275), a capture (281), a field of
+// the group's own and its value on a supplier (285), and a rule with one run (286).
 import { sql } from '../app.mjs'
 import { MONDAY } from './parts.mjs'
 
 export const order = 220
 
 export async function fill(ctx) {
-  const { mark, sub, tenantId, step, post, patch, put, V } = ctx
+  const { mark, sub, tenantId, step, post, patch, put, get, V } = ctx
+  // A field of the group's own on suppliers (migration 285), and its value on one.
+  const field = await step('custom field', () => post('/api/custom-fields', { object_key: 'purchasing.suppliers', label: 'Payment terms', type: 'choice', options: ['7 days', '30 days'] }))
+  // A rule made from a sentence (migration 286), saved as Confirm saves it, and one run of it.
+  const rule = await step('rule', () => post('/api/ai/rules', {
+    rule: { name: mark + ' Warm fridge', trigger: 'fridge_reading', conditions: { above: 30 }, venue_id: V, action_tool: 'add_hs_action', action_input: { task: 'Check {equipment}' } },
+    sentence: 'when a fridge reads above 30 add an H&S action',
+  }))
+  if (rule) {
+    await sql`INSERT INTO pepper_rule_firings (tenant_id, rule_id, event_key, day, status, result)
+              VALUES (${tenantId}, ${rule.id}, 'fridge_reading:fixture', ${MONDAY}, 'done', ${sql.json({ message: 'Added to the action log.' })})`
+  }
+  if (field) {
+    const sups = await step('suppliers for a custom value', () => get('/api/suppliers'))
+    if (sups?.[0]) await step('custom value', () => patch('/api/suppliers/' + sups[0].id, { custom: { [field.field_key]: '30 days' } }))
+  }
   await step('access token', () => post('/api/ai/tokens', { name: mark + ' Claude Code' }))
   await step('form draft', () => put('/api/form-drafts', { form: 'delivery', venue_id: V, day: MONDAY, values: { supplier: mark + ' Fresh Co', notes: mark + ' two boxes short' } }))
   await step('ai settings', () => patch('/api/ai/settings', { guest_chat_enabled: false, chat_retention_days: 90 }))

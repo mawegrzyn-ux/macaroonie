@@ -81,4 +81,38 @@ export const tasks = [
     },
     reference: ctx => [{ tool: 'add_hs_action', input: { venue_id: ctx.venue.id, task: 'Loose step at the back door', priority: 'high' } }],
   },
+  {
+    id: 'rule_from_sentence',
+    area: 'safety',
+    why: 'Step 8B2 of the Pepper-first plan: a rule built from a sentence. Pepper passes the person\'s words to make_rule, its reader turns them into a rule, and the card is confirmed.',
+    // The fixtures make a rule of their own: only a new one counts.
+    async setup(ctx) { ctx.made.had = (await ctx.sql`SELECT id FROM pepper_rules WHERE tenant_id = ${ctx.tenantId}`).map(r => r.id) },
+    say: ctx => 'When a fridge reads above 8 at ' + ctx.venue.name + ', add an H&S action for the manager.',
+    expect: 'change',
+    async check(ctx) {
+      const rows = await ctx.sql`
+        SELECT trigger, conditions, venue_id, action_tool, action_input, enabled FROM pepper_rules
+         WHERE tenant_id = ${ctx.tenantId} AND id <> ALL(${ctx.made.had}::uuid[])`
+      if (rows.length !== 1) return rows.length + ' rules made'
+      const r = rows[0]
+      if (r.trigger !== 'fridge_reading') return 'a rule on ' + r.trigger
+      if (r.conditions.above !== 8 || Object.keys(r.conditions).length !== 1) return 'its conditions are ' + JSON.stringify(r.conditions)
+      if (r.venue_id !== ctx.venue.id) return 'for ' + (r.venue_id ? 'another venue' : 'every venue') + ', not ' + ctx.venue.name
+      if (r.action_tool !== 'add_hs_action') return 'it would ' + r.action_tool
+      if (!/manager/i.test(r.action_input.assigned_to || '')) return 'the action isn\'t for the manager: ' + JSON.stringify(r.action_input)
+      return r.enabled ? true : 'switched off'
+    },
+    reference: ctx => [{ tool: 'make_rule', input: { sentence: 'When a fridge reads above 8 at ' + ctx.venue.name + ', add an H&S action for the manager.' } }],
+    // What make_rule's reader (its own model call) answers, after the call: the venue by its ref on the list it was sent.
+    readers: ctx => [body => {
+      const ref = new RegExp('(V[0-9]+): ' + ctx.venue.name).exec(JSON.stringify(body.messages))?.[1] || ''
+      const blank = o => Object.fromEntries(o.map(k => [k, '']))
+      return {
+        understood: true, why_not: '', name: 'Warm fridge at ' + ctx.venue.name, trigger: 'fridge_reading', venue: ref, per_day: '',
+        conditions: { ...blank(['above', 'below', 'out_of_range', 'equipment', 'over', 'supplier', 'area', 'title', 'stars_at_most', 'platform']), above: '8' },
+        action: 'add_hs_action',
+        action_input: { ...blank(['task', 'details', 'priority', 'assigned_to', 'to', 'title', 'text']), task: '{equipment} read {temperature}', assigned_to: 'the manager', priority: 'high' },
+      }
+    }],
+  },
 ]

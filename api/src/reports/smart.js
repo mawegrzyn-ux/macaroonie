@@ -1185,7 +1185,7 @@ export async function runBuilt(p, catalogue, built, { venues = [], assumed = [],
 
 /** Build a report from a request. See the top of this file. */
 export async function smartBuild(p, { request, previous = null, files = [], venues = [], today = null } = {}) {
-  const catalogue = catalogueView(p.levels)
+  const catalogue = catalogueView(p.levels, p.catalogue)
   const prev = previous?.spec ? normaliseReport(previous.spec) : null
   // The report to change, and the other subjects it shows, listed in full.
   const pinned = prev && catalogue.subjects[prev.subject]?.base

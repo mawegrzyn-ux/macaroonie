@@ -41,6 +41,9 @@ import { searchHelp } from '../helpIndex.js'
 import { DateStr, VenueText, venueFor, mondayOf, shortDate } from './util.js'
 import { findObjects } from '../../../../shared/registry/index.js'
 import { FORMS } from '../../../../shared/forms.js'
+import { CUSTOM_OBJECTS, TYPE_LABELS } from '../../../../shared/customFields.js'
+import { withTenant } from '../../config/db.js'
+import { loadDefinitions } from '../../services/customFields.js'
 import { MODULES } from '../../config/modules.js'
 import { staffPermissionLevels } from '../context.js'
 
@@ -373,6 +376,17 @@ export const generalTools = [
               : levelAtLeast(levels[f.module], 'view') ? 'can only read it' : 'can\'t open it',
           })),
         } : {}),
+      }
+      // The group's own fields on it (step 8B1): the names its change tools take in `custom`.
+      if (CUSTOM_OBJECTS[o.key] && levelAtLeast(await staffPermissionLevel(ctx, CUSTOM_OBJECTS[o.key].module), 'view')) {
+        const defs = await withTenant(ctx.tenantId, tx => loadDefinitions(tx, ctx.tenantId, o.key))
+        if (defs.length) {
+          out.own_fields = defs.map(d => ({
+            name: d.label, type: TYPE_LABELS[d.type], ...(d.type === 'choice' ? { choices: d.options } : {}),
+            ...(d.required ? { required: true } : {}),
+          }))
+          out.own_fields_note = 'The group\'s own fields: the tools that add or change ' + o.plural.toLowerCase() + ' take them in custom, by these names.'
+        }
       }
       if (!actions.length) out.note = 'Pepper has no tool that changes ' + o.plural.toLowerCase() + '; that is done on its page.'
       else if (input.action && !asked.length) {

@@ -7,7 +7,8 @@ export const kinds = { itemId: ['inv_items'] }
 export async function fill(ctx) {
   const { V, mark, slug, step, post, put, get } = ctx
   const supplier = await step('supplier', () => post('/api/suppliers', { name: mark + ' Fresh Co', email: 'orders@' + slug + '.test', send_method: 'email' }))
-  const item = await step('inventory item', () => post('/api/inventory/items', { name: mark + ' Rice', base_unit: 'g', storage: 'ambient' }))
+  // A barcode on the item (migration 287): a GTIN-13 with its check digit.
+  const item = await step('inventory item', () => post('/api/inventory/items', { name: mark + ' Rice', base_unit: 'g', storage: 'ambient', barcode: '5012345678900' }))
   const withQuote = item && supplier ? await step('quote', () => post(`/api/inventory/items/${item.id}/quotes`, { supplier_id: supplier.id, pack_name: 'Bag', pack_qty: 10, pack_unit: 'kg', price: 12 })) : null
   const quote = withQuote?.quotes?.[0]
   if (quote) {
@@ -71,6 +72,8 @@ export async function fill(ctx) {
       // A delivery booked in without an order (migration 238), once the
       // setting allows it.
       await step('purchasing settings', () => put('/api/purchasing/settings', { receive_without_order: 'anyone' }))
+      // A stock count (migration 287): the rice in kilograms, kept in grams.
+      await step('stock count', () => post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: item.id, qty: 2.5, unit: 'kg' }], note: mark + ' Monday count' }))
       if (oilQuote) {
         await step('delivery without an order', () => post(`/api/purchasing/venues/${V}/deliveries`, {
           supplier_id: supplier.id, supplier_ref: mark + '-DN1', notes: mark + ' no order',

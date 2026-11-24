@@ -269,7 +269,7 @@ async function views(p, rows) {
   const byId = new Map(people.map(u => [u.id, u]))
   // An address is someone on the team only while they are an active member (as the sender decides).
   const byEmail = new Map(people.filter(u => u.is_active && u.email).map(u => [u.email, u]))
-  const catalogue = catalogueView(p.levels)
+  const catalogue = catalogueView(p.levels, p.catalogue)
   return rows.map(row => scheduleView(row, p, { venues, byId, byEmail, catalogue }))
 }
 

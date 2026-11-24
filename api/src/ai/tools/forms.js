@@ -29,7 +29,10 @@ import { officeOrigin } from '../../services/platformHost.js'
 import { MODULES } from '../../config/modules.js'
 import { DateStr, TimeStr, VenueText, venueFor, venueToday, mondayOf, longDate, pickByName, pickCheckTime, reference, tenantVenueList } from './util.js'
 import { FORMS, FORM_KEYS, FILLABLE_FORMS, fieldsLine } from '../../../../shared/forms.js'
-import { PLAIN_FORMS, plainFields } from '../../forms/index.js'
+import { PLAIN_FORMS, plainFields, customObjectOf } from '../../forms/index.js'
+import { withTenant } from '../../config/db.js'
+import { loadDefinitions } from '../../services/customFields.js'
+import { checkValues as checkCustomValues } from '../../../../shared/customFields.js'
 import { checkPlainValues, plainFieldsLine } from '../../forms/plain.js'
 
 // The forms, one list with the admin's sheet (shared/forms.js): each one's
@@ -183,6 +186,27 @@ async function pickBooking(ctx, venue, date, text) {
   return pickByName(rows, text, b => b.guest_name, 'booking on ' + longDate(date), 'There are no bookings that day.')
 }
 
+/**
+ * The group's own fields given for a plain form (values.custom, by their
+ * names), checked against the definitions of the object the form adds:
+ * { values: { 'custom.<key>': value }, labels: { 'custom.<key>': name } }.
+ */
+async function ownFormValues(ctx, formKey, raw) {
+  if (raw == null) return { values: {}, labels: {} }
+  const object = customObjectOf(formKey)
+  if (!object) throw new ToolError('values.custom: this form has no fields of the group\'s own.', 422)
+  const defs = await withTenant(ctx.tenantId, tx => loadDefinitions(tx, ctx.tenantId, object))
+  const { values, problems } = checkCustomValues(defs, raw, { byLabel: true })
+  if (problems.length) throw new ToolError('values.custom: ' + problems.join('; ') + '.', 422)
+  const out = { values: {}, labels: {} }
+  for (const [k, v] of Object.entries(values)) {
+    if (v === null) continue
+    out.values['custom.' + k] = v
+    out.labels['custom.' + k] = defs.find(d => d.field_key === k).label
+  }
+  return out
+}
+
 // The fields Pepper may fill, per form: a plain form's are its route's own
 // (api/src/forms/, step 8A3), the rest are declared in shared/forms.js.
 const VALUES_HELP = [
@@ -232,7 +256,8 @@ export const formTools = [
       'instead: its card is the confirmation. With values, ' +
       'open_form is the fallback when no single tool fits. date defaults to today at the venue. ' +
       'values (optional): what the person said or a document they gave states, placed in the form for them to check ' +
-      '(each marked as filled by you): ' + VALUES_HELP + '. Never put in a value they didn\'t give: a measured value ' +
+      '(each marked as filled by you): ' + VALUES_HELP + '; supplier and staff_member also take custom { name: value } ' +
+      'for the group\'s own fields (what_can_i_do names them). Never put in a value they didn\'t give: a measured value ' +
       '(a temperature) only when they said the number themselves; names as they said them. Fields left out stay empty. ' +
       'Reply in one short line; the card says the rest.',
     input: z.object({
@@ -254,9 +279,13 @@ export const formTools = [
       }
       // Checked before anything else, so a bad value is refused the same everywhere:
       // a plain form's by its route's own schema (8A3).
+      const { custom: ownRaw, ...given } = input.values || {}
       const checked = PLAIN_FORMS[input.form]
-        ? checkPlainValues(input.form, PLAIN_FORMS[input.form], input.values)
+        ? checkPlainValues(input.form, PLAIN_FORMS[input.form], given)
         : checkValues(input.form, input.values, ctx.said)
+      // The group's own fields on a plain form's object (step 8B1), by their names: 'custom.<key>' in the form.
+      const own = PLAIN_FORMS[input.form] ? await ownFormValues(ctx, input.form, ownRaw) : { values: {}, labels: {} }
+      Object.assign(checked.values, own.values)
       // A form for the whole group (a supplier) opens at any venue: none is asked for.
       const venue = f.group && !input.venue
         ? (await tenantVenueList(ctx))[0] ?? await venueFor(ctx, input.venue)
@@ -296,7 +325,7 @@ export const formTools = [
       const filled = Object.keys(values)
       // A plain form's labels come from its route's schema (shared/forms.js has none): the card names them.
       const labels = PLAIN_FORMS[input.form] && filled.length
-        ? plainFields(input.form).filter(f => filled.includes(f.key)).map(f => f.label)
+        ? [...plainFields(input.form).filter(f => filled.includes(f.key)).map(f => f.label), ...filled.filter(k => own.labels[k]).map(k => own.labels[k])]
         : null
       return {
         form_card: {

@@ -27,6 +27,7 @@ export const USE_LABELS = {
   theme_maker: 'Theme maker',
   translation: 'Translating a menu',
   new_location: 'New location',
+  rule_parser: 'Reading a rule',
   other: 'Something else',
 }
 
@@ -66,6 +67,7 @@ export const ACTION_LABELS = {
   close_dates: 'Closed for dates', remove_closure: 'Removed a closure', update_booking_rules: 'Changed booking rules',
   publish_website: 'Published the website', set_website_banner: 'Changed the website banner', switch_promotion: 'Turned a promotion on or off',
   moderate_review: 'Changed a review', record_reviews: 'Recorded reviews', reload_screen: 'Reloaded a menu screen', report_issue: 'Logged an issue', request_feature: 'Requested a feature',
+  make_rule: 'Made a rule', send_notice: 'Sent a notice',
   create_location: 'Created a new location',
   add_local_event: 'Added a local event', run_local_capture: 'Ran a local info capture',
   delete_local_info: 'Deleted local info entries',

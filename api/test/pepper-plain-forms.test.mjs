@@ -108,11 +108,13 @@ test('GET /api/forms/:key: the same list for the same schema and role; read only
   const b = await ok(owner.get('/api/forms/supplier'))
   assert.deepEqual(a, b)
   assert.equal(a.read_only, false)
-  assert.deepEqual(a.fields, plainFields('supplier'))
+  // The route's own fields, then the group's own (step 8B1: the fixtures add Payment terms on suppliers).
+  assert.deepEqual(a.fields.filter(f => !f.in), plainFields('supplier'))
+  assert.deepEqual(a.fields.filter(f => f.in).map(f => f.key), ['custom.payment_terms'])
   assert.deepEqual(a.save, { method: 'POST', path: '/suppliers' })
-  // Another group's owner: the same form.
+  // Another group's owner: the same form, without A's own fields.
   const other = await ok(as(B.owner, ids.b).get('/api/forms/supplier'))
-  assert.deepEqual(other, a)
+  assert.deepEqual(other, { ...a, fields: a.fields.filter(f => !f.in) })
   const ex = await ok(owner.get('/api/forms/expense'))
   assert.deepEqual(ex.from, { date: 'date' })
   assert.match(ex.attach.path, /:id\/receipt$/)

@@ -456,6 +456,28 @@ export function Section() {
         offers the prices paid that differ from the price list, as for an invoice. Pepper can show these
         deliveries but can't book one in yet: use the Deliveries tab.
       </P>
+      <H3>15. Barcodes on items and supplier products</H3>
+      <P>
+        An inventory item and each supplier price can carry a <strong>Barcode</strong>: the GTIN printed under the
+        bars (8, 12, 13 or 14 digits). It is checked as you type: a number whose last digit doesn&apos;t match the
+        rest is refused, as for dishes. Your own <strong>Item code</strong> and the supplier&apos;s product code stay
+        free text beside it. The search on the Inventory page and on the order form finds a barcode typed or
+        scanned in whole; in the Macaroonie Office app the scan button reads it with the camera. A supplier
+        product&apos;s barcode picks that supplier&apos;s price on the order.
+      </P>
+      <H3>16. Stock on hand and stock counts</H3>
+      <P>
+        The Inventory page&apos;s <strong>Stock on hand</strong> tab lists each item at a venue with what is on
+        hand: the last stock count, plus what was delivered and booked in since. Sales aren&apos;t taken off yet,
+        because no dish is linked to the items it uses (there are no recipes), and the page says so. An item never
+        counted shows <em>Not counted</em>.
+      </P>
+      <P>
+        To count, tap <strong>Count stock</strong>, type what is on the shelf for each item you counted, in a unit
+        that fits it (kg or g, litres or ml, each), and Save. Items you leave empty keep their last count. Counting
+        needs Manage on Purchasing or Purchasing setup; anyone who can see purchasing can see stock on hand. The
+        report <strong>Stock on hand</strong> (Purchasing) shows the same figures.
+      </P>
       <InfoBox type="info">
         All of this can also be done by chat with Pepper (Ask Pepper): ordering, booking deliveries
         in, changing prices and importing a supplier's price list from a PDF or photo. Pepper understands

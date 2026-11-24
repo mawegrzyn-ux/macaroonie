@@ -40,6 +40,7 @@
 
 import { z } from 'zod'
 import { ToolError } from '../ai/context.js'
+import { MAX_TEXT } from '../../../shared/customFields.js'
 
 export const FIELD_TYPES = ['text', 'textarea', 'email', 'tel', 'url', 'number', 'int', 'money', 'bool', 'choice', 'date', 'time']
 // How a field may be typed beyond what its schema says, by the schema's type.
@@ -126,12 +127,35 @@ export function fieldList(formKey, def) {
       if (!list.some(x => x.key === other)) throw new Error('Plain form ' + formKey + ', ' + f.key + ': when names ' + other + ', which isn\'t drawn')
     }
   }
-  // Every field of the schema is drawn, given by the sheet, or left out with why.
+  // Every field of the schema is drawn, given by the sheet, or left out with
+  // why. `custom` (the group's own fields, migration 285) is drawn from the
+  // group's definitions instead: customFieldList(), per request.
   for (const k of Object.keys(shape)) {
+    if (k === 'custom') continue
     if (!def.fields[k] && !def.from?.[k] && !def.leave?.[k]) throw new Error('Plain form ' + formKey + ': the schema\'s ' + k + ' is neither drawn, given (from) nor left out (leave)')
   }
   cache.set(def, list)
   return list
+}
+
+// How each type of the group's own fields is drawn (shared/customFields.js CUSTOM_TYPES).
+const CUSTOM_DRAWN = { text: 'text', number: 'number', yesno: 'bool', date: 'date', choice: 'choice' }
+
+/**
+ * The group's own fields on a form's object (Pepper-first step 8B1), as
+ * fields of the list, after the schema's: key 'custom.<field_key>', `in:
+ * 'custom'` (the body nests them under custom, shared/plainForm.js bodyOf()).
+ * Their rules are the definitions' (shared/customFields.js), checked again
+ * by the route.
+ */
+export function customFieldList(defs) {
+  return (defs || []).map(d => ({
+    key: 'custom.' + d.field_key, in: 'custom', name: d.field_key,
+    label: d.label, required: !!d.required, type: CUSTOM_DRAWN[d.type],
+    ...(d.help ? { help: d.help } : {}),
+    ...(d.type === 'text' ? { maxLength: MAX_TEXT } : {}),
+    ...(d.type === 'choice' ? { choices: (d.options || []).map(o => ({ value: o, label: o })) } : {}),
+  }))
 }
 
 /** The fields in a line for Pepper's open_form: "name (required), send_method (email | print), role (by name)". */

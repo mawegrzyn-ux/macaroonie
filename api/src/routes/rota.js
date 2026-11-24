@@ -65,6 +65,7 @@ import {
   loadVenueStaff, computeWeek,
 } from '../services/rotaWeeks.js'
 import { openDatesOrNull } from '../services/openDays.js'
+import { CustomInput, customValues, writeCustom } from '../services/customFields.js'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$|^24:00(:00)?$/
@@ -129,6 +130,8 @@ export const StaffBody = z.object({
   bank_amount:  Money.nullable().optional(),
   is_active:    z.boolean().optional(),
   shift_rates:  z.array(z.object({ shift_id: UUID, rate: Money })).optional(),
+  // The group's own fields (migration 285), checked against their definitions.
+  custom:       CustomInput.optional(),
 })
 const StaffPatch = StaffBody.partial()
 
@@ -223,7 +226,10 @@ async function loadStaff(tx, tenantId, venueId, { activeOnly = false, alsoIds = 
      ORDER BY from_date
   `
   for (const p of list) (periods[p.staff_id] ??= []).push({ id: p.id, from_date: p.from_date, to_date: p.to_date, note: p.note })
-  return rows.map(r => ({ ...r, off_periods: periods[r.id] ?? [] }))
+  // The group's own fields (migration 285), for the Staff page.
+  const custom = Object.fromEntries((await tx`
+    SELECT id, custom FROM cash_staff WHERE tenant_id = ${tenantId} AND id = ANY(${rows.map(r => r.id)}::uuid[])`).map(r => [r.id, r.custom]))
+  return rows.map(r => ({ ...r, off_periods: periods[r.id] ?? [], custom: custom[r.id] ?? {} }))
 }
 
 /** A staff member of this venue, or 404. */
@@ -575,6 +581,7 @@ export default async function rotaRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
       await assertRole(tx, req.tenantId, b.role_id)
+      const values = await customValues(tx, req.tenantId, 'staff.people', b.custom, { create: true })
       const [{ n }] = await tx`
         SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM cash_staff
          WHERE tenant_id = ${req.tenantId} AND venue_id = ${req.params.venueId}
@@ -588,6 +595,7 @@ export default async function rotaRoutes(app) {
         RETURNING id
       `
       if (b.shift_rates) await replaceShiftRates(tx, req.tenantId, row.id, b.shift_rates)
+      await writeCustom(tx, req.tenantId, 'staff.people', row.id, values)
       return row
     })
   })
@@ -601,9 +609,9 @@ export default async function rotaRoutes(app) {
 
   app.patch('/venues/:venueId/staff/:id', { preHandler: requirePermission('staff', 'manage') }, async (req) => {
     const b = StaffPatch.parse(req.body)
-    const { shift_rates, ...rest } = b
+    const { shift_rates, custom, ...rest } = b
     const fields = Object.keys(rest).filter(k => rest[k] !== undefined)
-    if (!fields.length && !shift_rates) throw httpError(400, 'No fields to update')
+    if (!fields.length && !shift_rates && !custom) throw httpError(400, 'No fields to update')
     return withTenant(req.tenantId, async tx => {
       const [exists] = await tx`
         SELECT id FROM cash_staff WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId} AND venue_id = ${req.params.venueId}
@@ -617,6 +625,7 @@ export default async function rotaRoutes(app) {
         `
       }
       if (shift_rates) await replaceShiftRates(tx, req.tenantId, req.params.id, shift_rates)
+      if (custom) await writeCustom(tx, req.tenantId, 'staff.people', req.params.id, await customValues(tx, req.tenantId, 'staff.people', custom))
       return { id: req.params.id }
     })
   })
