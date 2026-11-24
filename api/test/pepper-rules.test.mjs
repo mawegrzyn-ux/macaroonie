@@ -66,8 +66,9 @@ test.before(async () => {
   venueName = venues.find(v => v.id === V).name
   fridge = (await ok(owner.get('/api/food-safety/equipment?venue_id=' + V)))[0]
   VB = (await ok(bOwner.post('/api/venues', { name: 'Elsewhere', slug: 'elsewhere-rules', timezone: 'Europe/London' }))).id
-  pushSenders.web = async (token, payload) => { sent.push(payload); return { ok: true } }
-  pushSenders.app = async (token, payload) => { sent.push(payload); return { ok: true } }
+  const to = token => (typeof token === 'string' ? token : JSON.stringify(token))
+  pushSenders.web = async (token, payload) => { sent.push({ ...payload, device: to(token) }); return { ok: true } }
+  pushSenders.app = async (token, payload) => { sent.push({ ...payload, device: to(token) }); return { ok: true } }
 })
 test.after(async () => { await closeApp(); await claude.close?.() })
 
@@ -133,7 +134,7 @@ test('make_rule: the sentence read by the model as data, a Confirm card, saved o
   claude.script.push(body => reply({ ...FRIDGE, venue: new RegExp('(V\\d+): ' + venueName).exec(JSON.stringify(body.messages))?.[1] || 'V1' })())
   const own = await t.describe(await ctxOf(), parseInput(t, { sentence, rule: { name: 'Mine', trigger: 'fridge_reading', conditions: {}, venue_id: null, action_tool: 'add_hs_action', action_input: { task: 'x' }, per_day: 5 } }))
   assert.equal(own.pin.rule.conditions.above, 8, 'the model\'s own rule is ignored')
-  assert.equal(t.class, 'consequential')
+  assert.equal(t.class, 'reversible', 'step 9a: Undo takes a new rule away')
   assert.ok(card.lines.some(l => /^When a fridge or freezer reading is logged at /.test(l)), card.lines.join(' | '))
   assert.ok(card.lines.includes('If reads above (°C) 8'), card.lines.join(' | '))
   assert.ok(card.pin?.rule, 'the card pins the rule it showed')
@@ -256,4 +257,127 @@ test('cross-tenant: another group\'s rules, venues and events never meet this gr
   assert.equal((await firings(ruleId)).length, 0)
   const [audit] = await sql`SELECT count(*)::int AS n FROM ai_actions WHERE tenant_id = ${ids.a} AND actor = 'Rule: Warm fridge'`
   assert.equal(audit.n, 1, 'the audit keeps the change (its rule_id cleared)')
+})
+
+// ── Step 9a: change, undo, and prices kept out of notices ─────────
+
+const PUSH_KEYS = { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' }
+
+test('a rule changed in place: checked as a save is, keeps its runs and who it runs as', async () => {
+  const saved = await ok(owner.post('/api/ai/rules', { rule: {
+    name: 'Warm walk-in', trigger: 'fridge_reading', conditions: { above: 8 }, venue_id: V,
+    action_tool: 'add_hs_action', action_input: { task: 'Check {equipment}' },
+  }, sentence: 'when the walk-in reads above 8 add an action' }))
+  const app = await getApp()
+  await fireRules(app, ids.a, { trigger: 'fridge_reading', key: 'chg-1', day: today(), venue_id: V, venue: venueName, equipment: 'Walk-in', temperature: 9, in_range: false }, quiet)
+  assert.equal((await firings(saved.id)).length, 1)
+  const rule = { name: 'Very warm walk-in', trigger: 'fridge_reading', conditions: { above: 10, equipment: 'walk' }, venue_id: null,
+    action_tool: 'add_hs_action', action_input: { task: 'Move stock out of {equipment}', priority: 'high' }, per_day: 3 }
+  const changed = await ok(owner.patch('/api/ai/rules/' + saved.id, { rule }))
+  assert.equal(changed.name, 'Very warm walk-in')
+  assert.deepEqual(changed.conditions, { above: 10, equipment: 'walk' })
+  assert.equal(changed.per_day, 3)
+  assert.equal(changed.sentence, null, 'the sentence no longer says what it does')
+  assert.ok(changed.lines.some(l => /at any venue/.test(l)))
+  assert.equal((await firings(saved.id)).length, 1, 'its runs stay')
+  const [row] = await sql`SELECT created_by_sub, enabled FROM pepper_rules WHERE id = ${saved.id}`
+  assert.deepEqual([row.created_by_sub, row.enabled], [A.owner, true], 'still runs as the person who made it')
+  // Checked exactly as a save: the never-list, the shape, the group's venue, Manage on Pepper.
+  assert.equal((await owner.patch('/api/ai/rules/' + saved.id, { rule: { ...rule, action_tool: 'change_prices' } })).status, 422)
+  assert.equal((await owner.patch('/api/ai/rules/' + saved.id, { rule: { ...rule, per_day: 50 } })).status, 422)
+  assert.equal((await owner.patch('/api/ai/rules/' + saved.id, { rule: { ...rule, action_input: { task: 'Pay {supplier}' } } })).status, 422)
+  assert.equal((await owner.patch('/api/ai/rules/' + saved.id, { rule: { ...rule, venue_id: VB } })).status, 404, 'another group\'s venue')
+  assert.equal((await operator.patch('/api/ai/rules/' + saved.id, { rule })).status, 403)
+  assert.equal((await bOwner.patch('/api/ai/rules/' + saved.id, { rule })).status, 404, 'another group\'s rule')
+  assert.ok([400, 422].includes((await owner.patch('/api/ai/rules/' + saved.id, { rule, enabled: false })).status), 'one change at a time')
+})
+
+test('change_rule, switch_rule and delete_rule: by name, cards with before and after, the right classes', async () => {
+  const t = tool('change_rule')
+  assert.equal(t.class, 'consequential')
+  assert.equal(tool('switch_rule').class, 'reversible')
+  assert.equal(tool('delete_rule').class, 'destructive')
+  const ctx = await ctxOf()
+  const card = await t.describe(ctx, parseInput(t, { rule: 'very warm', conditions: { above: '12', equipment: null }, text: { priority: 'critical' }, venue: venueName }))
+  assert.match(card.title, /Very warm walk-in/)
+  assert.ok(card.before.includes('If reads above (°C) 10'), card.before.join(' | '))
+  assert.ok(card.after.includes('If reads above (°C) 12'), card.after.join(' | '))
+  assert.ok(!card.after.some(l => /^If fridge or freezer name/.test(l)), 'a condition taken off')
+  assert.ok(card.after[0].endsWith('at ' + venueName), card.after[0])
+  assert.ok(!JSON.stringify([card.title, card.lines, card.before, card.after]).includes(card.pin.rule), 'the id is pinned, never shown')
+  const out = await t.run(ctx, parseInput(t, { rule: 'very warm', conditions: { above: '12', equipment: null }, text: { priority: 'critical' }, venue: venueName, ...card.pin }))
+  assert.equal(out.rule, 'Very warm walk-in')
+  const [row] = await sql`SELECT conditions, action_input, venue_id FROM pepper_rules WHERE id = ${card.pin.rule}`
+  assert.deepEqual(row.conditions, { above: 12 })
+  assert.equal(row.action_input.priority, 'critical')
+  assert.equal(row.venue_id, V)
+  await assert.rejects(t.describe(ctx, parseInput(t, { rule: 'very warm', conditions: { over: 5 } })), /isn't something this rule can check/)
+  await assert.rejects(t.describe(ctx, parseInput(t, { rule: 'no such rule at all' })), /No rule called/)
+  await assert.rejects(t.describe(await ctxOf(A.operator), parseInput(t, { rule: 'very warm', per_day: 2 })), /Pepper/, 'Manage on Pepper')
+
+  // switch_rule: off, and Undo puts it back on.
+  const sw = tool('switch_rule')
+  const swCard = await sw.describe(ctx, parseInput(sw, { rule: 'Very warm walk-in', on: false }))
+  assert.deepEqual([swCard.before, swCard.after], [['On: runs by itself'], ['Off: doesn\'t run']])
+  const swOut = await sw.run(ctx, parseInput(sw, { rule: 'Very warm walk-in', on: false, ...swCard.pin }))
+  assert.equal(swOut.on, false)
+  assert.equal((await sql`SELECT enabled FROM pepper_rules WHERE id = ${card.pin.rule}`)[0].enabled, false)
+  await sw.inverse(ctx, swOut._undo)
+  assert.equal((await sql`SELECT enabled FROM pepper_rules WHERE id = ${card.pin.rule}`)[0].enabled, true)
+
+  // delete_rule: destructive (a typed word on its card); the rule and its runs go.
+  const del = tool('delete_rule')
+  const delCard = await del.describe(ctx, parseInput(del, { rule: 'Very warm walk-in' }))
+  assert.ok(delCard.lines.some(l => /can't be undone/.test(l)))
+  await del.run(ctx, parseInput(del, { rule: 'Very warm walk-in', ...delCard.pin }))
+  assert.equal((await sql`SELECT count(*)::int AS n FROM pepper_rules WHERE id = ${card.pin.rule}`)[0].n, 0)
+})
+
+test('Undo of make_rule: a rule that hasn\'t run is deleted; one that has is switched off and says so', async () => {
+  const { UNDO_TOOLS } = await import('../src/ai/tools/index.js')
+  assert.ok(UNDO_TOOLS.has('make_rule'))
+  const t = tool('make_rule')
+  const ctx = await ctxOf()
+  const pinned = { name: 'Undo me', trigger: 'review_low', conditions: { stars_at_most: 1 }, venue_id: null, action_tool: 'add_hs_action', action_input: { task: 'Reply to {reviewer}' }, per_day: 5 }
+  const fresh = await t.run(ctx, parseInput(t, { sentence: 'when a review is one star add an action to reply', rule: pinned }))
+  assert.ok(fresh._undo?.id)
+  const gone = await t.inverse(ctx, fresh._undo)
+  assert.match(gone.message, /is deleted/)
+  assert.equal((await sql`SELECT count(*)::int AS n FROM pepper_rules WHERE id = ${fresh._undo.id}`)[0].n, 0)
+  assert.match((await t.inverse(ctx, fresh._undo)).message, /already deleted/)
+
+  const ran = await t.run(ctx, parseInput(t, { sentence: 'when a review is one star add an action to reply', rule: { ...pinned, name: 'Ran once' } }))
+  const app = await getApp()
+  await fireRules(app, ids.a, { trigger: 'review_low', key: 'undo-1', day: today(), venue_id: V, venue: venueName, stars: 1, platform: 'google', reviewer: 'Lee' }, quiet)
+  const off = await t.inverse(ctx, ran._undo)
+  assert.match(off.message, /had already run 1 time, so it is switched off/)
+  const [row] = await sql`SELECT enabled FROM pepper_rules WHERE id = ${ran._undo.id}`
+  assert.equal(row.enabled, false, 'kept, switched off, its run on record')
+  assert.equal((await firings(ran._undo.id)).length, 1)
+})
+
+test('a notice carrying an order\'s total leaves it out for people who can\'t see purchasing prices', async () => {
+  await ok(owner.post('/api/notices/devices', { kind: 'web', token: { endpoint: 'https://push.example.invalid/owner-2', keys: PUSH_KEYS } }))
+  await ok(operator.post('/api/notices/devices', { kind: 'web', token: { endpoint: 'https://push.example.invalid/operator-1', keys: PUSH_KEYS } }))
+  const mk = to => ok(owner.post('/api/ai/rules', { rule: {
+    name: 'Orders to ' + to, trigger: 'supplier_order', conditions: { supplier: 'Price Co' },
+    action_tool: 'send_notice', action_input: { to, title: 'Order {number} for £{total}', text: '{supplier}: {total} due {delivery_date}' },
+  } }))
+  await mk('operator')
+  await mk('owner')
+  sent.length = 0
+  const app = await getApp()
+  await fireRules(app, ids.a, { trigger: 'supplier_order', key: 'price-1', day: today(), venue_id: V, venue: venueName, supplier: 'Price Co', number: 'PO-9', total: 777.5, delivery_date: today() }, quiet)
+  const toOperator = sent.filter(n => n.device.includes('/operator-1'))
+  const toOwner = sent.filter(n => n.device.includes('/owner-2') && n.title.startsWith('Order '))
+  assert.equal(toOperator.length, 1, JSON.stringify(sent.map(n => n.device)))
+  assert.equal(toOwner.length, 1)
+  assert.equal(toOperator[0].title, 'Order PO-9 for (amount not shown)')
+  assert.ok(!JSON.stringify(toOperator[0]).includes('777'), 'no total for someone without purchasing prices')
+  assert.match(toOperator[0].body, /Price Co: \(amount not shown\) due/)
+  assert.equal(toOwner[0].title, 'Order PO-9 for £777.5', 'the owner sees prices')
+  // The one rule of who sees prices is the purchasing routes' own.
+  const { seesPurchasingPrices, PRICES_MODULE } = await import('../../shared/procurement.js')
+  assert.equal(PRICES_MODULE, 'purchasing_setup')
+  assert.deepEqual(['none', 'view', 'manage'].map(seesPurchasingPrices), [false, true, true])
 })

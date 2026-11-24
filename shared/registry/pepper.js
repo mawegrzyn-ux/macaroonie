@@ -18,7 +18,7 @@ export const objects = [
     key: 'pepper.rules', label: 'Rule', plural: 'Rules', words: ['automation', 'when then', 'trigger'],
     table: 'pepper_rules',
     page: '/settings',
-    actions: ['make_rule'],
+    actions: ['make_rule', 'change_rule', 'switch_rule', 'delete_rule'],
   },
   {
     key: 'pepper.notices', label: 'Notice', plural: 'Notices', words: ['push notice', 'phone alert', 'notification'],

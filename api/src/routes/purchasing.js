@@ -46,6 +46,7 @@ import {
   fitQty, packsToPar, packLabel, quotePrice, orderTotals, receiveStatusFor, deliveryTempOk, poNumberLabel, fmtNum,
   DELIVERY_TEMP_MAX, RECEIVE_STATUSES, deliveryDateChoices, packBaseQty, UNITS, splitProblem, deliveryDayProblem,
   basketFromText, basketFromSheet, mergeBasket, basketDiff, BASKET_MAX_ROWS, nowAt, addDays,
+  PRICES_MODULE, seesPurchasingPrices,
 } from '../../../shared/procurement.js'
 import {
   resolveQuotes, loadItemQuotes, loadQuotesById, quoteView, loadVenue, venueNow, loadSuppliersForVenue, createPurchaseOrder,
@@ -73,7 +74,7 @@ const canMarkStock   = requireAnyPermission(['purchasing', 'purchasing_approve',
 const MONEY_FIELDS = ['subtotal', 'vat', 'delivery_charge', 'total']
 
 async function showPrices(req) {
-  return (await permissionLevel(req, 'purchasing_setup')) !== 'none'
+  return seesPurchasingPrices(await permissionLevel(req, PRICES_MODULE))
 }
 
 const by = req => req.user?.email ?? null
@@ -84,7 +85,7 @@ async function accessOf(req) {
   return {
     order: lv.purchasing === 'manage',
     approve: lv.purchasing_approve === 'manage',
-    prices: lv.purchasing_setup !== 'none',
+    prices: seesPurchasingPrices(lv[PRICES_MODULE]),
     email: by(req),
   }
 }
@@ -2181,7 +2182,7 @@ export default async function purchasingRoutes(app) {
     return {
       receive_without_order: settings.receive_without_order,
       can_receive_without_order: mayReceiveWithoutOrder(settings.receive_without_order, lv),
-      show_prices: lv.purchasing_setup !== 'none',
+      show_prices: seesPurchasingPrices(lv[PRICES_MODULE]),
       can_order: lv.purchasing === 'manage',
       can_approve: lv.purchasing_approve === 'manage',
       can_setup: lv.purchasing_setup === 'manage',

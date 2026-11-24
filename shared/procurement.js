@@ -14,6 +14,15 @@
 // else the company default, else the cheapest per base unit at that venue
 // (a quote's venue price wins over its company price).
 
+// Who sees purchasing prices (quotes, order totals, invoice prices): anyone
+// with at least View on Purchasing setup. The one rule (rule 12): the
+// purchasing routes strip money with it, and a rule's notice leaves an
+// order's total out for people it says no to (Pepper-first step 9a).
+export const PRICES_MODULE = 'purchasing_setup'
+export function seesPurchasingPrices(level) {
+  return !!level && level !== 'none'
+}
+
 export const UNITS = {
   g:    { kind: 'mass',   factor: 1,    label: 'g' },
   kg:   { kind: 'mass',   factor: 1000, label: 'kg' },
