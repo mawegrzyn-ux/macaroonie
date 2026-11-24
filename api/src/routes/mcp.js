@@ -39,7 +39,7 @@ import { requireAuth, permissionLevel, permissionLevels, ACCESS_TOKEN_PREFIX } f
 import { makeContext, addUsage, ToolError } from '../ai/context.js'
 import { audienceTools, jsonSchemaOf, parseInput, errorText, toolAllowed, TOOL_MODULE_KEYS, toolDescription, shownResult } from '../ai/tools/index.js'
 import { getAiSettings } from '../ai/settings.js'
-import { guestInstructions, staffInstructions } from '../ai/prompts.js'
+import { guestInstructions, staffInstructions, ownFieldsFor } from '../ai/prompts.js'
 import { ASSISTANT_NAME } from '../../../shared/assistant.js'
 import { publicOrigin } from './mcpOauth.js'
 
@@ -185,7 +185,7 @@ export default async function mcpRoutes(app) {
     const readOnly = !!req.user.accessTokenReadOnly
     const server = buildServer({
       name: 'macaroonie-staff-' + tenant.slug,
-      instructions: staffInstructions({ tenant: tenant.name }),
+      instructions: staffInstructions({ tenant: tenant.name, ownFields: await ownFieldsFor(req) }),
       tools: audienceTools('staff'),
       // Only the tools this person can use (their module levels, the same
       // check each tool makes when it runs), and only the reading ones for a
