@@ -187,7 +187,10 @@ export function Section() {
         Every figure is the one its own page shows. Till sales are the till's own X and Z report
         figures, on the trading day: sales after midnight stay on the day before until the trading
         day starts (<strong>Trading day starts at</strong> in Store tech, Receipts and payments), so
-        in the small hours tonight's sales are under Yesterday and Today is still empty. Online
+        in the small hours tonight's sales are under Yesterday and Today is still empty. Sales,
+        every till; Dishes sold, every till; and Payments, every till put your own till beside a
+        venue's other till (Loyverse, linked on the Integrations page) with a Till column: the other
+        till's receipts count once they come in, on the trading day they fall on, refunds apart. Online
         orders match the Online orders page's Report and
         Transactions tabs: an order sits on the day it was for, rejected and cancelled orders are
         listed but not counted, and a GloriaFood order sits on the trading day its Cash Recon link

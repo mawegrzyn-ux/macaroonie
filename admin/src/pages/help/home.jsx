@@ -14,7 +14,8 @@ export function Section() {
       <P>
         <strong>Home</strong> is the first page you see after signing in, and the first link in the main menu.
         It is the place to start a shift: a hello with the day at a glance (bookings and covers, parties of 8 or
-        more, how many people are on the rota, and whether the venue is closed today), the ask bar, your pins, then
+        more, how many people are on the rota, the day&apos;s sales by till if you can see Till reports (your own
+        till and a Loyverse till side by side), and whether the venue is closed today), the ask bar, your pins, then
         everything that needs doing at the venue, and the week ahead. Pick the venue at the top right if you
         work at more than one; the page remembers it.
       </P>

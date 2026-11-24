@@ -103,9 +103,11 @@ export const decisions = {
     'ext_map_rules',
   ],
   out: {
-    'Secrets and keys': ['pos_connections'],
+    // pos_connections is read by the "Sales, every till" subjects
+    // (catalogue/sales.js) for its system only; its token columns are kept
+    // off by the secrets test.
     // Other tills' documents as received (migration 289): the normalised
-    // ext_* rows are what reports will read.
+    // ext_* rows are what reports read.
     'Raw copies kept to normalise again': ['ext_documents'],
     'Working state that changes from minute to minute': [
       // What each fill last wrote into a Cash Recon field (migration 260): the
@@ -113,13 +115,13 @@ export const decisions = {
       'cash_fill_values',
     ],
   },
-  // Other tills' sales, normalised (migration 290): read by the "Sales,
-  // every till" subjects in phase 4 of the sales import (docs/SALES_IMPORT.md).
+  // Other tills' sales (migration 290): ext_checks, ext_check_lines,
+  // ext_line_parts and ext_check_payments are read by the "Sales, every
+  // till" subjects (catalogue/sales.js, sales import phase 4); a receipt's
+  // discounts and taxes one by one, and the other till's catalogue, later.
   planned: {
     cash: {
-      happen: ['ext_checks', 'ext_check_lines', 'ext_check_payments', 'ext_check_discounts', 'ext_check_taxes',
-        // What each item line became on our menus, its net shared out (migration 292).
-        'ext_line_parts'],
+      happen: ['ext_check_discounts', 'ext_check_taxes'],
       group: ['ext_catalog'],
     },
   },

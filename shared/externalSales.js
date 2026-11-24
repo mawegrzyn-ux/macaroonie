@@ -14,6 +14,11 @@
 //   historyProgress(v)  0..1 of a venue's history import
 //   allocateNet(net, weights)   a line's net over the parts it maps to
 //                       (the item mapping, shared/itemMapping.js)
+//   dayFiguresFromStored(checks, itemCategory)   a trading day's Cash Recon
+//                       figures from stored checks (phase 4: the Loyverse
+//                       fill reads ext_checks, never the till's API)
+//   dayCovered(cover, window)   whether a day has been fully synced
+//   SALE_SOURCES        who sold it, in the "every till" report subjects
 
 export const DOC_KINDS = ['sale', 'item', 'variant', 'modifier', 'category', 'tax', 'discount',
   'payment_type', 'store', 'employee', 'pos_device', 'dining_option']
@@ -135,4 +140,94 @@ export function allocateNet(net, weights) {
   }
   out[0] = total - out.slice(1).reduce((s, x) => s + x, 0)
   return out
+}
+
+/**
+ * A trading day's figures from another till's stored checks, for Cash
+ * Recon (the Loyverse fill: sumTerms() in shared/loyverse.js reads them).
+ * It gives exactly what summing the till's receipts live gave before phase
+ * 4 (api/test/sales-every-till.test.mjs holds the two against each other on
+ * the stand-in's receipts). Cancelled checks are left out; a refund counts
+ * against the day it was made on, as the other till's own reports have it,
+ * its amounts taken as positive whichever way the till signs them. Pence.
+ *   checks        [{ kind: 'sale' | 'refund', cancelled, discount_pence,
+ *                 tax_pence, tip_pence, charge_pence, total_pence,
+ *                 lines: [{ line_kind, item_ref, name, gross_pence, net_pence }],
+ *                 payments: [{ payment_type_ref, name, amount_pence }] }]
+ *                 (only item lines count: an item line's money holds its
+ *                 modifiers')
+ *   itemCategory  { [item_ref]: category_ref } for category terms, else null
+ * Gives { sales, refund_receipts, gross_sales, net_sales, refunds,
+ * discounts, taxes, tips, surcharges, total_collected, items: { ref: { name,
+ * amount } }, categories: { ref: amount }, payment_types: { ref: { name,
+ * amount } } }.
+ */
+export function dayFiguresFromStored(checks, itemCategory = null) {
+  const day = {
+    sales: 0, refund_receipts: 0,
+    gross_sales: 0, net_sales: 0, refunds: 0, discounts: 0, taxes: 0,
+    tips: 0, surcharges: 0, total_collected: 0,
+    items: {}, categories: {}, payment_types: {},
+  }
+  const abs = v => Math.abs(Math.trunc(Number(v) || 0))
+  for (const c of checks || []) {
+    if (c.cancelled) continue
+    const refund = c.kind === 'refund'
+    if (refund) day.refund_receipts++
+    else day.sales++
+    const sign = refund ? -1 : 1
+    const amt = v => sign * abs(v)
+
+    day.discounts       += amt(c.discount_pence)
+    day.taxes           += amt(c.tax_pence)
+    day.tips            += amt(c.tip_pence)
+    day.surcharges      += amt(c.charge_pence)
+    day.total_collected += amt(c.total_pence)
+
+    for (const l of c.lines || []) {
+      if (l.line_kind !== 'item') continue
+      const gross = abs(l.gross_pence)
+      if (refund) day.refunds += gross
+      else day.gross_sales += gross
+      if (!l.item_ref) continue
+      const after = sign * abs(l.net_pence)
+      const it = day.items[l.item_ref] || (day.items[l.item_ref] = { name: l.name || '', amount: 0 })
+      it.amount += after
+      const cat = itemCategory?.[l.item_ref]
+      if (cat) day.categories[cat] = (day.categories[cat] || 0) + after
+    }
+    for (const p of c.payments || []) {
+      if (!p.payment_type_ref) continue
+      const pt = day.payment_types[p.payment_type_ref] || (day.payment_types[p.payment_type_ref] = { name: p.name || '', amount: 0 })
+      pt.amount += amt(p.amount_pence)
+    }
+  }
+  day.net_sales = day.gross_sales - day.refunds - day.discounts
+  return day
+}
+
+/**
+ * Has a venue's trading day [start, end) been fully synced from the other
+ * till? cover: { synced_to (pos_connections.sales_synced_to), history_from,
+ * history_to, history_next_from, history_done_at (pos_connection_venues) }.
+ * The catch-up must have run past the day's end, and when the day falls in
+ * the months the history import reads, the import must have passed it. A
+ * day older than the history reaches is covered: nothing more will come.
+ * Cash Recon refuses to fill a day that has no stored checks and isn't
+ * covered, instead of filling it with zeros.
+ */
+export function dayCovered(cover, { start, end }) {
+  const ms = v => (v == null || v === '' ? null : new Date(v).getTime())
+  const s = ms(start), e = ms(end), synced = ms(cover?.synced_to)
+  if (synced == null || e == null || synced < e) return false
+  if (!cover.history_from || cover.history_done_at) return true
+  if (e <= ms(cover.history_from)) return true
+  if (cover.history_to && s >= ms(cover.history_to)) return true
+  return e <= ms(cover.history_next_from || cover.history_from)
+}
+
+/** Who sold it, in the "every till" report subjects: our own till, then each system. */
+export const SALE_SOURCES = {
+  macaroonie: 'Macaroonie',
+  ...Object.fromEntries(Object.entries(SYSTEMS).map(([k, v]) => [k, v.label])),
 }
