@@ -1,6 +1,6 @@
 // src/pages/help/integrations.jsx
-// The Help page's "Integrations" section (sales from other tills, phases 1
-// and 2: the item mapping).
+// The Help page's "Integrations" section (sales from other tills: Loyverse and
+// Square, the item mapping, the readers).
 // Help.jsx gathers every file in this folder (except parts.jsx) and shows
 // them by order, then id.
 import { H2, H3, P, InfoBox, DataTable } from './parts.jsx'
@@ -14,7 +14,7 @@ export function Section() {
     <section id="integrations" data-help="">
       <H2>Integrations</H2>
       <P>
-        If some of your venues sell through another till (Loyverse today; Square and Oracle Simphony
+        If some of your venues sell through another till (Loyverse or Square; Oracle Simphony
         later), Macaroonie keeps their sales too: every receipt with its items, variants, modifiers,
         discounts, taxes, tips and payments, with the money exactly as that till recorded it. Open{' '}
         <strong>Money &gt; Integrations</strong>. Anyone with Cash reconciliation can see the page;
@@ -35,6 +35,34 @@ export function Section() {
         in Loyverse yourself (shown once; tap <strong>New webhook address</strong> to make another).
         Either way, every connection is checked every 15 minutes.
       </P>
+      <H3>Connect a Square account</H3>
+      <P>
+        Tap <strong>Connect a till</strong> and choose <strong>Square</strong>. There are two ways in:
+      </P>
+      <DataTable
+        head={['Way', 'What to do']}
+        rows={[
+          ['Sign in with Square', 'Shown when your Macaroonie server has been set up for it. Tap it, sign in to Square and allow Macaroonie to read your items and orders; Square brings you back to Integrations with the account connected. Macaroonie renews the sign-in by itself.'],
+          ['Paste an access token', 'On Square\'s Developer Dashboard open your application, then Credentials, and copy the access token. Choose Production for your live sales, or Sandbox for a Square test account, and paste the token. It is checked with Square, stored encrypted and never shown again.'],
+          ['Link a venue', 'On the account tap Link a venue: choose the venue, its Square location and when its trading day starts. Each location can be linked to one venue; its last 13 months come in the background.'],
+        ]}
+      />
+      <P>
+        With a pasted token Macaroonie sets up Square&apos;s webhook itself, so new orders arrive within a
+        minute or two, and Square signs every call to it. After Sign in with Square it can&apos;t: copy the
+        webhook address shown, add it in Square&apos;s Developer Dashboard (Webhooks, with the events
+        order.created, order.updated and catalog.version.updated), then tap <strong>Signature key</strong>{' '}
+        on the account and paste the key Square gives the subscription. Until then sales still arrive
+        every 15 minutes.
+      </P>
+      <InfoBox>
+        A Square item&apos;s variations (Regular, Large) are what was sold: on Item mapping each variation
+        sits under its item, and modifiers under their list, so you can map a variation to a dish (or a
+        dish and an option) and the variations together to one of your option groups. Square returns
+        are kept as refunds linked to the order they return. Cash Recon&apos;s Fill from the till is for
+        Loyverse only for now: Square&apos;s sales show in the &quot;every till&quot; reports, Today and Pepper.
+        Disconnecting a signed-in account also gives Macaroonie&apos;s access back to Square.
+      </InfoBox>
       <H3>History</H3>
       <P>
         Linking a venue fetches its last 13 months of receipts in the background. The bar under the
@@ -46,7 +74,7 @@ export function Section() {
       <DataTable
         head={['Item', 'What it means']}
         rows={[
-          ['Active / Syncing / Late / Paused / Needs attention', 'Late means no good sync for over 50 minutes; Needs attention means Loyverse refused the token (replace it).'],
+          ['Active / Syncing / Late / Paused / Needs attention', 'Late means no good sync for over 50 minutes; Needs attention means the till refused the token (replace it, or sign in with Square again).'],
           ['Last sync', 'When it last worked, and how many receipts it read and saved.'],
           ['Sync now', 'Checks for new receipts straight away, in the background.'],
           ['Receipts kept', 'Per venue: how many, how many refunds and cancellations, and the first and last day.'],

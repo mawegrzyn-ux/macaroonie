@@ -19,17 +19,26 @@
 //   startHistory()            a venue's history import, HISTORY_MONTHS back
 //   setupWebhook(), webhookPoke()   the webhook address and what it does
 //   RAW_KEEP_DAYS             how long a raw copy is kept after its last fetch
+//
+// Every system goes through the same path: connectorFor(conn.system) picks
+// the connector (connectors/loyverse.js, connectors/square.js; phase 5),
+// clientFor() makes its client (a connector's prepare() may refresh an OAuth
+// token first), a sale document names its location (doc.location_id) and
+// normalise() gets what the stored catalogue knows (saleRefs()). Nothing
+// here knows which system it is reading.
 
 import { createHash, randomBytes } from 'node:crypto'
 import { systemSql, withTenant } from '../config/db.js'
-import { unseal } from './vault.js'
+import { seal, unseal } from './vault.js'
 import { officeOrigin } from './platformHost.js'
 import * as loyverse from './connectors/loyverse.js'
+import * as square from './connectors/square.js'
+import { hashToken } from './connectors/common.js'
 import { queue as syncQueue } from '../jobs/sales-sync.js'
 import { mappingContext, mapChecks, sweepRemaps } from './itemMappingSvc.js'
 import { stableJson, CATCH_UP_MINUTES, HISTORY_MONTHS } from '../../../shared/externalSales.js'
 
-const CONNECTORS = { loyverse }
+const CONNECTORS = { loyverse, square }
 export const connectorFor = system => CONNECTORS[system] || null
 
 export const RAW_KEEP_DAYS = 400
@@ -225,7 +234,74 @@ export async function startHistory(tx, tenantId, venueId) {
 /** A fresh webhook token: { token, hash, hint }. The token goes in the address only. */
 export function newWebhookToken() {
   const token = randomBytes(24).toString('base64url')
-  return { token, hash: loyverse.hashToken(token), hint: token.slice(-4) }
+  return { token, hash: hashToken(token), hint: token.slice(-4) }
+}
+
+/**
+ * A connector's client for a connection row (its tokens still sealed). A
+ * connector with prepare() (Square) gets the unsealed tokens and may renew
+ * an OAuth token first; the new ones are sealed and stored here.
+ */
+export async function clientFor(conn, mod = connectorFor(conn.system)) {
+  if (!mod) throw new Error('No connector for ' + conn.system)
+  const open = { ...conn, access_token: unseal(conn.access_token), refresh_token: unseal(conn.refresh_token ?? null) }
+  const creds = mod.prepare
+    ? await mod.prepare(open, t => withTenant(conn.tenant_id, tx => tx`
+        UPDATE pos_connections
+           SET access_token = ${seal(t.access_token)}, token_hint = ${String(t.access_token).slice(-4)},
+               refresh_token = ${seal(t.refresh_token)}, token_expires_at = ${t.token_expires_at ? new Date(t.token_expires_at) : null},
+               updated_at = now()
+         WHERE id = ${conn.id} AND tenant_id = ${conn.tenant_id}`))
+    : { token: open.access_token }
+  return mod.connector(creds)
+}
+
+/**
+ * Disconnects a connection: its webhook at the other till removed and an
+ * OAuth grant given back (connector revoke(); both best effort, one call
+ * each), then the connection, its venue links and every sale kept from it
+ * (ON DELETE CASCADE). Returns false when it isn't the tenant's.
+ */
+export async function disconnect(tenantId, connectionId, log = null) {
+  const [conn] = await withTenant(tenantId, tx => tx`SELECT * FROM pos_connections WHERE id = ${connectionId} AND tenant_id = ${tenantId}`)
+  if (!conn) return false
+  const mod = connectorFor(conn.system)
+  if (mod) {
+    try {
+      if (conn.webhook_id) await (await clientFor(conn, mod)).deleteWebhook(conn.webhook_id)
+    } catch (e) { log?.warn?.({ err: errorText(e), connectionId }, 'Webhook not removed at the other till') }
+    if (mod.revoke) {
+      await mod.revoke({ ...conn, access_token: unseal(conn.access_token) })
+        .catch(e => log?.warn?.({ err: errorText(e), connectionId }, 'Access not given back at the other till'))
+    }
+  }
+  await withTenant(tenantId, async tx => {
+    await tx`DELETE FROM pos_connection_venues WHERE connection_id = ${connectionId} AND tenant_id = ${tenantId}`
+    await tx`DELETE FROM pos_connections WHERE id = ${connectionId} AND tenant_id = ${tenantId}`
+  })
+  return true
+}
+
+/**
+ * What a sale's normalise() may need from the stored catalogue: a
+ * variation's item and SKU (a Square order names only the variation), and a
+ * modifier option's group name.
+ */
+export async function saleRefs(tx, tenantId, connectionId) {
+  const rows = await tx`
+    SELECT o.kind, o.external_id, o.parent_ref, o.sku, g.name AS group_name
+      FROM ext_catalog o
+      LEFT JOIN ext_catalog g ON o.kind = 'modifier_option' AND g.tenant_id = o.tenant_id AND g.connection_id = o.connection_id
+                             AND g.kind = 'modifier' AND g.external_id = o.parent_ref
+     WHERE o.tenant_id = ${tenantId} AND o.connection_id = ${connectionId} AND o.kind IN ('variant', 'modifier_option')`
+  const refs = { variantItem: {}, variantSku: {}, optionGroupName: {} }
+  for (const r of rows) {
+    if (r.kind === 'variant') {
+      if (r.parent_ref) refs.variantItem[r.external_id] = r.parent_ref
+      if (r.sku) refs.variantSku[r.external_id] = r.sku
+    } else if (r.group_name) refs.optionGroupName[r.external_id] = r.group_name
+  }
+  return refs
 }
 
 async function linkedVenues(tx, tenantId, connectionId) {
@@ -243,7 +319,7 @@ async function linkedVenues(tx, tenantId, connectionId) {
  * menus in the same transaction (the item mapping, `mc` =
  * itemMappingSvc.mappingContext()). Returns counts.
  */
-async function savePage(tenantId, conn, mod, docs, byLocation, mc) {
+async function savePage(tenantId, conn, mod, docs, byLocation, mc, refs) {
   return withTenant(tenantId, async tx => {
     const changed = await storeDocuments(tx, { tenantId, connectionId: conn.id, docs })
     const changedIds = new Set(changed.map(d => d.external_id))
@@ -255,7 +331,7 @@ async function savePage(tenantId, conn, mod, docs, byLocation, mc) {
     let checks = 0
     const saved = []
     for (const d of docs) {
-      const venue = byLocation.get(d.payload.store_id)
+      const venue = byLocation.get(d.location_id)
       if (!venue) continue
       if (!changedIds.has(d.external_id) && have.has(d.external_id)) continue
       let documentId = stored.get(d.external_id)
@@ -263,7 +339,7 @@ async function savePage(tenantId, conn, mod, docs, byLocation, mc) {
         const [row] = await tx`SELECT id FROM ext_documents WHERE tenant_id = ${tenantId} AND connection_id = ${conn.id} AND kind = 'sale' AND external_id = ${d.external_id}`
         documentId = row?.id ?? null
       }
-      saved.push(await saveSale(tx, { tenantId, connectionId: conn.id, venueId: venue.venue_id, documentId, currency: conn.currency, sale: mod.normalise(d, venue) }))
+      saved.push(await saveSale(tx, { tenantId, connectionId: conn.id, venueId: venue.venue_id, documentId, currency: conn.currency, sale: mod.normalise(d, venue, refs) }))
       checks++
     }
     await mapChecks(tx, tenantId, conn.id, saved, mc)
@@ -290,8 +366,7 @@ export async function syncConnection(tenantId, connectionId, { log = null, budge
   const counts = { catalog: 0, sales: 0, checks: 0, history: 0 }
   let more = false
   try {
-    if (!mod) throw new Error('No connector for ' + conn.system)
-    const client = mod.connector({ token: unseal(conn.access_token) })
+    const client = await clientFor(conn, mod)
     const venues = await withTenant(tenantId, tx => linkedVenues(tx, tenantId, conn.id))
     const byLocation = new Map(venues.map(v => [v.location_id, v]))
     let pages = 0
@@ -305,8 +380,10 @@ export async function syncConnection(tenantId, connectionId, { log = null, budge
       counts.catalog = await saveCatalog(tx, { tenantId, connectionId: conn.id, docs: changed, catalogRows: mod.catalogRows })
       await tx`UPDATE pos_connections SET catalog_synced_to = ${new Date(catalogFrom.getTime() - OVERLAP_MS)} WHERE id = ${conn.id} AND tenant_id = ${tenantId}`
     })
-    // The item mapping's rules, catalogue and our prices, once for the run.
-    const mc = await withTenant(tenantId, tx => mappingContext(tx, tenantId, conn.id))
+    // The item mapping's rules, catalogue and our prices, and what the
+    // catalogue tells a sale (a variation's item), once for the run.
+    const [mc, refs] = await withTenant(tenantId, tx => Promise.all([mappingContext(tx, tenantId, conn.id), saleRefs(tx, tenantId, conn.id)]))
+    const locationIds = venues.map(v => v.location_id)
 
     // Catch-up: receipts changed since the last high-water mark, every store.
     const salesTo = new Date(conn.run_at)
@@ -315,8 +392,8 @@ export async function syncConnection(tenantId, connectionId, { log = null, budge
       : new Date(salesTo.getTime() - FIRST_CATCH_UP_MS)
     let cursor = null
     do {
-      const page = await client.fetchSales({ from: salesFrom, to: salesTo, by: 'updated', cursor })
-      const r = await savePage(tenantId, conn, mod, page.docs, byLocation, mc)
+      const page = await client.fetchSales({ from: salesFrom, to: salesTo, by: 'updated', locationIds, cursor })
+      const r = await savePage(tenantId, conn, mod, page.docs, byLocation, mc, refs)
       counts.sales += r.docs; counts.checks += r.checks
       cursor = page.cursor
     } while (cursor)
@@ -335,7 +412,7 @@ export async function syncConnection(tenantId, connectionId, { log = null, budge
         const end = new Date(Math.min(to.getTime(), next.getTime() + HISTORY_WINDOW_DAYS * 86400_000))
         const page = await client.fetchSales({ from: next, to: end, by: 'created', locationId: v.location_id, cursor: pageCursor })
         pages++
-        const r = await savePage(tenantId, conn, mod, page.docs, byLocation, mc)
+        const r = await savePage(tenantId, conn, mod, page.docs, byLocation, mc, refs)
         counts.history += r.docs; counts.checks += r.checks; count += r.docs
         pageCursor = page.cursor
         if (!pageCursor) next = end
@@ -419,33 +496,46 @@ export async function setupWebhook(tenantId, connectionId) {
   const mod = connectorFor(conn.system)
   const { token, hash, hint } = newWebhookToken()
   const url = webhookUrl(conn.system, token)
-  let webhookId = null, error = null
+  let webhookId = null, signatureKey = null, error = null
   if (mod) {
-    const client = mod.connector({ token: unseal(conn.access_token) })
-    if (conn.webhook_id) await client.deleteWebhook(conn.webhook_id).catch(() => {})
-    try { webhookId = (await client.registerWebhook(url)).id } catch (e) { error = errorText(e) }
+    try {
+      const client = await clientFor(conn, mod)
+      if (conn.webhook_id) await client.deleteWebhook(conn.webhook_id).catch(() => {})
+      const r = await client.registerWebhook(url)
+      webhookId = r.id
+      signatureKey = r.signature_key || null
+    } catch (e) { error = errorText(e) }
   }
+  // A registration that gives a signing key (Square) keeps it, sealed; a
+  // new address otherwise drops the old key (it was for the old address).
   await withTenant(tenantId, tx => tx`
     UPDATE pos_connections
-       SET webhook_token_hash = ${hash}, webhook_token_hint = ${hint}, webhook_id = ${webhookId}, updated_at = now()
+       SET webhook_token_hash = ${hash}, webhook_token_hint = ${hint}, webhook_id = ${webhookId},
+           webhook_signature_key = ${signatureKey ? seal(signatureKey) : null},
+           webhook_signature_hint = ${signatureKey ? signatureKey.slice(-4) : null}, updated_at = now()
      WHERE id = ${connectionId} AND tenant_id = ${tenantId}`)
-  return { url, registered: !!webhookId, error }
+  return { url, registered: !!webhookId, signed: !!signatureKey, error }
 }
 
 /**
  * The webhook: the token in the address finds the connection (system mode:
- * the token is how the tenant is found), checked in constant time. The body
- * is never read: the call only asks for a sync, which reads the other till
- * with our own token. Returns true when a sync was asked for.
+ * the token is how the tenant is found), checked in constant time, and the
+ * connector checks a signature over the raw body where the system signs its
+ * calls and the connection has the key (Square). The body is never trusted:
+ * the call only asks for a sync, which reads the other till with our own
+ * token. Returns true when a sync was asked for.
  */
-export async function webhookPoke(system, token, log = null) {
+export async function webhookPoke(system, token, log = null, { rawBody = null, headers = {} } = {}) {
   if (!/^[A-Za-z0-9_-]{20,64}$/.test(String(token || ''))) return false
   const mod = connectorFor(system)
   if (!mod) return false
   const [c] = await systemSql`
-    SELECT id, tenant_id, webhook_token_hash FROM pos_connections
-     WHERE system = ${system} AND webhook_token_hash = ${mod.hashToken(token)}`
-  if (!c || !mod.verifyWebhook({ token, storedHash: c.webhook_token_hash })) return false
+    SELECT id, tenant_id, webhook_token_hash, webhook_signature_key FROM pos_connections
+     WHERE system = ${system} AND webhook_token_hash = ${hashToken(token)}`
+  if (!c) return false
+  let signatureKey = null
+  try { signatureKey = unseal(c.webhook_signature_key) } catch { return false }
+  if (!mod.verifyWebhook({ token, storedHash: c.webhook_token_hash, signatureKey, rawBody, headers, url: webhookUrl(system, token) })) return false
   await withTenant(c.tenant_id, tx => tx`
     UPDATE pos_connections SET sync_requested_at = now(), webhook_last_at = now()
      WHERE id = ${c.id} AND tenant_id = ${c.tenant_id}`)

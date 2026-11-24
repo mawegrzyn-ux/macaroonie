@@ -32,7 +32,9 @@ export const AUTO_FILL_DAYS = 3
 /** The systems this venue's Cash Recon is linked to: [{ key, label }]. */
 export async function linkedSources(tx, tenantId, venueId) {
   const [row] = await tx`
-    SELECT EXISTS (SELECT 1 FROM pos_connection_venues WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}) AS loyverse,
+    SELECT EXISTS (SELECT 1 FROM pos_connection_venues l
+                     JOIN pos_connections c ON c.id = l.connection_id AND c.tenant_id = l.tenant_id AND c.system = 'loyverse'
+                    WHERE l.tenant_id = ${tenantId} AND l.venue_id = ${venueId}) AS loyverse,
            EXISTS (SELECT 1 FROM gloriafood_venue_links WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}) AS gloriafood`
   return RETRIEVE_SOURCES.filter(s => row?.[s.key]).map(s => ({ key: s.key, label: s.label }))
 }

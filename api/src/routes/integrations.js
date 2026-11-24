@@ -10,25 +10,34 @@
 //   POST  /connections/:id/venues/:venueId/history  fetch the venue's history again (13 months)
 //   POST  /connections/:id/webhook                  a new webhook address: registered with the
 //                                                   other till when it allows, the address shown once
-//   PATCH /connections/:id                          { status: 'active' | 'paused' }
+//   PATCH /connections/:id                          { status?: 'active' | 'paused', name? }
+//   DELETE /connections/:id                         disconnect: its webhook removed at the other
+//                                                   till, an OAuth grant revoked, its sales deleted
+//   GET   /connections/:id/locations                the other till's locations (stores), asked live
+//   PUT   /connections/:id/venues/:venueId          { location_id, day_starts_at } link a venue
+//                                                   (starts its history import; any system)
+//   DELETE /connections/:id/venues/:venueId         unlink (the sales kept stay)
 //   GET   /venues/:venueId/day?date=                a venue's stored sales for a trading day
 //                                                   (Pepper's till_day, Today; till reports view)
 //   POST  /webhooks/loyverse/:token                 Loyverse says something changed
+//   POST  /webhooks/square/:token                   Square says something changed (signed)
 //
-// Making, renaming and removing a Loyverse account, and linking a venue to a
-// store, are the Loyverse routes (/api/loyverse/connections,
-// /api/loyverse/venues/:venueId/link); the Cash Recon mapping stays on the
-// Cash Recon settings. Reads need Cash reconciliation view; Sync now and
-// history manage; the webhook and pausing owner/admin with manage, as the
-// rest of the connection's setup.
+// Making a Loyverse account and its token are the Loyverse routes
+// (/api/loyverse/connections, which also keep their own venue link route for
+// Cash Recon); a Square account's are the Square routes (/api/square,
+// routes/square.js, phase 5); the Cash Recon mapping stays on the Cash Recon
+// settings. Reads need Cash reconciliation view; Sync now and history
+// manage; the webhook, links, renaming, pausing and disconnecting owner/admin
+// with manage, as the rest of the connection's setup.
 
 import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requireRole, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 import {
-  requestSync, markRequested, startHistory, setupWebhook, webhookPoke,
+  requestSync, markRequested, startHistory, setupWebhook, webhookPoke, clientFor, disconnect,
 } from '../services/salesImportSvc.js'
+import { ConnectorError } from '../services/connectors/common.js'
 import { coverage as mappingCoverage } from '../services/itemMappingSvc.js'
 import { venueLink, storedDays } from '../services/storedSales.js'
 import { SYSTEMS, syncLate, historyProgress } from '../../../shared/externalSales.js'
@@ -39,7 +48,14 @@ const canView   = [requirePermission('cash_recon', 'view')]
 const canManage = [requirePermission('cash_recon', 'manage')]
 const canSetup  = [requireRole('admin', 'owner'), requirePermission('cash_recon', 'manage')]
 
-const StatusBody = z.object({ status: z.enum(['active', 'paused']) })
+const StatusBody = z.object({
+  status: z.enum(['active', 'paused']).optional(),
+  name:   z.string().trim().min(1).max(120).optional(),
+}).refine(b => b.status || b.name, 'Nothing to change')
+const LinkBody = z.object({
+  location_id:   z.string().trim().min(1).max(100),
+  day_starts_at: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/).default('00:00'),
+})
 
 async function ownConnection(tx, tenantId, id) {
   const [c] = await tx`SELECT id, system, status FROM pos_connections WHERE id = ${id} AND tenant_id = ${tenantId}`
@@ -47,12 +63,31 @@ async function ownConnection(tx, tenantId, id) {
   return c
 }
 
+async function ownVenue(tx, tenantId, venueId) {
+  const [v] = await tx`SELECT id, name FROM venues WHERE id = ${venueId} AND tenant_id = ${tenantId}`
+  if (!v) throw httpError(404, 'Venue not found')
+  return v
+}
+
+/** The other till's locations, asked with the connection's own token. */
+async function locationsOf(tenantId, id) {
+  const [conn] = await withTenant(tenantId, tx => tx`SELECT * FROM pos_connections WHERE id = ${id} AND tenant_id = ${tenantId}`)
+  if (!conn) throw httpError(404, 'Connection not found')
+  try {
+    return await (await clientFor(conn)).listLocations()
+  } catch (e) {
+    if (e instanceof ConnectorError) throw httpError(422, e.message)
+    throw e
+  }
+}
+
 export async function connectionsView(tx, tenantId) {
   const conns = await tx`
-    SELECT id, system, name, status, token_hint, business_name, currency, last_error,
+    SELECT id, system, name, status, token_hint, business_name, currency, last_error, environment, auth_kind, token_expires_at,
            last_sync_at, last_sync_ok_at, last_sync_error, last_sync_counts, sync_requested_at,
            (sync_claimed_until IS NOT NULL AND sync_claimed_until > now()) AS syncing,
            webhook_token_hash IS NOT NULL AS webhook_set, webhook_token_hint, webhook_id, webhook_last_at,
+           webhook_signature_key IS NOT NULL AS webhook_signed, webhook_signature_hint,
            created_at
       FROM pos_connections WHERE tenant_id = ${tenantId} ORDER BY created_at`
   if (!conns.length) return []
@@ -81,11 +116,15 @@ export async function connectionsView(tx, tenantId) {
   return conns.map(c => ({
     id: c.id, system: c.system, system_label: SYSTEMS[c.system]?.label || c.system, name: c.name,
     status: c.status, token_hint: c.token_hint, business_name: c.business_name, currency: c.currency,
+    environment: c.environment || null, auth_kind: c.auth_kind, token_expires_at: c.token_expires_at || null,
     last_sync_at: c.last_sync_at, last_sync_ok_at: c.last_sync_ok_at,
     last_sync_error: c.last_sync_error || c.last_error || null, last_sync_counts: c.last_sync_counts || {},
     syncing: c.syncing, sync_requested: !!(c.sync_requested_at && (!c.last_sync_at || c.sync_requested_at > c.last_sync_at)),
     late: syncLate(c, now),
-    webhook: { set: c.webhook_set, hint: c.webhook_token_hint, registered: !!c.webhook_id, last_at: c.webhook_last_at },
+    webhook: {
+      set: c.webhook_set, hint: c.webhook_token_hint, registered: !!c.webhook_id, last_at: c.webhook_last_at,
+      signed: c.webhook_signed, signature_hint: c.webhook_signature_hint || null,
+    },
     catalog: Object.fromEntries(catalog.filter(r => r.connection_id === c.id).map(r => [r.kind, r.n])),
     mapping: {
       rules: rules.find(r => r.connection_id === c.id)?.n || 0,
@@ -194,25 +233,109 @@ export default async function integrationsRoutes(app) {
     const body = StatusBody.parse(req.body)
     await withTenant(req.tenantId, async tx => {
       await ownConnection(tx, req.tenantId, id)
-      await tx`UPDATE pos_connections SET status = ${body.status}, updated_at = now() WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      await tx`
+        UPDATE pos_connections SET status = COALESCE(${body.status ?? null}, status), name = COALESCE(${body.name ?? null}, name), updated_at = now()
+         WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       if (body.status === 'active') await markRequested(tx, req.tenantId, id)
     })
     if (body.status === 'active') requestSync(req.tenantId, id, req.log)
     return withTenant(req.tenantId, async tx => ({ connections: await connectionsView(tx, req.tenantId) }))
   })
+
+  // Disconnect (any system): the webhook at the other till and an OAuth
+  // grant go (best effort), then the connection with its links and every
+  // sale kept from it (ON DELETE CASCADE).
+  app.delete('/connections/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    await withTenant(req.tenantId, tx => ownConnection(tx, req.tenantId, id))
+    await disconnect(req.tenantId, id, req.log)
+    return { ok: true }
+  })
+
+  app.get('/connections/:id/locations', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    return { locations: await locationsOf(req.tenantId, id) }
+  })
+
+  // Link a venue to one of the connection's locations (any system). The
+  // location must be the account's (asked live); one venue per location. A
+  // new or moved link starts the venue's 13-month history import; moving a
+  // venue to another system drops its Cash Recon mapping (that system's
+  // terms). The mapping is otherwise kept.
+  app.put('/connections/:id/venues/:venueId', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const venueId = UUID.parse(req.params.venueId)
+    const body = LinkBody.parse(req.body)
+    const conn = await withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      return ownConnection(tx, req.tenantId, id)
+    })
+    const location = (await locationsOf(req.tenantId, id)).find(l => l.id === body.location_id)
+    if (!location) throw httpError(422, 'That location isn\'t on this account')
+    const moved = await withTenant(req.tenantId, async tx => {
+      const [taken] = await tx`
+        SELECT v.name FROM pos_connection_venues l JOIN venues v ON v.id = l.venue_id AND v.tenant_id = l.tenant_id
+         WHERE l.tenant_id = ${req.tenantId} AND l.connection_id = ${id} AND l.location_id = ${location.id} AND l.venue_id <> ${venueId}`
+      if (taken) throw httpError(409, 'That location is already linked to ' + taken.name)
+      const [before] = await tx`
+        SELECT l.connection_id, l.location_id, c.system FROM pos_connection_venues l
+          JOIN pos_connections c ON c.id = l.connection_id AND c.tenant_id = l.tenant_id
+         WHERE l.tenant_id = ${req.tenantId} AND l.venue_id = ${venueId}`
+      const otherSystem = before && before.system !== conn.system
+      await tx`
+        INSERT INTO pos_connection_venues (tenant_id, venue_id, connection_id, location_id, location_name, day_starts_at)
+        VALUES (${req.tenantId}, ${venueId}, ${id}, ${location.id}, ${location.name}, ${body.day_starts_at})
+        ON CONFLICT (venue_id) DO UPDATE SET
+          connection_id = EXCLUDED.connection_id, location_id = EXCLUDED.location_id, location_name = EXCLUDED.location_name,
+          day_starts_at = EXCLUDED.day_starts_at,
+          mappings = CASE WHEN ${!!otherSystem} THEN '{}'::jsonb ELSE pos_connection_venues.mappings END,
+          updated_at = now()
+        WHERE pos_connection_venues.tenant_id = ${req.tenantId}`
+      const isMoved = !before || before.connection_id !== id || before.location_id !== location.id
+      if (isMoved) {
+        await startHistory(tx, req.tenantId, venueId)
+        await markRequested(tx, req.tenantId, id)
+      }
+      return isMoved
+    })
+    if (moved) requestSync(req.tenantId, id, req.log)
+    return withTenant(req.tenantId, async tx => ({ connections: await connectionsView(tx, req.tenantId) }))
+  })
+
+  app.delete('/connections/:id/venues/:venueId', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const venueId = UUID.parse(req.params.venueId)
+    return withTenant(req.tenantId, async tx => {
+      await ownConnection(tx, req.tenantId, id)
+      await ownVenue(tx, req.tenantId, venueId)
+      const gone = await tx`
+        DELETE FROM pos_connection_venues WHERE tenant_id = ${req.tenantId} AND connection_id = ${id} AND venue_id = ${venueId}`
+      if (!gone.count) throw httpError(404, 'That venue isn\'t linked to this connection')
+      return { connections: await connectionsView(tx, req.tenantId) }
+    })
+  })
 }
 
 // ── Webhooks ────────────────────────────────────────────────────────────────
 // The other till calls /webhooks/<system>/<token> when something changes.
-// The token (24 random bytes, its sha256 stored) finds the connection; the
-// body is never trusted or read: a sync is asked for, which reads the other
-// till with our own token. Answered at once.
+// The token (24 random bytes, its sha256 stored) finds the connection;
+// Square's calls are also checked against its signature over the raw body
+// (x-square-hmacsha256-signature) when the connection has the key. The body
+// is never trusted: a sync is asked for, which reads the other till with our
+// own token. Answered at once. JSON bodies come in raw (a Buffer) in this
+// plugin only, so a signature is checked over the exact bytes sent.
+export const WEBHOOK_SYSTEMS = ['loyverse', 'square']
+
 export async function salesWebhookRoutes(app) {
-  app.post('/webhooks/loyverse/:token', {
-    config: { rateLimit: { max: 240, timeWindow: '1 minute', keyGenerator: req => 'sw:' + String(req.params?.token || '') } },
-  }, async (req, reply) => {
-    const ok = await webhookPoke('loyverse', String(req.params.token || ''), req.log)
-    if (!ok) return reply.code(404).send({ error: 'Unknown address' })
-    return { ok: true }
-  })
+  app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req, body, done) => done(null, body))
+  for (const system of WEBHOOK_SYSTEMS) {
+    app.post('/webhooks/' + system + '/:token', {
+      config: { rateLimit: { max: 240, timeWindow: '1 minute', keyGenerator: req => 'sw:' + String(req.params?.token || '') } },
+    }, async (req, reply) => {
+      const rawBody = Buffer.isBuffer(req.body) ? req.body : (typeof req.body === 'string' ? req.body : null)
+      const ok = await webhookPoke(system, String(req.params.token || ''), req.log, { rawBody, headers: req.headers })
+      if (!ok) return reply.code(404).send({ error: 'Unknown address' })
+      return { ok: true }
+    })
+  }
 }

@@ -5,8 +5,24 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   toPence, toQty, stripPersonal, stableJson, syncLate, historyProgress, LATE_AFTER_MINUTES, allocateNet,
-  dayCovered, dayFiguresFromStored, SALE_SOURCES,
+  dayCovered, dayFiguresFromStored, SALE_SOURCES, moneyPence,
 } from '../externalSales.js'
+
+test('moneyPence takes a Money object already in pence as it is (Square)', () => {
+  assert.equal(moneyPence({ amount: 1999, currency: 'GBP' }), 1999)
+  assert.equal(moneyPence({ amount: -351, currency: 'GBP' }), -351)
+  assert.equal(moneyPence({ amount: '1250', currency: 'GBP' }), 1250)
+  assert.equal(moneyPence({ amount: 12.5 }), 0, 'never a decimal')
+  assert.equal(moneyPence({ amount: '12.50' }), 0)
+  assert.equal(moneyPence(null), 0)
+  assert.equal(moneyPence({}), 0)
+  assert.equal(moneyPence({ amount: -0 }), 0)
+})
+
+test('stripPersonal takes Square\'s recipient, emails and buyer details out', () => {
+  const out = stripPersonal({ id: 'o1', fulfillments: [{ pickup_details: { recipient: { display_name: 'Jo' } } }], buyer_email_address: 'a@b', customer_id: 'c1' })
+  assert.deepEqual(out, { id: 'o1', fulfillments: [{ pickup_details: {} }], customer_id: 'c1' })
+})
 import { coverageShare } from '../itemMapping.js'
 
 test('allocateNet: parts add up exactly, the remainder on the main part, refunds too', () => {

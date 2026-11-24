@@ -75,6 +75,13 @@ const schema = z.object({
   // stand-in server; tokens are per tenant, saved in Cash Recon settings.
   LOYVERSE_API_URL:      z.string().url().default('https://api.loyverse.com/v1.0'),
 
+  // Square (sales import phase 5): Sign in with Square on the Integrations
+  // page, only when both are set (an app on Square's developer site; a
+  // sandbox app's id starts with "sandbox-"). Without them a Square account
+  // is connected by pasting its access token.
+  SQUARE_APPLICATION_ID:     z.string().optional(),
+  SQUARE_APPLICATION_SECRET: z.string().optional(),
+
   // GloriaFood Accepted Orders API (poll). Only changed to test against a
   // stand-in server; keys are per venue, saved in Cash Recon settings.
   GLORIAFOOD_API_URL:    z.string().url().default('https://pos.globalfoodsoft.com'),

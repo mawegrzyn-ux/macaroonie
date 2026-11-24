@@ -84,7 +84,7 @@ async function findOrder(ctx, venue, text, date) {
 }
 
 /**
- * A day's sales on another till (Loyverse), from its stored receipts
+ * A day's sales on another till (Loyverse, Square), from its stored receipts
  * (GET /api/integrations/venues/:id/day): till_day's answer for a venue that
  * sells on it, or beside our till's figures. Its own terms: net sales are
  * after refunds and discounts.
@@ -517,7 +517,7 @@ export const orderTools = [
       'A trading day\'s till figures at a venue (default: the latest day; live X figures while it is open, else its Z report): ' +
       'sales, VAT by rate, covers, average check, takings by payment type, tips, refunds, voids, discounts, top dishes, ' +
       'revenue streams, order types, staff, open checks, cash expected and declared, and whether Cash Recon was filled. ' +
-      'A venue on another till (Loyverse) gets that till\'s stored sales, with its source.',
+      'A venue on another till (Loyverse, Square) gets that till\'s stored sales, with its source.',
     input: z.object({ venue: VenueText, date: DateStr.optional().describe('The business date; default the latest trading day') }),
     readOnly: true,
     async run(ctx, input) {
