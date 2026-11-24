@@ -521,6 +521,32 @@ const SOURCES = {
 }
 
 /**
+ * The day's sales so far, by till (sales import phase 4): our till's net
+ * sales for its trading day of that date (the till's own day figures) and
+ * another till's stored sales (Loyverse: its net sales, after refunds, from
+ * GET /api/integrations/venues/:id/day), each through its route as the
+ * person. { total_pence, currency, sources: [{ key, label, net_pence,
+ * synced }] }, or null when no till has a day for it.
+ */
+async function daySales(ctx, v, date) {
+  const [days, other] = await Promise.all([
+    callApi(ctx, 'GET', `/api/pos/venues/${v.id}/days?limit=14`).catch(() => []),
+    callApi(ctx, 'GET', `/api/integrations/venues/${v.id}/day?date=${date}`).catch(() => null),
+  ])
+  const sources = []
+  const ours = (days || []).find(d => d.business_date === date)
+  if (ours) {
+    const r = await callApi(ctx, 'GET', `/api/pos/venues/${v.id}/days/${ours.id}`)
+    sources.push({ key: 'macaroonie', label: 'Till', net_pence: Number(r.figures?.sales?.net) || 0, synced: true })
+  }
+  if (other?.linked && (other.synced || other.figures.receipts)) {
+    sources.push({ key: other.system, label: other.label, net_pence: other.figures.net_sales, synced: !!other.covered })
+  }
+  if (!sources.length) return null
+  return { total_pence: sources.reduce((n, x) => n + x.net_pence, 0), currency: v.currency || other?.currency || 'GBP', sources }
+}
+
+/**
  * H2: the day at a glance (bookings and who is working, from Pepper's own
  * reading tools) and the week ahead (the weather and local news from Local
  * info, through its own route as the person: weekAhead() in shared/localInfo.js).
@@ -529,13 +555,15 @@ async function summary(ctx, v, s) {
   const tool = (list, name) => list.find(t => t.name === name)
   const can = module => (s.levels[module] || 'none') !== 'none'
   const out = {}
-  const [bookings, staff, local] = await Promise.allSettled([
+  const [bookings, staff, local, sales] = await Promise.allSettled([
     can('bookings') ? tool(staffTools, 'day_overview').run(ctx, { venue_id: v.id, date: s.date }) : null,
     can('rota') ? tool(rotaTools, 'whos_working').run(ctx, { venue: v.id, date: s.date }) : null,
     can('local_info')
       ? callApi(ctx, 'GET', `/api/local-info/items?venue_id=${v.id}&from=${s.date}&to=${addDays(s.date, WEEK_DAYS - 1)}`)
       : null,
+    can('pos_reports') ? daySales(ctx, v, s.date) : null,
   ])
+  if (sales.status === 'fulfilled' && sales.value) out.sales = sales.value
   if (bookings.status === 'fulfilled' && bookings.value) {
     const d = bookings.value
     const live = d.list.filter(b => !['cancelled', 'no_show'].includes(b.status))
@@ -612,4 +640,4 @@ export async function opsToday(ctx, venue, { date, time, levels }) {
 }
 
 /** The modules the feed reads, for permissionLevels(). */
-export const OPS_MODULES = [...new Set([...Object.values(AREAS), 'purchasing_approve', 'bookings', 'rota', 'local_info'])]
+export const OPS_MODULES = [...new Set([...Object.values(AREAS), 'purchasing_approve', 'bookings', 'rota', 'local_info', 'pos_reports'])]

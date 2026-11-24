@@ -83,6 +83,32 @@ async function findOrder(ctx, venue, text, date) {
     (board.orders.map(numberOf).join(', ') || 'none') + '.', 404)
 }
 
+/**
+ * A day's sales on another till (Loyverse), from its stored receipts
+ * (GET /api/integrations/venues/:id/day): till_day's answer for a venue that
+ * sells on it, or beside our till's figures. Its own terms: net sales are
+ * after refunds and discounts.
+ */
+function otherTillDay(venue, o) {
+  const cur = o.currency || venue.currency
+  const f = o.figures
+  const synced = o.synced_to ? localParts(o.synced_to, venue.timezone).date + ' ' + localParts(o.synced_to, venue.timezone).time : null
+  return {
+    venue: venue.name, day: longDate(o.date),
+    source: o.label + ' (stored sales' + (synced ? ', synced to ' + synced : '') + ')',
+    ...(o.synced ? {} : { note: o.label + ' hasn\'t synced this day yet: nothing is stored for it.' }),
+    sales: {
+      gross: pence(f.gross_sales, cur), refunds: pence(f.refunds, cur), discounts: pence(f.discounts, cur),
+      net: pence(f.net_sales, cur), tax: pence(f.taxes, cur), tips: pence(f.tips, cur),
+      ...(f.surcharges ? { surcharges: pence(f.surcharges, cur) } : {}),
+      receipts: f.receipts, ...(f.refund_receipts ? { refund_receipts: f.refund_receipts } : {}),
+    },
+    takings: o.payments.map(p => p.name + ': ' + pence(p.amount, cur)),
+    takings_total: pence(f.total_collected, cur),
+    top_items: o.items.slice(0, 10).map(i => i.name + ': ' + pence(i.amount, cur)),
+  }
+}
+
 // ── update_online_order ─────────────────────────────────────
 
 const ACTIONS = ['accept', 'preparing', 'ready', 'collected', 'reject', 'cancel', 'retime', 'paid_cash', 'paid_card']
@@ -490,15 +516,20 @@ export const orderTools = [
     description:
       'A trading day\'s till figures at a venue (default: the latest day; live X figures while it is open, else its Z report): ' +
       'sales, VAT by rate, covers, average check, takings by payment type, tips, refunds, voids, discounts, top dishes, ' +
-      'revenue streams, order types, staff, open checks, cash expected and declared, and whether Cash Recon was filled.',
+      'revenue streams, order types, staff, open checks, cash expected and declared, and whether Cash Recon was filled. ' +
+      'A venue on another till (Loyverse) gets that till\'s stored sales, with its source.',
     input: z.object({ venue: VenueText, date: DateStr.optional().describe('The business date; default the latest trading day') }),
     readOnly: true,
     async run(ctx, input) {
       await requireStaffPermission(ctx, 'pos_reports', 'view')
       const venue = await venueFor(ctx, input.venue)
       const days = await callApi(ctx, 'GET', `/api/pos/venues/${venue.id}/days?limit=120`)
+      const date = input.date || days[0]?.business_date || null
+      // Sales from another till (sales import phase 4): its stored receipts for the day.
+      const other = await callApi(ctx, 'GET', `/api/integrations/venues/${venue.id}/day${date ? '?date=' + date : ''}`)
+      const day = date ? days.find(d => d.business_date === date) : null
+      if (!day && other.linked) return otherTillDay(venue, other)
       if (!days.length) throw new ToolError(venue.name + ' has no till trading days yet.', 404)
-      const day = input.date ? days.find(d => d.business_date === input.date) : days[0]
       if (!day) throw new ToolError('No trading day on ' + longDate(input.date) + '. Latest: ' + days.slice(0, 5).map(d => shortDate(d.business_date)).join(', ') + '.', 404)
       const r = await callApi(ctx, 'GET', `/api/pos/venues/${venue.id}/days/${day.id}`)
       const f = r.figures
@@ -506,6 +537,7 @@ export const orderTools = [
       const nm = (map, id) => (id ? r.names?.[map]?.[id] : null) || (id ? 'Unknown' : 'None')
       return {
         venue: venue.name, day: longDate(r.business_date),
+        ...(other.linked ? { other_till: otherTillDay(venue, other) } : {}),
         state: r.live ? 'open (live X figures)' : 'closed (Z ' + r.z_number + ')',
         sales: {
           total: pence(f.sales.total, cur), net: pence(f.sales.net, cur), vat: pence(f.sales.vat_total, cur),

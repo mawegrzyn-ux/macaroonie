@@ -11,6 +11,8 @@
 //   POST  /connections/:id/webhook                  a new webhook address: registered with the
 //                                                   other till when it allows, the address shown once
 //   PATCH /connections/:id                          { status: 'active' | 'paused' }
+//   GET   /venues/:venueId/day?date=                a venue's stored sales for a trading day
+//                                                   (Pepper's till_day, Today; till reports view)
 //   POST  /webhooks/loyverse/:token                 Loyverse says something changed
 //
 // Making, renaming and removing a Loyverse account, and linking a venue to a
@@ -28,9 +30,11 @@ import {
   requestSync, markRequested, startHistory, setupWebhook, webhookPoke,
 } from '../services/salesImportSvc.js'
 import { coverage as mappingCoverage } from '../services/itemMappingSvc.js'
+import { venueLink, storedDays } from '../services/storedSales.js'
 import { SYSTEMS, syncLate, historyProgress } from '../../../shared/externalSales.js'
 
 const UUID = z.string().uuid()
+const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const canView   = [requirePermission('cash_recon', 'view')]
 const canManage = [requirePermission('cash_recon', 'manage')]
 const canSetup  = [requireRole('admin', 'owner'), requirePermission('cash_recon', 'manage')]
@@ -103,11 +107,54 @@ export async function connectionsView(tx, tenantId) {
   }))
 }
 
+/**
+ * A venue's stored sales for one trading day (sales import phase 4), for
+ * Pepper's till_day and Today: { linked: false } when the venue isn't
+ * linked to another till; else the system, when the sync last reached,
+ * whether the day is in (synced) and its figures (dayFiguresFromStored(),
+ * pence), payments and items by value. No date: the latest day with stored
+ * sales (or the venue's today).
+ */
+async function storedDay(tx, tenantId, venueId, date) {
+  const [venue] = await tx`SELECT id, timezone FROM venues WHERE id = ${venueId} AND tenant_id = ${tenantId}`
+  if (!venue) throw httpError(404, 'Venue not found')
+  const link = await venueLink(tx, tenantId, venueId)
+  if (!link) return { linked: false }
+  let day = date
+  if (!day) {
+    const [last] = await tx`
+      SELECT max(business_date)::text AS d FROM ext_checks
+       WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND connection_id = ${link.connection_id}`
+    day = last?.d || new Intl.DateTimeFormat('en-CA', { timeZone: link.timezone || 'Europe/London' }).format(new Date())
+  }
+  const f = (await storedDays(tx, tenantId, link, [day]))[day]
+  const byValue = (a, b) => b.amount - a.amount || a.name.localeCompare(b.name)
+  return {
+    linked: true, system: link.system, label: SYSTEMS[link.system]?.label || link.system,
+    connection_name: link.connection_name, location_name: link.location_name, currency: link.currency || null,
+    date: day, synced: !f.not_synced, covered: f.covered, synced_to: link.sales_synced_to, last_sync_ok_at: link.last_sync_ok_at,
+    figures: {
+      receipts: f.sales, refund_receipts: f.refund_receipts, gross_sales: f.gross_sales, refunds: f.refunds,
+      discounts: f.discounts, net_sales: f.net_sales, taxes: f.taxes, tips: f.tips, surcharges: f.surcharges,
+      total_collected: f.total_collected,
+    },
+    payments: Object.values(f.payment_types).map(p => ({ name: p.name, amount: p.amount })).sort(byValue),
+    items: Object.values(f.items).map(i => ({ name: i.name, amount: i.amount })).sort(byValue).slice(0, 20),
+  }
+}
+
 export default async function integrationsRoutes(app) {
   app.addHook('preHandler', requireAuth)
 
   app.get('/connections', { preHandler: canView }, async req =>
     withTenant(req.tenantId, async tx => ({ connections: await connectionsView(tx, req.tenantId) })))
+
+  // A venue's stored sales for a day: till figures, so the till's reports permission.
+  app.get('/venues/:venueId/day', { preHandler: [requirePermission('pos_reports', 'view')] }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const date = req.query?.date ? DATE.parse(req.query.date) : null
+    return withTenant(req.tenantId, tx => storedDay(tx, req.tenantId, venueId, date))
+  })
 
   app.post('/connections/:id/sync', { preHandler: canManage }, async req => {
     const id = UUID.parse(req.params.id)

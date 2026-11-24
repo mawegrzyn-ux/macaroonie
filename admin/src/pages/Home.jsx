@@ -239,6 +239,14 @@ export function Glance({ d, linkFor }) {
   if (b) chips.push({ key: 'bookings', Icon: CalendarDays, text: b.count + (b.count === 1 ? ' booking' : ' bookings') + ' · ' + b.covers + ' covers', to: '/timeline' })
   for (const p of b?.big_parties || []) chips.push({ key: 'big' + p.time + p.guest, Icon: Users, text: 'Party of ' + p.party_size + ' at ' + p.time + (p.guest ? ' (' + p.guest + ')' : ''), tone: 'sky', to: '/bookings' })
   if (s) chips.push({ key: 'staff', Icon: Users, text: s.working + (s.working === 1 ? ' person' : ' people') + ' on the rota', to: '/rota' })
+  // The day's net sales by till (summary.sales: our till and another till's stored sales, by source).
+  const sales = d.summary?.sales
+  if (sales?.sources?.length) {
+    const fmt = p => new Intl.NumberFormat('en-GB', { style: 'currency', currency: sales.currency || 'GBP' }).format((p || 0) / 100)
+    const only = sales.sources.length === 1 ? sales.sources[0] : null
+    const by = only ? (only.key === 'macaroonie' ? '' : ' on ' + only.label) : ' (' + sales.sources.map(x => x.label + ' ' + fmt(x.net_pence)).join(' · ') + ')'
+    chips.push({ key: 'sales', Icon: BarChart3, text: fmt(sales.total_pence) + (d.is_today ? ' sales so far' : ' sales') + by, to: '/reports' })
+  }
   if (!chips.length) return null
   return (
     <div className="flex flex-wrap gap-2 mt-4" data-testid="today-glance">
