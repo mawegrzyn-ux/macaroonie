@@ -140,7 +140,8 @@ test('bulk on: the open days with no figures are submitted empty, never after to
   try {
     const res = await ok(owner.post(`${C}/week/${monday}/submit`, {}))
     assert.ok(res.submitted.every(d => d <= today), 'no day after today')
-    assert.ok(res.submitted.includes(monday))
+    // Today has no figures (yesterday may: the test above fills and submits it, and on a Tuesday that is Monday).
+    assert.ok(res.submitted.includes(today), 'today, open and empty, submitted: ' + res.submitted.join(', '))
   } finally {
     await ok(owner.post(`${C}/week/${monday}/unsubmit`, {}))
     await ok(owner.patch(`${C}/settings`, { allow_bulk_submit: false }))
