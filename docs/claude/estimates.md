@@ -110,11 +110,11 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | 47.5b Connecting: a Square access token (sealed) now; Square's OAuth sign-in with token refresh when the platform's Square app ID and secret are set | 8 to 12 min | 7 min (to 21:02) | one PR, below | | | claude-opus-5-5 / high, fresh agent | The OAuth app needs the owner's Square developer account. |
 | 47.5c Webhooks: Square's signature checked (HMAC of the address and body), still only a trigger; the catch-up and 13-month history reused | 5 to 8 min | under 1 min (written within 5a and 5b) | one PR, below | | | claude-opus-5-5 / high, fresh agent | |
 | 47.5d The Integrations page and mapping for Square: choose the till when connecting, its locations, a variation as item plus variant in the mapping tool | 5 to 8 min | 2 min (to 21:04), then tests, browser at 1280 and 1015 and docs 20 (to 21:24) | 7.5 min: PR #516 opened 21:26, a live check of the report tasks 2 of 2, CI green first time 21:32:16, merged 21:32:30 | **47 min for 47.5a to 5d** (20:45:52 to 21:32:30) | migration 294 | claude-opus-5-5 / high, fresh agent | The browser check found that Auth0's login takes any `?code=&state=`: Square's return goes through an API callback that renames them. |
-| T1 Till: the layout's Back button named for where it goes (back to the tables) in the designer's action list | fourth revision: 2 to 3 min | | one PR, below | | | | Estimated 24 Nov 2026 before starting (the owner's till and kiosk list of that day); plus 6 reading (till and kiosk notes). |
-| T2 Till: Ask is the default for leaving an order with items not sent (table-service tills), existing tills set to Ask | 3 to 5 min | | one PR, below | | | | |
-| T3 Till: the receipt when paid and the order type / name / tent prompt move from the venue to each revenue stream (the till can still override); the venue settings dropped | 10 to 14 min (a setting moved across the till app, Store tech and a migration) | | one PR, below | | | | The owner agreed: the screen layout stays a venue setting. |
-| T4 Store tech, Tills: each setting in its own outlined block with a bigger question | 4 to 6 min | | one PR, below | | | | |
-| T5 Kiosk designer: font size controls (headings, body, buttons, prices), drawn by the kiosk and the designer's preview | 6 to 10 min | | one PR: tests, browser and docs 12, PR 7 plus 8 of CI slack | | | | |
+| T1 Till: the layout's Back button named for where it goes (back to the tables) in the designer's action list | fourth revision: 2 to 3 min | 2 min after 2 reading (22:34 to 22:36) | one PR, below |  |  | claude-opus-5-5 / high, fresh agent | Estimated 24 Nov 2026 before starting (the owner's till and kiosk list of that day); plus 6 reading (till and kiosk notes). |
+| T2 Till: Ask is the default for leaving an order with items not sent (table-service tills), existing tills set to Ask | 3 to 5 min | 2 min (to 22:38) | one PR, below |  | migration 295 | claude-opus-5-5 / high, fresh agent | "Absent means ask" in `leaveUnsent()`, not a schema default (that would reach kitchen screens and kiosks). |
+| T3 Till: the receipt when paid and the order type / name / tent prompt move from the venue to each revenue stream (the till can still override); the venue settings dropped | 10 to 14 min (a setting moved across the till app, Store tech and a migration) | 4 min (to 22:42) | one PR, below |  | migration 296 | claude-opus-5-5 / high, fresh agent | The owner agreed: the screen layout stays a venue setting. Resolved per check in `shared/pos/tillSettings.js`. |
+| T4 Store tech, Tills: each setting in its own outlined block with a bigger question | 4 to 6 min | 1 min (to 22:43) | one PR, below |  |  | claude-opus-5-5 / high, fresh agent | New `Setting` blocks in the till area, not the shared `Field`. |
+| T5 Kiosk designer: font size controls (headings, body, buttons, prices), drawn by the kiosk and the designer's preview | 6 to 10 min | 3 min (to 22:46), then tests (till, kiosk, hub, device files), browser at 1280 and 1015 and docs 27 (to 23:13) | 11 min: PR #517 opened 23:15, CI green first time 23:24:59, merged 23:25 | **53 min for T1 to T5** (22:32:07 to 23:25) | 48 files changed (see the PR), migrations 295 and 296 | claude-opus-5-5 / high, fresh agent |  |
 
 ## Running totals
 
@@ -137,6 +137,7 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | 47 phase 3 (suggestions, Pepper proposals, pattern rules and learning, create missing dishes, copy rules), the phase 2 lesson | 4 sub-steps, 1 PR | 1.05 to 1.27 (63 to 76 min) | 0.85 (51 min; build 39, merge 11 with a live run) | about 0.73 |
 | 47 phase 4 (Cash Recon from stored receipts, every-till report subjects, Today and Pepper), fourth revision | 3 sub-steps, 1 PR | 1.07 to 1.30 (64 to 78 min) | 0.92 (55 min; build 43, merge 10.5 with a live eval) | about 0.77 |
 | 47 phase 5 (Square: connector, token and OAuth, webhooks, the page), the halved scale with a new vendor | 4 sub-steps, 1 PR | 1.02 to 1.25 (61 to 75 min) | 0.78 (47 min; build 38, merge 7.5) | about 0.69 |
+| Till and kiosk improvements T1 to T5 (owner's list), fourth revision | 5 small items, 1 PR | 0.97 to 1.18 (58 to 71 min) | 0.88 (53 min; build 41, merge 11) | about 0.82 |
 
 ## The backlog estimates being tested (22 Nov 2026)
 
@@ -347,4 +348,10 @@ next edit). Cost is estimated from each message's tokens at list prices; cached 
 - Build 38: the sub-steps took 18 against 28 to 42. A second connector behind an interface the first one set up costs little; the webhook fell out of the connector work. Tests, both browser widths and docs took 20, which is now the largest part.
 - The pull request took 7.5: CI was green first time, and a targeted live check took a minute.
 - **For the scale:** a second implementation behind an existing interface is about a third of a first one. Item 47 phases 1 to 5: estimated 344 to 426 minutes, actual 265, about 0.69 of the midpoint. Phase 6 (Simphony) waits for a franchise on it.
+
+### Till and kiosk improvements against the fourth revision (24 Nov 2026)
+
+- Estimated 58 to 71 minutes; actual 53: **18% under the midpoint**.
+- The five items took 12 minutes together against 25 to 38: small, well-placed changes. Tests, both browser widths (till app, admin and kiosk designer) and docs took 27, more than half the step: five areas' test files run one at a time, two builds, and a browser harness for three apps.
+- **For the scale:** for a list of small items across apps, estimate the items at 2 to 4 minutes each, and the checking at 20 to 30 minutes for each app the browser check must open.
 
