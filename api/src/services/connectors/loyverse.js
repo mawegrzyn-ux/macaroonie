@@ -12,11 +12,18 @@
 //                               by 'created' (history) or 'updated' (catch-up)
 //     .registerWebhook(url)     { id } or throws (receipts.update to our address)
 //     .deleteWebhook(id)
-//   verifyWebhook({ token, storedHash })   the address's token against its hash
-//   normalise(doc, venue)       a sale document as our rows (check, lines, ...)
+//   verifyWebhook({ token, storedHash, ... })   the address's token against its hash
+//                               (Square also checks a signature over the body)
+//   normalise(doc, venue, refs) a sale document as our rows (check, lines, ...);
+//                               refs: what the stored catalogue knows (Square
+//                               needs a variation's item; Loyverse sends it)
+//   catalogRows(doc)            a catalogue document as ext_catalog rows
+//   hashToken(token)            the webhook token's sha256 (common.js)
 //
-// A doc is { kind, external_id, external_updated_at, payload }, the payload
-// with personal data already taken out (decision D3, stripPersonal()).
+// A doc is { kind, external_id, external_updated_at, location_id, payload },
+// the payload with personal data already taken out (decision D3,
+// stripPersonal()); location_id is a sale's store, which venue it is for.
+// The other connector is connectors/square.js.
 //
 // Loyverse API v1.0: Bearer access token, money as decimals in the account's
 // currency, lists paged by `cursor` with `limit` up to 250. The receipt and
@@ -28,8 +35,8 @@
 // (Retry-After, else doubling) and tries again; between requests it keeps a
 // gap (timing.paceMs), so a history import stays under the limit.
 
-import { createHash, timingSafeEqual } from 'node:crypto'
 import { env } from '../../config/env.js'
+import { ConnectorError, hashToken, tokenMatches, sleep } from './common.js'
 import { toPence, toQty, stripPersonal } from '../../../../shared/externalSales.js'
 import { businessDate } from '../../../../shared/pos/reports.js'
 
@@ -41,17 +48,7 @@ export const timing = { paceMs: 300, backoffMs: 2000, maxRetries: 5, timeoutMs: 
 const PAGE = 250
 const MAX_PAGES = 400
 
-export class ConnectorError extends Error {
-  constructor(message, { tokenProblem = false, rateLimited = false, status = null } = {}) {
-    super(message)
-    this.status = 422
-    this.tokenProblem = tokenProblem
-    this.rateLimited = rateLimited
-    this.upstreamStatus = status
-  }
-}
-
-const sleep = ms => new Promise(r => setTimeout(r, ms))
+export { ConnectorError, hashToken }
 const live = r => r && !r.deleted_at
 
 /** A paced client for one Loyverse account. */
@@ -188,18 +185,14 @@ function saleDoc(r) {
     const { payment_details: d, ...rest } = p
     return d?.card_company ? { ...rest, payment_details: { card_company: d.card_company } } : rest
   })
-  return { kind: 'sale', external_id: String(r.receipt_number), external_updated_at: r.updated_at || r.created_at || null, payload }
+  return { kind: 'sale', external_id: String(r.receipt_number), external_updated_at: r.updated_at || r.created_at || null,
+    location_id: r.store_id || null, payload }
 }
 
-/** The address's token against the stored sha256, in constant time. */
+/** The address's token against the stored sha256 (Loyverse signs nothing). */
 export function verifyWebhook({ token, storedHash }) {
-  if (!token || !storedHash) return false
-  const a = Buffer.from(hashToken(token), 'hex')
-  const b = Buffer.from(String(storedHash), 'hex')
-  return a.length === b.length && timingSafeEqual(a, b)
+  return tokenMatches(token, storedHash)
 }
-
-export const hashToken = token => createHash('sha256').update(String(token)).digest('hex')
 
 const sum = (list, f) => (list || []).reduce((n, x) => n + f(x), 0)
 

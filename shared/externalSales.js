@@ -6,6 +6,9 @@
 //   toPence(v)          a decimal amount as the other till recorded it
 //                       (12.5, "12.50", -3.1) in integer pence, exactly: read
 //                       from its digits, never through a float multiply
+//   moneyPence(m)       a Money object already in the smallest unit (Square's
+//                       { amount: 1250, currency: 'GBP' }) as integer pence,
+//                       with no decimal conversion
 //   stripPersonal(v)    a copy with customer details taken out (decision D3:
 //                       a customer is kept as the other till's id only)
 //   stableJson(v)       JSON with keys sorted, for hashing a document
@@ -61,11 +64,32 @@ export function toPence(v) {
   return p === 0 ? 0 : sign * p
 }
 
+/**
+ * Integer pence from a Money object that is already in the currency's
+ * smallest unit (Square: { amount: 1250, currency: 'GBP' } is 12.50). The
+ * amount is taken as it is, never divided or multiplied; a whole-number
+ * string is read too. null, a missing amount and anything not a whole
+ * number are 0.
+ */
+export function moneyPence(m) {
+  const v = m && typeof m === 'object' ? m.amount : m
+  if (v == null || v === '') return 0
+  if (typeof v === 'bigint') return Number(v)
+  if (typeof v === 'number') return Number.isSafeInteger(v) ? (v === 0 ? 0 : v) : 0
+  const s = String(v).trim()
+  if (!/^[+-]?\d+$/.test(s)) return 0
+  const n = Number(s)
+  return Number.isSafeInteger(n) && n !== 0 ? n : 0
+}
+
 // Keys that name, reach or place a person. Taken out wherever they are.
 const PERSONAL = new Set([
   'customer', 'customer_name', 'customer_email', 'customer_phone', 'customer_phone_number', 'customer_address',
   'email', 'phone', 'phone_number', 'address', 'postal_code', 'city', 'first_name', 'last_name', 'full_name',
   'cardholder_name', 'card_holder_name', 'birthday', 'customer_code', 'note_to_customer',
+  // Square's names for the same (an order's fulfilment recipient, a payment's buyer).
+  'recipient', 'email_address', 'buyer_email_address', 'shipping_address', 'billing_address',
+  'given_name', 'family_name', 'nickname',
 ])
 
 /** A deep copy without the PERSONAL keys (and `extra` keys at the top level). */
