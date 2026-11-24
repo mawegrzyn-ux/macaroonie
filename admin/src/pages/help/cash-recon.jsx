@@ -210,16 +210,17 @@ export function Section() {
       <H3>Fill from Loyverse</H3>
       <P>
         If the venue sells through a <strong>Loyverse</strong> till, Cash Recon can fill a day's
-        income, service charges and takings from Loyverse instead of you typing them in. Set it up
-        once per venue in Cash Recon settings (gear icon) &gt; <strong>Loyverse</strong> (owners
-        and admins):
+        income, service charges and takings from Loyverse instead of you typing them in. The Loyverse
+        account and the venue's store are set up on the <strong>Integrations</strong> page (see
+        Integrations); the mapping is set once per venue in Cash Recon settings (gear icon) &gt;{' '}
+        <strong>Loyverse</strong> (owners and admins):
       </P>
       <DataTable
         head={['Step', 'What to do']}
         rows={[
-          ['1. Add the account', 'In the Loyverse Back Office open Integrations > Access tokens, add a token, then paste it under Loyverse accounts > Add account. It is checked with Loyverse before it is saved, stored encrypted and never shown again. One account can serve several venues; add more accounts if your venues use different Loyverse logins.'],
-          ['2. Pick the store', 'Under This venue, choose the account and the Loyverse store that is this venue.'],
-          ['3. Trading day start', 'Sales before this time count on the day before. Leave 00:00 if you close before midnight; set e.g. 04:00 if you trade past midnight.'],
+          ['1. Connect the account', 'On the Integrations page (Money > Integrations) tap Connect a till and paste a Loyverse access token (Loyverse Back Office > Integrations > Access tokens). It is checked with Loyverse before it is saved, stored encrypted and never shown again.'],
+          ['2. Link the store', 'On the same page tap Link a venue: choose the venue, its Loyverse store and when its trading day starts (sales before that time count on the day before; e.g. 04:00 if you trade past midnight).'],
+          ['3. Open the Loyverse tab', 'Back in Cash Recon settings > Loyverse, the venue shows its store and day start, with a link to change them on Integrations.'],
           ['4. Map the lines', 'Each income source, service charge source and payment channel gets a list of Loyverse figures. Tap Add, choose Add (+) or Subtract (-), then a figure. The line is filled with the sum. Tap + or - on a figure to flip it, or x to remove it. Lines with nothing mapped are never changed.'],
           ['5. Save', 'Nothing is kept until you tap Save. Match payment types by name maps each payment channel to the Loyverse payment type with the same name in one go.'],
         ]}

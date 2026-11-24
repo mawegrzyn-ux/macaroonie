@@ -16,7 +16,7 @@
 //
 // Sealed columns: platform_secrets.value (the Anthropic key, the kiosk
 // preview signing key),
-// loyverse_connections.access_token, gloriafood_venue_links.poll_key,
+// pos_connections.access_token, gloriafood_venue_links.poll_key,
 // venue_email_settings.provider_api_key / provider_secret / smtp_pass,
 // pos_card_accounts.secret (card machine provider keys, migration 193),
 // pos_receipts.email_to (a guest's address waiting for a counter order to be
@@ -33,7 +33,7 @@ const PREFIX = 'v1:'
 
 export const SEALED = [
   { table: 'platform_secrets',      column: 'value',            key: 'name' },
-  { table: 'loyverse_connections',  column: 'access_token',     key: 'id' },
+  { table: 'pos_connections',       column: 'access_token',     key: 'id' },
   { table: 'gloriafood_venue_links', column: 'poll_key',        key: 'id' },
   { table: 'venue_email_settings',  column: 'provider_api_key', key: 'id' },
   { table: 'venue_email_settings',  column: 'provider_secret',  key: 'id' },

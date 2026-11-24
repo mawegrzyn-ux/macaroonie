@@ -105,10 +105,12 @@ export default async function opsRoutes(app) {
     const ctx = contextFor(req)
     // Home's suggestions (step 7a): their own reads run beside the feed's;
     // the rules then see the feed's tasks. A failure there never costs the feed.
+    // The same moment as the feed: a date or time asked for holds for both.
     const here = localParts(new Date(), venue.timezone)
+    const at = { date: q.date || here.date, hour: Number((q.time || here.time).slice(0, 2)) }
     const [today, facts] = await Promise.all([
       opsToday(ctx, venue, { date: q.date, time: q.time, levels }),
-      gatherFacts(req, ctx, venue, { date: here.date, hour: Number(here.time.slice(0, 2)) }).catch(err => {
+      gatherFacts(req, ctx, venue, at).catch(err => {
         req.log.warn({ err }, 'suggestions: facts not gathered')
         return null
       }),

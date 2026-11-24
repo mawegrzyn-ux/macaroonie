@@ -10,7 +10,8 @@
 //   DELETE /connections/:id                (removes its venue links too)
 //   GET    /connections/:id/catalog        stores, payment types, categories, items
 //   GET    /venues/:venueId/link           the venue's link + mapping, or null
-//   PUT    /venues/:venueId/link           { connection_id, store_id, store_name, day_starts_at, mappings }
+//   PUT    /venues/:venueId/link           { connection_id, store_id, store_name, day_starts_at } (starts its history import)
+//   PUT    /venues/:venueId/mappings       { mappings } the Cash Recon field mapping
 //   DELETE /venues/:venueId/link
 //   POST   /venues/:venueId/preview        { from, to } Loyverse figures next to what Cash Recon has
 //   POST   /venues/:venueId/apply          { dates } write the mapped fields for those days
@@ -29,6 +30,8 @@ import { httpError }  from '../middleware/error.js'
 import { checkToken, tokenHint, loadCatalog, loadStores, venueDays, datesBetween, LoyverseError } from '../services/loyverseSvc.js'
 import { fillReconDay, reconFields } from '../services/reconFill.js'
 import { seal, unseal } from '../services/vault.js'
+import { startHistory, markRequested, requestSync, setupWebhook } from '../services/salesImportSvc.js'
+import { connector } from '../services/connectors/loyverse.js'
 import { isValidTerm, sumTerms, MAPPING_GROUPS } from '../../../shared/loyverse.js'
 
 const UUID = z.string().uuid()
@@ -61,7 +64,9 @@ const LinkBody = z.object({
   store_id:      z.string().trim().min(1).max(100),
   store_name:    z.string().max(200).nullable().optional(),
   day_starts_at: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/).default('00:00'),
-  mappings:      z.object({ income: GroupMap, takings: GroupMap, sc: GroupMap }).default({}),
+})
+const MappingsBody = z.object({
+  mappings: z.object({ income: GroupMap, takings: GroupMap, sc: GroupMap }),
 })
 
 const PreviewBody = z.object({ from: DATE, to: DATE })
@@ -92,7 +97,7 @@ async function ownVenue(tx, tenantId, venueId) {
 }
 
 async function ownConnection(tx, tenantId, id) {
-  const [c] = await tx`SELECT * FROM loyverse_connections WHERE id = ${id} AND tenant_id = ${tenantId}`
+  const [c] = await tx`SELECT * FROM pos_connections WHERE id = ${id} AND tenant_id = ${tenantId} AND system = 'loyverse'`
   if (!c) throw httpError(404, 'Loyverse account not found')
   return { ...c, access_token: unseal(c.access_token) }   // stored sealed (migration 179)
 }
@@ -140,8 +145,8 @@ async function currentValues(tx, tenantId, venueId, dates) {
 async function loadLink(tx, tenantId, venueId) {
   const [link] = await tx`
     SELECT l.*, c.name AS connection_name, c.access_token, c.business_name, c.currency, c.token_hint
-      FROM loyverse_venue_links l
-      JOIN loyverse_connections c ON c.id = l.connection_id AND c.tenant_id = l.tenant_id
+      FROM pos_connection_venues l
+      JOIN pos_connections c ON c.id = l.connection_id AND c.tenant_id = l.tenant_id AND c.system = 'loyverse'
      WHERE l.tenant_id = ${tenantId} AND l.venue_id = ${venueId}
   `
   return link ? { ...link, access_token: unseal(link.access_token) } : null
@@ -152,7 +157,7 @@ function linkView(link) {
   return {
     venue_id: link.venue_id, connection_id: link.connection_id, connection_name: link.connection_name,
     business_name: link.business_name, currency: link.currency, token_hint: link.token_hint,
-    store_id: link.store_id, store_name: link.store_name, day_starts_at: link.day_starts_at,
+    store_id: link.location_id, store_name: link.location_name, day_starts_at: link.day_starts_at,
     mappings: link.mappings || {}, updated_at: link.updated_at,
   }
 }
@@ -169,13 +174,13 @@ async function readDays(tenantId, venueId, dates) {
   let figures
   try {
     figures = await venueDays({
-      token: ctx.link.access_token, storeId: ctx.link.store_id, timezone: ctx.venue.timezone,
+      token: ctx.link.access_token, storeId: ctx.link.location_id, timezone: ctx.venue.timezone,
       dayStartsAt: ctx.link.day_starts_at, dates, mappings: ctx.link.mappings,
     })
   } catch (e) {
     if (e instanceof LoyverseError && e.tokenProblem) {
       await withTenant(tenantId, tx => tx`
-        UPDATE loyverse_connections SET last_error = ${e.message}, last_checked_at = now()
+        UPDATE pos_connections SET last_error = ${e.message}, last_checked_at = now()
          WHERE id = ${ctx.link.connection_id} AND tenant_id = ${tenantId}`).catch(() => {})
     }
     throw asHttp(e)
@@ -196,9 +201,9 @@ export default async function loyverseRoutes(app) {
   // ── Accounts ──────────────────────────────────────────────────
   app.get('/connections', { preHandler: canView }, async req => withTenant(req.tenantId, async tx => {
     const rows = await tx`
-      SELECT c.*, (SELECT count(*) FROM loyverse_venue_links l WHERE l.connection_id = c.id AND l.tenant_id = c.tenant_id) AS venue_count
-        FROM loyverse_connections c
-       WHERE c.tenant_id = ${req.tenantId}
+      SELECT c.*, (SELECT count(*) FROM pos_connection_venues l WHERE l.connection_id = c.id AND l.tenant_id = c.tenant_id) AS venue_count
+        FROM pos_connections c
+       WHERE c.tenant_id = ${req.tenantId} AND c.system = 'loyverse'
        ORDER BY c.created_at
     `
     return rows.map(connectionView)
@@ -210,15 +215,20 @@ export default async function loyverseRoutes(app) {
     try { info = await checkToken(body.access_token) } catch (e) { throw asHttp(e) }
     const row = await withTenant(req.tenantId, async tx => {
       const [c] = await tx`
-        INSERT INTO loyverse_connections (tenant_id, name, access_token, token_hint, merchant_id, business_name, currency, last_checked_at, created_by)
+        INSERT INTO pos_connections (tenant_id, name, access_token, token_hint, merchant_id, business_name, currency, last_checked_at, created_by)
         VALUES (${req.tenantId}, ${body.name}, ${seal(body.access_token)}, ${tokenHint(body.access_token)},
                 ${info.merchant_id}, ${info.business_name}, ${info.currency}, now(), ${by(req)})
         RETURNING *
       `
       return c
     })
+    // Sales import (migration 288): a webhook address registered with
+    // Loyverse when it allows (else shown on the Integrations page), and a
+    // first sync of the master data.
+    const webhook = await setupWebhook(req.tenantId, row.id).catch(e => ({ registered: false, error: e.message }))
+    requestSync(req.tenantId, row.id, req.log)
     reply.code(201)
-    return connectionView({ ...row, venue_count: 0 })
+    return { ...connectionView({ ...row, venue_count: 0 }), webhook }
   })
 
   app.patch('/connections/:id', { preHandler: canSetup }, async req => {
@@ -232,7 +242,7 @@ export default async function loyverseRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       const [c] = info
         ? await tx`
-            UPDATE loyverse_connections
+            UPDATE pos_connections
                SET name = COALESCE(${body.name ?? null}, name),
                    access_token = ${seal(body.access_token)}, token_hint = ${tokenHint(body.access_token)},
                    merchant_id = ${info.merchant_id}, business_name = ${info.business_name}, currency = ${info.currency},
@@ -240,7 +250,7 @@ export default async function loyverseRoutes(app) {
              WHERE id = ${id} AND tenant_id = ${req.tenantId}
             RETURNING *`
         : await tx`
-            UPDATE loyverse_connections SET name = COALESCE(${body.name ?? null}, name), updated_at = now()
+            UPDATE pos_connections SET name = COALESCE(${body.name ?? null}, name), updated_at = now()
              WHERE id = ${id} AND tenant_id = ${req.tenantId}
             RETURNING *`
       return connectionView(c)
@@ -258,12 +268,12 @@ export default async function loyverseRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       const [row] = info
         ? await tx`
-            UPDATE loyverse_connections
+            UPDATE pos_connections
                SET merchant_id = ${info.merchant_id}, business_name = ${info.business_name}, currency = ${info.currency},
                    last_checked_at = now(), last_error = NULL
              WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING *`
         : await tx`
-            UPDATE loyverse_connections SET last_checked_at = now(), last_error = ${error}
+            UPDATE pos_connections SET last_checked_at = now(), last_error = ${error}
              WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING *`
       return { ok: !!info, error, connection: connectionView(row) }
     })
@@ -272,9 +282,12 @@ export default async function loyverseRoutes(app) {
   app.delete('/connections/:id', { preHandler: canSetup }, async req => {
     const id = UUID.parse(req.params.id)
     return withTenant(req.tenantId, async tx => {
-      await ownConnection(tx, req.tenantId, id)
-      await tx`DELETE FROM loyverse_venue_links WHERE connection_id = ${id} AND tenant_id = ${req.tenantId}`
-      await tx`DELETE FROM loyverse_connections WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      const c = await ownConnection(tx, req.tenantId, id)
+      // Its webhook at Loyverse goes too (best effort); its stored sales
+      // (ext_*) go with the connection (ON DELETE CASCADE).
+      if (c.webhook_id) connector({ token: c.access_token }).deleteWebhook(c.webhook_id).catch(() => {})
+      await tx`DELETE FROM pos_connection_venues WHERE connection_id = ${id} AND tenant_id = ${req.tenantId}`
+      await tx`DELETE FROM pos_connections WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       return { ok: true }
     })
   })
@@ -294,6 +307,8 @@ export default async function loyverseRoutes(app) {
     })
   })
 
+  // The store and trading day (Integrations page). The Cash Recon mapping
+  // is kept; it has its own route below.
   app.put('/venues/:venueId/link', { preHandler: canSetup }, async req => {
     const venueId = UUID.parse(req.params.venueId)
     const body = LinkBody.parse(req.body)
@@ -308,7 +323,41 @@ export default async function loyverseRoutes(app) {
     if (!store) throw httpError(422, 'That store isn\'t on this Loyverse account')
 
     return withTenant(req.tenantId, async tx => {
-      // Keep only fields that are this venue's, and only valid terms.
+      const [taken] = await tx`
+        SELECT v.name FROM pos_connection_venues l JOIN venues v ON v.id = l.venue_id AND v.tenant_id = l.tenant_id
+         WHERE l.tenant_id = ${req.tenantId} AND l.connection_id = ${conn.id} AND l.location_id = ${store.id} AND l.venue_id <> ${venueId}`
+      if (taken) throw httpError(409, 'That store is already linked to ' + taken.name)
+      const [before] = await tx`
+        SELECT connection_id, location_id FROM pos_connection_venues WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      await tx`
+        INSERT INTO pos_connection_venues (tenant_id, venue_id, connection_id, location_id, location_name, day_starts_at)
+        VALUES (${req.tenantId}, ${venueId}, ${conn.id}, ${store.id}, ${store.name}, ${body.day_starts_at})
+        ON CONFLICT (venue_id) DO UPDATE SET
+          connection_id = EXCLUDED.connection_id, location_id = EXCLUDED.location_id, location_name = EXCLUDED.location_name,
+          day_starts_at = EXCLUDED.day_starts_at, updated_at = now()
+        WHERE pos_connection_venues.tenant_id = ${req.tenantId}
+      `
+      const moved = !before || before.connection_id !== conn.id || before.location_id !== store.id
+      if (moved) {
+        await startHistory(tx, req.tenantId, venueId)
+        await markRequested(tx, req.tenantId, conn.id)
+      }
+      const link = await loadLink(tx, req.tenantId, venueId)
+      if (!link) throw httpError(404, 'Venue not found')
+      if (moved) requestSync(req.tenantId, conn.id, req.log)
+      return { link: linkView(link) }
+    })
+  })
+
+  // The Cash Recon mapping (Cash Recon settings > Loyverse): the whole
+  // mapping each time; fields that aren't this venue's and invalid terms are
+  // dropped.
+  app.put('/venues/:venueId/mappings', { preHandler: canSetup }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const body = MappingsBody.parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      if (!(await loadLink(tx, req.tenantId, venueId))) throw httpError(422, 'Link this venue to a Loyverse store first (Integrations).')
       const fields = await reconFields(tx, req.tenantId, venueId)
       const mappings = {}
       for (const group of MAPPING_GROUPS) {
@@ -324,16 +373,9 @@ export default async function loyverseRoutes(app) {
         }
       }
       await tx`
-        INSERT INTO loyverse_venue_links (tenant_id, venue_id, connection_id, store_id, store_name, day_starts_at, mappings)
-        VALUES (${req.tenantId}, ${venueId}, ${conn.id}, ${store.id}, ${store.name}, ${body.day_starts_at}, ${tx.json(mappings)})
-        ON CONFLICT (venue_id) DO UPDATE SET
-          connection_id = EXCLUDED.connection_id, store_id = EXCLUDED.store_id, store_name = EXCLUDED.store_name,
-          day_starts_at = EXCLUDED.day_starts_at, mappings = EXCLUDED.mappings, updated_at = now()
-        WHERE loyverse_venue_links.tenant_id = ${req.tenantId}
-      `
-      const link = await loadLink(tx, req.tenantId, venueId)
-      if (!link) throw httpError(404, 'Venue not found')
-      return { link: linkView(link) }
+        UPDATE pos_connection_venues SET mappings = ${tx.json(mappings)}, updated_at = now()
+         WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      return { link: linkView(await loadLink(tx, req.tenantId, venueId)) }
     })
   })
 
@@ -341,7 +383,7 @@ export default async function loyverseRoutes(app) {
     const venueId = UUID.parse(req.params.venueId)
     return withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
-      await tx`DELETE FROM loyverse_venue_links WHERE venue_id = ${venueId} AND tenant_id = ${req.tenantId}`
+      await tx`DELETE FROM pos_connection_venues WHERE venue_id = ${venueId} AND tenant_id = ${req.tenantId}`
       return { ok: true }
     })
   })

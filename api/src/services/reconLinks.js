@@ -65,7 +65,7 @@ export const LINK_SOURCES = [
     label: 'Loyverse',
     where: { tab: 'loyverse', label: 'the Loyverse tab' },
     async load(tx, tenantId, venueId) {
-      const [link] = await tx`SELECT mappings FROM loyverse_venue_links WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
+      const [link] = await tx`SELECT mappings FROM pos_connection_venues WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
       if (!link) return null
       return { fields: describe(link.mappings, (_, t) => signedTerm(loyverseValid, loyverseLabel)(t)), note: 'Filled with Fill from Loyverse' }
     },

@@ -118,7 +118,7 @@ test('Loyverse tokens: sealed, never sent back, used for every Loyverse call', a
   const c = await ok(owner.post('/api/loyverse/connections', { name: 'Zqx Loyverse', access_token: LV_TOKEN }))
   assert.equal(c.token_hint, '9911')
   assert.equal(JSON.stringify(c).includes(LV_TOKEN), false)
-  const [row] = await sql`SELECT access_token FROM loyverse_connections WHERE id = ${c.id}`
+  const [row] = await sql`SELECT access_token FROM pos_connections WHERE id = ${c.id}`
   assert.ok(isSealed(row.access_token) && !row.access_token.includes(LV_TOKEN))
   const test1 = await ok(owner.post(`/api/loyverse/connections/${c.id}/test`, {}))
   assert.equal(test1.ok, true, 'the stored token works')
@@ -137,12 +137,12 @@ test('the Anthropic key: sealed in platform_secrets, the chats get it as saved',
 
 test('keys saved before sealing are sealed at start, once', async () => {
   const [conn] = await sql`
-    INSERT INTO loyverse_connections (tenant_id, name, access_token, token_hint)
+    INSERT INTO pos_connections (tenant_id, name, access_token, token_hint)
     VALUES (${ids.a}, 'Zqx Old', 'plain-old-token-1234', '1234') RETURNING id`
   await sql`UPDATE venue_email_settings SET smtp_pass = 'plain-smtp-pass' WHERE venue_id = ${V}`
   const n = await sealStoredSecrets()
   assert.ok(n >= 2, 'sealed ' + n)
-  const [lv] = await sql`SELECT access_token FROM loyverse_connections WHERE id = ${conn.id}`
+  const [lv] = await sql`SELECT access_token FROM pos_connections WHERE id = ${conn.id}`
   const [em] = await sql`SELECT smtp_pass FROM venue_email_settings WHERE venue_id = ${V}`
   assert.equal(unseal(lv.access_token), 'plain-old-token-1234')
   assert.equal(unseal(em.smtp_pass), 'plain-smtp-pass')

@@ -25,7 +25,7 @@ export function Section() {
         rows={[
           ['platform_secrets.value (anthropic_api_key)', 'saveKey() (ai/apiKey.js)', 'activeKey()'],
           ['platform_secrets.value (kiosk_preview_key)', 'previewSecret() (kioskSvc.js)', 'previewSecret()'],
-          ['loyverse_connections.access_token', 'POST / PATCH /api/loyverse/connections', 'ownConnection(), loadLink() (routes/loyverse.js)'],
+          ['pos_connections.access_token', 'POST / PATCH /api/loyverse/connections', 'ownConnection(), loadLink() (routes/loyverse.js)'],
           ['gloriafood_venue_links.poll_key', 'PUT /api/gloriafood/venues/:id/link', 'pollVenue() (gloriafoodSvc.js); the link route compares a typed key with the unsealed one'],
           ['venue_email_settings.provider_api_key, provider_secret, smtp_pass', 'POST / PATCH /api/email-templates/settings/:venueId', 'emailCredentials() (emailSvc.js), loadSendgridKey() (emailMonitoring.js)'],
           ['pos_card_accounts.secret', 'POST / PATCH /api/pos/card-accounts', 'the card machine adapters (services/cardSvc.js)'],

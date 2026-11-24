@@ -2,11 +2,12 @@
 //
 // Loyverse POS link for Cash Reconciliation (migration 154).
 //
-//   LoyverseSettings     Cash Recon settings > Loyverse: accounts (access
-//                        tokens), this venue's store and trading day, and
-//                        the field mapping (each income source, SC source
-//                        and payment channel = a +/- list of Loyverse
-//                        figures). One explicit Save for the venue part.
+//   LoyverseSettings     Cash Recon settings > Loyverse: the field mapping
+//                        (each income source, SC source and payment channel
+//                        = a +/- list of Loyverse figures), one explicit
+//                        Save. The account (access token) and the venue's
+//                        store and trading day are on the Integrations page
+//                        (pages/Integrations.jsx, migration 288).
 //   LoyverseFillButton   "Fill from Loyverse" on the day view and the week
 //                        grid; opens LoyverseFillModal: Loyverse figures
 //                        next to what Cash Recon has, tick days, Fill.
@@ -17,16 +18,16 @@
 // (reconShared.jsx).
 
 import { useState, useMemo, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { format } from 'date-fns'
 import {
-  Loader2, Plus, X, Check, AlertTriangle, RefreshCw, Search, Trash2, Pencil, Download, Wand2,
+  Loader2, X, Check, AlertTriangle, Search, Download, Wand2, Plug,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { TOTAL_KINDS, REF_KINDS, termLabel } from '@shared/loyverse.js'
 import {
-  DAY_STARTS, money, useReconLinkPerms, Card, inputCls, btn, btnPrimary, btnOutline,
+  money, useReconLinkPerms, Card, inputCls, btn, btnPrimary, btnOutline,
   MappingGroups, SummaryRow, ReconFillModal,
 } from './reconShared'
 
@@ -46,6 +47,8 @@ export function useLoyverseLink(venueId) {
 
 export function LoyverseSettings({ venueId, config }) {
   const { canSetup, ready } = useLoyversePerms()
+  const { data: linkRes, isLoading } = useLoyverseLink(venueId)
+  const link = linkRes?.link ?? null
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground leading-relaxed">
@@ -55,211 +58,41 @@ export function LoyverseSettings({ venueId, config }) {
       </p>
       {ready && !canSetup && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
-          Only owners and admins can set up Loyverse. You can see the setup here.
+          Only owners and admins can change the Loyverse mapping. You can see it here.
         </div>
       )}
-      <AccountsCard canSetup={canSetup} />
-      <VenueLinkCard venueId={venueId} config={config} canSetup={canSetup} />
-    </div>
-  )
-}
-
-function AccountsCard({ canSetup }) {
-  const api = useApi()
-  const qc = useQueryClient()
-  const { data: accounts = [], isLoading } = useQuery({
-    queryKey: ['loyverse-connections'],
-    queryFn:  () => api.get('/loyverse/connections'),
-  })
-  const [adding, setAdding] = useState(false)
-
-  return (
-    <Card
-      title="Loyverse accounts"
-      action={canSetup && !adding && (
-        <button type="button" onClick={() => setAdding(true)} className={cn(btnOutline, 'bg-background')}>
-          <Plus className="w-4 h-4" /> Add account
-        </button>
-      )}
-    >
       {isLoading && <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />}
-      {!isLoading && accounts.length === 0 && !adding && (
-        <p className="text-sm text-muted-foreground">No Loyverse account added yet.</p>
-      )}
-      {accounts.map(a => (
-        <AccountRow key={a.id} account={a} canSetup={canSetup}
-          onChanged={() => {
-            qc.invalidateQueries({ queryKey: ['loyverse-connections'] })
-            qc.invalidateQueries({ queryKey: ['loyverse-link'] })
-            qc.invalidateQueries({ queryKey: ['loyverse-catalog', a.id] })
-          }} />
-      ))}
-      {adding && (
-        <AccountForm
-          onCancel={() => setAdding(false)}
-          onSave={async ({ name, token }) => {
-            await api.post('/loyverse/connections', { name, access_token: token })
-            qc.invalidateQueries({ queryKey: ['loyverse-connections'] })
-            setAdding(false)
-          }}
-        />
-      )}
-    </Card>
-  )
-}
-
-function AccountForm({ initialName = '', tokenOnly, onSave, onCancel }) {
-  const [name, setName] = useState(initialName)
-  const [token, setToken] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState(null)
-  const ok = (tokenOnly || name.trim()) && token.trim().length >= 8
-
-  async function save() {
-    setBusy(true); setError(null)
-    try { await onSave({ name: name.trim(), token: token.trim() }) } catch (e) { setError(e.message) }
-    setBusy(false)
-  }
-
-  return (
-    <div className="rounded-xl border bg-muted/30 p-3 space-y-3">
-      {!tokenOnly && (
-        <label className="block space-y-1">
-          <span className="text-sm font-medium">Name</span>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Main Loyverse account" className={inputCls} />
-        </label>
-      )}
-      <label className="block space-y-1">
-        <span className="text-sm font-medium">{tokenOnly ? 'New access token' : 'Access token'}</span>
-        <input type="password" autoComplete="off" value={token} onChange={e => setToken(e.target.value)}
-          placeholder="Paste the token from Loyverse" className={inputCls} />
-      </label>
-      <p className="text-xs text-muted-foreground leading-relaxed">
-        In the Loyverse Back Office open <strong>Integrations &gt; Access tokens</strong>, add a token and paste it
-        here. It is checked with Loyverse before it is saved and is never shown again.
-      </p>
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      <div className="flex justify-end gap-2">
-        <button type="button" onClick={onCancel} className={btnOutline}>Cancel</button>
-        <button type="button" onClick={save} disabled={!ok || busy} className={btnPrimary}>
-          {busy && <Loader2 className="w-4 h-4 animate-spin" />} {tokenOnly ? 'Check and replace' : 'Check and save'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function AccountRow({ account: a, canSetup, onChanged }) {
-  const api = useApi()
-  const [mode, setMode] = useState(null)          // null | 'token' | 'rename' | 'remove'
-  const [name, setName] = useState(a.name)
-  const [busy, setBusy] = useState(false)
-  const [note, setNote] = useState(null)
-
-  async function run(fn) {
-    setBusy(true); setNote(null)
-    try { await fn() } catch (e) { setNote({ error: true, text: e.message }) }
-    setBusy(false)
-  }
-
-  return (
-    <div className="rounded-xl border p-3 space-y-2">
-      <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">{a.name}</div>
-          <div className="text-xs text-muted-foreground">
-            {[a.business_name, a.currency, 'Token ending ' + a.token_hint].filter(Boolean).join(' · ')}
-            {a.venue_count > 0 && ' · ' + a.venue_count + (a.venue_count === 1 ? ' venue' : ' venues')}
-          </div>
-          {a.last_error
-            ? <div className="mt-1 text-xs text-destructive flex items-start gap-1"><AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />{a.last_error}</div>
-            : a.last_checked_at && <div className="mt-1 text-xs text-green-700 flex items-center gap-1"><Check className="w-3.5 h-3.5" />Working, checked {format(new Date(a.last_checked_at), 'd MMM HH:mm')}</div>}
-        </div>
-        {canSetup && !mode && (
-          <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={busy} className={btnOutline}
-              onClick={() => run(async () => {
-                const r = await api.post(`/loyverse/connections/${a.id}/test`)
-                setNote(r.ok ? { text: 'The token works.' } : { error: true, text: r.error })
-                onChanged()
-              })}>
-              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Check
-            </button>
-            <button type="button" className={btnOutline} onClick={() => setMode('rename')}><Pencil className="w-4 h-4" /> Rename</button>
-            <button type="button" className={btnOutline} onClick={() => setMode('token')}>Replace token</button>
-            <button type="button" className={cn(btnOutline, 'text-destructive')} onClick={() => setMode('remove')}><Trash2 className="w-4 h-4" /> Remove</button>
-          </div>
-        )}
-      </div>
-      {note && <p className={cn('text-sm', note.error ? 'text-destructive' : 'text-green-700')}>{note.text}</p>}
-      {mode === 'rename' && (
-        <div className="flex flex-wrap gap-2">
-          <input value={name} onChange={e => setName(e.target.value)} className={cn(inputCls, 'flex-1 min-w-[200px]')} />
-          <button type="button" className={btnOutline} onClick={() => { setMode(null); setName(a.name) }}>Cancel</button>
-          <button type="button" className={btnPrimary} disabled={!name.trim() || busy}
-            onClick={() => run(async () => { await api.patch(`/loyverse/connections/${a.id}`, { name: name.trim() }); setMode(null); onChanged() })}>
-            Save
-          </button>
-        </div>
-      )}
-      {mode === 'token' && (
-        <AccountForm tokenOnly onCancel={() => setMode(null)}
-          onSave={async ({ token }) => { await api.patch(`/loyverse/connections/${a.id}`, { access_token: token }); setMode(null); onChanged() }} />
-      )}
-      {mode === 'remove' && (
-        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 space-y-2">
-          <p className="text-sm">
-            Remove <strong>{a.name}</strong>?{a.venue_count > 0 && ' ' + a.venue_count + (a.venue_count === 1 ? ' venue loses its' : ' venues lose their') + ' Loyverse link and mapping.'} Days already filled keep their figures.
+      {!isLoading && !link && (
+        <Card title="This venue">
+          <p className="text-sm text-muted-foreground">
+            This venue isn&apos;t linked to a Loyverse store yet. Add the Loyverse account and link the venue to its
+            store on the Integrations page, then come back here to map the figures.
           </p>
-          <div className="flex justify-end gap-2">
-            <button type="button" className={btnOutline} onClick={() => setMode(null)}>Cancel</button>
-            <button type="button" className={cn(btn, 'bg-destructive text-destructive-foreground hover:bg-destructive/90')} disabled={busy}
-              onClick={() => run(async () => { await api.delete(`/loyverse/connections/${a.id}`); onChanged() })}>
-              Yes, remove
-            </button>
-          </div>
-        </div>
+          <Link to="/integrations" className={cn(btnOutline, 'w-fit')}><Plug className="w-4 h-4" /> Open Integrations</Link>
+        </Card>
       )}
+      {link && <MappingCard venueId={venueId} config={config} link={link} canSetup={canSetup} />}
     </div>
   )
 }
 
-function emptyDraft(connectionId = '') {
-  return { connection_id: connectionId, store_id: '', day_starts_at: '00:00', mappings: { income: {}, takings: {}, sc: {} } }
-}
-
-function draftFromLink(link) {
-  return {
-    connection_id: link.connection_id, store_id: link.store_id, day_starts_at: link.day_starts_at || '00:00',
-    mappings: { income: {}, takings: {}, sc: {}, ...(link.mappings || {}) },
-  }
-}
-
-function VenueLinkCard({ venueId, config, canSetup }) {
+function MappingCard({ venueId, config, link, canSetup }) {
   const api = useApi()
   const qc = useQueryClient()
-  const { data: accounts = [] } = useQuery({ queryKey: ['loyverse-connections'], queryFn: () => api.get('/loyverse/connections') })
-  const { data: linkRes, isLoading } = useLoyverseLink(venueId)
-  const link = linkRes?.link ?? null
-
-  const [draft, setDraft] = useState(null)
+  const base = useMemo(() => ({ income: {}, takings: {}, sc: {}, ...(link.mappings || {}) }), [link])
+  const [draft, setDraft] = useState(base)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
   const [picker, setPicker] = useState(null)       // { group, id, name }
-  const [confirmUnlink, setConfirmUnlink] = useState(false)
   const [matchNote, setMatchNote] = useState(null)
-
-  const firstAccountId = accounts[0]?.id || ''
-  const base = useMemo(() => link ? draftFromLink(link) : emptyDraft(firstAccountId), [link, firstAccountId])
   useEffect(() => { setDraft(base); setError(null) }, [base, venueId])
-  const d = draft ?? base
-  const dirty = JSON.stringify(d) !== JSON.stringify(base)
+  const dirty = JSON.stringify(draft) !== JSON.stringify(base)
 
   const { data: catalog, isLoading: catalogLoading, error: catalogError } = useQuery({
-    queryKey: ['loyverse-catalog', d.connection_id],
-    queryFn:  () => api.get(`/loyverse/connections/${d.connection_id}/catalog`),
-    enabled:  canSetup && !!d.connection_id,
+    queryKey: ['loyverse-catalog', link.connection_id],
+    queryFn:  () => api.get(`/loyverse/connections/${link.connection_id}/catalog`),
+    enabled:  canSetup,
     staleTime: 5 * 60_000,
     retry: false,
   })
@@ -270,98 +103,50 @@ function VenueLinkCard({ venueId, config, canSetup }) {
     payment_type: Object.fromEntries((catalog?.payment_types ?? []).map(x => [x.id, x.name])),
   }), [catalog])
 
-  if (isLoading || !draft) return <Card title="This venue"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></Card>
-
-  if (!accounts.length && !link) {
-    return <Card title="This venue"><p className="text-sm text-muted-foreground">Add a Loyverse account above first.</p></Card>
-  }
-
   const setField = (group, id, terms) => setDraft(p => {
-    const g = { ...(p.mappings[group] || {}) }
+    const g = { ...(p[group] || {}) }
     if (terms.length) g[id] = terms
     else delete g[id]
-    return { ...p, mappings: { ...p.mappings, [group]: g } }
+    return { ...p, [group]: g }
   })
-  const termsOf = (group, id) => d.mappings[group]?.[id] || []
+  const termsOf = (group, id) => draft[group]?.[id] || []
 
   function matchPaymentTypes() {
     const norm = s => String(s || '').trim().toLowerCase()
     let n = 0
-    const next = { ...(d.mappings.takings || {}) }
+    const next = { ...(draft.takings || {}) }
     for (const ch of (config?.payment_channels ?? []).filter(c => c.is_active)) {
       if (next[ch.id]?.length) continue
       const pt = (catalog?.payment_types ?? []).find(p => norm(p.name) === norm(ch.name))
       if (pt) { next[ch.id] = [{ sign: 1, kind: 'payment_type', ref: pt.id, label: pt.name }]; n++ }
     }
-    setDraft(p => ({ ...p, mappings: { ...p.mappings, takings: next } }))
+    setDraft(p => ({ ...p, takings: next }))
     setMatchNote(n ? `Matched ${n} payment ${n === 1 ? 'channel' : 'channels'} by name. Save to keep.` : 'No unmapped channel has the same name as a Loyverse payment type.')
   }
 
   async function save() {
     setSaving(true); setError(null); setSaved(false)
     try {
-      const store = catalog?.stores?.find(s => s.id === d.store_id)
-      await api.put(`/loyverse/venues/${venueId}/link`, { ...d, store_name: store?.name ?? null })
+      await api.put(`/loyverse/venues/${venueId}/mappings`, { mappings: draft })
       await qc.invalidateQueries({ queryKey: ['loyverse-link', venueId] })
-      qc.invalidateQueries({ queryKey: ['loyverse-connections'] })
       setSaved(true); setTimeout(() => setSaved(false), 2500)
       setMatchNote(null)
     } catch (e) { setError(e.message) }
     setSaving(false)
   }
 
-  async function unlink() {
-    setSaving(true); setError(null)
-    try {
-      await api.delete(`/loyverse/venues/${venueId}/link`)
-      await qc.invalidateQueries({ queryKey: ['loyverse-link', venueId] })
-      qc.invalidateQueries({ queryKey: ['loyverse-connections'] })
-      setConfirmUnlink(false)
-    } catch (e) { setError(e.message) }
-    setSaving(false)
-  }
-
   const readOnly = !canSetup
-  const account = accounts.find(a => a.id === d.connection_id)
-  const stores = catalog?.stores ?? (link && link.connection_id === d.connection_id ? [{ id: link.store_id, name: link.store_name || link.store_id }] : [])
 
   return (
     <>
       <Card title="This venue">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <label className="block space-y-1">
-            <span className="text-sm font-medium">Loyverse account</span>
-            <select disabled={readOnly} value={d.connection_id}
-              onChange={e => setDraft(p => ({ ...p, connection_id: e.target.value, store_id: '' }))} className={inputCls}>
-              {!d.connection_id && <option value="">Choose…</option>}
-              {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-          </label>
-          <label className="block space-y-1">
-            <span className="text-sm font-medium">Store</span>
-            <select disabled={readOnly || (!catalog && !stores.length)} value={d.store_id}
-              onChange={e => setDraft(p => ({ ...p, store_id: e.target.value }))} className={inputCls}>
-              <option value="">{catalogLoading ? 'Loading…' : 'Choose a store…'}</option>
-              {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </label>
-          <label className="block space-y-1">
-            <span className="text-sm font-medium">Trading day starts at</span>
-            <select disabled={readOnly} value={d.day_starts_at}
-              onChange={e => setDraft(p => ({ ...p, day_starts_at: e.target.value }))} className={inputCls}>
-              {DAY_STARTS.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </label>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Sales before the trading day start count on the day before (set e.g. 04:00 if you trade past midnight).
-          Times are the venue&apos;s local time.
+        <p className="text-sm">
+          Linked to <strong>{link.store_name || link.store_id}</strong> on <strong>{link.connection_name}</strong>;
+          the trading day starts at <strong>{link.day_starts_at}</strong>.
         </p>
+        <Link to="/integrations" className={cn(btnOutline, 'w-fit')}><Plug className="w-4 h-4" /> Change on Integrations</Link>
         {catalogError && (
           <p className="text-sm text-destructive flex items-start gap-1.5"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />{catalogError.message}</p>
-        )}
-        {account?.last_error && !catalogError && (
-          <p className="text-sm text-destructive flex items-start gap-1.5"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />{account.last_error}</p>
         )}
       </Card>
 
@@ -373,7 +158,7 @@ function VenueLinkCard({ venueId, config, canSetup }) {
         </p>
         <MappingGroups
           config={config}
-          mappings={d.mappings}
+          mappings={draft}
           termLabel={t => termLabel(t, names)}
           readOnly={readOnly}
           emptyText="Not filled from Loyverse"
@@ -394,21 +179,11 @@ function VenueLinkCard({ venueId, config, canSetup }) {
 
       {canSetup && (
         <div className="sticky bottom-0 z-10 -mx-4 px-4 py-3 bg-background border-t flex flex-wrap items-center gap-2">
-          {link && !confirmUnlink && (
-            <button type="button" onClick={() => setConfirmUnlink(true)} className={cn(btnOutline, 'text-destructive')}>Unlink venue</button>
-          )}
-          {confirmUnlink && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm">Unlink this venue from Loyverse? The mapping is removed.</span>
-              <button type="button" onClick={() => setConfirmUnlink(false)} className={btnOutline}>Cancel</button>
-              <button type="button" onClick={unlink} disabled={saving} className={cn(btn, 'bg-destructive text-destructive-foreground')}>Yes, unlink</button>
-            </div>
-          )}
           <div className="ml-auto flex items-center gap-3">
             {error && <span className="text-sm text-destructive">{error}</span>}
             {saved && <span className="text-sm text-green-700 flex items-center gap-1"><Check className="w-4 h-4" /> Saved</span>}
             {dirty && <button type="button" onClick={() => setDraft(base)} className={btnOutline}>Discard</button>}
-            <button type="button" onClick={save} disabled={!dirty || saving || !d.connection_id || !d.store_id} className={btnPrimary}>
+            <button type="button" onClick={save} disabled={!dirty || saving} className={btnPrimary}>
               {saving && <Loader2 className="w-4 h-4 animate-spin" />} Save
             </button>
           </div>

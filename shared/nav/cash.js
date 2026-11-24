@@ -11,4 +11,10 @@ export const pages = [
     keywords: 'cash reconciliation cash up cashing up daily takings income variance expenses petty cash wages declare submit banking count',
     description: 'The daily cash-up: income, takings, expenses and wages for each day and week, with the variance.',
   },
+  {
+    path: '/integrations', label: 'Integrations', icon: 'Plug', module: 'cash_recon',
+    section: 'Money', order: 35, catalogOrder: 445,
+    keywords: 'integrations loyverse square simphony other till pos connection sync sales import receipts webhook history api token',
+    description: 'Other tills whose sales Macaroonie keeps: each connection, its venues, the last sync and the history import.',
+  },
 ]

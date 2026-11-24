@@ -224,7 +224,7 @@ export async function venueSummary(tx, tenantId, venueId) {
     tx`SELECT l.name FROM order_list_venues lv JOIN order_lists l ON l.id = lv.list_id AND l.tenant_id = lv.tenant_id WHERE lv.tenant_id = ${T} AND lv.venue_id = ${V} ORDER BY l.sort_order`,
     tx`SELECT count(*)::int AS n FROM order_list_pars WHERE tenant_id = ${T} AND venue_id = ${V}`,
     tx`SELECT count(*)::int AS n FROM cash_staff WHERE tenant_id = ${T} AND venue_id = ${V} AND is_active AND (left_on IS NULL OR left_on >= current_date)`,
-    tx`SELECT 1 FROM loyverse_venue_links WHERE tenant_id = ${T} AND venue_id = ${V}`,
+    tx`SELECT 1 FROM pos_connection_venues WHERE tenant_id = ${T} AND venue_id = ${V}`,
     tx`SELECT 1 FROM gloriafood_venue_links WHERE tenant_id = ${T} AND venue_id = ${V}`,
     tx`SELECT 1 FROM pos_card_readers WHERE tenant_id = ${T} AND venue_id = ${V} AND removed_at IS NULL AND provider <> 'test' LIMIT 1`,
   ])

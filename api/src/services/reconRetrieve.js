@@ -22,7 +22,7 @@ import { applyLoyverseDays } from '../routes/loyverse.js'
 import { applyGloriaFoodDays } from '../routes/gloriafood.js'
 
 export const RETRIEVE_SOURCES = [
-  { key: 'loyverse',   label: 'Loyverse',   table: 'loyverse_venue_links',   apply: applyLoyverseDays },
+  { key: 'loyverse',   label: 'Loyverse',   table: 'pos_connection_venues',   apply: applyLoyverseDays },
   { key: 'gloriafood', label: 'GloriaFood', table: 'gloriafood_venue_links', apply: applyGloriaFoodDays },
 ]
 
@@ -32,7 +32,7 @@ export const AUTO_FILL_DAYS = 3
 /** The systems this venue's Cash Recon is linked to: [{ key, label }]. */
 export async function linkedSources(tx, tenantId, venueId) {
   const [row] = await tx`
-    SELECT EXISTS (SELECT 1 FROM loyverse_venue_links WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}) AS loyverse,
+    SELECT EXISTS (SELECT 1 FROM pos_connection_venues WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}) AS loyverse,
            EXISTS (SELECT 1 FROM gloriafood_venue_links WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}) AS gloriafood`
   return RETRIEVE_SOURCES.filter(s => row?.[s.key]).map(s => ({ key: s.key, label: s.label }))
 }

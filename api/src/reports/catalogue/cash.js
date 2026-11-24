@@ -96,16 +96,27 @@ export const order = 50
 export const decisions = {
   settings: [
     'cash_venue_settings', 'cash_wage_defaults',
-    // Which Loyverse store each venue's till figures come from
-    'loyverse_venue_links',
+    // Which other till's store each venue's sales come from (migration 288)
+    'pos_connection_venues',
   ],
   out: {
-    'Secrets and keys': ['loyverse_connections'],
+    'Secrets and keys': ['pos_connections'],
+    // Other tills' documents as received (migration 289): the normalised
+    // ext_* rows are what reports will read.
+    'Raw copies kept to normalise again': ['ext_documents'],
     'Working state that changes from minute to minute': [
       // What each fill last wrote into a Cash Recon field (migration 260): the
       // scheduled fill's memory of hand changes, not a figure of its own.
       'cash_fill_values',
     ],
+  },
+  // Other tills' sales, normalised (migration 290): read by the "Sales,
+  // every till" subjects in phase 4 of the sales import (docs/SALES_IMPORT.md).
+  planned: {
+    cash: {
+      happen: ['ext_checks', 'ext_check_lines', 'ext_check_payments', 'ext_check_discounts', 'ext_check_taxes'],
+      group: ['ext_catalog'],
+    },
   },
 }
 

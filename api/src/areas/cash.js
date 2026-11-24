@@ -8,9 +8,13 @@
 import cashReconRoutes from '../routes/cashRecon.js'
 import loyverseRoutes from '../routes/loyverse.js'
 import gloriafoodRoutes from '../routes/gloriafood.js'
+import integrationsRoutes, { salesWebhookRoutes } from '../routes/integrations.js'
 
 export const routes = [
   [cashReconRoutes, { prefix: '/api/venues' }],
   [loyverseRoutes, { prefix: '/api/loyverse' }],
   [gloriafoodRoutes, { prefix: '/api/gloriafood' }],
+  [integrationsRoutes, { prefix: '/api/integrations' }],
+  // Sales from other tills' webhooks at the root: POST /webhooks/loyverse/:token
+  [salesWebhookRoutes, {}],
 ]

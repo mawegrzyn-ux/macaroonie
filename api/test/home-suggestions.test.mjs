@@ -115,7 +115,9 @@ test('ranking and the filter: rule order, then score; never off the menu, pinned
 
 // ── Through the API ────────────────────────────────────────────
 let ids, owner, operator, viewer, V, V2
-const feed = (who, venue = V, q = '') => ok(who.get(`/api/ops/today?venue_id=${venue}${q}`))
+// At a quiet hour unless a test says otherwise: later in the day the fixtures' late tasks fill
+// all four places and push the rules under test out (it failed at 13:55).
+const feed = (who, venue = V, q = '&time=06:00') => ok(who.get(`/api/ops/today?venue_id=${venue}${q}`))
 const keysOf = d => d.suggestions.map(s => s.key)
 
 /** Page opens for `sub` at the venue's local `day` (YYYY-MM-DD) and `time` (HH:MM). */

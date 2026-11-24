@@ -1,6 +1,12 @@
 // Cash Recon: its lists, a day, an expense, a week's wages (made.staff from
-// rota.mjs); and the GloriaFood link (kitchen.mjs shows its orders).
+// rota.mjs); the GloriaFood link (kitchen.mjs shows its orders); and a
+// Loyverse connection synced from a stand-in Loyverse (sales import,
+// migrations 288 to 290: every ext_* table gets rows).
 import { MONDAY } from './parts.mjs'
+import { env } from '../../../src/config/env.js'
+import { sharedFakeLoyverse, TOKEN } from '../fake-loyverse.mjs'
+import { timing } from '../../../src/services/connectors/loyverse.js'
+import { syncConnection } from '../../../src/services/salesImportSvc.js'
 
 export const order = 50
 
@@ -31,4 +37,19 @@ export async function fill(ctx) {
   // GloriaFood (migration 159) and its orders on the kitchen screens (178,
   // kitchen.mjs).
   await step('gloriafood link', () => put(`/api/gloriafood/venues/${V}/link`, { method: 'push', show_on_board: true }))
+
+  // Sales from other tills: a connection, a venue linked to its store, and a
+  // sync (master data, receipts, the history import) from the stand-in.
+  const fake = await sharedFakeLoyverse()
+  env.LOYVERSE_API_URL = fake.url
+  timing.paceMs = 0; timing.backoffMs = 1
+  const conn = await step('loyverse connection', () => post('/api/loyverse/connections', { name: mark + ' Loyverse', access_token: TOKEN }))
+  if (conn) {
+    await step('loyverse store link', () => put(`/api/loyverse/venues/${V}/link`, { connection_id: conn.id, store_id: 'st1', day_starts_at: '04:00' }))
+    await step('sales sync', async () => {
+      const r = await syncConnection(ctx.tenantId, conn.id)
+      if (r.error || r.skipped) throw new Error(r.error || r.skipped)
+    })
+    ctx.ids.posConnection = conn.id
+  }
 }

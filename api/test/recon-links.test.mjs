@@ -47,9 +47,9 @@ test('the till, GloriaFood and Loyverse each show on the fields they fill', asyn
     },
   }), 'GloriaFood link')
   // Loyverse needs a live token to link through the API: written directly.
-  const [conn] = await sql`INSERT INTO loyverse_connections (tenant_id, name, access_token, token_hint)
+  const [conn] = await sql`INSERT INTO pos_connections (tenant_id, name, access_token, token_hint)
                            VALUES (${ids.a}, 'Shop', 'sealed-stand-in', 'abcd') RETURNING id`
-  await sql`INSERT INTO loyverse_venue_links (tenant_id, venue_id, connection_id, store_id, mappings)
+  await sql`INSERT INTO pos_connection_venues (tenant_id, venue_id, connection_id, location_id, mappings)
             VALUES (${ids.a}, ${V}, ${conn.id}, 'store-1', ${sql.json({
               sc: { [sc.id]: [{ sign: 1, kind: 'tips' }] },
               income: { [income.id]: [{ sign: 1, kind: 'net_sales' }, { sign: -1, kind: 'item', ref: 'i1', label: 'Gift card' }, { sign: 1, kind: 'nonsense' }] },
