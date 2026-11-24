@@ -215,9 +215,20 @@ test('no customer name, email or phone is stored anywhere, raw or normalised', a
 
 test('Sync now queues and marks; pausing stops the sweep', async () => {
   await sql`UPDATE pos_connections SET sync_requested_at = NULL WHERE id = ${conn.id}`
+  const { queue } = await import('../src/jobs/sales-sync.js')
+  await queue.drain().catch(() => {})
   assert.deepEqual(await ok(owner.post(`/api/integrations/connections/${conn.id}/sync`, {})), { queued: true })
   const [row] = await sql`SELECT sync_requested_at FROM pos_connections WHERE id = ${conn.id}`
   assert.ok(row.sync_requested_at)
+  // The job really is on the queue (the add isn't awaited, so wait for it).
+  let jobs = []
+  for (let i = 0; i < 20 && !jobs.length; i++) {
+    await new Promise(r => setTimeout(r, 100))
+    jobs = (await queue.getJobs(['waiting', 'delayed', 'prioritized'])).filter(j => j.name === 'sync' && j.data.connectionId === conn.id)
+  }
+  assert.equal(jobs.length, 1, 'a sync job for the connection')
+  assert.equal(jobs[0].data.tenantId, ids.a)
+  await queue.drain().catch(() => {})
   const paused = await ok(owner.patch(`/api/integrations/connections/${conn.id}`, { status: 'paused' }))
   assert.equal(paused.connections[0].status, 'paused')
   assert.equal((await owner.post(`/api/integrations/connections/${conn.id}/sync`, {})).status, 422)

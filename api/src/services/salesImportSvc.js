@@ -192,10 +192,16 @@ const HISTORY_WINDOW_DAYS = 31
 
 const errorText = e => String(e?.message || e || 'Something went wrong').slice(0, 500)
 
-/** Queue a sync of this connection now. Fire and forget (rule 17). */
+/**
+ * Queue a sync of this connection now. Fire and forget (rule 17). Asks
+ * within the same 5 seconds are one job (BullMQ ignores a job id it already
+ * has; an id may not hold a colon); a later ask, also one made from inside a
+ * running sync once it has let go of the claim, is a job of its own (one that
+ * finds the connection claimed skips, and the sweep catches what it asked).
+ */
 export function requestSync(tenantId, connectionId, log = null) {
   syncQueue.add('sync', { tenantId, connectionId }, {
-    jobId: 'sync:' + connectionId, removeOnComplete: true, removeOnFail: 20,
+    jobId: 'sync-' + connectionId + '-' + Math.floor(Date.now() / 5000), removeOnComplete: true, removeOnFail: 20,
   }).catch(err => log?.warn?.({ err: err?.message, connectionId }, 'Sales sync not queued (Redis?)'))
 }
 
