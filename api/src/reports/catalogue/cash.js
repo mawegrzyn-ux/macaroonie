@@ -110,6 +110,14 @@ export const decisions = {
       'cash_fill_values',
     ],
   },
+  // Other tills' sales, normalised (migration 290): read by the "Sales,
+  // every till" subjects in phase 4 of the sales import (docs/SALES_IMPORT.md).
+  planned: {
+    cash: {
+      happen: ['ext_checks', 'ext_check_lines', 'ext_check_payments', 'ext_check_discounts', 'ext_check_taxes'],
+      group: ['ext_catalog'],
+    },
+  },
 }
 
 export const subjects = [
