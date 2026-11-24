@@ -123,15 +123,38 @@ export function Section() {
           ['POST /api/integrations/mapping/:connectionId/preview', '{ venue_id?, rules: [draft, with id to replace a saved one], remove: [ids] }: the saved rules with these changes, applied to the last 30 days\' lines beside the saved rules: before / after by state, by_target, changed and the first 100 changes. Writes nothing. View (each draft checked as a save is).'],
           ['POST /api/integrations/mapping/:connectionId/rules', 'A rule (cleanRule(): what each kind needs, refs in this connection\'s ext_catalog, the venue linked to the connection, dishes, combos, options and group the tenant\'s, a venue rule\'s dish on a menu it sells; effective_from defaults to the first stored day). 409 when the match already has a rule at that scope. Marks and queues a re-map. Manage.'],
           ['PUT / DELETE /api/integrations/mapping/:connectionId/rules/:ruleId', 'The whole rule / removes it; re-maps from the earlier of the old and new effective_from. Manage.'],
+          ['GET /api/integrations/mapping/:connectionId/suggestions?venue_id=', 'Phase 3. openThings() (items with one variant, each variant of the others, modifier options; unmapped, only in a bucket, or a note) matched by matchThing() (shared/itemMatch.js) against venueOurs() (the venue\'s menus only): codes first (menu_items.sku / barcode and menu_item_option_codes), then nameScore() with a variant\'s values matched to the dish\'s own options, price and category breaking ties; each with score, reason, the rule it would save (ruleFor()) and up to two others; auto when at or above AUTO_MATCH (0.9) and not tied. Writes nothing. View.'],
+          ['POST /api/integrations/mapping/:connectionId/rules/bulk', '{ rules: [rule] } (up to 200): saveRules(), each through cleanRule() and saveRule() in a savepoint of its own (one refused rule reported, the others saved), one re-map from the earliest day. Returns { saved, failed, offers }: offers are learnOffers() (shared/itemMapping.js). Manage.'],
+          ['POST /api/ai/sales-mapping/:connectionId/propose', '{ venue_id, keys? }: Pepper\'s proposals (services/itemMappingAi.js proposeMappings()): one askForJson() call (use item_mapping, two system parts, so two cache marks) for up to 40 open things without a ticked suggestion; refs E (their items, variants, modifier groups and options), D (dishes and combos on the venue\'s menus), G / O (groups, options); names inside <our_menu> / <their_items> as data, angle brackets taken out. toRule() maps refs back and drops an unknown ref or kind, two options of one group, an option not on the dish; then cleanRule() (read only) drops what a save would refuse. Returns { proposals, dropped, couldnt, asked }; nothing saved. Cash reconciliation manage + Pepper view; pepperOn().'],
+          ['POST /api/integrations/mapping/:connectionId/create-dishes', '{ venue_id, section_id, keys }: services/itemMappingMake.js createMissing(). The section must be on a menu the venue sells; things still open; a dish of the same name in the section is skipped. New option groups (price_mode extra) through POST /api/menus/variant-groups, then GET /api/menus/:id, menuSaveBody() (shared/menuSave.js) with the new dishes added to the section and the whole-tree PATCH, all in-process as the person (callApi()); then exact rules (variant -> dish + option) through saveRules(). Dish price = the lowest variant price at the venue\'s store; each option\'s per-dish price = the difference. Cash reconciliation manage + Menus manage (and the menus routes check again).'],
+          ['POST /api/integrations/mapping/:connectionId/copy-preview, /copy', '{ from_venue_id, to_venue_id } (both linked to the connection, not the same): copyPlan() takes the source venue\'s own rules, keeps a target the other venue already sells and re-points the rest by normalised name (a dish: one on the venue\'s own menu first; an option: group name + label; a group; a section: title), skipping a rule whose match the venue already has. Preview: { copy, unmatched (with why), existing }, View. Copy works the plan out again and saves it through saveRules(); Manage.'],
         ]}
       />
+      <H3>Pattern rules and learning (phase 3, migration 293)</H3>
+      <P>
+        <Mono>ext_map_rules.kind</Mono> gains <Mono>pattern</Mono> (<Mono>pattern_field</Mono> code | name |
+        category, <Mono>pattern_op</Mono> equals | starts_with | contains, <Mono>pattern_value</Mono>, and an
+        exact rule&apos;s targets) and <Mono>bucket</Mono> (a category ref to <Mono>target_section_id</Mono>);
+        <Mono> ext_check_lines</Mono> gains <Mono>section_id</Mono> and the state <Mono>bucket</Mono> (counted as
+        decided in coverage). <Mono>mapCheck()</Mono> tries them only when no rule matches the line by ref or
+        by its SKU / name fallback: code equals (the SKU or the variant&apos;s barcode), code starts with (longer
+        first), name contains (on the sold name, longer first), category, bucket; a venue&apos;s before the
+        connection&apos;s at each step. Axis rules still add options to a pattern&apos;s dish.{' '}
+        <Mono>learnOffers(added, rules, catalog, optionInfo)</Mono>: LEARN_MIN (3) exact variant rules at one
+        scope whose variants share a value of one variant option and whose targets hold the same option of ours
+        give one axis rule per option name and scope (merged into an existing one: <Mono>replaces</Mono>); three
+        exact rules to the same target whose SKUs share a prefix (2+), else a name word, else a category, give a
+        pattern rule. Only groups holding a rule just added; never a rule that exists.
+      </P>
       <InfoBox>
         Loyverse field names come from what the Cash Recon fill already reads and the plan&apos;s section 2;
         Loyverse&apos;s documentation site couldn&apos;t be reached when this was built, so updated_at_min,
         show_deleted, /dining_options and POST /webhooks are as remembered and want checking against a real
         account (outstanding item 47). Tests: api/test/sales-import.test.mjs and
         api/test/sales-mapping.test.mjs against the stand-in api/test/support/fake-loyverse.mjs, which
-        the cash fixtures also sync from (with two mapping rules); shared/test/itemMapping.test.mjs.
+        the cash fixtures also sync from (with two mapping rules); shared/test/itemMapping.test.mjs. Phase 3:
+        api/test/sales-suggest.test.mjs (with the stand-in model, support/fake-claude.mjs),
+        shared/test/itemMatch.test.mjs, shared/test/itemMappingPatterns.test.mjs.
       </InfoBox>
     </section>
   )

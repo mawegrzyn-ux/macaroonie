@@ -424,22 +424,32 @@ export function learnOffers(added, rules, cat, options = {}) {
       pairs.get(key).rules.push(r)
     })
   }
+  // Values of one option name at one scope go to one rule (one rule per option name and scope).
+  const axes = new Map()
   for (const p of pairs.values()) {
     if (p.rules.length < LEARN_MIN || !p.rules.some(r => addedIds.has(r.id))) continue
     const group = options[p.option_id]?.group_id
     if (!group) continue
     const existing = all.find(r => r.kind === 'axis' && r.axis_kind === 'variant' && !r.item_ref && (r.venue_id || null) === p.venue_id && low(r.axis_name) === low(p.name))
     if (existing && (existing.target_group_id !== group || existing.axis_values.some(v => low(v.from) === low(p.value)))) continue
+    const key = (p.venue_id || '') + ':' + low(p.name)
+    if (axes.has(key) && axes.get(key).group !== group) continue
+    if (!axes.has(key)) axes.set(key, { ...p, group, existing, found: [] })
+    axes.get(key).found.push(p)
+  }
+  for (const [key, a] of axes) {
+    const count = a.found.reduce((n, p) => n + p.rules.length, 0)
+    const values = a.found.map(p => p.value)
     offers.push({
-      key: 'axis:' + (p.venue_id || '') + ':' + low(p.name) + ':' + low(p.value), kind: 'axis', count: p.rules.length,
-      title: p.rules.length + ' variants with ' + p.name + ' ' + p.value + ' are mapped to ' + optLabel(p.option_id)
-        + ': make it a rule for every item with ' + p.name + ' ' + p.value + '?',
+      key: 'axis:' + key, kind: 'axis', count,
+      title: count + ' variants with ' + a.name + ' ' + values.join(' or ') + ' are mapped to ' + a.found.map(p => optLabel(p.option_id)).join(', ')
+        + ': make it ' + (values.length > 1 ? 'one rule' : 'a rule') + ' for every item with ' + a.name + ' ' + values.join(' or ') + '?',
       rule: {
-        kind: 'axis', venue_id: p.venue_id, axis_kind: 'variant', axis_name: existing?.axis_name || p.name, item_ref: null,
-        target_group_id: group, axis_values: [...(existing?.axis_values || []), { from: p.value, option_id: p.option_id }],
-        ...(existing ? { effective_from: existing.effective_from, note: existing.note || null } : {}),
+        kind: 'axis', venue_id: a.venue_id, axis_kind: 'variant', axis_name: a.existing?.axis_name || a.name, item_ref: null,
+        target_group_id: a.group, axis_values: [...(a.existing?.axis_values || []), ...a.found.map(p => ({ from: p.value, option_id: p.option_id }))],
+        ...(a.existing ? { effective_from: a.existing.effective_from, note: a.existing.note || null } : {}),
       },
-      replaces: existing?.id || null,
+      replaces: a.existing?.id || null,
     })
   }
 

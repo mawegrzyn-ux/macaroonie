@@ -98,6 +98,23 @@ test('learning: three variants named Large mapped to our Large are offered as on
   assert.equal(learnOffers([rules[0]], [...rules, done], cat, options).filter(o => o.kind === 'axis').length, 0)
 })
 
+test('learning: two values of one option name come as one offer (one axis rule per option name and scope)', () => {
+  const ctx2 = catalogContext([
+    ...['a', 'b', 'c'].flatMap(x => [
+      { kind: 'item', external_id: 'it-' + x, attrs: { option1_name: 'Size' } },
+      { kind: 'variant', external_id: 'v-' + x + '-l', parent_ref: 'it-' + x, attrs: { option1_value: 'Large' } },
+      { kind: 'variant', external_id: 'v-' + x + '-r', parent_ref: 'it-' + x, attrs: { option1_value: 'Regular' } },
+    ]),
+  ])
+  const opts = { ...options, 'o-reg': { group_id: 'g-size', group_name: 'Size', label: 'Regular' } }
+  const rules = ['a', 'b', 'c'].flatMap(x => [variantRule(x + 'l', 'it-' + x, 'v-' + x + '-l', ['o-large']), variantRule(x + 'r', 'it-' + x, 'v-' + x + '-r', ['o-reg'])])
+  const offers = learnOffers(rules, rules, ctx2, opts)
+  assert.equal(offers.length, 1)
+  assert.deepEqual(offers[0].rule.axis_values.map(v => [v.from, v.option_id]).sort(), [['Large', 'o-large'], ['Regular', 'o-reg']])
+  assert.equal(offers[0].count, 6)
+  assert.match(offers[0].title, /make it one rule for every item with Size (Large or Regular|Regular or Large)/)
+})
+
 test('learning: three items to the same dish whose codes share a prefix are offered as a code pattern', () => {
   const same = (id, item) => R(id, { kind: 'exact', venue_id: V, item_ref: item, target_item_id: 'd-a' })
   const rules = [same('w', 'it-water'), same('j', 'it-juice'), same('c', 'it-cola')]

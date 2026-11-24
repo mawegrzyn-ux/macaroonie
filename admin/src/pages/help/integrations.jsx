@@ -76,28 +76,73 @@ export function Section() {
           ['Option axis', 'A variant option (Size) or a modifier group becomes one of your option groups, value by value, on whichever dish the item maps to. One axis rule maps the size of every item.'],
           ['Ignore', 'Not a sale (a gift card, a deposit): left out of what was sold and of coverage.'],
           ['Keep as sold', 'Reported under the till\'s own name, not as one of your dishes.'],
+          ['Pattern', 'Everything whose code is, or starts with, some text (BTL-), whose name contains a word (Bottle), or that is in one of the till\'s categories becomes one dish. Made with Pattern under Rules.'],
+          ['Category to a section', 'Everything in a till category that no other rule maps is counted under one of your menu sections in reports, not as a dish.'],
         ]}
       />
       <P>
         A rule for one venue beats a rule for every venue. A variant&apos;s rule beats its item&apos;s,
         and a combination beats both. A modifier with no rule stays on the receipt as a note. Each rule
         applies from a day (<strong>From</strong>; left empty, from the start of the stored sales), so
-        a change can leave earlier sales as they were.
+        a change can leave earlier sales as they were. Patterns come after every rule made for an item:
+        a code that is the same first, then a code that starts the same (the longer first), then a name,
+        then a category, then a category to a section.
+      </P>
+      <H3>Suggestions</H3>
+      <P>
+        With a venue picked, <strong>Suggestions</strong> lists what is still not mapped there with the
+        best match on that venue&apos;s menus: the same product code or barcode first, then a name like
+        it (a variant&apos;s Large and Oat find your Size and Milk options on that dish); the price and
+        category settle a tie. Each shows how sure it is and why. Those at 90% or more are ticked.
+        Tap <strong>Accept</strong> on one, or <strong>Accept ticked</strong>; another match under a row
+        swaps it. Nothing is saved until you accept, and each becomes a rule for that venue.
+      </P>
+      <P>
+        When what you accept has the same shape (three or more variants called Large all going to your
+        Size: Large, or three items to one dish whose codes start the same), a box asks
+        <strong> Make it a pattern rule?</strong> One tap saves a single rule that covers every item
+        like them, today&apos;s and ones the till adds later. <strong>No thanks</strong> leaves it.
+      </P>
+      <H3>Ask Pepper</H3>
+      <P>
+        <strong>Ask Pepper about what&apos;s left</strong> sends up to 40 of the items the suggestions
+        didn&apos;t tick, with this venue&apos;s menu, and Pepper proposes a rule for each (a dish, a
+        dish with options, an option axis, ignore or keep as sold) with its reason and how sure it is.
+        Accept them as you would suggestions. Pepper only sees names and prices, never anything that
+        identifies a record; anything it proposes that isn&apos;t on this venue&apos;s menus is left out.
+        It uses your Pepper allowance and needs Pepper switched on.
+      </P>
+      <H3>Create missing dishes</H3>
+      <P>
+        For a venue moving to your menus: in <strong>Create missing dishes</strong>, tick what the other
+        till sells that you don&apos;t have, choose a section of one of the venue&apos;s menus and tap
+        <strong> Create</strong>, then confirm. Each becomes a dish at the till&apos;s price there; its
+        variants become an option group (Size: Regular, Large) with this dish&apos;s own price for each,
+        and they are mapped as they are made. They go into the menu&apos;s draft: publish the menu when
+        you&apos;re ready. Needs Menus manage as well.
+      </P>
+      <H3>Copy from another venue</H3>
+      <P>
+        With the venue to copy to picked, choose the venue to <strong>Copy from</strong> and tap
+        <strong> See what will be copied</strong>. Its own rules are matched to this venue&apos;s menus by
+        dish, option and section name; you see what will be copied, what can&apos;t be matched (left
+        out) and what this venue already has a rule for. Nothing is saved until you tap
+        <strong> Copy</strong> and confirm.
       </P>
       <H3>Preview, coverage and money</H3>
       <P>
         <strong>Preview</strong> in the rule window shows what the last 30 days&apos; sales would become
         with your change, line by line, before anything is saved. <strong>Coverage</strong> at the top
-        is the share of the last 30 days&apos; item sales that is mapped or kept as sold (ignored items
-        left out), per venue, with the items not mapped yet, biggest first: tap one to map it. Saved
+        is the share of the last 30 days&apos; item sales that is mapped, kept as sold or counted under a
+        section (ignored items left out), per venue, with the items not mapped yet, biggest first: tap one to map it. Saved
         rules are applied to the stored sales in the background; coverage moves when that is done.
       </P>
       <InfoBox>
         A rule never changes money. Each receipt keeps the till&apos;s amounts; when one line becomes a
         dish and its options (or a bundle), its amount is shared out by your list prices, the
         remainder on the dish, so the parts add up to what the till charged. Delete asks you to
-        confirm first. Anyone with Cash reconciliation can look and preview; Manage saves and deletes
-        rules. Suggestions (matching names and Pepper) come next.
+        confirm first. Anyone with Cash reconciliation can look, see suggestions and preview a copy;
+        Manage saves and deletes rules, accepts suggestions, asks Pepper and copies.
       </InfoBox>
     </section>
   )
