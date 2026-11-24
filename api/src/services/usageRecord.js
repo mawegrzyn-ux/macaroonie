@@ -82,10 +82,14 @@ export async function recordUsage(tenantId, userSub, events, now = Date.now()) {
   return rows.length
 }
 
-/** The hourly clean-up (jobs/ai-cleanup.js): rows older than KEEP_DAYS go. */
+/** The hourly clean-up (jobs/ai-cleanup.js): rows older than KEEP_DAYS go, and dismissed suggestions past their time. */
 export async function cleanUpUsage() {
   const gone = await systemSql`
     DELETE FROM usage_events WHERE at < now() - make_interval(days => ${KEEP_DAYS}) RETURNING id
   `
-  return { removed: gone.length }
+  // Home's dismissed suggestions (migration 282) once their time is up.
+  const hides = await systemSql`
+    DELETE FROM home_suggestion_hides WHERE hidden_until IS NOT NULL AND hidden_until < now() RETURNING key
+  `
+  return { removed: gone.length, hides: hides.length }
 }

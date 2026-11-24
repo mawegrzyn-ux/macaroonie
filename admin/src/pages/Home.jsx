@@ -5,7 +5,8 @@
 // the person", decision 2). From the top: the ask bar (step 2c,
 // components/layout/AskBar.jsx: pages and saved reports found as you type with
 // no model call, Enter hands the words to Pepper; asks to tap for the day
-// under it), the person's pins (components/home/Pins.jsx), the day at a glance, what needs doing at the
+// under it), the person's pins (components/home/Pins.jsx) and suggestions
+// after them (components/home/Suggestions.jsx, step 7a), the day at a glance, what needs doing at the
 // venue grouped Late / Now / Next / Later (GET /api/ops/today, worked out from
 // data and rules, so it all works with Pepper switched off), each task with
 // one action: a form opened right here (the same shared panels the Food
@@ -35,6 +36,7 @@ import { cn } from '@/lib/utils'
 import { usePepperPage } from '@/lib/pepperPage'
 import { FormSheet, Go } from '@/components/forms/FormSheet'
 import PinStrip from '@/components/home/Pins'
+import Suggestions from '@/components/home/Suggestions'
 import { TaskActions, TaskMoreButton, TaskOwner, SetAside, SkippedToday } from '@/components/home/TaskActions'
 import ReviewSlot from '@/components/ai/ReviewSlot'
 import AskBar, { useAsk } from '@/components/layout/AskBar'
@@ -107,6 +109,10 @@ export default function Home() {
   usePepperPage({ venueId: d?.venue?.id, date: d?.date })
 
   function pickVenue(id) { keepVenue(id); setVenueId(id) }
+  // A suggestion dismissed or pinned leaves the list at once; the next feed brings the rest.
+  function dropSuggestion(key) {
+    qc.setQueryData(['ops-today', venueId], old => (old ? { ...old, suggestions: (old.suggestions || []).filter(x => x.key !== key) } : old))
+  }
   function closeForm() {
     setForm(null)
     qc.invalidateQueries({ queryKey: ['ops-today'] })
@@ -165,6 +171,8 @@ export default function Home() {
               <h2 className="font-semibold">Your pins</h2>
             </div>
             <PinStrip className="p-3" />
+            {/* Suggestions after the pins (step 7a): rules on the server, a reason each. */}
+            <Suggestions list={d?.suggestions} onGone={dropSuggestion} />
           </section>
 
           {feed.isLoading && (

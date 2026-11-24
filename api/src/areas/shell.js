@@ -10,6 +10,7 @@ import opsRoutes from '../routes/ops.js'
 import noticesRoutes from '../routes/notices.js'
 import usageRoutes from '../routes/usage.js'
 import pinsRoutes from '../routes/pins.js'
+import suggestionRoutes from '../routes/suggestions.js'
 
 export const routes = [
   [navRoutes, { prefix: '/api/nav' }],
@@ -17,4 +18,5 @@ export const routes = [
   [noticesRoutes, { prefix: '/api/notices' }],
   [usageRoutes, { prefix: '/api/usage' }],
   [pinsRoutes, { prefix: '/api/pins' }],
+  [suggestionRoutes, { prefix: '/api/suggestions' }],
 ]
