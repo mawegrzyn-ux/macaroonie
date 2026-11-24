@@ -277,6 +277,7 @@ export function ReconFillModal({ source, venueId, dates, onClose, onApplied, ter
                           const v = d.values[f.key]
                           const val = v[source.valueKey]
                           const same = v.current != null && Math.abs(v.current - val) < 0.005
+                          if (!fillable(d)) return <td key={d.date} className="px-2 py-2 text-right align-top text-muted-foreground">—</td>
                           return (
                             <td key={d.date} className="px-2 py-2 text-right align-top tabular-nums">
                               <div className={cn('font-semibold', val < 0 && 'text-red-700')}>{money(val, currency)}</div>

@@ -13,11 +13,11 @@ export function Section() {
     <section id="integrations" data-doc="">
       <H2>Integrations: sales from other tills</H2>
       <P>
-        Phases 1 and 2 of the sales import (migrations 288 to 292, 24 Nov 2026; plan in{' '}
+        Phases 1 to 4 of the sales import (migrations 288 to 293, 24 Nov 2026; plan in{' '}
         <Mono>docs/SALES_IMPORT.md</Mono>). Pipeline:{' '}
-        <Mono>connector -&gt; raw store -&gt; normalised sales + master data -&gt; mapping</Mono>;
-        suggestions (3) and the readers (4: "every till" report subjects, Cash Recon from stored checks)
-        are still to come, so Cash Recon&apos;s Loyverse fill reads <Mono>/receipts</Mono> live as before.
+        <Mono>connector -&gt; raw store -&gt; normalised sales + master data -&gt; mapping -&gt; readers</Mono>.
+        Since phase 4 (no migration) nothing reads Loyverse&apos;s <Mono>/receipts</Mono> but the sync:
+        Cash Recon, reports, Today and Pepper read the stored sales (see Readers below).
       </P>
       <H3>Tables</H3>
       <DataTable
@@ -36,8 +36,10 @@ export function Section() {
       />
       <P>
         Every new table has <Mono>tenant_id</Mono> with RLS forced and the standard policy. Report
-        decisions: <Mono>ext_documents</Mono> left out (raw copies), the normalised tables and{' '}
-        <Mono>ext_line_parts</Mono> planned (phase 4 subjects), <Mono>pos_connections</Mono> secrets,{' '}
+        decisions: <Mono>ext_documents</Mono> left out (raw copies); <Mono>ext_checks</Mono>,{' '}
+        <Mono>ext_check_lines</Mono>, <Mono>ext_line_parts</Mono>, <Mono>ext_check_payments</Mono> and{' '}
+        <Mono>pos_connections</Mono> (its system only) read by the sales.* subjects;{' '}
+        <Mono>ext_check_discounts</Mono>, <Mono>ext_check_taxes</Mono> and <Mono>ext_catalog</Mono> planned;{' '}
         <Mono>pos_connection_venues</Mono> and <Mono>ext_map_rules</Mono> settings.{' '}
         <Mono>pos_connections.remap_from</Mono> / <Mono>remap_requested_at</Mono> (292) mark a re-map waiting.
       </P>
@@ -146,6 +148,20 @@ export function Section() {
         exact rules to the same target whose SKUs share a prefix (2+), else a name word, else a category, give a
         pattern rule. Only groups holding a rule just added; never a rule that exists.
       </P>
+      <H3>Readers (phase 4)</H3>
+      <DataTable
+        head={['Part', 'How it works']}
+        rows={[
+          ['The day figure rule', 'dayFiguresFromStored(checks, itemCategory) in shared/externalSales.js: a trading day\'s Cash Recon figures (sales, refund_receipts, gross_sales, refunds, discounts, taxes, tips, surcharges, total_collected, net_sales = gross - refunds - discounts; items, categories and payment_types by ref) from stored checks with their item lines and payments. Cancelled left out; a refund\'s amounts taken as positive and counted against its own day. It replaced summariseReceipts() (shared/loyverse.js), and api/test/sales-every-till.test.mjs holds it to that rule (kept in the test) on the stand-in\'s receipts.'],
+          ['Synced or not', 'dayCovered(cover, { start, end }) in shared/externalSales.js: the catch-up (pos_connections.sales_synced_to) past the day\'s end and, for a day inside the 13 months the history import reads, the import past the day (history_next_from or history_done_at). A day older than the history is covered.'],
+          ['services/storedSales.js', 'venueLink(tx, tenantId, venueId) (the link, its connection\'s system, sync marks and the venue\'s time zone) and storedDays(tx, tenantId, link, dates, { categories }) = { date: figures + checks, covered, not_synced } (not_synced: nothing stored and not covered). Categories for category terms come from ext_catalog items.'],
+          ['Cash Recon fill', 'routes/loyverse.js preview / apply read storedDays(); no Loyverse call. Preview gives synced_to, last_sync_ok_at, connection_id and each day\'s synced. Apply never fills a not_synced day: 422 (NOT_SYNCED) when it is the only day asked, else skipped as not_synced (not_yet for a future day in a Retrieve). POST /api/loyverse/venues/:venueId/sync (Cash Recon use) marks the connection and queues a sync. The fill window (LoyverseFillModal) shows Not synced yet and Sync now; ReconFillModal takes fillable(day) and names skip reasons.'],
+          ['GET /api/integrations/venues/:venueId/day?date=', 'Till reports view. { linked: false } or { linked, system, label, connection_name, location_name, currency, date (default: the latest stored day), synced, covered, synced_to, last_sync_ok_at, figures (pence: receipts, refund_receipts, gross_sales, refunds, discounts, net_sales, taxes, tips, surcharges, total_collected), payments [{ name, amount }], items [{ name, amount }] (top 20 by value) }. Another tenant\'s venue is refused.'],
+          ['Pepper till_day', 'Reads the route above: a date with no trading day on our till but a linked other till answers from it (source "Loyverse (stored sales, synced to ...)", sales in Loyverse\'s terms, takings by payment type, top items by value, a note when not synced); our till\'s day gains other_till when the venue has both.'],
+          ['Today', 'opsToday summary.sales (services/opsToday.js daySales(), for pos_reports view, which joins OPS_MODULES): { total_pence, currency, sources: [{ key, label, net_pence, synced }] } from our till\'s day figures (net) and the route above (Loyverse net sales, after refunds), read as the person with callApi. Home\'s Glance shows it as one chip.'],
+          ['Report subjects', 'reports/catalogue/sales.js (area Till sales, module pos_reports, order 25): sales.checks, sales.dishes, sales.tenders, each a UNION ALL of our projections (pos_checks / pos_check_lines / pos_payments with pos_days for the trading day) and the stored sales, with source (SALE_SOURCES: macaroonie, loyverse, ...). Counted as our till counts: closed checks, receipts not cancelled; dishes of closed checks not voided; another till\'s refund receipts and refunded lines are rows of their own (kind refund), counted by Refunded, never taken off sales. sales.dishes: a mapped line is one row per ext_line_parts part (net = its share; gross and discount on the main part; an option part carries its dish\'s id and name, so a dish adds up with its options as on our till; qty_sold leaves option rows out), other item lines by their name as sold (soldName), bucket lines with their section_id, ignored lines not counted. Mapping coverage = mapped_value / other_till_sales by COVERAGE_DECIDED / COVERAGE_LEFT_OUT (shared/itemMapping.js; coverageShare() is the Item mapping page\'s). sales.tenders: another till\'s tip sits on the receipt\'s biggest payment (amount less the tip), a refund\'s amount positive.'],
+        ]}
+      />
       <InfoBox>
         Loyverse field names come from what the Cash Recon fill already reads and the plan&apos;s section 2;
         Loyverse&apos;s documentation site couldn&apos;t be reached when this was built, so updated_at_min,
@@ -154,7 +170,9 @@ export function Section() {
         api/test/sales-mapping.test.mjs against the stand-in api/test/support/fake-loyverse.mjs, which
         the cash fixtures also sync from (with two mapping rules); shared/test/itemMapping.test.mjs. Phase 3:
         api/test/sales-suggest.test.mjs (with the stand-in model, support/fake-claude.mjs),
-        shared/test/itemMatch.test.mjs, shared/test/itemMappingPatterns.test.mjs.
+        shared/test/itemMatch.test.mjs, shared/test/itemMappingPatterns.test.mjs. Phase 4:
+        api/test/sales-every-till.test.mjs (the fixtures&apos; Loyverse sync beside two days of our till),
+        shared/test/externalSales.test.mjs.
       </InfoBox>
     </section>
   )

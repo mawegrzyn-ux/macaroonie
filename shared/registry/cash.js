@@ -30,6 +30,16 @@ export const objects = [
     actions: ['fill_wages_from_rota', 'mark_wages_paid'],
     forms: ['wages'],
   },
+  {
+    // Sales from other tills (sales import phase 4): another till's receipts,
+    // reported beside our till's checks by the "every till" subjects.
+    key: 'sales.checks', label: 'Receipt from another till', plural: 'Receipts from other tills',
+    words: ['loyverse receipt', 'loyverse sale', 'every till', 'all tills', 'imported sales'],
+    table: 'ext_checks', subjects: ['sales.checks', 'sales.dishes', 'sales.tenders'],
+    page: '/integrations',
+    actions: [],
+    forms: [],
+  },
 ]
 
 export const notObjects = {

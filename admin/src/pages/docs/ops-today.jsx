@@ -79,7 +79,10 @@ export function Section() {
         venue trades (its first sitting less <Mono>OPEN_EARLY_MINS</Mono> 30 to <Mono>closingTime()</Mono>) for kit
         seen in the last day, or with no sittings that day for kit seen in the last three hours. The response also carries{' '}
         <Mono>summary</Mono> (bookings and big parties from <Mono>day_overview</Mono>, people on the rota from{' '}
-        <Mono>whos_working</Mono>, the week ahead from Local info), <Mono>counts</Mono> and the <Mono>venues</Mono>{' '}
+        <Mono>whos_working</Mono>, the week ahead from Local info, and since sales import phase 4{' '}
+        <Mono>sales</Mono> for Till reports View: <Mono>daySales()</Mono> reads our till&apos;s day figures and{' '}
+        <Mono>GET /api/integrations/venues/:id/day</Mono> as the person, giving{' '}
+        <Mono>{'{ total_pence, currency, sources: [{ key, label, net_pence, synced }] }'}</Mono>; Glance shows it as one chip), <Mono>counts</Mono> and the <Mono>venues</Mono>{' '}
         for the switch. Since Pepper-first step 7: <Mono>gaps</Mono> (only when there are any: a source&apos;s note of
         a set-up gap it can see, <Mono>{'{ key, module, path, reason }'}</Mono>; the food safety source notes no
         fridges, or fridges with no check times) and, from the route rather than <Mono>opsToday()</Mono>,{' '}
