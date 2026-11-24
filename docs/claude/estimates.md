@@ -71,10 +71,10 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | 44.11.5c For review: the Waiting tab (unanswered Confirm cards kept, supplier orders awaiting approval, documents read into lines), Approve, Edit, Reject, same-kind reversible items together | 8 to 15 min (a page and a change to how cards expire) | 6 min (to 22:00) | one PR, below | | 13 files, +677 -22, migration 279 | claude-opus-5-5 / high, fresh agent | About $6.30. |
 | 44.11.5d Six of the missing Today sources | 8 to 15 min (six functions in `SOURCES`) | 6 min (to 22:06) | one PR, below | | 5 files, +287 -5 | claude-opus-5-5 / high, fresh agent | About $2.90. |
 | 44.11.5e Pepper reads the feed and acts on tasks (snooze, skip, assign through cards) | 3 to 8 min | 6 min (to 22:12), then tests, browser and docs 7.5 (to 22:19:30) | 16 min for 5a to 5e: the lead's review and a permission fix 1 min, PR #506 opened 22:21, CI red 22:28 (2 parts), fixed and pushed 22:29, green 22:34:34, merged 22:35 | **63 min for 5a to 5e** (21:32:18 to 22:35) | 8 files, +482 -4; docs 16 files | claude-opus-5-5 / high, fresh agent | Tests and docs about $10.80; agent about $41, lead about $4; live eval on the merged code 29 of 29 ($0.06). |
-| 44.11.6a Shared devices: a device marked shared asks who is acting by PIN before any change; a till PIN is enough for logging checks only (decision 6); changes recorded against that person | fourth revision, raised for auth: 10 to 15 min | | one PR, below | | | claude-opus-5-5 / high, fresh agent | Estimated 23 Nov 2026 before starting; plus 6 reading. |
-| 44.11.6b Capture to For review: a photo, a voice note or a line from the phone waits in For review | 5 to 10 min | | one PR, below | | | | |
-| 44.11.6c The venue's own words for speech: fridge, dish, staff and supplier names help dictation and talk mode | 5 to 10 min | | one PR, below | | | | |
-| 44.11.6d The iPhone app: the office app's iOS config and the parts that differ from Android (no device build here) | 5 to 10 min | | one PR for 6a to 6d: tests, browser and docs 12 to 15, PR 7 | | | | Push and the scanner on a real device need the owner's phone. |
+| 44.11.6a Shared devices: a device marked shared asks who is acting by PIN before any change; a till PIN is enough for logging checks only (decision 6); changes recorded against that person | fourth revision, raised for auth: 10 to 15 min | 18 min with the reading (23:55 to 00:13) | one PR, below | | 32 files, +1,657 -66, migration 280 (five tables) | claude-opus-5-5 / high, fresh agent | Estimated 23 Nov 2026 before starting; plus 6 reading. The largest sub-step yet: a guard in requireAuth, two PIN kinds, lockouts, the admin's switch. About $17.80. |
+| 44.11.6b Capture to For review: a photo, a voice note or a line from the phone waits in For review | 5 to 10 min | 5 min (to 00:18) | one PR, below | | 18 files, +654 -21, migration 281 | claude-opus-5-5 / high, fresh agent | About $5.80. |
+| 44.11.6c The venue's own words for speech: fridge, dish, staff and supplier names help dictation and talk mode | 5 to 10 min | 3 min (to 00:21) | one PR, below | | 12 files, +412 -14 | claude-opus-5-5 / high, fresh agent | About $4.70. |
+| 44.11.6d The iPhone app: the office app's iOS config and the parts that differ from Android (no device build here) | 5 to 10 min | 4 min (to 00:25), then tests, browser at 1280 and 390, docs 11.5 (to 00:36:30) | 19 min for 6a to 6d: the lead's review and making iOS opt-in 1 min, PR #507 opened 00:38, CI red 00:46:30 (a Tuesday-only cash test), fixed 00:47, green 00:55:15, merged 00:55:30 | **61 min for 6a to 6d** (23:54:19 to 00:55:30) | 16 files, +317 -41 | claude-opus-5-5 / high, fresh agent | Push and the scanner on a real device need the owner's phone. Agent about $51, lead about $4; live eval on the merged code 29 of 29 ($0.06). |
 
 ## Running totals
 
@@ -87,6 +87,7 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | 44.11 step 3 (filled forms, drafts, four forms) plus live-eval fixes, second revision | 5 sub-steps + 1 found, 1 PR | 1.3 to 2.4 (70 to 125 min build + 6 to 16 merge) | 0.93 (56 min; build 43, hand-back 5, merge 7) | about 0.52 |
 | 44.11 step 4 (action classes, cards by class, one write per card, Undo, Done by Pepper), third revision | 5 sub-steps, 1 PR | 1.25 to 2.1 (60 to 110 min build + 8 to 10 docs + 7 PR) | 0.75 (45 min; build 38, merge 7) | about 0.45 |
 | 44.11 step 5 (task store, escalation, six sources, For review, Pepper task tools), fourth revision | 5 sub-steps, 1 PR | 0.8 to 1.3 (50 to 80 min) | 1.05 (63 min; build 46.5, review 1, merge 16) | about 0.97 |
+| 44.11 step 6 (shared devices and PINs, capture, venue words, iPhone-ready), fourth revision | 4 sub-steps, 1 PR | 0.8 to 1.2 (50 to 73 min) | 1.02 (61 min; build 41.5, review 1, merge 19) | about 0.99 |
 
 ## The backlog estimates being tested (22 Nov 2026)
 
@@ -226,3 +227,11 @@ next edit). Cost is estimated from each message's tokens at list prices; cached 
 - The pull request took 16 against 7: CI found two things the agent's 31 test files missed: a viewer could list Pepper's new task change tools on the staff connector (they sit in an open section; now they name their modules and need Use), and an access test that lists the feed's areas a person can't see needed the six new sources. Lesson for the brief: a new open-section change tool, and new feed sources, need `secrets-and-tokens` and `access-use-dashboards` in the run.
 - The lead's review caught one rule break before the PR (View could snooze or skip where a module has no Use; now Manage, rule 5): from the brief's own wording.
 - Cost about $45. **The fourth revision holds** for steps on code the notes cover; a sub-step that adds several tables and changes a shared feed is 10 to 15 minutes, not 3 to 8.
+
+### 44.11 step 6 against the fourth revision (24 Nov 2026)
+
+- Estimated 50 to 73 minutes in all; actual 61: **on the estimate (99% of the midpoint)**, the second in a row on the fourth revision.
+- Build 41.5: 6a (auth, five tables) 18 against 16 to 21 with the reading; 6b 5, 6c 3, 6d 4, each at or under the low end; tests at two widths and docs 11.5.
+- The pull request took 19 against 7: one CI run lost to a cash test that only fails on a Tuesday (yesterday is this week's Monday, already submitted by the test before), the third date flake in that file; and 1 minute of the lead's review keeping the Office app Android-only on expo.dev until the Apple account exists.
+- The date flakes cost about 8 minutes a time. A whole-suite rule would be cheaper than fixing one a day: run the API tests at a fixed clock (a test helper that sets the venue's "today" to a mid-week noon) for any test that names days. Listed for infra.
+- Cost about $55.

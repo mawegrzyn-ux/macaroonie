@@ -5,6 +5,7 @@ What is not built, known limits and follow-ups in this area (`docs/claude/areas/
 **8. Test suite**
 CI (`.github/workflows/ci.yml`) builds an empty database from every migration, starts the API, runs the shared unit tests and the API tests (`api/test`: the cross-tenant sweep and Pepper's chat loop) on every pull request; it isn't a required check yet (add a branch rule in GitHub). Still to do:
 - The checks run while building earlier features (Pepper tools, Purchasing, Loyverse, GloriaFood, POS, kitchen, screens, kiosks) live outside the repo; port the ones worth keeping into `api/test` as features are touched.
+- **Tests that name days break at midnight and on Mondays and Tuesdays** (three fixes in `cash-recon-weekly.test.mjs` and one in `kiosk-journeys.test.mjs`, 23 and 24 Nov 2026, each costing a CI run): give the API tests a fixed clock (a helper that sets the venue's today to a mid-week noon) for any test that names days, rather than fixing one a day.
 - Priority targets: `confirm_hold()` race condition, slot resolver output, booking flow end-to-end, admin-override booking creation, schedule exception resolution.
 - The sweep only tries ids the fixtures make: 120 of 182 tenant tables have rows (till checks and events, kitchen orders, online order lines, paired screens, media and the integrations are empty because they come from devices, guests or other services). Its own body for each write route is `{}`, so writes are only tested properly through the replay of `fillTenant()`'s writes.
 
