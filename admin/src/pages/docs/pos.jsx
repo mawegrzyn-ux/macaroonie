@@ -88,9 +88,9 @@ export function Section() {
           ['pos_days', 'Trading days: business_date (from day_starts_at), z_number, figures jsonb at Z, declared_cash, recon_filled_at / recon_error. One open per venue.'],
           ['pos_venue_state', 'last_seq, next_z_number, device_numbers jsonb { device_id: { date, check, order } } (each till\'s or kiosk\'s highest numbers per trading day, migration 217; next_check_no / next_order_no dropped).'],
           ['pos_print_jobs', 'Print queue (ops jsonb from tickets.js), status queued | printing | printed | failed, for the hub.'],
-          ['pos_devices', 'Tills, kitchen screens, kiosks and venue hubs: kind terminal | kds | kiosk | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at (only the move hand-over code of POST /pos-api/move), settings jsonb (mode, revenue_stream_id, receipt_printer_id, floor_area_id, order_numbers { from, to } for tills and kiosks (migration 217), receipt_mode venue | ask | always | never (224), order_prompt venue | one | two (226), covers stream | off | ask | must and courses stream | on | off (231) for tills; a hub\'s auto_update), pending_changes + pending_at (changes the device says it hasn\'t sent, X-Pos-Pending), revoked_at; a hub\'s info + info_at (what it says about itself) and update_requested_at (migration 195).'],
-          ['pos_settings', 'Per venue: pin_salt, day_starts_at, receipt texts, tenders jsonb, tips, auto_logout_secs, recon_map, recon_auto_fill, approvals jsonb and receipt_mode ask | always | never (224), order_prompt one | two (226: how the till asks a new order\'s type, name and tent number). (Migration 170 dropped the VAT defaults and counter_revenue_centre_id; 231 dropped require_covers, moved to the streams.)'],
-          ['pos_revenue_streams', 'Migration 170 (was pos_revenue_centres): name, menu_ids, colour, sort_order, is_active, default_order_type_id, covers off | ask | must and courses boolean (migration 231: what its tables ask and whether it uses courses; require_covers on became must, off became off). Which order types it offers and what each asks for: pos_stream_order_types (stream_id, order_type_id, enabled, ask_name / ask_tent off | ask | required; no row = off). See Tax, Order Types & Streams.'],
+          ['pos_devices', 'Tills, kitchen screens, kiosks and venue hubs: kind terminal | kds | kiosk | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at (only the move hand-over code of POST /pos-api/move), settings jsonb (mode, revenue_stream_id, receipt_printer_id, floor_area_id, order_numbers { from, to } for tills and kiosks (migration 217), receipt_mode stream | ask | always | never (224; stream since 296, was venue), order_prompt stream | one | two (226; same), covers stream | off | ask | must and courses stream | on | off (231) for tills; a hub\'s auto_update), pending_changes + pending_at (changes the device says it hasn\'t sent, X-Pos-Pending), revoked_at; a hub\'s info + info_at (what it says about itself) and update_requested_at (migration 195).'],
+          ['pos_settings', 'Per venue: pin_salt, day_starts_at, receipt texts, tenders jsonb, tips, auto_logout_secs, recon_map, recon_auto_fill, approvals jsonb. (Migration 296 moved receipt_mode and order_prompt to pos_revenue_streams and dropped them here. Migration 170 dropped the VAT defaults and counter_revenue_centre_id; 231 dropped require_covers, moved to the streams.)'],
+          ['pos_revenue_streams', 'Migration 170 (was pos_revenue_centres): name, menu_ids, colour, sort_order, is_active, default_order_type_id, covers off | ask | must and courses boolean (migration 231: what its tables ask and whether it uses courses; require_covers on became must, off became off), seats boolean (246), receipt_mode ask | always | never and order_prompt one | two (migration 296, from the venue\'s pos_settings: each stream took its venue\'s values). Which order types it offers and what each asks for: pos_stream_order_types (stream_id, order_type_id, enabled, ask_name / ask_tent off | ask | required; no row = off). See Tax, Order Types & Streams.'],
           ['pos_charges', 'Migration 231, tenant-wide, forced RLS: the company\'s till charges (shared/pos/charges.js): name, kind percent | amount, value numeric(10,2) (percent 0.01-50 or whole pence 1-100000, CHECK), optional, min_covers 0-100, tax_rate_id (SET NULL), basis check | dishes, per check | dish, item_ids / section_ids uuid[] (no foreign keys: menu rows are re-inserted on every save; at most 100 / 30; basis dishes needs one), sort_order. Replaced order_types.charges (migration 225), which the migration moved here: each different charge once per group.'],
           ['pos_charge_rules', 'Migration 231, forced RLS: the matrix at each location: (charge_id, revenue_stream_id, order_type_id) primary key, tenant_id, venue_id; cascades from all three. The migration put each moved charge on every stream that offered its order type. A new location copies its template\'s (storeSetup.js).'],
           ['pos_discounts', 'Migration 225, tenant-wide, forced RLS: the discounts the till offers by name: name, kind percent | amount, value numeric(10,2) (percent 0.01-100, or whole pence 1-100000, CHECK), scope any | check | line, needs_manager, sort_order. Reaches every rule runner as settings.discounts.'],
@@ -237,10 +237,13 @@ export function Section() {
         <Mono>state</Mono> in <Mono>GET /api/pos/venues/:id/checks</Mono>) and the history says "Order cancelled".
       </P>
       <P>
-        <strong>Receipts</strong>: <Mono>pos_settings.receipt_mode</Mono> (<Mono>ask</Mono> default,{' '}
-        <Mono>always</Mono>, <Mono>never</Mono>, CHECK) and a till&apos;s own{' '}
-        <Mono>pos_devices.settings.receipt_mode</Mono> (<Mono>venue</Mono> = follow it); <Mono>receiptModeOf(config)</Mono>{' '}
-        in <Mono>pos/src/lib/checkOps.js</Mono> decides. <Mono>PayModal</Mono> closes a paid-off check at once with{' '}
+        <strong>Receipts</strong>: <Mono>pos_revenue_streams.receipt_mode</Mono> (<Mono>ask</Mono> default,{' '}
+        <Mono>always</Mono>, <Mono>never</Mono>, CHECK; a venue setting until migration 296) and a till&apos;s own{' '}
+        <Mono>pos_devices.settings.receipt_mode</Mono> (<Mono>stream</Mono> or absent = follow the stream);{' '}
+        <Mono>receiptModeOf(config, streamId)</Mono> in <Mono>shared/pos/tillSettings.js</Mono> (re-exported by{' '}
+        <Mono>pos/src/lib/checkOps.js</Mono>) decides: the till&apos;s own, else the check&apos;s stream
+        (<Mono>check.revenue_stream_id</Mono>, so a check moved to another stream follows that one), else the
+        till&apos;s own stream, else the first. <Mono>PayModal</Mono> closes a paid-off check at once with{' '}
         <Mono>print_receipt</Mono> set unless it is <Mono>ask</Mono>. <Mono>Exact cash</Mono> / <Mono>Exact card</Mono>{' '}
         pay the amount shown in one tap (card: <Mono>card_integrated</Mono> through the till&apos;s card machine when
         it has one, else <Mono>card_external</Mono>).
@@ -437,7 +440,9 @@ export function Section() {
       <P>
         Three device settings in <Mono>DeviceSettings</Mono> (<Mono>routes/posSetup.js</Mono>; jsonb, left out = the
         usual): <Mono>swipe_left</Mono> <Mono>send</Mono> | <Mono>fire</Mono>, <Mono>leave_unsent</Mono>{' '}
-        <Mono>leave</Mono> | <Mono>ask</Mono>, <Mono>count_take_off</Mono> boolean. The till window in{' '}
+        <Mono>ask</Mono> | <Mono>leave</Mono> (absent = ask since migration 295, which set every till to ask;{' '}
+        <Mono>leaveUnsent()</Mono> in <Mono>shared/pos/tillSettings.js</Mono>: anything but leave asks, counter
+        tills never), <Mono>count_take_off</Mono> boolean. The till window in{' '}
         <Mono>TillsSection.jsx</Mono> shows <Mono>till-swipe-left</Mono> with Rows to swipe, <Mono>till-leave-unsent</Mono>{' '}
         on table service and <Mono>till-count-take-off</Mono> with the counts on (<Mono>Toggle</Mono> in{' '}
         <Mono>components/pos/shared.jsx</Mono> takes <Mono>testid</Mono>).
@@ -734,10 +739,12 @@ export function Section() {
         for nothing calls <Mono>onDone</Mono> straight away; with nothing to choose or ask it never shows.
       </P>
       <P>
-        <Mono>pos_settings.order_prompt</Mono> (<Mono>one</Mono> default | <Mono>two</Mono>, CHECK) and a till&apos;s
-        own <Mono>pos_devices.settings.order_prompt</Mono> (<Mono>venue</Mono> | <Mono>one</Mono> | <Mono>two</Mono>,
-        Zod in <Mono>routes/posSetup.js</Mono>); <Mono>orderPromptOf(config)</Mono> in{' '}
-        <Mono>pos/src/lib/checkOps.js</Mono> decides. One screen shows the types as a row above the fields; two steps
+        <Mono>pos_revenue_streams.order_prompt</Mono> (<Mono>one</Mono> default | <Mono>two</Mono>, CHECK; a venue
+        setting until migration 296) and a till&apos;s own <Mono>pos_devices.settings.order_prompt</Mono>{' '}
+        (<Mono>stream</Mono> | <Mono>one</Mono> | <Mono>two</Mono>, Zod in <Mono>routes/posSetup.js</Mono>);{' '}
+        <Mono>orderPromptOf(config, streamId)</Mono> in <Mono>shared/pos/tillSettings.js</Mono> decides (the
+        till&apos;s own, else the stream the order is in: a new order&apos;s <Mono>defaultStreamId()</Mono>, a
+        check&apos;s <Mono>revenue_stream_id</Mono>). One screen shows the types as a row above the fields; two steps
         shows big type buttons first, then the fields with Back. Callers: <Mono>screens/Counter.jsx</Mono> (New order,
         or the first dish when <Mono>newOrderAsks()</Mono>: more than one type, or the only type asks something; the
         answers wait on the left with Change / clear until a dish opens the check), <Mono>NewTabModal</Mono> in{' '}
@@ -1427,6 +1434,33 @@ export function Section() {
         that used the old on-screen test reader to a test card machine. Tests:{' '}
         <Mono>shared/pos/test/cards.test.mjs</Mono>, <Mono>api/test/card-machines.test.mjs</Mono>.
       </P>
+      <H3>Till and kiosk improvements (24 Nov 2026, migrations 295 and 296)</H3>
+      <P>
+        <Mono>shared/pos/tillSettings.js</Mono> holds the till settings that follow something else, as pure rules on
+        the till&apos;s config (the till re-exports them from <Mono>checkOps.js</Mono>; the admin&apos;s till window
+        reads <Mono>streamReceiptMode()</Mono> / <Mono>streamOrderPrompt()</Mono> for its hints):{' '}
+        <Mono>counterTill()</Mono>, <Mono>leaveUnsent()</Mono>, <Mono>tillStream(config, streamId)</Mono> (the
+        check&apos;s stream, else the till&apos;s, else the first), <Mono>receiptModeOf()</Mono>,{' '}
+        <Mono>orderPromptOf()</Mono>, <Mono>RECEIPT_MODE_KEYS</Mono>, <Mono>ORDER_PROMPT_KEYS</Mono>. Migration 295
+        sets <Mono>settings.leave_unsent</Mono> to <Mono>ask</Mono> on every till; 296 adds the two stream columns,
+        copies each venue&apos;s values onto its streams, drops the <Mono>pos_settings</Mono> columns and turns a
+        till&apos;s <Mono>venue</Mono> into <Mono>stream</Mono>. <Mono>StreamBody</Mono> takes{' '}
+        <Mono>receipt_mode</Mono> / <Mono>order_prompt</Mono> (defaults ask / one); <Mono>loadStreams()</Mono>{' '}
+        returns them, so they reach the till in <Mono>revenue_streams</Mono>.
+      </P>
+      <P>
+        The layout button action <Mono>back</Mono> (key unchanged) is labelled <em>Back to tables / orders</em> in{' '}
+        <Mono>BUTTON_ACTIONS</Mono>; <Mono>buttonLabel(b, &#123; backTo &#125;)</Mono> names a button without its own
+        words <Mono>BACK_TO.tables</Mono> or <Mono>BACK_TO.orders</Mono> on the till (<Mono>ButtonsZone</Mono> passes{' '}
+        <Mono>tablesOn(config) ? &apos;tables&apos; : &apos;orders&apos;</Mono>). Store tech&apos;s setup windows draw
+        each setting with <Mono>Setting</Mono> / <Mono>SettingToggle</Mono> (<Mono>components/pos/shared.jsx</Mono>:
+        an outlined block, <Mono>data-setting</Mono>, the label <Mono>text-base font-semibold</Mono>, the hint below
+        in <Mono>text-sm</Mono> muted); <Mono>CardMachinePick</Mono> and <Mono>OrderNumbersField</Mono> take{' '}
+        <Mono>boxed</Mono>. Tests: <Mono>shared/pos/test/tillSettings.test.mjs</Mono>,{' '}
+        <Mono>api/test/till-order-prompt.test.mjs</Mono> (the stream settings, a till as the stream, both migrations
+        replayed), <Mono>shared/pos/test/tillLayout.test.mjs</Mono>.
+      </P>
+
       <H3>Check and order numbers (per device)</H3>
       <P>
         Migration 217: every till and kiosk numbers its own checks, so the cloud, the venue hub and a

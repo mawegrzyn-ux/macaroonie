@@ -1,0 +1,8 @@
+# Back to tables, asking before leaving, receipt and order prompt per revenue stream, a clearer Tills setup, and kiosk text sizes
+
+- Till layouts: the Buttons zone's Back action is now called Back to tables / orders. On the till a Back button without words of its own reads Back to tables (or Back to orders on a till without tables, or a counter till).
+- Leaving an order with items not sent now asks by default on table-service tills (Send and leave, Leave without sending, Stay on the order): the arrow, a layout's Back to tables button, the top bar, the till menu and Sign out. Every till was switched to Ask; pick Just leave in a till's window to turn it off. Counter tills never ask.
+- The receipt when a check is paid (Ask each time, Always print, Don't print) and how the till asks for a new order's order type, name and tent number (One screen, Two steps) are now set per revenue stream (Store tech → Revenue streams), not in Receipts and payments. Each stream took its venue's settings. A till's own choice still wins; As the revenue stream follows the stream the check is in, and the till's window says what that is.
+- Store tech: the till window, the revenue stream window and Receipts and payments show each setting in its own box, the question in bold and what it means below.
+- Kiosk designer → Brand → Text sizes: Body text, Headings, Buttons and Prices, from 80% to 150% (buttons from 90%). The preview follows; Save to use them on the kiosks. Designs made before stay at 100%.
+- Migrations 295 (every till asks before leaving with items not sent) and 296 (pos_revenue_streams.receipt_mode and order_prompt, from the venue's settings; the venue columns dropped).
