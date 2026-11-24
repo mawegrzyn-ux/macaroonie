@@ -73,6 +73,7 @@ import {
   deliveryDayProblem, deadlineText, slotText, deadlinePassed, quickOrder, outOfStock,
 } from '../../../../shared/procurement.js'
 import { DateStr, TimeStr, localParts, longDate, pickByName, zonedInstant, remember, CustomIn, customPlan } from './util.js'
+import { barcodeProblem } from '../../../../shared/catalogue.js'
 
 const Id = z.string().uuid()
 const PackUnit = z.enum(Object.keys(UNITS))
@@ -235,6 +236,10 @@ function pickItem(items, text, what = 'inventory item') {
   const raw = String(text ?? '').trim()
   const byCode = items.filter(i => i.code && i.code.toLowerCase() === raw.toLowerCase())
   if (byCode.length === 1) return byCode[0]
+  // A barcode (migration 287): the item's own, or a supplier product's.
+  const scan = raw.replace(/\s+/g, '')
+  const byBarcode = /^[0-9]{8,14}$/.test(scan) ? items.filter(i => i.barcode === scan || (i.quotes || []).some(q => q.barcode === scan)) : []
+  if (byBarcode.length === 1) return byBarcode[0]
   return pickByName(items, raw, i => i.name, what,
     'The inventory is empty. Add items with add_inventory_item or import_price_list.')
 }
@@ -296,6 +301,7 @@ function itemView(it, { venue, venueName, cur }) {
     item_id: it.id,
     name: it.name,
     ...(it.code ? { code: it.code } : {}),
+    ...(it.barcode ? { barcode: it.barcode } : {}),
     category: it.category_name ?? null,
     counted: COUNTED[it.base_unit],
     storage: it.storage,
@@ -1173,8 +1179,8 @@ export const purchasingTools = [
     title: 'Find inventory items',
     activity: 'Searched the inventory',
     description:
-      'Searches the purchasing inventory (the products the company buys) by name, our code or a supplier\'s ' +
-      'product code (e.g. MEA161), category or supplier. ' +
+      'Searches the purchasing inventory (the products the company buys) by name, our code, a supplier\'s ' +
+      'product code (e.g. MEA161), a barcode (GTIN), category or supplier. ' +
       'Each item comes with its supplier prices: pack, price ex VAT, price per kg / litre / each, VAT, venue prices and ' +
       'which price is the company or a venue\'s choice. Give venue_id to see which supplier that venue orders it from. ' +
       'history: true adds the recent price changes when up to 5 items match. Needs Purchasing setup.',
@@ -1203,7 +1209,7 @@ export const purchasingTools = [
       if (input.search) {
         const s = input.search.trim().toLowerCase()
         // Our code or a supplier's product code, exactly: those first.
-        const exact = i => (i.code || '').toLowerCase() === s || i.quotes.some(q => (q.supplier_code || '').toLowerCase() === s)
+        const exact = i => (i.code || '').toLowerCase() === s || i.barcode === s || i.quotes.some(q => (q.supplier_code || '').toLowerCase() === s || q.barcode === s)
         const words = i => [i.name, i.code, ...i.quotes.flatMap(q => [q.supplier_code, q.product_name])].filter(Boolean).join(' ')
         hits = hits.filter(i => exact(i) || has(words(i), input.search))
           .sort((a, b) => Number(exact(b)) - Number(exact(a)))
@@ -1418,6 +1424,7 @@ export const purchasingTools = [
       storage:    Storage.optional().describe('Default ambient'),
       category:   z.string().max(100).optional(),
       code:       z.string().max(60).optional().describe('Your own item code'),
+      barcode:    z.string().max(20).optional().describe('The barcode on the product (GTIN-8, 12, 13 or 14 digits), as read'),
       notes:      z.string().max(2000).optional(),
       prices:     z.array(PriceInput).max(5).optional(),
       custom:     CustomIn,
@@ -1432,6 +1439,7 @@ export const purchasingTools = [
           input.name + ': counted ' + COUNTED[p.base] + ', ' + (input.storage || 'ambient'),
           ...(p.cat ? ['Category: ' + p.cat.name + (p.cat.isNew ? ' (new category)' : '')] : []),
           ...(input.code ? ['Code: ' + input.code] : []),
+          ...(input.barcode ? ['Barcode: ' + input.barcode] : []),
           ...(input.notes ? ['Notes: ' + input.notes] : []),
           ...p.custom.lines,
           ...(p.prices.length ? p.prices.flatMap(x => priceLines(x, x.sup.name, p.base, p.cur)) : ['No supplier prices yet (it can\'t be ordered until it has one)']),
@@ -1450,6 +1458,7 @@ export const purchasingTools = [
           body: {
             name: input.name, base_unit: p.base, storage: input.storage || 'ambient', category_id: categoryId,
             ...(input.code ? { code: input.code } : {}), ...(input.notes ? { notes: input.notes } : {}),
+            ...(input.barcode ? { barcode: input.barcode } : {}),
             ...(Object.keys(p.custom.values).length ? { custom: p.custom.values } : {}),
           },
         })
@@ -1485,6 +1494,7 @@ export const purchasingTools = [
       storage:    Storage.optional(),
       category:   z.string().max(100).nullable().optional(),
       code:       z.string().max(60).nullable().optional(),
+      barcode:    z.string().max(20).nullable().optional().describe('The barcode on the product (GTIN); null clears'),
       notes:      z.string().max(2000).nullable().optional(),
       active:     z.boolean().optional(),
       custom:     CustomIn,
@@ -2767,7 +2777,14 @@ export const purchasingTools = [
 
 // ── Plans (shared by describe and run) ─────────────────────
 
+/** A barcode's problem (barcodeProblem() in shared/catalogue.js, the route's rule) refuses the card. */
+function checkBarcode(v) {
+  const p = v ? barcodeProblem(v) : null
+  if (p) throw new ToolError(p + '.', 422)
+}
+
 async function newItemPlan(ctx, input) {
+  checkBarcode(input.barcode)
   const [items, cats, sups, cur] = await Promise.all([loadItems(ctx), loadCategories(ctx), loadSuppliers(ctx), tenantCurrency(ctx)])
   const same = items.find(i => i.name.toLowerCase() === input.name.trim().toLowerCase())
   if (same) {
@@ -2793,6 +2810,7 @@ async function newItemPlan(ctx, input) {
 }
 
 async function itemChangePlan(ctx, input) {
+  checkBarcode(input.barcode)
   const [items, cats] = await Promise.all([loadItems(ctx), loadCategories(ctx)])
   const item = pickItem(items, input.item)
   const body = {}
@@ -2825,7 +2843,7 @@ async function itemChangePlan(ctx, input) {
       lines.push('Category: ' + show(item.category_name) + ' to ' + (c ? c.name : want + ' (new category)'))
     }
   }
-  for (const [k, label] of [['code', 'Code'], ['notes', 'Notes']]) {
+  for (const [k, label] of [['code', 'Code'], ['barcode', 'Barcode'], ['notes', 'Notes']]) {
     if (input[k] === undefined) continue
     const v = input[k]?.trim() || null
     if (v === (item[k] || null)) continue

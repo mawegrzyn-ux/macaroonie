@@ -38,6 +38,7 @@ import { catalogueTemplates } from '../catalogue/coverage.js'
 import { loadCashDays, loadCashWeeks } from '../../services/cashReconSvc.js'
 import { ROTA_WORKS } from './rota.js'
 import { SAFETY_WORKS } from './safety.js'
+import { STOCK_WORKS } from './stock.js'
 
 const MONEY = 'numeric'
 
@@ -78,6 +79,8 @@ export const WORKS = {
   ...ROTA_WORKS,
   // Each venue's H&S day (work/safety.js).
   ...SAFETY_WORKS,
+  // Stock on hand per item per venue (work/stock.js, migration 287).
+  ...STOCK_WORKS,
 }
 
 const NAME = /^[a-z][a-z0-9_]{0,40}$/

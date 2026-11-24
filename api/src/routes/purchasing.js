@@ -1165,19 +1165,22 @@ export default async function purchasingRoutes(app) {
       const venue = await loadVenue(tx, req.tenantId, req.params.venueId)
       // The search finds names, our item code (from its start) and the
       // suppliers' product codes and names; an exact code comes first
-      // (never NULL: DESC would put NULLs before it).
+      // (never NULL: DESC would put NULLs before it). A barcode (migration
+      // 287: what the Office app's scanner reads) finds the item or the
+      // supplier's product carrying it, whole only.
       const like = '%' + search + '%'
+      const scan = search.replace(/\s+/g, '')
       const items = await tx`
-        SELECT i.id, i.name, i.code, i.base_unit, i.storage, c.name AS category_name,
-               ${search ? tx`(COALESCE(lower(i.code) = lower(${search}), false) OR EXISTS (
+        SELECT i.id, i.name, i.code, i.barcode, i.base_unit, i.storage, c.name AS category_name,
+               ${search ? tx`(COALESCE(lower(i.code) = lower(${search}), false) OR COALESCE(i.barcode = ${scan}, false) OR EXISTS (
                  SELECT 1 FROM inv_quotes q2 WHERE q2.item_id = i.id AND q2.tenant_id = ${req.tenantId} AND q2.is_active
-                    AND lower(q2.supplier_code) = lower(${search})
+                    AND (lower(q2.supplier_code) = lower(${search}) OR q2.barcode = ${scan})
                     ${supplierId ? tx`AND q2.supplier_id = ${supplierId}` : tx``}))` : tx`false`} AS exact
           FROM inv_items i LEFT JOIN inv_categories c ON c.id = i.category_id AND c.tenant_id = ${req.tenantId}
          WHERE i.tenant_id = ${req.tenantId} AND i.is_active
-           ${search ? tx`AND (i.name ILIKE ${like} OR i.code ILIKE ${search + '%'} OR EXISTS (
+           ${search ? tx`AND (i.name ILIKE ${like} OR i.code ILIKE ${search + '%'} OR i.barcode = ${scan} OR EXISTS (
                SELECT 1 FROM inv_quotes q3 WHERE q3.item_id = i.id AND q3.tenant_id = ${req.tenantId} AND q3.is_active
-                  AND (q3.supplier_code ILIKE ${like} OR q3.product_name ILIKE ${like})
+                  AND (q3.supplier_code ILIKE ${like} OR q3.product_name ILIKE ${like} OR q3.barcode = ${scan})
                   ${supplierId ? tx`AND q3.supplier_id = ${supplierId}` : tx``}))` : tx``}
            ${all ? tx`` : tx`AND EXISTS (SELECT 1 FROM inv_quotes q JOIN suppliers s ON s.id = q.supplier_id AND s.tenant_id = ${req.tenantId}
                         WHERE q.item_id = i.id AND q.tenant_id = ${req.tenantId} AND q.is_active AND s.is_active
@@ -1191,7 +1194,7 @@ export default async function purchasingRoutes(app) {
         const qs = quotes.get(i.id) || []
         // A supplier's code typed in names that product: callers add it on
         // that price rather than the item's usual one.
-        const named = exact && qs.find(q => (q.supplier_code || '').toLowerCase() === code && (!supplierId || q.supplier_id === supplierId))
+        const named = exact && qs.find(q => ((q.supplier_code || '').toLowerCase() === code || (q.barcode && q.barcode === scan)) && (!supplierId || q.supplier_id === supplierId))
         return {
           ...i,
           quote: quoteView(picks.get(i.id)?.quote, venue.id, prices),

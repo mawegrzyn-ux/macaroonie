@@ -18,11 +18,18 @@ import {
   itemCodeConflicts, itemCodesError,
 } from '../services/purchasingSvc.js'
 import { CustomInput, customValues, writeCustom } from '../services/customFields.js'
+import { barcodeProblem, cleanBarcode } from '../../../shared/catalogue.js'
 
 const uuid = z.string().uuid()
 const text = (max = 200) => z.string().trim().max(max)
 // Blank becomes null; left out stays undefined (so a PATCH doesn't clear it).
 const optText = (max = 500) => z.string().trim().max(max).nullable().optional().transform(v => (v === undefined ? undefined : v || null))
+// A barcode (migration 287): a GTIN-8, 12, 13 or 14 with its check digit, by
+// barcodeProblem() in shared/catalogue.js (the rule dishes' barcodes use).
+// Blank clears; the group's own code stays `code` (free text).
+const Barcode = z.union([z.string().max(40), z.number()]).nullable().optional()
+  .transform(v => (v === undefined ? undefined : cleanBarcode(v)))
+  .superRefine((v, c) => { const p = v ? barcodeProblem(v) : null; if (p) c.addIssue({ code: 'custom', message: p }) })
 
 const CategoryBody = z.object({ name: text(100).min(1) })
 const IdsBody = z.object({ ids: z.array(uuid).max(1000) })
@@ -34,6 +41,7 @@ const ItemBody = z.object({
   storage:     z.enum(['ambient', 'chilled', 'frozen']).optional(),
   code:        optText(60),
   notes:       optText(2000),
+  barcode:     Barcode,
   is_active:   z.boolean().optional(),
   // The group's own fields (migration 285), checked against their definitions.
   custom:      CustomInput.optional(),
@@ -42,6 +50,7 @@ const ItemBody = z.object({
 const QuoteBody = z.object({
   supplier_id:    uuid,
   supplier_code:  optText(100),
+  barcode:        Barcode,
   product_name:   optText(200),
   pack_name:      text(60).optional(),
   pack_count:     z.number().positive().max(100000).optional(),
@@ -73,7 +82,7 @@ const canView   = requirePermission('purchasing_setup', 'view')
 const canManage = requirePermission('purchasing_setup', 'manage')
 
 const QUOTE_COLS = (tx, tenantId) => tx`
-  q.id, q.item_id, q.supplier_id, q.supplier_code, q.product_name, q.pack_name, q.pack_unit, q.is_active, q.notes,
+  q.id, q.item_id, q.supplier_id, q.supplier_code, q.barcode, q.product_name, q.pack_name, q.pack_unit, q.is_active, q.notes,
   q.pack_count::float8 AS pack_count, q.pack_qty::float8 AS pack_qty, q.pack_base_qty::float8 AS pack_base_qty,
   q.price::float8 AS price, q.vat_rate::float8 AS vat_rate,
   q.min_qty::float8 AS min_qty, q.order_multiple::float8 AS order_multiple, q.updated_at,
@@ -126,7 +135,7 @@ function recordPrice(tx, tenantId, quoteId, venueId, price, by, source = 'manual
 /** Items with their quotes, preferred picks and how many order lists use them. */
 async function loadItems(tx, tenantId, itemIds = null) {
   const items = await tx`
-    SELECT i.id, i.name, i.category_id, c.name AS category_name, i.base_unit, i.storage, i.code, i.notes,
+    SELECT i.id, i.name, i.category_id, c.name AS category_name, i.base_unit, i.storage, i.code, i.barcode, i.notes,
            i.is_active, i.updated_at, i.custom,
            (SELECT count(*)::int FROM order_list_items li WHERE li.item_id = i.id AND li.tenant_id = ${tenantId}) AS list_count
       FROM inv_items i
@@ -163,6 +172,7 @@ function quoteValues(body, baseUnit) {
   if (!pbq) throw httpError(422, `A ${body.pack_unit} pack doesn't fit an item counted in ${baseUnit === 'each' ? 'each' : baseUnit}`)
   return {
     supplier_code:  body.supplier_code ?? null,
+    barcode:        body.barcode ?? null,
     product_name:   body.product_name ?? null,
     pack_name:      body.pack_name || 'pack',
     pack_count:     body.pack_count ?? 1,
@@ -646,9 +656,9 @@ export default async function inventoryRoutes(app) {
       await checkCategory(tx, req.tenantId, b.category_id)
       const values = await customValues(tx, req.tenantId, 'purchasing.items', b.custom, { create: true })
       const [i] = await tx`
-        INSERT INTO inv_items (tenant_id, name, category_id, base_unit, storage, code, notes, is_active)
+        INSERT INTO inv_items (tenant_id, name, category_id, base_unit, storage, code, barcode, notes, is_active)
         VALUES (${req.tenantId}, ${b.name}, ${b.category_id ?? null}, ${b.base_unit || 'each'}, ${b.storage || 'ambient'},
-                ${b.code ?? null}, ${b.notes ?? null}, ${b.is_active ?? true})
+                ${b.code ?? null}, ${b.barcode ?? null}, ${b.notes ?? null}, ${b.is_active ?? true})
         RETURNING id
       `
       await writeCustom(tx, req.tenantId, 'purchasing.items', i.id, values)
@@ -773,7 +783,7 @@ export default async function inventoryRoutes(app) {
       const q = await ownQuote(tx, req.tenantId, req.params.id)
       if (b.supplier_id) await checkSupplier(tx, req.tenantId, b.supplier_id)
       const merged = {
-        supplier_code: q.supplier_code, product_name: q.product_name, pack_name: q.pack_name, pack_count: Number(q.pack_count),
+        supplier_code: q.supplier_code, barcode: q.barcode, product_name: q.product_name, pack_name: q.pack_name, pack_count: Number(q.pack_count),
         pack_qty: Number(q.pack_qty), pack_unit: q.pack_unit, price: q.price, vat_rate: Number(q.vat_rate),
         min_qty: q.min_qty == null ? null : Number(q.min_qty),
         order_multiple: q.order_multiple == null ? null : Number(q.order_multiple),

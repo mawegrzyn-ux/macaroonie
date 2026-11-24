@@ -281,6 +281,7 @@ export function quoteView(q, venueId, withPrice) {
     supplier_id: q.supplier_id,
     supplier_name: q.supplier_name,
     supplier_code: q.supplier_code,
+    barcode: q.barcode ?? null,
     product_name: q.product_name ?? null,
     pack_label: packLabel(q),
     pack_name: packParts(q).name,

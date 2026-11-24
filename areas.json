@@ -895,12 +895,14 @@
     "admin/src/pages/mobile/MobilePurchasing.jsx",
     "api/src/routes/inventory.js",
     "api/src/routes/purchasing.js",
+    "api/src/routes/stock.js",
     "api/src/routes/suppliers.js",
     "api/src/services/invoiceReadAi.js",
     "api/src/services/pdfDoc.js",
     "api/src/services/purchasingSvc.js",
     "api/src/services/receiptReadAi.js",
     "api/src/services/sheetRead.js",
+    "api/src/services/stockSvc.js",
     "api/test/invoice-reading.test.mjs",
     "api/test/purchasing-approval.test.mjs",
     "api/test/purchasing-basket.test.mjs",
@@ -909,6 +911,7 @@
     "api/test/purchasing-delivery.test.mjs",
     "api/test/purchasing-guards.test.mjs",
     "api/test/purchasing-no-order.test.mjs",
+    "api/test/purchasing-stock-on-hand.test.mjs",
     "api/test/purchasing-stock.test.mjs",
     "shared/procurement.js",
     "shared/test/procurement.test.mjs"
@@ -921,6 +924,7 @@
     "api/src/services/purchasingSvc.js",
     "api/src/services/receiptReadAi.js",
     "api/src/services/sheetRead.js",
+    "api/src/services/stockSvc.js",
     "shared/nav/purchasing.js",
     "shared/procurement.js"
    ]
@@ -1229,6 +1233,7 @@
     "admin/src/lib/deepLink.js",
     "admin/src/lib/fileDrop.js",
     "admin/src/lib/hosts.js",
+    "admin/src/lib/officeApp.jsx",
     "admin/src/lib/push.js",
     "admin/src/pages/docs/parts.jsx",
     "admin/src/pages/help/parts.jsx",
