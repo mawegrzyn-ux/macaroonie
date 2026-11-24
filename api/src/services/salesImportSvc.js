@@ -26,6 +26,7 @@ import { unseal } from './vault.js'
 import { officeOrigin } from './platformHost.js'
 import * as loyverse from './connectors/loyverse.js'
 import { queue as syncQueue } from '../jobs/sales-sync.js'
+import { mappingContext, mapChecks, sweepRemaps } from './itemMappingSvc.js'
 import { stableJson, CATCH_UP_MINUTES, HISTORY_MONTHS } from '../../../shared/externalSales.js'
 
 const CONNECTORS = { loyverse }
@@ -238,9 +239,11 @@ async function linkedVenues(tx, tenantId, connectionId) {
 
 /**
  * One page of sale documents: raw copies stored; for linked stores, the ones
- * that are new, changed or not yet normalised become checks. Returns counts.
+ * that are new, changed or not yet normalised become checks, mapped to our
+ * menus in the same transaction (the item mapping, `mc` =
+ * itemMappingSvc.mappingContext()). Returns counts.
  */
-async function savePage(tenantId, conn, mod, docs, byLocation) {
+async function savePage(tenantId, conn, mod, docs, byLocation, mc) {
   return withTenant(tenantId, async tx => {
     const changed = await storeDocuments(tx, { tenantId, connectionId: conn.id, docs })
     const changedIds = new Set(changed.map(d => d.external_id))
@@ -250,6 +253,7 @@ async function savePage(tenantId, conn, mod, docs, byLocation) {
        WHERE tenant_id = ${tenantId} AND connection_id = ${conn.id} AND external_id = ANY(${ids}::text[])`).map(r => r.external_id))
     const stored = new Map(changed.map(d => [d.external_id, d.id]))
     let checks = 0
+    const saved = []
     for (const d of docs) {
       const venue = byLocation.get(d.payload.store_id)
       if (!venue) continue
@@ -259,9 +263,10 @@ async function savePage(tenantId, conn, mod, docs, byLocation) {
         const [row] = await tx`SELECT id FROM ext_documents WHERE tenant_id = ${tenantId} AND connection_id = ${conn.id} AND kind = 'sale' AND external_id = ${d.external_id}`
         documentId = row?.id ?? null
       }
-      await saveSale(tx, { tenantId, connectionId: conn.id, venueId: venue.venue_id, documentId, currency: conn.currency, sale: mod.normalise(d, venue) })
+      saved.push(await saveSale(tx, { tenantId, connectionId: conn.id, venueId: venue.venue_id, documentId, currency: conn.currency, sale: mod.normalise(d, venue) }))
       checks++
     }
+    await mapChecks(tx, tenantId, conn.id, saved, mc)
     return { docs: docs.length, changed: changed.length, checks }
   })
 }
@@ -300,6 +305,8 @@ export async function syncConnection(tenantId, connectionId, { log = null, budge
       counts.catalog = await saveCatalog(tx, { tenantId, connectionId: conn.id, docs: changed, catalogRows: mod.catalogRows })
       await tx`UPDATE pos_connections SET catalog_synced_to = ${new Date(catalogFrom.getTime() - OVERLAP_MS)} WHERE id = ${conn.id} AND tenant_id = ${tenantId}`
     })
+    // The item mapping's rules, catalogue and our prices, once for the run.
+    const mc = await withTenant(tenantId, tx => mappingContext(tx, tenantId, conn.id))
 
     // Catch-up: receipts changed since the last high-water mark, every store.
     const salesTo = new Date(conn.run_at)
@@ -309,7 +316,7 @@ export async function syncConnection(tenantId, connectionId, { log = null, budge
     let cursor = null
     do {
       const page = await client.fetchSales({ from: salesFrom, to: salesTo, by: 'updated', cursor })
-      const r = await savePage(tenantId, conn, mod, page.docs, byLocation)
+      const r = await savePage(tenantId, conn, mod, page.docs, byLocation, mc)
       counts.sales += r.docs; counts.checks += r.checks
       cursor = page.cursor
     } while (cursor)
@@ -328,7 +335,7 @@ export async function syncConnection(tenantId, connectionId, { log = null, budge
         const end = new Date(Math.min(to.getTime(), next.getTime() + HISTORY_WINDOW_DAYS * 86400_000))
         const page = await client.fetchSales({ from: next, to: end, by: 'created', locationId: v.location_id, cursor: pageCursor })
         pages++
-        const r = await savePage(tenantId, conn, mod, page.docs, byLocation)
+        const r = await savePage(tenantId, conn, mod, page.docs, byLocation, mc)
         counts.history += r.docs; counts.checks += r.checks; count += r.docs
         pageCursor = page.cursor
         if (!pageCursor) next = end
@@ -388,6 +395,8 @@ export async function sweepDue(log = null) {
     if (!r.skipped) ran++
   }
   await sweepRawDocuments().catch(err => log?.warn?.({ err: err?.message }, 'Raw sales copies not cleared'))
+  // Re-maps asked for by a rule change whose queued job was lost.
+  ran += await sweepRemaps(log).catch(err => { log?.warn?.({ err: err?.message }, 'Item re-maps not run'); return 0 })
   return ran
 }
 
