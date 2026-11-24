@@ -46,6 +46,7 @@ export class ToolError extends Error {
  *                   acting = the person switched in on a shared device)
  *   actor           text for the audit log (staff email, or 'guest')
  *   conversationId  chats only
+ *   rule            a rule's run (step 8B2): { id, name }, named in the audit
  */
 export function makeContext(fields) {
   // said: the person's own words this chat turn (chat.js), for open_form's measured values.
@@ -168,14 +169,16 @@ export async function audit(ctx, { tenantId, tool, input, ok, result, bookingId,
     venue_id: isUuid(venue) ? venue : null,
     undo_of: isUuid(undoOf) ? undoOf : null,
     shared_device_id: acting && isUuid(acting.deviceId) ? acting.deviceId : null,
+    // A rule's run (migration 286, step 8B2): the rule it came from.
+    rule_id: isUuid(ctx.rule?.id) ? ctx.rule.id : null,
   }
   const insert = tx => tx`
     INSERT INTO ai_actions (tenant_id, channel, actor, tool, input, ok, result, booking_id, conversation_id,
-                            action_id, user_sub, venue_id, undo_of, shared_device_id)
+                            action_id, user_sub, venue_id, undo_of, shared_device_id, rule_id)
     VALUES (${row.tenant_id}, ${row.channel}, ${row.actor}, ${row.tool},
             ${row.input === null ? null : tx.json(row.input)}, ${row.ok},
             ${row.result === null ? null : tx.json(row.result)}, ${row.booking_id}, ${row.conversation_id},
-            ${row.action_id}, ${row.user_sub}, ${row.venue_id}, ${row.undo_of}, ${row.shared_device_id})
+            ${row.action_id}, ${row.user_sub}, ${row.venue_id}, ${row.undo_of}, ${row.shared_device_id}, ${row.rule_id})
   `
   try {
     if (tid) await withTenant(tid, insert)
@@ -248,7 +251,7 @@ export function usageCost(tokens, model = null) {
 
 // What a model call was for (ai_requests.use, migration 271): the words are
 // USE_LABELS in shared/pepperActions.js.
-export const USES = ['chat', 'smart_builder', 'menu_reader', 'invoice_reader', 'receipt_reader', 'local_info', 'theme_maker', 'translation', 'new_location', 'other']
+export const USES = ['chat', 'smart_builder', 'menu_reader', 'invoice_reader', 'receipt_reader', 'local_info', 'theme_maker', 'translation', 'new_location', 'rule_parser', 'other']
 
 /** The web searches a model response made (usage.server_tool_use). */
 export const searchesIn = usage => Math.max(0, Number(usage?.server_tool_use?.web_search_requests) || 0)

@@ -685,6 +685,50 @@ export function Section() {
         Switching web search off (or on) takes effect with the next message in every chat. Earlier
         answers keep their sources.
       </P>
+      <H3>Your own fields on customers, staff, suppliers and stock</H3>
+      <P>
+        Each group can add its own fields to customers, staff members, suppliers and inventory items: a
+        supplier&apos;s payment terms, a staff member&apos;s food hygiene level, a customer&apos;s allergy notes. Add them in{' '}
+        <strong>Settings</strong> under <strong>Your own fields</strong>: a name, and what it holds (text, a number,
+        yes or no, a date, or one of a list you give). Tick <strong>Needed on a new one</strong> to have the new
+        supplier and new staff forms ask for it. You need Manage on the area the field belongs to (Customers, Staff,
+        or Purchasing setup). A field&apos;s name and choices can change later; what it holds can&apos;t (add a new
+        field instead). Deleting a field takes its value off every row, after a second tap.
+      </P>
+      <DataTable
+        head={['Where it shows', 'What you can do there']}
+        rows={[
+          ['The supplier, item, customer or staff member\'s own page', 'A Your own fields card with its own Save.'],
+          ['The New supplier and Add staff forms', 'Drawn after the usual fields; Pepper can fill them in for you to check.'],
+          ['Reports', 'A field of the thing the report is about, by the name you gave it (Suppliers, Inventory items, Customers, Staff).'],
+          ['Pepper', '"Set Fresh Co\'s payment terms to 30 days": the change tools take them by name, and Pepper tells you which fields there are.'],
+        ]}
+      />
+      <H3>Rules made from a sentence</H3>
+      <P>
+        A rule is something the app does by itself when something happens: <em>When a fridge reads above 8 at
+        Ware, add an H&amp;S action for the manager</em>, or <em>When a supplier order is over 500, ask the owner to
+        approve</em>. Type the sentence in <strong>Settings</strong> under <strong>Rules</strong> and press{' '}
+        <strong>Read it with Pepper</strong>, or say it to Pepper in the chat. Pepper shows the rule as it read it
+        (when, if, then, how often) on a card; nothing is kept until you press <strong>Make rule</strong>.
+      </P>
+      <DataTable
+        head={['A rule can start from', 'And check']}
+        rows={[
+          ['A fridge or freezer reading is logged', 'Reads above or below a temperature, out of its range, the fridge\'s name'],
+          ['A supplier order is placed', 'The order\'s total over an amount, the supplier'],
+          ['A task on Today is late', 'The kind of task, words in its name'],
+          ['A review is recorded', 'Stars at most, the site it came from'],
+        ]}
+      />
+      <P>
+        A rule can only add an H&amp;S action or send a notice to people&apos;s phones (a role, such as the owner,
+        or one person). It never changes money, pay, prices, allergens, deletions or anything about a person:
+        Pepper says so and makes no rule. It runs as the person who made it, with their access, at most a few
+        times a day (five unless the sentence says otherwise), and each run is listed under Done by Pepper as{' '}
+        <em>Rule: its name</em>. The Rules list shows when each one last ran; switch one off with its switch, or
+        delete it with two taps (what it already did stays). Making rules needs Manage on Pepper.
+      </P>
       <H3>Using your own AI app</H3>
       <P>
         <strong>Claude (claude.ai and the Claude apps), ChatGPT and other apps that sign in:</strong>{' '}

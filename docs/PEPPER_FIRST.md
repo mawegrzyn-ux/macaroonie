@@ -480,3 +480,13 @@ and examples on the catalogue's most asked-about fields, with "not covered" for 
 decision 3's deterministic renderer for flat set-up forms (`api/src/forms/`, `PlainForm`), four forms drawn
 from their route's own schema (a new supplier, staff member, expense, closure). Follow-ups:
 `docs/claude/outstanding/pepper.md` 61.
+
+Step 8, part B (the last step) was built 24 Nov 2026 (migrations 285 to 287): decision 5's custom fields, in the
+same field registry (definitions per object, values in a `custom` column on the object's row, no tenant-defined
+tables), drawn by the plain forms, offered by the report catalogue per group and taken by Pepper's tools by name;
+a rule built from a sentence with the same actions (a trigger the app already has, conditions and one reversible
+tool, read by `askForJson()`, saved only on Confirm, run as the person who confirmed it with the rule named in the
+audit, at most a few times a day; decision 4's never-list can't be a rule's action); and decision 11's
+precondition for retail: a product code (GTIN barcode) on inventory items and supplier products, and stock on hand
+per item per venue (the last count plus what was received since; sales aren't taken off until recipes exist).
+Follow-ups: `docs/claude/outstanding/pepper.md` 62, `purchasing.md` 63.

@@ -1151,6 +1151,67 @@ export function Section() {
         <Mono>plain-saved</Mono>, <Mono>plain-problem-&lt;key&gt;</Mono>. Tests:{' '}
         <Mono>api/test/pepper-plain-forms.test.mjs</Mono>, <Mono>shared/test/plainForm.test.mjs</Mono>.
       </P>
+      <H3>A group&apos;s own fields (step 8B1, migration 285)</H3>
+      <P>
+        Decision 5 (custom fields in the same field registry, no tenant-defined tables): table{' '}
+        <Mono>custom_fields</Mono> (RLS forced; <Mono>object_key</Mono> one of the registry keys{' '}
+        <Mono>guests.customers</Mono>, <Mono>staff.people</Mono>, <Mono>purchasing.suppliers</Mono>,{' '}
+        <Mono>purchasing.items</Mono>; <Mono>field_key</Mono> from the label, never changed; <Mono>label</Mono>,{' '}
+        <Mono>type</Mono> text | number | yesno | date | choice, <Mono>options</Mono>, <Mono>required</Mono>,{' '}
+        <Mono>help</Mono>) and a jsonb <Mono>custom</Mono> column on <Mono>customers</Mono>, <Mono>cash_staff</Mono>,{' '}
+        <Mono>suppliers</Mono> and <Mono>inv_items</Mono>, by field key. The rules: <Mono>shared/customFields.js</Mono>{' '}
+        (<Mono>CUSTOM_OBJECTS</Mono> with the module each needs, <Mono>fieldKeyOf()</Mono>,{' '}
+        <Mono>definitionProblem()</Mono>, <Mono>cleanValue()</Mono>, <Mono>valueProblem()</Mono>,{' '}
+        <Mono>checkValues()</Mono> by key or by label, <Mono>fieldSql()</Mono> for the catalogue).{' '}
+        <Mono>api/src/services/customFields.js</Mono>: <Mono>CustomInput</Mono> (each object&apos;s route body takes{' '}
+        <Mono>custom</Mono>), <Mono>loadDefinitions()</Mono>, <Mono>definitionsFor()</Mono>,{' '}
+        <Mono>customValues()</Mono> (422 <Mono>custom_fields</Mono> naming each problem; a request without{' '}
+        <Mono>custom</Mono> asks nothing, so rows made elsewhere start without), <Mono>writeCustom()</Mono> (null
+        takes a key off), <Mono>customLines()</Mono>. Routes <Mono>/api/custom-fields</Mono>{' '}
+        (<Mono>routes/customFields.js</Mono>): GET (View on each object&apos;s module), POST / PATCH / DELETE (Manage;
+        at most <Mono>MAX_FIELDS</Mono> 20 per object; delete strips the key from every row). Anonymising a customer
+        clears <Mono>custom</Mono>.
+      </P>
+      <DataTable
+        head={['Where', 'How they join']}
+        rows={[
+          ['Plain forms', 'GET /api/forms/:key adds customFieldList() (forms/plain.js) after the schema\'s fields for the object the form adds (customObjectOf(), from the registry\'s forms); each has in: \'custom\' and bodyOf() (shared/plainForm.js) nests them, always sending custom.'],
+          ['Report catalogue', 'tenantCatalogue(tenantId) / customCatalogue() (reports/catalogue/index.js): the object\'s subject cloned with cf_<key> fields (fieldSql(), pii on customers and staff); reportPerson() reads it per request (p.catalogue, ctx.catalogue), catalogueView(levels, catalogue) shows it, compileReport() reads env.catalogue for the call (synchronous, put back in finally); a run without one reads it (withCatalogue() in run.js). CATALOGUE itself never changes.'],
+          ['Pepper', 'CustomIn and customPlan() (tools/util.js): add_supplier, update_supplier, add_inventory_item, update_inventory_item, add_staff_member, update_staff_member and update_customer take custom by label; open_form takes values.custom for supplier and staff_member; customer_details shows own_fields; what_can_i_do lists own_fields.'],
+          ['Admin', 'components/forms/CustomFields.jsx: CustomFieldSettings (Settings, lazy), CustomFieldsCard (Suppliers, Inventory, Customers, Staff), useCustomFields().'],
+        ]}
+      />
+      <P>
+        Tests: <Mono>api/test/custom-fields.test.mjs</Mono>; the fixtures (<Mono>fixtures/pepper.mjs</Mono>) add
+        Payment terms on suppliers and a value.
+      </P>
+      <H3>Rules made from a sentence (step 8B2, migration 286)</H3>
+      <P>
+        <Mono>shared/rules.js</Mono>: <Mono>TRIGGERS</Mono> (<Mono>fridge_reading</Mono>,{' '}
+        <Mono>supplier_order</Mono>, <Mono>task_late</Mono>, <Mono>review_low</Mono>, each with its conditions and
+        the event fields its templates may use), <Mono>RULE_ACTIONS</Mono> (<Mono>add_hs_action</Mono>,{' '}
+        <Mono>send_notice</Mono>: reversible tools only, so the never-list can&apos;t be a rule&apos;s action),{' '}
+        <Mono>ruleProblem()</Mono>, <Mono>matches()</Mono>, <Mono>fillInput()</Mono>, <Mono>ruleLines()</Mono>.
+        Tables <Mono>pepper_rules</Mono> (trigger, conditions, venue, action and its input template,{' '}
+        <Mono>per_day</Mono>, <Mono>enabled</Mono>, <Mono>created_by</Mono> = the person it runs as) and{' '}
+        <Mono>pepper_rule_firings</Mono> (one claim per rule and event, its day and status: running, done, failed,
+        capped), <Mono>ai_actions.rule_id</Mono>.
+      </P>
+      <DataTable
+        head={['Part', 'Where']}
+        rows={[
+          ['Reading a sentence', 'parseRule() in services/rules.js: one askForJson() call (fast model, use rule_parser), the sentence inside <sentence> as data, venues as refs V1..; toRule() maps refs to ids, reads numbers, drops empty values and checks RuleSchema and ruleProblem(); an action outside RULE_ACTIONS is refused (422 never_list).'],
+          ['Saving', 'checkRule() (the shape, the venue is the group\'s, the tool\'s class is reversible, the person may use the tool) then saveRule(). Pepper: make_rule (tools/rules.js, consequential, the card pins the rule so Confirm makes no second model call); Settings: POST /api/ai/rules/parse then POST /api/ai/rules. GET, PATCH { enabled }, DELETE on /api/ai/rules (View / Manage on Pepper).'],
+          ['Firing', 'fireRulesLater() / fireRules() (ai/ruleRunner.js) after POST /api/food-safety/temp-logs, POST /api/purchasing/orders/:id/submit (each new PO), POST /api/reviews and /reviews/record, and in the task notices sweep (late tasks). Claimed in pepper_rule_firings under an advisory lock per rule; over per_day on the event\'s day it is capped; the tool\'s run() as the creator (Bearer internal-as), ctx.rule named in audit() (actor "Rule: name", rule_id).'],
+          ['Notices', 'send_notice (tools/rules.js, reversible): a role or a person\'s push devices through sendToDevices() (services/notices.js).'],
+          ['Admin', 'components/ai/RuleSettings.jsx in Settings (lazy): the list (rule-row, rule-last-run, switch, rule-delete / rule-delete-yes) and the sentence box (rule-sentence, rule-read, rule-card, rule-confirm).'],
+        ]}
+      />
+      <P>
+        Tests: <Mono>api/test/pepper-rules.test.mjs</Mono>; evaluation task <Mono>rule_from_sentence</Mono>{' '}
+        (<Mono>api/eval/tasks/safety.mjs</Mono>, with <Mono>readers</Mono>: the stand-in answers the tool&apos;s own
+        model call).
+      </P>
     </section>
   )
 }

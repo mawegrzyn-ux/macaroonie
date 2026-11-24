@@ -488,7 +488,8 @@ export const subjects = [
     list: ['name', 'venue.name', 'role.name', 'active', 'left_on'],
     sort: [{ by: 'name', dir: 'asc' }],
     // The till role (Store tech's till roles come with the till's setup) and the PIN.
-    skip: ['sort_order', 'pos_pin_hash'],
+    // custom: the group's own fields (migration 285), offered per group (customCatalogue() in index.js).
+    skip: ['sort_order', 'pos_pin_hash', 'custom'],
   }),
 
   subject({

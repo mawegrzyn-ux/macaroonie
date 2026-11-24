@@ -14,6 +14,18 @@ export const objects = [
     table: 'ai_actions', subjects: ['pepper.actions'],
     page: '/pepper/done',
   },
+  {
+    key: 'pepper.rules', label: 'Rule', plural: 'Rules', words: ['automation', 'when then', 'trigger'],
+    table: 'pepper_rules',
+    page: '/settings',
+    actions: ['make_rule'],
+  },
+  {
+    key: 'pepper.notices', label: 'Notice', plural: 'Notices', words: ['push notice', 'phone alert', 'notification'],
+    table: 'push_devices',
+    page: '/settings',
+    actions: ['send_notice'],
+  },
 ]
 
 export const notObjects = {

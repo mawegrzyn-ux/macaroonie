@@ -25,8 +25,9 @@ import { withTenant } from '../../config/db.js'
 import { ToolError, callApi, requireStaffPermission } from '../context.js'
 import {
   DateStr, VenueText, venueFor, venueToday, longDate, shortDate, localParts, zonedInstant, addDays,
-  plural, pickByName, audited, realEmail, surnameOf,
+  plural, pickByName, audited, realEmail, surnameOf, CustomIn, customPlan,
 } from './util.js'
+import { loadDefinitions, customLines } from '../../services/customFields.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const hhmm = t => (t ? String(t).slice(0, 5) : null)
@@ -241,8 +242,12 @@ export const venueTools = [
     async run(ctx, input) {
       await requireStaffPermission(ctx, 'customers', 'view')
       const c = await pickCustomer(ctx, input.customer)
-      const venues = await withTenant(ctx.tenantId, tx => tx`SELECT timezone FROM venues WHERE tenant_id = ${ctx.tenantId} LIMIT 1`)
-      return customerView(c, venues[0]?.timezone || 'Europe/London')
+      const [venues, defs] = await withTenant(ctx.tenantId, tx => Promise.all([
+        tx`SELECT timezone FROM venues WHERE tenant_id = ${ctx.tenantId} LIMIT 1`,
+        loadDefinitions(tx, ctx.tenantId, 'guests.customers'),
+      ]))
+      const own = customLines(defs, c.custom)
+      return { ...customerView(c, venues[0]?.timezone || 'Europe/London'), ...(own.length ? { own_fields: own } : {}) }
     },
   },
 
@@ -258,6 +263,7 @@ export const venueTools = [
       email: z.string().trim().email().nullable().optional(),
       phone: z.string().trim().max(30).nullable().optional(),
       notes: z.string().max(2000).nullable().optional(),
+      custom: CustomIn,
     }),
     confirm: true,
     async describe(ctx, input) {
@@ -542,6 +548,8 @@ async function customerEditPlan(ctx, input) {
     body[k] = input[k]
     lines.push(k[0].toUpperCase() + k.slice(1) + ': ' + (was || '(none)') + ' → ' + (input[k] || '(none)'))
   }
+  const custom = await customPlan(ctx, 'guests.customers', input.custom, { current: c.custom })
+  if (custom.lines.length) { body.custom = custom.values; lines.push(...custom.lines) }
   if (!Object.keys(body).length) throw new ToolError('Nothing to change.', 422)
   return { c, body, lines }
 }

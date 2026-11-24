@@ -12,8 +12,9 @@
 //                     everyone; offer one to the team as a starter
 //
 //   reportPerson(req)        the caller: { tenantId, sub, email, level, levels,
-//                            roleId, canUse, canManage, ctx } (ctx is what
-//                            run.js takes)
+//                            roleId, canUse, canManage, catalogue, ctx } (ctx
+//                            is what run.js takes; catalogue the group's own,
+//                            tenantCatalogue())
 //   rightsOn(row, person)    { open, edit, share } on a saved report
 //   openTo(tx, person)       the same "open" rule as a SQL condition on `r`
 //   runsFor(subject, levels) { runs, needs }: whether the person may report
@@ -39,7 +40,7 @@ import { permissionLevels } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { effectiveRoleId } from '../services/roles.js'
 import { permissionAtLeast, MODULES } from '../config/modules.js'
-import { CATALOGUE, CATALOGUE_MODULES, canReportOn } from './catalogue/index.js'
+import { CATALOGUE, CATALOGUE_MODULES, canReportOn, tenantCatalogue } from './catalogue/index.js'
 import { compileReport, ReportError } from './compile.js'
 import { normaliseReport, reportProblems, resolveParams, rowId } from '../../../shared/reports/spec.js'
 import { todayIn } from '../../../shared/reports/period.js'
@@ -52,6 +53,8 @@ export async function reportPerson(req) {
   const levels = await permissionLevels(req, [...CATALOGUE_MODULES, 'reports'])
   const level = levels.reports || 'none'
   const canManage = permissionAtLeast(level, 'manage')
+  // The catalogue with the group's own fields (migration 285), read once per request.
+  const catalogue = await tenantCatalogue(req.tenantId)
   return {
     tenantId: req.tenantId,
     sub: req.user.sub,
@@ -62,7 +65,8 @@ export async function reportPerson(req) {
     roleId: canManage ? null : await effectiveRoleId(req),
     canUse: permissionAtLeast(level, 'use'),
     canManage,
-    ctx: { tenantId: req.tenantId, userKey: req.user.sub, levels },
+    catalogue,
+    ctx: { tenantId: req.tenantId, userKey: req.user.sub, levels, catalogue },
   }
 }
 
@@ -104,6 +108,7 @@ export function checkedSpec(raw, p, { strict = false } = {}) {
   const plan = compileReport(spec, {
     tenantId: p.tenantId,
     levels: p.levels,
+    catalogue: p.catalogue,
     params: resolveParams(spec, {}),
     today: todayIn('Europe/London'),
     tz: 'Europe/London',

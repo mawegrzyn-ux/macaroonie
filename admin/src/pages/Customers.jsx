@@ -25,6 +25,7 @@ import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { cn, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
 import { useLinked } from '@/lib/linked'
 import { retryUnlessRefused } from '@/components/reports/shared'
+import { CustomFieldsCard } from '@/components/forms/CustomFields'
 
 // ── CSV parser ────────────────────────────────────────────────
 // Supports two column orderings (auto-detected from header):
@@ -631,6 +632,16 @@ function CustomerDetail({ customer, api, onUpdated, onAnonymised, onClose }) {
               </Section>
             )}
           </>
+        )}
+
+        {/* The group's own fields (migration 285): their own Save. */}
+        {!customer.is_anonymised && (
+          <CustomFieldsCard objectKey="guests.customers" values={customer.custom} canEdit={canManage}
+            onSave={async custom => {
+              await api.patch('/customers/' + customer.id, { custom })
+              onUpdated()
+              qc.invalidateQueries({ queryKey: ['customers', customer.id] })
+            }} />
         )}
 
         {/* Newsletter (migration 125). Guests opt in at online checkout;

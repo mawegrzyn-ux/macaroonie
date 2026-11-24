@@ -4,7 +4,8 @@
 // draws what they say. The field list comes from the API (GET /api/forms/:key,
 // derived from the route's own schema by api/src/forms/plain.js):
 //   [{ key, label, help?, examples?, type, required, min?, max?, maxLength?,
-//      choices?, options?, when?, default? }]
+//      choices?, options?, when?, default?, in?, name? }]
+// (`in` and `name`: the group's own fields, sent nested under body[in][name])
 //
 //   layoutOf(fields, values)   what is drawn, in order: [{ key, control,
 //                              label, required, help, choices? }]. The same
@@ -83,15 +84,26 @@ export function problemOf(field, v) {
   return null
 }
 
-/** The body the route takes: drawn fields only, typed as the schema wants, empty ones left out; `from` from the sheet's day. */
+/**
+ * The body the route takes: drawn fields only, typed as the schema wants,
+ * empty ones left out; `from` from the sheet's day. A field with `in` (the
+ * group's own fields, step 8B1) goes under that key by its `name`:
+ * { custom: { payment_terms: '30 days' } }.
+ */
 export function bodyOf(fields, values, from = {}, date = null) {
   const body = {}
+  const put = (f, v) => {
+    if (f.in) (body[f.in] ??= {})[f.name] = v
+    else body[f.key] = v
+  }
   for (const f of fields) {
     if (!shown(f, values)) continue
     const v = values[f.key]
-    if (f.type === 'bool') { body[f.key] = !!v; continue }
+    // A form that draws the group's own fields always sends them (empty too), so the route checks what is required.
+    if (f.in) body[f.in] ??= {}
+    if (f.type === 'bool') { put(f, !!v); continue }
     if (v === '' || v == null) continue
-    body[f.key] = NUMBER_TYPES.includes(f.type) ? Number(v) : f.type === 'time' ? String(v).slice(0, 5) : String(v).trim()
+    put(f, NUMBER_TYPES.includes(f.type) ? Number(v) : f.type === 'time' ? String(v).slice(0, 5) : String(v).trim())
   }
   for (const [k, what] of Object.entries(from || {})) if (what === 'date' && date) body[k] = date
   return body

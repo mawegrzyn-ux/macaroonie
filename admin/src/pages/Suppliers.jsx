@@ -22,6 +22,7 @@ import {
 } from '@/components/purchasing/shared'
 import { SEND_METHODS, packLabel } from '@shared/procurement.js'
 import { PlainForm } from '@/components/forms/PlainForm'
+import { CustomFieldsCard } from '@/components/forms/CustomFields'
 
 const METHOD_ICON = { email: Mail, print: Printer, excel: FileSpreadsheet, pdf: FileText }
 const METHOD_TEXT = {
@@ -145,6 +146,8 @@ function SupplierDrawer({ id, canEdit, onCreated, onClose }) {
       {s && (
         <>
           <OrderingCard s={s} canEdit={canEdit} onSaved={refresh} />
+          <CustomFieldsCard objectKey="purchasing.suppliers" values={s.custom} canEdit={canEdit}
+            onSave={async custom => refresh(await api.patch(`/suppliers/${s.id}`, { custom }))} />
           {venues.length > 0 && <VenuesCard s={s} venues={venues} canEdit={canEdit} onSaved={refresh} />}
           <Card title={`Products (${s.quotes.length})`} bodyClass="p-0"
             actions={<Link to="/inventory" className={btn.ghost}>Inventory</Link>}>

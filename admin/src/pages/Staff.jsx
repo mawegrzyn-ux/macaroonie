@@ -22,6 +22,7 @@ import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { PlainForm } from '@/components/forms/PlainForm'
+import { CustomFieldsCard } from '@/components/forms/CustomFields'
 import { cn } from '@/lib/utils'
 import { PAY_TYPES, staffRateLabel } from '@/pages/CashRecon'
 import { PAY_METHODS, payMethodLabel } from '@shared/payMethod.js'
@@ -451,6 +452,11 @@ function StaffEditor({ venueId, initial, live, roles, shifts, onClose }) {
           <p className="text-[11px] text-muted-foreground">These save straight away, separately from Save below.</p>
           <LeavingSection venueId={venueId} person={live} />
           <OffPeriodsSection venueId={venueId} person={live} />
+          <CustomFieldsCard objectKey="staff.people" values={live.custom} canEdit
+            onSave={async custom => {
+              await api.patch('/rota/venues/' + venueId + '/staff/' + live.id, { custom })
+              qc.invalidateQueries({ queryKey: ['rota-staff', venueId] })
+            }} />
         </div>
       )}
     </Modal>

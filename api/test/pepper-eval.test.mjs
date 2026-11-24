@@ -18,14 +18,21 @@ let tasks
 test.before(async () => { tasks = await loadTasks() })
 test.after(async () => { await claude.close(); await closeApp() })
 
-/** The stand-in's replies for one trial: the calls in one turn, then a line of text. */
-function scriptFor(calls, closing = 'Done.') {
+/**
+ * The stand-in's replies for one trial: the calls in one turn, the answers of
+ * the tools' own model calls (a task's `readers`: make_rule's reader, as JSON),
+ * then a line of text.
+ */
+function scriptFor(calls, closing = 'Done.', readers = []) {
   claude.script.length = 0
   if (calls.length) {
     claude.script.push(() => ({
       stop_reason: 'tool_use',
       content: calls.map((c, i) => ({ type: 'tool_use', id: 'toolu_eval_' + i, name: c.tool, input: c.input })),
     }))
+  }
+  for (const r of readers) {
+    claude.script.push(body => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(typeof r === 'function' ? r(body) : r) }] }))
   }
   claude.script.push(() => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: closing }] }))
 }
@@ -44,7 +51,7 @@ test('every task passes when the model makes its reference calls, and no change 
   const run = await runTasks(tasks, {
     async before(task, ctx) {
       if (['change', 'answer'].includes(task.expect) && (await task.check(ctx, { calls: [] })) === true) early.push(task.id)
-      scriptFor(await task.reference(ctx), task.expect === 'nothing' ? 'What time, and for how many?' : 'Done.')
+      scriptFor(await task.reference(ctx), task.expect === 'nothing' ? 'What time, and for how many?' : 'Done.', task.readers ? task.readers(ctx) : [])
     },
   })
   assert.deepEqual(early, [], 'checks that already pass before anything is asked (or with no tool called)')

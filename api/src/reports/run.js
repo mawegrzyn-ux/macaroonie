@@ -24,7 +24,7 @@ import { env } from '../config/env.js'
 import { normaliseReport, reportProblems, resolveParams, rowId, valueSubject, venueScope, LIMITS } from '../../../shared/reports/spec.js'
 import { todayIn, addDays } from '../../../shared/reports/period.js'
 import { drillSpec, countedBy, readsFrom } from '../../../shared/reports/drill.js'
-import { CATALOGUE, CATALOGUE_MODULES, listColumns } from './catalogue/index.js'
+import { CATALOGUE, CATALOGUE_MODULES, listColumns, tenantCatalogue } from './catalogue/index.js'
 import { compileReport, countedKey, ReportError, SCREEN_ROWS } from './compile.js'
 import { shapeList, summaryShaper, matrixShaper } from './shape.js'
 import { fillWorks } from './work/index.js'
@@ -54,6 +54,13 @@ function cacheKey(ctx, spec, params, mode, cap) {
   return crypto.createHash('sha1')
     .update(JSON.stringify([ctx.tenantId, ctx.userKey || '', levels, spec, params, mode, cap ?? null, atOf(ctx)?.toISOString() ?? null]))
     .digest('hex')
+}
+
+// The group's catalogue (its own fields, migration 285) on a run's context:
+// reportPerson() reads it once per request; a run started elsewhere (a data
+// link, a schedule's send) reads it here.
+async function withCatalogue(ctx) {
+  return ctx?.catalogue ? ctx : { ...ctx, catalogue: await tenantCatalogue(ctx?.tenantId) }
 }
 
 /** Forget every kept result (tests, and after data a test changed). */
@@ -170,7 +177,7 @@ const HEAVY = 'This report would read too much at once. Narrow the period or add
 async function prepare(tx, ctx, spec0, params, { listLimit, costFactor = 1, open = true }) {
   await takeSlot(tx, ctx.tenantId)
   const scope = await scopeOf(tx, ctx.tenantId, spec0, params, atOf(ctx))
-  const envc = { tenantId: ctx.tenantId, userKey: ctx.userKey, levels: ctx.levels, params, today: scope.today, tz: scope.tz }
+  const envc = { tenantId: ctx.tenantId, userKey: ctx.userKey, levels: ctx.levels, params, today: scope.today, tz: scope.tz, catalogue: ctx.catalogue }
   let spec = spec0
   let plan = compileReport(spec, envc, { listLimit, open })
   let currencyColumn = null
@@ -219,7 +226,7 @@ export function drillOffers(spec, envc) {
   const down = []
   for (const level of spec.drill?.down || []) {
     if (taken.has(rowId(level))) continue
-    const next = drillSpec(spec, { at: [], to: level }, { catalogue: CATALOGUE })
+    const next = drillSpec(spec, { at: [], to: level }, { catalogue: envc.catalogue || CATALOGUE })
     if (next.problem) continue
     try {
       const plan = compileReport(next.spec, envc)
@@ -227,7 +234,7 @@ export function drillOffers(spec, envc) {
     } catch { /* not for this person, or no longer in the catalogue */ }
   }
   let rows = false
-  const list = drillSpec(spec, { at: [], to: 'rows' }, { catalogue: CATALOGUE, listColumns: subject => listColumns(subject, envc.levels) })
+  const list = drillSpec(spec, { at: [], to: 'rows' }, { catalogue: envc.catalogue || CATALOGUE, listColumns: subject => listColumns(subject, envc.levels) })
   if (!list.problem) {
     try { rows = compileReport(list.spec, envc, { listLimit: 1 }).columns.length > 0 } catch { /* none of its columns are for this person */ }
   }
@@ -294,8 +301,9 @@ function metaOf(p, shaped, started) {
  * the definition as it ran. Throws ReportError (statusCode 422, 403 or 429)
  * with the reasons as sentences.
  */
-export async function runReport(ctx, rawSpec, given = {}, opts = {}) {
+export async function runReport(ctxIn, rawSpec, given = {}, opts = {}) {
   const started = Date.now()
+  const ctx = await withCatalogue(ctxIn)
   const mode = opts.mode === 'export' ? 'export' : 'screen'
   const cap = opts.cap ?? (mode === 'export' ? null : SCREEN_ROWS)
   const spec0 = normaliseReport(rawSpec)
@@ -369,8 +377,9 @@ export async function runReport(ctx, rawSpec, given = {}, opts = {}) {
  * `on.rows(cells[])` for each batch; either may be async. Resolves with
  * { rows, truncated }.
  */
-export async function streamList(ctx, rawSpec, given = {}, on = {}) {
+export async function streamList(ctxIn, rawSpec, given = {}, on = {}) {
   const started = Date.now()
+  const ctx = await withCatalogue(ctxIn)
   const spec0 = normaliseReport(rawSpec)
   const problems = reportProblems(spec0)
   if (problems.length) throw new ReportError(problems)

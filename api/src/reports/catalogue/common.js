@@ -219,6 +219,7 @@ export const subjects = [
     },
     list: ['name', 'email', 'phone', 'visits', 'newsletter', 'created_at'],
     sort: [{ by: 'created_at', dir: 'desc' }],
-    skip: ['updated_at'],
+    // custom: the group's own fields (migration 285), offered per group (customCatalogue() in index.js).
+    skip: ['updated_at', 'custom'],
   }),
 ]

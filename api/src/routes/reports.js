@@ -431,7 +431,7 @@ export default async function reportRoutes(app) {
 
   app.get('/catalogue', view, async req => {
     const p = await reportPerson(req)
-    return { level: p.level, can_use: p.canUse, can_manage: p.canManage, ...catalogueView(p.levels) }
+    return { level: p.level, can_use: p.canUse, can_manage: p.canManage, ...catalogueView(p.levels, p.catalogue) }
   })
 
   // Past runs (src/reports/runs.js). A static path, so it is never taken for a report's id.

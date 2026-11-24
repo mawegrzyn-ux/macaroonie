@@ -207,7 +207,7 @@ export async function pastRuns(p, q = {}) {
       SELECT id::text AS id, name, COALESCE(NULLIF(timezone, ''), 'Europe/London') AS timezone
         FROM venues WHERE tenant_id = ${p.tenantId} ORDER BY created_at, id`
 
-    const catalogue = catalogueView(p.levels)
+    const catalogue = catalogueView(p.levels, p.catalogue)
     const inputsOf = new Map()
     const inputs = (key, spec) => {
       if (!inputsOf.has(key)) {
