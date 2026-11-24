@@ -31,7 +31,7 @@ import {
 } from '@shared/procurement.js'
 import { CatalogueCheckModal, SwitchItemsModal, PriceUpdateModal } from '@/components/purchasing/catalogue'
 import { StockBadge, StockControl } from '@/components/purchasing/stock'
-import { CustomFieldsCard } from '@/components/forms/CustomFields'
+import { CustomFieldsCard, CustomFieldInputs, newRowCustom, useCustomFields } from '@/components/forms/CustomFields'
 import { StockOnHand } from '@/components/purchasing/stockOnHand'
 import { canScan, scanBarcode } from '@/lib/officeApp'
 import { barcodeProblem } from '@shared/catalogue.js'
@@ -394,6 +394,12 @@ function ItemForm({ item, canEdit, onSaved, onOpenItem }) {
   const initial = item ? { ...EMPTY_ITEM, ...item, code: item.code || '', barcode: item.barcode || '', notes: item.notes || '' } : EMPTY_ITEM
   const [form, setForm] = useState(initial)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  // A new item draws the group's own fields (step 9d): required ones are required here, as on its page.
+  const { data: cf } = useCustomFields('purchasing.items')
+  const defs = (!item && cf?.fields) || []
+  const [own, setOwn] = useState({})
+  const ownNew = newRowCustom(defs, own)
+  const ownWrong = Object.keys(ownNew.problems).length > 0
   const dirty = ['name', 'category_id', 'base_unit', 'storage', 'code', 'barcode', 'notes', 'is_active'].some(k => (form[k] ?? '') !== (initial[k] ?? ''))
   const barcodeWrong = form.barcode.trim() ? barcodeProblem(form.barcode) : null
   const hasQuotes = !!item?.quotes?.length
@@ -404,7 +410,8 @@ function ItemForm({ item, canEdit, onSaved, onOpenItem }) {
   const save = useMutation({
     mutationFn: () => {
       const body = { name: form.name.trim(), category_id: form.category_id || null, base_unit: form.base_unit,
-        storage: form.storage, code: form.code, barcode: form.barcode, notes: form.notes, is_active: form.is_active }
+        storage: form.storage, code: form.code, barcode: form.barcode, notes: form.notes, is_active: form.is_active,
+        ...(defs.length ? { custom: ownNew.custom } : {}) }
       return item ? api.patch(`/inventory/items/${item.id}`, body) : api.post('/inventory/items', body)
     },
     onSuccess: saved => onSaved(saved),
@@ -412,7 +419,8 @@ function ItemForm({ item, canEdit, onSaved, onOpenItem }) {
   return (
     <Card title="Item"
       actions={canEdit && (
-        <button type="button" className={btn.primary} disabled={!form.name.trim() || (item && !dirty) || !!barcodeWrong || save.isPending} onClick={() => save.mutate()}>
+        <button type="button" className={btn.primary} disabled={!form.name.trim() || (item && !dirty) || !!barcodeWrong || ownWrong || save.isPending} onClick={() => save.mutate()}
+          data-testid="inv-item-save">
           {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />}{item ? 'Save' : 'Create'}
         </button>
       )}>
@@ -460,6 +468,13 @@ function ItemForm({ item, canEdit, onSaved, onOpenItem }) {
         </Field>
         <Field label="Notes"><textarea rows={2} className={cn(inputCls, 'h-auto py-2')} value={form.notes} disabled={!canEdit} onChange={e => set('notes', e.target.value)} /></Field>
         {item && <Toggle checked={form.is_active} disabled={!canEdit} onChange={v => set('is_active', v)} label="In use (off = hidden from order lists and orders)" />}
+        {defs.length > 0 && (
+          <div className="pt-3 border-t space-y-3" data-testid="inv-new-own-fields">
+            <p className="text-sm font-semibold">Your own fields</p>
+            <CustomFieldInputs defs={defs} form={own} disabled={!canEdit} problems={ownNew.problems}
+              showProblems={Object.keys(own).length > 0} onChange={(k, v) => setOwn(o => ({ ...o, [k]: v }))} />
+          </div>
+        )}
         <ErrorNote error={save.error} />
       </div>
     </Card>
@@ -752,6 +767,19 @@ function ImportModal({ onClose }) {
           )}
           {result.suppliers_created > 0 && <p>Add {result.suppliers_created} supplier{result.suppliers_created === 1 ? '' : 's'}</p>}
           {result.categories_created > 0 && <p>Add {result.categories_created} categor{result.categories_created === 1 ? 'y' : 'ies'}</p>}
+          {result.barcodes_set > 0 && <p data-testid="import-barcodes">Set {result.barcodes_set} barcode{result.barcodes_set === 1 ? '' : 's'}</p>}
+          {result.custom_set > 0 && <p data-testid="import-own-fields">Fill in your own fields ({result.own_fields.join(', ')}) on {result.custom_set} row{result.custom_set === 1 ? '' : 's'}</p>}
+          {result.required_missing?.map(m => (
+            <p key={m.label} className="text-amber-800" data-testid="import-required-missing">
+              {m.rows} new item{m.rows === 1 ? '' : 's'} without {m.label}: an import doesn't need it, the item's page does when it is next saved
+            </p>
+          ))}
+        </div>
+      )}
+      {result?.notes?.length > 0 && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-1 text-sm" data-testid="import-notes">
+          <p className="font-medium flex items-center gap-1"><AlertTriangle className="w-4 h-4" />Imported, with a part left out</p>
+          {result.notes.slice(0, 50).map((n, i) => <p key={i}>Row {n.row} ({n.item}): {n.note}</p>)}
         </div>
       )}
       {result?.errors?.length > 0 && (

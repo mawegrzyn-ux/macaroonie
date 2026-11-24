@@ -25,6 +25,7 @@ export const objects = [
     key: 'purchasing.stock', label: 'Stock on hand', plural: 'Stock on hand', words: ['stock count', 'stocktake', 'stock level', 'in stock'],
     table: 'stock_counts', subjects: ['purchasing.stock'],
     page: '/inventory',
+    actions: ['count_stock'],
   },
   {
     key: 'purchasing.order_lists', label: 'Order list', plural: 'Order lists', words: ['pars', 'par levels'],

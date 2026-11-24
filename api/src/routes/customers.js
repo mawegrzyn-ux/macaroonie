@@ -23,7 +23,8 @@ import { withTenant, sql } from '../config/db.js'
 import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js'
 import { eraseFromAi } from '../ai/erase.js'
 import { forgetPersonalFiles, removeStored } from '../reports/fileErasure.js'
-import { CustomInput, customValues, writeCustom } from '../services/customFields.js'
+import { CustomInput, customValues, writeCustom, loadDefinitions } from '../services/customFields.js'
+import { importColumns, importValues } from '../../../shared/customFields.js'
 
 // Customers permission: view reads (including the booking screens' guest
 // search), manage changes, anonymise and export.
@@ -109,7 +110,12 @@ export default async function customersRoutes(app) {
   // Bulk create/update customers from a CSV upload.
   // Each row: upsert by email (if provided); skip walk-in/TBC emails.
   // Processed in batches of 500 to avoid one giant transaction.
-  // Returns { created, updated, skipped, errors[] }.
+  // Returns { created, updated, skipped, errors[], notes[], custom_set, required_missing[] }.
+  // Own fields (step 9d): each row's `custom` is { column heading: value }; a
+  // heading equal to an own field's label (any case) fills it, checked by
+  // shared/customFields.js (a bad value is noted and left out, the row still
+  // imports); other headings are ignored. An import never requires a required
+  // own field: new customers without one are counted in required_missing.
   app.post('/import', { preHandler: PERM.manage}, async (req, reply) => {
     const body = z.object({
       customers: z.array(z.object({
@@ -118,13 +124,18 @@ export default async function customersRoutes(app) {
         phone:       z.string().max(30).nullable().optional(),
         notes:       z.string().max(2000).nullable().optional(),
         visit_count: z.number().int().min(0).optional(),
+        custom:      z.record(z.string().max(80), z.union([z.string().max(1000), z.number(), z.boolean(), z.null()]))
+          .refine(o => Object.keys(o).length <= 40, 'Too many columns').optional(),
       })).min(1).max(50_000),
     }).parse(req.body)
 
     const SKIP       = new Set(['walkin@walkin.com', 'tbc@placeholder.com'])
     const BATCH_SIZE = 500
-    let created = 0, updated = 0, skipped = 0
+    let created = 0, updated = 0, skipped = 0, customSet = 0
     const errors = []
+    const notes = []
+    const missingCount = new Map()
+    const defs = await withTenant(req.tenantId, tx => loadDefinitions(tx, req.tenantId, 'guests.customers'))
 
     // Process in chunks so no single DB transaction handles the full file
     for (let i = 0; i < body.customers.length; i += BATCH_SIZE) {
@@ -134,6 +145,10 @@ export default async function customersRoutes(app) {
         for (const c of batch) {
           try {
             if (c.email && SKIP.has(c.email.toLowerCase())) { skipped++; continue }
+            const heads = Object.keys(c.custom || {})
+            const own = importValues(defs, importColumns(defs, heads), heads.map(h => c.custom[h]))
+            for (const p of own.problems) notes.push({ name: c.name, note: p + ' (left out)' })
+            let id = null, isNew = false
 
             const visits = c.visit_count ?? 0
 
@@ -153,24 +168,34 @@ export default async function customersRoutes(app) {
                          notes       = COALESCE(${c.notes ?? null}, notes),
                          visit_count = GREATEST(visit_count, ${visits}),
                          updated_at  = now()
-                   WHERE id = ${existing.id}
+                   WHERE id = ${existing.id} AND tenant_id = ${req.tenantId}
                 `
+                id = existing.id
                 updated++
               } else {
-                await tx`
+                ;[{ id }] = await tx`
                   INSERT INTO customers (tenant_id, name, email, phone, notes, visit_count)
                   VALUES (${req.tenantId}, ${c.name}, ${c.email}, ${c.phone ?? null}, ${c.notes ?? null}, ${visits})
+                  RETURNING id
                 `
+                isNew = true
                 created++
               }
             } else {
               // No email — always insert (can't deduplicate)
-              await tx`
+              ;[{ id }] = await tx`
                 INSERT INTO customers (tenant_id, name, email, phone, notes, visit_count)
                 VALUES (${req.tenantId}, ${c.name}, null, ${c.phone ?? null}, ${c.notes ?? null}, ${visits})
+                RETURNING id
               `
+              isNew = true
               created++
             }
+            if (Object.keys(own.values).length) {
+              await writeCustom(tx, req.tenantId, 'guests.customers', id, own.values)
+              customSet++
+            }
+            if (isNew) for (const label of own.missing) missingCount.set(label, (missingCount.get(label) || 0) + 1)
           } catch (e) {
             errors.push({ name: c.name, error: e.message })
           }
@@ -178,7 +203,10 @@ export default async function customersRoutes(app) {
       })
     }
 
-    return reply.send({ created, updated, skipped, errors })
+    return reply.send({
+      created, updated, skipped, errors, notes, custom_set: customSet,
+      required_missing: [...missingCount].map(([label, rows]) => ({ label, rows })),
+    })
   })
 
   // ── GET /customers?q=&limit=50&offset=0&sort=name&dir=asc ──

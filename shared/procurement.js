@@ -14,6 +14,15 @@
 // else the company default, else the cheapest per base unit at that venue
 // (a quote's venue price wins over its company price).
 
+// Who sees purchasing prices (quotes, order totals, invoice prices): anyone
+// with at least View on Purchasing setup. The one rule (rule 12): the
+// purchasing routes strip money with it, and a rule's notice leaves an
+// order's total out for people it says no to (Pepper-first step 9a).
+export const PRICES_MODULE = 'purchasing_setup'
+export function seesPurchasingPrices(level) {
+  return !!level && level !== 'none'
+}
+
 export const UNITS = {
   g:    { kind: 'mass',   factor: 1,    label: 'g' },
   kg:   { kind: 'mass',   factor: 1000, label: 'kg' },
@@ -792,6 +801,8 @@ export function poNumberLabel(n) {
 //     -> { on_hand, counted, counted_at, received_since, used_since, sales_counted }
 //   countToBase(qty, unit, baseUnit)  a counted quantity in its unit (kg, l, each...)
 //                                     as the item's base unit, or null when they don't fit
+//   stockLow(onHand, par)             below the venue's par (step 9b): false when either
+//                                     is unknown (never counted, no par)
 
 export function stockOnHand({ count = null, receipts = [], usage = null } = {}) {
   const since = count?.at ? new Date(count.at).getTime() : null
@@ -814,4 +825,10 @@ export function countToBase(qty, unit, baseUnit) {
   const n = Number(qty)
   if (!u || !b || u.kind !== b.kind || !Number.isFinite(n) || n < 0) return null
   return round4(n * u.factor / b.factor)
+}
+
+export function stockLow(onHand, par) {
+  if (onHand == null || par == null) return false
+  const p = Number(par)
+  return Number.isFinite(p) && p > 0 && Number(onHand) < p
 }

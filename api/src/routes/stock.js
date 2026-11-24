@@ -6,7 +6,10 @@
 // sales aren't taken off until dishes are linked to the items they use.
 //
 //   GET  /venues/:venueId           every active item at the venue with its
-//                                   stock on hand, last count and received since
+//                                   stock on hand, last count and received since,
+//                                   its par there (the highest on the venue's
+//                                   active order lists), low (stockLow(), step 9b) and
+//                                   its supplier products' barcodes (a scan finds it)
 //   GET  /venues/:venueId/counts    the venue's last 20 counts
 //   GET  /counts/:id                one count with its lines
 //   POST /venues/:venueId/counts    { lines: [{ item_id, qty, unit? }], note?, counted_at? }
@@ -22,7 +25,7 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requireAnyPermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { requireOwnVenue } from '../middleware/venue.js'
-import { countToBase, UNITS } from '../../../shared/procurement.js'
+import { countToBase, stockLow, UNITS } from '../../../shared/procurement.js'
 import { loadStockOnHand, SALES_COUNTED, NO_RECIPES_NOTE } from '../services/stockSvc.js'
 
 const canRead = requireAnyPermission(['purchasing', 'purchasing_setup', 'purchasing_approve'], 'view')
@@ -48,16 +51,30 @@ export default async function stockRoutes(app) {
   app.get('/venues/:venueId', { preHandler: canRead }, async req => withTenant(req.tenantId, async tx => {
     const rows = await loadStockOnHand(tx, req.tenantId, { venueIds: [req.params.venueId], allItems: true })
     const items = await tx`
-      SELECT i.id, i.name, i.code, i.barcode, i.base_unit, i.storage, c.name AS category_name
+      SELECT i.id, i.name, i.code, i.barcode, i.base_unit, i.storage, c.name AS category_name,
+             ARRAY(SELECT q.barcode FROM inv_quotes q WHERE q.item_id = i.id AND q.tenant_id = i.tenant_id AND q.barcode IS NOT NULL) AS quote_barcodes
         FROM inv_items i LEFT JOIN inv_categories c ON c.id = i.category_id AND c.tenant_id = i.tenant_id
        WHERE i.tenant_id = ${req.tenantId} AND i.id = ANY(${rows.map(r => r.item_id)}::uuid[])`
     const byId = new Map(items.map(i => [i.id, i]))
+    const pars = await tx`
+      SELECT li.item_id, max(p.par_base)::float8 AS par
+        FROM order_list_pars p
+        JOIN order_list_items li ON li.id = p.list_item_id AND li.tenant_id = p.tenant_id
+        JOIN order_lists l ON l.id = li.list_id AND l.tenant_id = li.tenant_id AND l.is_active
+       WHERE p.tenant_id = ${req.tenantId} AND p.venue_id = ${req.params.venueId} AND p.par_base IS NOT NULL
+       GROUP BY li.item_id`
+    const parOf = new Map(pars.map(p => [p.item_id, p.par]))
     return {
       sales_counted: SALES_COUNTED,
       note: NO_RECIPES_NOTE,
       items: rows.filter(r => byId.has(r.item_id)).map(r => {
         const i = byId.get(r.item_id)
-        return { item_id: i.id, name: i.name, code: i.code, barcode: i.barcode, base_unit: i.base_unit, storage: i.storage, category_name: i.category_name, ...r, venue_id: undefined }
+        const par = parOf.get(i.id) ?? null
+        return {
+          item_id: i.id, name: i.name, code: i.code, barcode: i.barcode, quote_barcodes: i.quote_barcodes,
+          base_unit: i.base_unit, storage: i.storage, category_name: i.category_name,
+          ...r, venue_id: undefined, par_base: par, low: stockLow(r.on_hand, par),
+        }
       }).sort((a, b) => (a.category_name || '~').localeCompare(b.category_name || '~') || a.name.localeCompare(b.name)),
     }
   }))

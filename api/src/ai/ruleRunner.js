@@ -20,7 +20,9 @@
 //     its action runs as a system action: the tool's own run(), as the person
 //     who confirmed the rule (their permissions now, through the same routes
 //     as the page), named in the audit (ai_actions.rule_id, actor "Rule: ...").
-//     Only a reversible tool ever runs (checked again here). -> [{ rule, status }]
+//     Only a reversible tool ever runs (checked again here). A text that
+//     carries a price ({total}) is also filled without it (ctx.withoutPrices),
+//     for the people who can't see purchasing prices. -> [{ rule, status }]
 //
 // It loads Pepper's tools when it runs (tools/index.js): nothing here is
 // imported by a tool file.
@@ -28,7 +30,7 @@
 import { withTenant } from '../config/db.js'
 import { INTERNAL_AS_PREFIX } from '../middleware/auth.js'
 import { makeContext } from './context.js'
-import { matches, fillInput, RULE_ACTIONS } from '../../../shared/rules.js'
+import { matches, fillInput, usesMoney, RULE_ACTIONS } from '../../../shared/rules.js'
 
 const quiet = { info() {}, warn() {}, error() {}, debug() {} }
 
@@ -106,6 +108,9 @@ async function fireOne(app, tenantId, rule, event, log) {
     actor: 'Rule: ' + rule.name,
     rule: { id: rule.id, name: rule.name },
   })
+  // A notice whose text carries an order's total: send_notice sends this version, the money
+  // left out, to people who can't see purchasing prices (step 9a).
+  if (usesMoney(rule)) ctx.withoutPrices = fillInput(rule, event, { prices: false })
   try {
     const result = await tool.run(ctx, parseInput(tool, input))
     const { _undo, ...shown } = result || {}

@@ -82,9 +82,14 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | 44.11.8a1 The object registry: one record per business object (table, report subject, page and address, actions with class and preconditions, form), per area, gathered; "why not" messages from it | fourth revision, raised (shared, many areas): 10 to 15 min | 10 min (07:28 to 07:38), after 6 reading | PR A, below | | 27 files, +1,155 -2 | claude-opus-5-5 / high, fresh agent | Estimated 24 Nov 2026 before starting; plus 6 reading. About 60 objects over 19 areas, every report subject and change tool placed. About $16.50 (reading $5.60). |
 | 44.11.8a2 The catalogue's synonyms, instructions and examples per field and measure; "not covered" for questions outside it | 8 to 12 min | 16 min (to 07:54, with a fix for a shared test) | PR A, below | | 19 files, +478 -76 | claude-opus-5-5 / high, fresh agent | Over: writing 54 fields' context by hand. About $21. |
 | 44.11.8a3 The plain renderer for flat set-up forms (supplier, staff member, expense, closure) from the schema with labels, help and examples | 8 to 12 min | 27 min with the full test run (551 files' tests), the browser check and docs (to 08:22) | 21 min for PR A: PR #509 opened 08:23, CI green 08:30; the live eval found Pepper asking Help about a figure, fixed and re-run 8 of 8 by 08:35, CI green again 08:42:32, merged 08:42:45 | **81 min for PR A** (07:21:16 to 08:42:45) | 30 files, +1,113 -125 | claude-opus-5-5 / high, fresh agent | Over: four routes' schemas exported and four pages moved onto one renderer. About $28 (docs $4). Agent about $65, lead about $4; live runs about $0.11. |
-| 44.11.8b1 Custom fields per group on a few objects, registered so reports, simple forms and Pepper pick them up | 10 to 15 min | | PR B, below | | | | Plus 6 reading. |
-| 44.11.8b2 A rule built from a sentence, using the registry's actions, confirmed before it runs | 10 to 15 min | | PR B, below | | | | |
-| 44.11.8b3 Product codes (GTIN) on inventory and supplier products, and stock on hand | 8 to 12 min | | PR B: tests, browser and docs 12 to 15, PR 7 | | | | |
+| 44.11.8b1 Custom fields per group on a few objects, registered so reports, simple forms and Pepper pick them up | 10 to 15 min | 20 min with reading (08:35:44 to 08:55) | PR B, below | | migration 285 | claude-opus-5-5 / high, fresh agent | Plus 6 reading. Over: four objects' routes, pages and Pepper tools, and the report catalogue made per group. |
+| 44.11.8b2 A rule built from a sentence, using the registry's actions, confirmed before it runs | 10 to 15 min | 19 min (to 09:14) | PR B, below | | migration 286 | claude-opus-5-5 / high, fresh agent | Over: two tables, four trigger hooks in other areas' routes, the never-list checked three times. |
+| 44.11.8b3 Product codes (GTIN) on inventory and supplier products, and stock on hand | 8 to 12 min | 8 min (to 09:22), then tests, browser at 1280 and docs 21 (to 09:44) | 27 min for PR B: PR #510 opened 09:45, CI green 09:53:52; the live eval found the rule reader failing on every real call (six cache marks, the API takes four) and Pepper writing the rule itself; fixed, 5 of 5 then 32 of 32 live, CI green again 10:10:43, merged 10:11 | **95 min for PR B** (08:35:44 to 10:11) | 95 files, +3,819 -128, migrations 285 to 287 | claude-opus-5-5 / high, fresh agent | Agent about $75, lead about $6; live runs about $0.11. |
+| 44.11.9a Rules: change a rule in Settings and through Pepper (no new sentence), Undo of make_rule from Done by Pepper, an order's total kept out of notices to people who can't see prices | fourth revision with the step 8 lessons: 10 to 15 min | | one PR, below | | | | Estimated 24 Nov 2026 before starting (Pepper-first follow-ups, outstanding 62 and 63); plus 6 reading. |
+| 44.11.9b Pepper's stock tools: stock on hand by item and venue, a count from Pepper (card), barcodes on supplier prices | 5 to 8 min | | one PR, below | | | | |
+| 44.11.9c Barcodes in the inventory CSV / Excel import and the price list update | 5 to 8 min | | one PR, below | | | | |
+| 44.11.9d A group's own fields everywhere a row is made by a person: the Inventory page's New item, and the customer and inventory imports by column name | 8 to 12 min (two areas, about 4 each) | | one PR, below | | | | |
+| 44.11.9e Pepper knows the group's own field names from its per-group context, not one extra turn | 3 to 5 min | | one PR: tests, browser and docs 12 to 15, a live run before the PR 5, PR 7 | | | | |
 
 ## Running totals
 
@@ -100,6 +105,7 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | 44.11 step 6 (shared devices and PINs, capture, venue words, iPhone-ready), fourth revision | 4 sub-steps, 1 PR | 0.8 to 1.2 (50 to 73 min) | 1.02 (61 min; build 41.5, review 1, merge 19) | about 0.99 |
 | 44.11 step 7 (suggestions, Team signal, Your sites, measuring), fourth revision | 4 sub-steps, 1 PR | 0.77 to 1.15 (46 to 69 min) | 0.83 (50 min; build 35, merge 14) | about 0.87 |
 | 44.11 step 8 part A (registry, catalogue context, plain renderer), fourth revision | 3 sub-steps, 1 PR | 0.85 to 1.1 (51 to 67 min) | 1.35 (81 min; build 60, merge 21) | about 1.37 |
+| 44.11 step 8 part B (custom fields, rules from a sentence, product codes and stock), fourth revision | 3 sub-steps, 1 PR | 0.88 to 1.17 (53 to 70 min) | 1.58 (95 min; build 68, merge 27) | about 1.54 |
 
 ## The backlog estimates being tested (22 Nov 2026)
 
@@ -260,3 +266,12 @@ next edit). Cost is estimated from each message's tokens at list prices; cached 
 - Where it went: 8A2 took 16 against 8 to 12 (54 fields' synonyms, instructions and examples written by hand: content, not code), and 8A3 took 27 against 8 to 12 plus the docs window (four routes' schemas exported, four existing pages moved onto the new renderer, and the full run of 551 tests). The plan said "a renderer"; the brief also asked to convert four forms, which is four page changes.
 - The pull request took 21 against 7: CI was green at once, but the live evaluation (now part of every merge) found a real routing fault: Pepper asked the Help guide about a figure. One line in how_do_i's description fixed it (8 of 8 after).
 - **For the scale:** a sub-step that converts existing pages to a new shared component costs 5 to 7 minutes a page, not one sub-step's 8 to 12; content written by hand (synonyms, examples, help) is about a minute per ten entries. A live evaluation run with a fix adds 10 minutes when it finds something.
+
+### 44.11 step 8 part B against the fourth revision (24 Nov 2026)
+
+- Estimated 53 to 70 minutes; actual 95: **54% over the midpoint**, the second miss in a row, both in step 8.
+- Build 68 against 46 to 63: 8B1 20 and 8B2 19 against 10 to 15 each. Each touched four or more other areas (custom fields on four objects' routes, pages and tools; rule hooks in four areas' routes), and each added tables with RLS, fixtures and report decisions. 8B3 was on the estimate at 8.
+- The pull request took 27 against 7: CI was green at once, but the live evaluation showed the new rule reader failed on every real model call (six system parts each marked for caching; the API takes four). The tests' stand-in model never checks that, and Pepper hid it by writing the rule itself through the tool's optional input. Fixed in `askForJson()` and the tool, then 32 of 32 live.
+- **For the scale:** a sub-step that adds a feature across several other areas' routes and pages is 15 to 20 minutes, not 10 to 15; count it per area touched (about 4 each). A new model reader needs a live run before the pull request, not after: the stand-in can't catch request-shape errors.
+- **The Pepper-first plan is complete** (steps 0 to 8, PRs #500 to #510).
+

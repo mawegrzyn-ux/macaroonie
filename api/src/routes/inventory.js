@@ -17,8 +17,9 @@ import {
   openOrderVenues, keepOpenAmounts, openOrderItems, lockSupplierCodes, codeTaken, codeTakenError,
   itemCodeConflicts, itemCodesError,
 } from '../services/purchasingSvc.js'
-import { CustomInput, customValues, writeCustom } from '../services/customFields.js'
+import { CustomInput, customValues, writeCustom, loadDefinitions } from '../services/customFields.js'
 import { barcodeProblem, cleanBarcode } from '../../../shared/catalogue.js'
+import { importColumns, importValues } from '../../../shared/customFields.js'
 
 const uuid = z.string().uuid()
 const text = (max = 200) => z.string().trim().max(max)
@@ -208,6 +209,11 @@ const HEADERS = {
   minimumorder: 'min_qty', minorder: 'min_qty', minqty: 'min_qty', minimum: 'min_qty', minimumqty: 'min_qty',
   orderinstepsof: 'order_multiple', steps: 'order_multiple', step: 'order_multiple', ordermultiple: 'order_multiple',
   multiple: 'order_multiple', orderstep: 'order_multiple',
+  // A barcode (step 9c): the supplier product's when the row has a supplier, else the item's;
+  // "Item barcode" is always the item's. Checked by barcodeProblem(): a bad one is left out and noted.
+  barcode: 'barcode', gtin: 'barcode', ean: 'barcode', upc: 'barcode', eancode: 'barcode', upccode: 'barcode',
+  gtincode: 'barcode', ean13: 'barcode', gtin13: 'barcode', gtin14: 'barcode', productbarcode: 'barcode', supplierbarcode: 'barcode',
+  itembarcode: 'item_barcode', itemgtin: 'item_barcode', itemean: 'item_barcode',
 }
 
 const UNIT_ALIASES = {
@@ -219,16 +225,30 @@ const BASE_FOR = { g: 'g', kg: 'g', ml: 'ml', cl: 'ml', l: 'ml', each: 'each' }
 
 class DryRun extends Error {}
 
+const headerKey = h => HEADERS[String(h).toLowerCase().replace(/[^a-z0-9]/g, '')] || HEADERS[String(h).toLowerCase().replace(/[^a-z]/g, '')] || null
+
+/** The rows by the template's headings; `headings` keeps the others (own fields, step 9d), `_cells` each row as read. */
 function parseSheet(base64) {
   const rows = readSheet(base64)
   if (rows.length < 2) throw httpError(422, 'The file needs a heading row and at least one product')
-  const keys = rows[0].map(h => HEADERS[String(h).toLowerCase().replace(/[^a-z]/g, '')] || null)
+  const keys = rows[0].map(headerKey)
   if (!keys.includes('item')) throw httpError(422, 'No "Item" column found. Use the template headings.')
-  return rows.slice(1).map((r, i) => {
-    const o = { row: i + 2 }
+  const headings = rows[0].map((h, c) => (keys[c] ? '' : String(h ?? '')))
+  const out = rows.slice(1).map((r, i) => {
+    const o = { row: i + 2, _cells: r }
     keys.forEach((k, c) => { if (k) o[k] = String(r[c] ?? '').trim() })
     return o
   }).filter(o => o.item)
+  out.headings = headings
+  return out
+}
+
+/** A barcode from a file: cleaned, or a note why it was left out. */
+function fileBarcode(v) {
+  if (!v) return { code: null }
+  const code = cleanBarcode(v)
+  const problem = code ? barcodeProblem(code) : 'not a barcode'
+  return problem ? { code: null, note: 'Barcode ' + String(v).slice(0, 20) + ' left out: ' + problem } : { code }
 }
 
 const toNum = v => {
@@ -239,12 +259,18 @@ const toNum = v => {
 
 async function runImport(tx, tenantId, rows, by) {
   const out = { rows: rows.length, items_created: 0, items_matched: 0, categories_created: 0, suppliers_created: 0,
-                quotes_created: 0, quotes_updated: 0, prices_changed: 0, errors: [] }
-  const items = await tx`SELECT id, name, code, base_unit, is_active FROM inv_items WHERE tenant_id = ${tenantId}`
+                quotes_created: 0, quotes_updated: 0, prices_changed: 0, barcodes_set: 0, custom_set: 0,
+                errors: [], notes: [], required_missing: [] }
+  const items = await tx`SELECT id, name, code, barcode, base_unit, is_active FROM inv_items WHERE tenant_id = ${tenantId}`
+  // The group's own fields for inventory items, by column heading = the field's label (step 9d).
+  // An import never requires them: rows made without a required one are counted.
+  const defs = await loadDefinitions(tx, tenantId, 'purchasing.items')
+  const ownCols = importColumns(defs, rows.headings || [])
+  const missingCount = new Map()
   const cats = await tx`SELECT id, name FROM inv_categories WHERE tenant_id = ${tenantId}`
   const sups = await tx`SELECT id, name FROM suppliers WHERE tenant_id = ${tenantId}`
   const quotes = await tx`
-    SELECT id, item_id, supplier_id, supplier_code, product_name, lower(pack_name) AS pack_name,
+    SELECT id, item_id, supplier_id, supplier_code, barcode, product_name, lower(pack_name) AS pack_name,
            pack_base_qty::float8 AS pack_base_qty, price::float8 AS price,
            min_qty::float8 AS min_qty, order_multiple::float8 AS order_multiple
       FROM inv_quotes WHERE tenant_id = ${tenantId}
@@ -273,6 +299,7 @@ async function runImport(tx, tenantId, rows, by) {
 
   for (const r of rows) {
     const err = msg => out.errors.push({ row: r.row, item: r.item, error: msg })
+    const note = msg => out.notes.push({ row: r.row, item: r.item, note: msg })
     const packUnit = r.pack_unit ? UNIT_ALIASES[r.pack_unit.toLowerCase()] : null
     if (r.pack_unit && !packUnit) { err(`Unknown pack unit "${r.pack_unit}"`); continue }
     let base = r.base_unit ? BASE_FOR[UNIT_ALIASES[r.base_unit.toLowerCase()]] : null
@@ -305,6 +332,14 @@ async function runImport(tx, tenantId, rows, by) {
 
     // A new live price's code mustn't be another live price's at the
     // supplier (one already here with this code is updated instead).
+    // Barcodes and own fields: a bad one is left out and noted, the row still imports.
+    const quoteCode = r.supplier ? fileBarcode(r.barcode) : { code: null }
+    const itemCode = fileBarcode(r.item_barcode || (!r.supplier ? r.barcode : null))
+    if (quoteCode.note) note(quoteCode.note)
+    if (itemCode.note) note(itemCode.note)
+    const own = importValues(defs, ownCols, r._cells)
+    for (const p of own.problems) note(p + ' (left out)')
+
     if (quote && r.supplier_code && (!item || item.is_active)) {
       const sup0 = supByName.get(r.supplier.toLowerCase())
       const key = r.supplier_code.trim().toLowerCase()
@@ -316,6 +351,11 @@ async function runImport(tx, tenantId, rows, by) {
 
     if (item) {
       out.items_matched++
+      if (itemCode.code && itemCode.code !== item.barcode) {
+        await tx`UPDATE inv_items SET barcode = ${itemCode.code}, updated_at = now() WHERE id = ${item.id} AND tenant_id = ${tenantId}`
+        item.barcode = itemCode.code
+        out.barcodes_set++
+      }
     } else {
       let categoryId = null
       if (r.category) {
@@ -328,13 +368,19 @@ async function runImport(tx, tenantId, rows, by) {
         categoryId = c.id
       }
       ;[item] = await tx`
-        INSERT INTO inv_items (tenant_id, name, category_id, base_unit, storage, code)
-        VALUES (${tenantId}, ${r.item.slice(0, 200)}, ${categoryId}, ${itemBase}, ${storage || 'ambient'}, ${r.code || null})
-        RETURNING id, name, code, base_unit, is_active
+        INSERT INTO inv_items (tenant_id, name, category_id, base_unit, storage, code, barcode)
+        VALUES (${tenantId}, ${r.item.slice(0, 200)}, ${categoryId}, ${itemBase}, ${storage || 'ambient'}, ${r.code || null}, ${itemCode.code})
+        RETURNING id, name, code, barcode, base_unit, is_active
       `
       itemByName.set(item.name.toLowerCase(), item)
       if (item.code) itemByCode.set(item.code.toLowerCase(), item)
       out.items_created++
+      if (itemCode.code) out.barcodes_set++
+      for (const label of own.missing) missingCount.set(label, (missingCount.get(label) || 0) + 1)
+    }
+    if (Object.keys(own.values).length) {
+      await writeCustom(tx, tenantId, 'purchasing.items', item.id, own.values)
+      out.custom_set++
     }
 
     if (!quote) continue
@@ -357,10 +403,12 @@ async function runImport(tx, tenantId, rows, by) {
         UPDATE inv_quotes SET pack_name = ${packName}, pack_count = ${packCount}, pack_qty = ${packQty},
                pack_unit = ${packUnit}, pack_base_qty = ${pbq}, price = ${price},
                vat_rate = ${vat ?? 0}, product_name = COALESCE(${productName}, product_name),
-               min_qty = COALESCE(${minQty}, min_qty), order_multiple = COALESCE(${mult}, order_multiple), updated_at = now()
+               min_qty = COALESCE(${minQty}, min_qty), order_multiple = COALESCE(${mult}, order_multiple),
+               barcode = COALESCE(${quoteCode.code}, barcode), updated_at = now()
          WHERE id = ${match.id} AND tenant_id = ${tenantId}
       `
       out.quotes_updated++
+      if (quoteCode.code && quoteCode.code !== match.barcode) { out.barcodes_set++; match.barcode = quoteCode.code }
       // A new pack size: open orders keep the amount they asked for.
       out.order_lines_converted = (out.order_lines_converted || 0) + await keepOpenAmounts(tx, tenantId, match.id,
         { pack_base_qty: match.pack_base_qty },
@@ -379,24 +427,27 @@ async function runImport(tx, tenantId, rows, by) {
       if (code && item.is_active) (await codesOf(sup.id)).set(code.trim().toLowerCase(), item.name)
       const [q] = await tx`
         INSERT INTO inv_quotes (tenant_id, item_id, supplier_id, supplier_code, product_name, pack_name, pack_count, pack_qty,
-                                pack_unit, pack_base_qty, price, vat_rate, min_qty, order_multiple)
+                                pack_unit, pack_base_qty, price, vat_rate, min_qty, order_multiple, barcode)
         VALUES (${tenantId}, ${item.id}, ${sup.id}, ${code}, ${productName}, ${packName}, ${packCount}, ${packQty},
-                ${packUnit}, ${pbq}, ${price}, ${vat ?? 0}, ${minQty}, ${mult})
+                ${packUnit}, ${pbq}, ${price}, ${vat ?? 0}, ${minQty}, ${mult}, ${quoteCode.code})
         RETURNING id
       `
+      if (quoteCode.code) out.barcodes_set++
       await recordPrice(tx, tenantId, q.id, null, price, by, 'import')
-      quotes.push({ id: q.id, item_id: item.id, supplier_id: sup.id, supplier_code: code, product_name: productName, pack_name: packName.toLowerCase(), pack_base_qty: pbq, price, min_qty: minQty, order_multiple: mult })
+      quotes.push({ id: q.id, item_id: item.id, supplier_id: sup.id, supplier_code: code, barcode: quoteCode.code, product_name: productName, pack_name: packName.toLowerCase(), pack_base_qty: pbq, price, min_qty: minQty, order_multiple: mult })
       out.quotes_created++
     }
   }
+  out.own_fields = Object.values(ownCols).map(d => d.label)
+  out.required_missing = [...missingCount].map(([label, rows]) => ({ label, rows }))
   return out
 }
 
 export const IMPORT_TEMPLATE = [
-  'Item,Category,Base unit,Storage,Item code,Supplier,Supplier code,Product name,Pack,Pack count,Pack size,Pack unit,Price,VAT %,Minimum order,Order in steps of',
-  'Tomatoes,Vegetables,g,chilled,,Fresh Direct,FD-1001,Vine tomatoes class 1,Box,1,6,kg,12.50,0,,',
-  'Rapeseed oil,"Oils, Sauces & Condiments",ml,ambient,,Brakes,BR-220,Pure rapeseed oil,Case,2,5,l,18.40,0,2,',
-  'Takeaway boxes,Packaging,each,ambient,,Brakes,BR-901,,Case,1,250,each,21.00,20,,2',
+  'Item,Category,Base unit,Storage,Item code,Supplier,Supplier code,Product name,Pack,Pack count,Pack size,Pack unit,Price,VAT %,Minimum order,Order in steps of,Barcode',
+  'Tomatoes,Vegetables,g,chilled,,Fresh Direct,FD-1001,Vine tomatoes class 1,Box,1,6,kg,12.50,0,,,',
+  'Rapeseed oil,"Oils, Sauces & Condiments",ml,ambient,,Brakes,BR-220,Pure rapeseed oil,Case,2,5,l,18.40,0,2,,',
+  'Takeaway boxes,Packaging,each,ambient,,Brakes,BR-901,,Case,1,250,each,21.00,20,,2,',
 ].join('\n')
 
 // ── Catalogue check ─────────────────────────────────────────────
@@ -483,6 +534,7 @@ const PRICE_HEADERS = {
   price: 'price', newprice: 'price', packprice: 'price', caseprice: 'price', cost: 'price', netprice: 'price',
   priceexvat: 'price', pricedelivery: 'price', deliveryprice: 'price', delivered: 'price', deliveredprice: 'price',
   pricecollection: 'collection', collectionprice: 'collection', collection: 'collection',
+  barcode: 'barcode', gtin: 'barcode', ean: 'barcode', upc: 'barcode', eancode: 'barcode', upccode: 'barcode', gtincode: 'barcode',
 }
 const PRICE_TEXT = /^(.*?\S)\s*(?:[,;:\t]|\s)\s*[£$€]?\s*(-?\d+(?:\.\d+)?)\s*$/
 
@@ -492,6 +544,7 @@ function priceRowsFromFile(base64) {
   const keys = sheet[0].map(h => PRICE_HEADERS[String(h).toLowerCase().replace(/[^a-z]/g, '')] || null)
   let codeCol = keys.indexOf('code'), priceCol = keys.indexOf('price'), start = 1
   const collectionCol = keys.indexOf('collection')
+  const barcodeCol = keys.indexOf('barcode')
   if (codeCol < 0 || priceCol < 0) {
     // No headings: a code, then a price.
     if (codeCol < 0 && priceCol < 0 && sheet[0].length >= 2 && !Number.isNaN(toNum(sheet[0][1])) && toNum(sheet[0][1]) != null) {
@@ -506,7 +559,8 @@ function priceRowsFromFile(base64) {
     const code = String(r[codeCol] ?? '').trim()
     const price = String(r[priceCol] ?? '').trim()
     if (collectionCol >= 0 && String(r[collectionCol] ?? '').trim()) collection = true
-    if (code || price) rows.push({ row: i + start + 1, code, price })
+    const barcode = barcodeCol >= 0 ? String(r[barcodeCol] ?? '').trim() : ''
+    if (code || price) rows.push({ row: i + start + 1, code, price, ...(barcode ? { barcode } : {}) })
   })
   return { rows, collection }
 }
@@ -532,7 +586,7 @@ function priceRowsFromText(text) {
 
 async function runPriceUpdate(tx, tenantId, supplier, rows, by, { apply }) {
   const quotes = await tx`
-    SELECT q.id, q.item_id, q.supplier_code, q.product_name, q.pack_name, q.pack_count::float8 AS pack_count,
+    SELECT q.id, q.item_id, q.supplier_code, q.barcode, q.product_name, q.pack_name, q.pack_count::float8 AS pack_count,
            q.pack_qty::float8 AS pack_qty, q.pack_unit, q.price::float8 AS price, q.is_active,
            i.is_active AS item_active, i.name AS item_name
       FROM inv_quotes q JOIN inv_items i ON i.id = q.item_id AND i.tenant_id = ${tenantId}
@@ -546,7 +600,7 @@ async function runPriceUpdate(tx, tenantId, supplier, rows, by, { apply }) {
     byCode.get(k).push(q)
   }
   const out = { supplier: { id: supplier.id, name: supplier.name }, rows: rows.length, changes: [], unchanged: 0,
-                unknown: [], switched_off: [], ambiguous: [], errors: [] }
+                unknown: [], switched_off: [], ambiguous: [], errors: [], barcodes: [], notes: [] }
   const seen = new Map()
   for (const r of rows) {
     const code = String(r.code ?? '').trim()
@@ -565,6 +619,10 @@ async function runPriceUpdate(tx, tenantId, supplier, rows, by, { apply }) {
     if (!live.length) { out.switched_off.push({ row: r.row, code, item_name: all[0].item_name }); continue }
     if (live.length > 1) { out.ambiguous.push({ row: r.row, code, items: [...new Set(live.map(q => q.item_name))] }); continue }
     const q = live[0]
+    // A barcode beside the price (step 9c): set on the price when it differs; a bad one is noted, the price still goes in.
+    const bc = fileBarcode(r.barcode)
+    if (bc.note) out.notes.push({ row: r.row, code, note: bc.note })
+    else if (bc.code && bc.code !== q.barcode) out.barcodes.push({ row: r.row, quote_id: q.id, code: q.supplier_code, item_name: q.item_name, old: q.barcode, new: bc.code })
     if (Math.abs(q.price - price) < 1e-9) { out.unchanged++; continue }
     const pct = q.price > 0 ? Math.round((price - q.price) / q.price * 1000) / 10 : null
     out.changes.push({
@@ -577,6 +635,9 @@ async function runPriceUpdate(tx, tenantId, supplier, rows, by, { apply }) {
       await tx`UPDATE inv_quotes SET price = ${c.new_price}, updated_at = now() WHERE id = ${c.quote_id} AND tenant_id = ${tenantId}`
       await recordPrice(tx, tenantId, c.quote_id, null, c.new_price, by, 'import')
     }
+    for (const b of out.barcodes) {
+      await tx`UPDATE inv_quotes SET barcode = ${b.new}, updated_at = now() WHERE id = ${b.quote_id} AND tenant_id = ${tenantId}`
+    }
   }
   return out
 }
@@ -585,7 +646,7 @@ const PriceUpdateBody = z.object({
   supplier_id: uuid,
   file:        z.string().max(4_000_000).optional(),
   text:        z.string().max(200_000).optional(),
-  rows:        z.array(z.object({ code: z.string().max(100), price: z.union([z.number(), z.string().max(40)]) })).max(5000).optional(),
+  rows:        z.array(z.object({ code: z.string().max(100), price: z.union([z.number(), z.string().max(40)]), barcode: z.string().max(40).optional() })).max(5000).optional(),
   dry_run:     z.boolean().optional(),
 })
 
@@ -929,7 +990,7 @@ export default async function inventoryRoutes(app) {
     let rows, collection = false
     if (b.file != null) ({ rows, collection } = priceRowsFromFile(b.file))
     else if (b.text != null) rows = priceRowsFromText(b.text)
-    else rows = b.rows.map((r, i) => ({ row: i + 1, code: r.code, price: r.price }))
+    else rows = b.rows.map((r, i) => ({ row: i + 1, code: r.code, price: r.price, ...(r.barcode ? { barcode: r.barcode } : {}) }))
     if (!rows.length) throw httpError(422, 'No prices found')
     if (rows.length > 5000) throw httpError(422, 'Update up to 5000 prices at a time')
     return withTenant(req.tenantId, async tx => {

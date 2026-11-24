@@ -633,6 +633,22 @@ export function Section() {
         <Mono>stock-count-line</Mono>, <Mono>stock-count-save</Mono>). Tests:{' '}
         <Mono>api/test/purchasing-stock-on-hand.test.mjs</Mono>.
       </P>
+      <P>
+        Step 9b and 9c (no migration): <Mono>GET /stock/venues/:venueId</Mono> adds each item&apos;s{' '}
+        <Mono>par_base</Mono> (the highest par on the venue&apos;s active order lists), <Mono>low</Mono>{' '}
+        (<Mono>stockLow(onHand, par)</Mono> in <Mono>shared/procurement.js</Mono>; test id <Mono>stock-low</Mono>) and{' '}
+        <Mono>quote_barcodes</Mono>. Pepper: <Mono>stock_on_hand</Mono> (read; items by name, code or barcode via{' '}
+        <Mono>pickItem()</Mono>, or <Mono>low</Mono>; figures from that route, never recomputed) and{' '}
+        <Mono>count_stock</Mono> (consequential; <Mono>countPlan()</Mono> checks units with <Mono>countToBase()</Mono>,
+        then <Mono>POST /stock/venues/:venueId/counts</Mono>); <Mono>add_supplier_price</Mono> /{' '}
+        <Mono>update_supplier_price</Mono> take <Mono>barcode</Mono> (<Mono>checkBarcode()</Mono>). Imports: the
+        inventory import&apos;s <Mono>HEADERS</Mono> map Barcode, GTIN, EAN, UPC to <Mono>barcode</Mono> (the
+        quote&apos;s on a row with a supplier, else the item&apos;s) and Item barcode to <Mono>item_barcode</Mono>;
+        the price update&apos;s <Mono>PRICE_HEADERS</Mono> and <Mono>rows[].barcode</Mono> give{' '}
+        <Mono>barcodes</Mono> (set on apply). A bad barcode (<Mono>fileBarcode()</Mono>) goes to{' '}
+        <Mono>notes</Mono>, never <Mono>errors</Mono>: the row still imports. Pepper&apos;s{' '}
+        <Mono>import_price_list</Mono> and <Mono>update_prices_by_code</Mono> pass <Mono>barcode</Mono> through.
+      </P>
       <H3>Permissions and prices</H3>
       <P>
         Module group <Mono>purchasing</Mono>: <Mono>purchasing</Mono> (fill in orders, send, receive;

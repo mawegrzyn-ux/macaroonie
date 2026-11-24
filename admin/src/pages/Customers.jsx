@@ -34,6 +34,8 @@ import { CustomFieldsCard } from '@/components/forms/CustomFields'
 //
 // Header row is detected case-insensitively and skipped automatically.
 // A header is any first row whose first cell contains "name" (not a real name).
+// With a header, columns after the fifth go as `custom` by their heading: the
+// API fills the group's own fields whose label is that heading (step 9d).
 function parseCSV(text) {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
   if (!lines.length) return []
@@ -45,7 +47,8 @@ function parseCSV(text) {
   }
 
   // Detect header row — first cell contains "name" (case-insensitive)
-  const firstCells = splitLine(lines[0]).map(c => clean(c).toLowerCase())
+  const headings   = splitLine(lines[0]).map(c => clean(c).replace(/^,/, ''))
+  const firstCells = headings.map(c => c.toLowerCase())
   const hasHeader  = firstCells[0]?.includes('name') ?? false
 
   // Detect column order from header names if present, otherwise assume standard
@@ -62,12 +65,15 @@ function parseCSV(text) {
     const visits = parseInt(clean(parts[4]), 10)
     const col1   = clean(parts[1]) || null
     const col2   = clean(parts[2]) || null
+    const custom = {}
+    if (hasHeader) headings.slice(5).forEach((h, i) => { const v = clean(parts[5 + i]).replace(/^,/, ''); if (h && v) custom[h] = v })
     return {
       name:        clean(parts[0]),
       email:       phoneFirst ? col2 : col1,
       phone:       phoneFirst ? col1 : col2,
       notes:       clean(parts[3]) || null,
       visit_count: isNaN(visits) ? 0 : Math.max(0, visits),
+      ...(Object.keys(custom).length ? { custom } : {}),
     }
   }).filter(r => r.name.length > 0)
 }
@@ -850,7 +856,7 @@ function ImportModal({ api, onClose, onImported }) {
   const [error, setError]   = useState(null)
 
   const mutation = useMutation({
-    mutationFn: (rows) => api.post('/customers/import', { rows }),
+    mutationFn: (rows) => api.post('/customers/import', { customers: rows }),
     onSuccess: (data) => setResult(data),
     onError:   (err) => setError(err?.message || 'Import failed'),
   })
@@ -890,7 +896,8 @@ function ImportModal({ api, onClose, onImported }) {
             <div className="p-5 space-y-3">
               <p className="text-xs text-muted-foreground">
                 Columns: <code className="text-xs">name, email, phone, notes, visits</code>
-                {' '}(or phone before email). Header row optional.
+                {' '}(or phone before email). Header row optional. With a header row, more columns named as your own
+                fields fill them in (a required one isn't needed here); other columns are ignored.
               </p>
               <textarea
                 className="field-input font-mono text-xs"
@@ -928,6 +935,17 @@ function ImportModal({ api, onClose, onImported }) {
                 {' '}updated <strong>{result.updated ?? 0}</strong>,
                 {' '}skipped <strong>{result.skipped ?? 0}</strong>.
               </p>
+              {result.custom_set > 0 && <p className="text-sm" data-testid="customer-import-own">Your own fields filled in on <strong>{result.custom_set}</strong>.</p>}
+              {result.required_missing?.map(m => (
+                <p key={m.label} className="text-xs text-amber-800" data-testid="customer-import-missing">
+                  {m.rows} new customer{m.rows === 1 ? '' : 's'} without {m.label} (needed when the customer is next saved on their page)
+                </p>
+              ))}
+              {result.notes?.length > 0 && (
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {result.notes.slice(0, 50).map((n, i) => <p key={i} className="text-xs text-amber-800">{n.name}: {n.note}</p>)}
+                </div>
+              )}
               {result.errors?.length > 0 && (
                 <div>
                   <p className="text-xs font-semibold text-destructive mb-1">{result.errors.length} error{result.errors.length !== 1 ? 's' : ''}:</p>

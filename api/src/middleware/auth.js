@@ -427,7 +427,7 @@ export async function permissionLevel(req, moduleKey) {
 const lowerLevel = (a, b) => ((PERMISSION_RANK[a] ?? 0) <= (PERMISSION_RANK[b] ?? 0) ? a : b)
 
 /** One person's levels by their users.id (the person switched in on a shared device). */
-async function levelsForUser(tenantId, userId, moduleKeys) {
+export async function levelsForUser(tenantId, userId, moduleKeys) {
   const keys = [...new Set(moduleKeys)]
   const { off, permRow } = await withTenant(tenantId, async tx => {
     const rows = await tx`

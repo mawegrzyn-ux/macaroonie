@@ -66,7 +66,7 @@ import {
 import { audienceTools } from '../ai/tools/index.js'
 import { ACTION_LABELS } from '../../../shared/pepperActions.js'
 import { wantsStream, eventStream, errorEvent } from '../ai/sse.js'
-import { staffInstructions } from '../ai/prompts.js'
+import { staffInstructions, ownFieldsFor } from '../ai/prompts.js'
 import { ASSISTANT_NAME } from '../../../shared/assistant.js'
 import { venueWordList, firstNameOf, MAX_WORDS } from '../../../shared/venueWords.js'
 import { saveUpload, loadOwnAttachment, deleteUnsent, MAX_BYTES, MAX_PER_MESSAGE } from '../ai/attachments.js'
@@ -229,7 +229,7 @@ export default async function aiRoutes(app) {
       `)
       conv = await createConversation({
         tenantId: req.tenantId, channel: 'staff_chat', userSub: req.user.sub, userEmail: req.user.email,
-        systemPrompt: staffInstructions({ tenant: t?.name, person: u?.full_name || null, chat: true }),
+        systemPrompt: staffInstructions({ tenant: t?.name, person: u?.full_name || null, chat: true, ownFields: await ownFieldsFor(req) }),
       })
     }
     const stream = wantsStream(req) ? eventStream(reply) : null

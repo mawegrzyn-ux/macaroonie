@@ -17,8 +17,10 @@
 // make sense with nobody there (RULE_ACTIONS): never a reading or a count
 // (only a person measures), never a menu or an order.
 //
-//   TRIGGERS          { key: { label, conditions: { name: { type, label } }, fields } }
-//                     fields: what the event says, usable as {name} in the action's text
+//   TRIGGERS          { key: { label, conditions: { name: { type, label } }, fields, money? } }
+//                     fields: what the event says, usable as {name} in the action's text;
+//                     money: the fields that are a price (an order's total), kept
+//                     out of what people who can't see purchasing prices are sent
 //   RULE_ACTIONS      { tool: { label, venue, fields: { name: { label, max, choices? } } } }
 //                     venue: how the event's venue reaches the tool ('venue_id' | 'venue')
 //   NEVER_WORDS       the never-list, in words (refusals)
@@ -26,8 +28,12 @@
 //   ruleProblem(rule) what is wrong with a rule's shape, or null (the API also
 //                     checks the tool's class and the person's access)
 //   matches(rule, event)   do the conditions hold for this event
-//   fillInput(rule, event) the action's input for this event (templates filled,
-//                     the venue added)
+//   fillInput(rule, event, { prices })  the action's input for this event
+//                     (templates filled, the venue added); prices: false puts
+//                     MONEY_HIDDEN where a money field was (and drops its £)
+//   usesMoney(rule)   does the action's text carry a price ({total})
+//   editableRule(rule) the parts a person may change in place (everything but
+//                     who it runs as and its runs), for the Settings panel
 //   ruleLines(rule, { venueName })  the rule in words, for a card and the list
 
 import { TASK_AREAS } from './todayTasks.js'
@@ -50,6 +56,7 @@ export const TRIGGERS = {
       supplier: { type: 'text', label: 'Supplier name has' },
     },
     fields: ['venue', 'supplier', 'number', 'total', 'delivery_date'],
+    money: ['total'],
   },
   task_late: {
     label: 'A task on Today is late',
@@ -168,17 +175,41 @@ export function matches(rule, event) {
   }
 }
 
-/** The action's input for this event: {field} filled from the event, the event's venue added. */
-export function fillInput(rule, event) {
+export const MONEY_HIDDEN = '(amount not shown)'
+const moneyOf = rule => TRIGGERS[rule?.trigger]?.money || []
+
+/** Does the action's text carry a price (a money field such as {total})? */
+export function usesMoney(rule) {
+  const money = moneyOf(rule)
+  return Object.values(rule?.action_input || {}).some(v => [...String(v).matchAll(PLACEHOLDER)].some(([, p]) => money.includes(p)))
+}
+
+/**
+ * The action's input for this event: {field} filled from the event, the event's venue added.
+ * prices: false fills a money field with MONEY_HIDDEN (and drops the currency sign before it),
+ * for people who can't see purchasing prices.
+ */
+export function fillInput(rule, event, { prices = true } = {}) {
   const a = RULE_ACTIONS[rule.action_tool]
+  const money = moneyOf(rule)
   const out = {}
   for (const [k, v] of Object.entries(rule.action_input || {})) {
     const f = a.fields[k]
-    out[k] = String(v).replace(PLACEHOLDER, (_, p) => (event[p] == null ? '' : String(event[p]))).slice(0, f?.max || 100)
+    out[k] = String(v)
+      .replace(/([£$€]\s*)?\{([a-z_]+)\}/g, (all, sign, p) => (!prices && money.includes(p) ? MONEY_HIDDEN : (sign || '') + '{' + p + '}'))
+      .replace(PLACEHOLDER, (_, p) => (event[p] == null ? '' : String(event[p]))).slice(0, f?.max || 100)
   }
   if (a.venue === 'venue_id') out.venue_id = event.venue_id
   else if (a.venue === 'venue') out.venue = event.venue_id
   return out
+}
+
+/** The parts of a rule a person may change in place: all but who it runs as, its sentence and its runs. */
+export function editableRule(rule) {
+  return {
+    name: rule.name, trigger: rule.trigger, conditions: { ...(rule.conditions || {}) }, venue_id: rule.venue_id ?? null,
+    action_tool: rule.action_tool, action_input: { ...(rule.action_input || {}) }, per_day: rule.per_day ?? DEFAULT_PER_DAY,
+  }
 }
 
 const num = v => (Number.isInteger(v) ? String(v) : String(Math.round(v * 100) / 100))

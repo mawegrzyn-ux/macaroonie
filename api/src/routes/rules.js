@@ -9,16 +9,20 @@
 //   POST   /parse     { sentence } -> { rule, lines }: read, never saved (Manage)
 //   POST   /          { rule, sentence }: the rule the person confirmed, checked
 //                    again in full (Manage; they must be able to use its action)
-//   PATCH  /:id       { enabled }: switch it off or on (Manage)
+//   PATCH  /:id       { enabled }: switch it off or on; { rule }: the whole rule
+//                    changed in place, checked as a save is (Manage; step 9a)
 //   DELETE /:id       the rule and its runs; the changes it made stay (Manage)
 
 import { z } from 'zod'
-import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
-import { httpError } from '../middleware/error.js'
 import { pepperOn } from '../services/aiJson.js'
-import { parseRule, saveRule, listRules } from '../services/rules.js'
+import { parseRule, saveRule, listRules, changeRule, switchRule, deleteRule } from '../services/rules.js'
 import { ruleLines, TRIGGERS, RULE_ACTIONS } from '../../../shared/rules.js'
+
+const Change = z.union([
+  z.object({ enabled: z.boolean() }).strict(),
+  z.object({ rule: z.record(z.string(), z.unknown()) }).strict(),
+])
 
 const canView = requirePermission('ai_assistant', 'view')
 const canManage = requirePermission('ai_assistant', 'manage')
@@ -47,18 +51,12 @@ export default async function ruleRoutes(app) {
   })
 
   app.patch('/:id', { preHandler: canManage }, async req => {
-    const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body || {})
-    const [row] = await withTenant(req.tenantId, tx => tx`
-      UPDATE pepper_rules SET enabled = ${enabled}, updated_at = now()
-       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId} RETURNING id`)
-    if (!row) throw httpError(404, 'Rule not found')
-    return (await listRules(req.tenantId, row.id))[0]
+    const b = Change.parse(req.body || {})
+    if ('rule' in b) return changeRule(req, req.params.id, b.rule)
+    return switchRule(req.tenantId, req.params.id, b.enabled)
   })
 
   app.delete('/:id', { preHandler: canManage }, async req => {
-    const [row] = await withTenant(req.tenantId, tx => tx`
-      DELETE FROM pepper_rules WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId} RETURNING id`)
-    if (!row) throw httpError(404, 'Rule not found')
-    return { ok: true }
+    return deleteRule(req.tenantId, req.params.id)
   })
 }

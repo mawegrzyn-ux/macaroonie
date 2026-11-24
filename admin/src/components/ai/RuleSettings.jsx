@@ -6,15 +6,19 @@
 // rule (POST /api/ai/rules/parse, one model call), shown as a card that is
 // saved only on Confirm (POST /api/ai/rules). Pepper's make_rule does the same
 // in the chat. What a rule is: shared/rules.js. View on Pepper reads the list;
-// Manage changes it.
+// Manage changes it. Step 9a: each rule has an edit panel (its name, venue,
+// conditions for its trigger, the action's text and how often), saved with its
+// own Save through PATCH /api/ai/rules/:id { rule }, checked as a save is.
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Loader2, Sparkles, Trash2, X, Zap } from 'lucide-react'
+import { Check, Loader2, Pencil, Sparkles, Trash2, X, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
+import { TRIGGERS, RULE_ACTIONS, MAX_PER_DAY, editableRule, ruleProblem } from '@shared/rules.js'
+import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 
 const btn = 'inline-flex items-center justify-center gap-2 min-h-[48px] px-4 rounded-lg text-sm font-medium touch-manipulation disabled:opacity-50'
 const STATUS = { done: 'Ran', failed: 'Failed', capped: 'Skipped (its most for the day)', running: 'Running' }
@@ -29,10 +33,122 @@ function Toggle({ on, onChange, disabled, label }) {
   )
 }
 
+const field = 'w-full min-h-[48px] rounded-lg border bg-background px-3 text-sm touch-manipulation'
+
+/** One condition's control, by its type in TRIGGERS: a number, yes / no, a few words or a choice. */
+function ConditionInput({ id, def, value, onChange }) {
+  if (def.type === 'yesno' || def.type === 'choice') {
+    const opts = def.type === 'yesno' ? { yes: 'Yes', no: 'No' } : def.choices
+    const v = def.type === 'yesno' ? (value === true ? 'yes' : value === false ? 'no' : '') : (value ?? '')
+    return (
+      <select id={id} className={field} value={v}
+        onChange={e => onChange(e.target.value === '' ? undefined : def.type === 'yesno' ? e.target.value === 'yes' : e.target.value)}>
+        <option value="">Any</option>
+        {Object.entries(opts).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+      </select>
+    )
+  }
+  return (
+    <input id={id} className={field} value={value ?? ''} maxLength={80}
+      type={def.type === 'number' ? 'number' : 'text'} inputMode={def.type === 'number' ? 'decimal' : undefined}
+      placeholder="Any" onChange={e => onChange(e.target.value === '' ? undefined : e.target.value)} />
+  )
+}
+
+/**
+ * The rule's edit panel: everything but what happens, what it does and who it runs as.
+ * Its own Save sends the whole rule (PATCH { rule }); the server checks it as a save.
+ */
+function RuleEditor({ rule, onDone }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { data: venues = [] } = useQuery({ queryKey: ['venues'], queryFn: () => api.get('/venues') })
+  const [draft, setDraft] = useState(() => {
+    const r = editableRule(rule)
+    return { ...r, conditions: Object.fromEntries(Object.entries(r.conditions).map(([k, v]) => [k, typeof v === 'number' ? String(v) : v])) }
+  })
+  const t = TRIGGERS[draft.trigger]
+  const a = RULE_ACTIONS[draft.action_tool]
+  const set = patch => setDraft(d => ({ ...d, ...patch }))
+  // Numbers as typed are read here; the server checks the whole rule again.
+  const out = {
+    ...draft,
+    per_day: Number(draft.per_day),
+    conditions: Object.fromEntries(Object.entries(draft.conditions)
+      .filter(([, v]) => v !== undefined && v !== '')
+      .map(([k, v]) => [k, t.conditions[k]?.type === 'number' ? Number(v) : v])),
+    action_input: Object.fromEntries(Object.entries(draft.action_input).filter(([, v]) => String(v ?? '').trim() !== '')),
+  }
+  const problem = ruleProblem(out)
+  const save = useMutation({
+    mutationFn: () => api.patch('/ai/rules/' + rule.id, { rule: out }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ai-rules'] }); onDone() },
+  })
+  const fieldsIn = (k, label, control) => (
+    <label key={k} className="block space-y-1">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      {control}
+    </label>
+  )
+  return (
+    <div className="rounded-xl border bg-muted/20 p-4 space-y-4" data-testid="rule-editor">
+      <div className="grid gap-3 sm:grid-cols-2">
+        {fieldsIn('name', 'Name', <input className={field} value={draft.name} maxLength={80} onChange={e => set({ name: e.target.value })} data-testid="rule-edit-name" />)}
+        {fieldsIn('venue', 'Venue', (
+          <select className={field} value={draft.venue_id || ''} onChange={e => set({ venue_id: e.target.value || null })} data-testid="rule-edit-venue">
+            <option value="">Every venue</option>
+            {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+        ))}
+      </div>
+      <div className="space-y-2">
+        <p className="text-sm font-medium">When {t.label.replace(/^./, c => c.toLowerCase())}, if</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {Object.entries(t.conditions).map(([k, d]) => fieldsIn(k, d.label,
+            <ConditionInput id={'cond-' + rule.id + '-' + k} def={d} value={draft.conditions[k]}
+              onChange={v => set({ conditions: { ...draft.conditions, [k]: v } })} />))}
+        </div>
+      </div>
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Then: {a.label.replace(/^./, c => c.toLowerCase())}</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {Object.entries(a.fields).map(([k, f]) => fieldsIn(k, f.label + (f.required ? '' : ' (optional)'), f.choices ? (
+            <select className={field} value={draft.action_input[k] ?? ''} onChange={e => set({ action_input: { ...draft.action_input, [k]: e.target.value } })}>
+              <option value="">None</option>
+              {f.choices.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          ) : (
+            <input className={field} value={draft.action_input[k] ?? ''} maxLength={f.max || 100} data-testid={'rule-edit-' + k}
+              onChange={e => set({ action_input: { ...draft.action_input, [k]: e.target.value } })} />
+          )))}
+        </div>
+        <p className="text-xs text-muted-foreground">Words that fill in: {t.fields.map(x => '{' + x + '}').join(', ')}</p>
+      </div>
+      <div className="max-w-[12rem]">
+        {fieldsIn('per_day', 'At most, times a day', (
+          <input className={field} type="number" inputMode="numeric" min={1} max={MAX_PER_DAY} value={draft.per_day}
+            onChange={e => set({ per_day: e.target.value })} data-testid="rule-edit-per-day" />
+        ))}
+      </div>
+      {problem && <p className="text-sm text-destructive" data-testid="rule-edit-problem">{problem}</p>}
+      {save.error && <p className="text-sm text-destructive">{save.error.message}</p>}
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={cn(btn, 'bg-primary text-primary-foreground')} disabled={!!problem || save.isPending}
+          onClick={() => save.mutate()} data-testid="rule-edit-save">
+          {save.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Save
+        </button>
+        <button type="button" className={cn(btn, 'border')} onClick={onDone}><X className="w-4 h-4" /> Cancel</button>
+      </div>
+      <p className="text-xs text-muted-foreground">It keeps its runs and still runs as {rule.created_by_name || 'the person who made it'}. For another trigger or action, make a new rule.</p>
+    </div>
+  )
+}
+
 function RuleRow({ rule, canManage }) {
   const api = useApi()
   const qc = useQueryClient()
   const [sure, setSure] = useState(false)
+  const [editing, setEditing] = useState(false)
   const refresh = () => qc.invalidateQueries({ queryKey: ['ai-rules'] })
   const flip = useMutation({ mutationFn: enabled => api.patch('/ai/rules/' + rule.id, { enabled }), onSuccess: refresh })
   const del = useMutation({ mutationFn: () => api.delete('/ai/rules/' + rule.id), onSuccess: refresh })
@@ -57,8 +173,14 @@ function RuleRow({ rule, canManage }) {
         <Toggle on={rule.enabled} disabled={!canManage || flip.isPending} onChange={v => flip.mutate(v)}
           label={(rule.enabled ? 'Switch off ' : 'Switch on ') + rule.name} />
       </div>
-      {canManage && (
-        <div className="flex justify-end">
+      {canManage && editing && <RuleEditor rule={rule} onDone={() => setEditing(false)} />}
+      {canManage && !editing && (
+        <div className="flex flex-wrap justify-end gap-2">
+          {!sure && (
+            <button type="button" className={cn(btn, 'border')} onClick={() => setEditing(true)} data-testid="rule-edit">
+              <Pencil className="w-4 h-4" /> Change
+            </button>
+          )}
           {!sure ? (
             <button type="button" className={cn(btn, 'border text-destructive')} onClick={() => setSure(true)} data-testid="rule-delete">
               <Trash2 className="w-4 h-4" /> Delete
@@ -139,7 +261,8 @@ export function RuleSettings() {
           Things the app does by itself when something happens. A rule can only add an H&S action or send a notice to
           people's phones: never money, pay, prices, allergens, deletions or anything about a person.
         </p>
-        {isLoading && <div className="py-4 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
+        {!canManage && <ReadOnlyNotice what="the rules" className="mt-3" />}
+        {isLoading &&<div className="py-4 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
         {error && <p className="py-3 text-sm text-destructive">{error.message}</p>}
         {data && !data.rules.length && <p className="py-3 text-sm text-muted-foreground">No rules yet.</p>}
         <div className="divide-y">

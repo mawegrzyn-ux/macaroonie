@@ -13,6 +13,13 @@
 //                                    one row's own fields with its own Save
 //                                    (onSave(custom) -> the route's PATCH)
 //   useCustomFields(objectKey)       the group's definitions for one object
+//   CustomFieldInputs({ defs, form, onChange, problems, showProblems })
+//                                    the fields themselves, for a form that makes
+//                                    a row (the Inventory page's New item, step 9d)
+//                                    and for the card; required ones are marked
+//   newRowCustom(defs, form)         -> { custom, problems }: what a new row sends
+//                                    (only filled fields; the API needs the
+//                                    required ones) and what is wrong
 
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -82,6 +89,33 @@ function ValueInput({ def, value, onChange, disabled }) {
 }
 
 const NO_FIELDS = []
+
+/** The group's own fields as inputs: label (required marked), the value's control, help, a problem. */
+export function CustomFieldInputs({ defs, form, onChange, disabled, problems = {}, showProblems = true }) {
+  return defs.map(d => (
+    <div key={d.id} data-testid={'custom-field-' + d.field_key}>
+      <label htmlFor={'cf-' + d.field_key} className="text-sm font-medium mb-1.5 flex items-center gap-1">
+        {d.label}{d.required && <span className="text-destructive" aria-hidden="true">*</span>}
+      </label>
+      <ValueInput def={d} value={form[d.field_key] ?? ''} disabled={disabled} onChange={v => onChange(d.field_key, v)} />
+      {d.help && <p className="text-xs text-muted-foreground mt-1">{d.help}</p>}
+      {problems[d.field_key] && showProblems && <p className="text-xs text-destructive mt-1">{problems[d.field_key]}</p>}
+    </div>
+  ))
+}
+
+/** A new row's own fields: the filled ones as the API takes them, and each field's problem (a required one left empty). */
+export function newRowCustom(defs, form) {
+  const custom = {}
+  const problems = {}
+  for (const d of defs) {
+    const v = form[d.field_key]
+    const p = valueProblem(d, v ?? '')
+    if (p) problems[d.field_key] = p
+    if (v !== undefined && v !== '') custom[d.field_key] = cleanValue(d, v) ?? v
+  }
+  return { custom, problems }
+}
 const startOf = (def, v) => (v === undefined || v === null ? '' : def.type === 'yesno' ? !!v : String(v))
 
 /**
@@ -120,17 +154,8 @@ export function CustomFieldsCard({ objectKey, values, canEdit, onSave, className
         )}
       </div>
       <div className="p-4 space-y-3">
-        {defs.map(d => (
-          <div key={d.id} data-testid={'custom-field-' + d.field_key}>
-            <label htmlFor={'cf-' + d.field_key} className="text-sm font-medium mb-1.5 flex items-center gap-1">
-              {d.label}{d.required && <span className="text-destructive" aria-hidden="true">*</span>}
-            </label>
-            <ValueInput def={d} value={form[d.field_key]} disabled={!canEdit || save.isPending}
-              onChange={v => setForm(f => ({ ...f, [d.field_key]: v }))} />
-            {d.help && <p className="text-xs text-muted-foreground mt-1">{d.help}</p>}
-            {problems[d.field_key] && dirty && <p className="text-xs text-destructive mt-1">{problems[d.field_key]}</p>}
-          </div>
-        ))}
+        <CustomFieldInputs defs={defs} form={form} disabled={!canEdit || save.isPending} problems={problems} showProblems={dirty}
+          onChange={(k, v) => setForm(f => ({ ...f, [k]: v }))} />
         {save.error && <p className="text-sm text-destructive" data-testid="custom-error">{save.error.message}</p>}
       </div>
     </div>

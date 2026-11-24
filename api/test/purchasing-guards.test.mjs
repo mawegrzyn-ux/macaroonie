@@ -275,7 +275,7 @@ test('a new pack size keeps the amount ordered', async () => {
 
 test('the import takes the minimum order and steps', async () => {
   const template = await owner.get('/api/inventory/import-template')
-  assert.match(template.body.split('\n')[0], /,Minimum order,Order in steps of$/)
+  assert.match(template.body.split('\n')[0], /,Minimum order,Order in steps of,Barcode$/)
 
   const head = 'Item,Supplier,Supplier code,Pack,Pack size,Pack unit,Price,Minimum order,Order in steps of\n'
   let res = await ok(owner.post('/api/inventory/import', { file: csv(head + 'Red lentils,Pin Farm,LEN-5,Sack,5,kg,7,4,2\n') }), 'import')

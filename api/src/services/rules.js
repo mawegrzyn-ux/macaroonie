@@ -21,6 +21,12 @@
 //                               prices, allergens, deletions or a person) and
 //                               the person may use it
 //   saveRule(req, rule, sentence)  the rule, as the person who confirmed it
+//   changeRule(req, id, rule)   the whole rule changed in place (step 9a),
+//                               checked as a save is; it keeps its runs and
+//                               who it runs as; the sentence is cleared (it no
+//                               longer says what the rule does)
+//   switchRule(tenantId, id, enabled), deleteRule(tenantId, id)
+//   ranCount(tenantId, id)      how many times it has run (done, failed or running)
 //   listRules(tenantId)         every rule with today's runs and the last run
 //   ruleView(row)               a rule for the browser and Pepper
 
@@ -204,6 +210,41 @@ export async function saveRule(req, raw, sentence = null) {
             ${rule.venue_id}, ${rule.action_tool}, ${tx.json(rule.action_input)}, ${rule.per_day}, ${me.id}, ${req.user.sub})
     RETURNING id`)
   return (await listRules(req.tenantId, row.id))[0]
+}
+
+export async function changeRule(req, id, raw) {
+  const [was] = await withTenant(req.tenantId, tx => tx`SELECT id FROM pepper_rules WHERE id = ${id} AND tenant_id = ${req.tenantId}`)
+  if (!was) throw httpError(404, 'Rule not found')
+  const { rule } = await checkRule(req, raw)
+  await withTenant(req.tenantId, tx => tx`
+    UPDATE pepper_rules
+       SET name = ${rule.name}, trigger = ${rule.trigger}, conditions = ${tx.json(rule.conditions)}, venue_id = ${rule.venue_id},
+           action_tool = ${rule.action_tool}, action_input = ${tx.json(rule.action_input)}, per_day = ${rule.per_day},
+           sentence = NULL, updated_at = now()
+     WHERE id = ${id} AND tenant_id = ${req.tenantId}`)
+  return (await listRules(req.tenantId, id))[0]
+}
+
+export async function switchRule(tenantId, id, enabled) {
+  const [row] = await withTenant(tenantId, tx => tx`
+    UPDATE pepper_rules SET enabled = ${enabled}, updated_at = now()
+     WHERE id = ${id} AND tenant_id = ${tenantId} RETURNING id`)
+  if (!row) throw httpError(404, 'Rule not found')
+  return (await listRules(tenantId, row.id))[0]
+}
+
+export async function deleteRule(tenantId, id) {
+  const [row] = await withTenant(tenantId, tx => tx`
+    DELETE FROM pepper_rules WHERE id = ${id} AND tenant_id = ${tenantId} RETURNING id`)
+  if (!row) throw httpError(404, 'Rule not found')
+  return { ok: true }
+}
+
+export async function ranCount(tenantId, id) {
+  const [{ n }] = await withTenant(tenantId, tx => tx`
+    SELECT count(*)::int AS n FROM pepper_rule_firings
+     WHERE rule_id = ${id} AND tenant_id = ${tenantId} AND status IN ('done', 'failed', 'running')`)
+  return n
 }
 
 export async function listRules(tenantId, id = null) {
