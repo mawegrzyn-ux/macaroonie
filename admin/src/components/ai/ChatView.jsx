@@ -610,7 +610,8 @@ function FormCard({ card, linkFor, onFormSaved }) {
       })
     }
   }
-  const labels = filledLabels(meta, card.values)
+  // A plain form's field labels come with the card (its route's schema, Pepper-first 8A3).
+  const labels = meta?.plain ? (Array.isArray(card.labels) ? card.labels.filter(l => typeof l === 'string') : []) : filledLabels(meta, card.values)
   return (
     <div className="rounded-lg border bg-background overflow-hidden" data-testid="chat-form-card" data-form={card.form} data-saved={saved ? 'yes' : 'no'}>
       <div className="section-head px-3 py-2 text-sm font-semibold flex items-center gap-2">

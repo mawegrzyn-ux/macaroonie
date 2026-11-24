@@ -7,6 +7,7 @@ export const objects = [
     table: 'suppliers', subjects: ['purchasing.suppliers'],
     page: '/suppliers',
     actions: ['add_supplier', 'update_supplier'],
+    forms: ['supplier'],
   },
   {
     key: 'purchasing.items', label: 'Inventory item', plural: 'Inventory items', words: ['stock item', 'ingredient'],

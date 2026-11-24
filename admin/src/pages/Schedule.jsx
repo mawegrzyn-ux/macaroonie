@@ -3,6 +3,7 @@
 // Each day shows its sittings. Click a sitting to edit slot caps.
 
 import { useState } from 'react'
+import { PlainForm } from '@/components/forms/PlainForm'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, ChevronDown, ChevronUp, Trash2, Save, Copy, Pencil } from 'lucide-react'
 import { useApi } from '@/lib/api'
@@ -580,21 +581,6 @@ function ExceptionsSection({ venueId }) {
   })
 
   const [showCreate, setShowCreate]     = useState(false)
-  const [createData, setCreateData]     = useState({
-    name:      '',
-    date_from: '',
-    date_to:   '',
-    is_closed: true,
-  })
-
-  const createMutation = useMutation({
-    mutationFn: () => api.post(`/venues/${venueId}/schedule/exceptions`, createData),
-    onSuccess: () => {
-      qc.invalidateQueries(['exceptions', venueId])
-      setShowCreate(false)
-      setCreateData({ name: '', date_from: '', date_to: '', is_closed: true })
-    },
-  })
 
   return (
     <div className="space-y-3">
@@ -614,62 +600,13 @@ function ExceptionsSection({ venueId }) {
         Exceptions override the weekly schedule for a date range — either close the venue or run alternative hours.
       </p>
 
+      {/* A new exception (a closure, or dates with other hours): the plain form
+          drawn from the route's schema, the same one Pepper's open_form opens
+          (Pepper-first 8A3). */}
       {showCreate && (
-        <div className="border rounded-lg p-4 space-y-3 bg-muted/20">
-          <p className="text-xs font-semibold">New exception</p>
-          <div className="space-y-2">
-            <div>
-              <label className="text-xs text-muted-foreground block mb-0.5">Name</label>
-              <input
-                type="text" placeholder="e.g. Christmas 2025, Summer hours…"
-                value={createData.name}
-                onChange={e => setCreateData(p => ({ ...p, name: e.target.value }))}
-                className="w-full text-sm border rounded px-2 py-1.5"
-              />
-            </div>
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <label className="text-xs text-muted-foreground block mb-0.5">From</label>
-                <input type="date" value={createData.date_from}
-                  onChange={e => setCreateData(p => ({ ...p, date_from: e.target.value, date_to: p.date_to || e.target.value }))}
-                  className="w-full text-sm border rounded px-2 py-1.5" />
-              </div>
-              <div className="flex-1">
-                <label className="text-xs text-muted-foreground block mb-0.5">To</label>
-                <input type="date" value={createData.date_to}
-                  onChange={e => setCreateData(p => ({ ...p, date_to: e.target.value }))}
-                  min={createData.date_from}
-                  className="w-full text-sm border rounded px-2 py-1.5" />
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <label className="flex items-center gap-2 cursor-pointer text-sm">
-                <input type="radio" checked={createData.is_closed}
-                  onChange={() => setCreateData(p => ({ ...p, is_closed: true }))} />
-                Closed
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer text-sm">
-                <input type="radio" checked={!createData.is_closed}
-                  onChange={() => setCreateData(p => ({ ...p, is_closed: false }))} />
-                Alternative schedule
-              </label>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => createMutation.mutate()}
-              disabled={!createData.name || !createData.date_from || !createData.date_to || createMutation.isPending}
-              className="text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded disabled:opacity-50"
-            >
-              {createMutation.isPending ? 'Creating…' : 'Create'}
-            </button>
-            <button onClick={() => setShowCreate(false)} className="text-xs px-3 py-1.5 border rounded">Cancel</button>
-            {createMutation.isError && (
-              <span className="text-xs text-destructive self-center">
-                {createMutation.error?.message ?? 'Failed to create'}
-              </span>
-            )}
-          </div>
+        <div className="border rounded-lg p-4 bg-muted/20" data-testid="exception-new">
+          <p className="text-xs font-semibold mb-3">New exception</p>
+          <PlainForm formKey="closure" venueId={venueId} onSaved={() => setShowCreate(false)} onCancel={() => setShowCreate(false)} />
         </div>
       )}
 

@@ -9,6 +9,7 @@ export const objects = [
     table: 'cash_staff', subjects: ['staff.people'],
     page: '/staff',
     actions: ['add_staff_member', 'update_staff_member', 'set_staff_leaving'],
+    forms: ['staff_member'],
   },
   {
     key: 'staff.roles', label: 'Staff role', plural: 'Staff roles', words: ['job role', 'job title'],

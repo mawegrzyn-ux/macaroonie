@@ -62,7 +62,7 @@ const OverrideBody = z.object({
   label:              z.string().max(200).nullable().optional(),
 })
 
-const ExceptionBody = z.object({
+export const ExceptionBody = z.object({
   name:       z.string().min(1).max(200),
   date_from:  z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   date_to:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/),

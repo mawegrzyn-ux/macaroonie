@@ -119,7 +119,7 @@ const LinePatch = z.object({
 })
 const AmountRow = key => z.object({ [key]: UUID, amount: Money.nullable() })
 
-const StaffBody = z.object({
+export const StaffBody = z.object({
   name:         z.string().trim().min(1).max(200),
   role_id:      UUID.nullable().optional(),
   pay_type:     z.enum(['hourly', 'fixed']).default('fixed'),

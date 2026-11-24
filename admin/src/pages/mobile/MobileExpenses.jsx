@@ -297,7 +297,10 @@ function ExpenseRow({ exp, cat, onClick }) {
 
 // One venue + date: day totals, expense list, add / edit. Exported so the
 // Cash Recon Dashboard's petty cash widget renders exactly the same panel.
-export function PettyCashPanel({ venueId, date }) {
+// listOnly: the day's expenses without an Add of its own (the form sheet adds
+// one with the plain form above it, Pepper-first 8A3); a row still opens to
+// change it or add its receipt.
+export function PettyCashPanel({ venueId, date, listOnly = false }) {
   const api = useApi()
   const { canUse } = usePermission('cash_recon')
   // In a form sheet with Pepper's values (or a draft), a new expense opens with them.
@@ -305,10 +308,10 @@ export function PettyCashPanel({ venueId, date }) {
   const [target, setTarget] = useState(null) // { date, expense | null }
   const opened = useRef(false)
   useEffect(() => {
-    if (opened.current || !canUse || !fill || !Object.keys(fill.values).length) return
+    if (listOnly || opened.current || !canUse || !fill || !Object.keys(fill.values).length) return
     opened.current = true
     setTarget({ date, expense: null })
-  }, [canUse, fill, date])
+  }, [canUse, fill, date, listOnly])
   const actions = useExpenseActions(venueId, () => setTarget(null), (body, saved) =>
     fill?.saved((saved ? 'Changed: ' : '') + body.description + ' ' + fmt(body.amount)))
 
@@ -365,7 +368,7 @@ export function PettyCashPanel({ venueId, date }) {
         </div>
       )}
 
-      {canUse && !isSubmitted && (
+      {canUse && !isSubmitted && !listOnly && (
         <button type="button" onClick={() => setTarget({ date, expense: null })}
           className="w-full inline-flex items-center justify-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2.5 text-sm font-medium min-h-[48px] touch-manipulation">
           <Plus className="w-4 h-4" /> Add expense

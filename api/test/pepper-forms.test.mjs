@@ -136,7 +136,8 @@ test('values: unknown fields are left out, the rest go on the card for the sheet
 test('values: a wrong type or out of range refuses the call', async () => {
   await assert.rejects(tool(A.owner, { form: 'delivery', venue: venueName, values: { accepted: 'yes' } }), /values\.accepted/)
   await assert.rejects(tool(A.owner, { form: 'expense', venue: venueName, values: { amount: -5 } }), /values\.amount/)
-  await assert.rejects(tool(A.owner, { form: 'expense', venue: venueName, values: { description: 'x'.repeat(201) } }), /values\.description/)
+  // The expense form is plain (step 8A3): its rules are the route's (a description up to 500).
+  await assert.rejects(tool(A.owner, { form: 'expense', venue: venueName, values: { description: 'x'.repeat(501) } }), /values\.description/)
   await assert.rejects(tool(A.owner, { form: 'temps', venue: venueName, values: { readings: { name: 'Walk-in' } } }), /list of rows/)
 })
 

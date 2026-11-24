@@ -19,6 +19,12 @@
 //            order) have none
 //   window   true: it opens a window of its own instead of the sheet (sold
 //            out, a new booking, a booking's details)
+//   group    true: a form for the whole group (a supplier): it needs no venue
+//   plain    true: a flat set-up form drawn by one renderer from the schema
+//            its route validates with (Pepper-first step 8A3): its fields are
+//            the API's (api/src/forms/<area>.js), never listed here, so
+//            `fields` stays {} (GET /api/forms/:key gives them to the sheet,
+//            and open_form checks Pepper's values against the route's schema)
 //
 // FIELD TYPES (fields: { key: field }):
 //   { type: 'text', max }                     words, one line or a few
@@ -85,15 +91,7 @@ export const FORMS = {
   },
   expense: {
     title: 'Expenses', module: 'cash_recon', edit: 'use', path: '/cash-recon', phone: '/mobile/expenses', by: 'date',
-    fields: {
-      description:  { type: 'text', max: 200, label: 'Description' },
-      amount:       { type: 'number', min: 0, max: 100000, label: 'Amount' },
-      vat_amount:   { type: 'number', min: 0, max: 100000, label: 'VAT' },
-      category:     { type: 'text', max: 80, label: 'Category' },
-      paid_by_card: { type: 'bool', label: 'Paid by card' },
-      notes:        { type: 'text', max: 500, label: 'Notes' },
-    },
-    drafts: true,
+    fields: {}, plain: true, drafts: true,
   },
   sold_out: {
     title: 'Sold out', module: 'web_orders', edit: 'manage', path: '/orders', phone: '/mobile/orders', by: null,
@@ -150,7 +148,23 @@ export const FORMS = {
     title: 'Change a booking', module: 'bookings', edit: 'manage', path: '/bookings', by: 'date',
     fields: {}, window: true,
   },
+  // Flat set-up forms drawn from their route's schema (step 8A3).
+  supplier: {
+    title: 'New supplier', module: 'purchasing_setup', edit: 'manage', path: '/suppliers', by: null,
+    fields: {}, plain: true, drafts: true, group: true,
+  },
+  staff_member: {
+    title: 'New staff member', module: 'staff', edit: 'manage', path: '/staff', by: null,
+    fields: {}, plain: true, drafts: true,
+  },
+  closure: {
+    title: 'Close dates', module: 'schedule', edit: 'manage', path: '/schedule', by: null,
+    fields: {}, plain: true, drafts: true,
+  },
 }
+
+/** The flat set-up forms drawn from their route's schema (plain: true). */
+export const PLAIN_FORM_KEYS = Object.keys(FORMS).filter(k => FORMS[k].plain)
 
 export const FORM_KEYS = Object.keys(FORMS)
 

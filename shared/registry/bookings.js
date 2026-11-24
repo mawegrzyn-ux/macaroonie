@@ -21,6 +21,7 @@ export const objects = [
     table: 'schedule_exceptions',
     page: '/schedule',
     actions: ['close_dates', 'remove_closure'],
+    forms: ['closure'],
   },
   {
     key: 'bookings.tables', label: 'Table', plural: 'Tables', words: ['table combination', 'table section'],

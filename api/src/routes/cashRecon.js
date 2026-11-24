@@ -177,6 +177,19 @@ const ScEntrySchema = z.object({
   notes:     z.string().max(500).nullable().optional(),
 })
 
+// One expense (POST and PUT .../cash-recon/expenses): the form that adds one
+// is drawn from this schema too (api/src/forms/cash.js, Pepper-first 8A3).
+export const ExpenseBody = z.object({
+  date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  description: z.string().min(1).max(500),
+  category:    z.string().max(100).nullable().optional(),
+  category_id: UUID.nullable().optional(),
+  amount:      z.coerce.number().min(0).default(0),
+  vat_amount:  z.coerce.number().min(0).default(0),
+  paid_by_card: z.boolean().default(false),
+  notes:       z.string().max(1000).nullable().optional(),
+})
+
 const ExpenseEntrySchema = z.object({
   id:          UUID.optional(),
   description: z.string().min(1).max(500),
@@ -1568,16 +1581,7 @@ export default async function cashReconRoutes(app) {
     preHandler: PERM.use,
   }, async (req, reply) => {
     const { venueId } = req.params
-    const { date, description, category, category_id, amount, vat_amount, paid_by_card, notes } = z.object({
-      date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-      description: z.string().min(1).max(500),
-      category:    z.string().max(100).nullable().optional(),
-      category_id: UUID.nullable().optional(),
-      amount:      z.coerce.number().min(0).default(0),
-      vat_amount:  z.coerce.number().min(0).default(0),
-      paid_by_card: z.boolean().default(false),
-      notes:       z.string().max(1000).nullable().optional(),
-    }).parse(req.body)
+    const { date, description, category, category_id, amount, vat_amount, paid_by_card, notes } = ExpenseBody.parse(req.body)
 
     const [row] = await withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
@@ -1610,15 +1614,7 @@ export default async function cashReconRoutes(app) {
     preHandler: PERM.use,
   }, async (req) => {
     const { venueId, expenseId } = req.params
-    const { description, category, category_id, amount, vat_amount, paid_by_card, notes } = z.object({
-      description: z.string().min(1).max(500),
-      category:    z.string().max(100).nullable().optional(),
-      category_id: UUID.nullable().optional(),
-      amount:      z.coerce.number().min(0).default(0),
-      vat_amount:  z.coerce.number().min(0).default(0),
-      paid_by_card: z.boolean().default(false),
-      notes:       z.string().max(1000).nullable().optional(),
-    }).parse(req.body)
+    const { description, category, category_id, amount, vat_amount, paid_by_card, notes } = ExpenseBody.omit({ date: true }).parse(req.body)
 
     const [row] = await withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
