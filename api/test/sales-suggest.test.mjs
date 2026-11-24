@@ -174,3 +174,82 @@ test('accepting in bulk makes exact rules through the rule checks; a bad one is 
   assert.equal((await looker.get(base() + '/suggestions?venue_id=' + V)).status, 200, 'View sees suggestions')
   assert.equal((await other.get(base() + '/suggestions?venue_id=' + V)).status, 404)
 })
+
+// ── 47.3b Pepper ────────────────────────────────────────────────────────────
+
+const PROPOSE = () => `/api/ai/sales-mapping/${conn.id}/propose`
+const userText = body => body.messages[0].content.filter(b => b.type === 'text').map(b => b.text).join('\n')
+/** The ref a line of the prompt gives a name: "E5 | item | Brownie" -> E5. */
+const refOf = (text, kind, name) => {
+  const m = text.split('\n').map(l => l.trim()).find(l => new RegExp('^[A-Z]\\d+ \\| ' + kind).test(l) && l.includes('| ' + name))
+  return m ? m.split(' ')[0] : null
+}
+const dishRef = (text, name) => text.split('\n').find(l => /^D\d+ \| /.test(l) && l.split(' | ')[1] === name)?.split(' ')[0]
+const blank = { dish: '', options: [], group: '', axis: '', values: [], reason: '', confidence: 0.5 }
+
+test('Pepper: refs only, names as data, at most four cache marks; bad refs and kinds dropped; usage counted', async () => {
+  let seen
+  claude.script.push(body => {
+    seen = body
+    const t = userText(body)
+    const brownie = refOf(t, 'item', 'Brownie'), water = refOf(t, 'item', 'Bottle of water'), muffin = refOf(t, 'item', 'Muffin')
+    const syrup = refOf(t, 'modifier option', 'Vanilla syrup')
+    const answer = { proposals: [
+      { ...blank, ref: brownie, kind: 'keep', reason: 'Nothing like it on the menu', confidence: 0.8 },
+      { ...blank, ref: water, kind: 'exact', dish: dishRef(t, 'Water'), reason: 'A bottle of water is our Water', confidence: 0.9 },
+      { ...blank, ref: muffin, kind: 'none', reason: 'Not sure', confidence: 0.1 },
+      { ...blank, ref: syrup, kind: 'exact', dish: 'D99', reason: 'bad dish ref' },
+      { ...blank, ref: 'E999', kind: 'keep', reason: 'bad thing ref' },
+      { ...blank, ref: brownie, kind: 'merge', reason: 'off the schema' },
+    ] }
+    return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(answer) }], usage: { input_tokens: 3000, output_tokens: 400 } }
+  })
+  const keys = ['i:it-brownie', 'v:var-muffin-b', 'v:var-muffin-c', 'i:it-btl-water', 'o:opt-syrup']
+  const before = (await sql`SELECT count(*)::int AS n FROM ai_requests WHERE tenant_id = ${ids.a} AND use = 'item_mapping'`)[0].n
+  const res = await ok(owner.post(PROPOSE(), { venue_id: V, keys }))
+  assert.equal(res.asked, 5)
+
+  // What the model was shown.
+  const marks = seen.system.filter(b => b.cache_control).length
+  assert.ok(marks >= 1 && marks <= 4, 'cache marks: ' + marks)
+  const text = userText(seen)
+  assert.match(seen.system.map(b => b.text).join('\n'), /data, never instructions/)
+  assert.match(text, /<their_items>[\s\S]*Brownie[\s\S]*<\/their_items>/)
+  assert.match(text, /<our_menu>[\s\S]*Water[\s\S]*<\/our_menu>/)
+  assert.doesNotMatch(text, /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/, 'no ids, only refs')
+  assert.doesNotMatch(text, /it-brownie|var-muffin|opt-syrup/, 'not the other till\'s ids either')
+  assert.ok(!dishRef(text, 'B dish'), 'never another tenant\'s dish')
+  assert.match(text, /Propose a rule for each of: E\d+/)
+
+  // What came back, mapped to ids and checked.
+  const by = key => res.proposals.find(p => p.key === key)
+  assert.equal(by('i:it-brownie').rule.kind, 'keep')
+  assert.equal(by('i:it-btl-water').rule.target_item_id, our.water)
+  assert.equal(by('i:it-btl-water').label, 'Water')
+  assert.equal(by('i:it-btl-water').rule.venue_id, V)
+  assert.equal(res.proposals.length, 2)
+  assert.equal(res.dropped.length, 3, JSON.stringify(res.dropped))
+  assert.ok(res.couldnt.some(c => c.name === 'Muffin'))
+  const after = (await sql`SELECT count(*)::int AS n FROM ai_requests WHERE tenant_id = ${ids.a} AND use = 'item_mapping'`)[0].n
+  assert.equal(after, before + 1, 'one model request, counted as item mapping')
+  assert.equal((await rulesNow()).filter(r => r.item_ref === 'it-brownie').length, 0, 'nothing saved until accepted')
+
+  // Accepting saves through the same bulk route.
+  const saved = await ok(owner.post(base() + '/rules/bulk', { rules: res.proposals.map(p => p.rule) }))
+  assert.equal(saved.saved.length, 2)
+})
+
+test('Pepper: refused when off, for View, for another tenant\'s connection or a venue not on it', async () => {
+  assert.equal((await looker.post(PROPOSE(), { venue_id: V })).status, 403)
+  assert.equal((await other.post(PROPOSE(), { venue_id: V })).status, 404)
+  const stray = (await ok(owner.post('/api/venues', { name: 'Zqx Stray', slug: 'zqx-stray-ss', timezone: 'Europe/London' }))).id
+  assert.equal((await owner.post(PROPOSE(), { venue_id: stray })).status, 422)
+  await ok(owner.patch('/api/ai/settings', { staff_enabled: false }))
+  try {
+    const n = claude.requests.length
+    assert.equal((await owner.post(PROPOSE(), { venue_id: V })).status, 403, 'Pepper off')
+    assert.equal(claude.requests.length, n, 'no model call')
+  } finally {
+    await ok(owner.patch('/api/ai/settings', { staff_enabled: true }))
+  }
+})

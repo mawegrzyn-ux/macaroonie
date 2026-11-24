@@ -169,3 +169,58 @@ export function Suggestions({ connectionId, venueId, canManage, onSaved }) {
     </Card>
   )
 }
+
+// ── Pepper ───────────────────────────────────────────────────────────────────
+
+export function PepperProposals({ connectionId, venueId, canManage, onSaved }) {
+  const api = useApi()
+  const refresh = useRefreshMapping()
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [out, setOut] = useState(null)
+  const [res, setRes] = useState(null)
+  if (!venueId || !canManage) return null
+  async function ask() {
+    setBusy(true); setErr(''); setRes(null)
+    try { setOut(await api.post(`/ai/sales-mapping/${connectionId}/propose`, { venue_id: venueId })) }
+    catch (e) { setErr(e.message) }
+    finally { setBusy(false) }
+  }
+  const rows = (out?.proposals || []).map(p => ({
+    key: p.key, title: p.title, ticked: p.confidence >= 0.9, sub: p.kind === 'axis' ? 'An option axis' : '',
+    choices: [{ label: p.label, score: p.confidence, reason: p.reason, rule: p.rule }],
+  }))
+  async function accept(list) {
+    const r = await api.post(`/integrations/mapping/${connectionId}/rules/bulk`, { rules: list.map(x => x.rule) })
+    r.failed = r.failed.map(f => ({ ...f, name: list[f.index]?.row.title }))
+    setRes(r)
+    setOut(o => ({ ...o, proposals: o.proposals.filter(p => !list.some((x, i) => x.row.key === p.key && r.saved.some(s => s.index === i))) }))
+    onSaved?.(r)
+    refresh()
+  }
+  return (
+    <Card title="Ask Pepper" action={<Sparkles className="w-4 h-4 text-muted-foreground" />}>
+      <p className="text-xs text-muted-foreground">
+        Pepper looks at up to 40 of what&apos;s left (the suggestions above didn&apos;t tick them) beside this venue&apos;s menus and proposes
+        a rule for each, with its reason and how sure it is. Uses your Pepper allowance. Nothing is saved until you accept.
+      </p>
+      <button type="button" className={btnOutline} onClick={ask} disabled={busy} data-testid="ask-pepper">
+        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} {out ? 'Ask again' : 'Ask Pepper about what\'s left'}
+      </button>
+      {err && <p className="text-sm text-destructive">{err}</p>}
+      <SaveResult res={res} />
+      {out && (
+        <>
+          {!out.asked && <p className="text-sm text-muted-foreground">Nothing left to ask about.</p>}
+          <ProposalRows key={JSON.stringify(rows.map(r => r.key))} rows={rows} canManage={canManage} onAccept={accept} testid="pepper-row" />
+          {(out.couldnt.length > 0 || out.dropped.length > 0) && (
+            <p className="text-xs text-muted-foreground">
+              {out.couldnt.length > 0 && <>Pepper couldn&apos;t tell: {out.couldnt.map(thingName).join(', ')}. </>}
+              {out.dropped.length > 0 && <>{out.dropped.length} {out.dropped.length === 1 ? 'answer was' : 'answers were'} left out (not on this venue&apos;s menus or not a rule we can save).</>}
+            </p>
+          )}
+        </>
+      )}
+    </Card>
+  )
+}

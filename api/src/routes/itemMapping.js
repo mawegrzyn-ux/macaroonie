@@ -81,7 +81,7 @@ const VenueQuery = z.object({ venue_id: UUID.optional() })
 // Each rule is checked by cleanRule() on its own (a bad one is reported, the others saved).
 const BulkBody = z.object({ rules: z.array(z.record(z.any())).min(1).max(200) })
 
-async function ownConnection(tx, tenantId, id) {
+export async function ownConnection(tx, tenantId, id) {
   if (!UUID.safeParse(id).success) throw httpError(404, 'Connection not found')
   const [c] = await tx`SELECT id, system, name FROM pos_connections WHERE id = ${id} AND tenant_id = ${tenantId}`
   if (!c) throw httpError(404, 'Connection not found')
@@ -95,7 +95,7 @@ async function linkedVenues(tx, tenantId, connectionId) {
      WHERE l.tenant_id = ${tenantId} AND l.connection_id = ${connectionId} ORDER BY v.name`
 }
 
-async function ownLinkedVenue(tx, tenantId, connectionId, venueId) {
+export async function ownLinkedVenue(tx, tenantId, connectionId, venueId) {
   if (!venueId) return null
   const [v] = await tx`
     SELECT l.venue_id FROM pos_connection_venues l JOIN venues v ON v.id = l.venue_id AND v.tenant_id = l.tenant_id

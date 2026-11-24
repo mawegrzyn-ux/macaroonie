@@ -32,7 +32,7 @@ import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { Modal } from '@/components/staff/shared'
 import { Card, inputCls, btnPrimary, btnOutline, btnDanger } from '@/components/cashRecon/reconShared'
-import { Suggestions } from '@/components/cashRecon/MappingTools'
+import { Suggestions, PepperProposals } from '@/components/cashRecon/MappingTools'
 
 const pence = p => (p < 0 ? '-' : '') + '£' + (Math.abs(Number(p) || 0) / 100).toFixed(2)
 const dayLabel = d => (d ? format(new Date(d + 'T12:00:00'), 'd MMM yyyy') : '')
@@ -148,6 +148,7 @@ export default function ItemMapping() {
               else if (item) editThing({ item_ref: item.ref }, item.state)
             }} />
             <Suggestions connectionId={connectionId} venueId={venueId} canManage={perm.canManage} />
+            <PepperProposals connectionId={connectionId} venueId={venueId} canManage={perm.canManage} />
             <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] items-start">
               <Catalogue data={data} filter={filter} setFilter={setFilter} search={search} setSearch={setSearch} onEdit={editThing} />
               <Rules data={data} canManage={perm.canManage} venueId={venueId}

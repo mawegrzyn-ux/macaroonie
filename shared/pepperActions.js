@@ -28,6 +28,7 @@ export const USE_LABELS = {
   translation: 'Translating a menu',
   new_location: 'New location',
   rule_parser: 'Reading a rule',
+  item_mapping: 'Mapping another till\'s items',
   other: 'Something else',
 }
 
