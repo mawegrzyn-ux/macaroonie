@@ -105,7 +105,7 @@ test('what_can_i_do: a precondition is the "why not" of a change the person may 
   assert.deepEqual(sold.forms.map(f => f.form), ['sold_out'])
 })
 
-test('what_can_i_do: a change Pepper has no tool for, a thing it doesn\'t know, the connector's address', async () => {
+test('what_can_i_do: a change Pepper has no tool for, a thing it doesn\'t know, the address on the connector', async () => {
   const del = await ask(A.owner, { object: 'booking', action: 'delete' })
   assert.match(del.note, /can't "delete" bookings/)
   assert.equal(del.you_can, undefined)
