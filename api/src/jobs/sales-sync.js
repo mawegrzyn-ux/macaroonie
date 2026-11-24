@@ -23,6 +23,9 @@ export const queue = new Queue(name, { connection, prefix })
 // requestSync() runs one connection straight away. The repeat runs once
 // across all API processes, and each connection is claimed
 // (pos_connections.sync_claimed_until) so two processes never sync it at once.
+// A 'remap' job (itemMappingSvc.requestRemap(), after an item mapping rule is
+// saved or deleted, migration 292) maps a connection's stored lines again
+// from the rule's effective_from; the sweep also runs any whose job was lost.
 
 export function start(log) {
   const worker = new Worker(name, async job => {
@@ -30,6 +33,11 @@ export function start(log) {
     if (job.name === 'sync' && job.data?.connectionId) {
       const r = await svc.syncConnection(job.data.tenantId, job.data.connectionId, { log })
       if (r.error) log.warn({ connectionId: job.data.connectionId, err: r.error }, 'Sales sync failed')
+      return
+    }
+    if (job.name === 'remap' && job.data?.connectionId) {
+      const mapping = await import('../services/itemMappingSvc.js')
+      await mapping.remapConnection(job.data.tenantId, job.data.connectionId, { log })
       return
     }
     const ran = await svc.sweepDue(log)

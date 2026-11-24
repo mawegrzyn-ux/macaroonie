@@ -27,6 +27,7 @@ import { httpError }  from '../middleware/error.js'
 import {
   requestSync, markRequested, startHistory, setupWebhook, webhookPoke,
 } from '../services/salesImportSvc.js'
+import { coverage as mappingCoverage } from '../services/itemMappingSvc.js'
 import { SYSTEMS, syncLate, historyProgress } from '../../../shared/externalSales.js'
 
 const UUID = z.string().uuid()
@@ -52,7 +53,7 @@ export async function connectionsView(tx, tenantId) {
       FROM pos_connections WHERE tenant_id = ${tenantId} ORDER BY created_at`
   if (!conns.length) return []
   const ids = conns.map(c => c.id)
-  const [venues, checks, catalog] = await Promise.all([
+  const [venues, checks, catalog, rules, cover] = await Promise.all([
     tx`SELECT l.connection_id, l.venue_id, v.name AS venue_name, l.location_id, l.location_name, l.day_starts_at,
               l.history_from, l.history_to, l.history_next_from, l.history_count, l.history_done_at
          FROM pos_connection_venues l JOIN venues v ON v.id = l.venue_id AND v.tenant_id = l.tenant_id
@@ -67,6 +68,10 @@ export async function connectionsView(tx, tenantId) {
     tx`SELECT connection_id, kind, count(*)::int AS n FROM ext_catalog
         WHERE tenant_id = ${tenantId} AND connection_id = ANY(${ids}::uuid[]) AND deleted_at IS NULL
         GROUP BY connection_id, kind`,
+    tx`SELECT connection_id, count(*)::int AS n FROM ext_map_rules
+        WHERE tenant_id = ${tenantId} AND connection_id = ANY(${ids}::uuid[]) GROUP BY connection_id`,
+    // The item mapping's coverage (migration 292), one figure per connection.
+    Promise.all(conns.map(c => mappingCoverage(tx, tenantId, c.id))),
   ])
   const now = Date.now()
   return conns.map(c => ({
@@ -78,6 +83,10 @@ export async function connectionsView(tx, tenantId) {
     late: syncLate(c, now),
     webhook: { set: c.webhook_set, hint: c.webhook_token_hint, registered: !!c.webhook_id, last_at: c.webhook_last_at },
     catalog: Object.fromEntries(catalog.filter(r => r.connection_id === c.id).map(r => [r.kind, r.n])),
+    mapping: {
+      rules: rules.find(r => r.connection_id === c.id)?.n || 0,
+      percent: cover[conns.indexOf(c)].all.percent, days: cover[conns.indexOf(c)].days,
+    },
     venues: venues.filter(v => v.connection_id === c.id).map(v => {
       const k = checks.find(x => x.connection_id === c.id && x.venue_id === v.venue_id)
       return {

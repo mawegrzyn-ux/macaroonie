@@ -1,0 +1,7 @@
+# Sales from other tills, phase 2: Loyverse items mapped to your menus
+
+- A new **Item mapping** page (Integrations > Item mapping on a connection) says what the other till's items are on your Macaroonie menus. On the left, the till's catalogue: each item, its variants and the modifier options, with what each becomes now and its sales in the last 30 days. Tap anything to map it.
+- Rules: **Map to a dish** (an item or one variant becomes your dish, with options, more dishes for a bundle, or a combo; a modifier option becomes your option or a dish of its own), **Combination** (an item sold with certain modifiers becomes a combo or a dish), **Option axis** (a variant option such as Size, or a modifier group, becomes one of your option groups, value by value), **Ignore** (not a sale) and **Keep as sold**. A rule is for one venue or every venue on the connection, and applies from a day (by default the start of the stored sales).
+- **Preview** shows what the last 30 days' sales would become before a rule is saved. **Coverage** shows the share of the last 30 days' item sales mapped or kept, by venue, with the items not mapped yet, biggest first; Integrations shows it on each connection.
+- A rule never changes money: when a line becomes a dish and its options, its amount is shared out by your list prices so the parts add up to what the till charged. New receipts are mapped as they arrive; saved rules are applied to the stored sales in the background.
+- Migration 292 (ext_map_rules, ext_line_parts, the mapping state on each line).

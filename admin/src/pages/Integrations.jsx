@@ -18,7 +18,7 @@ import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow, format } from 'date-fns'
 import {
-  Loader2, Plus, Check, AlertTriangle, RefreshCw, Pencil, Trash2, Plug, Copy, History, Pause, Play, Link2, Webhook,
+  Loader2, Plus, Check, AlertTriangle, RefreshCw, Pencil, Trash2, Plug, Copy, History, Pause, Play, Link2, Webhook, Shuffle,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -247,6 +247,17 @@ function ConnectionCard({ conn: c, canManage, canSetup }) {
             </div>
           )}
         </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <Link to={'/integrations/mapping?connection=' + c.id} className={cn(btnOutline, 'w-fit')}>
+          <Shuffle className="w-4 h-4" /> Item mapping
+        </Link>
+        <span className="text-sm text-muted-foreground" data-testid="mapping-summary">
+          {c.mapping?.percent == null
+            ? 'No item sales in the last ' + (c.mapping?.days || 30) + ' days yet'
+            : c.mapping.percent + '% of the last ' + c.mapping.days + ' days\' item sales mapped or kept'}
+          {' · '}{c.mapping?.rules || 0} {c.mapping?.rules === 1 ? 'rule' : 'rules'}
+        </span>
       </div>
       {c.last_sync_error && (
         <p className="text-sm text-destructive flex items-start gap-1.5"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />{c.last_sync_error}</p>

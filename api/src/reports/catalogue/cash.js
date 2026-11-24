@@ -98,6 +98,9 @@ export const decisions = {
     'cash_venue_settings', 'cash_wage_defaults',
     // Which other till's store each venue's sales come from (migration 288)
     'pos_connection_venues',
+    // What the other till's items are on our menus (migration 292): the
+    // mapping's rules; what they decide is on ext_check_lines and ext_line_parts.
+    'ext_map_rules',
   ],
   out: {
     'Secrets and keys': ['pos_connections'],
@@ -114,7 +117,9 @@ export const decisions = {
   // every till" subjects in phase 4 of the sales import (docs/SALES_IMPORT.md).
   planned: {
     cash: {
-      happen: ['ext_checks', 'ext_check_lines', 'ext_check_payments', 'ext_check_discounts', 'ext_check_taxes'],
+      happen: ['ext_checks', 'ext_check_lines', 'ext_check_payments', 'ext_check_discounts', 'ext_check_taxes',
+        // What each item line became on our menus, its net shared out (migration 292).
+        'ext_line_parts'],
       group: ['ext_catalog'],
     },
   },

@@ -12,6 +12,8 @@
 //   SALE_KINDS, DOC_KINDS, LINE_KINDS   the values the tables allow
 //   syncLate(conn, now) whether a connection's last good sync is overdue
 //   historyProgress(v)  0..1 of a venue's history import
+//   allocateNet(net, weights)   a line's net over the parts it maps to
+//                       (the item mapping, shared/itemMapping.js)
 
 export const DOC_KINDS = ['sale', 'item', 'variant', 'modifier', 'category', 'tax', 'discount',
   'payment_type', 'store', 'employee', 'pos_device', 'dining_option']
@@ -111,4 +113,26 @@ export function historyProgress(v) {
   const next = new Date(v.history_next_from || v.history_from).getTime()
   if (!(to > from)) return 1
   return Math.max(0, Math.min(1, (next - from) / (to - from)))
+}
+
+/**
+ * A line's net spread over the parts it maps to (docs/SALES_IMPORT.md 4.4):
+ * by `weights` (our list prices, part 0 the main part), whole pence, each
+ * other part rounded toward zero and the remainder on the main part, so the
+ * shares add up to `net` exactly (a refund's negative net too). With no
+ * weight anywhere the main part takes it all. shared/combos.js
+ * spreadPence() puts its remainder on the largest fractions instead, which
+ * would move pence off the dish onto an option.
+ */
+export function allocateNet(net, weights) {
+  const total = Math.trunc(Number(net) || 0)
+  const w = (weights || []).map(x => Math.max(0, Number(x) || 0))
+  if (!w.length) return []
+  const sum = w.reduce((s, x) => s + x, 0)
+  const out = w.map(() => 0)
+  if (sum > 0) {
+    for (let i = 1; i < w.length; i++) out[i] = Math.trunc((total * w[i]) / sum)
+  }
+  out[0] = total - out.slice(1).reduce((s, x) => s + x, 0)
+  return out
 }

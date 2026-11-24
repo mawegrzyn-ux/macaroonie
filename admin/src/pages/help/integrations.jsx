@@ -1,5 +1,6 @@
 // src/pages/help/integrations.jsx
-// The Help page's "Integrations" section (sales from other tills, phase 1).
+// The Help page's "Integrations" section (sales from other tills, phases 1
+// and 2: the item mapping).
 // Help.jsx gathers every file in this folder (except parts.jsx) and shows
 // them by order, then id.
 import { H2, H3, P, InfoBox, DataTable } from './parts.jsx'
@@ -56,9 +57,47 @@ export function Section() {
       <InfoBox>
         Refunds are kept as their own receipts, linked to the sale they refund; a cancelled receipt
         stays, marked cancelled. Customers are kept only as Loyverse&apos;s customer number: never their
-        name, email or phone. Matching Loyverse items to your Macaroonie dishes, and reports that show
-        these sales beside your own till&apos;s, come next. Cash Recon&apos;s Fill from Loyverse still reads
-        Loyverse directly for now.
+        name, email or phone. Reports that show these sales beside your own till&apos;s come next.
+        Cash Recon&apos;s Fill from Loyverse still reads Loyverse directly for now.
+      </InfoBox>
+      <H3>Item mapping</H3>
+      <P>
+        Item mapping says what the other till&apos;s items are on your Macaroonie menus, so its sales
+        count as your dishes and options. Tap <strong>Item mapping</strong> on a connection. Pick a venue
+        at the top, or leave it on every venue. On the left is the till&apos;s catalogue: each item,
+        its variants and the modifier options, with what each one becomes now and its sales in the last
+        30 days. Tap anything to map it. Each rule has its own <strong>Save rule</strong>.
+      </P>
+      <DataTable
+        head={['Rule', 'What it does']}
+        rows={[
+          ['Map to a dish', 'An item (every variant) or one variant becomes one of your dishes, with options if you pick them (Large / Oat: Flat white with Size Large and Milk Oat), more dishes for a bundle, or a combo. A modifier option becomes one of your options, or a dish of its own (a side sold as a modifier).'],
+          ['Combination', 'An item (and variant) sold with certain modifiers becomes a combo or a dish: Burger with Make it a meal becomes your Burger meal. The modifiers become part of it.'],
+          ['Option axis', 'A variant option (Size) or a modifier group becomes one of your option groups, value by value, on whichever dish the item maps to. One axis rule maps the size of every item.'],
+          ['Ignore', 'Not a sale (a gift card, a deposit): left out of what was sold and of coverage.'],
+          ['Keep as sold', 'Reported under the till\'s own name, not as one of your dishes.'],
+        ]}
+      />
+      <P>
+        A rule for one venue beats a rule for every venue. A variant&apos;s rule beats its item&apos;s,
+        and a combination beats both. A modifier with no rule stays on the receipt as a note. Each rule
+        applies from a day (<strong>From</strong>; left empty, from the start of the stored sales), so
+        a change can leave earlier sales as they were.
+      </P>
+      <H3>Preview, coverage and money</H3>
+      <P>
+        <strong>Preview</strong> in the rule window shows what the last 30 days&apos; sales would become
+        with your change, line by line, before anything is saved. <strong>Coverage</strong> at the top
+        is the share of the last 30 days&apos; item sales that is mapped or kept as sold (ignored items
+        left out), per venue, with the items not mapped yet, biggest first: tap one to map it. Saved
+        rules are applied to the stored sales in the background; coverage moves when that is done.
+      </P>
+      <InfoBox>
+        A rule never changes money. Each receipt keeps the till&apos;s amounts; when one line becomes a
+        dish and its options (or a bundle), its amount is shared out by your list prices, the
+        remainder on the dish, so the parts add up to what the till charged. Delete asks you to
+        confirm first. Anyone with Cash reconciliation can look and preview; Manage saves and deletes
+        rules. Suggestions (matching names and Pepper) come next.
       </InfoBox>
     </section>
   )

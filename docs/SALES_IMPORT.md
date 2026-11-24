@@ -1,6 +1,6 @@
 # Sales from other tills: Loyverse first, then Square and Oracle Simphony
 
-**Status: phase 1 built (24 Nov 2026): connections made general, the Loyverse connector, the raw store, normalised sales and master data, sync by webhook, a 15-minute catch-up and a 13-month history import, the Integrations page (migrations 288 to 291). Phases 2 to 6 to come; open points in `docs/claude/outstanding/cash.md` item 47. Decisions in section 10 answered 24 Nov 2026.** The user's ask: "plan integration with
+**Status: phases 1 and 2 built (24 Nov 2026). Phase 1: connections made general, the Loyverse connector, the raw store, normalised sales and master data, sync by webhook, a 15-minute catch-up and a 13-month history import, the Integrations page (migrations 288 to 291). Phase 2: the item mapping, exact, combination, axis, ignore and keep rules with venue or connection scope and effective_from, applied on every sync and re-applied in the background, nets spread over the parts by list price, the Item mapping page with Preview and Coverage (migration 292). Phases 3 to 6 to come; open points in `docs/claude/outstanding/cash.md` item 47. Decisions in section 10 answered 24 Nov 2026.** The user's ask: "plan integration with
 Loyverse for sales, not just cash up. I would like to import all checks with all details, master
 data, etc. I need a smart tool for mapping items from Loyverse to Macaroonie menus. The tool needs
 to be flexible to allow different mapping approaches, for example we may need to be able to match
