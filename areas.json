@@ -109,6 +109,7 @@
     "admin/src/pages/CashRecon.jsx",
     "admin/src/pages/CashReconSettings.jsx",
     "admin/src/pages/Integrations.jsx",
+    "admin/src/pages/ItemMapping.jsx",
     "admin/src/pages/docs/cash-dashboard.jsx",
     "admin/src/pages/docs/cash-recon.jsx",
     "admin/src/pages/docs/integrations.jsx",
@@ -124,9 +125,11 @@
     "api/src/routes/cashRecon.js",
     "api/src/routes/gloriafood.js",
     "api/src/routes/integrations.js",
+    "api/src/routes/itemMapping.js",
     "api/src/routes/loyverse.js",
     "api/src/services/connectors/**",
     "api/src/services/gloriafoodSvc.js",
+    "api/src/services/itemMappingSvc.js",
     "api/src/services/loyverseSvc.js",
     "api/src/services/reconFill.js",
     "api/src/services/reconLinks.js",
@@ -137,12 +140,15 @@
     "api/test/cash-retrieve.test.mjs",
     "api/test/recon-links.test.mjs",
     "api/test/sales-import.test.mjs",
+    "api/test/sales-mapping.test.mjs",
     "api/test/support/cashWeek.mjs",
     "api/test/support/fake-loyverse.mjs",
     "shared/externalSales.js",
     "shared/gloriafood.js",
+    "shared/itemMapping.js",
     "shared/loyverse.js",
-    "shared/test/externalSales.test.mjs"
+    "shared/test/externalSales.test.mjs",
+    "shared/test/itemMapping.test.mjs"
    ],
    "public": [
     "admin/src/components/orders/shared.jsx",
@@ -154,6 +160,7 @@
     "api/src/services/salesImportSvc.js",
     "shared/externalSales.js",
     "shared/gloriafood.js",
+    "shared/itemMapping.js",
     "shared/loyverse.js",
     "shared/nav/cash.js"
    ]

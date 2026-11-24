@@ -2,7 +2,19 @@
 // taken out, stable hashing input, late syncs and history progress.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { toPence, toQty, stripPersonal, stableJson, syncLate, historyProgress, LATE_AFTER_MINUTES } from '../externalSales.js'
+import { toPence, toQty, stripPersonal, stableJson, syncLate, historyProgress, LATE_AFTER_MINUTES, allocateNet } from '../externalSales.js'
+
+test('allocateNet: parts add up exactly, the remainder on the main part, refunds too', () => {
+  assert.deepEqual(allocateNet(1000, [300, 50, 50]), [750, 125, 125])
+  assert.deepEqual(allocateNet(-1000, [300, 70, 50]), [-1000 + 166 + 119, -166, -119])
+  assert.deepEqual(allocateNet(666, [0, 0]), [666, 0])
+  assert.deepEqual(allocateNet(0, [100, 100]), [0, 0])
+  assert.deepEqual(allocateNet(500, []), [])
+  assert.deepEqual(allocateNet(7, [1, 1, 1]), [3, 2, 2])
+  for (const [net, w] of [[999, [7, 3, 11]], [-1, [5, 5]], [12345, [1250, 250, 0, 75]]]) {
+    assert.equal(allocateNet(net, w).reduce((s, x) => s + x, 0), net)
+  }
+})
 
 test('toPence reads the digits: no float drift, half away from zero', () => {
   const cases = [

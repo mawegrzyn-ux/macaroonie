@@ -9,12 +9,15 @@ import cashReconRoutes from '../routes/cashRecon.js'
 import loyverseRoutes from '../routes/loyverse.js'
 import gloriafoodRoutes from '../routes/gloriafood.js'
 import integrationsRoutes, { salesWebhookRoutes } from '../routes/integrations.js'
+import itemMappingRoutes from '../routes/itemMapping.js'
 
 export const routes = [
   [cashReconRoutes, { prefix: '/api/venues' }],
   [loyverseRoutes, { prefix: '/api/loyverse' }],
   [gloriafoodRoutes, { prefix: '/api/gloriafood' }],
   [integrationsRoutes, { prefix: '/api/integrations' }],
+  // The item mapping (sales import phase 2, migration 292).
+  [itemMappingRoutes, { prefix: '/api/integrations/mapping' }],
   // Sales from other tills' webhooks at the root: POST /webhooks/loyverse/:token
   [salesWebhookRoutes, {}],
 ]

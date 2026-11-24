@@ -1,16 +1,18 @@
 // Cash Recon: its lists, a day, an expense, a week's wages (made.staff from
 // rota.mjs); the GloriaFood link (kitchen.mjs shows its orders); and a
 // Loyverse connection synced from a stand-in Loyverse (sales import,
-// migrations 288 to 290: every ext_* table gets rows).
+// migrations 288 to 290: every ext_* table gets rows), with item mapping
+// rules (migration 292) applied to its lines.
 import { MONDAY } from './parts.mjs'
 import { env } from '../../../src/config/env.js'
 import { sharedFakeLoyverse, TOKEN } from '../fake-loyverse.mjs'
 import { timing } from '../../../src/services/connectors/loyverse.js'
 import { syncConnection } from '../../../src/services/salesImportSvc.js'
+import { remapConnection } from '../../../src/services/itemMappingSvc.js'
 
 export const order = 50
 
-export const kinds = { expenseId: ['cash_expenses'] }
+export const kinds = { expenseId: ['cash_expenses'], connectionId: ['pos_connections'], ruleId: ['ext_map_rules'] }
 
 export async function fill(ctx) {
   const { V, mark, made, step, post, put, patch } = ctx
@@ -51,5 +53,16 @@ export async function fill(ctx) {
       if (r.error || r.skipped) throw new Error(r.error || r.skipped)
     })
     ctx.ids.posConnection = conn.id
+    // The item mapping (migration 292): a rule for the stand-in's coffee
+    // (to the menus fixture's dish, made.dish), which maps the synced lines
+    // (ext_line_parts) in the background re-map, run here.
+    const dish = made.dish
+    if (dish) {
+      await step('item mapping rule', () => post(`/api/integrations/mapping/${conn.id}/rules`, {
+        kind: 'exact', item_ref: 'it-coffee', target_item_id: dish.id, venue_id: V,
+      }))
+      await step('item mapping ignore rule', () => post(`/api/integrations/mapping/${conn.id}/rules`, { kind: 'ignore', option_ref: 'opt-syrup' }))
+      await step('item re-map', () => remapConnection(ctx.tenantId, conn.id))
+    }
   }
 }
