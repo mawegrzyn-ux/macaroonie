@@ -1,20 +1,27 @@
 // src/pages/Integrations.jsx
 //
 // Integrations (/integrations): other tills whose sales Macaroonie keeps
-// (docs/SALES_IMPORT.md phase 1, migrations 288 to 290). Each connection
-// (a Loyverse account now; Square and Simphony later) with its status, last
-// sync, webhook and venues: each venue's store, trading day start, history
-// import progress and the checks stored. Sync now and Fetch history queue
-// the background sync; nothing is read from the other till in the page's
-// requests but the token check and the store list.
+// (docs/SALES_IMPORT.md, migrations 288 to 294). Each connection (a
+// Loyverse or Square account; Simphony later) with its status, last sync,
+// webhook and venues: each venue's store or location, trading day start,
+// history import progress and the checks stored. Sync now and Fetch history
+// queue the background sync; nothing is read from the other till in the
+// page's requests but the token check and the location list.
+//
+// Square (phase 5): a pasted access token per environment (production or
+// sandbox), or Sign in with Square when the server has the OAuth app's
+// settings (GET /api/square/oauth). Square sends the person back here with
+// ?code=&state=; the page hands both to POST /api/square/oauth/finish (the
+// API checks the state is this tenant's and this person's) and clears them
+// from the address. Square's webhook signature key can be pasted.
 //
 // Permissions (Cash reconciliation): View sees it, Manage syncs and fetches
 // history, owners and admins with Manage set accounts, links, the webhook
 // and pausing (the API's guards are the real check). The Cash Recon field
-// mapping stays in Cash Recon settings > Loyverse.
+// mapping stays in Cash Recon settings > Loyverse (Loyverse only).
 
-import { useState, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow, format } from 'date-fns'
 import {
@@ -50,6 +57,7 @@ export default function Integrations() {
   const { data, isLoading, error } = useIntegrations()
   const [adding, setAdding] = useState(false)
   const connections = data?.connections || []
+  const signIn = useSquareReturn()
 
   return (
     <div className="h-full overflow-y-auto bg-page">
@@ -82,13 +90,26 @@ export default function Integrations() {
           till&apos;s customer number only, never their name or contact details.
         </p>
 
+        {signIn.state !== 'idle' && (
+          <Card title="Sign in with Square">
+            {signIn.state === 'busy' && <p className="text-sm flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Connecting your Square account…</p>}
+            {signIn.state === 'error' && <p className="text-sm text-destructive">{signIn.error}</p>}
+            {signIn.state === 'done' && (
+              <>
+                <p className="text-sm text-green-700 flex items-center gap-1"><Check className="w-4 h-4" /> Square account connected. Link a venue to one of its locations below.</p>
+                <WebhookShown result={signIn.result?.webhook} system="square" />
+              </>
+            )}
+            {signIn.state !== 'busy' && <button type="button" onClick={signIn.clear} className={cn(btnOutline, 'w-fit')}>Close</button>}
+          </Card>
+        )}
         {adding && <ConnectForm onDone={() => setAdding(false)} />}
         {isLoading && <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />}
         {error && <p className="text-sm text-destructive">{error.message}</p>}
         {!isLoading && !error && perm.canView && connections.length === 0 && !adding && (
           <Card title="No tills connected">
             <p className="text-sm text-muted-foreground">
-              Connect a Loyverse account to keep its sales here and fill Cash Recon from it.
+              Connect a Loyverse or Square account to keep its sales here (and, for Loyverse, fill Cash Recon from it).
               {canSetup ? ' Tap Connect a till.' : ' An owner or admin can connect one.'}
             </p>
           </Card>
@@ -103,19 +124,62 @@ export default function Integrations() {
 
 // ── Connect ──────────────────────────────────────────────────────────────────
 
+const LABEL = { loyverse: 'Loyverse', square: 'Square' }
+const ENVIRONMENTS = [['production', 'Production (live sales)'], ['sandbox', 'Sandbox (Square test account)']]
+
+/**
+ * Square sends the person back to /integrations?code=&state= after Sign in
+ * with Square (or ?error=). The code and state go to the API once, and the
+ * address is cleared so a reload doesn't send them again.
+ */
+function useSquareReturn() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const [params, setParams] = useSearchParams()
+  const [s, setS] = useState({ state: 'idle' })
+  const sent = useRef(false)
+  const code = params.get('code')
+  const state = params.get('state')
+  const denied = params.get('error')
+  useEffect(() => {
+    if (sent.current || (!code && !denied)) return
+    sent.current = true
+    setParams({}, { replace: true })
+    if (denied || !state) {
+      setS({ state: 'error', error: 'Square didn\'t connect the account' + (denied ? ' (' + (params.get('error_description') || denied) + ')' : '') + '. Try again.' })
+      return
+    }
+    setS({ state: 'busy' })
+    api.post('/square/oauth/finish', { code, state })
+      .then(r => { setS({ state: 'done', result: r }); qc.invalidateQueries({ queryKey: ['integrations'] }) })
+      .catch(e => setS({ state: 'error', error: e.message }))
+  }, [code, state, denied]) // eslint-disable-line react-hooks/exhaustive-deps
+  return { ...s, clear: () => setS({ state: 'idle' }) }
+}
+
 function ConnectForm({ onDone }) {
   const api = useApi()
   const qc = useQueryClient()
+  const [system, setSystem] = useState('loyverse')
   const [name, setName] = useState('')
   const [token, setToken] = useState('')
+  const [environment, setEnvironment] = useState('production')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [made, setMade] = useState(null)
+  const { data: oauth } = useQuery({
+    queryKey: ['square-oauth'],
+    queryFn: () => api.get('/square/oauth'),
+    enabled: system === 'square',
+    staleTime: 5 * 60_000,
+  })
 
   async function save() {
     setBusy(true); setError(null)
     try {
-      const r = await api.post('/loyverse/connections', { name: name.trim(), access_token: token.trim() })
+      const r = system === 'square'
+        ? await api.post('/square/connections', { name: name.trim(), access_token: token.trim(), environment })
+        : await api.post('/loyverse/connections', { name: name.trim(), access_token: token.trim() })
       qc.invalidateQueries({ queryKey: ['integrations'] })
       qc.invalidateQueries({ queryKey: ['loyverse-connections'] })
       if (r.webhook && !r.webhook.registered) setMade(r)
@@ -124,30 +188,76 @@ function ConnectForm({ onDone }) {
     setBusy(false)
   }
 
+  async function signIn() {
+    setBusy(true); setError(null)
+    try {
+      const r = await api.post('/square/oauth/start', { name: name.trim() || 'Square' })
+      window.location.assign(r.url)
+    } catch (e) { setError(e.message); setBusy(false) }
+  }
+
   if (made) {
     return (
       <Card title="Connected">
-        <WebhookShown result={made.webhook} />
+        <WebhookShown result={made.webhook} system={system} />
         <button type="button" onClick={onDone} className={cn(btnPrimary, 'w-fit')}>Done</button>
       </Card>
     )
   }
 
+  const label = LABEL[system]
   return (
-    <Card title="Connect a Loyverse account">
+    <Card title="Connect a till">
+      <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Till">
+        {Object.entries(LABEL).map(([k, l]) => (
+          <button key={k} type="button" role="radio" aria-checked={system === k} onClick={() => { setSystem(k); setError(null) }}
+            className={cn(btnOutline, system === k && 'border-primary bg-primary/10 font-semibold')}>
+            {system === k && <Check className="w-4 h-4" />} {l}
+          </button>
+        ))}
+      </div>
       <label className="block space-y-1">
         <span className="text-sm font-medium">Name</span>
-        <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Main Loyverse account" className={inputCls} />
+        <input value={name} onChange={e => setName(e.target.value)} placeholder={'e.g. Main ' + label + ' account'} className={inputCls} />
       </label>
+      {system === 'square' && oauth?.available && (
+        <div className="rounded-xl border bg-muted/30 p-3 space-y-2">
+          <p className="text-sm">Sign in to Square and allow Macaroonie to read your items and orders. You come back here when it&apos;s done.</p>
+          <button type="button" onClick={signIn} disabled={busy} className={cn(btnPrimary, 'w-fit')}>
+            {busy && <Loader2 className="w-4 h-4 animate-spin" />} Sign in with Square
+          </button>
+          <p className="text-xs text-muted-foreground">Or paste an access token below.</p>
+        </div>
+      )}
+      {system === 'square' && oauth && !oauth.available && (
+        <p className="text-xs text-muted-foreground leading-relaxed" data-testid="square-oauth-off">
+          Sign in with Square isn&apos;t set up on this server yet, so paste an access token instead.
+        </p>
+      )}
+      {system === 'square' && (
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">Square environment</span>
+          <select value={environment} onChange={e => setEnvironment(e.target.value)} className={inputCls}>
+            {ENVIRONMENTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+        </label>
+      )}
       <label className="block space-y-1">
         <span className="text-sm font-medium">Access token</span>
         <input type="password" autoComplete="off" value={token} onChange={e => setToken(e.target.value)}
-          placeholder="Paste the token from Loyverse" className={inputCls} />
+          placeholder={'Paste the token from ' + label} className={inputCls} />
       </label>
-      <p className="text-xs text-muted-foreground leading-relaxed">
-        In the Loyverse Back Office open <strong>Integrations &gt; Access tokens</strong>, add a token and paste it
-        here. It is checked with Loyverse before it is saved and is never shown again.
-      </p>
+      {system === 'loyverse' ? (
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          In the Loyverse Back Office open <strong>Integrations &gt; Access tokens</strong>, add a token and paste it
+          here. It is checked with Loyverse before it is saved and is never shown again.
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          On Square&apos;s Developer Dashboard open your application, then <strong>Credentials</strong>, and copy the
+          access token for the environment chosen above. It is checked with Square before it is saved and is never shown again.
+        </p>
+      )}
       {error && <p className="text-sm text-destructive">{error}</p>}
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onDone} className={btnOutline}>Cancel</button>
@@ -159,17 +269,21 @@ function ConnectForm({ onDone }) {
   )
 }
 
-function WebhookShown({ result }) {
+function WebhookShown({ result, system = 'loyverse' }) {
   const [copied, setCopied] = useState(false)
   if (!result) return null
+  const label = LABEL[system] || 'the till'
+  const where = system === 'square'
+    ? 'add a webhook subscription in Square\'s Developer Dashboard with this address and the events order.created, order.updated and catalog.version.updated, then paste its signature key on this connection'
+    : 'add this address as a webhook for receipts in Loyverse'
   return (
     <div className="rounded-xl border bg-muted/30 p-3 space-y-2">
       {result.registered
-        ? <p className="text-sm text-green-700 flex items-center gap-1"><Check className="w-4 h-4" /> Registered with Loyverse: new receipts reach Macaroonie within a minute or two.</p>
+        ? <p className="text-sm text-green-700 flex items-center gap-1"><Check className="w-4 h-4" /> Registered with {label}{result.signed ? ' (its calls are signed)' : ''}: new sales reach Macaroonie within a minute or two.</p>
         : (
           <p className="text-sm">
-            Loyverse didn&apos;t take the webhook{result.error ? ' (' + result.error + ')' : ''}. Sales still arrive every
-            15 minutes. To have them sooner, add this address as a webhook for receipts in Loyverse. It is shown only now.
+            {label} didn&apos;t take the webhook{result.error ? ' (' + result.error + ')' : ''}. Sales still arrive every
+            15 minutes. To have them sooner, {where}. The address is shown only now.
           </p>
         )}
       {result.url && (
@@ -199,9 +313,12 @@ function StatusPill({ conn }) {
 function ConnectionCard({ conn: c, canManage, canSetup }) {
   const api = useApi()
   const qc = useQueryClient()
-  const [mode, setMode] = useState(null)        // null | 'rename' | 'token' | 'remove' | 'link'
+  const [mode, setMode] = useState(null)        // null | 'rename' | 'token' | 'remove' | 'link' | 'signature'
   const [name, setName] = useState(c.name)
   const [token, setToken] = useState('')
+  const [sigKey, setSigKey] = useState('')
+  const square = c.system === 'square'
+  const label = c.system_label || LABEL[c.system] || c.system
   const [busy, setBusy] = useState(null)
   const [note, setNote] = useState(null)
   const [webhook, setWebhook] = useState(null)
@@ -234,6 +351,12 @@ function ConnectionCard({ conn: c, canManage, canSetup }) {
         <div>
           <div className="text-muted-foreground text-xs">Account</div>
           <div>{[c.business_name, c.currency, c.token_hint && 'Token ending ' + c.token_hint].filter(Boolean).join(' · ') || 'Not checked yet'}</div>
+          {square && (
+            <div className="text-xs text-muted-foreground" data-testid="square-account">
+              {c.environment === 'sandbox' ? 'Sandbox' : 'Production'}
+              {' · '}{c.auth_kind === 'oauth' ? 'Signed in with Square' + (c.token_expires_at ? ', renewed before ' + format(new Date(c.token_expires_at), 'd MMM yyyy') : '') : 'Access token'}
+            </div>
+          )}
         </div>
         <div>
           <div className="text-muted-foreground text-xs">Last sync</div>
@@ -270,9 +393,17 @@ function ConnectionCard({ conn: c, canManage, canSetup }) {
         <div className="flex flex-wrap items-center gap-2">
           <Webhook className="w-4 h-4 text-muted-foreground" />
           <span className="text-sm flex-1">
-            {c.webhook.registered ? 'Webhook registered with Loyverse' : c.webhook.set ? 'Webhook address made (not registered with Loyverse)' : 'No webhook: sales arrive every 15 minutes'}
+            {c.webhook.registered ? 'Webhook registered with ' + label : c.webhook.set ? 'Webhook address made (not registered with ' + label + ')' : 'No webhook: sales arrive every 15 minutes'}
+            {square && c.webhook.set && (c.webhook.signed
+              ? <span className="text-muted-foreground"> · signature key ending {c.webhook.signature_hint}</span>
+              : <span className="text-amber-800"> · no signature key: only the address is checked</span>)}
             {c.webhook.last_at && <span className="text-muted-foreground"> · last call {ago(c.webhook.last_at)}</span>}
           </span>
+          {canSetup && square && c.webhook.set && (
+            <button type="button" disabled={!!busy} className={btnOutline} onClick={() => { setSigKey(''); setMode('signature') }}>
+              Signature key
+            </button>
+          )}
           {canSetup && (
             <button type="button" disabled={!!busy} className={btnOutline}
               onClick={() => run('webhook', async () => { setWebhook(await api.post(`/integrations/connections/${c.id}/webhook`, {})); refresh() })}>
@@ -280,7 +411,30 @@ function ConnectionCard({ conn: c, canManage, canSetup }) {
             </button>
           )}
         </div>
-        {webhook && <WebhookShown result={webhook} />}
+        {webhook && <WebhookShown result={webhook} system={c.system} />}
+        {mode === 'signature' && (
+          <div className="space-y-2">
+            <label className="block space-y-1">
+              <span className="text-sm font-medium">Square&apos;s signature key for this webhook</span>
+              <input type="password" autoComplete="off" value={sigKey} onChange={e => setSigKey(e.target.value)}
+                placeholder="Paste it from the webhook subscription in Square" className={inputCls} />
+            </label>
+            <p className="text-xs text-muted-foreground">With it, a call to the address must carry Square&apos;s signature. Kept sealed, never shown again.</p>
+            <div className="flex flex-wrap justify-end gap-2">
+              <button type="button" className={btnOutline} onClick={() => setMode(null)}>Cancel</button>
+              {c.webhook.signed && (
+                <button type="button" className={btnOutline} disabled={!!busy}
+                  onClick={() => run('sig', async () => { await api.patch(`/square/connections/${c.id}`, { signature_key: null }); setMode(null); refresh() })}>
+                  Remove key
+                </button>
+              )}
+              <button type="button" className={btnPrimary} disabled={sigKey.trim().length < 8 || !!busy}
+                onClick={() => run('sig', async () => { await api.patch(`/square/connections/${c.id}`, { signature_key: sigKey.trim() }); setMode(null); setNote({ text: 'Signature key saved.' }); refresh() })}>
+                Save key
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <VenueList conn={c} canManage={canManage} canSetup={canSetup} onChanged={refresh} />
@@ -292,7 +446,7 @@ function ConnectionCard({ conn: c, canManage, canSetup }) {
           <button type="button" className={btnOutline} onClick={() => setMode('link')}><Link2 className="w-4 h-4" /> Link a venue</button>
           <button type="button" disabled={!!busy} className={btnOutline}
             onClick={() => run('check', async () => {
-              const r = await api.post(`/loyverse/connections/${c.id}/test`)
+              const r = await api.post(`/${c.system}/connections/${c.id}/test`)
               setNote(r.ok ? { text: 'The token works.' } : { error: true, text: r.error })
               refresh()
             })}>
@@ -314,7 +468,7 @@ function ConnectionCard({ conn: c, canManage, canSetup }) {
           <input value={name} onChange={e => setName(e.target.value)} className={cn(inputCls, 'flex-1 min-w-[200px]')} />
           <button type="button" className={btnOutline} onClick={() => setMode(null)}>Cancel</button>
           <button type="button" className={btnPrimary} disabled={!name.trim() || !!busy}
-            onClick={() => run('rename', async () => { await api.patch(`/loyverse/connections/${c.id}`, { name: name.trim() }); setMode(null); refresh() })}>
+            onClick={() => run('rename', async () => { await api.patch(`/integrations/connections/${c.id}`, { name: name.trim() }); setMode(null); refresh() })}>
             Save
           </button>
         </div>
@@ -323,12 +477,15 @@ function ConnectionCard({ conn: c, canManage, canSetup }) {
         <div className="rounded-xl border bg-muted/30 p-3 space-y-2">
           <label className="block space-y-1">
             <span className="text-sm font-medium">New access token</span>
-            <input type="password" autoComplete="off" value={token} onChange={e => setToken(e.target.value)} placeholder="Paste the token from Loyverse" className={inputCls} />
+            <input type="password" autoComplete="off" value={token} onChange={e => setToken(e.target.value)} placeholder={'Paste the token from ' + label} className={inputCls} />
           </label>
+          {square && c.auth_kind === 'oauth' && (
+            <p className="text-xs text-muted-foreground">A pasted token takes the place of the Square sign-in for this account.</p>
+          )}
           <div className="flex justify-end gap-2">
             <button type="button" className={btnOutline} onClick={() => setMode(null)}>Cancel</button>
             <button type="button" className={btnPrimary} disabled={token.trim().length < 8 || !!busy}
-              onClick={() => run('token', async () => { await api.patch(`/loyverse/connections/${c.id}`, { access_token: token.trim() }); setMode(null); refresh() })}>
+              onClick={() => run('token', async () => { await api.patch(`/${c.system}/connections/${c.id}`, { access_token: token.trim() }); setMode(null); refresh() })}>
               {busy === 'token' && <Loader2 className="w-4 h-4 animate-spin" />} Check and replace
             </button>
           </div>
@@ -337,14 +494,15 @@ function ConnectionCard({ conn: c, canManage, canSetup }) {
       {mode === 'remove' && (
         <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 space-y-2">
           <p className="text-sm">
-            Disconnect <strong>{c.name}</strong>? Its {c.venues.length === 1 ? 'venue loses its' : c.venues.length + ' venues lose their'} link and
-            Cash Recon mapping, and every sale kept from it ({c.venues.reduce((n, v) => n + v.checks, 0)} receipts) is deleted.
-            Cash Recon days already filled keep their figures.
+            Disconnect <strong>{c.name}</strong>? Its {c.venues.length === 1 ? 'venue loses its' : c.venues.length + ' venues lose their'} link
+            {c.system === 'loyverse' ? ' and Cash Recon mapping' : ''}, and every sale kept from it ({c.venues.reduce((n, v) => n + v.checks, 0)} receipts) is deleted.
+            {c.system === 'loyverse' ? ' Cash Recon days already filled keep their figures.' : ''}
+            {square && c.auth_kind === 'oauth' ? ' Macaroonie\'s access to the Square account is given back.' : ''}
           </p>
           <div className="flex justify-end gap-2">
             <button type="button" className={btnOutline} onClick={() => setMode(null)}>Cancel</button>
             <button type="button" className={btnDanger} disabled={!!busy}
-              onClick={() => run('remove', async () => { await api.delete(`/loyverse/connections/${c.id}`); setMode(null); refresh() })}>
+              onClick={() => run('remove', async () => { await api.delete(`/integrations/connections/${c.id}`); setMode(null); refresh() })}>
               Yes, disconnect
             </button>
           </div>
@@ -358,7 +516,7 @@ function ConnectionCard({ conn: c, canManage, canSetup }) {
 
 function VenueList({ conn: c, canManage, canSetup, onChanged }) {
   if (!c.venues.length) {
-    return <p className="text-sm text-muted-foreground">No venue linked yet. Link a venue to its Loyverse store to keep its sales.</p>
+    return <p className="text-sm text-muted-foreground">No venue linked yet. Link a venue to its {c.system === 'square' ? 'Square location' : 'Loyverse store'} to keep its sales.</p>
   }
   return (
     <div className="divide-y rounded-xl border">
@@ -387,14 +545,14 @@ function VenueRow({ conn: c, v, canManage, canSetup, onChanged }) {
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold">{v.venue_name}</div>
           <div className="text-xs text-muted-foreground">
-            Store {v.store_name || v.store_id} · trading day starts {v.day_starts_at}
+            {c.system === 'square' ? 'Location' : 'Store'} {v.store_name || v.store_id} · trading day starts {v.day_starts_at}
           </div>
           <div className="text-xs mt-1">
             {v.checks} receipts kept{v.refunds ? ', ' + v.refunds + ' refunds' : ''}{v.cancelled ? ', ' + v.cancelled + ' cancelled' : ''}
             {v.first_day && <span className="text-muted-foreground"> · {day(v.first_day)} to {day(v.last_day)}</span>}
           </div>
         </div>
-        <Link to={`/cash-recon?venue=${v.venue_id}`} className={cn(btnOutline, 'text-sm')}>Cash Recon</Link>
+        {c.system === 'loyverse' && <Link to={`/cash-recon?venue=${v.venue_id}`} className={cn(btnOutline, 'text-sm')}>Cash Recon</Link>}
       </div>
 
       <div className="space-y-1">
@@ -415,7 +573,7 @@ function VenueRow({ conn: c, v, canManage, canSetup, onChanged }) {
           {canManage && c.status !== 'paused' && (
             <button type="button" className={btnOutline} onClick={() => setMode('history')}><History className="w-4 h-4" /> Fetch history</button>
           )}
-          {canSetup && <button type="button" className={btnOutline} onClick={() => setMode('edit')}><Pencil className="w-4 h-4" /> Change store or day start</button>}
+          {canSetup && <button type="button" className={btnOutline} onClick={() => setMode('edit')}><Pencil className="w-4 h-4" /> Change {c.system === 'square' ? 'location' : 'store'} or day start</button>}
           {canSetup && <button type="button" className={cn(btnOutline, 'text-destructive')} onClick={() => setMode('unlink')}>Unlink</button>}
         </div>
       )}
@@ -434,11 +592,11 @@ function VenueRow({ conn: c, v, canManage, canSetup, onChanged }) {
       {mode === 'edit' && <LinkForm conn={c} venue={v} onDone={() => { setMode(null); onChanged() }} />}
       {mode === 'unlink' && (
         <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 space-y-2">
-          <p className="text-sm">Unlink {v.venue_name} from Loyverse? Its Cash Recon mapping goes; the receipts already kept stay.</p>
+          <p className="text-sm">Unlink {v.venue_name} from {c.system_label}?{c.system === 'loyverse' ? ' Its Cash Recon mapping goes;' : ''} the receipts already kept stay.</p>
           <div className="flex justify-end gap-2">
             <button type="button" className={btnOutline} onClick={() => setMode(null)}>Cancel</button>
             <button type="button" className={btnDanger} disabled={busy}
-              onClick={() => run(() => api.delete(`/loyverse/venues/${v.venue_id}/link`))}>
+              onClick={() => run(() => api.delete(`/integrations/connections/${c.id}/venues/${v.venue_id}`))}>
               Yes, unlink
             </button>
           </div>
@@ -457,21 +615,21 @@ function LinkForm({ conn: c, venue = null, onDone }) {
   const [dayStart, setDayStart] = useState(venue?.day_starts_at || '00:00')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
-  const { data: catalog, isLoading, error: storesError } = useQuery({
-    queryKey: ['loyverse-catalog', c.id],
-    queryFn: () => api.get(`/loyverse/connections/${c.id}/catalog`),
+  const { data: located, isLoading, error: storesError } = useQuery({
+    queryKey: ['integration-locations', c.id],
+    queryFn: () => api.get(`/integrations/connections/${c.id}/locations`),
     staleTime: 5 * 60_000,
     retry: false,
   })
   const linked = useMemo(() => new Set(c.venues.map(v => v.venue_id)), [c.venues])
   const choices = venues.filter(v => v.id === venue?.venue_id || !linked.has(v.id))
-  const stores = catalog?.stores || []
+  const stores = located?.locations || []
+  const place = c.system === 'square' ? 'location' : 'store'
 
   async function save() {
     setBusy(true); setError(null)
     try {
-      const store = stores.find(s => s.id === storeId)
-      await api.put(`/loyverse/venues/${venueId}/link`, { connection_id: c.id, store_id: storeId, store_name: store?.name ?? null, day_starts_at: dayStart })
+      await api.put(`/integrations/connections/${c.id}/venues/${venueId}`, { location_id: storeId, day_starts_at: dayStart })
       onDone()
     } catch (e) { setError(e.message) }
     setBusy(false)
@@ -488,9 +646,9 @@ function LinkForm({ conn: c, venue = null, onDone }) {
           </select>
         </label>
         <label className="block space-y-1">
-          <span className="text-sm font-medium">Loyverse store</span>
+          <span className="text-sm font-medium">{c.system_label} {place}</span>
           <select value={storeId} onChange={e => setStoreId(e.target.value)} className={inputCls} disabled={isLoading}>
-            <option value="">{isLoading ? 'Loading…' : 'Choose a store…'}</option>
+            <option value="">{isLoading ? 'Loading…' : 'Choose a ' + place + '…'}</option>
             {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </label>
@@ -503,7 +661,7 @@ function LinkForm({ conn: c, venue = null, onDone }) {
       </div>
       <p className="text-xs text-muted-foreground">
         Sales before the trading day start count on the day before (e.g. 04:00 if you trade past midnight), in the
-        venue&apos;s local time. A new store link fetches its last 13 months in the background.
+        venue&apos;s local time. A new {place} link fetches its last 13 months in the background.
       </p>
       {storesError && <p className="text-sm text-destructive">{storesError.message}</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
