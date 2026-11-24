@@ -198,7 +198,7 @@ function Coverage({ cov, pending, onPick }) {
                 className="min-h-[48px] px-3 py-2 rounded-xl border bg-background hover:bg-muted text-left touch-manipulation flex items-center gap-2">
                 <span className="flex-1 min-w-0">
                   <span className="block text-sm font-medium truncate">{u.name}{u.variant_name ? ' · ' + u.variant_name : ''}</span>
-                  <span className="block text-xs text-muted-foreground">{u.lines} lines</span>
+                  <span className="block text-xs text-muted-foreground">{u.lines} {u.lines === 1 ? 'line' : 'lines'}</span>
                 </span>
                 <span className="text-sm tabular-nums">{pence(u.net_pence)}</span>
               </button>
@@ -685,7 +685,7 @@ function RuleEditor({ draft, data, menu, connectionId, venueId, canManage, onClo
             <input type="date" value={r.effective_from || ''} disabled={ro} onChange={e => set({ effective_from: e.target.value || null })}
               className="absolute inset-0 opacity-0 w-full h-full cursor-pointer touch-manipulation" aria-label="Effective from" />
           </div>
-          {r.effective_from && !ro && <button type="button" className="text-xs underline min-h-[32px]" onClick={() => set({ effective_from: null })}>From the start of stored sales</button>}
+          {r.effective_from && !ro && <button type="button" className="text-xs underline min-h-[48px] touch-manipulation" onClick={() => set({ effective_from: null })}>From the start of stored sales</button>}
         </div>
       </div>
 
