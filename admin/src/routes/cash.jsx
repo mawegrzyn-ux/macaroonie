@@ -12,11 +12,14 @@ import MobileWages from '@/pages/mobile/MobileWages'
 
 // Integrations (sales from other tills): loaded on demand, kept out of the main bundle.
 const Integrations = lazy(() => import('@/pages/Integrations'))
+// Item mapping (sales import phase 2): reached from Integrations, not in the menu.
+const ItemMapping = lazy(() => import('@/pages/ItemMapping'))
 const Loading = () => <div className="p-6 text-sm text-muted-foreground">Loading...</div>
 
 export const routes = [
   { path: 'cash-recon', shell: 'office', element: <CashRecon /> },
   { path: 'integrations', shell: 'office', element: <Suspense fallback={<Loading />}><Integrations /></Suspense> },
+  { path: 'integrations/mapping', shell: 'office', element: <Suspense fallback={<Loading />}><ItemMapping /></Suspense> },
   { path: 'expenses', shell: 'mobile', element: <MobileExpenses /> },
   { path: 'cash-up', shell: 'mobile', element: <MobileCashUp /> },
   { path: 'wages', shell: 'mobile', element: <MobileWages /> },

@@ -18,7 +18,7 @@ import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow, format } from 'date-fns'
 import {
-  Loader2, Plus, Check, AlertTriangle, RefreshCw, Pencil, Trash2, Plug, Copy, History, Pause, Play, Link2, Webhook,
+  Loader2, Plus, Check, AlertTriangle, RefreshCw, Pencil, Trash2, Plug, Copy, History, Pause, Play, Link2, Webhook, Shuffle,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -248,6 +248,9 @@ function ConnectionCard({ conn: c, canManage, canSetup }) {
           )}
         </div>
       </div>
+      <Link to={'/integrations/mapping?connection=' + c.id} className={cn(btnOutline, 'w-fit')}>
+        <Shuffle className="w-4 h-4" /> Item mapping
+      </Link>
       {c.last_sync_error && (
         <p className="text-sm text-destructive flex items-start gap-1.5"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />{c.last_sync_error}</p>
       )}

@@ -7,7 +7,8 @@
 //   GET    /:connectionId?venue_id=            the other till's catalogue (categories, items,
 //                                              variants, modifiers and their options), each
 //                                              with its state under the rules and its sales
-//                                              in the last 30 days; the venues; the rules
+//                                              in the last 30 days; the venues; the rules;
+//                                              remap_pending while a re-map waits or runs
 //   GET    /:connectionId/menu?venue_id=       our menus the venue sells (every menu without
 //                                              a venue): dishes, combos, their option groups,
 //                                              and the option group library
@@ -261,10 +262,10 @@ function targetLabel(r, names) {
 
 /** The catalogue page's data: the other till's catalogue with states and sales, the rules, the venues. */
 async function mappingView(tx, tenantId, conn, venueId) {
-  const [mc, venues, [{ today }], sales, optionSales] = await Promise.all([
+  const [mc, venues, [{ today, remap_pending }], sales, optionSales] = await Promise.all([
     mappingContext(tx, tenantId, conn.id),
     linkedVenues(tx, tenantId, conn.id),
-    tx`SELECT current_date::text AS today`,
+    tx`SELECT current_date::text AS today, remap_from IS NOT NULL AS remap_pending FROM pos_connections WHERE id = ${conn.id} AND tenant_id = ${tenantId}`,
     tx`
       SELECT l.item_ref, l.variant_ref, count(*)::int AS lines, COALESCE(sum(l.qty), 0)::float8 AS qty, COALESCE(sum(l.net_pence), 0)::bigint AS net_pence
         FROM ext_checks c JOIN ext_check_lines l ON l.check_id = c.id AND l.tenant_id = c.tenant_id AND l.line_kind = 'item'
@@ -321,7 +322,7 @@ async function mappingView(tx, tenantId, conn, venueId) {
   })).sort((a, b) => a.name.localeCompare(b.name))
   return {
     connection: { id: conn.id, name: conn.name, system: conn.system },
-    venues, venue_id: venueId, today, days: RECENT_DAYS,
+    venues, venue_id: venueId, today, days: RECENT_DAYS, remap_pending,
     items, modifiers,
     rules: mc.rules.map(r => ({ ...r, target: targetLabel(r, mc.names) })),
   }
