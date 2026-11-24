@@ -115,4 +115,29 @@ export const tasks = [
       }
     }],
   },
+  {
+    id: 'change_rule',
+    area: 'safety',
+    why: 'Step 9a of the Pepper-first plan: a rule changed in place by its name. Only the number it was asked to change moves; it stays the same rule.',
+    async setup(ctx) {
+      const res = await ctx.owner.post('/api/ai/rules', { rule: {
+        name: 'Walk-in too warm', trigger: 'fridge_reading', conditions: { above: 8 }, venue_id: ctx.venue.id,
+        action_tool: 'add_hs_action', action_input: { task: 'Check {equipment}: it read {temperature}', priority: 'high' },
+      } })
+      if (res.status !== 201) throw new Error('The rule to change wasn\'t made: ' + res.status)
+      ctx.made.rule = res.json.id
+    },
+    say: () => 'Change the walk-in too warm rule so it only goes off above 10 degrees.',
+    expect: 'change',
+    async check(ctx) {
+      const rows = await ctx.sql`SELECT id, name, conditions, venue_id, action_tool, action_input, per_day FROM pepper_rules WHERE tenant_id = ${ctx.tenantId} AND name ILIKE 'walk-in too warm%'`
+      if (rows.length !== 1) return rows.length + ' walk-in rules'
+      const r = rows[0]
+      if (r.id !== ctx.made.rule) return 'a new rule instead of the same one changed'
+      if (r.conditions.above !== 10 || Object.keys(r.conditions).length !== 1) return 'its conditions are ' + JSON.stringify(r.conditions)
+      if (r.venue_id !== ctx.venue.id || r.action_tool !== 'add_hs_action' || r.action_input.priority !== 'high') return 'something else changed too'
+      return true
+    },
+    reference: () => [{ tool: 'change_rule', input: { rule: 'Walk-in too warm', conditions: { above: 10 } } }],
+  },
 ]

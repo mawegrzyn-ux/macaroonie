@@ -465,6 +465,13 @@ export function Section() {
         scanned in whole; in the Macaroonie Office app the scan button reads it with the camera. A supplier
         product&apos;s barcode picks that supplier&apos;s price on the order.
       </P>
+      <P>
+        The inventory import and <strong>Update the price list</strong> take a <strong>Barcode</strong> column too
+        (headed Barcode, GTIN, EAN or UPC). In the import it is the supplier product&apos;s barcode on a row with a
+        supplier, else the item&apos;s; a column headed <strong>Item barcode</strong> is always the item&apos;s. A
+        barcode that isn&apos;t a right GTIN is left out and listed with its row: the rest of the row still goes in.
+        Pepper can read and set a supplier price&apos;s barcode as well as an item&apos;s.
+      </P>
       <H3>16. Stock on hand and stock counts</H3>
       <P>
         The Inventory page&apos;s <strong>Stock on hand</strong> tab lists each item at a venue with what is on
@@ -477,6 +484,12 @@ export function Section() {
         that fits it (kg or g, litres or ml, each), and Save. Items you leave empty keep their last count. Counting
         needs Manage on Purchasing or Purchasing setup; anyone who can see purchasing can see stock on hand. The
         report <strong>Stock on hand</strong> (Purchasing) shows the same figures.
+      </P>
+      <P>
+        An item whose stock on hand is below its par at the venue (the highest par on the venue&apos;s order lists)
+        is marked <strong>Below par</strong>. Ask Pepper <em>how much rice have we got?</em> or <em>what&apos;s low
+        at Ware?</em> for the same figures, or tell it a count (<em>we&apos;ve got 3 kg of rice and 12 tins of
+        tomatoes</em>): the card shows each item in its unit and the count is saved only when you confirm.
       </P>
       <InfoBox type="info">
         All of this can also be done by chat with Pepper (Ask Pepper): ordering, booking deliveries

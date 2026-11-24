@@ -701,7 +701,9 @@ export function Section() {
           ['The supplier, item, customer or staff member\'s own page', 'A Your own fields card with its own Save.'],
           ['The New supplier and Add staff forms', 'Drawn after the usual fields; Pepper can fill them in for you to check.'],
           ['Reports', 'A field of the thing the report is about, by the name you gave it (Suppliers, Inventory items, Customers, Staff).'],
-          ['Pepper', '"Set Fresh Co\'s payment terms to 30 days": the change tools take them by name, and Pepper tells you which fields there are.'],
+          ['Pepper', '"Set Fresh Co\'s payment terms to 30 days": the change tools take them by name. Pepper knows your fields\' names from the start of a chat.'],
+          ['The Inventory page\'s New item', 'Drawn under the item\'s details; a field marked needed must be filled before Create.'],
+          ['The inventory import and the customer CSV import', 'A column headed with the field\'s name (any capitals) fills it. A wrong value is left out and listed with its row; a needed field isn\'t needed on an import (the result counts the new rows without it).'],
         ]}
       />
       <H3>Rules made from a sentence</H3>
@@ -728,6 +730,24 @@ export function Section() {
         times a day (five unless the sentence says otherwise), and each run is listed under Done by Pepper as{' '}
         <em>Rule: its name</em>. The Rules list shows when each one last ran; switch one off with its switch, or
         delete it with two taps (what it already did stays). Making rules needs Manage on Pepper.
+      </P>
+      <H3>Changing or undoing a rule</H3>
+      <P>
+        Press <strong>Change</strong> on a rule in <strong>Settings</strong> under <strong>Rules</strong> to change its
+        name, venue, the numbers and words it checks, the text of its action and how many times a day it may run,
+        then <strong>Save</strong>. It is checked exactly as a new rule is, keeps its record of runs and still runs as
+        the person who made it. To start from something else or do something else, make a new rule. In the chat,
+        ask Pepper to change a rule by its name (<em>make the warm fridge rule 10 degrees</em>): the card shows the
+        rule before and after. Pepper can also switch a rule off or on, and delete one (you type the word on the card).
+      </P>
+      <P>
+        Undo on a rule Pepper just made takes it away: if it hasn&apos;t run yet it is deleted; if it has, it is
+        switched off instead so its runs stay on record, and the card says so.
+      </P>
+      <P>
+        A notice that carries an order&apos;s total (<em>{'{total}'}</em> in its text) goes without the amount to
+        people who can&apos;t see purchasing prices (they have no View on Purchasing setup): they read{' '}
+        <em>(amount not shown)</em> where the total would be.
       </P>
       <H3>Using your own AI app</H3>
       <P>
