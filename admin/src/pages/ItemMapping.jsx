@@ -14,6 +14,9 @@
 //     to value), ignore or keep as sold; its scope and effective_from;
 //     Preview shows what the last 30 days' lines would become before saving.
 // Saving or deleting re-maps the stored sales in the background.
+// Phase 3 (components/cashRecon/MappingTools.jsx), for the venue picked:
+// Suggestions, Pepper's proposals, pattern offers after accepting, Create
+// missing dishes and Copy from another venue.
 //
 // Permissions (Cash reconciliation): View sees it and previews; Manage
 // saves and deletes rules (the API's guards are the real check).
@@ -29,6 +32,7 @@ import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { Modal } from '@/components/staff/shared'
 import { Card, inputCls, btnPrimary, btnOutline, btnDanger } from '@/components/cashRecon/reconShared'
+import { Suggestions } from '@/components/cashRecon/MappingTools'
 
 const pence = p => (p < 0 ? '-' : '') + '£' + (Math.abs(Number(p) || 0) / 100).toFixed(2)
 const dayLabel = d => (d ? format(new Date(d + 'T12:00:00'), 'd MMM yyyy') : '')
@@ -143,6 +147,7 @@ export default function ItemMapping() {
               if (variant && item.variants.length > 1) editThing({ item_ref: item.ref, variant_ref: variant.ref }, variant.state)
               else if (item) editThing({ item_ref: item.ref }, item.state)
             }} />
+            <Suggestions connectionId={connectionId} venueId={venueId} canManage={perm.canManage} />
             <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] items-start">
               <Catalogue data={data} filter={filter} setFilter={setFilter} search={search} setSearch={setSearch} onEdit={editThing} />
               <Rules data={data} canManage={perm.canManage} venueId={venueId}

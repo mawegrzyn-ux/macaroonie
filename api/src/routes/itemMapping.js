@@ -22,6 +22,14 @@
 //   PUT    /:connectionId/rules/:ruleId        a rule changed (the whole rule)
 //   DELETE /:connectionId/rules/:ruleId
 //
+// Phase 3 (docs/SALES_IMPORT.md 4.3, 4.5):
+//   GET    /:connectionId/suggestions?venue_id=  suggested targets for what is still unmapped
+//                                              at the venue (its menus only); writes nothing
+//   POST   /:connectionId/rules/bulk           { rules: [rule] }: accepted suggestions or
+//                                              proposals, each checked by cleanRule() as a
+//                                              single save is; { saved, failed }
+// Pepper's proposals are routes/itemMappingAi.js (under /api/ai/).
+//
 // A saved or deleted rule re-maps the connection's stored lines from its
 // effective_from in the background (itemMappingSvc.requestRemap()). Reads
 // and Preview need Cash reconciliation view; rules need manage. Every id is
@@ -35,7 +43,7 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 import {
-  mappingContext, requestRemap, queueRemap, previewMapping, coverage, venueMenus, RECENT_DAYS,
+  mappingContext, requestRemap, queueRemap, previewMapping, coverage, venueMenus, recentSales, salesTotal, suggestions, RECENT_DAYS,
 } from '../services/itemMappingSvc.js'
 import { catalogState, ruleKey, RULE_KINDS, AXIS_KINDS, STATE_LABELS } from '../../../shared/itemMapping.js'
 
@@ -70,6 +78,8 @@ const PreviewBody = z.object({
   remove:   z.array(UUID).max(50).default([]),
 })
 const VenueQuery = z.object({ venue_id: UUID.optional() })
+// Each rule is checked by cleanRule() on its own (a bad one is reported, the others saved).
+const BulkBody = z.object({ rules: z.array(z.record(z.any())).min(1).max(200) })
 
 async function ownConnection(tx, tenantId, id) {
   if (!UUID.safeParse(id).success) throw httpError(404, 'Connection not found')
@@ -238,6 +248,36 @@ async function saveRule(tx, tenantId, connectionId, r, user, id = null) {
   return row
 }
 
+/**
+ * Several rules saved in one go (accepted suggestions, Pepper's proposals,
+ * Create missing dishes, Copy from another venue): each checked by
+ * cleanRule() and saved as the single-rule route saves it, in a savepoint of
+ * its own, so one refused rule leaves the others saved. Marks the
+ * connection for one re-map from the earliest day (the caller queues it
+ * after the commit). Returns { saved: [{ index, id, rule }], failed:
+ * [{ index, error }] }.
+ */
+export async function saveRules(tx, tenantId, connectionId, bodies, user) {
+  const saved = [], failed = []
+  let from = null
+  for (const [index, body] of bodies.entries()) {
+    try {
+      const row = await tx.savepoint(async sp => {
+        const r = await cleanRule(sp, tenantId, connectionId, body)
+        return { ...(await saveRule(sp, tenantId, connectionId, r, user)), rule: r }
+      })
+      saved.push({ index, id: row.id, rule: { ...row.rule, id: row.id } })
+      from = earlier(from, row.effective_from)
+    } catch (err) {
+      if (err?.name === 'ZodError') { failed.push({ index, error: 'That rule isn\'t complete' }); continue }
+      if (!err?.statusCode || err.statusCode >= 500) throw err
+      failed.push({ index, error: err.message })
+    }
+  }
+  if (from) await requestRemap(tx, tenantId, connectionId, from)
+  return { saved, failed }
+}
+
 async function ownRule(tx, tenantId, connectionId, ruleId) {
   if (!UUID.safeParse(ruleId).success) throw httpError(404, 'Rule not found')
   const [r] = await tx`
@@ -262,22 +302,11 @@ function targetLabel(r, names) {
 
 /** The catalogue page's data: the other till's catalogue with states and sales, the rules, the venues. */
 async function mappingView(tx, tenantId, conn, venueId) {
-  const [mc, venues, [{ today, remap_pending }], sales, optionSales] = await Promise.all([
+  const [mc, venues, [{ today, remap_pending }], { items: sales, options: optionSales }] = await Promise.all([
     mappingContext(tx, tenantId, conn.id),
     linkedVenues(tx, tenantId, conn.id),
     tx`SELECT current_date::text AS today, remap_from IS NOT NULL AS remap_pending FROM pos_connections WHERE id = ${conn.id} AND tenant_id = ${tenantId}`,
-    tx`
-      SELECT l.item_ref, l.variant_ref, count(*)::int AS lines, COALESCE(sum(l.qty), 0)::float8 AS qty, COALESCE(sum(l.net_pence), 0)::bigint AS net_pence
-        FROM ext_checks c JOIN ext_check_lines l ON l.check_id = c.id AND l.tenant_id = c.tenant_id AND l.line_kind = 'item'
-       WHERE c.tenant_id = ${tenantId} AND c.connection_id = ${conn.id} AND c.kind = 'sale' AND NOT c.cancelled
-         AND c.business_date >= current_date - ${RECENT_DAYS}::int AND (${venueId}::uuid IS NULL OR c.venue_id = ${venueId}::uuid)
-       GROUP BY l.item_ref, l.variant_ref`,
-    tx`
-      SELECT l.option_ref, count(*)::int AS lines, COALESCE(sum(l.qty), 0)::float8 AS qty, COALESCE(sum(l.net_pence), 0)::bigint AS net_pence
-        FROM ext_checks c JOIN ext_check_lines l ON l.check_id = c.id AND l.tenant_id = c.tenant_id AND l.line_kind IN ('modifier', 'condiment')
-       WHERE c.tenant_id = ${tenantId} AND c.connection_id = ${conn.id} AND c.kind = 'sale' AND NOT c.cancelled
-         AND c.business_date >= current_date - ${RECENT_DAYS}::int AND (${venueId}::uuid IS NULL OR c.venue_id = ${venueId}::uuid)
-       GROUP BY l.option_ref`,
+    recentSales(tx, tenantId, conn.id, venueId),
   ])
   const scope = { venue_id: venueId, date: today }
   const state = thing => {
@@ -289,7 +318,7 @@ async function mappingView(tx, tenantId, conn, venueId) {
         : null,
     }
   }
-  const money = rows => ({ lines: rows.reduce((n, r) => n + r.lines, 0), qty: rows.reduce((n, r) => n + Number(r.qty), 0), net_pence: rows.reduce((n, r) => n + Number(r.net_pence), 0) })
+  const money = salesTotal
   const live = mc.catalogRows.filter(r => !r.deleted_at)
   const categories = Object.fromEntries(live.filter(r => r.kind === 'category').map(r => [r.external_id, r.name]))
   const items = live.filter(r => r.kind === 'item').map(it => {
@@ -445,5 +474,29 @@ export default async function itemMappingRoutes(app) {
     })
     queueRemap(req.tenantId, req.params.connectionId, req.log)
     return { ok: true }
+  })
+
+  // ── Phase 3 ────────────────────────────────────────────────────────────────
+
+  // Suggested targets for what is still unmapped at a venue (its menus only). Writes nothing.
+  app.get('/:connectionId/suggestions', { preHandler: canView }, async req => {
+    const q = VenueQuery.parse(req.query || {})
+    if (!q.venue_id) throw httpError(422, 'Choose a venue first: suggestions come from the menus it sells')
+    return withTenant(req.tenantId, async tx => {
+      const conn = await ownConnection(tx, req.tenantId, req.params.connectionId)
+      const venueId = await ownLinkedVenue(tx, req.tenantId, conn.id, q.venue_id)
+      return suggestions(tx, req.tenantId, conn.id, venueId)
+    })
+  })
+
+  // Several rules at once (accepted suggestions or proposals): each checked as a single save is.
+  app.post('/:connectionId/rules/bulk', { preHandler: canManage }, async req => {
+    const body = BulkBody.parse(req.body || {})
+    const out = await withTenant(req.tenantId, async tx => {
+      const conn = await ownConnection(tx, req.tenantId, req.params.connectionId)
+      return saveRules(tx, req.tenantId, conn.id, body.rules, by(req))
+    })
+    if (out.saved.length) queueRemap(req.tenantId, req.params.connectionId, req.log)
+    return { saved: out.saved.map(s => ({ index: s.index, id: s.id })), failed: out.failed }
   })
 }

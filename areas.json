@@ -101,6 +101,7 @@
    "paths": [
     "admin/src/components/cashRecon/GloriaFood.jsx",
     "admin/src/components/cashRecon/Loyverse.jsx",
+    "admin/src/components/cashRecon/MappingTools.jsx",
     "admin/src/components/cashRecon/Retrieve.jsx",
     "admin/src/components/cashRecon/WagesTable.jsx",
     "admin/src/components/cashRecon/reconShared.jsx",
@@ -141,6 +142,7 @@
     "api/test/recon-links.test.mjs",
     "api/test/sales-import.test.mjs",
     "api/test/sales-mapping.test.mjs",
+    "api/test/sales-suggest.test.mjs",
     "api/test/support/cashWeek.mjs",
     "api/test/support/fake-loyverse.mjs",
     "shared/externalSales.js",

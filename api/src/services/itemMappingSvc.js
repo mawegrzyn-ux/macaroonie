@@ -21,12 +21,20 @@
 //                             value mapped, by venue, and the unmapped items
 //   venueMenus(tx, ...)       the menus a venue sells: the group's shared
 //                             menus and its own (as Menu times reads them)
+//
+// Phase 3 (suggestions, Pepper, Create missing dishes, Copy):
+//   venueOurs(tx, ...)        a venue's menus' dishes and options, for matching
+//   recentSales(tx, ...)      the last 30 days' sales by item, variant, option
+//   openThings(tx, ...)       what is still unmapped at a venue, to match
+//   ruleFor(thing, target)    a match as the exact rule that would save it
+//   suggestions(tx, ...)      suggested targets for it (shared/itemMatch.js)
 
 import { systemSql, withTenant } from '../config/db.js'
 import { queue as syncQueue } from '../jobs/sales-sync.js'
 import {
-  mapCheck, normaliseRule, catalogContext, ourContext, soldName, STATE_LABELS,
+  mapCheck, normaliseRule, catalogContext, ourContext, soldName, catalogState, STATE_LABELS,
 } from '../../../shared/itemMapping.js'
+import { matchIndex, matchThing, AUTO_MATCH } from '../../../shared/itemMatch.js'
 
 // How far back Preview and Coverage look.
 export const RECENT_DAYS = 30
@@ -341,4 +349,175 @@ export async function venueMenus(tx, tenantId, venueId = null) {
     SELECT m.id, m.name, m.venue_id FROM menus m
      WHERE m.tenant_id = ${tenantId} AND (${venueId}::uuid IS NULL OR m.venue_id IS NULL OR m.venue_id = ${venueId}::uuid)
      ORDER BY m.sort_order, m.name`
+}
+
+// ── Suggestions (phase 3) ───────────────────────────────────────────────────
+
+/**
+ * Our side at a venue (its menus only), for the suggestions, Pepper, Create
+ * missing dishes and Copy: the dishes and combos with their section, codes,
+ * option groups and per-dish option prices, and the options of those groups.
+ */
+export async function venueOurs(tx, tenantId, venueId) {
+  const menus = await venueMenus(tx, tenantId, venueId)
+  const menuIds = menus.map(m => m.id)
+  const items = menuIds.length ? await tx`
+    SELECT mi.id, mi.name, mi.native_name, mi.kitchen_name, mi.kind, mi.sku, mi.barcode,
+           s.id AS section_id, s.title AS section, m.id AS menu_id, m.name AS menu,
+           COALESCE(mi.price_pence, (SELECT min(v.price_pence) FROM menu_item_variants v WHERE v.item_id = mi.id AND v.tenant_id = mi.tenant_id)) AS price_pence
+      FROM menu_items mi
+      JOIN menu_sections s ON s.id = mi.section_id AND s.tenant_id = mi.tenant_id
+      JOIN menus m ON m.id = s.menu_id AND m.tenant_id = mi.tenant_id
+     WHERE mi.tenant_id = ${tenantId} AND m.id = ANY(${menuIds}::uuid[])
+     ORDER BY m.sort_order, m.name, s.sort_order, mi.sort_order` : []
+  const ids = items.map(i => i.id)
+  const [links, codes, prices] = ids.length ? await Promise.all([
+    tx`SELECT item_id, group_id FROM menu_item_variant_groups WHERE tenant_id = ${tenantId} AND item_id = ANY(${ids}::uuid[]) ORDER BY sort_order`,
+    tx`SELECT item_id, option_id, sku, barcode FROM menu_item_option_codes WHERE tenant_id = ${tenantId} AND item_id = ANY(${ids}::uuid[])`,
+    tx`SELECT item_id, option_id, price_pence FROM menu_item_variant_prices WHERE tenant_id = ${tenantId} AND item_id = ANY(${ids}::uuid[])`,
+  ]) : [[], [], []]
+  const groupIds = [...new Set(links.map(l => l.group_id))]
+  const [groups, options] = groupIds.length ? await Promise.all([
+    tx`SELECT id, name FROM menu_variant_groups WHERE tenant_id = ${tenantId} AND id = ANY(${groupIds}::uuid[]) ORDER BY sort_order, name`,
+    tx`SELECT o.id, o.group_id, g.name AS group_name, o.label, o.price_pence
+         FROM menu_variant_options o JOIN menu_variant_groups g ON g.id = o.group_id AND g.tenant_id = o.tenant_id
+        WHERE o.tenant_id = ${tenantId} AND o.group_id = ANY(${groupIds}::uuid[]) ORDER BY g.sort_order, g.name, o.sort_order`,
+  ]) : [[], []]
+  const dishes = items.map(i => ({
+    ...i, price_pence: i.price_pence == null ? null : Number(i.price_pence),
+    group_ids: links.filter(l => l.item_id === i.id).map(l => l.group_id),
+    option_codes: codes.filter(c => c.item_id === i.id).map(c => ({ option_id: c.option_id, sku: c.sku, barcode: c.barcode })),
+    option_prices: Object.fromEntries(prices.filter(p => p.item_id === i.id).map(p => [p.option_id, Number(p.price_pence)])),
+  }))
+  return { menus, dishes, groups, options: options.map(o => ({ ...o, price_pence: Number(o.price_pence) || 0 })) }
+}
+
+/** The last RECENT_DAYS days' sales of each item / variant and each modifier option (sales only, cancelled left out). */
+export async function recentSales(tx, tenantId, connectionId, venueId = null) {
+  const [items, options] = await Promise.all([
+    tx`
+      SELECT l.item_ref, l.variant_ref, count(*)::int AS lines, COALESCE(sum(l.qty), 0)::float8 AS qty, COALESCE(sum(l.net_pence), 0)::bigint AS net_pence
+        FROM ext_checks c JOIN ext_check_lines l ON l.check_id = c.id AND l.tenant_id = c.tenant_id AND l.line_kind = 'item'
+       WHERE c.tenant_id = ${tenantId} AND c.connection_id = ${connectionId} AND c.kind = 'sale' AND NOT c.cancelled
+         AND c.business_date >= current_date - ${RECENT_DAYS}::int AND (${venueId}::uuid IS NULL OR c.venue_id = ${venueId}::uuid)
+       GROUP BY l.item_ref, l.variant_ref`,
+    tx`
+      SELECT l.option_ref, count(*)::int AS lines, COALESCE(sum(l.qty), 0)::float8 AS qty, COALESCE(sum(l.net_pence), 0)::bigint AS net_pence
+        FROM ext_checks c JOIN ext_check_lines l ON l.check_id = c.id AND l.tenant_id = c.tenant_id AND l.line_kind IN ('modifier', 'condiment')
+       WHERE c.tenant_id = ${tenantId} AND c.connection_id = ${connectionId} AND c.kind = 'sale' AND NOT c.cancelled
+         AND c.business_date >= current_date - ${RECENT_DAYS}::int AND (${venueId}::uuid IS NULL OR c.venue_id = ${venueId}::uuid)
+       GROUP BY l.option_ref`,
+  ])
+  return { items, options }
+}
+
+export const salesTotal = rows => ({
+  lines: rows.reduce((n, r) => n + r.lines, 0), qty: rows.reduce((n, r) => n + Number(r.qty), 0), net_pence: rows.reduce((n, r) => n + Number(r.net_pence), 0),
+})
+
+/**
+ * The other till's catalogue at a venue as things to match: an item with one
+ * variant (kind 'item'), each variant of an item with several ('variant'),
+ * each modifier option ('option'), with its name, variant values, SKU,
+ * barcode, price at the venue's store, category, state under the rules and
+ * last 30 days' sales. Only what is still open (an item unmapped, a modifier
+ * option only a note) unless `all`. Biggest sellers first.
+ */
+export async function openThings(tx, tenantId, connectionId, venueId, { mc = null, all = false } = {}) {
+  mc ||= await mappingContext(tx, tenantId, connectionId)
+  const [[link], [{ today }], sales] = await Promise.all([
+    tx`SELECT location_id FROM pos_connection_venues WHERE tenant_id = ${tenantId} AND connection_id = ${connectionId} AND venue_id = ${venueId}`,
+    tx`SELECT current_date::text AS today`,
+    recentSales(tx, tenantId, connectionId, venueId),
+  ])
+  const scope = { venue_id: venueId, date: today }
+  const live = mc.catalogRows.filter(r => !r.deleted_at)
+  const categories = Object.fromEntries(live.filter(r => r.kind === 'category').map(r => [r.external_id, r.name]))
+  const priceAt = v => {
+    const s = (v?.attrs?.stores || []).find(x => x.store_id === link?.location_id && x.price_pence != null)
+    return s ? Number(s.price_pence) : (v?.price_pence ?? null)
+  }
+  const out = []
+  for (const it of live.filter(r => r.kind === 'item')) {
+    const variants = live.filter(v => v.kind === 'variant' && v.parent_ref === it.external_id)
+    const a = it.attrs || {}
+    const axes = [a.option1_name, a.option2_name, a.option3_name].filter(x => x != null && x !== '')
+    const category = categories[it.category_ref] || ''
+    if (variants.length <= 1) {
+      const v = variants[0]
+      const state = catalogState({ item_ref: it.external_id, variant_ref: v?.external_id || null, sku: v?.sku, name: it.name }, mc.rules, mc.ctx, scope)
+      out.push({
+        key: 'i:' + it.external_id, kind: 'item', item_ref: it.external_id, variant_ref: null, option_ref: null,
+        name: it.name, variant_name: null, values: [], axes, sku: v?.sku || null, barcode: v?.attrs?.barcode || null,
+        price_pence: priceAt(v), category, category_ref: it.category_ref || null, state: state.state,
+        sales: salesTotal(sales.items.filter(s => s.item_ref === it.external_id)),
+      })
+      continue
+    }
+    for (const v of variants) {
+      const va = v.attrs || {}
+      const state = catalogState({ item_ref: it.external_id, variant_ref: v.external_id, sku: v.sku, name: it.name, variant_name: v.name }, mc.rules, mc.ctx, scope)
+      out.push({
+        key: 'v:' + v.external_id, kind: 'variant', item_ref: it.external_id, variant_ref: v.external_id, option_ref: null,
+        name: it.name, variant_name: v.name, values: [va.option1_value, va.option2_value, va.option3_value].filter(x => x != null && x !== ''),
+        axes, sku: v.sku || null, barcode: va.barcode || null, price_pence: priceAt(v), category, category_ref: it.category_ref || null,
+        state: state.state, sales: salesTotal(sales.items.filter(s => s.item_ref === it.external_id && s.variant_ref === v.external_id)),
+      })
+    }
+  }
+  for (const m of live.filter(r => r.kind === 'modifier')) {
+    for (const o of live.filter(x => x.kind === 'modifier_option' && x.parent_ref === m.external_id)) {
+      const state = catalogState({ option_ref: o.external_id, name: o.name }, mc.rules, mc.ctx, scope)
+      out.push({
+        key: 'o:' + o.external_id, kind: 'option', item_ref: null, variant_ref: null, option_ref: o.external_id, group_ref: m.external_id,
+        name: o.name, group: m.name, variant_name: null, values: [], axes: [], sku: null, barcode: null, price_pence: o.price_pence ?? null,
+        category: '', category_ref: null, state: state.state, sales: salesTotal(sales.options.filter(s => s.option_ref === o.external_id)),
+      })
+    }
+  }
+  const open = all ? out : out.filter(t => (t.kind === 'option' ? t.state === 'note' : t.state === 'unmapped'))
+  return open.sort((x, y) => y.sales.net_pence - x.sales.net_pence || x.name.localeCompare(y.name)
+    || String(x.variant_name || '').localeCompare(String(y.variant_name || '')))
+}
+
+/** A match's target as the exact rule that would save it (a modifier option: an option or one dish, never a combo). */
+export function ruleFor(thing, target, venueId) {
+  const base = { kind: 'exact', venue_id: venueId, item_ref: thing.item_ref, variant_ref: thing.variant_ref, option_ref: thing.option_ref }
+  if (thing.kind === 'option') {
+    if (target.combo_id) return null
+    return target.item_id ? { ...base, target_item_id: target.item_id } : { ...base, target_option_ids: target.option_ids.slice(0, 1) }
+  }
+  if (target.combo_id) return { ...base, target_combo_id: target.combo_id }
+  return { ...base, target_item_id: target.item_id, target_option_ids: target.option_ids }
+}
+
+/** A thing as the page shows it. */
+export const thingView = t => ({
+  key: t.key, kind: t.kind, item_ref: t.item_ref, variant_ref: t.variant_ref, option_ref: t.option_ref, name: t.name,
+  variant_name: t.variant_name, group: t.group || null, sku: t.sku, price_pence: t.price_pence, category: t.category, sales: t.sales,
+})
+
+/**
+ * Suggested targets for what is still open at a venue (shared/itemMatch.js:
+ * codes first, then names, price and category as tie-breakers). Each with
+ * its best target as a rule, its score and reason, other candidates, and
+ * whether it is ticked to start with (at or above AUTO_MATCH, not tied).
+ * Writes nothing: rules are saved only when the person accepts.
+ */
+export async function suggestions(tx, tenantId, connectionId, venueId) {
+  const [things, ours] = await Promise.all([openThings(tx, tenantId, connectionId, venueId), venueOurs(tx, tenantId, venueId)])
+  const idx = matchIndex({ dishes: ours.dishes, options: ours.options })
+  const found = [], none = []
+  for (const t of things) {
+    const m = matchThing({ kind: t.kind, name: t.name, values: t.values, sku: t.sku, barcode: t.barcode, price_pence: t.price_pence, category: t.category }, idx)
+    const cands = m.candidates.map(c => ({ ...c, rule: ruleFor(t, c.target, venueId) })).filter(c => c.rule)
+    if (!cands.length) { none.push(thingView(t)); continue }
+    const [best, ...others] = cands
+    found.push({
+      ...thingView(t), score: best.score, by: best.by, reason: best.reason, label: best.label, rule: best.rule,
+      auto: m.auto && best.label === m.best?.label,
+      others: others.map(o => ({ score: o.score, by: o.by, reason: o.reason, label: o.label, rule: o.rule })),
+    })
+  }
+  return { venue_id: venueId, threshold: AUTO_MATCH, suggestions: found, unmatched: none }
 }
