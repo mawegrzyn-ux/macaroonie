@@ -217,3 +217,65 @@ test('deleting a definition takes its value off every row', async () => {
   const bSup = await sql`SELECT count(*)::int AS n FROM custom_fields WHERE tenant_id = ${ids.b}`
   assert.equal(bSup[0].n, 0, 'nothing of B\'s touched (B has none here)')
 })
+
+// ── Step 9d: own fields wherever a person makes a row ─────────
+
+const { importColumns, importValues } = await import('../../shared/customFields.js')
+
+test('imports: a column headed with a field\'s label (any case) fills it; a bad value is noted, a required one never needed', async () => {
+  const origin = await ok(owner.post('/api/custom-fields', { object_key: 'purchasing.items', label: 'Country of origin', type: 'text', required: true }))
+  await ok(owner.post('/api/custom-fields', { object_key: 'purchasing.items', label: 'Shelf life days', type: 'number' }))
+  const defs = (await ok(owner.get('/api/custom-fields?object=purchasing.items'))).fields
+  const cols = importColumns(defs, ['Item', 'country  OF origin', 'Shelf life days', 'Colour'])
+  assert.deepEqual(Object.entries(cols).map(([i, d]) => [i, d.field_key]), [['1', 'country_of_origin'], ['2', 'shelf_life_days']])
+  const v = importValues(defs, cols, ['x', 'Spain', 'ten', 'red'])
+  assert.deepEqual(v.values, { country_of_origin: 'Spain' })
+  assert.match(v.problems[0], /Shelf life days: a number/)
+  assert.ok(!v.missing.includes('Country of origin'))
+  assert.ok(importValues(defs, cols, ['x', '', '', '']).missing.includes('Country of origin'))
+
+  const csv = [
+    'Item,Base unit,Country of origin,SHELF LIFE DAYS,Colour',
+    'Saffron,g,Spain,365,red',
+    'Cumin,g,,abc,',
+  ].join('\n')
+  const file = Buffer.from(csv, 'utf8').toString('base64')
+  const r = await ok(owner.post('/api/inventory/import', { file }))
+  assert.equal(r.items_created, 2)
+  assert.deepEqual(r.errors, [], 'nothing fails for own fields')
+  assert.equal(r.custom_set, 1)
+  assert.deepEqual(r.own_fields.sort(), ['Country of origin', 'Shelf life days'])
+  assert.match(r.notes.map(n => n.note).join(' | '), /Shelf life days: a number \(left out\)/)
+  assert.ok(r.required_missing.some(m => m.label === 'Country of origin' && m.rows === 1), JSON.stringify(r.required_missing))
+  const [saffron] = await sql`SELECT custom FROM inv_items WHERE tenant_id = ${ids.a} AND name = 'Saffron'`
+  assert.deepEqual(saffron.custom, { country_of_origin: 'Spain', shelf_life_days: 365 }, 'the Colour column is ignored')
+
+  // The Inventory page's New item sends its own fields: a required one is required there.
+  const without = await owner.post('/api/inventory/items', { name: 'Sumac', base_unit: 'g', custom: {} })
+  assert.equal(without.status, 422)
+  assert.match(without.body, /Country of origin: needed/)
+  const made = await ok(owner.post('/api/inventory/items', { name: 'Sumac', base_unit: 'g', custom: { [origin.field_key]: 'Turkey', grade: 'A' } }))
+  assert.equal(made.custom?.country_of_origin ?? (await sql`SELECT custom FROM inv_items WHERE id = ${made.id}`)[0].custom.country_of_origin, 'Turkey')
+})
+
+test('the customer import fills own fields by heading; booking-made customers stay exempt', async () => {
+  await ok(owner.post('/api/custom-fields', { object_key: 'guests.customers', label: 'Seating', type: 'choice', options: ['Window', 'Booth'], required: true }))
+  const r = await ok(owner.post('/api/customers/import', { customers: [
+    { name: 'Ada Import', email: 'ada.import@example.com', custom: { seating: 'booth', 'ALLERGY NOTES': 'Sesame', Shoe: '9' } },
+    { name: 'Bo Import', email: 'bo.import@example.com', custom: { Seating: 'Patio' } },
+    { name: 'Cy Import', email: 'cy.import@example.com' },
+  ] }))
+  assert.equal(r.created, 3)
+  assert.equal(r.custom_set, 1)
+  assert.equal(r.notes.length, 1)
+  assert.match(r.notes[0].note, /Seating: one of: Window, Booth \(left out\)/)
+  assert.deepEqual(r.required_missing, [{ label: 'Seating', rows: 2 }], 'counted, never refused')
+  const [ada] = await sql`SELECT custom FROM customers WHERE tenant_id = ${ids.a} AND email = 'ada.import@example.com'`
+  assert.deepEqual(ada.custom, { seating: 'Booth', allergy_notes: 'Sesame' })
+  // An update fills the field on the existing row too.
+  const again = await ok(owner.post('/api/customers/import', { customers: [{ name: 'Bo Import', email: 'bo.import@example.com', custom: { Seating: 'Window' } }] }))
+  assert.deepEqual([again.updated, again.custom_set, again.required_missing.length], [1, 1, 0])
+  // Another group's import never sees this group's fields.
+  const b = await ok(bOwner.post('/api/customers/import', { customers: [{ name: 'Dee', email: 'dee.b@example.com', custom: { Seating: 'Booth' } }] }))
+  assert.equal(b.custom_set, 0)
+})
