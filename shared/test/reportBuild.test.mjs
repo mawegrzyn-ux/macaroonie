@@ -179,7 +179,11 @@ test('the Data panel: figures, fields, then a folder for each linked thing', () 
     ['venue', 'Venue', false, 'venue'], ['server', 'Server', false, 'staff'], ['lines', 'Dishes sold', true, 'lines'], ['payments', 'Payments', true, 'payments'],
   ])
   const net = tree.fields.find(n => n.path === 'net')
-  assert.deepEqual({ ...net, uses: null }, { path: 'net', what: 'field', label: 'Net', full: 'Net', about: '', type: 'money', pii: false, trail: [], uses: null })
+  assert.deepEqual({ ...net, uses: null }, {
+    path: 'net', what: 'field', label: 'Net', full: 'Net', about: '', type: 'money', pii: false, trail: [], uses: null,
+    // What it means to the people asking (Pepper-first 8A2): none on this one.
+    synonyms: [], instructions: '', examples: [],
+  })
   assert.equal(tree.fields.find(n => n.path === 'tab_name').pii, true)
   assert.equal(tree.fields.find(n => n.path === 'date').about, 'The day the till counts it on.')
 
