@@ -752,6 +752,19 @@ function ImportModal({ onClose }) {
           )}
           {result.suppliers_created > 0 && <p>Add {result.suppliers_created} supplier{result.suppliers_created === 1 ? '' : 's'}</p>}
           {result.categories_created > 0 && <p>Add {result.categories_created} categor{result.categories_created === 1 ? 'y' : 'ies'}</p>}
+          {result.barcodes_set > 0 && <p data-testid="import-barcodes">Set {result.barcodes_set} barcode{result.barcodes_set === 1 ? '' : 's'}</p>}
+          {result.custom_set > 0 && <p data-testid="import-own-fields">Fill in your own fields ({result.own_fields.join(', ')}) on {result.custom_set} row{result.custom_set === 1 ? '' : 's'}</p>}
+          {result.required_missing?.map(m => (
+            <p key={m.label} className="text-amber-800" data-testid="import-required-missing">
+              {m.rows} new item{m.rows === 1 ? '' : 's'} without {m.label}: an import doesn't need it, the item's page does when it is next saved
+            </p>
+          ))}
+        </div>
+      )}
+      {result?.notes?.length > 0 && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-1 text-sm" data-testid="import-notes">
+          <p className="font-medium flex items-center gap-1"><AlertTriangle className="w-4 h-4" />Imported, with a part left out</p>
+          {result.notes.slice(0, 50).map((n, i) => <p key={i}>Row {n.row} ({n.item}): {n.note}</p>)}
         </div>
       )}
       {result?.errors?.length > 0 && (

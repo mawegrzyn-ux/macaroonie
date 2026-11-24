@@ -251,9 +251,9 @@ export function PriceUpdateModal({ suppliers, onClose }) {
             {run.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Check
           </button>
         ) : (
-          <button type="button" className={btn.primary} disabled={!preview.changes.length || run.isPending} onClick={() => run.mutate(false)}
+          <button type="button" className={btn.primary} disabled={(!preview.changes.length && !preview.barcodes?.length) || run.isPending} onClick={() => run.mutate(false)}
             data-testid="price-update-apply">
-            {run.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Update {plural(preview.changes.length, 'price')}
+            {run.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Update {plural(preview.changes.length, 'price')}{preview.barcodes?.length ? ' and ' + plural(preview.barcodes.length, 'barcode') : ''}
           </button>
         )}
         <button type="button" className={btn.outline} onClick={onClose}>Cancel</button>
@@ -325,6 +325,19 @@ function PriceUpdateResult({ result, done }) {
       )}
       {r.changes.some(c => c.big) && !done && (
         <p className="text-xs text-amber-800 flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5" />Changes of 20% or more are marked: check them before updating.</p>
+      )}
+      {r.barcodes?.length > 0 && (
+        <div className="rounded-xl border px-3 py-2" data-testid="price-update-barcodes">
+          <p className="font-medium">{done ? 'Barcodes set' : 'Barcodes that would be set'}</p>
+          <ul className="mt-1 space-y-0.5">
+            {r.barcodes.map(b => <li key={b.row}><CodeTag code={b.code} className="mr-1.5" />{b.item_name}: {b.old || 'none'} to <strong>{b.new}</strong></li>)}
+          </ul>
+        </div>
+      )}
+      {r.notes?.length > 0 && (
+        <Problems title="Barcodes left out (the price still goes in)" testid="price-update-notes">
+          {r.notes.map(u => <li key={u.row}>Row {u.row}{u.code ? <> (<CodeTag code={u.code} />)</> : ''}: {u.note}</li>)}
+        </Problems>
       )}
       {r.unknown.length > 0 && (
         <Problems title={`Not found at ${r.supplier.name}`} testid="price-update-unknown"

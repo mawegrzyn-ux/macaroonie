@@ -206,3 +206,48 @@ test('a barcode on a supplier price through Pepper: added, changed and cleared, 
   const after = (await ok(owner.get('/api/inventory/items'))).find(i => i.id === flour.id)
   assert.equal(after.quotes.find(q => q.supplier_code === 'GC-FL').barcode, null)
 })
+
+// ── Step 9c: barcodes in the import and the price list update ─────────
+
+const b64 = text => Buffer.from(text, 'utf8').toString('base64')
+
+test('the inventory import takes a barcode column (GTIN, EAN, UPC...); a bad one is noted per row, not a failed import', async () => {
+  const csv = [
+    'Item,Base unit,Supplier,Supplier code,Pack,Pack size,Pack unit,Price,EAN,Item barcode',
+    'Jasmine rice,g,Grain Co,GC-30,Sack,10,kg,22,96385074,',
+    'Sea salt,g,Grain Co,GC-31,Tub,1,kg,3,12345678,',
+    'Paper towel,each,,,,,,,,5012345678900',
+  ].join('\n')
+  const dry = await ok(owner.post('/api/inventory/import', { file: b64(csv), dry_run: true }))
+  assert.deepEqual(dry.errors, [], 'no row fails for a barcode')
+  assert.equal(dry.items_created, 3)
+  assert.equal(dry.barcodes_set, 2, 'the rice\'s price and the towel\'s item')
+  assert.equal(dry.notes.length, 1)
+  assert.match(dry.notes[0].note, /Barcode 12345678 left out: .*check digit/)
+  await ok(owner.post('/api/inventory/import', { file: b64(csv) }))
+  const items = await ok(owner.get('/api/inventory/items'))
+  const jas = items.find(i => i.name === 'Jasmine rice')
+  assert.equal(jas.quotes[0].barcode, '96385074', 'with a supplier: the supplier product\'s barcode')
+  assert.equal(jas.barcode, null)
+  assert.equal(items.find(i => i.name === 'Sea salt').quotes[0].barcode, null)
+  assert.equal(items.find(i => i.name === 'Paper towel').barcode, '5012345678900', 'Item barcode: the item\'s')
+  const tpl = await owner.get('/api/inventory/import-template')
+  assert.match(tpl.body.split('\n')[0], /,Barcode$/)
+})
+
+test('the price list update takes a barcode beside the price; Pepper passes it through', async () => {
+  const csv = ['Code,Price,GTIN', 'GC-30,23.50,4006381333931', 'GC-31,3,bad'].join('\n')
+  const dry = await ok(owner.post('/api/inventory/price-update', { supplier_id: sup.id, file: b64(csv), dry_run: true }))
+  assert.equal(dry.changes.length, 1)
+  assert.deepEqual(dry.barcodes.map(b => [b.code, b.old, b.new]), [['GC-30', '96385074', '4006381333931']])
+  assert.equal(dry.notes.length, 1, 'a bad barcode is noted; its price still goes in')
+  assert.equal(dry.errors.length, 0)
+  await ok(owner.post('/api/inventory/price-update', { supplier_id: sup.id, file: b64(csv) }))
+  const jas = (await ok(owner.get('/api/inventory/items'))).find(i => i.name === 'Jasmine rice')
+  assert.deepEqual([jas.quotes[0].barcode, Number(jas.quotes[0].price)], ['4006381333931', 23.5])
+  // Pepper: rows with a barcode only (no price change) still make a card.
+  const { card } = await pepper(A.owner, 'update_prices_by_code', { supplier: 'Grain Co', rows: [{ code: 'GC-31', price: 3, barcode: '96385074' }] }, { run: false })
+  assert.ok(card.lines.some(l => /GC-31 Sea salt: barcode none to 96385074/.test(l)), card.lines.join(' | '))
+  const imp = await pepper(A.owner, 'import_price_list', { rows: [{ item: 'Basmati rice', supplier: 'Grain Co', supplier_code: 'GC-20', pack: 'Sack', pack_size: 20, pack_unit: 'kg', price: 30, barcode: '12345678' }] }, { run: false })
+  assert.ok(imp.card.warnings.some(w => /Barcode 12345678 left out/.test(w)), JSON.stringify(imp.card.warnings))
+})

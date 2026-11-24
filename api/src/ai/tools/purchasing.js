@@ -469,9 +469,9 @@ async function tenantCurrency(ctx) {
 // ── Import ─────────────────────────────────────────────────
 
 const IMPORT_HEADINGS = ['Item', 'Category', 'Base unit', 'Storage', 'Item code', 'Supplier', 'Supplier code',
-  'Product name', 'Pack', 'Pack count', 'Pack size', 'Pack unit', 'Price', 'VAT %']
+  'Product name', 'Pack', 'Pack count', 'Pack size', 'Pack unit', 'Price', 'VAT %', 'Barcode']
 const IMPORT_KEYS = ['item', 'category', 'counted_in', 'storage', 'item_code', 'supplier', 'supplier_code',
-  'product_name', 'pack', 'pack_count', 'pack_size', 'pack_unit', 'price', 'vat']
+  'product_name', 'pack', 'pack_count', 'pack_size', 'pack_unit', 'price', 'vat', 'barcode']
 
 const ImportRow = z.object({
   item:          z.string().min(1).max(200),
@@ -488,6 +488,7 @@ const ImportRow = z.object({
   pack_unit:     z.string().max(20).optional().describe('g, kg, ml, cl, l or each'),
   price:         z.number().min(0).max(10000000).optional().describe('Per pack, ex VAT'),
   vat:           z.number().min(0).max(100).optional(),
+  barcode:       z.string().max(20).optional().describe('The barcode (GTIN) as read: the supplier product\'s with a supplier, else the item\'s'),
 })
 
 const csvCell = v => {
@@ -549,6 +550,8 @@ function priceUpdateCard(r, source, cur) {
     ...r.changes.slice(0, 25).map(c => c.code + ' ' + c.item_name + ': ' + money(c.old_price, cur) + ' to ' + money(c.new_price, cur) +
       (c.pct == null ? '' : ' (' + (c.pct > 0 ? '+' : '') + Math.round(c.pct) + '%)')),
     ...(r.changes.length > 25 ? ['and ' + plural(r.changes.length - 25, 'more change')] : []),
+    ...(r.barcodes || []).slice(0, 10).map(b => b.code + ' ' + b.item_name + ': barcode ' + (b.old || 'none') + ' to ' + b.new),
+    ...((r.barcodes || []).length > 10 ? ['and ' + plural(r.barcodes.length - 10, 'more barcode')] : []),
     ...(r.unchanged ? [plural(r.unchanged, 'price') + ' unchanged'] : []),
   ]
   const warnings = [
@@ -559,6 +562,7 @@ function priceUpdateCard(r, source, cur) {
     ...(r.switched_off.length ? ['Switched off, left as they are: ' + r.switched_off.map(u => u.code + ' ' + u.item_name).slice(0, 10).join(', ') + '.'] : []),
     ...(r.ambiguous.length ? ['On more than one product, left out: ' + r.ambiguous.map(u => u.code + ' (' + u.items.join(', ') + ')').slice(0, 10).join('; ') + '.'] : []),
     ...(r.errors.length ? r.errors.slice(0, 10).map(e => 'Row ' + e.row + (e.code ? ' (' + e.code + ')' : '') + ': ' + e.error + '. Left out.') : []),
+    ...(r.notes || []).slice(0, 10).map(n => 'Row ' + n.row + (n.code ? ' (' + n.code + ')' : '') + ': ' + n.note + '.'),
     ...(r.collection_ignored ? ['The collection prices were left out: a supplier price here is the delivered price per pack.'] : []),
   ]
   return { lines, warnings }
@@ -1977,6 +1981,8 @@ export const purchasingTools = [
         ...r.errors.slice(0, 10).map(e => 'Row ' + e.row + ' (' + e.item + '): ' + e.error + '. Skipped.'),
         ...(r.errors.length > 10 ? [(r.errors.length - 10) + ' more rows have problems and are skipped.'] : []),
         ...(r.suppliers_created ? [plural(r.suppliers_created, 'new supplier') + ' will be made with just a name: add their email and delivery days with update_supplier.'] : []),
+        ...(r.notes || []).slice(0, 10).map(n => 'Row ' + n.row + ' (' + n.item + '): ' + n.note + '.'),
+        ...(r.required_missing || []).map(m => plural(m.rows, 'new item') + ' without ' + m.label + ' (needed on the Inventory page, not on import).'),
       ]
       return {
         title: 'Import this price list?',
@@ -1986,6 +1992,8 @@ export const purchasingTools = [
           'Supplier prices: ' + r.quotes_created + ' new, ' + r.quotes_updated + ' updated (' + plural(r.prices_changed, 'price change') + ')',
           ...(r.categories_created ? ['New categories: ' + r.categories_created] : []),
           ...(r.suppliers_created ? ['New suppliers: ' + r.suppliers_created] : []),
+          ...(r.barcodes_set ? ['Barcodes: ' + r.barcodes_set] : []),
+          ...(r.custom_set ? ['Own fields filled in on ' + plural(r.custom_set, 'row') + ' (' + r.own_fields.join(', ') + ')'] : []),
         ],
         ...(warnings.length ? { warningTitle: 'Check', warnings } : {}),
         confirmLabel: 'Import',
@@ -2001,6 +2009,9 @@ export const purchasingTools = [
           prices_created: r.quotes_created, prices_updated: r.quotes_updated, price_changes: r.prices_changed,
           categories_created: r.categories_created, suppliers_created: r.suppliers_created,
           ...(r.errors.length ? { skipped_rows: r.errors.slice(0, 20) } : {}),
+          ...(r.barcodes_set ? { barcodes_set: r.barcodes_set } : {}),
+          ...(r.notes?.length ? { left_out: r.notes.slice(0, 20) } : {}),
+          ...(r.required_missing?.length ? { required_missing: r.required_missing } : {}),
           message: 'Imported.' + (r.errors.length ? ' ' + plural(r.errors.length, 'row was', 'rows were') + ' skipped.' : ''),
         }
       })
@@ -2103,7 +2114,10 @@ export const purchasingTools = [
       'of 20% or more marked, codes not found and rows left out.',
     input: z.object({
       supplier:      z.string().min(1).max(200),
-      rows:          z.array(z.object({ code: z.string().min(1).max(100), price: z.number().min(0).max(10000000) })).max(200).optional(),
+      rows:          z.array(z.object({
+        code: z.string().min(1).max(100), price: z.number().min(0).max(10000000),
+        barcode: z.string().max(20).optional().describe('The product\'s barcode (GTIN), when the list has one'),
+      })).max(200).optional(),
       attached_file: z.string().max(200).optional().describe('File name of a CSV attached in this chat'),
     }),
     confirm: true,
@@ -2113,7 +2127,7 @@ export const purchasingTools = [
       const sup = pickSupplier(sups, input.supplier)
       const { body, source } = await priceUpdateBody(ctx, input, sup.id)
       const r = await callApi(ctx, 'POST', '/api/inventory/price-update', { body: { ...body, dry_run: true } })
-      if (!r.changes.length) {
+      if (!r.changes.length && !r.barcodes?.length) {
         const why = [
           r.unchanged && plural(r.unchanged, 'price is', 'prices are') + ' the same already',
           r.unknown.length && plural(r.unknown.length, 'code') + ' not found at ' + sup.name,

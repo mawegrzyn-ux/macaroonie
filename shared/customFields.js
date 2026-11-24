@@ -24,6 +24,15 @@
 //                           -> { values, problems }: raw keyed by field key
 //                           (or label with byLabel); null or '' clears a field;
 //                           create: every required field must be there
+//   importColumns(defs, headings)  an import's columns that are own fields: a
+//                           heading equal to a field's label (any case, spaces
+//                           squeezed) -> { columnIndex: def } (step 9d)
+//   importValues(defs, columns, cells)  one imported row's own fields -> { values,
+//                           problems, missing }: blank cells leave a field as
+//                           it is; a bad value is a problem (left out, the row
+//                           still imports); missing = labels of required
+//                           fields the row doesn't fill (an import never
+//                           requires them, it counts them)
 //   valueText(def, v)       a stored value in words ('Yes', '30 days')
 //   fieldSql(def)           the report catalogue's template for it ({t} is
 //                           the object's row)
@@ -193,4 +202,32 @@ export function fieldSql(def) {
     case 'date': return '(CASE WHEN ' + text + ' ~ \'^[0-9]{4}-[0-9]{2}-[0-9]{2}$\' THEN ' + text + '::date END)'
     default: return text
   }
+}
+
+const squeeze = t => String(t ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+
+export function importColumns(defs, headings) {
+  const out = {}
+  ;(headings || []).forEach((h, i) => {
+    const t = squeeze(h)
+    const def = t && (defs || []).find(d => squeeze(d.label) === t)
+    if (def && !Object.values(out).includes(def)) out[i] = def
+  })
+  return out
+}
+
+export function importValues(defs, columns, cells) {
+  const values = {}
+  const problems = []
+  for (const [i, def] of Object.entries(columns || {})) {
+    const raw = cells?.[i]
+    if (raw === null || raw === undefined || String(raw).trim() === '') continue
+    const clean = cleanValue(def, typeof raw === 'string' ? raw.trim() : raw)
+    if (clean === undefined) {
+      const why = valueProblem(def, raw)
+      problems.push(def.label + ': ' + why.charAt(0).toLowerCase() + why.slice(1))
+    } else values[def.field_key] = clean
+  }
+  const missing = (defs || []).filter(d => d.required && values[d.field_key] === undefined).map(d => d.label)
+  return { values, problems, missing }
 }
