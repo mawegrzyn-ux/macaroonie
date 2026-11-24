@@ -14,6 +14,13 @@ test('continuous: each pause\'s words are kept and the new ones added after them
   assert.equal(s.text('', false), 'hey ho let\'s go')
 })
 
+test('an iPhone: each result holds every word so far, continuous or not, so nothing is joined', () => {
+  const s = createSession({ continuous: true, cumulative: true })
+  assert.equal(s.text('fridge', false), 'fridge')
+  assert.equal(s.text('fridge four', true), 'fridge four')
+  assert.equal(s.text('fridge four degrees', false), 'fridge four degrees', 'not "fridge four fridge four degrees"')
+})
+
 test('the ordinary way: each result already holds every word', () => {
   const s = createSession()
   assert.equal(s.text('hey', false), 'hey')

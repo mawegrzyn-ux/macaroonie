@@ -22,8 +22,17 @@ const LOCAL_GOOGLE_SERVICES = './google-services.json'
 const googleServicesFile = process.env.GOOGLE_SERVICES_JSON
   || (fs.existsSync(path.join(__dirname, LOCAL_GOOGLE_SERVICES)) ? LOCAL_GOOGLE_SERVICES : undefined)
 
+// iPhone push (APNs): a build for people to use (every profile but
+// development) asks Apple for the production push environment; the
+// development profile for the sandbox. EAS sets EAS_BUILD_PROFILE.
+const pushMode = process.env.EAS_BUILD_PROFILE === 'development' ? 'development' : 'production'
+const withPushMode = plugins => (plugins || []).map(p => (
+  Array.isArray(p) && p[0] === 'expo-notifications' ? [p[0], { ...p[1], mode: pushMode }] : p
+))
+
 module.exports = ({ config }) => ({
   ...config,
+  plugins: withPushMode(config.plugins),
   android: {
     ...config.android,
     ...(googleServicesFile ? { googleServicesFile } : {}),

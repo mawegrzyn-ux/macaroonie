@@ -13,8 +13,10 @@
 //     and talk mode (admin/src/lib/speech.js)
 //   - a barcode scanner (Scanner.js), for the order form's Scan button
 // Links off our two hosts open in the phone's browser; the back button goes
-// back in the pages. Android first; nothing here is Android-only except the
-// notice channel, so an iPhone build is the same code (see README.md).
+// back in the pages. Android and iPhone from the same code (README.md); what
+// differs is kept in small files the tests run in Node: the keyboard and the
+// page's padding (layout.js), how results join (speechCore.js), a UPC-A scan
+// (scanCore.js), and the notice channel (Android only).
 //
 // Android draws the app edge to edge, under the status bar, the navigation
 // buttons and the keyboard (always, from Expo SDK 54). The pages are kept
@@ -34,6 +36,7 @@ import { bridgeScript, makeHandler } from './bridge'
 import { opsUrl, staysInApp, bridgeAllowed, noticeUrl } from './links'
 import Scanner from './Scanner'
 import { createSession } from './speechCore'
+import { pagePadding, keyboardEvents } from './layout'
 
 const EXTRA = Constants.expoConfig?.extra || {}
 const ROOT = String(EXTRA.rootDomain || 'macaroonie.com').toLowerCase()
@@ -89,7 +92,8 @@ ExpoSpeechRecognitionModule.addListener('end', () => {
 
 const speech = {
   listen({ lang, continuous, hints, onText, onEnd, onError }) {
-    const session = createSession({ continuous: !!continuous && continuousWorks })
+    // An iPhone's results each hold every word so far (speechCore.js).
+    const session = createSession({ continuous: !!continuous && continuousWorks, cumulative: Platform.OS === 'ios' })
     const mine = { onText, onEnd, onError, session, started: false, stopped: false }
     hearing = mine
     ExpoSpeechRecognitionModule.requestPermissionsAsync().then(p => {
@@ -100,7 +104,13 @@ const speech = {
       mine.started = true
       // hints: the venue's own words (fridges, dishes, staff, suppliers) as the
       // recogniser's contextual strings (Android 13 and up, iOS).
-      ExpoSpeechRecognitionModule.start({ lang: lang || 'en-GB', interimResults: true, continuous: session.continuous, ...(hints?.length ? { contextualStrings: hints } : {}) })
+      ExpoSpeechRecognitionModule.start({
+        lang: lang || 'en-GB', interimResults: true, continuous: session.continuous,
+        ...(hints?.length ? { contextualStrings: hints } : {}),
+        // iPhone: words for a box, not a search; the default audio session
+        // (play and record, to the speaker) lets answers be read aloud after.
+        ...(Platform.OS === 'ios' ? { iosTaskHint: 'dictation' } : {}),
+      })
     })
     return () => {
       if (hearing !== mine || mine.stopped) return
@@ -121,9 +131,11 @@ export default function App() {
 function useKeyboardHeight() {
   const [height, setHeight] = useState(0)
   useEffect(() => {
-    // React Native gives the keyboard's height less the navigation bar's.
-    const shown = Keyboard.addListener('keyboardDidShow', e => setHeight(e.endCoordinates?.height || 0))
-    const hidden = Keyboard.addListener('keyboardDidHide', () => setHeight(0))
+    // Android gives the keyboard's height less the navigation bar's; an iPhone the whole of it.
+    // An iPhone's will-events move with the keyboard (layout.js); Android has did-events only.
+    const ev = keyboardEvents(Platform.OS)
+    const shown = Keyboard.addListener(ev.show, e => setHeight(e.endCoordinates?.height || 0))
+    const hidden = Keyboard.addListener(ev.hide, () => setHeight(0))
     return () => { shown.remove(); hidden.remove() }
   }, [])
   return height
@@ -212,13 +224,13 @@ function Office() {
     <View style={s.screen}>
       {/* The pages are white: dark icons in the status bar. */}
       <StatusBar style="dark" />
-      <View style={[s.page, { paddingTop: insets.top, paddingBottom: insets.bottom + keyboard }]}>
+      <View style={[s.page, pagePadding({ os: Platform.OS, insets, keyboard })]}>
         <WebView
           key={webKey}
           ref={web}
           source={{ uri: startUrl }}
           style={s.web}
-          injectedJavaScriptBeforeContentLoaded={bridgeScript(VERSION)}
+          injectedJavaScriptBeforeContentLoaded={bridgeScript(VERSION, Platform.OS)}
           onMessage={e => handle(e.nativeEvent.data, e.nativeEvent.url)}
           onNavigationStateChange={n => { canGoBack.current = n.canGoBack }}
           onShouldStartLoadWithRequest={req => {

@@ -2,9 +2,10 @@
 // the camera full screen until a code is read or Cancel is tapped. Asks for
 // the camera the first time. onDone(code | null).
 import { useEffect, useRef } from 'react'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { scannedCode } from './scanCore'
 
 const TYPES = ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128', 'code39', 'qr', 'datamatrix', 'itf14']
 
@@ -28,7 +29,7 @@ export default function Scanner({ onDone }) {
     <View style={s.wrap}>
       <CameraView style={StyleSheet.absoluteFill} facing="back"
         barcodeScannerSettings={{ barcodeTypes: TYPES }}
-        onBarcodeScanned={({ data }) => { if (data) finish(String(data)) }} />
+        onBarcodeScanned={r => { const code = scannedCode(r, Platform.OS); if (code) finish(code) }} />
       <View style={s.frame} pointerEvents="none" />
       <View style={[s.bottom, { paddingBottom: 24 + insets.bottom }]}>
         <Text style={s.text}>Point the camera at the barcode.</Text>

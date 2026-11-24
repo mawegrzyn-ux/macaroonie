@@ -21,7 +21,8 @@ export const CALLS = {
   'scan':                s => s.scanner.scan(),
 }
 
-export function bridgeScript(version) {
+/** platform: 'android' | 'ios' (React Native's Platform.OS), shown to the page as MacaroonieOffice.platform. */
+export function bridgeScript(version, platform = 'android') {
   return `(function () {
   if (window.MacaroonieOffice) return;
   var seq = 0, waiting = {}, listeners = {};
@@ -47,6 +48,7 @@ export function bridgeScript(version) {
   };
   window.MacaroonieOffice = {
     version: ${JSON.stringify(String(version || BRIDGE_VERSION))},
+    platform: ${JSON.stringify(platform === 'ios' ? 'ios' : 'android')},
     auth: {
       token: function () { return call('auth.token'); },
       user: function () { return call('auth.user'); },

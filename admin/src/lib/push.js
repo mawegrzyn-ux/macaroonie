@@ -43,7 +43,9 @@ export async function turnOnHere(api, publicKey, label) {
   if (kind === 'app') {
     const token = await bridge().push.token()
     if (!token) throw new Error('The app couldn\'t get a push token. Allow notifications for Macaroonie Office in the phone\'s settings.')
-    return api.post('/notices/devices', { kind: 'app', token, label: label || 'Macaroonie Office app' })
+    // The same Expo push token kind on Android and an iPhone (Expo sends to FCM or APNs).
+    const phone = bridge().platform === 'ios' ? 'iPhone' : bridge().platform === 'android' ? 'Android' : null
+    return api.post('/notices/devices', { kind: 'app', token, label: label || ('Macaroonie Office app' + (phone ? ' on ' + phone : '')) })
   }
   if (kind !== 'web') throw new Error('This browser can\'t show notices.')
   const allowed = await Notification.requestPermission()
