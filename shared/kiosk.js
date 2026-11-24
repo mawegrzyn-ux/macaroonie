@@ -221,6 +221,50 @@ export function kioskFontStack(name) {
   return fontStack(name)
 }
 
+// Text sizes (24 Nov 2026): a percentage of the design's own size for each
+// kind of text, 100 = as it was. Body text scales the kiosk's base size
+// (everything sized from it follows); headings, buttons and prices are
+// each their own share of the base, whatever body text is (kioskTextVars()).
+// Buttons start at 90 so a button stays at least 50 px tall to tap.
+export const TEXT_SIZE_PARTS = [
+  { key: 'body', label: 'Body text', min: 80, max: 150 },
+  { key: 'headings', label: 'Headings', min: 80, max: 150 },
+  { key: 'buttons', label: 'Buttons', min: 90, max: 150 },
+  { key: 'prices', label: 'Prices', min: 80, max: 150 },
+]
+export const TEXT_SIZE_STEP = 5
+
+/** A design's text sizes, cleaned: whole percentages in steps of 5 within each part's range, else 100. */
+export function textSizes(v) {
+  const o = v && typeof v === 'object' ? v : {}
+  const out = {}
+  for (const p of TEXT_SIZE_PARTS) {
+    const n = o[p.key]
+    out[p.key] = typeof n === 'number' && Number.isFinite(n)
+      ? Math.min(p.max, Math.max(p.min, Math.round(n / TEXT_SIZE_STEP) * TEXT_SIZE_STEP))
+      : 100
+  }
+  return out
+}
+
+/**
+ * The CSS variables a design's text sizes set on the kiosk (kiosk.css): body
+ * text multiplies the root's font size; headings, buttons and prices are
+ * zoomed by their share over the body's, so each ends up at its own
+ * percentage of the design's base size. The kiosk and the designer's
+ * preview (the kiosk in a frame) both draw through this.
+ */
+export function kioskTextVars(design) {
+  const t = textSizes(design?.brand?.text_sizes)
+  const r = n => String(Math.round(n * 10000) / 10000)
+  return {
+    '--k-fs-body': r(t.body / 100),
+    '--k-fs-head': r(t.headings / t.body),
+    '--k-fs-button': r(t.buttons / t.body),
+    '--k-fs-price': r(t.prices / t.body),
+  }
+}
+
 export const DESIGN_COLORS = {
   background:   '#f4f1ea',
   surface:      '#ffffff',
@@ -564,6 +608,8 @@ export function normaliseDesign(raw) {
       font_body: oneOf(b.font_body, [SYSTEM_FONT, ...KIOSK_FONTS], 'Inter'),
       radius: num(b.radius, 0, 32, 18),
       heading_case: oneOf(b.heading_case, ['upper', 'normal'], 'upper'),
+      // Percentages per kind of text (TEXT_SIZE_PARTS, kioskTextVars()).
+      text_sizes: textSizes(b.text_sizes),
     },
     layout: {
       tiles,

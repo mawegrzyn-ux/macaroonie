@@ -30,7 +30,7 @@ import { ThemeMakerButton } from '@/components/themes/ThemeMaker'
 import {
   normaliseDesign, designProblems, KIOSK_FONTS, KIOSK_EXTRA_FONTS, SYSTEM_FONT, COLOR_LABELS,
   DESIGN_COLORS, CLEAR_COLORS, CHOICE_ENTRANCES, KIOSK_LANGUAGES, DISPLAY_LABELS, KIOSK_DISPLAYS, uiText, TILE_STYLES, TILE_LABELS,
-  groupLook, PART_COLORS, PART_FOLLOWS, partColours,
+  groupLook, PART_COLORS, PART_FOLLOWS, partColours, TEXT_SIZE_PARTS, TEXT_SIZE_STEP,
   pictureFit, PICTURE_FOCUS, PICTURE_BGS, PICTURE_SIZE_MIN, BANNER_SHAPES, BANNER_SIDE_MAX, BANNER_RATIO_MAX, bannerRatio,
   KIOSK_SCREENS, SCREEN_MIN, SCREEN_MAX, kioskZoom, kioskBox,
   DONE_MAIN, DONE_LINES, DONE_DEFAULT_LINES, doneLook, doneGaps,
@@ -469,7 +469,37 @@ function BrandPanel({ d, set }) {
         <input type="range" min={0} max={32} step={1} value={d.brand.radius} className="w-full h-11 touch-manipulation"
           onChange={e => set('brand', { radius: Number(e.target.value) })} />
       </Field>
+      <TextSizes sizes={d.brand.text_sizes} onChange={patch => set('brand', { text_sizes: { ...d.brand.text_sizes, ...patch } })} />
     </>
+  )
+}
+
+/**
+ * Text sizes (shared/kiosk.js TEXT_SIZE_PARTS): a slider per kind of text in
+ * steps of 5%, 100% = the design's own size. The preview follows as they
+ * move; nothing is kept until Save.
+ */
+function TextSizes({ sizes, onChange }) {
+  const changed = TEXT_SIZE_PARTS.some(p => sizes[p.key] !== 100)
+  return (
+    <Field group label="Text sizes" hint="100% is the kiosk's own size. Body text sets the size of everything else on the screen (dishes, choices, the order); headings, buttons and prices each have their own on top. Check the preview at the kiosk's screen size: big buttons can crowd the bottom bar.">
+      <div className="space-y-2" data-testid="kd-text-sizes">
+        {TEXT_SIZE_PARTS.map(p => (
+          <label key={p.key} className="flex items-center gap-3 touch-manipulation">
+            <span className="w-24 shrink-0 text-sm">{p.label}</span>
+            <input type="range" min={p.min} max={p.max} step={TEXT_SIZE_STEP} value={sizes[p.key]} className="flex-1 h-11 touch-manipulation"
+              onChange={e => onChange({ [p.key]: Number(e.target.value) })} aria-label={p.label + ' size'} data-testid={'kd-text-size-' + p.key} />
+            <span className="w-12 text-right text-sm tabular-nums" data-testid={'kd-text-size-' + p.key + '-value'}>{sizes[p.key]}%</span>
+          </label>
+        ))}
+        {changed && (
+          <button type="button" onClick={() => onChange(Object.fromEntries(TEXT_SIZE_PARTS.map(p => [p.key, 100])))} data-testid="kd-text-sizes-reset"
+            className="h-11 px-3 rounded-lg border bg-background hover:bg-muted text-sm font-medium touch-manipulation">
+            All back to 100%
+          </button>
+        )}
+      </div>
+    </Field>
   )
 }
 

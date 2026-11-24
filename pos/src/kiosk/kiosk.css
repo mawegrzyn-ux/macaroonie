@@ -23,7 +23,8 @@
   background: var(--k-bg);
   color: var(--k-text);
   font-family: var(--k-font-body);
-  font-size: clamp(15px, calc(2.05 * var(--k-unit, 1vmin)), 26px);
+  /* The design's Body text size (shared/kiosk.js kioskTextVars()) scales the base. */
+  font-size: calc(clamp(15px, calc(2.05 * var(--k-unit, 1vmin)), 26px) * var(--k-fs-body, 1));
   line-height: 1.3;
   touch-action: manipulation;
   -webkit-user-select: none;
@@ -61,6 +62,15 @@
 .k-root.k-has-preview-band.k-reach .k-frame { top: calc(30px + 38%); }
 
 .k-head { font-family: var(--k-font-head); font-weight: 700; letter-spacing: .01em; line-height: 1.05; }
+/* The design's Headings, Buttons and Prices sizes (kioskTextVars(): each a
+   share over the body's). Their sizes are set in em by many classes (a
+   heading's text-[1.6em], .k-btn-big), so the share is a zoom on the element
+   rather than a font size; a price or heading inside a button follows the
+   button's. */
+.k-head { zoom: var(--k-fs-head, 1); }
+.k-btn { zoom: var(--k-fs-button, 1); }
+.k-price, .k-hex-price { zoom: var(--k-fs-price, 1); }
+.k-btn .k-head, .k-btn .k-price, .k-btn .k-hex-price { zoom: 1; }
 .k-upper .k-head { text-transform: uppercase; }
 .k-muted { color: var(--k-muted); }
 
