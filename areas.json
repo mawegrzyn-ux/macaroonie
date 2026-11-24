@@ -158,11 +158,13 @@
     "admin/public/pwa-512x512.png",
     "admin/src/components/ReadOnlyNotice.jsx",
     "admin/src/components/RichTextEditor.jsx",
+    "admin/src/components/SharedDevice.jsx",
     "admin/src/components/TenantGate.jsx",
     "admin/src/contexts/**",
     "admin/src/hooks/**",
     "admin/src/index.css",
     "admin/src/lib/api.js",
+    "admin/src/lib/sharedDevice.js",
     "admin/src/lib/utils.js",
     "admin/src/main.jsx",
     "admin/src/pages/Access.jsx",
@@ -208,6 +210,7 @@
     "api/src/routes/featureRequests.js",
     "api/src/routes/issueLog.js",
     "api/src/routes/platform.js",
+    "api/src/routes/sharedDevices.js",
     "api/src/routes/team.js",
     "api/src/server.js",
     "api/src/services/auth0MgmtSvc.js",
@@ -220,9 +223,12 @@
     "api/src/services/stagingAccess.js",
     "api/src/services/storageSvc.js",
     "api/src/services/vault.js",
+    "api/test/shared-devices.test.mjs",
     "scripts/ensure-secrets-key.sh"
    ],
-   "public": []
+   "public": [
+    "admin/src/components/SharedDevice.jsx"
+   ]
   },
   "dashboards": {
    "paths": [
@@ -1117,6 +1123,7 @@
     "admin/src/pages/help/parts.jsx",
     "admin/src/pages/help/settings.jsx",
     "admin/src/pages/help/usage-record.jsx",
+    "admin/src/pages/mobile/MobileDevice.jsx",
     "admin/src/pages/mobile/MobileHub.jsx",
     "admin/src/pages/mobile/MobileNotices.jsx",
     "admin/src/pages/mobile/MobileToday.jsx",

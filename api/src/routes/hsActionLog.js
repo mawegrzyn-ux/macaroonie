@@ -11,6 +11,7 @@
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { whoDid } from '../middleware/sharedDevice.js'
 import { httpError } from '../middleware/error.js'
 
 const PRIORITIES = ['low', 'medium', 'high', 'critical']
@@ -182,7 +183,7 @@ export default async function hsActionLogRoutes(app) {
            ${body.logged_date ?? new Date().toISOString().slice(0, 10)}, ${body.task},
            ${body.details ?? null}, ${body.assigned_to ?? null}, ${body.due_date ?? null},
            ${body.priority ?? 'medium'}, ${body.notes ?? null}, ${body.attachment_media_id ?? null},
-           ${req.user?.email ?? null})
+           ${whoDid(req)})
         RETURNING *
       `
       return row
@@ -219,7 +220,7 @@ export default async function hsActionLogRoutes(app) {
     preHandler: requirePermission('hs_action_log', 'use'),
   }, async (req) => {
     const { is_completed } = z.object({ is_completed: z.boolean() }).parse(req.body)
-    const completedBy = req.user?.email ?? null
+    const completedBy = whoDid(req)
     const [row] = await withTenant(req.tenantId, tx => tx`
       UPDATE hs_action_log
          SET is_completed = ${is_completed},

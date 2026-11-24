@@ -49,6 +49,7 @@ import { usePageUse } from '@/lib/usage'
 import TenantSwitcherModal from '@/components/TenantSwitcherModal'
 import MobileSuggestModal from '@/components/MobileSuggestModal'
 import MobileViewToggle from '@/components/MobileViewToggle'
+import { SharedDeviceLayer } from '@/components/SharedDevice'
 import AssistantDrawer from '@/components/ai/AssistantDrawer'
 import { useAiStatus } from '@/components/ai/ChatView'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
@@ -701,6 +702,8 @@ export default function AppShell() {
       )}
       <MobileSuggestModal />
       <MobileViewToggle target="mobile" />
+      {/* A shared device: Who is this?, the person and Lock (migration 280). */}
+      <SharedDeviceLayer />
       <AssistantDrawer open={aiOpen} onClose={() => setAiOpen(false)} ask={pepperAsk} onAsked={() => setPepperAsk(null)} />
       {barOpen && <AskOverlay onClose={() => setBarOpen(false)} />}
     </div>

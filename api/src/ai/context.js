@@ -20,6 +20,7 @@
 import { sql, systemSql, withTenant } from '../config/db.js'
 import { permissionLevel, permissionLevels, INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../middleware/auth.js'
 import { MODULES, PERMISSION_RANK } from '../config/modules.js'
+import { sharedHeaders } from '../middleware/sharedDevice.js'
 
 export const CHANNELS = ['guest_mcp', 'guest_chat', 'staff_mcp', 'staff_chat']
 
@@ -37,9 +38,12 @@ export class ToolError extends Error {
  *   channel         one of CHANNELS
  *   tenantId        staff: the staff member's tenant; guest_chat: the site's
  *                   tenant; guest_mcp: null (platform wide)
- *   auth            staff only: { authorization } (the caller's own header)
- *   principal       staff only: { sub, email, isPlatformAdmin } for
- *                   permission checks (same shape permissionLevel() reads)
+ *   auth            staff only: { authorization, shared } (the caller's own
+ *                   header, and on a shared device its X-Shared-Device and
+ *                   X-Acting-Person, passed on to every in-process call)
+ *   principal       staff only: { sub, email, isPlatformAdmin, acting } for
+ *                   permission checks (same shape permissionLevel() reads;
+ *                   acting = the person switched in on a shared device)
  *   actor           text for the audit log (staff email, or 'guest')
  *   conversationId  chats only
  */
@@ -47,6 +51,13 @@ export function makeContext(fields) {
   // said: the person's own words this chat turn (chat.js), for open_form's measured values.
   return { tenantId: null, auth: null, principal: null, actor: null, conversationId: null, said: '', ...fields }
 }
+
+/** A staff context's auth and principal from the request it serves (the
+ *  chat, Confirm, Today's task actions, For review). */
+export const staffAuthOf = req => ({ authorization: req.headers.authorization, shared: sharedHeaders(req) })
+export const staffPrincipalOf = req => ({
+  sub: req.user.sub, email: req.user.email, isPlatformAdmin: !!req.isPlatformAdmin, acting: req.acting ?? null,
+})
 
 export const isStaff = ctx => ctx.channel === 'staff_mcp' || ctx.channel === 'staff_chat'
 export const isChat  = ctx => ctx.channel === 'staff_chat' || ctx.channel === 'guest_chat'
@@ -59,6 +70,8 @@ export async function callApi(ctx, method, url, { body, headers: extra } = {}) {
   if (isStaff(ctx) && ctx.auth?.authorization) {
     headers.authorization = ctx.auth.authorization
     if (ctx.tenantId) headers['x-tenant-id'] = ctx.tenantId
+    // A shared device's token and its person: the route checks them again.
+    Object.assign(headers, ctx.auth.shared || {})
   }
   const res = await ctx.app.inject({
     method, url, headers,
@@ -117,6 +130,7 @@ export const staffReq = ctx => ({
   isPlatformAdmin: !!ctx.principal?.isPlatformAdmin,
   tenantId: ctx.tenantId,
   user: { sub: ctx.principal?.sub },
+  acting: ctx.principal?.acting ?? null,
 })
 
 export const levelAtLeast = (have, level) => (PERMISSION_RANK[have] ?? 0) >= PERMISSION_RANK[level]
@@ -142,22 +156,26 @@ export async function audit(ctx, { tenantId, tool, input, ok, result, bookingId,
   const tid = tenantId ?? ctx.tenantId ?? null
   const isUuid = v => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
   const venue = venueId ?? ctx.venue?.id ?? null
+  // On a shared device the change is the switched-in person's (migration 280):
+  // their name, their own sub with an office PIN, none with a till PIN.
+  const acting = isStaff(ctx) ? (ctx.principal?.acting ?? null) : null
   const row = {
-    tenant_id: tid, channel: ctx.channel, actor: ctx.actor ?? null, tool,
+    tenant_id: tid, channel: ctx.channel, actor: acting ? acting.name : (ctx.actor ?? null), tool,
     input: input ?? null, ok: !!ok, result: result ?? null,
     booking_id: bookingId ?? null, conversation_id: ctx.conversationId ?? null,
     action_id: isUuid(ctx.action?.id) ? ctx.action.id : null,
-    user_sub: isStaff(ctx) ? (ctx.principal?.sub ?? null) : null,
+    user_sub: acting ? (acting.sub ?? null) : isStaff(ctx) ? (ctx.principal?.sub ?? null) : null,
     venue_id: isUuid(venue) ? venue : null,
     undo_of: isUuid(undoOf) ? undoOf : null,
+    shared_device_id: acting && isUuid(acting.deviceId) ? acting.deviceId : null,
   }
   const insert = tx => tx`
     INSERT INTO ai_actions (tenant_id, channel, actor, tool, input, ok, result, booking_id, conversation_id,
-                            action_id, user_sub, venue_id, undo_of)
+                            action_id, user_sub, venue_id, undo_of, shared_device_id)
     VALUES (${row.tenant_id}, ${row.channel}, ${row.actor}, ${row.tool},
             ${row.input === null ? null : tx.json(row.input)}, ${row.ok},
             ${row.result === null ? null : tx.json(row.result)}, ${row.booking_id}, ${row.conversation_id},
-            ${row.action_id}, ${row.user_sub}, ${row.venue_id}, ${row.undo_of})
+            ${row.action_id}, ${row.user_sub}, ${row.venue_id}, ${row.undo_of}, ${row.shared_device_id})
   `
   try {
     if (tid) await withTenant(tid, insert)

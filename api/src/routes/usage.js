@@ -12,6 +12,7 @@
 
 import { z } from 'zod'
 import { requireAuth } from '../middleware/auth.js'
+import { FREE } from '../middleware/sharedDevice.js'
 import { httpError } from '../middleware/error.js'
 import { recordUsage, MAX_EVENTS } from '../services/usageRecord.js'
 
@@ -21,7 +22,7 @@ const Body = z.object({ events: z.array(z.record(z.unknown())).max(MAX_EVENTS) }
 export default async function usageRoutes(app) {
   app.addHook('preHandler', requireAuth)
 
-  app.post('/events', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (req, reply) => {
+  app.post('/events', { config: { rateLimit: { max: 120, timeWindow: '1 minute' }, sharedDevice: FREE } }, async (req, reply) => {
     if (!req.tenantId) throw httpError(400, 'Choose a restaurant group first')
     const { events } = Body.parse(req.body ?? {})
     await recordUsage(req.tenantId, req.user.sub, events)

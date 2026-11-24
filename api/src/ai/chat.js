@@ -70,7 +70,7 @@ import { createHash } from 'node:crypto'
 import Anthropic from '@anthropic-ai/sdk'
 import { sql, withTenant } from '../config/db.js'
 import { env } from '../config/env.js'
-import { ToolError, makeContext, addUsage, searchesIn, callApi, staffPermissionLevels, audit } from './context.js'
+import { ToolError, makeContext, addUsage, searchesIn, callApi, staffPermissionLevels, audit, staffAuthOf, staffPrincipalOf } from './context.js'
 import { toolsFor, findTool, jsonSchemaOf, parseInput, errorText, CORE_TOOLS, audienceTools, toolDescription, classFor, shownResult } from './tools/index.js'
 import { chatUnitsLeft, personUnitsLeft, getAiSettings } from './settings.js'
 import { activeKey } from './apiKey.js'
@@ -92,6 +92,9 @@ const DISPLAY_TOOLS = new Map(audienceTools('staff').filter(t => t.display).map(
 // ai_settings.voice_confirm on: money, orders, bookings, the rota and
 // anything deleted keep a tap.
 export const VOICE_CONFIRM_TOOLS = new Set(['log_temperature', 'log_hold_check', 'log_cooking_check', 'tick_checklist'])
+// The cards a till PIN may confirm on a shared device (migration 280,
+// docs/PEPPER_FIRST.md 13 decision 6): logging checks and nothing else.
+export const CHECK_TOOLS = new Set([...VOICE_CONFIRM_TOOLS, 'log_delivery', 'add_corrective_action'])
 const VOICE_NOTE = '[Said aloud in talk mode, and your answer is read aloud: answer in one or two short sentences, ' +
   'with any detail left to the screen. No tables, lists or links in the answer. Never read out a guest\'s phone number or email. ' +
   'For a reading, say it back with its unit, and say so when it is out of range.]'
@@ -1391,8 +1394,8 @@ export function chatContext(app, conv, { req = null } = {}) {
   if (conv.channel === 'staff_chat') {
     return makeContext({
       app, channel: 'staff_chat', tenantId: conv.tenant_id, conversationId: conv.id, log: req?.log,
-      auth: { authorization: req.headers.authorization },
-      principal: { sub: req.user.sub, email: req.user.email, isPlatformAdmin: !!req.isPlatformAdmin },
+      auth: staffAuthOf(req),
+      principal: staffPrincipalOf(req),
       actor: req.user.email || req.user.sub,
     })
   }

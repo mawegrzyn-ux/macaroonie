@@ -64,6 +64,7 @@ import { z } from 'zod'
 import { withTenant, systemSql } from '../config/db.js'
 import { requireAuth, requirePermission, INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
+import { FREE } from '../middleware/sharedDevice.js'
 import { ownRoleIds } from '../services/roles.js'
 import { AREAS, CATALOGUE, catalogueView } from '../reports/catalogue/index.js'
 import { STARTERS, starterByKey } from '../reports/starters/index.js'
@@ -423,6 +424,8 @@ export default async function reportRoutes(app) {
   app.addHook('preHandler', requireAuth)
 
   const view = { preHandler: requirePermission('reports', 'view') }
+  // Runs and exports only read: no person needed on a shared device (middleware/sharedDevice.js).
+  const reads = level => ({ preHandler: requirePermission('reports', level), config: { sharedDevice: FREE } })
   const use = { preHandler: requirePermission('reports', 'use') }
   const manage = { preHandler: requirePermission('reports', 'manage') }
 
@@ -483,7 +486,7 @@ export default async function reportRoutes(app) {
     return reply.code(201).send({ report: await fullView(row, p, false) })
   })
 
-  app.post('/preview', use, async req => {
+  app.post('/preview', reads('use'), async req => {
     const body = PreviewBody.parse(req.body)
     const p = await reportPerson(req)
     const base = checkedForRun(body.spec)
@@ -492,7 +495,7 @@ export default async function reportRoutes(app) {
     return runReport(p.ctx, spec, body.params || {}, { cap: body.rows ?? PREVIEW_ROWS, fresh: !!body.fresh })
   })
 
-  app.post('/plan', use, async req => {
+  app.post('/plan', reads('use'), async req => {
     const body = PlanBody.parse(req.body)
     const p = await reportPerson(req)
     const via = viaPepper(req)
@@ -522,7 +525,7 @@ export default async function reportRoutes(app) {
     return out
   })
 
-  app.post('/export', use, async (req, reply) => {
+  app.post('/export', reads('use'), async (req, reply) => {
     const body = ExportUnsaved.parse(req.body)
     const p = await reportPerson(req)
     const spec = checkedForRun(body.spec)
@@ -607,7 +610,7 @@ export default async function reportRoutes(app) {
     return { report: await fullView(out.row, p, out.starred) }
   })
 
-  app.post('/:id/run', view, async req => {
+  app.post('/:id/run', reads('view'), async req => {
     const body = RunBody.parse(req.body || {})
     const p = await reportPerson(req)
     const target = await loadTarget(req.params.id, p)
@@ -630,7 +633,7 @@ export default async function reportRoutes(app) {
 
   // One report of a page, run for the screen with the page's period and
   // venues, or the visitor's own. Recorded as a run of that report.
-  app.post('/:id/blocks/:blockId/run', view, async req => {
+  app.post('/:id/blocks/:blockId/run', reads('view'), async req => {
     const body = BlockRunBody.parse(req.body || {})
     const p = await reportPerson(req)
     const page = await loadTarget(req.params.id, p, { page: true })
@@ -648,7 +651,7 @@ export default async function reportRoutes(app) {
     }
   })
 
-  app.post('/:id/export', use, async (req, reply) => {
+  app.post('/:id/export', reads('use'), async (req, reply) => {
     const body = ExportBody.parse(req.body)
     const p = await reportPerson(req)
     // A page is one file only as a PDF: its reports' own files are theirs to download.

@@ -4,6 +4,7 @@
 
 import { useAuth0 } from '@auth0/auth0-react'
 import { useCallback } from 'react'
+import { sharedHeaders, askWho, forgetDevice, PERSON_CODES } from './sharedDevice'
 
 const BASE = '/api'
 
@@ -52,7 +53,30 @@ function authHeaders(token, extra = {}) {
   return {
     'Authorization': `Bearer ${token}`,
     ...(tenantId ? { 'X-Tenant-Id': tenantId } : {}),
+    // A shared device's token and the person switched in (lib/sharedDevice.js).
+    ...sharedHeaders(),
     ...extra,
+  }
+}
+
+/**
+ * On a shared device (migration 280) a change can come back asking who this
+ * is: ask (SharedDeviceLayer's PIN pad), then send it once more. A device
+ * the server no longer knows stops being shared here, and the call goes again.
+ */
+async function sharedRetry(send) {
+  try {
+    return await send()
+  } catch (err) {
+    if (err?.status === 403 && PERSON_CODES.has(err.body?.code)) {
+      await askWho(err.body.code)
+      return send()
+    }
+    if (err?.status === 404 && err.body?.code === 'shared_device_unknown') {
+      forgetDevice()
+      return send()
+    }
+    throw err
   }
 }
 
@@ -74,7 +98,7 @@ export function useApi() {
 
   const call = useCallback(async (method, path, body) => {
     const token = await getAccessTokenSilently()
-    return request(token, method, path, body)
+    return sharedRetry(() => request(token, method, path, body))
   }, [getAccessTokenSilently])
 
   // download: fetches a binary resource with auth and triggers a browser Save dialog.
@@ -99,19 +123,21 @@ export function useApi() {
   // Returns the parsed JSON response (e.g. { url, kind, bytes, mimetype }).
   const upload = useCallback(async (path, file, extraFields = {}) => {
     const token = await getAccessTokenSilently()
-    const fd    = new FormData()
-    fd.append('file', file)
-    for (const [k, v] of Object.entries(extraFields)) {
-      if (v != null) fd.append(k, String(v))
-    }
-    const res = await fetch(`${BASE}${path}`, {
-      method: 'POST',
-      headers: authHeaders(token),   // do NOT set Content-Type; fetch handles the boundary
-      body: fd,
+    return sharedRetry(async () => {
+      const fd    = new FormData()
+      fd.append('file', file)
+      for (const [k, v] of Object.entries(extraFields)) {
+        if (v != null) fd.append(k, String(v))
+      }
+      const res = await fetch(`${BASE}${path}`, {
+        method: 'POST',
+        headers: authHeaders(token),   // do NOT set Content-Type; fetch handles the boundary
+        body: fd,
+      })
+      const data = res.status !== 204 ? await res.json().catch(() => null) : null
+      if (!res.ok) throw new ApiError(res.status, data)
+      return data
     })
-    const data = res.status !== 204 ? await res.json().catch(() => null) : null
-    if (!res.ok) throw new ApiError(res.status, data)
-    return data
   }, [getAccessTokenSilently])
 
   // blob: fetches a file the API serves behind auth (an image to show, a PDF

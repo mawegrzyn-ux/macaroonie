@@ -12,6 +12,7 @@ import backlogRoutes from '../routes/backlog.js'
 import issueLogRoutes from '../routes/issueLog.js'
 import featureRequestsRoutes from '../routes/featureRequests.js'
 import changelogRoutes from '../routes/changelog.js'
+import sharedDeviceRoutes from '../routes/sharedDevices.js'
 
 export const routes = [
   [platformRoutes, { prefix: '/api' }],
@@ -21,4 +22,6 @@ export const routes = [
   [issueLogRoutes, { prefix: '/api/issues' }],
   [featureRequestsRoutes, { prefix: '/api/feature-requests' }],
   [changelogRoutes, { prefix: '/api/changelog' }],
+  // Shared devices and the person switch (migration 280, Pepper-first step 6a)
+  [sharedDeviceRoutes, { prefix: '/api/shared-devices' }],
 ]

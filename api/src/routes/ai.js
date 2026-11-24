@@ -52,14 +52,15 @@ import { sql, withTenant, systemSql, tenantSql } from '../config/db.js'
 import { env } from '../config/env.js'
 import { httpError } from '../middleware/error.js'
 import { requireAuth, requirePermission, requirePlatformAdmin, permissionLevel, newAccessToken } from '../middleware/auth.js'
-import { ToolError, usageMonth, makeContext, callApi } from '../ai/context.js'
+import { FREE } from '../middleware/sharedDevice.js'
+import { ToolError, usageMonth, makeContext, callApi, staffAuthOf, staffPrincipalOf } from '../ai/context.js'
 import {
   getAiSettings, saveAiSettings, monthUsage, chatConfigured, chatUnitsLeft, personUnitsLeft, dailyShare, peopleUsage,
 } from '../ai/settings.js'
 import { activeKey, keyInfo, checkKey, saveKey, removeKey } from '../ai/apiKey.js'
 import {
   createConversation, loadConversation, runTurn, confirmAction, cancelAction, displayItems, chatContext, isRunning,
-  saveFormCard, FORM_SUMMARY_MAX, undoAction, undoUntil, WAIT_DAYS,
+  saveFormCard, FORM_SUMMARY_MAX, undoAction, undoUntil, WAIT_DAYS, CHECK_TOOLS,
 } from '../ai/chat.js'
 import { audienceTools } from '../ai/tools/index.js'
 import { ACTION_LABELS } from '../../../shared/pepperActions.js'
@@ -141,6 +142,16 @@ async function ownConversation(req, id) {
 
 const closedNow = async (req, conv) => !!(await loadConversation(req.tenantId, conv.id))?.closed_at
 
+/** A till PIN on a shared device may answer a check card only (CHECK_TOOLS:
+ *  docs/PEPPER_FIRST.md 13 decision 6); any other card needs an office PIN. */
+async function checkCardOnly(req) {
+  const id = z.string().uuid().safeParse(req.params?.id)
+  if (!id.success || !req.tenantId) return false
+  const [a] = await withTenant(req.tenantId, tx => tx`
+    SELECT tool FROM ai_pending_actions WHERE id = ${id.data} AND tenant_id = ${req.tenantId}`)
+  return !!a && CHECK_TOOLS.has(a.tool)
+}
+
 async function actionConversation(req, actionId) {
   const [a] = await withTenant(req.tenantId, tx => tx`
     SELECT conversation_id FROM ai_pending_actions WHERE id = ${actionId} AND tenant_id = ${req.tenantId}
@@ -201,7 +212,9 @@ export default async function aiRoutes(app) {
   // With Accept: text/event-stream the turn streams (src/ai/sse.js): start,
   // text, activity, step, card, discard, then done (the same body the JSON
   // reply has) or error.
-  app.post('/chat', async (req, reply) => {
+  // The chat, its files, Cancel and a form card's saved line change nothing
+  // themselves: no person needed on a shared device. Confirm and Undo do.
+  app.post('/chat', { config: { sharedDevice: FREE } }, async (req, reply) => {
     const body = ChatBody.parse(req.body)
     await staffChatAllowed(req)
     let conv
@@ -242,7 +255,7 @@ export default async function aiRoutes(app) {
   })
 
   // ── Attached files ──────────────────────────────────────
-  app.post('/attachments', async (req, reply) => {
+  app.post('/attachments', { config: { sharedDevice: FREE } }, async (req, reply) => {
     await staffChatAllowed(req)
     if (!req.isMultipart()) throw httpError(400, 'Expected multipart/form-data')
     let file = null
@@ -274,13 +287,13 @@ export default async function aiRoutes(app) {
       .send(file.data)
   })
 
-  app.delete('/attachments/:id', async req => {
+  app.delete('/attachments/:id', { config: { sharedDevice: FREE } }, async req => {
     const id = z.string().uuid().safeParse(req.params.id)
     if (!id.success || !(await deleteUnsent(req.tenantId, req.user.sub, id.data))) throw httpError(404, 'File not found')
     return { ok: true }
   })
 
-  app.post('/actions/:id/confirm', async req => {
+  app.post('/actions/:id/confirm', { config: { sharedDevice: { till: checkCardOnly } } }, async req => {
     await staffChatAllowed(req)
     // via: 'voice' = a spoken yes (talk mode): only check cards, only when the
     // group allows it (confirmAction() checks both).
@@ -304,21 +317,21 @@ export default async function aiRoutes(app) {
   // Undo on a done card (step 4d): a reversible change, within UNDO_MINUTES,
   // the person's own card only (another person's is not found). No model call,
   // so it needs only access to Pepper, not the chat being set up.
-  app.post('/actions/:id/undo', async req => {
+  app.post('/actions/:id/undo', { config: { sharedDevice: { till: checkCardOnly } } }, async req => {
     if (await permissionLevel(req, 'ai_assistant') === 'none') throw httpError(403, 'You don\'t have access to ' + ASSISTANT_NAME + '.')
     const conv = await actionConversation(req, req.params.id)
     await run(() => undoAction(chatContext(app, conv, { req }), conv, req.params.id))
     return { conversation_id: conv.id, closed: await closedNow(req, conv), items: await displayItems(conv) }
   })
 
-  app.post('/actions/:id/cancel', async req => {
+  app.post('/actions/:id/cancel', { config: { sharedDevice: FREE } }, async req => {
     const conv = await actionConversation(req, req.params.id)
     await run(() => cancelAction(chatContext(app, conv, { req }), conv, req.params.id))
     return { conversation_id: conv.id, closed: await closedNow(req, conv), items: await displayItems(conv) }
   })
 
   // A form opened from a form card was saved: what was saved, for the card.
-  app.post('/conversations/:id/forms/:toolUseId', async req => {
+  app.post('/conversations/:id/forms/:toolUseId', { config: { sharedDevice: FREE } }, async req => {
     await staffChatAllowed(req)
     const { summary } = z.object({ summary: z.string().trim().min(1).max(FORM_SUMMARY_MAX * 2) }).parse(req.body ?? {})
     const toolUseId = z.string().max(120).regex(/^[A-Za-z0-9_-]+$/).parse(req.params.toolUseId)
@@ -549,8 +562,8 @@ export default async function aiRoutes(app) {
 
     const ctx = makeContext({
       app, channel: 'staff_chat', tenantId: req.tenantId, log: req.log,
-      auth: { authorization: req.headers.authorization },
-      principal: { sub: req.user.sub, email: req.user.email, isPlatformAdmin: !!req.isPlatformAdmin },
+      auth: staffAuthOf(req),
+      principal: staffPrincipalOf(req),
       actor: req.user.email || req.user.sub,
     })
     const part = async (name, fn) => {

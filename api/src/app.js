@@ -15,6 +15,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { env }          from './config/env.js'
 import { errorHandler } from './middleware/error.js'
 import { refuseOtherTenantsVenues } from './middleware/venue.js'
+import { recordSharedChange } from './middleware/sharedDevice.js'
 import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from './middleware/auth.js'
 
 // The plugins whose place matters stay here: the host sites (their global
@@ -59,6 +60,9 @@ export async function buildApp() {
   // last, so it runs after the plugin's requireAuth has set req.tenantId.
   const routeList = []
   app.decorate('routeList', routeList)
+  // Each change made on a shared device, with the person it was made as
+  // (middleware/sharedDevice.js, migration 280).
+  app.addHook('onResponse', recordSharedChange)
   app.addHook('onRoute', r => {
     for (const method of [].concat(r.method)) routeList.push({ method, url: r.url })
     const pre = [].concat(r.preHandler || [])

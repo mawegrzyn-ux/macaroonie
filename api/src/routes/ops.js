@@ -26,7 +26,7 @@ import { requireAuth, permissionLevels } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { tenantSql, withTenant } from '../config/db.js'
 import { permissionAtLeast, workLevel } from '../config/modules.js'
-import { makeContext } from '../ai/context.js'
+import { makeContext, staffAuthOf, staffPrincipalOf } from '../ai/context.js'
 import { opsToday, OPS_MODULES, AREAS, moduleOf } from '../services/opsToday.js'
 import { changeTask, taskHistory, canChange, personName, localParts, TaskError } from '../services/opsTasks.js'
 import { REASON_MAX, SNOOZE_MAX_MINUTES } from '../../../shared/todayTasks.js'
@@ -60,8 +60,8 @@ export default async function opsRoutes(app) {
 
   const contextFor = req => makeContext({
     app, channel: 'staff_chat', tenantId: req.tenantId, log: req.log,
-    auth: { authorization: req.headers.authorization },
-    principal: { sub: req.user.sub, email: req.user.email, isPlatformAdmin: !!req.isPlatformAdmin },
+    auth: staffAuthOf(req),
+    principal: staffPrincipalOf(req),
     actor: req.user.email || req.user.sub,
   })
 
@@ -107,7 +107,9 @@ export default async function opsRoutes(app) {
     if (b.action === 'snooze' && !b.minutes && !b.until) throw httpError(422, 'Say how long to snooze it for.')
     const [me] = await withTenant(req.tenantId, tx => tx`
       SELECT full_name, email FROM users WHERE tenant_id = ${req.tenantId} AND auth0_user_id = ${req.user.sub} LIMIT 1`)
-    const who = { sub: req.user.sub, name: me ? personName(me) : (req.user.email || null) }
+    // On a shared device the task log names the person switched in (migration 280).
+    const who = req.acting ? { sub: req.acting.sub, name: req.acting.name }
+      : { sub: req.user.sub, name: me ? personName(me) : (req.user.email || null) }
     try {
       const saved = await changeTask(req.tenantId, who, venue, task, feed.date, feed.is_today, {
         action: b.action, owner, minutes: b.minutes, until: b.until, reason: b.reason,
