@@ -1,7 +1,7 @@
 // src/pages/Settings.jsx
 // Global app settings — theme colour, status colours, timeline background, timeline defaults.
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { Eye, EyeOff, Layers, Columns, Check, RotateCcw } from 'lucide-react'
 import {
   useSettings,
@@ -16,7 +16,9 @@ import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { cn } from '@/lib/utils'
 import NoticeSettings from '@/components/notices/NoticeSettings'
 import { SharedDeviceSettings, OfficePinSettings } from '@/components/SharedDevice'
-import { CustomFieldSettings } from '@/components/forms/CustomFields'
+// Loaded when Settings opens (the main bundle stays under the precache limit).
+const CustomFieldSettings = lazy(() => import('@/components/forms/CustomFields').then(m => ({ default: m.CustomFieldSettings })))
+const RuleSettings = lazy(() => import('@/components/ai/RuleSettings').then(m => ({ default: m.RuleSettings })))
 
 // ── Shared layout primitives ───────────────────────────────────
 
@@ -358,7 +360,13 @@ export default function Settings() {
             Fields you add to customers, staff, suppliers and inventory items. They show on each one's page and on the
             new supplier and staff forms, reports can show them, and Pepper fills them by name.
           </p>
-          <CustomFieldSettings />
+          <Suspense fallback={null}><CustomFieldSettings /></Suspense>
+        </div>
+
+        {/* ── Rules made from a sentence (migration 286, Pepper-first step 8B2) ── */}
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold">Rules</h2>
+          <Suspense fallback={null}><RuleSettings /></Suspense>
         </div>
 
         {/* ── Interface ────────────────────────────────────── */}

@@ -15,6 +15,7 @@ import { CHECK, whoDid } from '../middleware/sharedDevice.js'
 import { httpError } from '../middleware/error.js'
 import { ITEM_SOURCES, loadCookingPicker } from '../services/cookingItems.js'
 import { loadMenuVersions } from '../services/menuReleases.js'
+import { fireRulesLater } from '../ai/ruleRunner.js'
 
 const EQUIPMENT_TYPES = ['fridge', 'freezer', 'hot_hold', 'cold_hold', 'other']
 
@@ -401,9 +402,10 @@ export default async function foodSafetyRoutes(app) {
     const body = TempLogBody.parse(req.body)
 
     const [eq] = await withTenant(req.tenantId, tx => tx`
-      SELECT id, min_temp_c, max_temp_c FROM fs_equipment
-       WHERE id = ${body.equipment_id} AND tenant_id = ${req.tenantId}
-         AND venue_id = ${body.venue_id}
+      SELECT e.id, e.name, e.min_temp_c, e.max_temp_c, v.name AS venue_name FROM fs_equipment e
+        JOIN venues v ON v.id = e.venue_id AND v.tenant_id = e.tenant_id
+       WHERE e.id = ${body.equipment_id} AND e.tenant_id = ${req.tenantId}
+         AND e.venue_id = ${body.venue_id}
     `)
     if (!eq) throw httpError(404, 'Equipment not found')
 
@@ -442,6 +444,12 @@ export default async function foodSafetyRoutes(app) {
         recorded_at       = now()
       RETURNING *
     `)
+    // The group's rules on readings (step 8B2), after the reading is saved: never waited for.
+    fireRulesLater(app, req.tenantId, {
+      trigger: 'fridge_reading', key: row.id + ':' + body.temperature_c, day: logDate,
+      venue_id: body.venue_id, venue: eq.venue_name, equipment: eq.name,
+      temperature: Number(body.temperature_c), in_range: !!inRange, date: logDate,
+    }, req.log)
     return row
   })
 

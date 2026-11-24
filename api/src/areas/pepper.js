@@ -16,6 +16,7 @@ import formDraftRoutes from '../routes/formDrafts.js'
 import captureRoutes from '../routes/captures.js'
 import plainFormRoutes from '../routes/plainForms.js'
 import customFieldRoutes from '../routes/customFields.js'
+import ruleRoutes from '../routes/rules.js'
 
 export const routes = [
   // AI: MCP connectors (guest + staff) and the chats (migration 148)
@@ -34,4 +35,6 @@ export const routes = [
   [plainFormRoutes, { prefix: '/api/forms' }],
   // A group's own fields on customers, staff, suppliers and inventory items (migration 285, step 8B1)
   [customFieldRoutes, { prefix: '/api/custom-fields' }],
+  // Rules made from a sentence (migration 286, step 8B2): under /api/ai/ for the model call
+  [ruleRoutes, { prefix: '/api/ai/rules' }],
 ]

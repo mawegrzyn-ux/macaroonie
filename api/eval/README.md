@@ -40,6 +40,7 @@ Add an object to the file of its area (or a new file, listed in `loadTasks()`):
   expect: 'change',                           // or 'nothing' with watch: ['table', ...], or 'answer'
   async check(ctx, chat) { /* true, or a sentence saying what is wrong */ },
   reference: ctx => [{ tool: 'log_temperature', input: { venue_id: ctx.venue.id, fridge: 'Walk-in', temperature_c: 3 } }],
+  readers: ctx => [body => ({ ... })],        // optional: what a tool's own model call answers (make_rule's reader)
 }
 ```
 
@@ -50,6 +51,9 @@ Add an object to the file of its area (or a new file, listed in `loadTasks()`):
 - `reference` is what a right answer does: the stand-in model makes exactly those calls in the
   test. Run `node --import ./test/support/register.mjs --test --test-force-exit test/pepper-eval.test.mjs`
   in `api/` (about 90 seconds): the task must pass with it and its check must fail before it.
+- A tool that asks the model itself (make_rule reads the sentence with `askForJson()`) needs
+  `readers`: the stand-in answers those calls with them, in order, after the reference calls
+  (a function gets the request's body, to read a venue's ref off the list it was sent).
 - An "answer" task (a question about the figures) checks `chat.calls`, the tool calls in order
   with what each returned (`{ name, input, result }`): find_fields found the right figure,
   ask_data counted it, or nothing was worked out where nothing is covered.

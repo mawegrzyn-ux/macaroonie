@@ -41,6 +41,7 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission, requireAnyPermission, permissionLevel, permissionLevels } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 import { readSheet, fileText } from '../services/sheetRead.js'
+import { fireRulesLater } from '../ai/ruleRunner.js'
 import {
   fitQty, packsToPar, packLabel, quotePrice, orderTotals, receiveStatusFor, deliveryTempOk, poNumberLabel, fmtNum,
   DELIVERY_TEMP_MAX, RECEIVE_STATUSES, deliveryDateChoices, packBaseQty, UNITS, splitProblem, deliveryDayProblem,
@@ -1668,6 +1669,15 @@ export default async function purchasingRoutes(app) {
     })
     const results = await emailNew(req, created.pos, prices)
     const pos = await withTenant(req.tenantId, tx => poList(tx, req.tenantId, { supplyOrderId: created.orderId }))
+    // The group's rules on placed orders (step 8B2): each new purchase order, never waited for.
+    const fresh = new Set(created.pos.map(p => p.id))
+    for (const p of pos.filter(x => fresh.has(x.id))) {
+      fireRulesLater(app, req.tenantId, {
+        trigger: 'supplier_order', key: p.id, day: nowAt(p.venue_timezone).date,
+        venue_id: p.venue_id, venue: p.venue_name, supplier: p.supplier_name, number: poNumberLabel(p.number),
+        total: Number(p.total) || 0, delivery_date: p.delivery_date,
+      }, req.log)
+    }
     return {
       order_id: created.orderId, results, added_to: created.added,
       purchase_orders: pos.map(p => hideMoney(p, prices)),
