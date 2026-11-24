@@ -22,6 +22,7 @@ import * as pepper from './pepper.js'
 import * as purchasing from './purchasing.js'
 import * as runs from './runs.js'
 import * as safety from './safety.js'
+import * as sales from './sales.js'
 import * as screens from './screens.js'
 import * as staff from './staff.js'
 import * as till from './till.js'
@@ -44,6 +45,7 @@ export const FILES = [
   ['purchasing.js', purchasing],
   ['runs.js', runs],
   ['safety.js', safety],
+  ['sales.js', sales],
   ['screens.js', screens],
   ['staff.js', staff],
   ['till.js', till],

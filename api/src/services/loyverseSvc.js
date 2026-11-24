@@ -1,17 +1,19 @@
 // src/services/loyverseSvc.js
 //
-// Loyverse POS (migration 154): the API client, and turning a venue's
-// receipts into trading-day figures for Cash Reconciliation. The figure
-// maths lives in shared/loyverse.js (also used by the admin).
+// Loyverse POS (migration 154): the API client for the account set-up
+// (token check, stores, the Cash Recon mapping editor's lists) and the
+// trading day. Since sales import phase 4 the Cash Recon fill reads the
+// stored receipts (services/storedSales.js, dayFiguresFromStored() in
+// shared/externalSales.js), never /receipts live; the sync reads receipts
+// through services/connectors/loyverse.js.
 //
 // Loyverse API v1.0: Bearer access token, JSON, money as decimal amounts
 // in the account's currency, lists paged with `cursor` (limit up to 250).
-// Endpoints used: /merchant, /stores, /payment_types, /categories, /items,
-// /receipts. LOYVERSE_API_URL points somewhere else only for tests.
+// Endpoints used: /merchant, /stores, /payment_types, /categories, /items.
+// LOYVERSE_API_URL points somewhere else only for tests.
 
 import { env } from '../config/env.js'
 import { zonedToUtc } from './orderSvc.js'
-import { summariseReceipts, needsCategories } from '../../../shared/loyverse.js'
 
 export class LoyverseError extends Error {
   constructor(message, { tokenProblem = false } = {}) {
@@ -24,10 +26,6 @@ export class LoyverseError extends Error {
 const TIMEOUT_MS = 20000
 const PAGE = 250
 const MAX_PAGES = 200
-// Receipts made offline reach Loyverse when the till next syncs, so their
-// created_at can be later than the sale: read this much past the window and
-// place each receipt by its receipt_date.
-const LATE_SYNC_MS = 2 * 24 * 3600 * 1000
 
 async function lvGet(token, path, query = {}) {
   const url = new URL(env.LOYVERSE_API_URL.replace(/\/+$/, '') + path)
@@ -133,36 +131,4 @@ export function tradingDay(dateStr, tz, dayStartsAt = '00:00') {
     start: zonedToUtc(dateStr, dayStartsAt, tz),
     end:   zonedToUtc(nextDate(dateStr), dayStartsAt, tz),
   }
-}
-
-/**
- * Day figures for each date (consecutive 'YYYY-MM-DD', oldest first) from
- * one store: { [date]: figures } (see summariseReceipts()). One receipts
- * read covers every date.
- */
-export async function venueDays({ token, storeId, timezone, dayStartsAt, dates, mappings }) {
-  const windows = dates.map(d => ({ date: d, ...tradingDay(d, timezone || 'UTC', dayStartsAt) }))
-  const first = windows[0].start
-  const last  = windows[windows.length - 1].end
-
-  const [receipts, itemCategory] = await Promise.all([
-    listAll(token, '/receipts', 'receipts', {
-      store_id:       storeId,
-      created_at_min: first.toISOString(),
-      created_at_max: new Date(last.getTime() + LATE_SYNC_MS).toISOString(),
-    }),
-    needsCategories(mappings)
-      ? listAll(token, '/items', 'items').then(items => Object.fromEntries(items.map(i => [i.id, i.category_id])))
-      : Promise.resolve(null),
-  ])
-
-  const byDate = Object.fromEntries(dates.map(d => [d, []]))
-  for (const r of receipts) {
-    if (r.store_id && r.store_id !== storeId) continue
-    const at = new Date(r.receipt_date || r.created_at)
-    if (isNaN(at.getTime())) continue
-    const w = windows.find(x => at >= x.start && at < x.end)
-    if (w) byDate[w.date].push(r)
-  }
-  return Object.fromEntries(dates.map(d => [d, summariseReceipts(byDate[d], itemCategory)]))
 }

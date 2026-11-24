@@ -157,9 +157,13 @@ export function SummaryRow({ label, days, render }) {
  *   subtitle     data -> text under the title
  *   hasSales     day -> bool (days ticked by default on a week)
  *   summary      (days, currency) -> <SummaryRow>s about the source's day
- *   notices      data -> node shown above the table (warnings)
+ *   notices      (data, refetch) -> node shown above the table (warnings)
+ *   fillable     day -> bool (default every day): a day it says no to is
+ *                never ticked (Loyverse: a day not synced yet)
  */
-export function ReconFillModal({ source, venueId, dates, onClose, onApplied, termLabel, subtitle, hasSales, summary, notices }) {
+const SKIP_WORDS = { submitted: 'submitted', not_synced: 'not synced yet', no_sales: 'no sales', not_yet: 'not over yet' }
+
+export function ReconFillModal({ source, venueId, dates, onClose, onApplied, termLabel, subtitle, hasSales, summary, notices, fillable = () => true }) {
   const api = useApi()
   const qc = useQueryClient()
   const from = dates[0], to = dates[dates.length - 1]
@@ -176,7 +180,7 @@ export function ReconFillModal({ source, venueId, dates, onClose, onApplied, ter
   useEffect(() => {
     if (!data) return
     setPicked(new Set(data.days
-      .filter(d => d.status !== 'submitted' && (dates.length === 1 || hasSales(d)))
+      .filter(d => d.status !== 'submitted' && fillable(d) && (dates.length === 1 || hasSales(d)))
       .map(d => d.date)))
   }, [data, dates.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -222,7 +226,7 @@ export function ReconFillModal({ source, venueId, dates, onClose, onApplied, ter
         <div className="overflow-auto flex-1">
           {isLoading && <div className="p-8 flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin" /> Reading {source.name}…</div>}
           {error && <div className="m-4 rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive flex items-start gap-2"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />{error.message}</div>}
-          {data && notices?.(data)}
+          {data && notices?.(data, refetch)}
           {data && fields.length === 0 && (
             <div className="m-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
               Nothing is mapped yet. Map fields in {source.settingsHint}.
@@ -241,6 +245,8 @@ export function ReconFillModal({ source, venueId, dates, onClose, onApplied, ter
                         <div className="text-xs font-semibold">{dayLabel(d.date)}</div>
                         {locked ? (
                           <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-green-700 min-h-[48px]"><Lock className="w-3 h-3" /> Submitted</div>
+                        ) : !fillable(d) ? (
+                          <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-amber-700 min-h-[48px]" data-testid="fill-not-synced"><AlertTriangle className="w-3 h-3" /> Not synced yet</div>
                         ) : (
                           <button type="button" onClick={() => toggle(d.date)} aria-pressed={!!on} disabled={!!result}
                             className={cn('mt-1 w-full min-h-[48px] rounded-xl border text-xs font-medium touch-manipulation flex items-center justify-center gap-1',
@@ -271,6 +277,7 @@ export function ReconFillModal({ source, venueId, dates, onClose, onApplied, ter
                           const v = d.values[f.key]
                           const val = v[source.valueKey]
                           const same = v.current != null && Math.abs(v.current - val) < 0.005
+                          if (!fillable(d)) return <td key={d.date} className="px-2 py-2 text-right align-top text-muted-foreground">—</td>
                           return (
                             <td key={d.date} className="px-2 py-2 text-right align-top tabular-nums">
                               <div className={cn('font-semibold', val < 0 && 'text-red-700')}>{money(val, currency)}</div>
@@ -295,7 +302,7 @@ export function ReconFillModal({ source, venueId, dates, onClose, onApplied, ter
           {result ? (
             <div className="text-sm flex-1 min-w-0">
               {result.filled.length > 0 && <span className="text-green-700">Filled {result.filled.map(dayLabel).join(', ')}.</span>}
-              {result.skipped.length > 0 && <span className="text-muted-foreground"> Skipped {result.skipped.map(s => dayLabel(s.date)).join(', ')} (submitted).</span>}
+              {result.skipped.length > 0 && <span className="text-muted-foreground"> Skipped {result.skipped.map(s => dayLabel(s.date) + ' (' + (SKIP_WORDS[s.reason] || s.reason) + ')').join(', ')}.</span>}
             </div>
           ) : (
             <div className="text-xs text-muted-foreground flex-1 min-w-0">

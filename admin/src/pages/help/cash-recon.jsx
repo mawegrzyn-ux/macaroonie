@@ -254,10 +254,19 @@ export function Section() {
         (unsubmit first). You can fill the same day again after late sales; it just rewrites the
         mapped lines. A day where refunds were bigger than sales can show a minus figure.
       </P>
+      <P>
+        The figures come from the Loyverse receipts Macaroonie has already stored (the Integrations
+        page keeps them in step with Loyverse), not from Loyverse at the moment you fill, so the
+        window opens quickly and shows the same figures as reports. The top of the window says how
+        far the sync has reached. A day nothing has come in for yet shows <strong>Not synced
+        yet</strong> instead of zeros and can&apos;t be ticked: tap <strong>Sync now</strong>, wait a
+        minute, then <strong>Read again</strong>. A receipt that reaches Loyverse late (a till that
+        was offline) is picked up by the next sync; fill the day again to take it in.
+      </P>
       <InfoBox type="tip">
-        If Loyverse stops accepting the token (it was deleted or the account changed), the fill
-        window says so and the account shows the error under Loyverse accounts. Make a new token
-        in Loyverse and use <strong>Replace token</strong>.
+        If Loyverse stops accepting the token (it was deleted or the account changed), syncing
+        stops and the Integrations page shows the error. Make a new token in Loyverse and use{' '}
+        <strong>Replace token</strong>.
       </InfoBox>
       <H3>Fill from GloriaFood</H3>
       <P>

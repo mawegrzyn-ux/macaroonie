@@ -144,6 +144,26 @@ export function Section() {
         confirm first. Anyone with Cash reconciliation can look, see suggestions and preview a copy;
         Manage saves and deletes rules, accepts suggestions, asks Pepper and copies.
       </InfoBox>
+      <H3>Where the imported sales show</H3>
+      <P>
+        Once a venue&apos;s receipts are stored they are read everywhere Macaroonie shows sales:
+      </P>
+      <DataTable
+        head={['Where', 'What you see']}
+        rows={[
+          ['Reports', 'Three subjects under Till sales put your own till and the other till together, with a Till column saying which: Sales, every till (checks and receipts), Dishes sold, every till (mapped items as your dishes, the rest by the name they were sold under, a category bucket under its section) and Payments, every till. The Till sales subjects you had before stay your own till only.'],
+          ['Mapping coverage', 'A figure on Dishes sold, every till: the share of the other till\'s item sales that is mapped, kept as sold or counted under a section, over the report\'s days (the Item mapping page shows the same over the last 30 days).'],
+          ['Cash Recon', 'Fill from Loyverse reads the stored receipts (see Cash Recon, Fill from Loyverse).'],
+          ['Home', 'The day at a glance shows the day\'s sales by till, for people who can see Till reports.'],
+          ['Pepper', 'Ask "what did Ware take yesterday?": for a venue on Loyverse Pepper answers from the stored receipts and says so. Questions about sales across tills are answered from the subjects above.'],
+        ]}
+      />
+      <P>
+        Sales count the way your own till counts them: receipts that weren&apos;t cancelled, on the
+        trading day they fall on. A Loyverse refund is a receipt of its own on the day it was made,
+        counted under Refunded, never taken off the day&apos;s sales. Money is what each till
+        recorded. Another till&apos;s tip is shown on the receipt&apos;s biggest payment.
+      </P>
     </section>
   )
 }

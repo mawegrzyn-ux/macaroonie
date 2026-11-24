@@ -12,14 +12,17 @@
 //                        grid; opens LoyverseFillModal: Loyverse figures
 //                        next to what Cash Recon has, tick days, Fill.
 //
-// Figures and labels come from shared/loyverse.js; the server reads
-// Loyverse again on Fill, so what is written never comes from the browser.
+// Figures and labels come from shared/loyverse.js; the server works the
+// figures out again from the stored receipts on Fill (sales import phase 4:
+// nothing is read from Loyverse live), so what is written never comes from
+// the browser. A day not synced yet shows Sync now instead of zeros.
 // The mapping editor and the fill window are shared with GloriaFood
 // (reconShared.jsx).
 
 import { useState, useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { format } from 'date-fns'
 import {
   Loader2, X, Check, AlertTriangle, Search, Download, Wand2, Plug,
 } from 'lucide-react'
@@ -304,13 +307,47 @@ export function LoyverseFillButton({ venueId, dates, onApplied, compact, classNa
 
 const LOYVERSE = { name: 'Loyverse', path: '/loyverse', valueKey: 'loyverse', settingsHint: 'Cash Recon settings > Loyverse' }
 
+/**
+ * Days nothing has synced for yet (the fill reads the stored receipts, sales
+ * import phase 4): they are never filled with zeros. Sync now asks for a
+ * sync of the venue's account; Read again shows what came in.
+ */
+function NotSyncedNotice({ venueId, days, refetch }) {
+  const api = useApi()
+  const [state, setState] = useState(null)       // null | 'busy' | 'asked' | error text
+  if (!days.length) return null
+  async function syncNow() {
+    setState('busy')
+    try { await api.post(`/loyverse/venues/${venueId}/sync`, {}); setState('asked') } catch (e) { setState(e.message) }
+  }
+  const label = d => format(new Date(d.date + 'T12:00:00'), 'EEE d MMM')
+  return (
+    <div className="m-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 flex flex-wrap items-center gap-3" data-testid="loyverse-not-synced">
+      <AlertTriangle className="w-4 h-4 shrink-0" />
+      <div className="flex-1 min-w-[200px]">
+        Loyverse hasn't synced {days.length === 1 ? 'this day' : 'these days'} yet ({days.map(label).join(', ')}), so there is nothing to fill from.
+        {state === 'asked' && ' Sync asked for: press Read again in a minute.'}
+        {state && !['busy', 'asked'].includes(state) && <span className="text-destructive"> {state}</span>}
+      </div>
+      {state === 'asked'
+        ? <button type="button" onClick={() => refetch()} className={btnOutline}>Read again</button>
+        : <button type="button" onClick={syncNow} disabled={state === 'busy'} className={btnOutline}>
+            {state === 'busy' && <Loader2 className="w-4 h-4 animate-spin" />} Sync now
+          </button>}
+    </div>
+  )
+}
+
 export function LoyverseFillModal({ venueId, dates, onClose, onApplied }) {
   return (
     <ReconFillModal
       source={LOYVERSE} venueId={venueId} dates={dates} onClose={onClose} onApplied={onApplied}
       termLabel={t => termLabel(t)}
-      subtitle={data => [data.store_name, 'Trading day from ' + data.day_starts_at].filter(Boolean).join(' · ')}
+      subtitle={data => [data.store_name, 'Trading day from ' + data.day_starts_at,
+        data.synced_to ? 'Synced to ' + format(new Date(data.synced_to), 'd MMM HH:mm') : 'Not synced yet'].filter(Boolean).join(' · ')}
       hasSales={d => d.sales + d.refund_receipts > 0}
+      fillable={d => d.synced !== false}
+      notices={(data, refetch) => <NotSyncedNotice venueId={venueId} days={data.days.filter(d => d.synced === false)} refetch={refetch} />}
       summary={(days, currency) => (
         <>
           <SummaryRow label="Receipts" days={days} render={d => d.sales + (d.refund_receipts ? ` + ${d.refund_receipts} refund${d.refund_receipts === 1 ? '' : 's'}` : '')} />

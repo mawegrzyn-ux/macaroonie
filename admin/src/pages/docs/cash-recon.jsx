@@ -307,7 +307,7 @@ export function Section() {
         Mapping: <Mono>{'{ income: { sourceId: [term] }, takings: { channelId: [term] }, sc: { sourceId: [term] } }'}</Mono>,
         term <Mono>{'{ sign: 1 | -1, kind, ref?, label? }'}</Mono>. A field's value is the signed
         sum of its terms; a field with no terms is never written. All figure maths is in{' '}
-        <Mono>shared/loyverse.js</Mono> (<Mono>summariseReceipts()</Mono>, <Mono>sumTerms()</Mono>,{' '}
+        <Mono>shared/loyverse.js</Mono> (<Mono>sumTerms()</Mono>, <Mono>needsCategories()</Mono>,{' '}
         <Mono>termLabel()</Mono>, <Mono>TOTAL_KINDS</Mono>, <Mono>REF_KINDS</Mono>), in pence.
       </P>
       <DataTable
@@ -319,23 +319,27 @@ export function Section() {
           ['net_sales', 'gross_sales - refunds - discounts (the Loyverse sales summary definition).'],
           ['total_collected', 'Receipt total_money: sales minus refunds.'],
           ['item (ref = item_id)', 'Line total_money (after discounts) for that item: sales minus refunds.'],
-          ['category (ref = category_id)', 'Same, for every item whose category is ref (item to category from GET /items, only read when a mapping uses a category).'],
+          ['category (ref = category_id)', 'Same, for every item whose category is ref (item to category from the stored catalogue, ext_catalog, only read when a mapping uses a category).'],
           ['payment_type (ref = payment_type_id)', 'payments[].money_amount for that type: sales minus refunds.'],
         ]}
       />
       <P>
-        Receipts: <Mono>services/loyverseSvc.js</Mono> <Mono>venueDays()</Mono> reads{' '}
-        <Mono>GET /receipts?store_id=&amp;created_at_min=&amp;created_at_max=</Mono> once for the
-        whole run of days (cursor paging, 250 a page), with <Mono>created_at_max</Mono> two days past
-        the last day so receipts a till synced late are found, then places each receipt by{' '}
-        <Mono>receipt_date</Mono> in a trading day: <Mono>[day_starts_at on the date,
-        day_starts_at the next day)</Mono> in the venue time zone (<Mono>tradingDay()</Mono>, via{' '}
-        <Mono>zonedToUtc()</Mono>). Cancelled receipts (<Mono>cancelled_at</Mono>) are left out;
-        refunds count on the day they were refunded; refund amounts are taken as positive
-        whichever way they are signed. Base URL <Mono>LOYVERSE_API_URL</Mono> (default{' '}
-        <Mono>https://api.loyverse.com/v1.0</Mono>, changed only for tests). Loyverse failures become
-        a 422 with a plain message (<Mono>LoyverseError</Mono>); a rejected token also sets the
-        connection's <Mono>last_error</Mono>.
+        Receipts (since sales import phase 4): the fill reads the receipts the sync has stored, never
+        Loyverse. <Mono>services/storedSales.js</Mono> <Mono>storedDays()</Mono> reads the venue&apos;s{' '}
+        <Mono>ext_checks</Mono> (by <Mono>business_date</Mono>, set at sync from{' '}
+        <Mono>receipt_date</Mono> and the link&apos;s <Mono>day_starts_at</Mono> in the venue time zone)
+        with their item lines and payments, item categories from <Mono>ext_catalog</Mono> when a mapping
+        uses a category, and sums each day with <Mono>dayFiguresFromStored()</Mono>{' '}
+        (<Mono>shared/externalSales.js</Mono>, the one rule; it replaced <Mono>summariseReceipts()</Mono>{' '}
+        and gives the same figures). Cancelled receipts are left out; refunds count on the day they were
+        refunded; refund amounts are taken as positive whichever way they are signed. A day with nothing
+        stored that the sync hasn&apos;t passed (<Mono>dayCovered()</Mono>) is <Mono>not_synced</Mono>: the
+        preview marks it, apply refuses it (422, or skipped as not_synced among other days), and{' '}
+        <Mono>POST /api/loyverse/venues/:venueId/sync</Mono> (Cash Recon use) asks for a sync. A late
+        receipt is stored by the next sync; filling the day again takes it in with no call to Loyverse.
+        The account set-up (token check, stores, the mapping editor&apos;s lists from{' '}
+        <Mono>GET .../catalog</Mono>) still calls Loyverse (<Mono>LOYVERSE_API_URL</Mono>; failures become
+        a 422 with a plain message, <Mono>LoyverseError</Mono>).
       </P>
       <DataTable
         head={['Route (/api/loyverse)', 'Access', 'What it does']}
