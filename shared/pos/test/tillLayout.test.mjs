@@ -160,6 +160,12 @@ test('the top bar, the Order zone\'s own buttons, the Dish choices zones\' switc
   assert.equal(actionOf('till_menu').check, false, 'the till menu works with no order')
   assert.equal(actionOf('menus').check, false, 'Menus (which menus show) works with no order')
   assert.equal(buttonLabel({ action: 'menus' }), 'Menus')
+  // Back reads as going back to the tables or the orders (the till says which; the designer both).
+  assert.equal(actionOf('back').label, 'Back to tables / orders')
+  assert.equal(buttonLabel({ action: 'back' }), 'Back to tables / orders')
+  assert.equal(buttonLabel({ action: 'back' }, { backTo: 'tables' }), 'Back to tables')
+  assert.equal(buttonLabel({ action: 'back' }, { backTo: 'orders' }), 'Back to orders')
+  assert.equal(buttonLabel({ action: 'back', label: 'Floor' }, { backTo: 'orders' }), 'Floor', 'its own words win')
   assert.equal(actionOf('sign_out').check, false)
   for (const cb of CHECK_BUTTONS) assert.ok(actionOf(cb.action), cb.key + ' has a button action that does its job')
 

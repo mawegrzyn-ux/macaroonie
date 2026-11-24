@@ -302,7 +302,9 @@ export const BUTTON_ACTIONS = [
   { key: 'cancel_order', label: 'Cancel order', check: true, group: 'Order' },
   { key: 'no_sale', label: 'No sale (open drawer)', check: false, group: 'Till' },
   { key: 'menus', label: 'Menus', check: false, group: 'Till' },
-  { key: 'back', label: 'Back', check: false, group: 'Till' },
+  // Off the order, back to the floor (a till with tables) or the orders list
+  // (a till without, or a counter till): buttonLabel() names it for the till.
+  { key: 'back', label: 'Back to tables / orders', check: false, group: 'Till' },
   { key: 'till_menu', label: 'Till menu', check: false, group: 'Till' },
   { key: 'sign_out', label: 'Sign out', check: false, group: 'Till' },
   { key: 'open_popup', label: 'Open a pop-up', check: false, group: 'Pop-ups' },
@@ -1062,9 +1064,20 @@ class Grid {
   block(x, y) { this.taken.add(y * 1000 + x) }
 }
 
-/** A button's words: its own label, else from what it does. */
-export function buttonLabel(b, { items = {}, presets = [], tenders = [], charges = [], popups = [] } = {}) {
+/**
+ * Where the Back button goes on a till: 'tables' (a table-service till with
+ * its tables) or 'orders' (one without tables, or a counter till).
+ */
+export const BACK_TO = { tables: 'Back to tables', orders: 'Back to orders' }
+
+/**
+ * A button's words: its own label, else from what it does. backTo names the
+ * Back button for the till drawing it (BACK_TO; the designer, which serves
+ * every till, leaves it out and gets the action's own words).
+ */
+export function buttonLabel(b, { items = {}, presets = [], tenders = [], charges = [], popups = [], backTo = null } = {}) {
   if (b?.label) return b.label
+  if (b?.action === 'back' && BACK_TO[backTo]) return BACK_TO[backTo]
   if (b?.action === 'item') return items[b.item_id]?.name || 'Dish no longer on the menu'
   if (b?.action === 'open_popup') {
     const p = popups.find(x => x.id === b.popup_id)

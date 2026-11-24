@@ -74,7 +74,7 @@ import { useChoiceBuilder, ChoiceZone } from './LayoutChoices.jsx'
 import { DraftContext } from './DraftLine.jsx'
 import { soldOutMap } from '../lib/store.js'
 import { menuTimesText } from '../lib/tillMenus.js'
-import { listCharges, seatCourseParts, defaultStreamId } from '../lib/checkOps.js'
+import { listCharges, seatCourseParts, defaultStreamId, tablesOn } from '../lib/checkOps.js'
 
 // The category and the pop-up open in each layout, kept while the till app
 // runs. Each layout has its own (the key names it): when the till's layout
@@ -329,9 +329,11 @@ function ButtonsZone({ zone, layoutId, config, check, soldOut, onDish, onHold, o
   const border = buttonBorderStyle(zone)
   const list = isList(zone)
   const inPopup = zone.type === 'popup'
+  // Back goes to the floor on a till with tables, else to the orders list.
+  const backTo = tablesOn(config) ? 'tables' : 'orders'
   const cells = zone.buttons.map(b => {
     const item = b.action === 'item' ? config.items?.[b.item_id] : null
-    const label = buttonLabel(b, { items: config.items || {}, presets, tenders, charges, popups })
+    const label = buttonLabel(b, { items: config.items || {}, presets, tenders, charges, popups, backTo })
     const action = actionOf(b.action)
     const missing = (b.action === 'item' && !item) || (b.action === 'discount_preset' && !presets.some(p => p.id === b.preset_id))
       || (b.action === 'tender' && !tenders.some(t => t.key === b.tender && t.enabled))
