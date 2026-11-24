@@ -22,6 +22,12 @@
 //               be opened, the menu only what is tidy for a role).
 //   how_do_i    the Help page's passages that best answer a how-to question,
 //               with a link to each (src/ai/helpIndex.js)
+//   what_can_i_do  what can be done with a business object (a supplier, a
+//               booking, a fridge reading) and what this person can do, from
+//               the object registry (shared/registry/, Pepper-first step 8A1):
+//               each change tool by its own class, checks (preconditions:
+//               the "why not" when a rule blocks it) and undo, and the
+//               permission it needs when the person hasn't got it
 
 import { z } from 'zod'
 import { ToolError, isStaff, staffPermissionLevel, levelAtLeast, staffReq } from '../context.js'
@@ -33,6 +39,10 @@ import { officeOrigin } from '../../services/platformHost.js'
 import { navTreeFor, navLinksOf } from '../../services/navTree.js'
 import { searchHelp } from '../helpIndex.js'
 import { DateStr, VenueText, venueFor, mondayOf, shortDate } from './util.js'
+import { findObjects } from '../../../../shared/registry/index.js'
+import { FORMS } from '../../../../shared/forms.js'
+import { MODULES } from '../../config/modules.js'
+import { staffPermissionLevels } from '../context.js'
 
 const LABEL = new Map(ROUTE_CATALOG.map(p => [p.route, p.label]))
 
@@ -108,7 +118,36 @@ export const promptLines = [
     'the page there (the timeline, bookings, rota, food safety, online orders and cash recon).',
   'how_do_i answers "how do I...", "where is..." and "what does... mean" questions about the app from its Help ' +
     'guide, with a link to the steps.',
+  'what_can_i_do answers "what can I do with...", "can I..." and "why can\'t I..." about a thing in the app (a ' +
+    'booking, a supplier, a fridge reading, a cash day): what can change it, what the person may do, and why not.',
 ]
+
+const MODULE_LABEL = Object.fromEntries(MODULES.map(m => [m.key, m.label]))
+const LEVEL_WORDS = { none: 'no access', view: 'View', use: 'Use', manage: 'Manage' }
+// What the Confirm card asks for, by the tool's class (tools/index.js, step 4).
+const CLASS_WORDS = {
+  reversible: 'a card to confirm',
+  consequential: 'a card showing the change, confirmed with a tap',
+  destructive: 'a card confirmed with a typed word, never by voice',
+}
+
+// Other words for a change than its tool's name uses.
+const ACTION_WORDS = {
+  delete: ['remove', 'cancel', 'anonymise'], remove: ['delete', 'cancel'], cancel: ['remove', 'delete'],
+  add: ['create', 'log', 'new', 'record'], create: ['add', 'new'], new: ['add', 'create'], log: ['add', 'record'],
+  change: ['update', 'set', 'edit'], edit: ['update', 'change', 'set'], update: ['change', 'set'],
+  erase: ['anonymise'], forget: ['anonymise'], close: ['close'], open: ['remove'],
+}
+
+/** Does a change's tool fit the words asked ("delete", "submit", or its name)? */
+export function actionMatches(a, text) {
+  const said = searchTerms(String(text).replace(/_/g, ' '))
+  const words = [...new Set(said.flatMap(w => [w, ...(ACTION_WORDS[w] || [])]))]
+  if (!words.length) return true
+  const have = searchWords(a.name.replace(/_/g, ' ') + ' ' + a.title)
+  const same = (x, y) => x === y || wordForms(x).some(f => wordForms(y).includes(f))
+  return words.some(w => have.some(h => same(h, w)))
+}
 
 // The tabs a link can open, by page, for the tool's description.
 const TAB_TEXT = ROUTE_CATALOG
@@ -256,6 +295,89 @@ export const generalTools = [
             : { url: officeOrigin() + a.link }),
         })),
       }
+    },
+  },
+  {
+    name: 'what_can_i_do',
+    activity: 'Looked up what can be done',
+    section: 'general',
+    title: 'What can be done with something',
+    description:
+      'What can be done with a thing in the app (a booking, a customer, a supplier, a staff member, a fridge reading, a ' +
+      'cash day, an expense, a closure, a dish, a menu, a supplier order...) and what this person may do: the changes ' +
+      'Pepper can make to it (by tool name), the card each one shows, the checks each makes before it can run, whether ' +
+      'it can be undone, the forms that edit it and the page that lists it. Use it for "what can I do with suppliers?", ' +
+      '"can I delete a booking?" and "why can\'t I submit the cash-up?": pass the thing in object and, for one change, its ' +
+      'words in action. A change the person can\'t make says which permission it needs (why_not); one a rule can block ' +
+      'lists the rules (before_it_runs). Answer from what it returns; never promise a change it doesn\'t list.',
+    input: z.object({
+      object: z.string().trim().min(2).max(100).describe('The thing, in words: "suppliers", "a booking", "fridge temperatures"'),
+      action: z.string().trim().max(100).optional().describe('One change asked about, in words ("delete", "submit", "add one"), or a tool name'),
+    }),
+    readOnly: true,
+    async run(ctx, input) {
+      if (!isStaff(ctx)) throw new ToolError('Not available here', 403)
+      const found = findObjects(input.object)
+      if (!found.length) {
+        throw new ToolError('Nothing in the app called "' + input.object + '" is described for this. how_do_i may have the steps, ' +
+          'or open_page the page.', 404)
+      }
+      if (found.length > 1) {
+        return { choices: found.slice(0, 8).map(o => o.label), note: 'More than one thing fits: ask which, then call again with its name.' }
+      }
+      const o = found[0]
+      // Loaded when it runs: the registry reads every tool (tools/index.js),
+      // which a tool file mustn't import while the tools are being gathered.
+      const { objectActions } = await import('../registry.js')
+      const actions = objectActions(o)
+      const forms = o.forms.map(k => ({ key: k, ...FORMS[k] }))
+      const page = ROUTE_CATALOG.find(p => p.route === o.page)
+      const modules = [...new Set([...actions.flatMap(a => a.modules), ...forms.map(f => f.module), page?.module].filter(Boolean))]
+      const levels = modules.length ? await staffPermissionLevels(ctx, modules) : {}
+      const has = (mods, need) => !mods.length || mods.some(m => levelAtLeast(levels[m], need))
+      const chat = ctx.channel === 'staff_chat'
+      const link = (label, path) => (chat ? { link: '[' + label + '](' + path + ')' } : { url: officeOrigin() + path })
+
+      const asked = input.action ? actions.filter(a => actionMatches(a, input.action)) : actions
+      const can = [], cant = []
+      for (const a of asked) {
+        const allowed = has(a.modules, a.needs)
+        const line = {
+          change: a.title,
+          tool: a.name,
+          ...(allowed ? { card: CLASS_WORDS[a.class] || CLASS_WORDS.reversible } : {}),
+          ...(a.preconditions.length ? { before_it_runs: a.preconditions } : {}),
+          ...(a.undo ? { undo: 'Can be undone from its card for a few minutes after it is done.' } : {}),
+        }
+        if (allowed) { can.push(line); continue }
+        const theirs = [...new Set(a.modules.map(m => levels[m] || 'none'))]
+        cant.push({
+          ...line,
+          why_not: 'Needs ' + LEVEL_WORDS[a.needs] + ' on ' + a.modules.map(m => MODULE_LABEL[m] || m).join(' or ') +
+            ' (this person has ' + theirs.map(l => LEVEL_WORDS[l] || l).join(', ') + '). An owner or admin can change that on the Access page.',
+        })
+      }
+      const out = {
+        object: o.label,
+        ...(page && has(page.module ? [page.module] : [], 'view') ? { page: page.label, ...link(page.label, o.page) } : {}),
+        ...(o.open ? { opens_one: 'open_page opens its page at a ' + o.open.with.join(', ') } : {}),
+        ...(can.length ? { you_can: can } : {}),
+        ...(cant.length ? { you_cant: cant } : {}),
+        ...(forms.length ? {
+          forms: forms.map(f => ({
+            form: f.key,
+            title: f.title,
+            you: levelAtLeast(levels[f.module], f.edit) ? 'can fill it in (open_form)'
+              : levelAtLeast(levels[f.module], 'view') ? 'can only read it' : 'can\'t open it',
+          })),
+        } : {}),
+      }
+      if (!actions.length) out.note = 'Pepper has no tool that changes ' + o.plural.toLowerCase() + '; that is done on its page.'
+      else if (input.action && !asked.length) {
+        out.note = 'Pepper can\'t "' + input.action + '" ' + o.plural.toLowerCase() + '. What it can do: ' +
+          actions.map(a => a.title).join('; ') + '. Anything else is done on the page, if at all.'
+      }
+      return out
     },
   },
 ]
