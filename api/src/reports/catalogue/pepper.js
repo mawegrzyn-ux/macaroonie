@@ -32,7 +32,8 @@ export const order = 160
  * them): settings (how something is set up) and out ({ reason: [tables] }).
  */
 export const decisions = {
-  settings: ['ai_settings'],
+  // custom_fields (migration 285): a group's own fields; their values are fields of their objects' subjects (index.js customCatalogue()).
+  settings: ['ai_settings', 'custom_fields'],
   out: {
     'Tokens, codes and sessions': ['ai_access_tokens', 'ai_oauth_clients', 'ai_oauth_grants', 'ai_booking_codes', 'ai_booking_grants'],
     // ai_captures (migration 281): a photo, a voice note or a line waiting on For review.

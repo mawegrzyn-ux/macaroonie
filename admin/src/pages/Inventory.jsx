@@ -28,6 +28,7 @@ import {
 } from '@shared/procurement.js'
 import { CatalogueCheckModal, SwitchItemsModal, PriceUpdateModal } from '@/components/purchasing/catalogue'
 import { StockBadge, StockControl } from '@/components/purchasing/stock'
+import { CustomFieldsCard } from '@/components/forms/CustomFields'
 
 const PACK_NAMES = ['Case', 'Box', 'Bag', 'Tray', 'Tub', 'Bottle', 'Tin', 'Jar', 'Pack', 'Crate', 'Sack', 'Each']
 
@@ -304,6 +305,8 @@ function ItemDrawer({ itemId, canEdit, onCreated, onClose, onOpenItem }) {
 
       {item && (
         <>
+          <CustomFieldsCard objectKey="purchasing.items" values={item.custom} canEdit={canEdit}
+            onSave={async custom => refresh(await api.patch('/inventory/items/' + item.id, { custom }))} />
           <Card title="Supplier prices"
             actions={canEdit && <button type="button" className={btn.outline} onClick={() => setQuoteEdit({})}><Plus className="w-4 h-4" />Add price</button>}
             bodyClass="p-0">

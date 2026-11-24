@@ -72,7 +72,7 @@ import {
   minutesToCutoff, deliveryTempOk, receiveStatusFor, poNumberLabel, convertQty, splitProblem,
   deliveryDayProblem, deadlineText, slotText, deadlinePassed, quickOrder, outOfStock,
 } from '../../../../shared/procurement.js'
-import { DateStr, TimeStr, localParts, longDate, pickByName, zonedInstant, remember } from './util.js'
+import { DateStr, TimeStr, localParts, longDate, pickByName, zonedInstant, remember, CustomIn, customPlan } from './util.js'
 
 const Id = z.string().uuid()
 const PackUnit = z.enum(Object.keys(UNITS))
@@ -1420,6 +1420,7 @@ export const purchasingTools = [
       code:       z.string().max(60).optional().describe('Your own item code'),
       notes:      z.string().max(2000).optional(),
       prices:     z.array(PriceInput).max(5).optional(),
+      custom:     CustomIn,
     }),
     confirm: true,
     async describe(ctx, input) {
@@ -1432,6 +1433,7 @@ export const purchasingTools = [
           ...(p.cat ? ['Category: ' + p.cat.name + (p.cat.isNew ? ' (new category)' : '')] : []),
           ...(input.code ? ['Code: ' + input.code] : []),
           ...(input.notes ? ['Notes: ' + input.notes] : []),
+          ...p.custom.lines,
           ...(p.prices.length ? p.prices.flatMap(x => priceLines(x, x.sup.name, p.base, p.cur)) : ['No supplier prices yet (it can\'t be ordered until it has one)']),
         ],
         ...(p.warnings.length ? { warningTitle: 'Check', warnings: p.warnings } : {}),
@@ -1448,6 +1450,7 @@ export const purchasingTools = [
           body: {
             name: input.name, base_unit: p.base, storage: input.storage || 'ambient', category_id: categoryId,
             ...(input.code ? { code: input.code } : {}), ...(input.notes ? { notes: input.notes } : {}),
+            ...(Object.keys(p.custom.values).length ? { custom: p.custom.values } : {}),
           },
         })
         const failed = []
@@ -1484,6 +1487,7 @@ export const purchasingTools = [
       code:       z.string().max(60).nullable().optional(),
       notes:      z.string().max(2000).nullable().optional(),
       active:     z.boolean().optional(),
+      custom:     CustomIn,
     }),
     confirm: true,
     async describe(ctx, input) {
@@ -1652,7 +1656,7 @@ export const purchasingTools = [
     description:
       'Adds a supplier: contact details, how orders reach them (email sent by the system, or print / Excel / PDF ' +
       'sent by staff), order cutoff, lead days, delivery days, minimum order and delivery charge.',
-    input: z.object({ name: z.string().trim().min(1).max(200), ...SupplierFields }),
+    input: z.object({ name: z.string().trim().min(1).max(200), ...SupplierFields, custom: CustomIn }),
     confirm: true,
     async describe(ctx, input) {
       await requireSetup(ctx)
@@ -1660,7 +1664,7 @@ export const purchasingTools = [
       return {
         title: 'Add ' + input.name + ' as a supplier?',
         lines: Object.entries(p.body).filter(([k]) => k !== 'name')
-          .map(([k, v]) => SUPPLIER_LABELS[k] + ': ' + supplierValue(k, v, p.cur)),
+          .map(([k, v]) => SUPPLIER_LABELS[k] + ': ' + supplierValue(k, v, p.cur)).concat(p.custom.lines),
         ...(p.warnings.length ? { warningTitle: 'Check', warnings: p.warnings } : {}),
         confirmLabel: 'Add supplier',
       }
@@ -1669,7 +1673,9 @@ export const purchasingTools = [
       await requireSetup(ctx)
       const p = await newSupplierPlan(ctx, input)
       return audited(ctx, 'add_supplier', input, async () => {
-        const s = await callApi(ctx, 'POST', '/api/suppliers', { body: p.body })
+        const s = await callApi(ctx, 'POST', '/api/suppliers', {
+          body: { ...p.body, ...(Object.keys(p.custom.values).length ? { custom: p.custom.values } : {}) },
+        })
         return { supplier_id: s.id, name: s.name, message: 'Supplier added.' }
       })
     },
@@ -1701,6 +1707,7 @@ export const purchasingTools = [
         delivery_slot_to:      TimeStr.nullable().optional(),
         use_supplier_settings: z.boolean().optional(),
       }).optional(),
+      custom:   CustomIn,
     }),
     confirm: true,
     async describe(ctx, input) {
@@ -2781,7 +2788,8 @@ async function newItemPlan(ctx, input) {
     if (!sup.is_active) warnings.push(sup.name + ' is switched off, so this price won\'t be ordered on until it is back on.')
     return { ...x, sup }
   })
-  return { base, cat, prices, cur, warnings }
+  const custom = await customPlan(ctx, 'purchasing.items', input.custom, { create: true })
+  return { base, cat, prices, cur, warnings, custom }
 }
 
 async function itemChangePlan(ctx, input) {
@@ -2839,6 +2847,8 @@ async function itemChangePlan(ctx, input) {
       }
     }
   }
+  const custom = await customPlan(ctx, 'purchasing.items', input.custom, { current: item.custom })
+  if (custom.lines.length) { body.custom = custom.values; lines.push(...custom.lines) }
   if (!lines.length) throw new ToolError('Nothing to change: ' + item.name + ' already has those details.', 422)
   return { item, body, lines, newCategory }
 }
@@ -2961,7 +2971,8 @@ async function newSupplierPlan(ctx, input) {
   const body = supplierBody({ ...input, name: input.name.trim() })
   const warnings = []
   if ((body.send_method ?? 'email') === 'email' && !body.email) warnings.push('Orders go by email but there\'s no email address yet, so they will wait in To send.')
-  return { body, cur, warnings }
+  const custom = await customPlan(ctx, 'purchasing.suppliers', input.custom, { create: true })
+  return { body, cur, warnings, custom }
 }
 
 /** One venue's supplier settings as the venues PUT takes them (times as HH:MM). */
@@ -3031,6 +3042,8 @@ async function supplierChangePlan(ctx, input) {
       ].join(', '))
     }
   }
+  const custom = await customPlan(ctx, 'purchasing.suppliers', input.custom, { current: sup.custom })
+  if (custom.lines.length) { body.custom = custom.values; lines.push(...custom.lines) }
   if (!lines.length) throw new ToolError('Nothing to change: ' + sup.name + ' already has those details.', 422)
   const sendMethod = body.send_method ?? sup.send_method
   const email = body.email !== undefined ? body.email : sup.email

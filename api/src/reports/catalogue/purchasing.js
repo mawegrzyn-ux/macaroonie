@@ -339,7 +339,8 @@ export const subjects = [
     },
     list: ['name', 'send_method', 'cutoff', 'delivery_days', 'active'],
     sort: [{ by: 'name', dir: 'asc' }],
-    skip: ['cc_emails', 'email_attachment', 'updated_at'],
+    // custom: the group's own fields (migration 285), offered per group (customCatalogue() in index.js).
+    skip: ['cc_emails', 'email_attachment', 'updated_at', 'custom'],
   }),
 
   subject({
@@ -370,7 +371,8 @@ export const subjects = [
     },
     list: ['name', 'category.name', 'code', 'base_unit', 'storage', 'active'],
     sort: [{ by: 'name', dir: 'asc' }],
-    skip: ['updated_at'],
+    // custom: the group's own fields (migration 285), offered per group (customCatalogue() in index.js).
+    skip: ['updated_at', 'custom'],
   }),
 
   subject({

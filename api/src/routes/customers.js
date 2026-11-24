@@ -23,6 +23,7 @@ import { withTenant, sql } from '../config/db.js'
 import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js'
 import { eraseFromAi } from '../ai/erase.js'
 import { forgetPersonalFiles, removeStored } from '../reports/fileErasure.js'
+import { CustomInput, customValues, writeCustom } from '../services/customFields.js'
 
 // Customers permission: view reads (including the booking screens' guest
 // search), manage changes, anonymise and export.
@@ -86,13 +87,21 @@ export default async function customersRoutes(app) {
       phone:       z.string().max(30).nullable().optional(),
       notes:       z.string().max(2000).nullable().optional(),
       visit_count: z.number().int().min(0).optional(),
+      custom:      CustomInput.optional(),
     }).parse(req.body)
 
-    const [created] = await withTenant(req.tenantId, tx => tx`
-      INSERT INTO customers (tenant_id, name, email, phone, notes, visit_count)
-      VALUES (${req.tenantId}, ${body.name}, ${body.email ?? null}, ${body.phone ?? null}, ${body.notes ?? null}, ${body.visit_count ?? 0})
-      RETURNING id, name, email, phone, notes, visit_count, is_anonymised, created_at, updated_at
-    `)
+    const created = await withTenant(req.tenantId, async tx => {
+      const values = await customValues(tx, req.tenantId, 'guests.customers', body.custom, { create: true })
+      const [row] = await tx`
+        INSERT INTO customers (tenant_id, name, email, phone, notes, visit_count)
+        VALUES (${req.tenantId}, ${body.name}, ${body.email ?? null}, ${body.phone ?? null}, ${body.notes ?? null}, ${body.visit_count ?? 0})
+        RETURNING id
+      `
+      await writeCustom(tx, req.tenantId, 'guests.customers', row.id, values)
+      const [out] = await tx`SELECT id, name, email, phone, notes, visit_count, is_anonymised, custom, created_at, updated_at
+                               FROM customers WHERE id = ${row.id} AND tenant_id = ${req.tenantId}`
+      return out
+    })
     return reply.code(201).send(created)
   })
 
@@ -245,7 +254,7 @@ export default async function customersRoutes(app) {
   // Returns the customer + their full booking history.
   app.get('/:id', { preHandler: PERM.view}, async (req) => {
     const [customer] = await withTenant(req.tenantId, tx => tx`
-      SELECT id, name, email, phone, notes, visit_count, is_anonymised, anonymised_at, created_at, updated_at,
+      SELECT id, name, email, phone, notes, visit_count, is_anonymised, anonymised_at, created_at, updated_at, custom,
              marketing_opt_in, marketing_opt_in_at, marketing_opt_in_source, marketing_opt_out_at
         FROM customers
        WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
@@ -276,9 +285,12 @@ export default async function customersRoutes(app) {
       phone:       z.string().max(30).nullable().optional(),
       notes:       z.string().max(2000).nullable().optional(),
       visit_count: z.number().int().min(0).optional(),
+      custom:      CustomInput.optional(),
     }).parse(req.body)
 
-    const [updated] = await withTenant(req.tenantId, tx => tx`
+    const [updated] = await withTenant(req.tenantId, async tx => {
+      const values = await customValues(tx, req.tenantId, 'guests.customers', body.custom)
+      const rows = await tx`
       UPDATE customers
          SET name        = COALESCE(${body.name ?? null}, name),
              email       = CASE WHEN ${body.email !== undefined} THEN ${body.email ?? null} ELSE email END,
@@ -290,7 +302,14 @@ export default async function customersRoutes(app) {
          AND tenant_id = ${req.tenantId}
          AND is_anonymised = false
       RETURNING id, name, email, phone, notes, visit_count, updated_at
-    `)
+    `
+      if (rows[0]) {
+        await writeCustom(tx, req.tenantId, 'guests.customers', rows[0].id, values)
+        const [c] = await tx`SELECT custom FROM customers WHERE id = ${rows[0].id} AND tenant_id = ${req.tenantId}`
+        rows[0].custom = c.custom
+      }
+      return rows
+    })
     if (!updated) throw httpError(404, 'Customer not found or already anonymised')
     return updated
   })
@@ -358,6 +377,7 @@ export default async function customersRoutes(app) {
                email         = ${anonEmail},
                phone         = null,
                notes         = null,
+               custom        = '{}'::jsonb,
                marketing_opt_in = false,
                marketing_opt_in_at = null,
                marketing_opt_in_source = null,

@@ -16,6 +16,7 @@ import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { cn } from '@/lib/utils'
 import NoticeSettings from '@/components/notices/NoticeSettings'
 import { SharedDeviceSettings, OfficePinSettings } from '@/components/SharedDevice'
+import { CustomFieldSettings } from '@/components/forms/CustomFields'
 
 // ── Shared layout primitives ───────────────────────────────────
 
@@ -348,6 +349,16 @@ export default function Settings() {
           <h2 className="text-sm font-semibold">Shared devices</h2>
           <OfficePinSettings />
           <SharedDeviceSettings />
+        </div>
+
+        {/* ── The group's own fields (migration 285, Pepper-first step 8B1) ── */}
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold">Your own fields</h2>
+          <p className="text-xs text-muted-foreground">
+            Fields you add to customers, staff, suppliers and inventory items. They show on each one's page and on the
+            new supplier and staff forms, reports can show them, and Pepper fills them by name.
+          </p>
+          <CustomFieldSettings />
         </div>
 
         {/* ── Interface ────────────────────────────────────── */}

@@ -542,7 +542,7 @@ export function planSpec(catalogue, plan, { report = null, venues = [] } = {}) {
 
 /** Build a report from a plan and run it as the person. See the top of this file. */
 export async function planReport(p, { plan, report = null, venues = [], cap = 200 } = {}) {
-  const catalogue = catalogueView(p.levels)
+  const catalogue = catalogueView(p.levels, p.catalogue)
   const why = planProblems(catalogue, plan)
   if (why) return { ...EMPTY, problem: why.problem, unknown: why.unknown }
 

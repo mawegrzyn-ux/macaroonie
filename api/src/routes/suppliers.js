@@ -14,6 +14,7 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 import { openOrderVenues } from '../services/purchasingSvc.js'
+import { CustomInput, customValues, writeCustom } from '../services/customFields.js'
 
 const uuid = z.string().uuid()
 const optText = (max = 500) => z.string().trim().max(max).nullable().optional()
@@ -40,6 +41,8 @@ export const SupplierBody = z.object({
   notes:            optText(4000),
   is_active:        z.boolean().optional(),
   ref_required:     z.boolean().optional(),
+  // The group's own fields (migration 285): checked against their definitions, never stored as sent.
+  custom:           CustomInput.optional(),
 })
 
 const VenuesBody = z.object({
@@ -69,7 +72,7 @@ const SUPPLIER_COLS = tx => tx`
   s.id, s.name, s.contact_name, s.phone, s.email, s.cc_emails, s.website, s.account_ref,
   s.send_method, s.email_attachment, s.cutoff_time::text AS cutoff_time, s.lead_days, s.delivery_days,
   s.min_order::float8 AS min_order, s.delivery_charge::float8 AS delivery_charge, s.notes, s.is_active,
-  s.ref_required, s.created_at, s.updated_at`
+  s.ref_required, s.custom, s.created_at, s.updated_at`
 
 async function loadSupplier(tx, tenantId, id) {
   const [s] = await tx`
@@ -124,18 +127,21 @@ export default async function supplierRoutes(app) {
     withTenant(req.tenantId, tx => loadSupplier(tx, req.tenantId, req.params.id)))
 
   app.post('/', { preHandler: canManage }, async req => {
-    const b = clean(SupplierBody.parse(req.body || {}))
+    const { custom, ...b } = clean(SupplierBody.parse(req.body || {}))
     return withTenant(req.tenantId, async tx => {
+      const values = await customValues(tx, req.tenantId, 'purchasing.suppliers', custom, { create: true })
       const [s] = await tx`INSERT INTO suppliers ${tx({ ...b, tenant_id: req.tenantId })} RETURNING id`
+      await writeCustom(tx, req.tenantId, 'purchasing.suppliers', s.id, values)
       return loadSupplier(tx, req.tenantId, s.id)
     })
   })
 
   app.patch('/:id', { preHandler: canManage }, async req => {
-    const b = clean(SupplierBody.partial().parse(req.body || {}))
+    const { custom, ...b } = clean(SupplierBody.partial().parse(req.body || {}))
     return withTenant(req.tenantId, async tx => {
       const [s] = await tx`SELECT id FROM suppliers WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
       if (!s) throw httpError(404, 'Supplier not found')
+      await writeCustom(tx, req.tenantId, 'purchasing.suppliers', s.id, await customValues(tx, req.tenantId, 'purchasing.suppliers', custom))
       if (Object.keys(b).length) {
         await tx`UPDATE suppliers SET ${tx(b)}, updated_at = now() WHERE id = ${s.id} AND tenant_id = ${req.tenantId}`
       }

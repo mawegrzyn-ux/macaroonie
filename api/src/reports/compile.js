@@ -37,7 +37,7 @@
 // compileReport() returns a plan: the statement(s) with their parameters
 // and what shape.js needs to turn the rows into a result.
 
-import { CATALOGUE, canReportOn, canSee, ACROSS_AGGS, openTarget } from './catalogue/index.js'
+import { CATALOGUE as BASE_CATALOGUE, canReportOn, canSee, ACROSS_AGGS, openTarget } from './catalogue/index.js'
 import { workTable } from './catalogue/define.js'
 import { resolvePath, pathLabel, bucketsFor } from '../../../shared/reports/paths.js'
 import { rowId, rankKey, AGG_LABELS, OPS_BY_TYPE, BUCKET_OPS } from '../../../shared/reports/spec.js'
@@ -1068,7 +1068,23 @@ function compileParts(spec, env, period, { strict = false } = {}) {
  * params (resolved), today, tz, spec }. Throws ReportError with sentences when it
  * can't be run.
  */
-export function compileReport(spec, envIn, { listLimit = SCREEN_ROWS + 1, open = true, strictParts = false } = {}) {
+// The catalogue this compile reads: the group's own (env.catalogue, with its
+// custom fields: tenantCatalogue()) or the built-in one. compileReport() is
+// synchronous from start to end, so it is set for the call and put back in
+// `finally`: no other compile can run in between, and nothing here awaits.
+let CATALOGUE = BASE_CATALOGUE
+
+export function compileReport(spec, envIn, opts = {}) {
+  const was = CATALOGUE
+  CATALOGUE = envIn?.catalogue || BASE_CATALOGUE
+  try {
+    return compileWith(spec, envIn, opts)
+  } finally {
+    CATALOGUE = was
+  }
+}
+
+function compileWith(spec, envIn, { listLimit = SCREEN_ROWS + 1, open = true, strictParts = false } = {}) {
   const env = { ...envIn, spec }
   const period = mainPeriod(spec, env)
 

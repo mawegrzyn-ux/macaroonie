@@ -11,13 +11,22 @@
 //
 // View on the form's module; below its `edit` level the form is read only
 // (the route refuses a save anyway). The same schema and role give the same
-// list: nothing in it depends on anything else.
+// list, with the group's own fields on the form's object after them
+// (Pepper-first step 8B1: their definitions, shared/customFields.js).
 
 import { requireAuth, permissionLevel } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { permissionAtLeast } from '../config/modules.js'
 import { FORMS } from '../../../shared/forms.js'
-import { PLAIN_FORMS, plainFields } from '../forms/index.js'
+import { PLAIN_FORMS, plainFields, customObjectOf } from '../forms/index.js'
+import { customFieldList } from '../forms/plain.js'
+import { withTenant } from '../config/db.js'
+import { loadDefinitions } from '../services/customFields.js'
+
+async function customDefs(req) {
+  const object = customObjectOf(req.params.key)
+  return object ? withTenant(req.tenantId, tx => loadDefinitions(tx, req.tenantId, object)) : []
+}
 
 export default async function plainFormRoutes(app) {
   app.addHook('preHandler', requireAuth)
@@ -33,7 +42,8 @@ export default async function plainFormRoutes(app) {
       title: meta.title,
       by: meta.by,
       read_only: !permissionAtLeast(level, meta.edit),
-      fields: plainFields(req.params.key),
+      // The route's own fields, then the group's own (migration 285) on the object it adds.
+      fields: [...plainFields(req.params.key), ...customFieldList(await customDefs(req))],
       save: def.save,
       attach: def.attach || null,
       from: def.from || {},

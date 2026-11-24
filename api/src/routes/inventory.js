@@ -17,6 +17,7 @@ import {
   openOrderVenues, keepOpenAmounts, openOrderItems, lockSupplierCodes, codeTaken, codeTakenError,
   itemCodeConflicts, itemCodesError,
 } from '../services/purchasingSvc.js'
+import { CustomInput, customValues, writeCustom } from '../services/customFields.js'
 
 const uuid = z.string().uuid()
 const text = (max = 200) => z.string().trim().max(max)
@@ -34,6 +35,8 @@ const ItemBody = z.object({
   code:        optText(60),
   notes:       optText(2000),
   is_active:   z.boolean().optional(),
+  // The group's own fields (migration 285), checked against their definitions.
+  custom:      CustomInput.optional(),
 })
 
 const QuoteBody = z.object({
@@ -124,7 +127,7 @@ function recordPrice(tx, tenantId, quoteId, venueId, price, by, source = 'manual
 async function loadItems(tx, tenantId, itemIds = null) {
   const items = await tx`
     SELECT i.id, i.name, i.category_id, c.name AS category_name, i.base_unit, i.storage, i.code, i.notes,
-           i.is_active, i.updated_at,
+           i.is_active, i.updated_at, i.custom,
            (SELECT count(*)::int FROM order_list_items li WHERE li.item_id = i.id AND li.tenant_id = ${tenantId}) AS list_count
       FROM inv_items i
       LEFT JOIN inv_categories c ON c.id = i.category_id AND c.tenant_id = ${tenantId}
@@ -641,12 +644,14 @@ export default async function inventoryRoutes(app) {
     const b = ItemBody.parse(req.body || {})
     return withTenant(req.tenantId, async tx => {
       await checkCategory(tx, req.tenantId, b.category_id)
+      const values = await customValues(tx, req.tenantId, 'purchasing.items', b.custom, { create: true })
       const [i] = await tx`
         INSERT INTO inv_items (tenant_id, name, category_id, base_unit, storage, code, notes, is_active)
         VALUES (${req.tenantId}, ${b.name}, ${b.category_id ?? null}, ${b.base_unit || 'each'}, ${b.storage || 'ambient'},
                 ${b.code ?? null}, ${b.notes ?? null}, ${b.is_active ?? true})
         RETURNING id
       `
+      await writeCustom(tx, req.tenantId, 'purchasing.items', i.id, values)
       return (await loadItems(tx, req.tenantId, [i.id]))[0]
     })
   })
@@ -669,10 +674,12 @@ export default async function inventoryRoutes(app) {
         const clash = await itemCodeConflicts(tx, req.tenantId, [item.id])
         if (clash.length) throw itemCodesError(clash)
       }
-      const fields = Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined))
+      const { custom, ...rest } = b
+      const fields = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined))
       if (Object.keys(fields).length) {
         await tx`UPDATE inv_items SET ${tx(fields)}, updated_at = now() WHERE id = ${item.id} AND tenant_id = ${req.tenantId}`
       }
+      await writeCustom(tx, req.tenantId, 'purchasing.items', item.id, await customValues(tx, req.tenantId, 'purchasing.items', custom))
       return (await loadItems(tx, req.tenantId, [item.id]))[0]
     })
   })

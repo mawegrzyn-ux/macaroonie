@@ -7,7 +7,13 @@ import { MONDAY } from './parts.mjs'
 export const order = 220
 
 export async function fill(ctx) {
-  const { mark, sub, tenantId, step, post, patch, put, V } = ctx
+  const { mark, sub, tenantId, step, post, patch, put, get, V } = ctx
+  // A field of the group's own on suppliers (migration 285), and its value on one.
+  const field = await step('custom field', () => post('/api/custom-fields', { object_key: 'purchasing.suppliers', label: 'Payment terms', type: 'choice', options: ['7 days', '30 days'] }))
+  if (field) {
+    const sups = await step('suppliers for a custom value', () => get('/api/suppliers'))
+    if (sups?.[0]) await step('custom value', () => patch('/api/suppliers/' + sups[0].id, { custom: { [field.field_key]: '30 days' } }))
+  }
   await step('access token', () => post('/api/ai/tokens', { name: mark + ' Claude Code' }))
   await step('form draft', () => put('/api/form-drafts', { form: 'delivery', venue_id: V, day: MONDAY, values: { supplier: mark + ' Fresh Co', notes: mark + ' two boxes short' } }))
   await step('ai settings', () => patch('/api/ai/settings', { guest_chat_enabled: false, chat_retention_days: 90 }))
