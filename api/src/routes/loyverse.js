@@ -15,24 +15,32 @@
 //   DELETE /venues/:venueId/link
 //   POST   /venues/:venueId/preview        { from, to } Loyverse figures next to what Cash Recon has
 //   POST   /venues/:venueId/apply          { dates } write the mapped fields for those days
+//   POST   /venues/:venueId/sync           Sync now for the venue's account (from the fill window)
 //
 // Setup (accounts, links, mappings) is owner/admin with Cash reconciliation
-// manage; preview needs view; apply needs manage (same people who fill a
-// day in by hand). Access tokens are stored as typed and never returned.
-// Apply reads Loyverse again on the server (never takes figures from the
-// browser), writes only mapped fields, keeps their notes, and leaves
-// submitted days alone.
+// manage; preview needs view; apply and Sync now need use (same people who
+// fill a day in by hand). Access tokens are stored as typed and never
+// returned. Since sales import phase 4 the preview and apply read the
+// stored receipts (services/storedSales.js), never Loyverse itself: a day
+// nothing has synced for yet is refused, not filled with zeros, and a day
+// can be filled again after a late sync. Apply works the figures out on
+// the server (never takes them from the browser), writes only mapped
+// fields, keeps their notes, and leaves submitted days alone.
 
 import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requireRole, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
-import { checkToken, tokenHint, loadCatalog, loadStores, venueDays, datesBetween, LoyverseError } from '../services/loyverseSvc.js'
+import { checkToken, tokenHint, loadCatalog, loadStores, datesBetween, LoyverseError } from '../services/loyverseSvc.js'
 import { fillReconDay, reconFields } from '../services/reconFill.js'
 import { seal, unseal } from '../services/vault.js'
 import { startHistory, markRequested, requestSync, setupWebhook } from '../services/salesImportSvc.js'
+import { venueLink, storedDays } from '../services/storedSales.js'
 import { connector } from '../services/connectors/loyverse.js'
-import { isValidTerm, sumTerms, MAPPING_GROUPS } from '../../../shared/loyverse.js'
+import { isValidTerm, sumTerms, needsCategories, MAPPING_GROUPS } from '../../../shared/loyverse.js'
+
+// Said when a day has nothing stored and the sync hasn't passed its end.
+export const NOT_SYNCED = 'Loyverse hasn\'t synced this day yet. Press Sync now, then fill again in a minute.'
 
 const UUID = z.string().uuid()
 const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -162,30 +170,20 @@ function linkView(link) {
   }
 }
 
-/** Read Loyverse for a run of days. Returns { link, venue, fields, figures }. */
+/**
+ * A run of days' figures from the stored receipts. Returns { link, venue,
+ * fields, figures } (figures: storedDays(), with not_synced on a day
+ * nothing has come in for yet).
+ */
 async function readDays(tenantId, venueId, dates) {
-  const ctx = await withTenant(tenantId, async tx => {
+  return withTenant(tenantId, async tx => {
     const venue = await ownVenue(tx, tenantId, venueId)
-    const link = await loadLink(tx, tenantId, venueId)
-    if (!link) throw httpError(422, 'This venue isn\'t linked to Loyverse yet. Set it up in Cash reconciliation settings > Loyverse.')
+    const link = await venueLink(tx, tenantId, venueId)
+    if (!link || link.system !== 'loyverse') throw httpError(422, 'This venue isn\'t linked to Loyverse yet. Link it on the Integrations page.')
     const fields = mappedFields(await reconFields(tx, tenantId, venueId), link.mappings)
-    return { venue, link, fields }
+    const figures = await storedDays(tx, tenantId, link, dates, { categories: needsCategories(link.mappings) })
+    return { venue, link, fields, figures }
   })
-  let figures
-  try {
-    figures = await venueDays({
-      token: ctx.link.access_token, storeId: ctx.link.location_id, timezone: ctx.venue.timezone,
-      dayStartsAt: ctx.link.day_starts_at, dates, mappings: ctx.link.mappings,
-    })
-  } catch (e) {
-    if (e instanceof LoyverseError && e.tokenProblem) {
-      await withTenant(tenantId, tx => tx`
-        UPDATE pos_connections SET last_error = ${e.message}, last_checked_at = now()
-         WHERE id = ${ctx.link.connection_id} AND tenant_id = ${tenantId}`).catch(() => {})
-    }
-    throw asHttp(e)
-  }
-  return { ...ctx, figures }
 }
 
 function spanOf(from, to) {
@@ -404,7 +402,8 @@ export default async function loyverseRoutes(app) {
     }
 
     return {
-      store_name: link.store_name, currency: link.currency, day_starts_at: link.day_starts_at,
+      store_name: link.location_name, currency: link.currency, day_starts_at: link.day_starts_at,
+      connection_id: link.connection_id, synced_to: link.sales_synced_to, last_sync_ok_at: link.last_sync_ok_at,
       fields: fields.map(f => ({ key: f.key, group: f.group, id: f.id, name: f.name, terms: f.terms })),
       days: dates.map(date => {
         const day = figures[date]
@@ -415,6 +414,7 @@ export default async function loyverseRoutes(app) {
         }
         return {
           date,
+          synced: !day.not_synced,
           status: cur.report?.status || null,
           filled_at: cur.report?.loyverse_filled_at || null,
           filled_by: cur.report?.loyverse_filled_by || null,
@@ -439,6 +439,21 @@ export default async function loyverseRoutes(app) {
     const body = ApplyBody.parse(req.body)
     return applyLoyverseDays(req.tenantId, venueId, body.dates, { by: by(req) })
   })
+
+  // ── Sync now (the fill window, for a day not synced yet) ──────
+  app.post('/venues/:venueId/sync', { preHandler: canFill }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const link = await withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      const l = await venueLink(tx, req.tenantId, venueId)
+      if (!l || l.system !== 'loyverse') throw httpError(422, 'This venue isn\'t linked to Loyverse yet. Link it on the Integrations page.')
+      if (l.status === 'paused') throw httpError(409, 'Syncing is paused for this Loyverse account (Integrations).')
+      await markRequested(tx, req.tenantId, l.connection_id)
+      return l
+    })
+    requestSync(req.tenantId, link.connection_id, req.log)
+    return { ok: true, connection_id: link.connection_id }
+  })
 }
 
 /**
@@ -449,15 +464,21 @@ export default async function loyverseRoutes(app) {
  * and listed in `kept`. With onlyWithSales (Retrieve over several days, the
  * scheduled fill) a day with no sales is left out, as the preview leaves it
  * unticked, and a day after the venue's today is never filled that way.
- * Returns { filled, skipped, kept }.
+ * A day nothing has synced for yet (storedDays() not_synced) is never
+ * filled: skipped as 'not_synced', or refused (422) when it is the only day
+ * asked for. Returns { filled, skipped, kept }.
  */
 export async function applyLoyverseDays(tenantId, venueId, dates, { by = null, keepHandEdits = false, onlyWithSales = false } = {}) {
   let wanted = [...new Set(dates)].sort()
   const span = spanOf(wanted[0], wanted[wanted.length - 1])
   const { venue, fields, figures } = await readDays(tenantId, venueId, span)
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: venue?.timezone || 'Europe/London' }).format(new Date())
   const early = []
+  const waiting = wanted.filter(d => figures[d]?.not_synced)
+  if (waiting.length && waiting.length === wanted.length && !onlyWithSales) throw httpError(422, NOT_SYNCED)
+  for (const d of waiting) early.push({ date: d, reason: onlyWithSales && d > today ? 'not_yet' : 'not_synced' })
+  wanted = wanted.filter(d => !waiting.includes(d))
   if (onlyWithSales) {
-    const today = new Intl.DateTimeFormat('en-CA', { timeZone: venue?.timezone || 'Europe/London' }).format(new Date())
     const hasSales = d => (d?.sales || 0) + (d?.refund_receipts || 0) > 0
     for (const d of wanted) {
       if (d > today) early.push({ date: d, reason: 'not_yet' })

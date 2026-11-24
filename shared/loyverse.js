@@ -1,8 +1,9 @@
 // shared/loyverse.js
 //
 // Loyverse POS figures for Cash Reconciliation (migration 154), shared by
-// the API (services/loyverseSvc.js turns receipts into day figures and
-// writes them) and the admin (mapping editor, preview).
+// the API (routes/loyverse.js sums a day's mapped fields) and the admin
+// (mapping editor, preview). A day's figures come from the stored receipts
+// (dayFiguresFromStored() in shared/externalSales.js, sales import phase 4).
 //
 // A Cash Recon field (income source, payment channel, SC source) maps to a
 // list of terms; its value is the sum of the terms. A term is
@@ -12,8 +13,6 @@
 // if Loyverse no longer has it).
 //
 // All money here is in pence (integers) to keep sums exact.
-
-import { toPence } from './externalSales.js'
 
 export const TOTAL_KINDS = {
   gross_sales:     { label: 'Gross sales',     hint: 'Every item sold, before discounts and refunds (as in Loyverse\'s sales summary).' },
@@ -66,61 +65,4 @@ export function sumTerms(day, terms) {
 /** Every term in a mapping that needs the item list (category terms). */
 export function needsCategories(mappings) {
   return MAPPING_GROUPS.some(g => Object.values(mappings?.[g] || {}).some(ts => (ts || []).some(t => t.kind === 'category')))
-}
-
-// Decimal amounts to pence: the one rule for every other till (shared/externalSales.js).
-const pence = toPence
-
-/**
- * One trading day's figures from its receipts. Cancelled receipts are left
- * out. Refund receipts count against the day they were refunded on, as
- * Loyverse's own reports do. Amounts on a refund receipt are taken as
- * positive whichever way the API signs them.
- *   itemCategory: { [item_id]: category_id } (only for category terms)
- */
-export function summariseReceipts(receipts, itemCategory = null) {
-  const day = {
-    sales: 0, refund_receipts: 0,
-    gross_sales: 0, net_sales: 0, refunds: 0, discounts: 0, taxes: 0,
-    tips: 0, surcharges: 0, total_collected: 0,
-    items: {}, categories: {}, payment_types: {},
-  }
-  for (const r of receipts || []) {
-    if (r.cancelled_at) continue
-    const refund = r.receipt_type === 'REFUND'
-    if (refund) day.refund_receipts++
-    else day.sales++
-    const sign = refund ? -1 : 1
-    const amt = v => sign * Math.abs(pence(v))
-
-    day.discounts       += amt(r.total_discount)
-    day.taxes           += amt(r.total_tax)
-    day.tips            += amt(r.tip)
-    day.surcharges      += amt(r.surcharge)
-    day.total_collected += amt(r.total_money)
-
-    for (const l of r.line_items || []) {
-      const gross = Math.abs(pence(l.gross_total_money))
-      if (refund) day.refunds += gross
-      else day.gross_sales += gross
-      const after = l.total_money != null
-        ? Math.abs(pence(l.total_money))
-        : Math.max(0, gross - Math.abs(pence(l.total_discount)))
-      if (l.item_id) {
-        const it = day.items[l.item_id] || (day.items[l.item_id] = { name: l.item_name || '', amount: 0 })
-        it.amount += sign * after
-        if (itemCategory) {
-          const cat = itemCategory[l.item_id]
-          if (cat) day.categories[cat] = (day.categories[cat] || 0) + sign * after
-        }
-      }
-    }
-    for (const p of r.payments || []) {
-      if (!p.payment_type_id) continue
-      const pt = day.payment_types[p.payment_type_id] || (day.payment_types[p.payment_type_id] = { name: p.name || '', amount: 0 })
-      pt.amount += amt(p.money_amount)
-    }
-  }
-  day.net_sales = day.gross_sales - day.refunds - day.discounts
-  return day
 }
