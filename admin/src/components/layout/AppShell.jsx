@@ -49,6 +49,7 @@ import { usePageUse } from '@/lib/usage'
 import TenantSwitcherModal from '@/components/TenantSwitcherModal'
 import MobileSuggestModal from '@/components/MobileSuggestModal'
 import MobileViewToggle from '@/components/MobileViewToggle'
+import { SharedDeviceLayer } from '@/components/SharedDevice'
 import AssistantDrawer from '@/components/ai/AssistantDrawer'
 import { useAiStatus } from '@/components/ai/ChatView'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
@@ -238,10 +239,12 @@ export default function AppShell() {
     if (inlineBar.current) inlineBar.current()
     else setBarOpen(true)
   }, [])
-  const askPepper = useCallback(words => {
+  // opts.files: chat files to send with the words; opts.fresh: in a new chat
+  // (a capture opened from For review, migration 281).
+  const askPepper = useCallback((words, opts = {}) => {
     setBarOpen(false)
     if (IS_TOUCH) setOpen(false)
-    setPepperAsk({ text: words, id: Date.now() })
+    setPepperAsk({ text: words, id: Date.now(), files: opts.files || null, fresh: !!opts.fresh })
     setAiOpen(true)
   }, [])
   const registerInline = useCallback(focus => {
@@ -701,6 +704,8 @@ export default function AppShell() {
       )}
       <MobileSuggestModal />
       <MobileViewToggle target="mobile" />
+      {/* A shared device: Who is this?, the person and Lock (migration 280). */}
+      <SharedDeviceLayer />
       <AssistantDrawer open={aiOpen} onClose={() => setAiOpen(false)} ask={pepperAsk} onAsked={() => setPepperAsk(null)} />
       {barOpen && <AskOverlay onClose={() => setBarOpen(false)} />}
     </div>

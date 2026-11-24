@@ -34,6 +34,7 @@
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { CHECK, whoDid } from '../middleware/sharedDevice.js'
 import { httpError } from '../middleware/error.js'
 import { periodStartFor } from '../utils/checklistPeriod.js'
 import { hsClosedDates } from '../services/openDays.js'
@@ -369,6 +370,8 @@ export default async function checklistsRoutes(app) {
 
   app.put('/instance', {
     preHandler: requirePermission('checklists', 'use'),
+    // A till PIN is enough on a shared device (ticking a checklist, middleware/sharedDevice.js).
+    config: { sharedDevice: CHECK },
   }, async (req) => {
     const body = InstancePutBody.parse(req.body)
 
@@ -384,7 +387,7 @@ export default async function checklistsRoutes(app) {
       `
       const ticked = new Set(body.items.filter(it => it.checked).map(it => it.template_item_id))
       const complete = active.length > 0 && active.every(r => ticked.has(r.id))
-      const completedBy = req.user?.email ?? null
+      const completedBy = whoDid(req)
 
       const [instance] = await tx`
         INSERT INTO checklist_instances

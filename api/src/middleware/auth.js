@@ -26,6 +26,7 @@ import { env } from '../config/env.js'
 import { sql, systemSql, withTenant } from '../config/db.js'
 import { resolvePermission, MODULES, PERMISSION_RANK } from '../config/modules.js'
 import { isMember } from '../services/membershipSvc.js'
+import { sharedDeviceGuard } from './sharedDevice.js'
 
 const CLAIM_NS = 'https://macaroonie.com/claims/'
 const UUID_RE  = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -343,6 +344,8 @@ export async function requireAuth(req, reply) {
     req.log.warn({ err: err?.message || err }, 'Auth failed')
     return reply.code(401).send({ error: 'Invalid or expired token' })
   }
+  // A shared device (migration 280): a change needs the person's PIN first.
+  return sharedDeviceGuard(req, reply)
 }
 
 /**
@@ -355,8 +358,11 @@ export async function requireAuth(req, reply) {
  */
 export function requireRole(...roles) {
   return async function (req, reply) {
-    if (req.isPlatformAdmin) return  // platform admins pass all role gates
-    if (!roles.includes(req.user?.role)) {
+    // Platform admins pass all role gates, except as someone else on a
+    // shared device: an office PIN person's own role must pass too.
+    const accountOk = req.isPlatformAdmin || roles.includes(req.user?.role)
+    const personOk = req.acting?.kind !== 'office' || roles.includes(req.acting.role)
+    if (!accountOk || !personOk) {
       return reply.code(403).send({ error: 'Insufficient permissions' })
     }
   }
@@ -403,9 +409,49 @@ function permissionMessage(moduleKey, actual, required) {
  * The caller's effective level ('none' | 'view' | 'use' | 'manage') for a module:
  * 'none' when the tenant has the module switched off, else the role's
  * permission (custom role first, then the built-in role for users.role,
- * then the registry default). Platform admins always get 'manage'.
+ * then the registry default). Platform admins always get 'manage', except
+ * as an office PIN person on a shared device (req.acting): then the lower of
+ * the account's level and the person's own.
  */
 export async function permissionLevel(req, moduleKey) {
+  const own = await accountLevel(req, moduleKey)
+  // An office PIN person on a shared device (middleware/sharedDevice.js):
+  // never more than their own role, nor more than the signed-in account.
+  if (req.acting?.kind === 'office' && req.tenantId) {
+    const theirs = (await levelsForUser(req.tenantId, req.acting.userId, [moduleKey]))[moduleKey]
+    return lowerLevel(own, theirs)
+  }
+  return own
+}
+
+const lowerLevel = (a, b) => ((PERMISSION_RANK[a] ?? 0) <= (PERMISSION_RANK[b] ?? 0) ? a : b)
+
+/** One person's levels by their users.id (the person switched in on a shared device). */
+async function levelsForUser(tenantId, userId, moduleKeys) {
+  const keys = [...new Set(moduleKeys)]
+  const { off, permRow } = await withTenant(tenantId, async tx => {
+    const rows = await tx`
+      SELECT module_key FROM tenant_modules
+       WHERE tenant_id = ${tenantId} AND module_key = ANY(${keys}::text[]) AND NOT is_enabled`
+    const [permRow] = await tx`
+      SELECT COALESCE(r_custom.permissions, r_builtin.permissions, '{}'::jsonb) AS permissions,
+             COALESCE(r_custom.key, r_builtin.key, u.role::text) AS role_key
+        FROM users u
+   LEFT JOIN tenant_roles r_custom  ON r_custom.id  = u.custom_role_id
+   LEFT JOIN tenant_roles r_builtin ON r_builtin.tenant_id = u.tenant_id
+                                   AND r_builtin.key       = u.role::text
+                                   AND r_builtin.is_builtin = true
+       WHERE u.id = ${userId} AND u.tenant_id = ${tenantId} AND u.is_active = true
+       LIMIT 1`
+    return { off: new Set(rows.map(r => r.module_key)), permRow }
+  })
+  if (!permRow) return Object.fromEntries(keys.map(k => [k, 'none']))
+  return Object.fromEntries(keys.map(k => [k,
+    off.has(k) ? 'none' : resolvePermission(k, permRow.permissions, permRow.role_key)]))
+}
+
+/** The signed-in account's own level (permissionLevel() without a shared device's person). */
+async function accountLevel(req, moduleKey) {
   if (req.isPlatformAdmin) return 'manage'
   if (!req.tenantId) return 'none'
 
@@ -449,6 +495,15 @@ export async function permissionLevel(req, moduleKey) {
  * uses it to list only the tools a person can use.
  */
 export async function permissionLevels(req, moduleKeys) {
+  const own = await accountLevels(req, moduleKeys)
+  if (req.acting?.kind === 'office' && req.tenantId) {
+    const theirs = await levelsForUser(req.tenantId, req.acting.userId, moduleKeys)
+    return Object.fromEntries(Object.entries(own).map(([k, v]) => [k, lowerLevel(v, theirs[k])]))
+  }
+  return own
+}
+
+async function accountLevels(req, moduleKeys) {
   const keys = [...new Set(moduleKeys)]
   if (req.isPlatformAdmin) return Object.fromEntries(keys.map(k => [k, 'manage']))
   if (!req.tenantId) return Object.fromEntries(keys.map(k => [k, 'none']))
@@ -476,7 +531,7 @@ export async function permissionLevels(req, moduleKeys) {
 
 export function requirePermission(moduleKey, requiredLevel = 'view') {
   return async function (req, reply) {
-    if (req.isPlatformAdmin) return
+    if (req.isPlatformAdmin && !req.acting) return
     if (!req.tenantId) return reply.code(400).send({ error: 'No tenant context' })
 
     const actual = await permissionLevel(req, moduleKey)
@@ -489,7 +544,7 @@ export function requirePermission(moduleKey, requiredLevel = 'view') {
 /** Passes when the caller has `requiredLevel` on at least one of `moduleKeys`. */
 export function requireAnyPermission(moduleKeys, requiredLevel = 'view') {
   return async function (req, reply) {
-    if (req.isPlatformAdmin) return
+    if (req.isPlatformAdmin && !req.acting) return
     if (!req.tenantId) return reply.code(400).send({ error: 'No tenant context' })
 
     for (const key of moduleKeys) {

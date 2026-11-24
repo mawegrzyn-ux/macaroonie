@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
 import { useAiStatus } from '@/components/ai/ChatView'
 import AskPepperBar from '@/components/ai/AskPepperBar'
+import CaptureButton from '@/components/ai/CaptureButton'
 
 export default function MobileHub() {
   const { data: feed } = useTodayFeed(readVenue())
@@ -27,6 +28,8 @@ export default function MobileHub() {
         <p className="text-sm text-muted-foreground px-0.5">
           Mobile-optimised tools. Add this page to your home screen for quick access.
         </p>
+        {/* Capture to For review (migration 281): a photo, a voice note or a line. */}
+        {(me?.is_platform_admin || (me?.permissions?.ai_assistant ?? 'none') !== 'none') && <CaptureButton venueId={readVenue()} />}
         <div className="grid grid-cols-2 gap-3">
           {shown.map(m => {
             const Icon = m.icon

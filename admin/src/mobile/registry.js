@@ -7,7 +7,7 @@
 // areas (api/src/services/opsToday.js) a tile's badge counts; Today counts
 // every task. `module` hides the tile from someone whose role has none of it.
 
-import { ListTodo, LayoutGrid, Receipt, ShoppingCart, Wallet, Users, ShoppingBag, Wheat, Sparkles, BarChart3, Bell } from 'lucide-react'
+import { ListTodo, LayoutGrid, Receipt, ShoppingCart, Wallet, Users, ShoppingBag, Wheat, Sparkles, BarChart3, Bell, Tablet } from 'lucide-react'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 export const MOBILE_MODULES = [
@@ -94,5 +94,12 @@ export const MOBILE_MODULES = [
     description: 'A notice when a task is due soon or late: turn it on for this phone',
     icon: Bell,
     path: '/mobile/notices',
+  },
+  {
+    key: 'device',
+    label: 'This device',
+    description: 'Your office PIN, and sharing this phone or tablet between staff',
+    icon: Tablet,
+    path: '/mobile/device',
   },
 ]

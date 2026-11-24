@@ -7,20 +7,43 @@
     "development": {
       "developmentClient": false,
       "distribution": "internal",
-      "android": { "buildType": "apk" },
-      "env": { "MACAROONIE_WEB_DEBUG": "1" }
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "MACAROONIE_WEB_DEBUG": "1"
+      },
+      "ios": {
+        "simulator": false
+      }
     },
     "preview": {
       "distribution": "internal",
-      "android": { "buildType": "apk" }
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {}
     },
     "production": {
       "autoIncrement": true,
       "distribution": "internal",
-      "android": { "buildType": "apk" }
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {}
+    },
+    "app-store": {
+      "autoIncrement": true,
+      "distribution": "store",
+      "ios": {},
+      "android": {
+        "buildType": "app-bundle"
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {}
+    }
   }
 }

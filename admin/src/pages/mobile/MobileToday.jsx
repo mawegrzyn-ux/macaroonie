@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 import { readVenue, keepVenue, greeting, firstName, Glance, WeekAhead, TaskBoard, FormSheet, Note } from '@/pages/Home'
 import { useTodayFeed, opsLink } from '@/mobile/today'
+import CaptureButton from '@/components/ai/CaptureButton'
 
 export default function MobileToday() {
   const api = useApi()
@@ -63,6 +64,9 @@ export default function MobileToday() {
         </div>
         {d && <Glance d={d} linkFor={opsLink} />}
       </div>
+
+      {/* Capture to For review (migration 281): a photo, a voice note or a line. */}
+      {canPepper && <CaptureButton venueId={d?.venue?.id || venueId || null} />}
 
       {d && <WeekAhead d={d} linkFor={opsLink} canSetUp={me?.permissions?.local_info === 'manage'} />}
 

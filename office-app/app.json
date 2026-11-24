@@ -8,7 +8,9 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "backgroundColor": "#1f2a44",
-    "platforms": ["android"],
+    "platforms": [
+      "android"
+    ],
     "android": {
       "package": "com.macaroonie.office",
       "adaptiveIcon": {
@@ -22,17 +24,52 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.POST_NOTIFICATIONS"
       ],
-      "blockedPermissions": ["android.permission.SYSTEM_ALERT_WINDOW"]
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
     },
     "ios": {
       "bundleIdentifier": "com.macaroonie.office",
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Macaroonie Office uses the camera to scan barcodes and take photos for Pepper.",
+        "NSMicrophoneUsageDescription": "Macaroonie Office listens only while you hold the microphone, or after you tap it until you tap again.",
+        "NSSpeechRecognitionUsageDescription": "Macaroonie Office turns what you say to Pepper into text.",
+        "NSPhotoLibraryUsageDescription": "Macaroonie Office lets you pick a photo, such as an invoice or a delivery note, to keep for review or show Pepper.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "plugins": [
-      ["expo-splash-screen", { "image": "./assets/splash-icon.png", "imageWidth": 200, "resizeMode": "contain", "backgroundColor": "#1f2a44" }],
-      ["expo-notifications", { "color": "#1f2a44" }],
-      ["expo-camera", { "cameraPermission": "Macaroonie Office uses the camera to scan barcodes and take photos for Pepper.", "recordAudioAndroid": false }],
-      ["expo-speech-recognition", { "microphonePermission": "Macaroonie Office listens only while you hold the microphone, or after you tap it until you tap again.", "speechRecognitionPermission": "Macaroonie Office turns what you say to Pepper into text." }],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#1f2a44"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#1f2a44"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Macaroonie Office uses the camera to scan barcodes and take photos for Pepper.",
+          "recordAudioAndroid": false,
+          "microphonePermission": "Macaroonie Office listens only while you hold the microphone, or after you tap it until you tap again."
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Macaroonie Office listens only while you hold the microphone, or after you tap it until you tap again.",
+          "speechRecognitionPermission": "Macaroonie Office turns what you say to Pepper into text."
+        }
+      ],
       "expo-secure-store",
       "expo-web-browser"
     ],

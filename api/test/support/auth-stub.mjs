@@ -6,6 +6,7 @@
 export * from '../../src/middleware/auth.js?real'
 import { requireAuth as realRequireAuth, ACCESS_TOKEN_PREFIX, INTERNAL_AS_PREFIX } from '../../src/middleware/auth.js?real'
 import { sql, withTenant } from '../../src/config/db.js'
+import { sharedDeviceGuard } from '../../src/middleware/sharedDevice.js'
 
 export async function requireAuth(req, reply) {
   // Pepper's access tokens (mcp_...) go through the real check.
@@ -26,4 +27,6 @@ export async function requireAuth(req, reply) {
   req.tenantId = tid
   req.auth0OrgId = null
   req.isPlatformAdmin = !!pa
+  // The real shared-device check (migration 280), as the real requireAuth runs it.
+  return sharedDeviceGuard(req, reply)
 }

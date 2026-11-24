@@ -12,7 +12,7 @@
 // only the words, which go into Pepper's box or the chat as text.
 //
 //   canListen()                     whether this device can turn speech into text
-//   listen({ onText, onEnd, onError, lang, continuous })  starts; returns stop()
+//   listen({ onText, onEnd, onError, lang, continuous, hints })  starts; returns stop()
 //   canSpeak(), speak(text), stopSpeaking()
 //   spokenText(markdown)            an answer cleaned for reading aloud
 //   readAloudOn() / setReadAloud()  this device's "read answers aloud" switch
@@ -36,13 +36,16 @@ export function canSpeak() {
  * continuous: keep listening through pauses until stop(), where the device
  * can (the Office app on Android 13 and up). Elsewhere listening still ends
  * on a pause, so a caller that wants to listen on starts again from onEnd.
+ * hints: the venue's own words (components/ai/venueWords.js), given to the
+ * Office app's recogniser as contextual strings; a browser's Web Speech API
+ * takes none, so there they only serve the snap after it.
  */
-export function listen({ onText, onEnd, onError, lang, continuous = false } = {}) {
+export function listen({ onText, onEnd, onError, lang, continuous = false, hints } = {}) {
   const language = lang || (typeof navigator !== 'undefined' && navigator.language) || 'en-GB'
   const native = bridge()?.speech
   if (native?.listen) {
     // The app calls back with the same shape; it returns its own stop().
-    return native.listen({ lang: language, continuous, onText, onEnd, onError }) || (() => native.stop?.())
+    return native.listen({ lang: language, continuous, hints: Array.isArray(hints) ? hints.slice(0, 300) : undefined, onText, onEnd, onError }) || (() => native.stop?.())
   }
   const R = Recognition()
   if (!R) { onError?.('This browser can\'t turn speech into text. Use the keyboard\'s microphone key instead.'); onEnd?.(); return () => {} }

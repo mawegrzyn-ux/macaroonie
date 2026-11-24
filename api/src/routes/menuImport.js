@@ -23,7 +23,7 @@ import { httpError } from '../middleware/error.js'
 import { chatConfigured } from '../ai/apiKey.js'
 import { getAiSettings } from '../ai/settings.js'
 import { detectFile } from '../ai/attachments.js'
-import { makeContext, ToolError } from '../ai/context.js'
+import { makeContext, ToolError, staffAuthOf, staffPrincipalOf } from '../ai/context.js'
 import { createMenuFromSections, ImportSectionIn, MAX_IMPORT_DISHES } from '../ai/tools/menus.js'
 import { readMenu } from '../services/menuReadAi.js'
 import { ASSISTANT_NAME } from '../../../shared/assistant.js'
@@ -57,8 +57,8 @@ const canEdit = requirePermission('menus', 'manage')
 function staffContext(app, req) {
   return makeContext({
     app, channel: 'staff_chat', tenantId: req.tenantId, log: req.log,
-    auth: { authorization: req.headers.authorization },
-    principal: { sub: req.user.sub, email: req.user.email, isPlatformAdmin: !!req.isPlatformAdmin },
+    auth: staffAuthOf(req),
+    principal: staffPrincipalOf(req),
     actor: req.user.email || req.user.sub,
   })
 }

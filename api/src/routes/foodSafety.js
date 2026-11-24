@@ -11,6 +11,7 @@
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { CHECK, whoDid } from '../middleware/sharedDevice.js'
 import { httpError } from '../middleware/error.js'
 import { ITEM_SOURCES, loadCookingPicker } from '../services/cookingItems.js'
 import { loadMenuVersions } from '../services/menuReleases.js'
@@ -394,6 +395,8 @@ export default async function foodSafetyRoutes(app) {
 
   app.post('/temp-logs', {
     preHandler: requirePermission('food_safety', 'use'),
+    // A till PIN is enough on a shared device (logging a check, middleware/sharedDevice.js).
+    config: { sharedDevice: CHECK },
   }, async (req) => {
     const body = TempLogBody.parse(req.body)
 
@@ -428,7 +431,7 @@ export default async function foodSafetyRoutes(app) {
         (${req.tenantId}, ${body.venue_id}, ${body.equipment_id}, ${body.capture_time_id ?? null}, ${logDate},
          ${body.temperature_c}, ${inRange},
          ${body.corrective_action ?? null}, ${body.notes ?? null},
-         ${body.recorded_by ?? req.user?.email ?? null})
+         ${whoDid(req, body.recorded_by)})
       ON CONFLICT (equipment_id, log_date, capture_time_id) WHERE capture_time_id IS NOT NULL
       DO UPDATE SET
         temperature_c     = EXCLUDED.temperature_c,
@@ -444,8 +447,12 @@ export default async function foodSafetyRoutes(app) {
 
   app.patch('/temp-logs/:id', {
     preHandler: requirePermission('food_safety', 'use'),
+    // A till PIN is enough on a shared device (logging a check, middleware/sharedDevice.js).
+    config: { sharedDevice: CHECK },
   }, async (req) => {
     const body = TempLogPatch.parse(req.body)
+    // On a shared device the person switched in is who logged it (they may not name someone else).
+    if (req.acting && body.recorded_by !== undefined) body.recorded_by = whoDid(req)
     const fields = Object.keys(body).filter(k => body[k] !== undefined)
     if (!fields.length) throw httpError(400, 'No fields to update')
 
@@ -501,6 +508,8 @@ export default async function foodSafetyRoutes(app) {
 
   app.post('/deliveries', {
     preHandler: requirePermission('food_safety', 'use'),
+    // A till PIN is enough on a shared device (logging a check, middleware/sharedDevice.js).
+    config: { sharedDevice: CHECK },
   }, async (req) => {
     const body = DeliveryBody.parse(req.body)
     const deliveryDate = body.delivery_date || new Date().toISOString().slice(0, 10)
@@ -515,7 +524,7 @@ export default async function foodSafetyRoutes(app) {
          ${body.packaging_ok}, ${body.damage_ok}, ${body.quality_ok}, ${body.temp_ok},
          ${body.product_temp_c ?? null}, ${body.items ?? []},
          ${body.accepted}, ${body.corrective_action ?? null}, ${body.notes ?? null},
-         ${body.recorded_by ?? req.user?.email ?? null})
+         ${whoDid(req, body.recorded_by)})
       RETURNING *, delivery_date::text AS delivery_date
     `)
     return row
@@ -523,8 +532,12 @@ export default async function foodSafetyRoutes(app) {
 
   app.patch('/deliveries/:id', {
     preHandler: requirePermission('food_safety', 'use'),
+    // A till PIN is enough on a shared device (logging a check, middleware/sharedDevice.js).
+    config: { sharedDevice: CHECK },
   }, async (req) => {
     const body = DeliveryPatch.parse(req.body)
+    // On a shared device the person switched in is who logged it (they may not name someone else).
+    if (req.acting && body.recorded_by !== undefined) body.recorded_by = whoDid(req)
     const fields = Object.keys(body).filter(k => body[k] !== undefined)
     if (!fields.length) throw httpError(400, 'No fields to update')
 
@@ -723,6 +736,8 @@ export default async function foodSafetyRoutes(app) {
 
   app.post('/holds', {
     preHandler: requirePermission('food_safety', 'use'),
+    // A till PIN is enough on a shared device (logging a check, middleware/sharedDevice.js).
+    config: { sharedDevice: CHECK },
   }, async (req) => {
     const body = HoldBody.parse(req.body)
 
@@ -756,7 +771,7 @@ export default async function foodSafetyRoutes(app) {
         (${req.tenantId}, ${body.venue_id}, ${body.station_id}, ${body.capture_time_id ?? null}, ${checkDate},
          ${body.temperature_c}, ${inRange},
          ${body.corrective_action ?? null}, ${body.notes ?? null},
-         ${body.recorded_by ?? req.user?.email ?? null})
+         ${whoDid(req, body.recorded_by)})
       ON CONFLICT (station_id, check_date, capture_time_id) WHERE capture_time_id IS NOT NULL
       DO UPDATE SET
         temperature_c     = EXCLUDED.temperature_c,
@@ -772,8 +787,12 @@ export default async function foodSafetyRoutes(app) {
 
   app.patch('/holds/:id', {
     preHandler: requirePermission('food_safety', 'use'),
+    // A till PIN is enough on a shared device (logging a check, middleware/sharedDevice.js).
+    config: { sharedDevice: CHECK },
   }, async (req) => {
     const body = HoldPatch.parse(req.body)
+    // On a shared device the person switched in is who logged it (they may not name someone else).
+    if (req.acting && body.recorded_by !== undefined) body.recorded_by = whoDid(req)
     const fields = Object.keys(body).filter(k => body[k] !== undefined)
     if (!fields.length) throw httpError(400, 'No fields to update')
 
@@ -1028,6 +1047,8 @@ export default async function foodSafetyRoutes(app) {
 
   app.post('/cooking', {
     preHandler: requirePermission('food_safety', 'use'),
+    // A till PIN is enough on a shared device (logging a check, middleware/sharedDevice.js).
+    config: { sharedDevice: CHECK },
   }, async (req) => {
     const body = CookingBody.parse(req.body)
     const checkDate = body.check_date || new Date().toISOString().slice(0, 10)
@@ -1086,7 +1107,7 @@ export default async function foodSafetyRoutes(app) {
         (${req.tenantId}, ${body.venue_id}, ${checkDate}, ${body.session_id ?? null}, ${menuItemId},
          ${body.menu_item_id ? null : body.cooking_item_id ?? null}, ${dishName}, ${body.core_temp_c}, ${body.hold_seconds ?? null}, ${inRange},
          ${body.corrective_action ?? null}, ${body.notes ?? null},
-         ${body.recorded_by ?? req.user?.email ?? null})
+         ${whoDid(req, body.recorded_by)})
       RETURNING *
     `)
     return row
@@ -1094,8 +1115,12 @@ export default async function foodSafetyRoutes(app) {
 
   app.patch('/cooking/:id', {
     preHandler: requirePermission('food_safety', 'use'),
+    // A till PIN is enough on a shared device (logging a check, middleware/sharedDevice.js).
+    config: { sharedDevice: CHECK },
   }, async (req) => {
     const body = CookingPatch.parse(req.body)
+    // On a shared device the person switched in is who logged it (they may not name someone else).
+    if (req.acting && body.recorded_by !== undefined) body.recorded_by = whoDid(req)
     const fields = Object.keys(body).filter(k => body[k] !== undefined)
     if (!fields.length) throw httpError(400, 'No fields to update')
 

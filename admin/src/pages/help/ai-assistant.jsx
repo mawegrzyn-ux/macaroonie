@@ -254,6 +254,7 @@ export function Section() {
           ['Pepper\'s card', 'Runs it, the same as its Confirm (type its word first for a card that needs one)', 'Opens the chat it came from', 'The same as Cancel: nothing changes'],
           ['Supplier order', 'Opens it on the Purchasing page to check and approve', 'The same page', 'Send back: say why, and it goes back as a draft'],
           ['Invoice read', 'Book the delivery in: opens the delivery with the invoice', '', ''],
+          ['Capture', 'Open in Pepper: a new chat with the photo or the words, for Pepper to read', '', 'Dismiss: off the list, nothing else changes'],
         ]}
       />
       <P>
@@ -593,6 +594,30 @@ export function Section() {
         you tap the microphone or hold the button, or just after Pepper asks yes or no. The sound isn&apos;t
         kept, only the words. Speech uses the browser&apos;s own recognition (Chrome and Edge have it), or the
         phone&apos;s in the Macaroonie Office app.
+      </P>
+      <H3>Capture for later</H3>
+      <P>
+        On the phone (the home screen and Today, in the browser or the Macaroonie Office app) the{' '}
+        <strong>Capture</strong> button keeps something for later without stopping what you are doing: a{' '}
+        <strong>Photo</strong> (a delivery note, an invoice, a broken door), a <strong>Voice note</strong> (you
+        see the words, change them if you need to) or a line you <strong>Type</strong>. Pick the venue if you
+        have more than one and tap <strong>Keep for review</strong>. It is kept with your name and the time,
+        and nothing reads it yet: it waits on <strong>For review</strong> until someone taps{' '}
+        <strong>Open in Pepper</strong> (a new chat with the photo or the words in it, where Pepper reads it)
+        or <strong>Dismiss</strong>. You see your own captures; people who manage Pepper see everyone&apos;s.
+        Photos are JPEG, PNG, GIF or WebP up to 5 MB (big ones are made smaller on the phone first). Captures
+        opened or dismissed are cleared after 30 days.
+      </P>
+      <H3>Your venue&apos;s own words</H3>
+      <P>
+        Speech gets names wrong that it has never heard: your fridges and hold stations, dishes, staff and
+        suppliers. Pepper knows your venue&apos;s names (from your food safety set-up, menus, staff and
+        suppliers, the ones your role can see) and puts them right after the phone has turned your words into
+        text: <em>walking fridge</em> becomes <strong>Walk-in fridge</strong>. A name heard right stays as it
+        is, short everyday words are never changed, and <strong>numbers are never touched</strong>, so a
+        reading stays exactly as you said it. In the Macaroonie Office app the phone&apos;s own recognition is
+        also told the names before you speak, which helps it hear them in the first place; a browser can&apos;t
+        be told. Always read the words before you send or save them.
       </P>
       <H3>Looking things up on the web</H3>
       <P>

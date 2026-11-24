@@ -11,6 +11,7 @@
 //   push.token()        the app's Expo push token (lib/push.js)
 //   speech.*            the phone's recognition and voice (lib/speech.js)
 //   scanner.scan()      the camera's barcode scanner              -> Promise<string|null>
+//   platform            'android' | 'ios' (step 6d: the iPhone build)
 //
 // OfficeAuthProvider stands in for Auth0Provider there: it fills Auth0's own
 // context from the bridge, so every useAuth0() (useApi(), TenantGate, the

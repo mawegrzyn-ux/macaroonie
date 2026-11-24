@@ -85,6 +85,10 @@ export default function AssistantDrawer({ open, onClose, ask = null, onAsked = n
   // Words from the ask bar carry on the remembered chat: shown as soon as
   // they arrive (the list of earlier chats closes), sent once by ChatView.
   useEffect(() => { if (ask?.id) setShowHistory(false) }, [ask?.id])
+  // A fresh ask (a capture opened from For review) starts a new chat; until
+  // then the chat that is open doesn't take it.
+  useEffect(() => { if (ask?.fresh && conversationId) setConversationId(null) }, [ask?.id])   // eslint-disable-line react-hooks/exhaustive-deps
+  const askHere = ask?.fresh && conversationId ? null : ask
 
   useEffect(() => {
     if (!open) return
@@ -123,7 +127,7 @@ export default function AssistantDrawer({ open, onClose, ask = null, onAsked = n
           </div>
         ) : (
           <ChatView key={conversationId || 'new'} conversationId={conversationId} onConversationId={setConversationId} className="flex-1" pageAware
-            ask={ask} onAsked={onAsked} />
+            ask={askHere} onAsked={onAsked} />
         )}
       </aside>
     </>

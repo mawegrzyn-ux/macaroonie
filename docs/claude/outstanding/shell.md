@@ -100,3 +100,11 @@ Built: per venue and task key an owner (a team member who can do it), a snooze (
 - **Sold out** shows every sold-out dish as a task (later), up to ten; a group that sells out on purpose for the day may find them noise: prune by how often they are acted on.
 - Tried in Chromium at 1280 px only (Home with a snooze and a skip, the Skipped today card, a new source), not at 1015 px, phone width or on a tablet.
 
+
+**59. Macaroonie Office on the iPhone, step 6d follow-ups (Pepper-first, 24 Nov 2026)**
+
+Built: the iOS settings (`app.json` both platforms, reason strings, no export encryption; push mode in `app.config.js`; `eas.json` iOS in every profile and `app-store`), the code paths that differ (`layout.js`, `speechCore.js` `cumulative`, `scanCore.js`, the bridge's `platform`), README steps, CI bundling iOS.
+- **Never built or run on an iPhone**: it needs the owner's Apple Developer Program account, an APNs key in the EAS project (`eas credentials -p ios`), and `eas build -p ios`. Build from GitHub uses every platform in `app.json`, so it fails on iOS until then (pick Android there).
+- **`supportsTablet` is false**: an iPad runs it as a phone app. Shared kitchen tablets on iPad would want it true (and an iPad check by App Review).
+- **App Store review**: privacy answers, a reviewer login and the "mostly a website" risk are the owner's (README). No universal links (none on Android either): sign-in returns by the app's scheme.
+- **Not checked on a device**: the iPhone's keyboard padding with the web view, speech with the default audio session (answers read aloud after listening), and a UPC-A scan.

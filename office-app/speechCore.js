@@ -16,7 +16,9 @@
 
 export const QUIET_ERRORS = new Set(['no-speech', 'aborted', 'client', 'speech-timeout'])
 
-export function createSession({ continuous = false } = {}) {
+// cumulative: every result holds every word so far, continuous or not (the
+// iPhone's recogniser, which doesn't start again after a pause): nothing to join.
+export function createSession({ continuous = false, cumulative = false } = {}) {
   let said = ''
   let stopping = false
   let failed = false
@@ -25,7 +27,7 @@ export function createSession({ continuous = false } = {}) {
     /** A result: the words so far of this listening. */
     text(transcript, final) {
       const t = String(transcript || '').trim()
-      if (!continuous) return t
+      if (!continuous || cumulative) return t
       const all = [said, t].filter(Boolean).join(' ')
       if (final) said = all
       return all

@@ -19,6 +19,7 @@
 
 import { z } from 'zod'
 import { requireAuth, permissionLevel } from '../middleware/auth.js'
+import { FREE } from '../middleware/sharedDevice.js'
 import { httpError } from '../middleware/error.js'
 import { withTenant } from '../config/db.js'
 import { permissionAtLeast } from '../config/modules.js'
@@ -79,7 +80,8 @@ export default async function formDraftRoutes(app) {
     return { draft: view(row) }
   })
 
-  app.put('/', async req => {
+  // A draft is not a change: kept as the account's own on a shared device too.
+  app.put('/', { config: { sharedDevice: FREE } }, async req => {
     const body = Body.parse(req.body ?? {})
     const w = await check(req, body)
     const [row] = await withTenant(req.tenantId, async tx => {
@@ -95,7 +97,7 @@ export default async function formDraftRoutes(app) {
     return { draft: view(row) }
   })
 
-  app.delete('/', async req => {
+  app.delete('/', { config: { sharedDevice: FREE } }, async req => {
     const w = await check(req, Where.parse(req.query ?? {}))
     await withTenant(req.tenantId, tx => tx`
       DELETE FROM form_drafts

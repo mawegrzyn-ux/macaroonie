@@ -22,6 +22,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Mic, MicOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { listen, stopSpeaking } from '@/lib/speech'
+import { useVenueWords } from './venueWords'
 
 // How long a press on the mic must last to be a hold (record, let go to send) rather than a tap (dictation).
 export const MIC_HOLD_MS = 350
@@ -32,15 +33,18 @@ export const MIC_HOLD_MS = 350
  * an old error). blocked: presses do nothing (Pepper is working, or listening
  * for something else). Returns { state: null | 'dictate' | 'hold', handlers, stop }.
  */
-export function useMic({ draft, setDraft, onSend, onError, onStart, blocked = false }) {
+export function useMic({ draft, setDraft, onSend, onError, onStart, blocked = false, venueId = null }) {
   const [state, setState] = useState(null)
+  // The venue's own words (step 6c): hints for the recogniser, and the snap after it.
+  const words = useVenueWords(venueId)
   const stopHearing = useRef(null)
   const mic = useRef({ down: false, hold: false, failed: false, stopOnUp: false, text: '', timer: null })
 
   function micListen(base) {
     stopHearing.current = listen({
       continuous: true,
-      onText: t => { const text = (base ? base + ' ' : '') + t; mic.current.text = text; setDraft(text) },
+      hints: words.hints,
+      onText: t => { const text = (base ? base + ' ' : '') + words.fix(t); mic.current.text = text; setDraft(text) },
       onEnd: () => {
         stopHearing.current = null
         const m = mic.current

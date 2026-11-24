@@ -15,6 +15,7 @@ import {
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { cn } from '@/lib/utils'
 import NoticeSettings from '@/components/notices/NoticeSettings'
+import { SharedDeviceSettings, OfficePinSettings } from '@/components/SharedDevice'
 
 // ── Shared layout primitives ───────────────────────────────────
 
@@ -340,6 +341,13 @@ export default function Settings() {
         <div className="space-y-2">
           <h2 className="text-sm font-semibold">Notices</h2>
           <NoticeSettings />
+        </div>
+
+        {/* ── Shared devices and the person's own office PIN (migration 280) ── */}
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold">Shared devices</h2>
+          <OfficePinSettings />
+          <SharedDeviceSettings />
         </div>
 
         {/* ── Interface ────────────────────────────────────── */}

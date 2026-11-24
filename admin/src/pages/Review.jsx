@@ -17,6 +17,9 @@
 //                                 Purchasing page; Reject sends it back with a
 //                                 note (its own route)
 //                      an invoice Open books the delivery in on its page
+//                      a capture  a photo, a voice note or a line kept on the
+//                                 phone (migration 281): Open in Pepper (a new
+//                                 chat with it attached), or Dismiss
 //                    Cards of one kind that can be undone (class reversible)
 //                    can be approved together: one Confirm each, never money,
 //                    pay, allergens or a deletion (those are never reversible).
@@ -24,27 +27,29 @@
 //
 // Loaded on demand (rule 24): admin/src/routes/pepper.jsx.
 
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow, parseISO } from 'date-fns'
-import { Inbox, Loader2, Check, X, Pencil, ExternalLink, Sparkles, Truck, FileText, CircleAlert } from 'lucide-react'
+import { Inbox, Loader2, Check, X, Pencil, ExternalLink, Sparkles, Truck, FileText, CircleAlert, Camera, Mic, Type } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { BeforeAfter } from '@/components/ai/ActionCard'
+import { useAsk } from '@/components/layout/AskBar'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 const PepperDone = React.lazy(() => import('@/pages/PepperDone'))
 
 const CHAT_KEY = 'maca_ai_conversation'   // the chat the Pepper page opens (AssistantDrawer.jsx)
 const BTN = 'inline-flex items-center justify-center gap-1.5 min-h-[48px] px-4 rounded-md text-sm font-medium touch-manipulation disabled:opacity-50'
-const KIND_ICON = { card: Sparkles, supplier_order: Truck, invoice: FileText }
+const KIND_ICON = { card: Sparkles, supplier_order: Truck, invoice: FileText, capture: Camera }
+const CAPTURE_ICON = { photo: Camera, voice: Mic, text: Type }
 const CLASS_TEXT = {
   reversible:    { label: 'Can be undone', tone: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
   consequential: { label: 'Check before it runs', tone: 'bg-sky-50 text-sky-800 border-sky-200' },
   destructive:   { label: 'Needs its word typed', tone: 'bg-rose-50 text-rose-800 border-rose-200' },
 }
-const PART_NAMES = { cards: ASSISTANT_NAME + '\'s cards', supplier_orders: 'supplier orders to approve', invoices: 'invoices to book in' }
+const PART_NAMES = { cards: ASSISTANT_NAME + '\'s cards', supplier_orders: 'supplier orders to approve', invoices: 'invoices to book in', captures: 'captures' }
 
 export default function Review() {
   const [params, setParams] = useSearchParams()
@@ -187,7 +192,7 @@ function Together({ group }) {
 }
 
 function Item({ item }) {
-  const Icon = KIND_ICON[item.kind] || Inbox
+  const Icon = (item.kind === 'capture' && CAPTURE_ICON[item.capture]) || KIND_ICON[item.kind] || Inbox
   const cls = item.class && CLASS_TEXT[item.class]
   return (
     <li className="px-4 py-3 space-y-2" data-testid="review-item" data-kind={item.kind}>
@@ -210,7 +215,8 @@ function Item({ item }) {
         <div className="pl-[3.25rem] text-sm text-amber-800 flex gap-1.5"><CircleAlert className="w-4 h-4 shrink-0 mt-0.5" /><div>{item.warnings.join(' ')}</div></div>
       )}
       <div className="pl-[3.25rem]">
-        {item.kind === 'card' ? <CardAnswers item={item} /> : item.kind === 'supplier_order' ? <OrderAnswers item={item} /> : (
+        {item.kind === 'card' ? <CardAnswers item={item} /> : item.kind === 'supplier_order' ? <OrderAnswers item={item} />
+          : item.kind === 'capture' ? <CaptureAnswers item={item} /> : (
           <Link to={item.open} className={cn(BTN, 'bg-primary text-primary-foreground hover:opacity-90')} data-testid="review-open">
             Book the delivery in <ExternalLink className="w-4 h-4" />
           </Link>
@@ -262,6 +268,60 @@ function CardAnswers({ item }) {
             <span className="text-sm">Reject it? Nothing changes.</span>
             <button type="button" disabled={busy} onClick={() => go(`/ai/actions/${item.id}/cancel`)} className={cn(BTN, 'border border-red-300 text-red-800 hover:bg-red-50')} data-testid="review-reject-yes">Yes, reject</button>
             <button type="button" onClick={() => setRejecting(false)} className={cn(BTN, 'border hover:bg-accent')}>No</button>
+          </span>
+        )}
+      </div>
+      {error && <p className="text-sm text-red-700" role="alert">{error}</p>}
+    </div>
+  )
+}
+
+/** A capture (migration 281): its photo, Open in Pepper (a new chat with it), Dismiss. */
+function CaptureAnswers({ item }) {
+  const api = useApi()
+  const answer = useAnswer()
+  const ask = useAsk()
+  const navigate = useNavigate()
+  const [src, setSrc] = useState(null)
+  const [dismissing, setDismissing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  useEffect(() => {
+    if (!item.photo) return
+    let url = null
+    api.blob(item.photo).then(b => { url = URL.createObjectURL(b); setSrc(url) }).catch(() => {})
+    return () => { if (url) URL.revokeObjectURL(url) }
+  }, [item.photo])   // eslint-disable-line react-hooks/exhaustive-deps
+  async function open() {
+    setBusy(true); setError(null)
+    try {
+      const r = await answer(`/ai/captures/${item.id}/open`)
+      if (ask?.askPepper) ask.askPepper(r.text, { files: r.files, fresh: true })
+      else navigate('/mobile/assistant', { state: { ask: { text: r.text, files: r.files, fresh: true } } })
+    } catch (e) { setError(e?.message || 'Couldn\'t open it') } finally { setBusy(false) }
+  }
+  async function dismiss() {
+    setBusy(true); setError(null)
+    try { await answer(`/ai/captures/${item.id}/dismiss`) } catch (e) { setError(e?.message || 'Couldn\'t dismiss it') } finally { setBusy(false) }
+  }
+  return (
+    <div className="space-y-2">
+      {item.photo && (src
+        ? <img src={src} alt="The photo kept" className="max-h-56 max-w-full rounded-md border object-contain" data-testid="review-capture-photo" />
+        : <div className="h-24 w-32 rounded-md border bg-muted animate-pulse" />)}
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={busy} onClick={open} className={cn(BTN, 'bg-primary text-primary-foreground hover:opacity-90')} data-testid="review-capture-open">
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Open in {ASSISTANT_NAME}
+        </button>
+        {!dismissing ? (
+          <button type="button" onClick={() => setDismissing(true)} className={cn(BTN, 'border hover:bg-accent')} data-testid="review-capture-dismiss">
+            <X className="w-4 h-4" /> Dismiss
+          </button>
+        ) : (
+          <span className="inline-flex flex-wrap items-center gap-2">
+            <span className="text-sm">Take it off the list?</span>
+            <button type="button" disabled={busy} onClick={dismiss} className={cn(BTN, 'border border-red-300 text-red-800 hover:bg-red-50')} data-testid="review-capture-dismiss-yes">Yes, dismiss</button>
+            <button type="button" onClick={() => setDismissing(false)} className={cn(BTN, 'border hover:bg-accent')}>No</button>
           </span>
         )}
       </div>

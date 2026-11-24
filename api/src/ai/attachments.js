@@ -81,10 +81,12 @@ export async function saveUpload({ tenantId, userSub, buffer, filename }) {
   }
   return withTenant(tenantId, async tx => {
     // Uploads never sent are cleared out as people upload new ones.
+    // (A capture's photo waits with its capture, migration 281.)
     await tx`
-      DELETE FROM ai_attachments
-       WHERE tenant_id = ${tenantId} AND user_sub = ${userSub} AND conversation_id IS NULL
-         AND created_at < now() - make_interval(hours => ${UNSENT_HOURS})
+      DELETE FROM ai_attachments a
+       WHERE a.tenant_id = ${tenantId} AND a.user_sub = ${userSub} AND a.conversation_id IS NULL
+         AND a.created_at < now() - make_interval(hours => ${UNSENT_HOURS})
+         AND NOT EXISTS (SELECT 1 FROM ai_captures c WHERE c.attachment_id = a.id AND c.tenant_id = a.tenant_id)
     `
     const [row] = await tx`
       INSERT INTO ai_attachments (tenant_id, user_sub, kind, media_type, filename, bytes, data)

@@ -10,8 +10,9 @@ do well inside an app, through a bridge (`bridge.js`, the page's side is
 |---|---|---|
 | `auth.token()`, `auth.user()`, `auth.signOut()` | Sign-in (Google refuses sign-in inside a web view) | `lib/officeApp.jsx` fills Auth0's context |
 | `push.token()` | The Today task notices (due soon, late) | `lib/push.js`, `components/notices/NoticeSettings.jsx` |
-| `speech.listen()`, `speech.speak()` | Pepper's dictation and talk mode (`continuous`: one listening through pauses until stopped, Android 13 and up; rules in `speechCore.js`) | `lib/speech.js` |
+| `speech.listen()`, `speech.speak()` | Pepper's dictation and talk mode (`continuous`: one listening through pauses until stopped, Android 13 and up; rules in `speechCore.js`; `hints`: the venue's own words, given to the recogniser as contextual strings) | `lib/speech.js` |
 | `scanner.scan()` | Barcodes into the order form's search | `components/purchasing/ordering.jsx` |
+| `platform` | `android` or `ios`: which phone (the notices' device label) | `lib/push.js` |
 
 It is a different app from `android-app/` (Macaroonie Player: the till, kitchen
 screen, kiosk and menu screen shell): that one keeps the screen awake, hides the bars and has no
@@ -74,29 +75,90 @@ layout, speech).
 
 ## Building
 
-Every profile builds an APK to install by hand, like the device app; switch
-`production` to an app bundle when the app goes on Google Play.
+On Android every profile but `app-store` builds an APK to install by hand,
+like the device app; `app-store` makes the app bundle for Google Play.
 
 - **From GitHub (expo.dev)**: connect the repository with base directory
   **`office-app`** (the device app uses `android-app`). Build from GitHub uses
-  the `production` profile and every platform in `app.json`, which is Android
-  only for now. A GitHub build has no shell environment, so everything it needs
-  comes from the EAS environment variables above.
+  the `production` profile and every platform in `app.json`: Android and, since
+  step 6d, iPhone, which fails until the Apple account is set up (below), so
+  pick Android only there until then. A GitHub build has no shell environment,
+  so everything it needs comes from the EAS environment variables above.
 - **From your computer**: `npx eas build -p android --profile preview` in
   `office-app/` (signed in with `eas login`), with `google-services.json` in the
   folder or the EAS variable.
 
-## iPhone later
+## iPhone
 
-Add `"ios"` back to `platforms` in `app.json` when it is time. The code is the
-same (nothing here is Android-only except the notice channel).
-It needs an Apple developer account, an APNs key in the EAS project, and
-`npx eas build -p ios`. Apple may refuse an app that is mostly a website: push,
-voice, the scanner and native sign-in are what make it more.
+Ready to build (Pepper-first step 6d, 24 Nov 2026), not built or run on an
+iPhone yet: it needs the owner's **Apple Developer Program** membership (paid,
+yearly), which only the owner can join and sign in to.
+
+What is set up in the code:
+
+- `app.json`: `platforms` is Android only until the Apple account is set up (Build from GitHub on expo.dev builds every platform listed, and an iPhone build fails without the account); `OFFICE_IOS=1` adds `ios` through `app.config.js` (CI's iPhone bundle check uses it), and once the account is ready add `"ios"` to `platforms` for good; `ios.bundleIdentifier`
+  `com.macaroonie.office`; `ios.supportsTablet` false (phones only, like the
+  phone pages); `ios.infoPlist` has the reason shown for each permission the
+  app asks for: the camera (scanning, photos), the microphone and speech
+  recognition (Pepper), the photo library (picking a photo to capture), and
+  `ITSAppUsesNonExemptEncryption: false` (only the system's own HTTPS, so App
+  Store Connect doesn't ask about export rules on every upload). Notifications
+  need no reason string on an iPhone: the phone asks when Turn on notices is
+  tapped.
+- `app.config.js`: push asks Apple for the production environment
+  (`aps-environment`), except for the `development` profile (the sandbox).
+- `eas.json`: every profile builds for an iPhone too; `preview` and
+  `production` are internal (ad hoc: only iPhones registered on the Apple
+  account can install them), and `app-store` is for TestFlight and the App
+  Store (`distribution: store`; on Android it makes an app bundle for Google
+  Play).
+- The code paths that differ, each in a file the tests run in Node:
+  - push: the same Expo push token (`ExponentPushToken[...]`, the API's `app`
+    kind); Expo sends it through APNs instead of FCM. The notice channel is
+    Android's only. The device is labelled "on iPhone" in the person's notices.
+  - speech: the phone's own recogniser (Apple's) through the same bridge; its
+    results each hold every word so far, so nothing is joined
+    (`speechCore.js`, `cumulative`); the venue's words go to it as contextual
+    strings, as on Android 13 and up; the task hint is dictation.
+  - the scanner: an iPhone reads a UPC-A as an EAN-13 with a leading 0;
+    `scanCore.js` gives the page the 12 digits, as Android does.
+  - safe areas and the keyboard: an iPhone reports the whole keyboard, which
+    covers the home indicator already, and moves it with will-events
+    (`layout.js`).
+  - back: an iPhone has no back button; a swipe from the left edge goes back
+    in the pages (`allowsBackForwardNavigationGestures`).
+- No app links: neither app opens `https://` links of ours from outside (no
+  Android `intentFilters`), so no associated domains are needed. Sign-in
+  comes back by the `macaroonie-office://` scheme.
+
+What the owner does, once:
+
+1. **Join the Apple Developer Program** (developer.apple.com) as the business,
+   and note the Team ID.
+2. **Auth0**: the same Native application serves both phones. Nothing to add
+   (the callback is the app's scheme, not a web address).
+3. **Push (APNs)**: `npx eas credentials -p ios` (signed in with `eas login`)
+   → production → Push Notifications → set up a push key. EAS makes the key
+   on the Apple account and keeps it for Expo's push service, which the API
+   already sends to. Nothing changes on the server.
+4. **The first build**: first add `"ios"` to `platforms` in `app.json` (it is left out until now so expo.dev's Build from GitHub doesn't try an iPhone build), then in `office-app/`, `npx eas build -p ios --profile
+   preview` for iPhones registered with `npx eas device:create` (internal), or
+   `npx eas build -p ios --profile app-store` for TestFlight. EAS asks to sign
+   in to the Apple account and makes the certificate and provisioning
+   profile. `npx eas submit -p ios --profile production` sends an app-store
+   build to App Store Connect (make the app there first, with the bundle id
+   above).
+5. **App Store review**: the privacy answers (the app collects the person's
+   name and email for sign-in, and nothing for tracking), and a test login
+   for the reviewer. Apple may refuse an app that is mostly a website: push,
+   voice, the scanner, capture and native sign-in are what make it more.
+
+The Android build is unchanged by any of this.
 
 ## Tests
 
 `npm test` (Node only, no phone): the bridge both ways (`test/bridge.test.mjs`),
 which addresses stay in the app and where a tapped notice opens
-(`test/links.test.mjs`), the sign-in rules (`test/authCore.test.mjs`), and
-one listening's rules (`test/speechCore.test.mjs`).
+(`test/links.test.mjs`), the sign-in rules (`test/authCore.test.mjs`),
+one listening's rules (`test/speechCore.test.mjs`), and what differs on an
+iPhone with the iOS settings (`test/ios.test.mjs`).

@@ -12,6 +12,7 @@ import NavDesigner from '@/pages/NavDesigner'
 import MobileHub from '@/pages/mobile/MobileHub'
 import MobileToday from '@/pages/mobile/MobileToday'
 import MobileNotices from '@/pages/mobile/MobileNotices'
+import MobileDevice from '@/pages/mobile/MobileDevice'
 import { LoadingPage } from './lib/LoadingPage'
 // The Docs and Help pages are 1.5 MB of text few people open: their own
 // chunks, loaded when opened, so the main bundle stays under the service
@@ -31,4 +32,5 @@ export const routes = [
   { index: true, shell: 'mobile', element: <MobileHub /> },
   { path: 'today', shell: 'mobile', element: <MobileToday /> },
   { path: 'notices', shell: 'mobile', element: <MobileNotices /> },
+  { path: 'device', shell: 'mobile', element: <MobileDevice /> },
 ]

@@ -22,6 +22,7 @@ import { applySiteTheme } from '@/contexts/SettingsContext'
 import { MOBILE_MODULES } from '@/mobile/registry'
 import { IS_OPS_HOST } from '@/lib/hosts'
 import PageErrorBoundary from '@/components/PageErrorBoundary'
+import { SharedDeviceLayer } from '@/components/SharedDevice'
 
 // Lets a mobile page (e.g. a full-page detail drilled into from a list —
 // see MobileCashUp's day view) suppress this shell's own header when it
@@ -203,6 +204,8 @@ export default function MobileShell() {
           </PageErrorBoundary>
         </HeaderVisibilityContext.Provider>
       </main>
+      {/* A shared device: Who is this?, the person and Lock (migration 280). */}
+      <SharedDeviceLayer />
     </div>
   )
 }

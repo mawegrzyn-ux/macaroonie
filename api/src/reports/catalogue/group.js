@@ -40,7 +40,12 @@ export const decisions = {
     'tenants', // the group's own name
   ],
   out: {
-    'Secrets and keys': ['platform_secrets'],
+    'Secrets and keys': ['platform_secrets', 'user_office_pins'],
+    // Shared devices (migration 280): the device, who is switched in, wrong PINs.
+    'Tokens, codes and sessions': ['shared_devices', 'shared_device_people', 'shared_device_pin_tries'],
+    // Each change on a shared device and its person (a report subject on the
+    // share of named changes is a follow-up, docs/claude/outstanding/core.md).
+    'A log of requests, kept for the record': ['shared_device_changes'],
     'Layouts and designs with nothing to count': ['nav_items', 'dashboard_tiles', 'home_pins'],
     'Working state that changes from minute to minute': [
       // Push notices (migration 262): where a person's notices go, their own

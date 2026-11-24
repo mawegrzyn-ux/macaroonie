@@ -28,3 +28,4 @@ jobs:
       - run: npm test
       - run: npx expo config --type public --json > /dev/null
       - run: npx expo export --platform android --output-dir "$RUNNER_TEMP/office-bundle"
+      - run: OFFICE_IOS=1 npx expo export --platform ios --output-dir "$RUNNER_TEMP/office-bundle-ios"

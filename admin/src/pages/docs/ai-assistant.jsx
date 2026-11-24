@@ -1052,6 +1052,50 @@ export function Section() {
         what is off the list). Eval: <Mono>api/eval/tasks/today.mjs</Mono> (snooze the fridge checks, skip the weekly
         checklist). Tests: <Mono>api/test/pepper-today.test.mjs</Mono>.
       </P>
+      <H3>Captures (step 6b, migration 281)</H3>
+      <P>
+        <Mono>ai_captures</Mono> (forced RLS): venue, kind <Mono>photo</Mono> | <Mono>voice</Mono> |{' '}
+        <Mono>text</Mono>, <Mono>note</Mono> (up to 2,000), <Mono>attachment_id</Mono> (an{' '}
+        <Mono>ai_attachments</Mono> row, the photo), <Mono>user_sub</Mono> (the account), <Mono>person_name</Mono>{' '}
+        (the person: on a shared device the one switched in), <Mono>shared_device_id</Mono>, status{' '}
+        <Mono>waiting</Mono> | <Mono>opened</Mono> | <Mono>dismissed</Mono> with <Mono>handled_at</Mono> /{' '}
+        <Mono>handled_by</Mono>. Routes in <Mono>routes/captures.js</Mono> at <Mono>/api/ai/captures</Mono>:{' '}
+        <Mono>POST /</Mono> (multipart file + venue_id + note: the photo goes through <Mono>saveUpload()</Mono>,
+        the chat&apos;s own checks and its 5 MB image limit, and must be an image; or JSON{' '}
+        <Mono>{'{ venue_id, kind, note }'}</Mono>), <Mono>GET /:id/photo</Mono>, <Mono>POST /:id/open</Mono> (copies
+        the photo as the opener&apos;s own unsent chat file and returns <Mono>{'{ text, files }'}</Mono>; the chat
+        sends them, which is the only model call), <Mono>POST /:id/dismiss</Mono>. Seen by the account that made
+        it and by anyone with Pepper Manage; making one needs Pepper View. <Mono>waitingCaptures()</Mono> adds
+        them to <Mono>GET /api/ai/review</Mono> (kind <Mono>capture</Mono>). A capture&apos;s photo is kept out of
+        the one-day clean-up of unsent chat files (<Mono>saveUpload()</Mono>, <Mono>ai/erase.js</Mono>); captures
+        opened or dismissed <Mono>CAPTURE_KEEP_DAYS</Mono> (30) ago go with their photos. Admin:{' '}
+        <Mono>components/ai/CaptureButton.jsx</Mono> (on <Mono>MobileHub</Mono> and <Mono>MobileToday</Mono>),{' '}
+        <Mono>CaptureAnswers</Mono> in <Mono>pages/Review.jsx</Mono> (Open in Pepper through{' '}
+        <Mono>useAsk().askPepper(text, {'{ files, fresh: true }'})</Mono>, or the phone&apos;s{' '}
+        <Mono>/mobile/assistant</Mono> with the ask in its state; <Mono>ChatView</Mono>&apos;s{' '}
+        <Mono>ask.files</Mono>). Report catalogue: left out (conversations and files). Tests:{' '}
+        <Mono>api/test/pepper-captures.test.mjs</Mono>.
+      </P>
+      <H3>The venue&apos;s own words for speech (step 6c)</H3>
+      <P>
+        <Mono>GET /api/ai/venue-words?venue_id=</Mono> (no table): the venue&apos;s fridge and hold station names
+        (Food safety View), dishes of the group&apos;s published menus for that venue or none (Menus View), staff first
+        names (Staff or Rota View) and suppliers, the venue&apos;s first (Purchasing or its set-up View), through{' '}
+        <Mono>venueWordList()</Mono> (<Mono>shared/venueWords.js</Mono>: each once, at most <Mono>MAX_WORDS</Mono>{' '}
+        300); without a venue, every venue&apos;s. <Mono>snapToWords(text, words)</Mono> after the recogniser: a
+        window of the heard words (the word&apos;s own length, one more, one fewer) within{' '}
+        <Mono>allowed(letters)</Mono> edits of a venue word (same first letter) becomes that word; a venue word
+        heard right is locked first (and takes the venue&apos;s spelling when only spaces or hyphens differ); a
+        window with a digit or a number word is never touched, nor is a venue word that has one; fewer than{' '}
+        <Mono>MIN_FUZZY_LETTERS</Mono> (7) letters match exactly only. Admin:{' '}
+        <Mono>components/ai/venueWords.js</Mono> <Mono>useVenueWords(venueId)</Mono> (<Mono>hints</Mono>,{' '}
+        <Mono>fix()</Mono>), used by <Mono>useMic()</Mono> (dictation and talk mode) and the capture&apos;s voice note;{' '}
+        <Mono>lib/speech.js</Mono> <Mono>listen({'{ hints }'})</Mono> passes them to the Office app, whose bridge
+        cleans them (<Mono>cleanHints()</Mono>) and gives them to <Mono>expo-speech-recognition</Mono> as{' '}
+        <Mono>contextualStrings</Mono> (Android 13 and up, iOS); the browser&apos;s Web Speech API takes none.
+        Tests: <Mono>shared/test/venueWords.test.mjs</Mono>, <Mono>api/test/pepper-venue-words.test.mjs</Mono>,{' '}
+        <Mono>office-app/test/bridge.test.mjs</Mono>.
+      </P>
     </section>
   )
 }

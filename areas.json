@@ -158,11 +158,13 @@
     "admin/public/pwa-512x512.png",
     "admin/src/components/ReadOnlyNotice.jsx",
     "admin/src/components/RichTextEditor.jsx",
+    "admin/src/components/SharedDevice.jsx",
     "admin/src/components/TenantGate.jsx",
     "admin/src/contexts/**",
     "admin/src/hooks/**",
     "admin/src/index.css",
     "admin/src/lib/api.js",
+    "admin/src/lib/sharedDevice.js",
     "admin/src/lib/utils.js",
     "admin/src/main.jsx",
     "admin/src/pages/Access.jsx",
@@ -181,6 +183,7 @@
     "admin/src/pages/docs/multitenancy.jsx",
     "admin/src/pages/docs/rbac.jsx",
     "admin/src/pages/docs/services.jsx",
+    "admin/src/pages/docs/shared-devices.jsx",
     "admin/src/pages/docs/stored-keys.jsx",
     "admin/src/pages/docs/team-platform.jsx",
     "admin/src/pages/docs/tech-stack.jsx",
@@ -188,6 +191,7 @@
     "admin/src/pages/help/changelog.jsx",
     "admin/src/pages/help/feature-requests.jsx",
     "admin/src/pages/help/issues.jsx",
+    "admin/src/pages/help/shared-devices.jsx",
     "admin/src/pages/help/team.jsx",
     "admin/vite.config.js",
     "api/.env.example",
@@ -208,6 +212,7 @@
     "api/src/routes/featureRequests.js",
     "api/src/routes/issueLog.js",
     "api/src/routes/platform.js",
+    "api/src/routes/sharedDevices.js",
     "api/src/routes/team.js",
     "api/src/server.js",
     "api/src/services/auth0MgmtSvc.js",
@@ -220,9 +225,12 @@
     "api/src/services/stagingAccess.js",
     "api/src/services/storageSvc.js",
     "api/src/services/vault.js",
+    "api/test/shared-devices.test.mjs",
     "scripts/ensure-secrets-key.sh"
    ],
-   "public": []
+   "public": [
+    "admin/src/components/SharedDevice.jsx"
+   ]
   },
   "dashboards": {
    "paths": [
@@ -787,6 +795,7 @@
     "api/src/ai/tools/venue.js",
     "api/src/routes/ai.js",
     "api/src/routes/aiApi.js",
+    "api/src/routes/captures.js",
     "api/src/routes/documentRead.js",
     "api/src/routes/formDrafts.js",
     "api/src/routes/mcp.js",
@@ -800,23 +809,28 @@
     "api/test/mcp-oauth.test.mjs",
     "api/test/menu-import.test.mjs",
     "api/test/pepper-actions.test.mjs",
+    "api/test/pepper-captures.test.mjs",
     "api/test/pepper-eval.test.mjs",
     "api/test/pepper-forms.test.mjs",
     "api/test/pepper-requests.test.mjs",
     "api/test/pepper-review.test.mjs",
     "api/test/pepper-today.test.mjs",
     "api/test/pepper-tools-registry.test.mjs",
+    "api/test/pepper-venue-words.test.mjs",
     "api/test/pepper-voice.test.mjs",
     "api/test/pepper-web-search.test.mjs",
     "api/test/venue-wizard.test.mjs",
     "shared/assistant.js",
     "shared/forms.js",
     "shared/help.js",
-    "shared/storeOpening.js"
+    "shared/storeOpening.js",
+    "shared/test/venueWords.test.mjs",
+    "shared/venueWords.js"
    ],
    "public": [
     "admin/src/components/ai/AskPepperBar.jsx",
     "admin/src/components/ai/AssistantDrawer.jsx",
+    "admin/src/components/ai/CaptureButton.jsx",
     "admin/src/components/ai/ChatView.jsx",
     "admin/src/components/ai/ReviewSlot.jsx",
     "admin/src/components/ai/attachments.jsx",
@@ -832,7 +846,8 @@
     "shared/forms.js",
     "shared/help.js",
     "shared/nav/pepper.js",
-    "shared/storeOpening.js"
+    "shared/storeOpening.js",
+    "shared/venueWords.js"
    ]
   },
   "purchasing": {
@@ -1117,6 +1132,7 @@
     "admin/src/pages/help/parts.jsx",
     "admin/src/pages/help/settings.jsx",
     "admin/src/pages/help/usage-record.jsx",
+    "admin/src/pages/mobile/MobileDevice.jsx",
     "admin/src/pages/mobile/MobileHub.jsx",
     "admin/src/pages/mobile/MobileNotices.jsx",
     "admin/src/pages/mobile/MobileToday.jsx",
@@ -1148,9 +1164,11 @@
     "office-app/authCore.js",
     "office-app/bridge.js",
     "office-app/eas.json",
+    "office-app/layout.js",
     "office-app/links.js",
     "office-app/package-lock.json",
     "office-app/package.json",
+    "office-app/scanCore.js",
     "office-app/speechCore.js",
     "office-app/test/**",
     "shared/nav/links.js",
@@ -1167,6 +1185,7 @@
     "admin/src/components/PageErrorBoundary.jsx",
     "admin/src/components/TenantSwitcherModal.jsx",
     "admin/src/components/home/Pins.jsx",
+    "admin/src/components/layout/AskBar.jsx",
     "admin/src/lib/deepLink.js",
     "admin/src/lib/fileDrop.js",
     "admin/src/lib/hosts.js",
