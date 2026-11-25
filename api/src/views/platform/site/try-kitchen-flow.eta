@@ -1,51 +1,49 @@
 <%~ include('./_head', it) %>
 <%
-/* The kitchen flow sandbox (/try/kitchen-flow). The page is drawn by
-   api/platform-site/try-kitchen.js with the real kitchen rules, served from
-   it.sharedBase() (services/platformSite/sharedModules.js). */
+/* The kitchen walkthrough (/try/kitchen-flow): a guided, narrated Friday
+   service at an invented restaurant. Drawn by api/platform-site/try-kitchen.js,
+   which loads the story (it.asset('kitchen-story.js')) and replays it on the
+   real kitchen rules served from it.sharedBase()
+   (services/platformSite/sharedModules.js). */
 %>
-<section class="page-hero try-hero">
-  <div class="wrap">
+<section class="page-hero kw-hero">
+  <div class="wrap kw-wrap">
     <p class="crumbs"><a href="/try">Try it</a></p>
-    <h1>Set up a kitchen</h1>
-    <p class="lead">Boxes are your kitchen screens, printers and helpers. Links say which dishes go where. Send a test order and watch it find its way.</p>
+    <h1>A Friday night in the kitchen</h1>
+    <p class="lead">Follow a busy service at Harbour &amp; Co, step by step: tables with courses, kiosk and online orders, two grills sharing the burgers, the pass and the packing check. Every ticket is worked out by Macaroonie's own kitchen rules, in your browser.</p>
   </div>
 </section>
-<section class="tight try-body">
-  <div class="wrap">
-    <div class="kf" id="kf" data-shared="<%= it.sharedBase() %>">
-      <div class="try-main">
-        <div class="kf-bar">
-          <div class="kf-add" role="group" aria-label="Add a box"></div>
-          <div class="kf-go">
-            <button type="button" class="btn btn-primary kf-send">Send a test order</button>
-            <button type="button" class="btn btn-ghost kf-reset">Reset</button>
+<section class="tight kw-body">
+  <div class="wrap kw-wrap">
+    <div class="kw" id="kw" data-shared="<%= it.sharedBase() %>" data-story="<%= it.asset('kitchen-story.js') %>">
+      <div class="kw-top">
+        <div class="kw-narr">
+          <p class="kw-where"><span class="kw-count">Loading the kitchen...</span> <span class="kw-clock"></span></p>
+          <h2 class="kw-title" tabindex="-1"></h2>
+          <div class="kw-text"></div>
+          <p class="kw-look" hidden></p>
+          <div class="kw-controls" role="group" aria-label="Walkthrough controls">
+            <button type="button" class="btn btn-ghost kw-back" aria-keyshortcuts="ArrowLeft" disabled>Back</button>
+            <button type="button" class="btn btn-primary kw-next" aria-keyshortcuts="ArrowRight" disabled>Next</button>
+            <button type="button" class="btn btn-ghost kw-play" aria-pressed="false" aria-keyshortcuts="Space" disabled>Play</button>
+            <button type="button" class="btn btn-ghost kw-restart" disabled>Restart</button>
           </div>
+          <p class="kw-keys">Keys: left and right arrows step, space plays or pauses.</p>
         </div>
-        <p class="kf-connect" hidden><span></span> <button type="button" class="btn btn-ghost">Cancel</button></p>
-        <div class="kf-canvas"><p class="kf-loading">Loading the kitchen...</p></div>
-        <ul class="kf-checks" hidden></ul>
-        <div class="kf-panel"></div>
-        <p class="kf-order">The test order: <b>2 Burger</b> (a main), <b>Fries</b> (a side), <b>Cola</b> (a drink) and <b>Brownie</b> (a dessert).</p>
-        <h2 class="try-sub">What each screen sees</h2>
-        <div class="kf-screens"></div>
-        <p class="sr kf-live" aria-live="polite"></p>
+        <nav class="kw-chapters" aria-label="Chapters"></nav>
       </div>
-      <aside class="try-side" aria-label="How it works">
-        <h2>The boxes</h2>
-        <dl class="try-defs">
-          <dt>Orders in</dt><dd>The tills, kiosks and online orders. Every dish starts here.</dd>
-          <dt>Station</dt><dd>A kitchen screen where dishes are made: the grill, the fryer, the bar. Tap Done when they're made.</dd>
-          <dt>Pass</dt><dd>Where the whole order comes together and is checked before it goes out.</dd>
-          <dt>Splitter</dt><dd>Shares tickets between stations doing the same job, so two grills share the burgers.</dd>
-          <dt>Sleeper</dt><dd>Holds dishes back for a few minutes, desserts after mains, then sends them on.</dd>
-          <dt>Printer</dt><dd>Prints a ticket for the dishes that reach it.</dd>
-          <dt>Links</dt><dd>Each one says which dishes take it: every dish, or only the mains, sides, drinks or desserts.</dd>
-        </dl>
-        <p class="try-note">This runs Macaroonie's own kitchen rules in your browser, the same ones as the kitchen screens' test bench. Nothing is saved or sent: your flow stays in this browser until you press Reset.</p>
-      </aside>
+      <div class="kw-grid">
+        <details class="kw-mapwrap" open>
+          <summary>The kitchen map</summary>
+          <div class="kw-map" role="img" aria-label="The kitchen flow: Orders in, the Splitter, Sleeper and stations, the Pass, Bagging, Packing, the Floor, the printers and the collection board, joined by lines."></div>
+          <p class="kw-legend"><span class="kw-key kw-key-lit"></span> Ways dishes took in this step <span class="kw-key kw-key-on"></span> Boxes to look at</p>
+        </details>
+        <div class="kw-screens" aria-label="The screens for this step"></div>
+      </div>
+      <p class="sr kw-live" aria-live="polite"></p>
     </div>
-    <noscript><p>The sandbox needs JavaScript. The <a href="/screenshots">screenshots</a> show the real designer.</p></noscript>
+    <noscript><p>The walkthrough needs JavaScript. The <a href="/screenshots">screenshots</a> show the real kitchen screens.</p></noscript>
+    <p class="kw-note">An invented restaurant and a scripted night. The tickets, splits, wake-ups, prints, statuses and timers come from the same kitchen rules as the real kitchen screens; anything else (a runner carrying plates, a guest eating) is only in the words. Nothing is sent anywhere.</p>
   </div>
 </section>
 <%~ include('./_foot', it) %>

@@ -10,6 +10,10 @@
 //   - the kitchen screen and the test bench (pos/src/kitchen/KitchenApp.jsx):
 //     ticketColours() and sectionColour()
 //   - the admin's preview ticket (components/pos/KitchenColours.jsx)
+//   - the kitchen walkthrough on macaroonie.com (api/platform-site/try-kitchen.js)
+//
+// rowLook() and ticketLook() pick which of these colours a dish row and a
+// ticket's top take, for every place that draws kitchen tickets.
 //
 // Saved: { states: { [key]: '#rrggbb' }, sections: [{ name, colour }] }.
 // A state not set keeps the standard look (KITCHEN_COLOURS' bg and ink); a
@@ -41,6 +45,34 @@ export const KITCHEN_COLOUR_GROUPS = [
   { key: 'timer', label: 'Timer' },
 ]
 export const SECTION_COLOURS_MAX = 100
+
+// The pass and runners check whole orders (isOrderLevel() in kitchen.js).
+const orderLevel = station => station?.kind === 'expo' || station?.kind === 'runner'
+
+/** A dish row's look: 'todo' | 'ticked' | 'upcoming' | 'held' | 'voided' (a stationTickets() item). */
+export function rowLook(item) {
+  const st = item.state
+  if (st === 'voided') return 'voided'
+  if (st === 'held') return 'held'
+  if (st === 'done' || item.ticked) return 'ticked'
+  if (st === 'upcoming') return 'upcoming'
+  return 'todo'
+}
+
+/**
+ * A ticket's top (a stationTickets() ticket at a station): { key, prepared,
+ * checked }. key: 'head_rush' > 'head_new' (fresh: new dishes in the last 30
+ * seconds, the screen's own alert) > 'head_checked' (the pass or a runner:
+ * every dish ticked off) > 'head_prepared' (the pass or a runner: every dish
+ * has reached it) > 'head'.
+ */
+export function ticketLook(t, station, fresh = false) {
+  const live = t.items.filter(i => i.state !== 'voided' && i.state !== 'held')
+  const prepared = orderLevel(station) && live.length > 0 && live.every(i => i.state === 'active' || i.state === 'done')
+  const checked = orderLevel(station) && !!t.all_ticked
+  const key = t.order.priority ? 'head_rush' : fresh ? 'head_new' : checked ? 'head_checked' : prepared ? 'head_prepared' : 'head'
+  return { key, prepared, checked }
+}
 
 const HEX = /^#[0-9a-f]{6}$/i
 const isHex = v => typeof v === 'string' && HEX.test(v)

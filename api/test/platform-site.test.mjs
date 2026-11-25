@@ -140,8 +140,23 @@ test('the sandboxes: live pages that load the shared rules they run', async () =
     assert.ok(r.body.includes('Like what you see?'), path + ' ends with the register-interest band')
     assert.ok(!r.body.includes('Coming next'), path + ' is no longer a placeholder')
   }
+  // The kitchen walkthrough: its story file loads (versioned), the rules it
+  // replays on are preloaded, and the old designer sandbox is gone.
+  const walk = (await get('/try/kitchen-flow')).body
+  const story = /data-story="(\/site\/kitchen-story\.js\?v=[0-9a-f]+)"/.exec(walk)
+  assert.ok(story, 'the walkthrough tells its script where the story is')
+  const storyFile = await get(story[1])
+  assert.equal(storyFile.statusCode, 200)
+  assert.match(storyFile.headers['cache-control'], /max-age=31536000, immutable/)
+  assert.ok(storyFile.body.includes('export function kitchenStory'), 'the story module')
+  for (const f of ['pos/kitchenTimers.js', 'pos/kitchenColours.js']) {
+    assert.ok(walk.includes('<link rel="modulepreload" href="' + sharedBase() + f + '">'), 'preloads ' + f)
+  }
+  assert.ok(walk.includes('/site/try-kitchen.css?v='), 'its own stylesheet')
+  assert.ok(!walk.includes('kf-canvas') && !walk.includes('Send a test order'), 'no designer left')
   const tryPage = (await get('/try')).body
   assert.ok(tryPage.includes('href="/try/kitchen-flow"') && tryPage.includes('href="/try/kiosk"'), '/try links both')
+  assert.ok(tryPage.includes('Start the walkthrough'), '/try names the walkthrough\'s button')
   const home = (await get('/')).body
   assert.ok(home.includes('href="/try/kitchen-flow"') && !home.includes('coming next'), 'the home teaser links them')
 })
@@ -189,6 +204,7 @@ test('the kiosk designer demo: the page frames the demo build, which is served f
 test('the shared rules are served from an allowlist only', async () => {
   const files = sharedFiles()
   for (const e of ENTRIES) assert.ok(files.includes(e), e)
+  for (const f of ['pos/kitchenTimers.js', 'pos/kitchenColours.js', 'pos/kitchen.js']) assert.ok(files.includes(f), 'the walkthrough needs ' + f)
   assert.ok(files.every(f => /^[a-zA-Z0-9/]+\.js$/.test(f) && !f.startsWith('test/')), 'plain module files under shared/')
   for (const f of files) {
     const plain = await getWith(sharedBase() + f, {})

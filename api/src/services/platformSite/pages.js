@@ -16,8 +16,8 @@
 //   shot         the screenshot used as the page's Open Graph image (a key of
 //                SHOTS in screenshots.js)
 //   css, script  a page's own stylesheet and module script (files in
-//                api/platform-site/; the sandboxes)
-//   open         the Try it page's button for it (else 'Open the sandbox')
+//                api/platform-site/; the pages under /try)
+//   short, open  a /try page's name on the Try it cards and its button
 //   shared       the shared modules the script imports (sharedModules.js),
 //                preloaded by the head
 //   cta          the heading of the register-interest band at the foot
@@ -60,16 +60,18 @@ export const PAGES = [
   {
     path: '/try', view: 'platform/site/try.eta', nav: 'Try it',
     title: 'Try it | ' + BASE,
-    description: 'Hands on, in your browser: set up a kitchen flow, or design a kiosk with the real kiosk designer.',
+    description: 'Walk through a busy kitchen service, or design a kiosk with the real kiosk designer, in your browser.',
     shot: 'kitchen-flow',
   },
   {
     path: '/try/kitchen-flow', view: 'platform/site/try-kitchen-flow.eta',
-    title: 'Kitchen flow designer sandbox | ' + BASE,
-    short: 'Set up a kitchen',
-    description: 'Lay out a basic kitchen: stations, screens and printers, and how a dish moves from prep to the pass.',
-    shot: 'kitchen-flow',
-    css: 'try.css', script: 'try-kitchen.js', shared: ['pos/kitchenBench.js', 'pos/kitchenPrint.js', 'pos/ticketHtml.js'],
+    title: 'Kitchen walkthrough: a Friday night service | ' + BASE,
+    short: 'Walk through a busy kitchen',
+    open: 'Start the walkthrough',
+    description: 'A guided walk through a busy Friday service: tables with courses, kiosk and online orders, shared grills, the pass and the packing check, on Macaroonie\'s own kitchen rules.',
+    shot: 'kitchen',
+    css: 'try-kitchen.css', script: 'try-kitchen.js',
+    shared: ['pos/kitchenBench.js', 'pos/kitchenPrint.js', 'pos/ticketHtml.js', 'pos/kitchenTimers.js', 'pos/kitchenColours.js'],
     cta: 'Like what you see?',
   },
   {
