@@ -2,7 +2,7 @@
 //
 // Layout shell for the /mobile/* section — a phone-portrait-first area of
 // the same admin SPA (same Auth0 session, same API, same deploy). It swaps
-// the page's PWA manifest + icons to a distinct "Macaroonie Ops" identity
+// the page's PWA manifest + icons to a distinct "Macaroonie Office" identity
 // while any /mobile route is mounted, so "Add to Home Screen" installs a
 // separate-looking app even though it's the same origin and bundle.
 //
@@ -84,7 +84,7 @@ function useMobileManifest() {
     manifestLink?.setAttribute('href', MOBILE_MANIFEST_HREF)
     touchIconLink?.setAttribute('href', MOBILE_TOUCH_ICON)
     themeMeta?.setAttribute('content', MOBILE_THEME_COLOR)
-    titleMeta?.setAttribute('content', 'Macaroonie Ops')
+    titleMeta?.setAttribute('content', 'Macaroonie Office')
 
     return () => {
       manifestLink?.setAttribute('href', prevManifest)
@@ -119,7 +119,7 @@ export default function MobileShell() {
 
   const isHub = location.pathname === '/mobile' || location.pathname === '/mobile/'
   const activeModule = MOBILE_MODULES.find(m => location.pathname.startsWith(m.path))
-  const title = isHub ? 'Ops' : (activeModule?.label ?? 'Ops')
+  const title = isHub ? 'Office' : (activeModule?.label ?? 'Office')
 
   // The restaurant this phone works in, beside the title on every page; the
   // ops screens have no sidebar, so Switch sits next to sign out. A switch
@@ -158,7 +158,7 @@ export default function MobileShell() {
             <NavLink
               to="/mobile"
               className="w-12 h-12 flex items-center justify-center rounded-lg hover:bg-accent shrink-0 touch-manipulation"
-              aria-label="Back to Ops home"
+              aria-label="Back to Office home"
             >
               <ArrowLeft className="w-5 h-5" />
             </NavLink>

@@ -25,9 +25,6 @@ export default function MobileHub() {
   return (
     <div className="min-h-full flex flex-col">
       <div className="flex-1 p-4 space-y-3">
-        <p className="text-sm text-muted-foreground px-0.5">
-          Mobile-optimised tools. Add this page to your home screen for quick access.
-        </p>
         {/* Capture to For review (migration 281): a photo, a voice note or a line. */}
         {(me?.is_platform_admin || (me?.permissions?.ai_assistant ?? 'none') !== 'none') && <CaptureButton venueId={readVenue()} />}
         <div className="grid grid-cols-2 gap-3">
