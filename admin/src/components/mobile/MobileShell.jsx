@@ -11,13 +11,12 @@
 // reusable piece, not a one-off page.
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { useAuth0 } from '@auth0/auth0-react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, ArrowLeftRight, LogOut, LayoutGrid } from 'lucide-react'
-import { useApi, setSelectedTenant } from '@/lib/api'
+import { ArrowLeft, LayoutGrid } from 'lucide-react'
+import { useApi } from '@/lib/api'
 import { usePageUse } from '@/lib/usage'
-import TenantSwitcherModal from '@/components/TenantSwitcherModal'
+import MobileMenu from '@/components/mobile/MobileMenu'
 import { applySiteTheme } from '@/contexts/SettingsContext'
 import { MOBILE_MODULES } from '@/mobile/registry'
 import { IS_OPS_HOST } from '@/lib/hosts'
@@ -40,25 +39,9 @@ export function useHideMobileHeader() {
   }, [setHidden])
 }
 
-// Reusable sign-out button matching the shell header's own — for a page
-// that hides the shell header and needs to fold sign-out into its own.
-export function MobileLogoutButton({ className }) {
-  const { logout } = useAuth0()
-  function handleLogout() {
-    try { localStorage.removeItem('maca_auth0_org_hint') } catch { /* ignore */ }
-    logout({ logoutParams: { returnTo: window.location.origin } })
-  }
-  return (
-    <button
-      type="button"
-      onClick={handleLogout}
-      className={className ?? 'w-12 h-12 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground shrink-0 touch-manipulation'}
-      aria-label="Sign out"
-    >
-      <LogOut className="w-5 h-5" />
-    </button>
-  )
-}
+// The header's three-dot menu (shared device, this device, switch location,
+// notices, sign out), for a page that hides the shell header and draws its own.
+export { MobileMenu }
 
 const MAIN_MANIFEST_HREF = '/manifest.webmanifest'
 // On ops.<domain> the phone app has the whole origin, so its manifest's
@@ -101,7 +84,6 @@ export default function MobileShell() {
   usePageUse()
 
   const location = useLocation()
-  const navigate = useNavigate()
   const api = useApi()
 
   // /mobile mounts under its own shell, never AppShell — so the site-accent
@@ -121,19 +103,9 @@ export default function MobileShell() {
   const activeModule = MOBILE_MODULES.find(m => location.pathname.startsWith(m.path))
   const title = isHub ? 'Office' : (activeModule?.label ?? 'Office')
 
-  // The restaurant this phone works in, beside the title on every page; the
-  // ops screens have no sidebar, so Switch sits next to sign out. A switch
-  // opens the same page fresh (no query: an order or PO id in the address
-  // would be the other restaurant's).
+  // The group this phone works in, beside the title on every page; the
+  // three-dot menu (MobileMenu) holds switch location and the rest.
   const tenant = me?.current_tenant
-  const canSwitch = !!tenant && (me?.available_tenants?.length ?? 0) > 1
-  const [switching, setSwitching] = useState(false)
-  function switchTenant(id) {
-    if (!id) return
-    if (id === tenant?.id) { setSwitching(false); return }
-    setSelectedTenant(id)
-    window.location.assign(isHub ? '/mobile' : (activeModule?.path ?? '/mobile'))
-  }
 
   const [headerHidden, setHeaderHidden] = useState(false)
   const headerVisibility = useMemo(() => ({ setHidden: setHeaderHidden }), [])
@@ -171,30 +143,8 @@ export default function MobileShell() {
               </span>
             )}
           </div>
-          {canSwitch && (
-            <button
-              type="button"
-              onClick={() => setSwitching(true)}
-              className="w-12 h-12 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground shrink-0 touch-manipulation"
-              aria-label="Switch restaurant"
-              title="Switch restaurant"
-              data-testid="mobile-tenant-switch"
-            >
-              <ArrowLeftRight className="w-5 h-5" />
-            </button>
-          )}
-          <MobileLogoutButton />
+          <MobileMenu />
         </header>
-      )}
-      {switching && (
-        <TenantSwitcherModal
-          tenants={me?.available_tenants ?? []}
-          currentTenantId={tenant?.id}
-          onPick={switchTenant}
-          onClose={() => setSwitching(false)}
-          title="Switch restaurant"
-          subtitle="Pick which restaurant to work in."
-        />
       )}
 
       <main className="flex-1 overflow-y-auto overscroll-contain">
@@ -204,8 +154,8 @@ export default function MobileShell() {
           </PageErrorBoundary>
         </HeaderVisibilityContext.Provider>
       </main>
-      {/* A shared device: Who is this?, the person and Lock (migration 280). */}
-      <SharedDeviceLayer />
+      {/* A shared device: Who is this? (migration 280); the person and Lock are in the menu. */}
+      <SharedDeviceLayer pill={false} />
     </div>
   )
 }

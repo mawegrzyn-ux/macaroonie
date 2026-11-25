@@ -6,8 +6,13 @@
 //   SharedDeviceLayer     mounted by AppShell and MobileShell: asks "Who is
 //                         this?" (a name, then a PIN on a pad) when a change
 //                         comes back asking, shows who is switched in with a
-//                         one-tap Lock, locks after IDLE_MS without a tap,
-//                         and checks the device is still shared.
+//                         one-tap Lock (the office's floating pill; the phone
+//                         passes pill={false} and shows them in its menu,
+//                         components/mobile/MobileMenu.jsx), locks after
+//                         IDLE_MS without a tap, and checks the device is
+//                         still shared.
+//   useSharedLock()       Lock for a menu: the person off this device now.
+//   askWhoNow()           opens "Who is this?" (switch person) from a menu.
 //   SharedDeviceSettings  Settings and the phone's This device page: mark this
 //                         device shared for a venue (Settings Manage), stop
 //                         it, and the group's other shared devices.
@@ -22,7 +27,7 @@ import { usePermission } from '@/hooks/usePermission'
 import { inOfficeApp } from '@/lib/officeApp'
 import {
   useSharedDevice, setWhoHandler, setServerCalls, startPerson, endPerson, personToken, touched,
-  keepDevice, forgetDevice,
+  keepDevice, forgetDevice, askWho,
 } from '@/lib/sharedDevice'
 
 // A keyboard for the PIN only where there is no touch screen (a desk computer).
@@ -33,7 +38,24 @@ const btnPrimary = 'inline-flex items-center justify-center gap-2 min-h-[48px] p
 
 // ── The layer: Who is this?, the person's pill, Lock ─────────────
 
-export function SharedDeviceLayer() {
+/** Lock: the person switched in is off this device now (the server is told). */
+export function useSharedLock() {
+  const api = useApi()
+  const qc = useQueryClient()
+  return async function lock() {
+    const token = personToken()
+    endPerson()
+    if (token) await api.post('/shared-devices/lock', {}).catch(() => {})
+    qc.invalidateQueries()
+  }
+}
+
+/** "Who is this?" from a menu (switch person): closing it does nothing. */
+export function askWhoNow() {
+  askWho('person_needed').catch(() => {})
+}
+
+export function SharedDeviceLayer({ pill = true }) {
   const api = useApi()
   const qc = useQueryClient()
   const { device, person } = useSharedDevice()
@@ -65,17 +87,12 @@ export function SharedDeviceLayer() {
     return () => { window.removeEventListener('pointerdown', on, true); window.removeEventListener('keydown', on, true) }
   }, [person])
 
-  async function lock() {
-    const token = personToken()
-    endPerson()
-    if (token) await api.post('/shared-devices/lock', {}).catch(() => {})
-    qc.invalidateQueries()
-  }
+  const lock = useSharedLock()
 
   if (!device) return null
   return (
     <>
-      <div className="fixed z-[60] right-3 bottom-3 touch:max-[700px]:bottom-[4.5rem] flex items-center gap-1 rounded-full border bg-background shadow-lg pl-3 pr-1 py-1"
+      {pill && <div className="fixed z-[60] right-3 bottom-3 touch:max-[700px]:bottom-[4.5rem] flex items-center gap-1 rounded-full border bg-background shadow-lg pl-3 pr-1 py-1"
         data-testid="shared-pill">
         <Tablet className="w-4 h-4 text-muted-foreground shrink-0" aria-hidden />
         {person ? (
@@ -94,7 +111,7 @@ export function SharedDeviceLayer() {
             <UserRound className="w-4 h-4" /> {device.name}: who is this?
           </button>
         )}
-      </div>
+      </div>}
       {asking && (
         <WhoIsThis code={asking.code}
           onDone={() => { const a = asking; setAsking(null); qc.invalidateQueries({ queryKey: ['me'] }); a.resolve() }}
