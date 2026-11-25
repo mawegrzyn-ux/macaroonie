@@ -6,6 +6,9 @@
 // picker" pattern as modules.js elsewhere in this app. `areas` are the Today feed's task
 // areas (api/src/services/opsToday.js) a tile's badge counts; Today counts
 // every task. `module` hides the tile from someone whose role has none of it.
+// `hub: false` keeps the page (its route, the header's title, links to it)
+// with no tile: Wages (reached from Today's wages task), Pepper (the ask bar
+// at the bottom of the hub), Notices and This device (the header's menu).
 
 import { ListTodo, LayoutGrid, Receipt, ShoppingCart, Wallet, Users, ShoppingBag, Wheat, Sparkles, BarChart3, Bell, Tablet } from 'lucide-react'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
@@ -57,6 +60,7 @@ export const MOBILE_MODULES = [
     icon: Users,
     path: '/mobile/wages',
     areas: ['wages'],
+    hub: false,
   },
   {
     key: 'orders',
@@ -87,6 +91,7 @@ export const MOBILE_MODULES = [
     description: 'Ask about bookings, the rota, cash up, orders, H&S, menus and more',
     icon: Sparkles,
     path: '/mobile/assistant',
+    hub: false,
   },
   {
     key: 'notices',
@@ -94,6 +99,7 @@ export const MOBILE_MODULES = [
     description: 'A notice when a task is due soon or late: turn it on for this phone',
     icon: Bell,
     path: '/mobile/notices',
+    hub: false,
   },
   {
     key: 'device',
@@ -101,5 +107,6 @@ export const MOBILE_MODULES = [
     description: 'Your office PIN, and sharing this phone or tablet between staff',
     icon: Tablet,
     path: '/mobile/device',
+    hub: false,
   },
 ]

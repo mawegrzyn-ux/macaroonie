@@ -19,8 +19,8 @@ export default function MobileHub() {
   const api = useApi()
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 60_000 })
   const { data: ai } = useAiStatus()
-  // A tile with a module shows once /me says the role has it.
-  const shown = MOBILE_MODULES.filter(m => !m.module || me?.is_platform_admin
+  // A tile with a module shows once /me says the role has it; hub: false has no tile.
+  const shown = MOBILE_MODULES.filter(m => m.hub !== false).filter(m => !m.module || me?.is_platform_admin
     || (me?.permissions?.[m.module] ?? 'none') !== 'none')
   return (
     <div className="min-h-full flex flex-col">
