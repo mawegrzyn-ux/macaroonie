@@ -9,6 +9,7 @@ import path from 'path'
 
 export default defineConfig({
   base: '/site/demo/kiosk-app/',
+  publicDir: false,
   plugins: [react()],
   resolve: {
     alias: {

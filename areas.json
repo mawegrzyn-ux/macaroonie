@@ -1500,6 +1500,7 @@
     "pos/src/components/TillMenu.jsx",
     "pos/src/components/ZoneGrid.jsx",
     "pos/src/components/ui.jsx",
+    "pos/src/index.css",
     "pos/src/lib/allergyFit.js",
     "pos/src/lib/appHost.js",
     "pos/src/lib/appUpdate.js",
