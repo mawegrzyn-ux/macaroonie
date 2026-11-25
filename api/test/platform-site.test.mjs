@@ -11,8 +11,33 @@ import { FEATURE_GROUPS } from '../src/services/platformSite/features.js'
 import { ARCH_LAYERS } from '../src/services/platformSite/architecture.js'
 import { SHOTS, GALLERY } from '../src/services/platformSite/screenshots.js'
 import { sharedFiles, sharedBase, ENTRIES } from '../src/services/platformSite/sharedModules.js'
+import { setDemoRoots, DEMO_PAGES } from '../src/services/platformSite/demoBuilds.js'
+import fs from 'node:fs'
+import os from 'node:os'
+import nodePath from 'node:path'
 
-after(closeApp)
+// The kiosk designer demo's two builds (admin/ and pos/ dist-demo, made by
+// npm run build): stand-ins in a folder of the test's own, so the test
+// doesn't depend on a build having run.
+const DEMO = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kiosk-demo-'))
+const demoFile = (rel, body) => {
+  fs.mkdirSync(nodePath.dirname(nodePath.join(DEMO, rel)), { recursive: true })
+  fs.writeFileSync(nodePath.join(DEMO, rel), body)
+}
+demoFile('designer/demo-kiosk.html', '<!DOCTYPE html><title>Kiosk designer demo</title><script type="module" src="/site/demo/kiosk-designer/assets/demo-kiosk-abc123.js"></script>')
+demoFile('designer/assets/demo-kiosk-abc123.js', 'console.log("designer");'.repeat(40))
+demoFile('designer/assets/burger-abc123.svg', '<svg xmlns="http://www.w3.org/2000/svg"/>')
+demoFile('designer/notes.txt', 'not a type the demo serves')
+demoFile('kiosk/demo-kiosk.html', '<!DOCTYPE html><title>Kiosk demo</title>')
+demoFile('kiosk/assets/demo-kiosk-def456.css', '.k-root{color:red}')
+fs.writeFileSync(nodePath.join(DEMO, 'secret.json'), '{"dependencies":{}}')
+setDemoRoots({ 'kiosk-designer': nodePath.join(DEMO, 'designer'), 'kiosk-app': nodePath.join(DEMO, 'kiosk') })
+
+after(async () => {
+  setDemoRoots(null)
+  fs.rmSync(DEMO, { recursive: true, force: true })
+  await closeApp()
+})
 
 const APEX = 'macaroonie.com'
 async function get(url, host = APEX, method = 'GET') {
@@ -88,7 +113,8 @@ test('the files the pages link to load, with cache headers', async () => {
     assert.equal(r.statusCode, 200, url)
     assert.ok(r.rawPayload.length > 0, url)
     if (url.endsWith('.webp') || url.endsWith('.jpg')) assert.ok(r.rawPayload.length < 260 * 1024, url + ' stays small')
-    assert.match(r.headers['cache-control'], url.includes('?v=') || url.startsWith('/site/shared/') ? /max-age=31536000, immutable/ : /max-age=3600/, url)
+    const cache = url.startsWith('/site/demo/') ? /max-age=0, must-revalidate/ : url.includes('?v=') || url.startsWith('/site/shared/') ? /max-age=31536000, immutable/ : /max-age=3600/
+    assert.match(r.headers['cache-control'], cache, url)
   }
   const css = await get('/site/site.css')
   assert.match(css.headers['content-type'], /text\/css/)
@@ -105,7 +131,7 @@ test('the files the pages link to load, with cache headers', async () => {
 })
 
 test('the sandboxes: live pages that load the shared rules they run', async () => {
-  for (const [path, script, entry] of [['/try/kitchen-flow', 'try-kitchen.js', 'pos/kitchenBench.js'], ['/try/kiosk', 'try-kiosk.js', 'kiosk.js']]) {
+  for (const [path, script, entry] of [['/try/kitchen-flow', 'try-kitchen.js', 'pos/kitchenBench.js']]) {
     const r = await get(path)
     assert.equal(r.statusCode, 200, path)
     assert.ok(r.body.includes('data-shared="' + sharedBase() + '"'), path + ' tells its script where the shared rules are')
@@ -133,6 +159,46 @@ test('the sandboxes: live pages that load the shared rules they run', async () =
   assert.ok(tryPage.includes('Start the walkthrough'), '/try names the walkthrough\'s button')
   const home = (await get('/')).body
   assert.ok(home.includes('href="/try/kitchen-flow"') && !home.includes('coming next'), 'the home teaser links them')
+})
+
+test('the kiosk designer demo: the page frames the demo build, which is served from an allowlist only', async () => {
+  const r = await get('/try/kiosk')
+  assert.equal(r.statusCode, 200)
+  assert.ok(r.body.includes('<iframe class="kd-demo-frame" src="' + DEMO_PAGES.designer + '"'), 'frames the designer demo')
+  assert.ok(r.body.includes('Like what you see?') && r.body.includes('href="/#interest"'), 'ends with the register-interest band')
+  assert.ok(!r.body.includes('<script type="module"') && !r.body.includes('data-shared='), 'no sandbox script of its own any more')
+  assert.ok(!r.body.includes('/api/') && !r.body.includes('/pos-api'), 'no API address in the page')
+  const tryPage = (await get('/try')).body
+  assert.ok(tryPage.includes('Open the designer'), '/try says what it opens')
+
+  const page = await getWith(DEMO_PAGES.designer, {})
+  assert.equal(page.statusCode, 200)
+  assert.match(page.headers['content-type'], /^text\/html/)
+  assert.equal(page.headers['cache-control'], 'public, max-age=0, must-revalidate', 'the page is checked every time')
+  const js = await getWith('/site/demo/kiosk-designer/assets/demo-kiosk-abc123.js', { 'accept-encoding': 'gzip' })
+  assert.equal(js.statusCode, 200)
+  assert.match(js.headers['content-type'], /^application\/javascript/)
+  assert.equal(js.headers['cache-control'], 'public, max-age=31536000, immutable', 'hashed files for a year')
+  assert.equal(js.headers['content-encoding'], 'gzip')
+  const svg = await getWith('/site/demo/kiosk-designer/assets/burger-abc123.svg', {})
+  assert.equal(svg.headers['content-type'], 'image/svg+xml')
+  assert.equal(svg.headers['x-content-type-options'], 'nosniff')
+  assert.equal((await getWith(DEMO_PAGES.kiosk, {})).statusCode, 200, 'the kiosk app build')
+  assert.equal((await getWith('/site/demo/kiosk-app/assets/demo-kiosk-def456.css', {})).headers['content-type'], 'text/css; charset=utf-8')
+
+  for (const bad of [
+    '/site/demo/', '/site/demo/kiosk-designer/', '/site/demo/kiosk-designer', '/site/demo/kiosk-designer/notes.txt',
+    '/site/demo/kiosk-designer/../secret.json', '/site/demo/kiosk-designer/%2e%2e/secret.json', '/site/demo/kiosk-designer/..%2fsecret.json',
+    '/site/demo/kiosk-designer/assets/../../secret.json', '/site/demo/secret.json', '/site/demo/other/demo-kiosk.html',
+    '/site/demo/kiosk-designer/assets/nope.js',
+    '/site/demo/kiosk-designer/ASSETS/demo-kiosk-abc123.js',
+  ]) {
+    const res = await get(bad)
+    assert.notEqual(res.statusCode, 200, bad)
+    assert.ok(!res.body.includes('"dependencies"') && !res.body.includes('not a type'), bad + ' serves nothing')
+  }
+  // Off the apex the demo isn't served (an office or tenant host).
+  assert.notEqual((await get(DEMO_PAGES.designer, 'office.macaroonie.com')).body.includes('Kiosk designer demo'), true)
 })
 
 test('the shared rules are served from an allowlist only', async () => {

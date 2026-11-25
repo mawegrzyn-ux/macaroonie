@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, Wifi, WifiOff, X, Accessibility } from 'lucide-react'
 import { kioskFontsUrl, kioskFontStack, kioskTextVars, partColours } from '@shared/kiosk.js'
-import { useKiosk, bootKiosk, bootPreview, bootShare, bootReplay, textsFor, restart, loadConfig, setReach, getState, disconnect, moveKiosk } from './store.js'
+import { useKiosk, bootKiosk, bootPreview, bootShare, bootReplay, bootDemo, textsFor, restart, loadConfig, setReach, getState, disconnect, moveKiosk } from './store.js'
 import { whenSafeToReload, idleFor } from '../lib/appUpdate.js'
 import { belongsHere } from '../lib/appHost.js'
 import { MoveNotice } from '../components/MoveNotice.jsx'
@@ -227,14 +227,15 @@ function DisconnectBox({ waiting }) {
   )
 }
 
-export default function KioskApp({ device = null, previewToken = null, shareToken = null, replay = false }) {
-  const preview = !!(previewToken || shareToken)
+export default function KioskApp({ device = null, previewToken = null, shareToken = null, replay = false, demo = false }) {
+  const preview = !!(previewToken || shareToken || demo)
   useEffect(() => {
-    if (previewToken && replay) bootReplay(previewToken)
+    if (demo) bootDemo()
+    else if (previewToken && replay) bootReplay(previewToken)
     else if (previewToken) bootPreview(previewToken)
     else if (shareToken) bootShare(shareToken)
     else bootKiosk(device)
-  }, [device, previewToken, shareToken, replay])
+  }, [device, previewToken, shareToken, replay, demo])
   // A paired kiosk records each guest's visit; a replay plays one back (journey.js).
   useEffect(() => (preview ? undefined : startJourneys()), [preview])
   useEffect(() => (replay ? listenForReplay() : undefined), [replay])
