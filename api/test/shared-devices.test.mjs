@@ -244,6 +244,26 @@ test('stop sharing: Settings Manage or the person who shared it, also on the dev
     await sql`UPDATE users SET role = 'admin' WHERE tenant_id = ${ids.a} AND auth0_user_id = ${A.admin}`
   }
 
+  // From a shared device, another device needs an office PIN person who may stop it.
+  const here = await mark(owner, 'Here tablet')
+  const there = await mark(owner, 'There tablet')
+  assert.equal((await stop(owner, there, on(here.token))).json?.code, 'person_needed', 'nobody switched in')
+  const tillHere = await ok(act(owner, staffKey, '4826', here.token))
+  assert.equal((await stop(owner, there, on(here.token, tillHere.token))).json?.code, 'office_pin_needed', 'a till PIN')
+  const opHere = await ok(act(operator, operatorKey, '7391', here.token))
+  const opStop = await stop(owner, there, on(here.token, opHere.token))
+  assert.equal(opStop.status, 403, 'an office PIN person who may not')
+  assert.equal(opStop.json?.code, undefined)
+  assert.ok(!(await gone(there)))
+  await ok(owner.put('/api/shared-devices/my-pin', { pin: '6274' }), 'owner office PIN')
+  const [ownerRow] = await sql`SELECT id FROM users WHERE tenant_id = ${ids.a} AND auth0_user_id = ${A.owner}`
+  const ownerHere = await ok(act(owner, 'user:' + ownerRow.id, '6274', here.token))
+  const fromHere = await stop(owner, there, on(here.token, ownerHere.token))
+  assert.equal(fromHere.status, 200, 'the owner with their office PIN')
+  assert.equal(fromHere.json.sign_out, false)
+  assert.ok(await gone(there))
+  await ok(owner.delete('/api/shared-devices/' + here.device.id))
+
   // Another group's device is not found.
   assert.equal((await stop(other, device)).status, 404)
 })

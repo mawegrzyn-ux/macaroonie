@@ -155,7 +155,9 @@ async function accountMayStop(req, d) {
  *                                      shared device, an account that has an
  *                                      office PIN says who it is first, so
  *                                      someone else at the device can't stop
- *                                      it as them.
+ *                                      it as them. Stopping another device
+ *                                      from a shared one always needs an
+ *                                      office PIN person.
  *
  * With no office PIN switched in, anyone holding the device can be the one
  * stopping it, and the device would then run as the account with nobody's
@@ -173,12 +175,19 @@ async function stopRefusal(req, d) {
   }
   if (!(await accountMayStop(req, d))) return refused
   if (!req.sharedDevice) return null
+  const device = { id: req.sharedDevice.id, name: req.sharedDevice.name }
+  // Another device, from a shared one: only an office PIN person may (the
+  // sign-out below protects this device, not that one).
+  if (req.sharedDevice.id !== d.id) {
+    return req.acting
+      ? { status: 403, body: { error: 'A till PIN is enough for logging checks only. Use your office PIN for this change.', code: 'office_pin_needed', device } }
+      : { status: 403, body: { error: 'This is a shared device: say who you are with your PIN before making a change.', code: 'person_needed', device } }
+  }
   const [pin] = await withTenant(req.tenantId, tx => tx`
     SELECT 1 FROM user_office_pins p
       JOIN users u ON u.id = p.user_id AND u.tenant_id = p.tenant_id
      WHERE p.tenant_id = ${req.tenantId} AND u.auth0_user_id = ${req.user.sub} LIMIT 1`)
   if (!pin) return null
-  const device = { id: req.sharedDevice.id, name: req.sharedDevice.name }
   return req.acting
     ? { status: 403, body: { error: 'A till PIN is enough for logging checks only. Use your office PIN for this change.', code: 'office_pin_needed', device } }
     : { status: 403, body: { error: 'This is a shared device: say who you are with your PIN before making a change.', code: 'person_needed', device } }

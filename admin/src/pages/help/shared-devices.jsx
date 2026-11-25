@@ -33,7 +33,8 @@ export function Section() {
         itself: if you have an office PIN, it asks <strong>Who is this?</strong> first, so nobody else at the
         device can stop it as you. If you have none (your own phone, say), it stops and the device signs out
         straight after: anyone could have tapped Stop, so getting back in takes your own sign-in. Set an office
-        PIN on another device first if you want to stop it without signing out.
+        PIN on another device first if you want to stop it without signing out. To stop a different device
+        from a shared one, someone allowed to stop it says who they are with their office PIN first.
       </P>
       <H3>Who is this?</H3>
       <P>
