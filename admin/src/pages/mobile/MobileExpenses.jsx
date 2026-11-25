@@ -84,7 +84,7 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
       <div className="bg-background rounded-xl shadow-xl w-full max-w-sm max-h-[85vh] overflow-y-auto p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">{isEdit ? 'Edit expense' : 'Add expense'}</h2>
-          <button type="button" onClick={onClose} className="p-1.5 rounded hover:bg-accent"><X className="w-4 h-4" /></button>
+          <button type="button" onClick={onClose} aria-label="Close" className="w-12 h-12 -mr-3 flex items-center justify-center rounded-lg hover:bg-accent touch-manipulation"><X className="w-5 h-5" /></button>
         </div>
 
         <div className="space-y-4">
@@ -156,17 +156,23 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
             <label className="block text-sm font-medium mb-1.5">Receipt photo</label>
             <input type="file" accept="image/*" capture={photoCapture()} ref={fileRef} className="hidden"
               onChange={e => pickPhoto(e.target.files[0])} />
-            {photo?.preview ? (
-              <div className="relative inline-block">
-                <img src={photo.preview} alt="Receipt preview" className="h-24 w-24 object-cover rounded-lg border" />
-                <button type="button" onClick={() => setPhoto(null)}
-                  className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-destructive text-white flex items-center justify-center touch-manipulation">
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            ) : initial?.receipt_url ? (
-              <div className="relative inline-block">
-                <img src={initial.receipt_url} alt="Receipt" className="h-24 w-24 object-cover rounded-lg border" />
+            {/* The photo big enough to read the receipt, with Retake (and Remove for a new one). */}
+            {photo?.preview || initial?.receipt_url ? (
+              <div className="space-y-2" data-testid="expense-photo">
+                <img src={photo?.preview || initial.receipt_url} alt={photo ? 'Receipt preview' : 'Receipt'}
+                  className="block w-full max-h-[60vh] object-contain rounded-lg border bg-muted/40" />
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => fileRef.current?.click()} data-testid="expense-photo-retake"
+                    className="inline-flex items-center justify-center gap-2 min-h-[48px] px-3 rounded-lg border text-sm font-medium touch-manipulation hover:bg-muted">
+                    <Camera className="w-4 h-4" /> Retake
+                  </button>
+                  {photo ? (
+                    <button type="button" onClick={() => { if (fileRef.current) fileRef.current.value = ''; setPhoto(null) }} data-testid="expense-photo-remove"
+                      className="inline-flex items-center justify-center gap-2 min-h-[48px] px-3 rounded-lg border text-sm font-medium text-destructive touch-manipulation hover:bg-destructive/5">
+                      <X className="w-4 h-4" /> {initial?.receipt_url ? 'Keep the old one' : 'Remove'}
+                    </button>
+                  ) : <span />}
+                </div>
               </div>
             ) : (
               <button type="button" onClick={() => fileRef.current?.click()}
