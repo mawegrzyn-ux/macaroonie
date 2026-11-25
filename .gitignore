@@ -30,6 +30,9 @@ yarn-error.log*
 admin/dist/
 pos/dist/
 pos/dev-dist/
+# The kiosk designer demo's builds (vite.demo.config.js in each)
+admin/dist-demo/
+pos/dist-demo/
 admin/.vite/
 *.tsbuildinfo
 

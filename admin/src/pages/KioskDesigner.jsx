@@ -75,7 +75,7 @@ const newId = p => p + Date.now().toString(36) + Math.random().toString(36).slic
 const EXTRA_FONTS_HREF = 'https://fonts.googleapis.com/css2?' + Object.entries(KIOSK_EXTRA_FONTS)
   .map(([n, w]) => 'family=' + encodeURIComponent(n).replace(/%20/g, '+') + ':wght@' + w).join('&') + '&display=swap'
 
-const PRESETS = [
+export const PRESETS = [
   { name: 'Fresh', colors: DESIGN_COLORS },
   { name: 'Red and gold', colors: { background: '#fff8ef', surface: '#ffffff', text: '#1f1a17', muted: '#6b625b', primary: '#c8102e', primary_text: '#ffffff', accent: '#ffc72c', accent_text: '#1f1a17' } },
   { name: 'Night', colors: { background: '#121212', surface: '#1f1f1f', text: '#f5f5f5', muted: '#a3a3a3', primary: '#ffc72c', primary_text: '#121212', accent: '#2f9e44', accent_text: '#ffffff' } },

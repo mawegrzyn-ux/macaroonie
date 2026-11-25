@@ -26,9 +26,10 @@ export function Section() {
           ['/features/<group>', 'One page per group (guests, service, menus, back-office, pepper, one-platform): its points, screenshot, its parts (each opened in place; /features/<group>#<part> opens one) and how it fits.'],
           ['/architecture', 'The picture in layers: at the venue, the venue hub, the cloud, Pepper and outside services. Each part is a button that opens its detail; /architecture#<part> opens one.'],
           ['/screenshots', 'The screenshots, each opening larger in a dialog.'],
-          ['/try', 'The kitchen walkthrough and the kiosk sandbox, each with its screenshot and a link (a record\'s open names the button).'],
+          ['/try', 'The kitchen walkthrough and the kiosk designer demo, each with its screenshot and a link (a record\'s open names the button).'],
           ['/try/kitchen-flow', 'The kitchen walkthrough: a narrated Friday service at an invented restaurant in 5 chapters and 20 steps (Back, Next, Play, Restart, arrow keys and space, #step-7 links), the kitchen map with the ways dishes took lit, and the step\'s screens. Story api/platform-site/kitchen-story.js, page api/platform-site/try-kitchen.js and try-kitchen.css.'],
-          ['/try/kiosk', 'The kiosk sandbox: colour, fonts, text sizes, a logo word and four dishes beside a portrait kiosk preview to tap through Welcome, Menu, a dish, the order and Done. Script api/platform-site/try-kiosk.js.'],
+          ['/try/kiosk', 'The kiosk designer demo: the office\'s real kiosk designer (every panel, the media picker, the theme maker) with an invented menu for Harbour & Co, and the real kiosk app as its preview, in a frame under the site\'s header (view try-kiosk.eta, style try.css). Dish pictures and Start again above it; on a phone, the kiosk with a colour set, the headings font and a start picture. Nothing is sent to the API.'],
+          ['/site/demo/kiosk-designer/<file>, /site/demo/kiosk-app/<file>', 'The demo\'s two builds, admin/dist-demo and pos/dist-demo (made by npm run build from each app\'s vite.demo.config.js), served by demoBuilds.js from a list of the files each build made: hashed files under assets/ for a year, pages checked every time, anything else 404. pictures-sw.js is sent with Service-Worker-Allowed: /site/demo/.'],
           ['/sitemap.xml, /robots.txt', 'Every page that is not a placeholder; robots names the sitemap.'],
           ['/site/<file>', 'The pages\' CSS, script and screenshots from api/platform-site/. Linked with ?v=<hash of the file> and then cached for a year; without it, an hour.'],
           ['/site/shared/<version>/<file>', 'The shared rules the sandboxes run in the browser, as they are in shared/ (plain ESM). Only the files the entries import are served (an allowlist made from their import lines); <version> is a hash of them all, so they are cached for a year and an old version answers 404. Gzipped when the browser takes it.'],
@@ -42,13 +43,45 @@ export function Section() {
           ['api/src/services/platformSite/features.js', 'FEATURE_GROUPS: the six groups, their points, parts, screenshot and place in the picture.'],
           ['api/src/services/platformSite/architecture.js', 'ARCH_LAYERS: the layers of the picture and each part\'s text and why it matters.'],
           ['api/src/services/platformSite/screenshots.js', 'SHOTS (file name, size, alt text, caption) and GALLERY, the Screenshots page\'s order.'],
-          ['api/src/services/platformSite/sharedModules.js', 'ENTRIES (pos/kitchenBench.js, pos/kitchenPrint.js, pos/ticketHtml.js, kiosk.js), sharedBase(), sharedPreloads() for a page\'s modulepreload links, sharedFiles() and serveShared(). A page record names its css, script and shared entries; _head.eta links them.'],
+          ['api/src/services/platformSite/sharedModules.js', 'ENTRIES (the kitchen walkthrough\'s modules), sharedBase(), sharedPreloads() for a page\'s modulepreload links, sharedFiles() and serveShared(). A page record names its css, script and shared entries; _head.eta links them.'],
           ['api/src/services/platformSite/assets.js', 'assetUrl() and serveAsset(): /site/<file>, file names checked against a pattern (no folders above img/).'],
           ['api/src/views/platform/site/', '_head.eta and _foot.eta around every page, _tiles.eta, _shot.eta, and one view per page.'],
           ['api/platform-site/', 'site.css, site.js (no build: the header menu, the drill-downs, the picture, the screenshot dialog, the form) and img/ (WebP at 800 and 1600 wide, a JPEG at 1200).'],
           ['scripts/ensure-nginx-site-assets.sh', 'Run by the deploy: adds location ^~ /site/ to the apex nginx config, so the static-file regex doesn\'t look for .css, .js and .png in the admin\'s build.'],
         ]}
       />
+      <H3>The kiosk designer demo</H3>
+      <P>
+        The demo is the office&apos;s own code built twice more, never a copy. <Mono>admin/vite.demo.config.js</Mono> builds{' '}
+        <Mono>admin/demo-kiosk.html</Mono> (<Mono>src/demo/kiosk/main.jsx</Mono>): <Mono>pages/KioskDesigner.jsx</Mono> with its
+        panels, <Mono>MediaLibraryModal</Mono>, <Mono>PicturePick</Mono> and the theme maker, under a{' '}
+        <Mono>MemoryRouter</Mono> and a <Mono>QueryClient</Mono>, with no Auth0. A small Vite plugin resolves every import of{' '}
+        <Mono>src/lib/api.js</Mono> to <Mono>src/demo/kiosk/demoApi.js</Mono>: the same exports, and a <Mono>useApi()</Mono>{' '}
+        that answers the designer&apos;s routes in the browser (<Mono>/me</Mono> as Manage, <Mono>/venues</Mono>,{' '}
+        <Mono>/pos/venues/:id/setup</Mono>, <Mono>/pos/kiosk-designs</Mono> GET, POST and PUT through{' '}
+        <Mono>normaliseDesign()</Mono>, the preview link, <Mono>/media/*</Mono> and uploads) and refuses the rest with
+        &quot;In the demo this isn&apos;t sent anywhere&quot; (a share link, for one). Saves go to <Mono>demoStore.js</Mono>{' '}
+        (memory and localStorage <Mono>maca_kiosk_demo_v1</Mono>). The menu, venue and order types are{' '}
+        <Mono>demoData.json</Mono>, made through the real API by <Mono>api/test/tools/kiosk-demo-data.mjs</Mono> on a test
+        database; pictures in it are <Mono>/demo-img/&lt;name&gt;.svg</Mono>, swapped for the built-in set in{' '}
+        <Mono>src/demo/kiosk/img/</Mono> (<Mono>pictures.js</Mono>).
+      </P>
+      <P>
+        The preview is the kiosk app: <Mono>pos/vite.demo.config.js</Mono> builds <Mono>pos/demo-kiosk.html</Mono>, which mounts{' '}
+        <Mono>KioskApp</Mono> with <Mono>demo</Mono>. <Mono>bootDemo()</Mono> in <Mono>kiosk/store.js</Mono> starts it as a
+        preview (nothing sent, an order ends on Done with a pretend number) whose config comes from the page framing it
+        (<Mono>kiosk/demoSource.js</Mono> asks with <Mono>kiosk.demo.want</Mono>; <Mono>src/demo/kiosk/bridge.js</Mono> answers{' '}
+        <Mono>kiosk.demo.config</Mono>, and again when a dish&apos;s picture changes). Both sides take messages only from
+        this origin and from the frame or parent window. The design goes the office preview&apos;s way:{' '}
+        <Mono>kiosk.ready</Mono>, then <Mono>kiosk.design</Mono> on every change.
+      </P>
+      <P>
+        A visitor&apos;s own pictures never leave the browser: drawn smaller on a canvas, kept in Cache Storage under{' '}
+        <Mono>/site/demo/my/&lt;id&gt;.webp</Mono> (<Mono>demoPictures.js</Mono>) and answered from there by{' '}
+        <Mono>admin/public-demo/pictures-sw.js</Mono>, a service worker scoped to <Mono>/site/demo/</Mono> (so the kiosk frame
+        sees them too). A path, because <Mono>normaliseDesign()</Mono> takes only http(s) addresses and paths. In a browser
+        without service workers (a private window) adding pictures is refused with a note; the built-in ones still work.
+      </P>
       <H3>Adding a page</H3>
       <P>
         Add a record to <Mono>PAGES</Mono> (a <Mono>nav</Mono> label puts it in the header and footer) and a view in{' '}

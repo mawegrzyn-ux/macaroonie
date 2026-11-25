@@ -60,7 +60,7 @@ export const PAGES = [
   {
     path: '/try', view: 'platform/site/try.eta', nav: 'Try it',
     title: 'Try it | ' + BASE,
-    description: 'Walk through a busy kitchen service or design a kiosk, in your browser, on the real rules.',
+    description: 'Walk through a busy kitchen service, or design a kiosk with the real kiosk designer, in your browser.',
     shot: 'kitchen-flow',
   },
   {
@@ -75,12 +75,14 @@ export const PAGES = [
     cta: 'Like what you see?',
   },
   {
+    // The office's real kiosk designer with an invented menu (demoBuilds.js).
     path: '/try/kiosk', view: 'platform/site/try-kiosk.eta',
-    title: 'Kiosk designer sandbox | ' + BASE,
+    title: 'Kiosk designer demo | ' + BASE,
     short: 'Design a kiosk',
-    description: 'Pick a look and the steps a guest goes through, and see the kiosk change as you go.',
+    description: 'The real kiosk designer with a menu we made up: change the look and the pictures, and tap through the kiosk as a guest would.',
     shot: 'kiosk-designer',
-    css: 'try.css', script: 'try-kiosk.js', shared: ['kiosk.js'],
+    css: 'try.css',
+    open: 'Open the designer',
     cta: 'Like what you see?',
   },
 ]

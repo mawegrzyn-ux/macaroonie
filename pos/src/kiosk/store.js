@@ -16,6 +16,9 @@
 // Preview (Store tech > Kiosks, the design editor): the app runs from a
 // signed link without pairing, takes design changes from the editor by
 // postMessage and never sends anything.
+//
+// Demo (macaroonie.com/try/kiosk, bootDemo()): a preview whose config comes
+// from the kiosk designer demo framing it (demoSource.js), not the API.
 
 import { useSyncExternalStore } from 'react'
 import { ulid } from '@shared/pos/ids.js'
@@ -34,6 +37,7 @@ import { createTransport, OfflineError } from '../lib/transport.js'
 import { printTickets } from '../lib/print.js'
 import { moveDevice, tellDisconnect, setMovedTo } from '../lib/appHost.js'
 import { savePhotos, saveVideos } from './photos.js'
+import { demoConfig, onDemoConfig } from './demoSource.js'
 import { withLive, pricesChanged, keepStorage, createPullTimers } from '../lib/livePull.js'
 import { takeNumbers, keepServerNumbers } from '../lib/numbers.js'
 
@@ -157,14 +161,23 @@ export async function bootKiosk(device) {
 }
 
 /** Preview from the design editor: config from the signed link, nothing is ever sent. */
-export const bootPreview = token => bootPreviewFrom('/pos-api/kiosk-preview?token=' + encodeURIComponent(token), { live: true })
+export const bootPreview = token => bootPreviewFrom(fromServer('/pos-api/kiosk-preview?token=' + encodeURIComponent(token)), { live: true })
+
+/**
+ * The kiosk designer demo on macaroonie.com (demoSource.js): a preview whose
+ * config comes from the page framing it, sent again when a dish's picture
+ * changes there. Nothing is asked of the API or sent to it.
+ */
+export const bootDemo = () => bootPreviewFrom(demoConfig, { live: true, demo: true })
+
+const fromServer = path => () => createTransport(null).get(path)
 
 /**
  * A design's shared preview (its lasting link, migration 187): the design as
  * saved, nothing is ever sent, and design changes from the page around it are
  * ignored (it is our own share page, but what is shown must be what was saved).
  */
-export const bootShare = token => bootPreviewFrom('/pos-api/kiosk-share?token=' + encodeURIComponent(token), { live: false })
+export const bootShare = token => bootPreviewFrom(fromServer('/pos-api/kiosk-share?token=' + encodeURIComponent(token)), { live: false })
 
 /**
  * Playing back a guest's visit (Store tech > Kiosk analytics, journey.js):
@@ -173,18 +186,21 @@ export const bootShare = token => bootPreviewFrom('/pos-api/kiosk-share?token=' 
  * kiosk's own timers (the "Are you still there?" question, the order
  * number's countdown) stay still.
  */
-export const bootReplay = token => bootPreviewFrom('/pos-api/kiosk-preview?token=' + encodeURIComponent(token), { live: false, replay: true })
+export const bootReplay = token => bootPreviewFrom(fromServer('/pos-api/kiosk-preview?token=' + encodeURIComponent(token)), { live: false, replay: true })
 
-async function bootPreviewFrom(path, { live, replay = false }) {
+async function bootPreviewFrom(load, { live, replay = false, demo = false }) {
   try {
-    const res = await createTransport(null).get(path)
+    const res = await load()
     const c = withDesign(res)
     setState({ preview: true, replay, shared: res.share || null, device: c.device, config: c, lang: c.design.languages.source, phase: 'ready', online: true })
   } catch (err) {
     setState({ preview: true, replay, phase: 'ready', config: null, error: err.message || 'The preview couldn\'t load' })
   }
+  // The demo's menu again (a dish's picture changed), keeping the design shown.
+  if (demo) onDemoConfig(config => { if (state.config) setState({ config: { ...withDesign(config), design: state.config.design } }) })
   window.addEventListener('message', e => {
     if (e.source !== window.parent || !e.data || typeof e.data !== 'object') return
+    if (demo && e.origin !== location.origin) return
     // A replay takes only what the player sends (journey.js listenForReplay()).
     if (replay) return
     if (live && e.data.type === 'kiosk.design' && state.config) {
@@ -205,7 +221,7 @@ async function bootPreviewFrom(path, { live, replay = false }) {
     if (e.data.type === 'kiosk.show' && e.data.screen === 'done' && state.config) showDoneExample(e.data)
   })
   try {
-    window.parent.postMessage({ type: 'kiosk.ready', ...(state.shared ? { share: { ...state.shared, screen: state.config?.design?.screen || null } } : {}), ...(!state.config ? { error: state.error } : {}) }, '*')
+    window.parent.postMessage({ type: 'kiosk.ready', ...(state.shared ? { share: { ...state.shared, screen: state.config?.design?.screen || null } } : {}), ...(!state.config ? { error: state.error } : {}) }, demo ? location.origin : '*')
   } catch { /* not framed */ }
 }
 

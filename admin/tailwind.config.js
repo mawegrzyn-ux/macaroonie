@@ -2,7 +2,8 @@ import plugin from 'tailwindcss/plugin'
 
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ['./index.html', './src/**/*.{js,jsx}'],
+  // src/demo is the kiosk designer demo's (vite.demo.config.js reads it).
+  content: ['./index.html', './src/**/*.{js,jsx}', '!./src/demo/**'],
   theme: {
     extend: {
       colors: {

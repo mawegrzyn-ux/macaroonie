@@ -125,9 +125,9 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | W8 The real kiosk app as the designer's preview, in a demo mode fed by the designer (no API, no orders sent) | 10 to 15 min | | PR C, below | | | | |
 | W9 Images: a built-in set of drawn dish pictures, and the visitor's own uploads kept in their browser, through the designer's media picker | 8 to 12 min | | PR C, below | | | | |
 | W10 Serving the demo build on the apex (a second admin entry, kept out of the office precache) and the page | 6 to 10 min | | PR C: tests, browser and docs 15, PR 7 plus 8 of CI slack | | | | |
-| W11 The kitchen walkthrough engine: a scripted service on the real kitchen code (`createBench()`), steps that can go back and forward | 10 to 14 min | | PR D, below | | | | The owner: "for KDS more of a flow walk through, designer is confusing; make walkthrough complex". Built beside PR C. |
-| W12 The walkthrough's story: a busy service (till, kiosk, online and delivery orders; two grills split; a fryer, cold and bar; courses held; an allergy; a remake; the pass, packing check and ready board), about 15 narrated steps in chapters | 10 to 15 min | | PR D, below | | | | |
-| W13 The walkthrough's screen: the kitchen map with the active path lit, each station's screen, the printer, the ready board, chapters, play, back and next | 12 to 18 min | | PR D: tests, browser and docs 12, PR 7 plus 8 of CI slack | | | | |
+| W11 The kitchen walkthrough engine: a scripted service on the real kitchen code (`createBench()`), steps that can go back and forward | 10 to 14 min | 13 min with reading (17:28 to 17:41), most of the story written in it | PR D, below |  |  | claude-opus-5-5 / high, fresh agent | The owner: "for KDS more of a flow walk through, designer is confusing; make walkthrough complex". Built beside PR C. Replay from step 1, never undo. |
+| W12 The walkthrough's story: a busy service (till, kiosk, online and delivery orders; two grills split; a fryer, cold and bar; courses held; an allergy; a remake; the pass, packing check and ready board), about 15 narrated steps in chapters | 10 to 15 min | 1 min to commit (to 17:42) | PR D, below |  |  | claude-opus-5-5 / high, fresh agent | 20 steps in 5 chapters. |
+| W13 The walkthrough's screen: the kitchen map with the active path lit, each station's screen, the printer, the ready board, chapters, play, back and next | 12 to 18 min | 10 min (to 17:52), then tests (a replay test with no database), browser at 1440, 1015 and 390 and docs 6 (to 17:58) | 9.5 min: PR #520 opened 17:59, CI green first time 18:07:39, merged 18:08 | **41 min for PR D** (17:27:17 to 18:08) |  | claude-opus-5-5 / high, fresh agent | Built beside PR C. |
 
 ## Running totals
 
@@ -153,6 +153,7 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | Till and kiosk improvements T1 to T5 (owner's list), fourth revision | 5 small items, 1 PR | 0.97 to 1.18 (58 to 71 min) | 0.88 (53 min; build 41, merge 11) | about 0.82 |
 | macaroonie.com showcase part A (frame, home and tour, architecture, screenshots), fourth revision | 4 sub-steps, 1 PR | 1.22 to 1.53 (73 to 92 min) | 1.16 (69.5 min; build 52, merge 16.5, of it 8 on GitHub errors) | about 0.84 |
 | macaroonie.com showcase part B (kitchen flow and kiosk sandboxes) | 2 sub-steps, 1 PR | 0.88 to 1.07 (53 to 64 min) | 0.55 (33 min; build 23, merge 9.5) | about 0.56 |
+| macaroonie.com kitchen walkthrough (PR D) | 3 sub-steps, 1 PR | 1.07 to 1.32 (64 to 79 min) | 0.68 (41 min; build 31, merge 9.5) | about 0.57 |
 
 ## The backlog estimates being tested (22 Nov 2026)
 
@@ -375,4 +376,5 @@ next edit). Cost is estimated from each message's tokens at list prices; cached 
 - Part A: estimated 73 to 92, actual 69.5 (84% of the midpoint). The screenshots (W4) took 28 against 10 to 15: a seeded demo group, sign-in to the admin, and the till, kitchen screen and kiosk, nine shots in three sizes. 8 minutes of the merge were GitHub refusing the merge with server errors.
 - Part B: estimated 53 to 64, actual 33 (56%): the sandboxes reused the shared kitchen and kiosk rules and part A's frame, and the browser check needed no sign-in (public pages).
 - **For the scale:** screenshots of the signed-in apps cost 20 to 30 minutes (a harness with demo data), not 10 to 15. Public pages with no sign-in check fast. Both parts together: 102.5 minutes against 126 to 156 (73% of the midpoint).
+
 
