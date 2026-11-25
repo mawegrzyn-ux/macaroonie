@@ -8,7 +8,7 @@
 <section class="cta-band">
   <div class="wrap">
     <div>
-      <h2>See it with your own venues</h2>
+      <h2><%= it.page.cta || 'See it with your own venues' %></h2>
       <p>We're taking on our first groups and franchisees. Leave your details and we'll show you round.</p>
     </div>
     <a class="btn btn-light" href="/#interest">Register interest</a>

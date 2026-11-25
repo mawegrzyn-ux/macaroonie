@@ -1,0 +1,51 @@
+<%~ include('./_head', it) %>
+<%
+/* The kitchen flow sandbox (/try/kitchen-flow). The page is drawn by
+   api/platform-site/try-kitchen.js with the real kitchen rules, served from
+   it.sharedBase() (services/platformSite/sharedModules.js). */
+%>
+<section class="page-hero try-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="/try">Try it</a></p>
+    <h1>Set up a kitchen</h1>
+    <p class="lead">Boxes are your kitchen screens, printers and helpers. Links say which dishes go where. Send a test order and watch it find its way.</p>
+  </div>
+</section>
+<section class="tight try-body">
+  <div class="wrap">
+    <div class="kf" id="kf" data-shared="<%= it.sharedBase() %>">
+      <div class="try-main">
+        <div class="kf-bar">
+          <div class="kf-add" role="group" aria-label="Add a box"></div>
+          <div class="kf-go">
+            <button type="button" class="btn btn-primary kf-send">Send a test order</button>
+            <button type="button" class="btn btn-ghost kf-reset">Reset</button>
+          </div>
+        </div>
+        <p class="kf-connect" hidden><span></span> <button type="button" class="btn btn-ghost">Cancel</button></p>
+        <div class="kf-canvas"><p class="kf-loading">Loading the kitchen...</p></div>
+        <ul class="kf-checks" hidden></ul>
+        <div class="kf-panel"></div>
+        <p class="kf-order">The test order: <b>2 Burger</b> (a main), <b>Fries</b> (a side), <b>Cola</b> (a drink) and <b>Brownie</b> (a dessert).</p>
+        <h2 class="try-sub">What each screen sees</h2>
+        <div class="kf-screens"></div>
+        <p class="sr kf-live" aria-live="polite"></p>
+      </div>
+      <aside class="try-side" aria-label="How it works">
+        <h2>The boxes</h2>
+        <dl class="try-defs">
+          <dt>Orders in</dt><dd>The tills, kiosks and online orders. Every dish starts here.</dd>
+          <dt>Station</dt><dd>A kitchen screen where dishes are made: the grill, the fryer, the bar. Tap Done when they're made.</dd>
+          <dt>Pass</dt><dd>Where the whole order comes together and is checked before it goes out.</dd>
+          <dt>Splitter</dt><dd>Shares tickets between stations doing the same job, so two grills share the burgers.</dd>
+          <dt>Sleeper</dt><dd>Holds dishes back for a few minutes, desserts after mains, then sends them on.</dd>
+          <dt>Printer</dt><dd>Prints a ticket for the dishes that reach it.</dd>
+          <dt>Links</dt><dd>Each one says which dishes take it: every dish, or only the mains, sides, drinks or desserts.</dd>
+        </dl>
+        <p class="try-note">This runs Macaroonie's own kitchen rules in your browser, the same ones as the kitchen screens' test bench. Nothing is saved or sent: your flow stays in this browser until you press Reset.</p>
+      </aside>
+    </div>
+    <noscript><p>The sandbox needs JavaScript. The <a href="/screenshots">screenshots</a> show the real designer.</p></noscript>
+  </div>
+</section>
+<%~ include('./_foot', it) %>
