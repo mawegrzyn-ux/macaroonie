@@ -1115,6 +1115,7 @@
     "admin/src/pages/RotaSetup.jsx",
     "admin/src/pages/Staff.jsx",
     "admin/src/pages/StaffRoles.jsx",
+    "admin/src/pages/mobile/MobileRota.jsx",
     "admin/src/pages/docs/staff-rota.jsx",
     "admin/src/pages/help/staff-rota.jsx",
     "api/src/routes/rota.js",
