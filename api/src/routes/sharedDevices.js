@@ -4,12 +4,16 @@
 // step 6a, migration 280; the check every change runs is in
 // middleware/sharedDevice.js).
 //
-//   GET    /                list the group's shared devices (Settings View)
+//   GET    /                list the group's shared devices (Settings View),
+//                           each with can_stop for the signed-in account
 //   POST   /                mark this device shared for a venue (Settings
 //                           Manage): the token is in the answer, once
-//   DELETE /:id             stop a device being shared (Settings Manage)
-//   GET    /this            the device this request came from, and who is
-//                           switched in (X-Shared-Device; 404 when unknown)
+//   DELETE /:id             stop a device being shared: Settings Manage or
+//                           the person who shared it, also from the device
+//                           itself (stopRefusal() below)
+//   GET    /this            the device this request came from, who is
+//                           switched in and can_stop (X-Shared-Device; 404
+//                           when unknown)
 //   GET    /people          who can switch in here: the venue's staff with a
 //                           till PIN, the group's people with an office PIN
 //   POST   /act             { person: 'staff:<id>' | 'user:<id>', pin }: the
@@ -26,7 +30,8 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
-import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { requireAuth, requirePermission, permissionLevel } from '../middleware/auth.js'
+import { permissionAtLeast } from '../config/modules.js'
 import { httpError } from '../middleware/error.js'
 import {
   DEVICE_HEADER, ACT_HEADER, DEVICE_TOKEN_PREFIX, ACT_TOKEN_PREFIX, ACT_IDLE_SECONDS, ACT_MAX_MINUTES,
@@ -123,6 +128,54 @@ async function checkPin(tx, req, device, kind, id, pin) {
   return sameHash(await hashPin(pin, u.salt), u.pin_hash) ? { name: u.name, userId: u.id } : null
 }
 
+/** Was this device shared by one of these (its created_by: the account's email, or its sub without one)? */
+const sharedBy = (d, ...names) => !!d.created_by && names.some(n => n && n === d.created_by)
+
+/** May the signed-in account stop this device being shared (Settings Manage, or it shared it)? */
+async function accountMayStop(req, d) {
+  if (sharedBy(d, req.user?.email, req.user?.sub)) return true
+  // (With an office PIN person switched in, held to theirs too: permissionLevel().)
+  return permissionAtLeast(await permissionLevel(req, 'settings'), 'manage')
+}
+
+/**
+ * Why stopping device `d` being shared is refused, or null when it may go.
+ * The route is config.sharedDevice FREE and judges itself, because the
+ * person check every other change runs refused the owner on their own
+ * shared phone: nobody could be switched in as them without an office PIN,
+ * and one can't be set on a shared device.
+ *
+ *   An office PIN person switched in   answers for themselves: Settings
+ *                                      Manage (held to the account's, as
+ *                                      everywhere) or they shared it.
+ *   Otherwise (off a shared device,    the signed-in account answers:
+ *   nobody or a till PIN switched in)  Settings Manage or it shared it. On a
+ *                                      shared device, an account that has an
+ *                                      office PIN says who it is first, so
+ *                                      someone else at the device can't stop
+ *                                      it as them.
+ */
+async function stopRefusal(req, d) {
+  const refused = { status: 403, body: { error: 'Only someone with Settings Manage, or the person who shared it, can stop a device being shared.' } }
+  if (req.acting?.kind === 'office') {
+    if (permissionAtLeast(await permissionLevel(req, 'settings'), 'manage')) return null
+    const [u] = await withTenant(req.tenantId, tx => tx`
+      SELECT email, auth0_user_id FROM users WHERE id = ${req.acting.userId} AND tenant_id = ${req.tenantId} LIMIT 1`)
+    return u && sharedBy(d, u.email, u.auth0_user_id) ? null : refused
+  }
+  if (!(await accountMayStop(req, d))) return refused
+  if (!req.sharedDevice) return null
+  const [pin] = await withTenant(req.tenantId, tx => tx`
+    SELECT 1 FROM user_office_pins p
+      JOIN users u ON u.id = p.user_id AND u.tenant_id = p.tenant_id
+     WHERE p.tenant_id = ${req.tenantId} AND u.auth0_user_id = ${req.user.sub} LIMIT 1`)
+  if (!pin) return null
+  const device = { id: req.sharedDevice.id, name: req.sharedDevice.name }
+  return req.acting
+    ? { status: 403, body: { error: 'A till PIN is enough for logging checks only. Use your office PIN for this change.', code: 'office_pin_needed', device } }
+    : { status: 403, body: { error: 'This is a shared device: say who you are with your PIN before making a change.', code: 'person_needed', device } }
+}
+
 function refuseOnSharedDevice(req) {
   if (req.headers[DEVICE_HEADER]) throw httpError(409, 'Set your own PIN on your own phone or computer, not on a shared device.')
 }
@@ -131,8 +184,8 @@ export default async function sharedDeviceRoutes(app) {
   app.addHook('preHandler', requireAuth)
 
   app.get('/', { preHandler: requirePermission('settings', 'view') }, async req => {
-    return withTenant(req.tenantId, tx => tx`
-      SELECT d.id, d.name, d.kind, d.venue_id, v.name AS venue_name, d.created_at, d.last_seen_at,
+    const rows = await withTenant(req.tenantId, tx => tx`
+      SELECT d.id, d.name, d.kind, d.venue_id, v.name AS venue_name, d.created_at, d.last_seen_at, d.created_by,
              (SELECT p.name FROM shared_device_people p
                WHERE p.device_id = d.id AND p.tenant_id = d.tenant_id AND p.ended_at IS NULL
                  AND p.last_used_at > now() - make_interval(secs => ${ACT_IDLE_SECONDS})
@@ -142,6 +195,8 @@ export default async function sharedDeviceRoutes(app) {
         JOIN venues v ON v.id = d.venue_id AND v.tenant_id = d.tenant_id
        WHERE d.tenant_id = ${req.tenantId}
        ORDER BY v.name, d.name`)
+    const manage = await accountMayStop(req, {})
+    return rows.map(({ created_by, ...d }) => ({ ...d, can_stop: manage || sharedBy({ created_by }, req.user?.email, req.user?.sub) }))
   })
 
   app.post('/', { preHandler: requirePermission('settings', 'manage') }, async (req, reply) => {
@@ -159,12 +214,18 @@ export default async function sharedDeviceRoutes(app) {
     return reply.code(201).send({ device: deviceView(row), token })
   })
 
-  app.delete('/:id', { preHandler: requirePermission('settings', 'manage') }, async req => {
+  // FREE: the person check is stopRefusal()'s, not sharedDeviceGuard()'s.
+  app.delete('/:id', { config: { sharedDevice: FREE } }, async (req, reply) => {
+    if (!req.tenantId) throw httpError(400, 'No tenant context')
     const id = z.string().uuid().safeParse(req.params.id)
     if (!id.success) throw httpError(404, 'Device not found')
-    const [gone] = await withTenant(req.tenantId, tx => tx`
-      DELETE FROM shared_devices WHERE id = ${id.data} AND tenant_id = ${req.tenantId} RETURNING id`)
-    if (!gone) throw httpError(404, 'Device not found')
+    const [d] = await withTenant(req.tenantId, tx => tx`
+      SELECT id, created_by FROM shared_devices WHERE id = ${id.data} AND tenant_id = ${req.tenantId}`)
+    if (!d) throw httpError(404, 'Device not found')
+    const refused = await stopRefusal(req, d)
+    if (refused) return reply.code(refused.status).send(refused.body)
+    await withTenant(req.tenantId, tx => tx`DELETE FROM shared_devices WHERE id = ${d.id} AND tenant_id = ${req.tenantId}`)
+    req.log.info({ device: d.id, by: req.acting?.name || req.user?.email || req.user?.sub, from: req.sharedDevice?.id ?? null }, 'shared device stopped')
     return { ok: true }
   })
 
@@ -174,7 +235,8 @@ export default async function sharedDeviceRoutes(app) {
     const person = typeof token === 'string' ? await findPerson(req.tenantId, device.id, token) : null
     withTenant(req.tenantId, tx => tx`UPDATE shared_devices SET last_seen_at = now() WHERE id = ${device.id} AND tenant_id = ${req.tenantId}`)
       .catch(() => {})
-    return { device: deviceView(device), person: personView(person), idle_seconds: ACT_IDLE_SECONDS }
+    const [row] = await withTenant(req.tenantId, tx => tx`SELECT created_by FROM shared_devices WHERE id = ${device.id} AND tenant_id = ${req.tenantId}`)
+    return { device: deviceView(device), person: personView(person), idle_seconds: ACT_IDLE_SECONDS, can_stop: await accountMayStop(req, row || {}) }
   })
 
   app.get('/people', async req => {

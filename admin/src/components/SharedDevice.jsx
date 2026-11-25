@@ -265,6 +265,8 @@ export function SharedDeviceSettings() {
   const { canView, canManage } = usePermission('settings')
   const { data: venues = [] } = useQuery({ queryKey: ['venues'], queryFn: () => api.get('/venues') })
   const { data: devices = [] } = useQuery({ queryKey: ['shared-devices'], queryFn: () => api.get('/shared-devices'), enabled: canView })
+  // This device as the server sees it: can_stop is Settings Manage or having shared it.
+  const { data: here } = useQuery({ queryKey: ['shared-device-this', device?.id], queryFn: () => api.get('/shared-devices/this'), enabled: !!device })
   const [venueId, setVenueId] = useState('')
   const [name, setName] = useState('')
   const [message, setMessage] = useState(null)
@@ -293,7 +295,7 @@ export function SharedDeviceSettings() {
             This device is shared for <strong>{device.venue_name}</strong> as <strong>{device.name}</strong>. Before
             any change on it, people say who they are with their PIN, and Lock is always one tap.
           </p>
-          {canManage && <Confirmed label="Stop sharing this device" confirmLabel="Yes, stop sharing" testId="shared-stop"
+          {(canManage || here?.can_stop) && <Confirmed label="Stop sharing this device" confirmLabel="Yes, stop sharing" testId="shared-stop"
             disabled={stop.isPending} onConfirm={() => stop.mutate(device.id)} />}
         </div>
       ) : (
@@ -332,7 +334,7 @@ export function SharedDeviceSettings() {
                 <p className="text-sm font-medium truncate">{d.name}{device?.id === d.id ? ' (this one)' : ''}</p>
                 <p className="text-xs text-muted-foreground truncate">{d.venue_name}{d.person_name ? ' · ' + d.person_name + ' is on it' : ''}</p>
               </div>
-              {canManage && device?.id !== d.id && (
+              {(canManage || d.can_stop) && device?.id !== d.id && (
                 <Confirmed label="Stop" confirmLabel="Yes, stop" testId="shared-device-stop" disabled={stop.isPending} onConfirm={() => stop.mutate(d.id)} />
               )}
             </div>
