@@ -320,8 +320,8 @@ export function Section() {
         renamed before publishing keeps the colour of either name). Kitchen items and meal deal parts carry{' '}
         <Mono>section_id</Mono> (<Mono>itemFromLine()</Mono> / <Mono>itemFromOnline()</Mono>; a typed-in part
         takes the combo&apos;s section). The kitchen screen draws rows, tops, the RUSH chip and the timer from
-        these with inline styles (<Mono>rowLook()</Mono>, the head key rush &gt; new &gt; checked &gt;
-        prepared &gt; head), names and parts in their section colour except on voided rows. The test bench
+        these with inline styles (<Mono>rowLook()</Mono> and <Mono>ticketLook()</Mono> in kitchenColours.js, the head key rush &gt; new &gt; checked &gt;
+        prepared &gt; head; the kitchen walkthrough on macaroonie.com draws with the same two), names and parts in their section colour except on voided rows. The test bench
         passes the venue&apos;s colours to its screens (<Mono>kitchenTestData()</Mono>). A new location
         copies them (<Mono>storeSetup.js</Mono>). Admin: <Mono>components/pos/KitchenColours.jsx</Mono>{' '}
         (<Mono>TicketColoursCard</Mono> on Store tech → Kitchen screens with <Mono>TicketPreview</Mono>, one

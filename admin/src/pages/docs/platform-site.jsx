@@ -26,8 +26,8 @@ export function Section() {
           ['/features/<group>', 'One page per group (guests, service, menus, back-office, pepper, one-platform): its points, screenshot, its parts (each opened in place; /features/<group>#<part> opens one) and how it fits.'],
           ['/architecture', 'The picture in layers: at the venue, the venue hub, the cloud, Pepper and outside services. Each part is a button that opens its detail; /architecture#<part> opens one.'],
           ['/screenshots', 'The screenshots, each opening larger in a dialog.'],
-          ['/try', 'The sandboxes, each with its screenshot and a link.'],
-          ['/try/kitchen-flow', 'The kitchen flow sandbox: boxes (stations, a pass, Splitters, Sleepers, printers) linked by tapping an arrow then a box, each link taking every dish or one section; a test order runs through the kitchen test bench and every screen shows its tickets, the printer its printed ticket. Script api/platform-site/try-kitchen.js.'],
+          ['/try', 'The kitchen walkthrough and the kiosk sandbox, each with its screenshot and a link (a record\'s open names the button).'],
+          ['/try/kitchen-flow', 'The kitchen walkthrough: a narrated Friday service at an invented restaurant in 5 chapters and 20 steps (Back, Next, Play, Restart, arrow keys and space, #step-7 links), the kitchen map with the ways dishes took lit, and the step\'s screens. Story api/platform-site/kitchen-story.js, page api/platform-site/try-kitchen.js and try-kitchen.css.'],
           ['/try/kiosk', 'The kiosk sandbox: colour, fonts, text sizes, a logo word and four dishes beside a portrait kiosk preview to tap through Welcome, Menu, a dish, the order and Done. Script api/platform-site/try-kiosk.js.'],
           ['/sitemap.xml, /robots.txt', 'Every page that is not a placeholder; robots names the sitemap.'],
           ['/site/<file>', 'The pages\' CSS, script and screenshots from api/platform-site/. Linked with ?v=<hash of the file> and then cached for a year; without it, an hour.'],
@@ -60,24 +60,33 @@ export function Section() {
         <Mono>ENTRIES</Mono>, and must have no Node-only imports. Check the address against the admin&apos;s
         routes first: an admin bookmark on the apex would show the page instead of going to office.
       </P>
-      <H3>The sandboxes run the real rules</H3>
+      <H3>The pages under /try run the real rules</H3>
       <P>
-        Neither sandbox has a copy of a rule. The kitchen flow sandbox builds a kitchen flow in the real shape
-        (stations and links with section filters) and hands it to <Mono>createBench()</Mono> from{' '}
-        <Mono>shared/pos/kitchenBench.js</Mono>, the office&apos;s Test the kitchen: the dishes&apos; ways, Splitters, the
-        Sleeper&apos;s wait, each screen&apos;s tickets (<Mono>stationTickets()</Mono>), the pass&apos;s Ready and what the
-        printer prints (<Mono>kitchenPrintJobs()</Mono>, drawn with <Mono>previewHtml()</Mono>) all come from the kitchen&apos;s
-        own code. Its checks are <Mono>flowProblems()</Mono> and <Mono>flowWarnings()</Mono>. Fire now moves the bench&apos;s
-        pretend clock to when the Sleeper wakes. A change to the flow is a new flow switched to, as on a kitchen
-        screen: dishes already sent keep their way. The kiosk sandbox cleans its design with{' '}
+        Neither page has a copy of a rule. The kitchen walkthrough&apos;s story (<Mono>kitchenStory()</Mono> in{' '}
+        <Mono>api/platform-site/kitchen-story.js</Mono>, a module with no imports: the page passes it the shared
+        modules it loaded) builds Harbour &amp; Co&apos;s kitchen as a real flow of 15 boxes (a Splitter with a
+        split-above rule, a Sleeper, a Setter, two printers, a ready board, the Pass, Packing with the packing
+        check, the Floor runner screen) and three flow timers. <Mono>play(n)</Mono> replays steps 1 to n from nothing on{' '}
+        <Mono>createBench()</Mono> (<Mono>shared/pos/kitchenBench.js</Mono>, the office&apos;s Test the kitchen) with a
+        scripted clock: orders from the till (tables with held courses, an allergy flag), the kiosk (meal deals),
+        the website (one for later) and GloriaFood, then the screens&apos; bumps, ticks, a recall, a remake, a fired
+        course and a collection, each through the bench as a kitchen screen or till would send it. Printing runs{' '}
+        <Mono>kitchenPrintJobs()</Mono> after every change; the timers are <Mono>timerResults()</Mono>. Back is a replay
+        to the step before, never an undo, so a step always looks the same and a deep link works. The page draws
+        what the rules give: tickets from <Mono>stationTickets()</Mono> laid out as the kitchen screen app draws
+        them, with <Mono>ticketColours()</Mono>, <Mono>rowLook()</Mono> and <Mono>ticketLook()</Mono> from{' '}
+        <Mono>kitchenColours.js</Mono>; the printers&apos; paper with <Mono>previewHtml()</Mono>; the ready board from{' '}
+        <Mono>boardNumbers()</Mono> with the Setter&apos;s status; the map&apos;s lit ways from where each dish arrived
+        (<Mono>flowTimes()</Mono>) between the step before and this one. A step the rules refuse throws, and{' '}
+        <Mono>api/test/kitchen-walk.test.mjs</Mono> replays the story to check its key steps. The kiosk sandbox cleans its design with{' '}
         <Mono>normaliseDesign()</Mono> and draws it with <Mono>kioskTextVars()</Mono>, <Mono>kioskFontStack()</Mono>,{' '}
         <Mono>kioskFontsUrl()</Mono>, <Mono>partColours()</Mono> and the kiosk&apos;s words (<Mono>uiText()</Mono>); its
         screens are a small stand-in for the kiosk app&apos;s, styled with the same --k-* variables. Neither calls the
-        API or saves anything; each keeps the visitor&apos;s own setup in localStorage.
+        API or saves anything; the kiosk sandbox keeps the visitor&apos;s own design in localStorage.
       </P>
       <InfoBox type="info">
         The screenshots come from a local copy filled with an invented group (Harbour &amp; Co). The steps to take
-        them again are in <Mono>docs/claude/areas/shell.md</Mono>. Tests: <Mono>api/test/platform-site.test.mjs</Mono>.
+        them again are in <Mono>docs/claude/areas/shell.md</Mono>. Tests: <Mono>api/test/platform-site.test.mjs</Mono>, <Mono>api/test/kitchen-walk.test.mjs</Mono>.
       </InfoBox>
     </section>
   )
