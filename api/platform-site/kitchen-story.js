@@ -82,28 +82,28 @@ const TILL = uid('de710000', 2)
 
 // ── The kitchen: its boxes and the flow ───────────────────────
 
-// x, y: the box's place on the kitchen map (a 1040 x 480 drawing).
-// role: what the walkthrough calls it in one line.
-export const BOX_W = 132
-export const BOX_H = 52
-export const MAP_W = 1040
-export const MAP_H = 486
+// x, y: the box's place on the kitchen map (a MAP_W x MAP_H drawing, boxes
+// BOX_W x BOX_H, Orders in taller: h). role: what the box does, in a line.
+export const BOX_W = 160
+export const BOX_H = 58
+export const MAP_W = 1100
+export const MAP_H = 494
 const BOXES = [
-  { key: 'start', name: 'Orders in', kind: 'start', x: 8, y: 196, h: 92, role: 'Till, kiosk, website, GloriaFood' },
-  { key: 'splitter', name: 'Burger splitter', kind: 'balance', x: 190, y: 55, role: 'Shares burgers', settings: { split_above: 3 } },
-  { key: 'sleeper', name: 'Fries wait', kind: 'sleeper', x: 190, y: 160, role: 'Holds fries 3 min', settings: { delay_mins: 3 } },
-  { key: 'barPrinter', name: 'Bar printer', kind: 'printer', x: 190, y: 420, role: 'Prints drinks' },
-  { key: 'grill1', name: 'Grill 1', kind: 'prep', x: 370, y: 20, role: 'Burgers', settings: { target_mins: 5, late_mins: 8 } },
-  { key: 'grill2', name: 'Grill 2', kind: 'prep', x: 370, y: 90, role: 'Burgers', settings: { target_mins: 5, late_mins: 8 } },
-  { key: 'fryer', name: 'Fryer', kind: 'prep', x: 370, y: 160, role: 'Fries, squid, fish', settings: { target_mins: 5, late_mins: 8 } },
-  { key: 'cold', name: 'Cold', kind: 'prep', x: 370, y: 250, role: 'Salads, desserts', settings: { target_mins: 6, late_mins: 10 } },
-  { key: 'bar', name: 'Bar', kind: 'prep', x: 370, y: 340, role: 'Drinks, shakes', settings: { target_mins: 4, late_mins: 7 } },
-  { key: 'pass', name: 'Pass', kind: 'expo', x: 555, y: 90, role: 'Brings tables together', settings: { target_mins: 12, late_mins: 18 } },
-  { key: 'bagging', name: 'Bagging', kind: 'setter', x: 555, y: 300, role: 'Sets the status', settings: { status_text: 'Bagging', status_look: 'flag', status_colour: '#f59e0b' } },
-  { key: 'floor', name: 'Floor', kind: 'runner', x: 735, y: 30, role: 'Runners take it out', settings: { target_mins: 2, late_mins: 4 } },
-  { key: 'passPrinter', name: 'Pass printer', kind: 'printer', x: 735, y: 140, role: 'Prints the runner\'s chit' },
-  { key: 'packing', name: 'Packing', kind: 'expo', x: 735, y: 300, role: 'The packing check', settings: { bump_when_checked: true, target_mins: 8, late_mins: 12 } },
-  { key: 'board', name: 'Collection board', kind: 'board', x: 900, y: 300, role: 'Numbers to collect' },
+  { key: 'start', name: 'Orders in', kind: 'start', x: 0, y: 186, h: 110, role: 'Till, kiosk, website and GloriaFood' },
+  { key: 'splitter', name: 'Burger splitter', kind: 'balance', x: 188, y: 60, role: 'Splitter: burgers', settings: { split_above: 3 } },
+  { key: 'sleeper', name: 'Fries wait', kind: 'sleeper', x: 188, y: 168, role: 'Sleeper: 3 min', settings: { delay_mins: 3 } },
+  { key: 'barPrinter', name: 'Bar printer', kind: 'printer', x: 188, y: 430, role: 'Prints drinks' },
+  { key: 'grill1', name: 'Grill 1', kind: 'prep', x: 376, y: 20, role: 'Burgers', settings: { target_mins: 5, late_mins: 8 } },
+  { key: 'grill2', name: 'Grill 2', kind: 'prep', x: 376, y: 100, role: 'Burgers', settings: { target_mins: 5, late_mins: 8 } },
+  { key: 'fryer', name: 'Fryer', kind: 'prep', x: 376, y: 180, role: 'Fries, squid, fish', settings: { target_mins: 5, late_mins: 8 } },
+  { key: 'cold', name: 'Cold', kind: 'prep', x: 376, y: 266, role: 'Salads, desserts', settings: { target_mins: 6, late_mins: 10 } },
+  { key: 'bar', name: 'Bar', kind: 'prep', x: 376, y: 352, role: 'Drinks, shakes', settings: { target_mins: 4, late_mins: 7 } },
+  { key: 'pass', name: 'Pass', kind: 'expo', x: 564, y: 100, role: 'Assembles tables', settings: { target_mins: 12, late_mins: 18 } },
+  { key: 'bagging', name: 'Bagging', kind: 'setter', x: 564, y: 330, role: 'Setter: a status', settings: { status_text: 'Bagging', status_look: 'flag', status_colour: '#f59e0b' } },
+  { key: 'floor', name: 'Floor', kind: 'runner', x: 752, y: 30, role: 'Runners\' screen', settings: { target_mins: 2, late_mins: 4 } },
+  { key: 'passPrinter', name: 'Pass printer', kind: 'printer', x: 752, y: 140, role: 'Runners\' chits' },
+  { key: 'packing', name: 'Packing', kind: 'expo', x: 752, y: 330, role: 'The packing check', settings: { bump_when_checked: true, target_mins: 8, late_mins: 12 } },
+  { key: 'board', name: 'Ready board', kind: 'board', x: 940, y: 330, role: 'Collection numbers' },
 ]
 const BOX_ID = Object.fromEntries(BOXES.map((b, i) => [b.key, b.kind === 'start' ? null : uid('b0c50000', i)]))
 for (const b of BOXES) {

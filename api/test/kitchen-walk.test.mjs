@@ -34,7 +34,7 @@ test('the story: chapters, steps and a flow the kitchen accepts', () => {
   for (const s of story.steps) {
     assert.ok(s.title && s.text.length >= 1 && s.text.length <= 3, s.n + ' has a title and two or three sentences')
     for (const k of [...(s.show || []), ...(s.lit || [])]) assert.ok(k === 'timers' || box(k), s.n + ' names a box that exists: ' + k)
-    assert.ok(!/[‘’“” ﻿]/.test(s.title + s.text.join('')), s.n + ' has no typographic quotes or invisible characters')
+    assert.ok(!/[\u2018\u2019\u201c\u201d\u00a0\ufeff]/.test(s.title + s.text.join('')), s.n + ' has no typographic quotes or invisible characters')
   }
   assert.deepEqual(K.flowProblems(story.data.stations, story.links), [])
   assert.deepEqual(K.flowWarnings(story.data.stations, story.links), [])
