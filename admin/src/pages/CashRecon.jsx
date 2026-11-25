@@ -34,6 +34,7 @@ import { splitPay } from '@shared/payMethod.js'
 import { reconSetup, cashDay, cashWeek } from '@shared/cashRecon.js'
 import { usePepperPage } from '@/lib/pepperPage'
 import { useDeepLink } from '@/lib/deepLink'
+import { photoCapture } from '../lib/officeApp'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1824,7 +1825,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
         <input
           type="file"
           accept="image/*"
-          capture="environment"
+          capture={photoCapture()}
           ref={fileRef}
           className="hidden"
           onChange={e => pickPhoto(e.target.files[0], setPhoto)}
@@ -1932,7 +1933,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
                     <input
                       type="file"
                       accept="image/*"
-                      capture="environment"
+                      capture={photoCapture()}
                       ref={el => { fileInputRefs.current[exp.id] = el }}
                       className="hidden"
                       onChange={e => { if (e.target.files[0]) handleReceiptUpload(exp.id, e.target.files[0]) }}

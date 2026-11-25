@@ -45,6 +45,7 @@ import * as LucideIcons from 'lucide-react'
 import { canListen, canSpeak, listen, speak, stopSpeaking, readAloudOn, setReadAloud, yesOrNo } from '@/lib/speech'
 import { useMic, MicButton } from './mic'
 import ActionCard from './ActionCard'
+import { photoCapture } from '../../lib/officeApp'
 
 const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 
@@ -476,7 +477,7 @@ export default function ChatView({ conversationId, onConversationId, className, 
           >
             <input ref={fileInput} type="file" multiple accept={ACCEPT} className="hidden"
               onChange={e => { att.add(e.target.files); e.target.value = '' }} />
-            <input ref={camInput} type="file" accept="image/*" capture="environment" className="hidden"
+            <input ref={camInput} type="file" accept="image/*" capture={photoCapture()} className="hidden"
               onChange={e => { att.add(e.target.files); e.target.value = '' }} />
             <button type="button" onClick={() => fileInput.current?.click()} disabled={working}
               className="w-12 h-12 shrink-0 rounded-md border flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-40 touch-manipulation"

@@ -23,6 +23,7 @@ import { useAiStatus } from '@/components/ai/ChatView'
 import { prepareFile } from '@/components/ai/attachments'
 import { fileToBase64 } from '@/components/purchasing/shared'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
+import { photoCapture } from '../../lib/officeApp'
 
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/heic,application/pdf,.pdf'
 const errText = e => e?.body?.error || e?.message || 'Something went wrong'
@@ -54,7 +55,7 @@ export function ReadReceiptButton({ venueId, onRead, disabled, className }) {
   const pick = e => { const f = e.target.files?.[0]; e.target.value = ''; read(f) }
   return (
     <div className={cn('space-y-1 relative', className)}>
-      <input ref={camRef} type="file" accept="image/*" capture="environment" className="sr-only" onChange={pick} />
+      <input ref={camRef} type="file" accept="image/*" capture={photoCapture()} className="sr-only" onChange={pick} />
       <input ref={fileRef} type="file" accept={ACCEPT} className="sr-only" onChange={pick} data-testid="receipt-read-input" />
       <div className="flex flex-wrap gap-2">
         <button type="button" disabled={busy || disabled} onClick={() => camRef.current?.click()} data-testid="receipt-read"

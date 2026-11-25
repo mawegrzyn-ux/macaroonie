@@ -34,6 +34,7 @@ import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition'
 import { createAuth } from './auth'
 import { bridgeScript, makeHandler } from './bridge'
 import { opsUrl, staysInApp, bridgeAllowed, noticeUrl } from './links'
+import { Camera } from 'expo-camera'
 import Scanner from './Scanner'
 import { createSession } from './speechCore'
 import { pagePadding, keyboardEvents } from './layout'
@@ -180,6 +181,15 @@ function Office() {
       push: { token: pushToken },
       speech,
       scanner: { scan: () => new Promise(resolve => setScanning(() => resolve)) },
+      // true when the camera may be used (asked once; Android remembers the answer).
+      camera: {
+        permission: async () => {
+          const now = await Camera.getCameraPermissionsAsync()
+          if (now.granted) return true
+          if (!now.canAskAgain) return false
+          return (await Camera.requestCameraPermissionsAsync()).granted
+        },
+      },
     },
   }), [run])
 

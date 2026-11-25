@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils'
 import { useApi } from '@/lib/api'
 import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { useFormFill, FilledMark, filledClass } from './fill'
+import { photoCapture } from '../../lib/officeApp'
 import {
   NUMBER_TYPES, controlOf, layoutOf, shown, startOf, problemOf, bodyOf, savedLine,
 } from '@shared/plainForm.js'
@@ -215,7 +216,7 @@ function PlainFields({ form, fill, options, venueId, date, api, qc, onSaved, onC
       })}
       {form.attach && !readOnly && (
         <div>
-          <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" data-testid="plain-attach-input"
+          <input ref={fileRef} type="file" accept="image/*" capture={photoCapture()} className="hidden" data-testid="plain-attach-input"
             onChange={e => setFile(e.target.files?.[0] || null)} />
           <button type="button" onClick={() => fileRef.current?.click()} data-testid="plain-attach"
             className="inline-flex items-center gap-2 min-h-[48px] px-4 rounded-lg border text-sm touch-manipulation hover:bg-accent">

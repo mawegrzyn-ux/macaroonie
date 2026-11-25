@@ -25,6 +25,7 @@ const services = {
     speak: async () => true, stopSpeaking: async () => true,
   },
   scanner: { scan: async () => '5012345678900' },
+  camera: { permission: async () => true },
 }
 
 test('the page gets the token, the person, the push token and a scan', async () => {
@@ -35,6 +36,7 @@ test('the page gets the token, the person, the push token and a scan', async () 
   assert.equal((await app.auth.user()).email, 'e@x.test')
   assert.equal(await app.push.token(), 'ExponentPushToken[abc]')
   assert.equal(await app.scanner.scan(), '5012345678900')
+  assert.equal(await app.camera.permission(), true, 'the page asks for the camera before a photo input opens it')
 })
 
 test('speech: words as they come, then the end; stop() reaches the app', async () => {
