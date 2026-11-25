@@ -21,16 +21,24 @@ export function Section() {
       <H3>Marking a device as shared</H3>
       <P>
         On the device itself, open <strong>Settings</strong> (on the phone pages: <strong>This device</strong>
-        on the home screen), and under <strong>Shared device</strong> pick the venue, give the device a name
+        in the three-dot menu), and under <strong>Shared device</strong> pick the venue, give the device a name
         (Kitchen tablet) and tap <strong>Mark this device as shared</strong>. Owners and admins can do this
         (Settings, Manage). The same card lists the group&apos;s shared devices and who is on each, with{' '}
         <strong>Stop</strong>. It works in a browser and in the Macaroonie Office app.
+      </P>
+      <H3>Stopping a device being shared</H3>
+      <P>
+        <strong>Stop sharing this device</strong> (on the device) or <strong>Stop</strong> (on another device&apos;s
+        row) is for owners and admins (Settings, Manage) and for the person who shared it. On the shared device
+        itself: if you have an office PIN, it asks <strong>Who is this?</strong> first, so nobody else at the
+        device can stop it as you; if you have none (your own phone, say), it stops straight away.
       </P>
       <H3>Who is this?</H3>
       <P>
         On a shared device, reading is open to anyone. Before any change (a Save, a Pepper card&apos;s Confirm,
         a task&apos;s snooze or skip) the device asks <strong>Who is this?</strong>: tap your name and type
-        your PIN on the pad. The change then goes through as you. The pill at the bottom right shows your name;{' '}
+        your PIN on the pad. The change then goes through as you. In the office the pill at the bottom right
+        shows your name; on the phone pages it is in the three-dot menu, with <strong>Switch person</strong>.{' '}
         <strong>Lock</strong> is always one tap, and the device locks itself after 2 minutes without a tap.
       </P>
       <DataTable

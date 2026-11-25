@@ -41,7 +41,7 @@ export function Section() {
         rows={[
           ['GET /', 'The group\'s shared devices and who is on each (Settings View)'],
           ['POST /', '{ venue_id, name, kind }: mark this device shared (Settings Manage); the answer holds the device token (sd_ + 64 hex) once'],
-          ['DELETE /:id', 'Stop a device being shared (Settings Manage; on a shared device, an office PIN person with it)'],
+          ['DELETE /:id', 'Stop a device being shared: Settings Manage or the person who shared it (created_by). Judged by stopRefusal(), not the guard (config FREE): an office PIN person switched in answers for themselves; otherwise the account, and on a shared device an account with an office PIN of its own gets person_needed / office_pin_needed first. GET / and GET /this give can_stop'],
           ['GET /this', 'The device the X-Shared-Device header names and the person switched in; 404 code shared_device_unknown (another group\'s token too)'],
           ['GET /people', 'Who can switch in: the venue\'s cash_staff with a till PIN, the group\'s users with an office PIN'],
           ['POST /act', '{ person: staff:<id> | user:<id>, pin }: the switch; an act token (sp_ + 64 hex) for X-Acting-Person. 403 pin_wrong (tries_left), 429 / 403 pin_locked'],
@@ -93,8 +93,9 @@ export function Section() {
         <Mono>IDLE_MS</Mono>). <Mono>lib/api.js</Mono> sends both headers on every call, and on 403{' '}
         <Mono>person_needed</Mono> / <Mono>office_pin_needed</Mono> asks <Mono>askWho()</Mono> and sends the call
         once more; on 404 <Mono>shared_device_unknown</Mono> it forgets the device. <Mono>components/SharedDevice.jsx</Mono>:{' '}
-        <Mono>SharedDeviceLayer</Mono> (AppShell and MobileShell: the pill with Lock, the Who is this? names
-        and PIN pad), <Mono>SharedDeviceSettings</Mono> and <Mono>OfficePinSettings</Mono> (Settings, and the
+        <Mono>SharedDeviceLayer</Mono> (AppShell and MobileShell: the Who is this? names and PIN pad; the pill
+        with Lock only in the office, <Mono>pill={'{false}'}</Mono> on the phone, whose header menu shows the
+        person with <Mono>useSharedLock()</Mono> and <Mono>askWhoNow()</Mono>), <Mono>SharedDeviceSettings</Mono> and <Mono>OfficePinSettings</Mono> (Settings, and the
         phone&apos;s <Mono>/mobile/device</Mono>).
       </P>
       <InfoBox type="warn">

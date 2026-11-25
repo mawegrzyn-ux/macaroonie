@@ -174,6 +174,17 @@ export function Section() {
         ]}
       />
       <P>
+        An order&apos;s page (in the office and on the phone) opens with a plain card: the delivery day, the
+        status in big letters and the supplier&apos;s reference beside it (<strong>Add it</strong> or{' '}
+        <strong>Change</strong>). The three dots at the card&apos;s top right hold <strong>Print</strong>,{' '}
+        <strong>PDF</strong>, <strong>Excel</strong>, <strong>Copy for checkout</strong>,{' '}
+        <strong>Codes for quick order</strong>, <strong>Correct the delivery</strong> (once it is received) and{' '}
+        <strong>Details and history</strong>: who asked for it, when it was placed and by whom, when and how it
+        was sent, when it was received and by whom, and the account number, phone, delivery slot, note to the
+        supplier and any orders it was split into. The buttons for sending and booking in, and the lines, are
+        under the card as before.
+      </P>
+      <P>
         While an order waits under <strong>To send</strong>, someone with Purchasing approval can still
         change it. <strong>Change quantities</strong> changes how many of each (0 takes a line off); a quantity
         below the supplier's minimum or between their steps is rounded up, and the line says what it will
@@ -223,7 +234,8 @@ export function Section() {
         delivered, with a note), the packaging, damage and quality checks, the temperature of the chilled
         and frozen goods (chilled at or below 8°C, frozen at or below -15°C), and whether you accepted it.
         If anything failed, say what was done about it. Saving writes the venue's delivery check for
-        Food safety, so it doesn't need typing in twice. <strong>Correct the delivery</strong> updates it.
+        Food safety, so it doesn't need typing in twice. <strong>Correct the delivery</strong> (in the three-dot
+        menu of a received order) updates it.
       </P>
 
       <H3>6. Orders that need approval</H3>
