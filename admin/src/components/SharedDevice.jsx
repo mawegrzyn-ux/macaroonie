@@ -19,6 +19,7 @@
 //   OfficePinSettings     the person's own office PIN (never on a shared device).
 
 import { useEffect, useState } from 'react'
+import { useAuth0 } from '@auth0/auth0-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Lock, UserRound, X, Delete, Loader2, Tablet, KeyRound, Check } from 'lucide-react'
 import { useApi } from '@/lib/api'
@@ -277,10 +278,19 @@ export function SharedDeviceSettings() {
     onSuccess: r => { keepDevice(r.device, r.token); setName(''); setMessage('This device is now shared for ' + r.device.venue_name + '.'); qc.invalidateQueries({ queryKey: ['shared-devices'] }) },
     onError: e => setMessage(errText(e)),
   })
+  const { logout } = useAuth0()
   const stop = useMutation({
     mutationFn: id => api.delete('/shared-devices/' + id),
-    onSuccess: (_, id) => {
+    onSuccess: (r, id) => {
       if (device?.id === id) { endPerson(); forgetDevice() }
+      // Stopped here with nobody's PIN: sign out, so getting back in needs the
+      // account's own sign-in (the Office app's logout is its auth.signOut).
+      if (r?.sign_out) {
+        setMessage('Stopped. Signing out.')
+        try { localStorage.removeItem('maca_auth0_org_hint') } catch { /* ignore */ }
+        logout({ logoutParams: { returnTo: window.location.origin } })
+        return
+      }
       setMessage('Stopped.')
       qc.invalidateQueries({ queryKey: ['shared-devices'] })
     },

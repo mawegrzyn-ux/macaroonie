@@ -31,7 +31,9 @@ export function Section() {
         <strong>Stop sharing this device</strong> (on the device) or <strong>Stop</strong> (on another device&apos;s
         row) is for owners and admins (Settings, Manage) and for the person who shared it. On the shared device
         itself: if you have an office PIN, it asks <strong>Who is this?</strong> first, so nobody else at the
-        device can stop it as you; if you have none (your own phone, say), it stops straight away.
+        device can stop it as you. If you have none (your own phone, say), it stops and the device signs out
+        straight after: anyone could have tapped Stop, so getting back in takes your own sign-in. Set an office
+        PIN on another device first if you want to stop it without signing out.
       </P>
       <H3>Who is this?</H3>
       <P>

@@ -10,7 +10,9 @@
 //                           Manage): the token is in the answer, once
 //   DELETE /:id             stop a device being shared: Settings Manage or
 //                           the person who shared it, also from the device
-//                           itself (stopRefusal() below)
+//                           itself (stopRefusal() below); sign_out: true when
+//                           the device stopped itself with nobody proving
+//                           who they are, and the page then signs out
 //   GET    /this            the device this request came from, who is
 //                           switched in and can_stop (X-Shared-Device; 404
 //                           when unknown)
@@ -154,6 +156,12 @@ async function accountMayStop(req, d) {
  *                                      office PIN says who it is first, so
  *                                      someone else at the device can't stop
  *                                      it as them.
+ *
+ * With no office PIN switched in, anyone holding the device can be the one
+ * stopping it, and the device would then run as the account with nobody's
+ * PIN asked: so a device that stops itself that way answers sign_out: true
+ * and the page signs out (lib/api.js callers: SharedDeviceSettings), and
+ * getting back in needs the account's own sign-in.
  */
 async function stopRefusal(req, d) {
   const refused = { status: 403, body: { error: 'Only someone with Settings Manage, or the person who shared it, can stop a device being shared.' } }
@@ -225,8 +233,10 @@ export default async function sharedDeviceRoutes(app) {
     const refused = await stopRefusal(req, d)
     if (refused) return reply.code(refused.status).send(refused.body)
     await withTenant(req.tenantId, tx => tx`DELETE FROM shared_devices WHERE id = ${d.id} AND tenant_id = ${req.tenantId}`)
-    req.log.info({ device: d.id, by: req.acting?.name || req.user?.email || req.user?.sub, from: req.sharedDevice?.id ?? null }, 'shared device stopped')
-    return { ok: true }
+    // Stopped from the device itself with nobody proving who they are: sign it out.
+    const signOut = req.sharedDevice?.id === d.id && req.acting?.kind !== 'office'
+    req.log.info({ device: d.id, by: req.acting?.name || req.user?.email || req.user?.sub, from: req.sharedDevice?.id ?? null, sign_out: signOut }, 'shared device stopped')
+    return { ok: true, sign_out: signOut }
   })
 
   app.get('/this', async req => {
