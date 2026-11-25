@@ -15,6 +15,11 @@
 //                and marked noindex; the view is views/platform/site/soon.eta
 //   shot         the screenshot used as the page's Open Graph image (a key of
 //                SHOTS in screenshots.js)
+//   css, script  a page's own stylesheet and module script (files in
+//                api/platform-site/; the sandboxes)
+//   shared       the shared modules the script imports (sharedModules.js),
+//                preloaded by the head
+//   cta          the heading of the register-interest band at the foot
 
 import { FEATURE_GROUPS } from './features.js'
 
@@ -58,11 +63,13 @@ export const PAGES = [
     shot: 'kitchen-flow',
   },
   {
-    path: '/try/kitchen-flow', view: 'platform/site/soon.eta', soon: true,
+    path: '/try/kitchen-flow', view: 'platform/site/try-kitchen-flow.eta',
     title: 'Kitchen flow designer sandbox | ' + BASE,
     short: 'Set up a kitchen',
     description: 'Lay out a basic kitchen: stations, screens and printers, and how a dish moves from prep to the pass.',
     shot: 'kitchen-flow',
+    css: 'try.css', script: 'try-kitchen.js', shared: ['pos/kitchenBench.js', 'pos/kitchenPrint.js', 'pos/ticketHtml.js'],
+    cta: 'Like what you see?',
   },
   {
     path: '/try/kiosk', view: 'platform/site/soon.eta', soon: true,

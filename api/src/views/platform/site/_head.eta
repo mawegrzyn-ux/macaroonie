@@ -1,7 +1,8 @@
 <%
 /* The platform site's head and header, shared by every page
    (services/platformSite/pages.js). Data: page, nav, origin, shots, asset(),
-   officeUrl. Closed by _foot.eta. */
+   officeUrl; a sandbox page's own css, script and the shared modules it
+   imports (preloaded, sharedPreloads()). Closed by _foot.eta. */
 const og = it.shots[it.page.shot]
 const here = it.page.path
 %>
@@ -30,8 +31,15 @@ const here = it.page.path
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="<%= it.asset('site.css') %>">
+<% if (it.page.css) { %><link rel="stylesheet" href="<%= it.asset(it.page.css) %>">
+<% } %>
 <script>document.documentElement.className += ' js'</script>
 <script src="<%= it.asset('site.js') %>" defer></script>
+<% if (it.page.script) { %>
+<% it.sharedPreloads(it.page.shared || []).forEach(function (u) { %><link rel="modulepreload" href="<%= u %>">
+<% }) %>
+<script type="module" src="<%= it.asset(it.page.script) %>"></script>
+<% } %>
 </head>
 <body>
 <a class="skip" href="#main">Skip to the content</a>
