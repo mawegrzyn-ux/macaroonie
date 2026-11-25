@@ -10,6 +10,7 @@ import { PAGES } from '../src/services/platformSite/pages.js'
 import { FEATURE_GROUPS } from '../src/services/platformSite/features.js'
 import { ARCH_LAYERS } from '../src/services/platformSite/architecture.js'
 import { SHOTS, GALLERY } from '../src/services/platformSite/screenshots.js'
+import { sharedFiles, sharedBase, ENTRIES } from '../src/services/platformSite/sharedModules.js'
 
 after(closeApp)
 
@@ -17,6 +18,10 @@ const APEX = 'macaroonie.com'
 async function get(url, host = APEX, method = 'GET') {
   const app = await getApp()
   return app.inject({ method, url, headers: { host } })
+}
+async function getWith(url, headers) {
+  const app = await getApp()
+  return app.inject({ method: 'GET', url, headers: { host: APEX, ...headers } })
 }
 const unescape = s => s.replace(/&amp;/g, '&').replace(/&#39;/g, '\'').replace(/&quot;/g, '"')
 
@@ -83,7 +88,7 @@ test('the files the pages link to load, with cache headers', async () => {
     assert.equal(r.statusCode, 200, url)
     assert.ok(r.rawPayload.length > 0, url)
     if (url.endsWith('.webp') || url.endsWith('.jpg')) assert.ok(r.rawPayload.length < 260 * 1024, url + ' stays small')
-    assert.match(r.headers['cache-control'], url.includes('?v=') ? /max-age=31536000, immutable/ : /max-age=3600/, url)
+    assert.match(r.headers['cache-control'], url.includes('?v=') || url.startsWith('/site/shared/') ? /max-age=31536000, immutable/ : /max-age=3600/, url)
   }
   const css = await get('/site/site.css')
   assert.match(css.headers['content-type'], /text\/css/)
@@ -96,6 +101,49 @@ test('the files the pages link to load, with cache headers', async () => {
     const r = await get(up)
     assert.notEqual(r.statusCode, 200, up)
     assert.ok(!r.body.includes('"dependencies"'), up)
+  }
+})
+
+test('the sandboxes: live pages that load the shared rules they run', async () => {
+  for (const [path, script, entry] of [['/try/kitchen-flow', 'try-kitchen.js', 'pos/kitchenBench.js'], ['/try/kiosk', 'try-kiosk.js', 'kiosk.js']]) {
+    const r = await get(path)
+    assert.equal(r.statusCode, 200, path)
+    assert.ok(r.body.includes('data-shared="' + sharedBase() + '"'), path + ' tells its script where the shared rules are')
+    assert.match(r.body, new RegExp('<script type="module" src="/site/' + script.replace('.', '\\.') + '\\?v=[0-9a-f]+"'), path + ' script')
+    assert.ok(r.body.includes('<link rel="modulepreload" href="' + sharedBase() + entry + '">'), path + ' preloads ' + entry)
+    assert.ok(r.body.includes('Like what you see?'), path + ' ends with the register-interest band')
+    assert.ok(!r.body.includes('Coming next'), path + ' is no longer a placeholder')
+  }
+  const tryPage = (await get('/try')).body
+  assert.ok(tryPage.includes('href="/try/kitchen-flow"') && tryPage.includes('href="/try/kiosk"'), '/try links both')
+  const home = (await get('/')).body
+  assert.ok(home.includes('href="/try/kitchen-flow"') && !home.includes('coming next'), 'the home teaser links them')
+})
+
+test('the shared rules are served from an allowlist only', async () => {
+  const files = sharedFiles()
+  for (const e of ENTRIES) assert.ok(files.includes(e), e)
+  assert.ok(files.every(f => /^[a-zA-Z0-9/]+\.js$/.test(f) && !f.startsWith('test/')), 'plain module files under shared/')
+  for (const f of files) {
+    const plain = await getWith(sharedBase() + f, {})
+    assert.equal(plain.statusCode, 200, f)
+    assert.match(plain.headers['content-type'], /^application\/javascript/, f)
+    assert.equal(plain.headers['cache-control'], 'public, max-age=31536000, immutable', f)
+    assert.ok(!/\bfrom\s+['"](node:|[a-z@])/.test(plain.body), f + ' imports no packages or Node modules')
+    const gz = await getWith(sharedBase() + f, { 'accept-encoding': 'gzip, br' })
+    assert.equal(gz.headers['content-encoding'], 'gzip', f + ' gzipped')
+    assert.ok(gz.rawPayload.length < plain.rawPayload.length, f + ' smaller gzipped')
+  }
+  const v = sharedBase()
+  assert.ok(!files.includes('pos/sequencer.js'), 'a shared file the sandboxes do not import')
+  for (const bad of [
+    v + 'pos/sequencer.js', v + 'test/kiosk.test.mjs', v + '../package.json', v + 'pos/../../../api/package.json',
+    v + '%2e%2e/api/package.json', v + 'pos%2fkitchen.js', '/site/shared/000000000000/kiosk.js', '/site/shared/kiosk.js',
+    '/site/shared/', v,
+  ]) {
+    const r = await get(bad)
+    assert.notEqual(r.statusCode, 200, bad)
+    assert.ok(!r.body.includes('"dependencies"') && !r.body.includes('export '), bad + ' serves nothing')
   }
 })
 

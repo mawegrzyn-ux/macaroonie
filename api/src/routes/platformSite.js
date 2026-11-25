@@ -12,6 +12,9 @@
 //                     services/platformSite/pages.js, views in
 //                     views/platform/site/
 //   GET /site/<file>  the site's CSS, JS and screenshots (api/platform-site/)
+//   GET /site/shared/<version>/<file>
+//                     the shared rules the /try sandboxes run in the browser
+//                     (an allowlist: services/platformSite/sharedModules.js)
 //   GET /sitemap.xml  the site's pages
 //   GET /sw.js        a service worker that removes itself: the admin used to
 //                     be installed on the apex, and its cached copy would keep
@@ -37,6 +40,7 @@ import { sendEmail } from '../services/emailSvc.js'
 import { platformHostKind, officeOrigin, opsOrigin } from '../services/platformHost.js'
 import { sitePage, sitemapXml, NAV, TRY_PAGES } from '../services/platformSite/pages.js'
 import { assetUrl, serveAsset } from '../services/platformSite/assets.js'
+import { sharedBase, sharedPreloads, serveShared } from '../services/platformSite/sharedModules.js'
 import { FEATURE_GROUPS } from '../services/platformSite/features.js'
 import { ARCH_LAYERS } from '../services/platformSite/architecture.js'
 import { SHOTS, GALLERY } from '../services/platformSite/screenshots.js'
@@ -110,11 +114,12 @@ async function platformSite(app) {
         officeUrl: officeOrigin(), opsUrl: opsOrigin(),
         rootDomain: env.PUBLIC_ROOT_DOMAIN, origin: siteOrigin(), year: new Date().getFullYear(),
         page, nav: NAV, tryPages: TRY_PAGES, groups: FEATURE_GROUPS, layers: ARCH_LAYERS,
-        shots: SHOTS, gallery: GALLERY, asset: assetUrl,
+        shots: SHOTS, gallery: GALLERY, asset: assetUrl, sharedBase, sharedPreloads,
         group: page.group ? FEATURE_GROUPS.find(g => g.slug === page.group) : null,
       })
       return reply
     }
+    if (serveShared(path, req.headers['accept-encoding'], reply)) return reply
     if (serveAsset(path, req.url.split('?')[1], reply)) return reply
     if (/^\/(features|try)\//.test(path)) {
       // Under the site's own folders: a page that isn't there, not an old admin bookmark.
