@@ -205,6 +205,30 @@ export function Section() {
         <Mono>hide_pots</Mono>, <Mono>hide_shares</Mono>, <Mono>hide_moves</Mono>, passed to{' '}
         <Mono>RotaTipsTable</Mono> as <Mono>sections</Mono> (the Rota page shows all three).
       </P>
+      <H3>The rota on the phone (/mobile/rota)</H3>
+      <P>
+        <Mono>pages/mobile/MobileRota.jsx</Mono> (route in <Mono>routes/rota.jsx</Mono>, shell{' '}
+        <Mono>mobile</Mono>; hub tile <Mono>rota</Mono> in <Mono>mobile/registry.js</Mono> with{' '}
+        <Mono>module: 'rota'</Mono>). It reads <Mono>GET /api/rota/venues/:id/weeks/:week</Mono>{' '}
+        through <Mono>useRotaWeek()</Mono> (query key <Mono>['rota-week', venue, week]</Mono>, the
+        grid's), lists people from the week's <Mono>staff</Mono> (never <Mono>cash_staff</Mono>),
+        honours <Mono>off_days</Mono> and <Mono>visibleRotaDates()</Mono>, and sums worked minutes
+        (status <Mono>on</Mono> only) for display. Views: by day, by person, me (the person picked is
+        kept per venue in <Mono>localStorage</Mono> <Mono>maca_rota_me:&lt;venue&gt;</Mono>,
+        defaulting to a staff name equal to <Mono>/me</Mono>'s <Mono>full_name</Mono>: logins
+        aren't linked to staff records). The view is kept in <Mono>maca_rota_view</Mono>, the venue
+        in <Mono>maca_staff_venue</Mono> (the staff pages').
+      </P>
+      <P>
+        With rota Manage (<Mono>useRotaPerms().canEditRota</Mono>) a person's day opens{' '}
+        <Mono>DaySheet</Mono>: per shift Off / On / Sick / Holiday (<Mono>pto</Mono>) in day-parts
+        mode, periods with <Mono>TimeSelect</Mono> and <Mono>periodProblem()</Mono> in hourly mode.
+        Save calls <Mono>PUT .../weeks/:week/entries</Mono> with every entry of the week (both modes,
+        so nothing made in the other mode is dropped), only that person's day in the current mode
+        replaced, entries on off-rota days left out as the grid does, and no{' '}
+        <Mono>removed_staff_ids</Mono> (who is off the week stays as it is). It then invalidates{' '}
+        <Mono>rota-week</Mono> and <Mono>rota-pay</Mono>. No new route.
+      </P>
     </section>
   )
 }

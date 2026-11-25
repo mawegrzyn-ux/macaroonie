@@ -14,6 +14,8 @@ import EmailTemplates from '@/pages/EmailTemplates'
 import EmailMonitoring from '@/pages/EmailMonitoring'
 import WidgetTest from '@/pages/WidgetTest'
 import TestData from '@/pages/TestData'
+import MobileTimeline from '@/pages/mobile/MobileTimeline'
+import MobileGuestList from '@/pages/mobile/MobileGuestList'
 
 export const routes = [
   { path: 'timeline', shell: 'office', element: <Timeline /> },
@@ -26,4 +28,6 @@ export const routes = [
   { path: 'email-monitoring', shell: 'office', element: <EmailMonitoring /> },
   { path: 'widget-test', shell: 'office', element: <WidgetTest /> },
   { path: 'test-data', shell: 'office', element: <TestData /> },
+  { path: 'timeline', shell: 'mobile', element: <MobileTimeline /> },
+  { path: 'guest-list', shell: 'mobile', element: <MobileGuestList /> },
 ]

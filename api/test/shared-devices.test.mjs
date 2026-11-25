@@ -196,6 +196,78 @@ test('the switch ends on Lock and when it goes idle', async () => {
   await ok(owner.post('/api/shared-devices/lock', {}, on(device.token, a2.token)))
 })
 
+test('stop sharing: Settings Manage or the person who shared it, also on the device itself', async () => {
+  const admin = as(A.admin, ids.a)
+  const mark = (who, name) => ok(who.post('/api/shared-devices', { venue_id: V, name }), 'mark ' + name)
+  const stop = (who, d, headers) => who.delete('/api/shared-devices/' + d.device.id, undefined, headers)
+  const gone = async d => (await sql`SELECT 1 FROM shared_devices WHERE id = ${d.device.id}`).length === 0
+
+  // The owner's own phone, marked shared, stopped from that phone: the owner
+  // has no office PIN (none can be set on a shared device), and the account
+  // signed in on it may stop it.
+  await ok(owner.delete('/api/shared-devices/my-pin'), 'the owner without an office PIN')
+  const phone = await mark(owner, 'Owner phone')
+  assert.equal((await ok(owner.get('/api/shared-devices/this', undefined, on(phone.token)))).can_stop, true)
+  const fromItself = await stop(owner, phone, on(phone.token))
+  assert.equal(fromItself.status, 200, JSON.stringify(fromItself.json))
+  assert.equal(fromItself.json.sign_out, true, 'nobody proved who they are: the page signs out')
+  assert.ok(await gone(phone))
+  // As far as the API can tell, the device is no longer one: its token is unknown.
+  assert.equal((await owner.get('/api/shared-devices/this', undefined, on(phone.token))).status, 404)
+  assert.equal((await issue(owner, on(phone.token))).json?.code, 'shared_device_unknown')
+
+  // ...also with a till PIN person switched in on it.
+  const pass = await mark(owner, 'Pass phone')
+  const till = await ok(act(owner, staffKey, '4826', pass.token))
+  const passStop = await stop(owner, pass, on(pass.token, till.token))
+  assert.equal(passStop.status, 200)
+  assert.equal(passStop.json.sign_out, true, 'a till PIN proves nothing about the account')
+  assert.ok(await gone(pass))
+  assert.equal((await sql`SELECT count(*)::int AS n FROM shared_device_people WHERE device_id = ${pass.device.id}`)[0].n, 0, 'its switch ended')
+
+  // The person who shared it, whatever their role is now.
+  const bar = await mark(admin, 'Bar tablet')
+  await sql`UPDATE users SET role = 'operator' WHERE tenant_id = ${ids.a} AND auth0_user_id = ${A.admin}`
+  try {
+    const list = await ok(operator.get('/api/shared-devices'))
+    assert.equal(list.find(d => d.id === bar.device.id).can_stop, false, 'not the operator\'s to stop')
+    assert.equal((await stop(operator, bar)).status, 403, 'Settings View, not theirs')
+    // The operator's office PIN on the device: their own role still can't.
+    const sw = await ok(act(operator, operatorKey, '7391', bar.token))
+    assert.equal((await stop(operator, bar, on(bar.token, sw.token))).status, 403)
+    await ok(operator.post('/api/shared-devices/lock', {}, on(bar.token, sw.token)))
+    const off = await stop(admin, bar)
+    assert.equal(off.status, 200, 'the person who shared it')
+    assert.equal(off.json.sign_out, false, 'from another device: no sign out')
+    assert.ok(await gone(bar))
+  } finally {
+    await sql`UPDATE users SET role = 'admin' WHERE tenant_id = ${ids.a} AND auth0_user_id = ${A.admin}`
+  }
+
+  // From a shared device, another device needs an office PIN person who may stop it.
+  const here = await mark(owner, 'Here tablet')
+  const there = await mark(owner, 'There tablet')
+  assert.equal((await stop(owner, there, on(here.token))).json?.code, 'person_needed', 'nobody switched in')
+  const tillHere = await ok(act(owner, staffKey, '4826', here.token))
+  assert.equal((await stop(owner, there, on(here.token, tillHere.token))).json?.code, 'office_pin_needed', 'a till PIN')
+  const opHere = await ok(act(operator, operatorKey, '7391', here.token))
+  const opStop = await stop(owner, there, on(here.token, opHere.token))
+  assert.equal(opStop.status, 403, 'an office PIN person who may not')
+  assert.equal(opStop.json?.code, undefined)
+  assert.ok(!(await gone(there)))
+  await ok(owner.put('/api/shared-devices/my-pin', { pin: '6274' }), 'owner office PIN')
+  const [ownerRow] = await sql`SELECT id FROM users WHERE tenant_id = ${ids.a} AND auth0_user_id = ${A.owner}`
+  const ownerHere = await ok(act(owner, 'user:' + ownerRow.id, '6274', here.token))
+  const fromHere = await stop(owner, there, on(here.token, ownerHere.token))
+  assert.equal(fromHere.status, 200, 'the owner with their office PIN')
+  assert.equal(fromHere.json.sign_out, false)
+  assert.ok(await gone(there))
+  await ok(owner.delete('/api/shared-devices/' + here.device.id))
+
+  // Another group's device is not found.
+  assert.equal((await stop(other, device)).status, 404)
+})
+
 test('an office PIN is set on the person\'s own device only, never too easy, never shown', async () => {
   assert.equal((await operator.put('/api/shared-devices/my-pin', { pin: '1234' })).status, 422, 'digits in a row')
   assert.equal((await operator.put('/api/shared-devices/my-pin', { pin: '12' })).status, 400)
@@ -206,7 +278,15 @@ test('an office PIN is set on the person\'s own device only, never too easy, nev
   assert.equal(mine.set, true)
   assert.ok(!('pin_hash' in mine))
   await ok(owner.post('/api/shared-devices/lock', {}, on(device.token, sw.token)))
-  // Stopping a device being shared is a change on it: an office PIN with Settings Manage.
+  // An account with an office PIN of its own proves it is them on the device
+  // before stopping it: nobody switched in is asked who they are.
+  await ok(owner.put('/api/shared-devices/my-pin', { pin: '5928' }), 'owner office PIN')
   const del = await owner.delete('/api/shared-devices/' + device.device.id, undefined, on(device.token))
   assert.equal(del.json?.code, 'person_needed')
+  const till = await ok(act(owner, staffKey, '4826'))
+  assert.equal((await owner.delete('/api/shared-devices/' + device.device.id, undefined, on(device.token, till.token))).json?.code, 'office_pin_needed')
+  const [ownerRow] = await sql`SELECT id FROM users WHERE tenant_id = ${ids.a} AND auth0_user_id = ${A.owner}`
+  const me = await ok(act(owner, 'user:' + ownerRow.id, '5928'))
+  const withPin = await ok(owner.delete('/api/shared-devices/' + device.device.id, undefined, on(device.token, me.token)), 'the owner with their PIN')
+  assert.equal(withPin.sign_out, false, 'the owner proved who they are: no sign out')
 })

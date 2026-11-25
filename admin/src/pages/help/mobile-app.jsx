@@ -23,7 +23,7 @@ export function Section() {
         On <strong>ops.macaroonie.com</strong>, use your browser's <strong>Add to Home
         Screen</strong> (Safari: Share → Add to Home Screen; Android Chrome: menu → Add to
         Home screen or the install banner). It installs under its own name, <strong>
-        Macaroonie Ops</strong>, with its own icon — separate from the main desktop app if
+        Macaroonie Office</strong>, with its own icon — separate from the main desktop app if
         you also have that installed — and opens straight into the mobile section, full
         screen, no browser address bar. Because it has its own address, Android installs it as
         a separate app too. The first time you open it you sign in again (and pick your
@@ -32,15 +32,26 @@ export function Section() {
       </P>
       <P>
         The top bar shows the restaurant you&apos;re working in next to the page&apos;s title
-        (<strong>Ops</strong> on the home screen). If your account is connected to more than one
-        restaurant, the switch button (two arrows) next to sign out picks another; the page you
-        were on opens again in that restaurant. The phone app keeps it until you switch again, and
-        signing in again opens the restaurant you sign in to. The office and the phone app each
-        remember their own choice, so switching on one doesn&apos;t switch the other.
+        (<strong>Office</strong> on the home screen).
       </P>
+      <H3>The three-dot menu</H3>
+      <P>
+        The three dots at the right of the top bar open the menu. It says who is signed in, then:
+      </P>
+      <ul className="list-disc pl-6 space-y-1 text-sm">
+        <li><strong>On a shared device</strong>: which device it is, and who said who they are (with a till PIN
+          or an office PIN) with <strong>Lock</strong> and <strong>Switch person</strong>; when nobody has,{' '}
+          <strong>Who is this?</strong>. An amber dot on the three dots means nobody has said who they are yet.</li>
+        <li><strong>This device</strong>: your office PIN, sharing this phone or tablet, or stopping it.</li>
+        <li><strong>Switch location</strong> (when your account is connected to more than one): the page you
+          were on opens again there. The phone app keeps it until you switch again; the office and the phone
+          app each remember their own choice.</li>
+        <li><strong>Notices</strong>: notices for tasks due and late (below).</li>
+        <li><strong>Sign out</strong>.</li>
+      </ul>
       <H3>Notices for tasks due and late</H3>
       <P>
-        The <strong>Notices</strong> tile (and Settings → Notices in the office) turns on notices for the
+        <strong>Notices</strong> in the three-dot menu (and Settings → Notices in the office) turns on notices for the
         phone or computer you are using: <strong>Turn on notices here</strong>, then allow them when the
         browser asks. You get a notice when one of today&apos;s tasks is <strong>due soon</strong> (half an
         hour before a task with a time, like a fridge check) and when it goes <strong>late</strong> (a check
@@ -65,28 +76,29 @@ export function Section() {
       </P>
       <P>
         The home screen and Today have a <strong>Capture</strong> button (a photo, a voice note or a line kept
-        for For review: see the AI assistant section). <strong>This device</strong> on the home screen is where
+        for For review: see the AI assistant section). <strong>This device</strong> in the three-dot menu is where
         you set your own <strong>office PIN</strong> and where an owner or admin marks a phone or tablet as{' '}
         <strong>shared</strong> (see Shared devices and PINs).
       </P>
       <P>
         More mobile-optimised pages will appear on the <strong>/mobile</strong> hub screen
         over time — it's a home screen of tiles, two to a row, one per available mobile module,
-        with <strong>Pepper</strong> in a bar at the bottom (for people who can use it): type a
-        question and tap Send, or hold the microphone, speak and let go. The Pepper page opens with your
+        with <strong>Pepper</strong> in a bar at the bottom (for people who can use it; Pepper has no tile):
+        type a question and tap Send, or hold the microphone, speak and let go. The Pepper page opens with your
         question sent in your current chat.
         <strong> Expenses</strong> is the second one: it shows a whole week (Monday to
         Sunday) of petty cash expenses, with the week's cash, card and VAT totals at the top.
         Use the arrows to move a week back or forward, tap the week to jump to any date, or
         <strong> Back to this week</strong>. Each day has its own <strong>Add</strong> button,
         and tapping an expense opens it to edit (snap a receipt photo with your phone's
-        camera). Submitted days are marked and locked. <strong>Purchasing</strong> is the third: pick a
+        camera: the photo shows the full width of the sheet so you can read the receipt, with{' '}
+        <strong>Retake</strong> for another and <strong>Remove</strong>). Submitted days are marked and locked. <strong>Purchasing</strong> is the third: pick a
         list, fill in quantities and place the order, then send, print and book in deliveries, the
         same screens as the desktop Purchasing page. <strong>Cash Up</strong> is the fourth: a plain list of the
         week's days with status, income and variance at a glance — tap a day to open the
         full declaration, which also lists the <strong>wages paid today</strong> (they count in
         that day's variance; wages with no Paid on day only count in the week).{' '}
-        <strong>Wages</strong> is the fifth: the week's wages list, one card per person with Total,
+        <strong>Wages</strong> has no tile; it opens from Today&apos;s wages task: the week's wages list, one card per person with Total,
         Paid (tap <strong>Full</strong> to pay the cash part), Paid on and Notes. Typing a Paid
         amount or tapping Full sets Paid on to today when you're on this week. On the phone the
         Bank transfer column and Paid on for all are left out (a person paid partly by bank
@@ -121,7 +133,7 @@ export function Section() {
         Beyond that one-time pop-up, whenever you're on a phone-sized screen you'll also see
         a small floating <strong>Mobile view</strong> button in the bottom-left corner of the
         regular desktop admin pages — tap it any time to jump to <strong>/mobile</strong>. The
-        Ops app itself has no link back to the standard view: it's the phone app, and the full
+        phone app itself has no link back to the standard view: it's the phone app, and the full
         admin is at office.macaroonie.com.
       </P>
       <InfoBox type="tip">

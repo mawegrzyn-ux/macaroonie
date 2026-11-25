@@ -175,8 +175,14 @@ const PO_COLOURS = {
   cancelled: 'bg-muted text-muted-foreground line-through',
 }
 
-export function PoStatusBadge({ status }) {
-  return <span className={cn('text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap', PO_COLOURS[status])}>{PO_STATUSES[status] ?? status}</span>
+/** An order's status; `big` for the order's own page (beside the supplier's reference). */
+export function PoStatusBadge({ status, big = false }) {
+  return (
+    <span data-testid={big ? 'po-status' : undefined} data-status={big ? status : undefined}
+      className={cn('font-medium rounded-full whitespace-nowrap', big ? 'text-base font-semibold px-4 py-1.5' : 'text-[11px] px-2 py-0.5', PO_COLOURS[status])}>
+      {PO_STATUSES[status] ?? status}
+    </span>
+  )
 }
 
 // ── Layout ────────────────────────────────────────────────────

@@ -18,3 +18,10 @@ What is not built, known limits and follow-ups in this area (`docs/claude/areas/
   changed to `'booking_email'` (with required `venueId` field), so old-format jobs
   enqueued before the change will fail forever.
 - Legacy `src/services/notificationSvc.js` is dead code — safe to delete.
+
+**65. Bookings on the phone: what stays in the office** *(25 Nov 2026)*
+- New booking on the phone books only times free as they are (the slot path): no table of your choice, no time that needs another booking moved (displacement), no walk-in. All three are on the office Timeline's New booking.
+- A staff booking with no email keeps the hold's stand-in address (`tbc@placeholder.com`), and its confirmation email goes nowhere. The office New booking sends `guest_email: ''` when the field is blank, which `POST /bookings` refuses (400 Invalid email): a booking without an email can't be made there except as a walk-in. Decide what a staff booking without an email should store (null, and no confirmation), then fix both.
+- Times on the phone pages are the phone's own clock and time zone, as on the office Timeline; a venue in another time zone shows shifted.
+- Editing a booking (guest details, time, table, notes) from the phone isn't built: the sheet shows details and changes the status only.
+

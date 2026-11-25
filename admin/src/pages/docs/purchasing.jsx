@@ -253,6 +253,20 @@ export function Section() {
         <Mono>supplier_venues</Mono> without the account number, delivery phone and driver instructions.
         Tests: <Mono>api/test/purchasing-delivery.test.mjs</Mono>, <Mono>shared/test/procurement.test.mjs</Mono>.
       </P>
+      <P>
+        The order&apos;s top card (25 Nov 2026, no migration; the office and the phone share{' '}
+        <Mono>PoDetail</Mono>): the delivery day (<Mono>DateButton</Mono> while open), then{' '}
+        <Mono>{'<PoStatusBadge big />'}</Mono> (<Mono>data-testid="po-status"</Mono>) beside{' '}
+        <Mono>SupplierRefRow</Mono> (Their reference over the value, Add it / Change). <Mono>PoMenu</Mono> at its
+        top right (<Mono>po-menu</Mono>; items <Mono>po-print</Mono>, <Mono>po-pdf</Mono>, <Mono>po-excel</Mono>,{' '}
+        <Mono>po-checkout</Mono>, <Mono>po-quick-order</Mono>, <Mono>po-correct</Mono> once received for
+        can_order / can_approve, <Mono>po-history</Mono>) and <Mono>PoHistoryModal</Mono>: asked for
+        (<Mono>requested_by</Mono>), placed (<Mono>created_at</Mono>, <Mono>created_by</Mono>), sent
+        (<Mono>sent_at</Mono>, <Mono>sent_via</Mono>, <Mono>sent_to</Mono>), changed after sending, received
+        (<Mono>received_at</Mono>, <Mono>received_by</Mono>), then the account, phone,{' '}
+        <Mono>PoDeliveryDetails</Mono>, the note and the split orders. Email failed and Changed after sending stay
+        under the card; the action buttons and the lines are unchanged. No API change.
+      </P>
       <H3>Supplier codes and the quick order (1 Nov 2026, no migration)</H3>
       <P>
         <strong>Searching.</strong> <Mono>GET /purchasing/venues/:id/catalog?search=</Mono> matches the item's

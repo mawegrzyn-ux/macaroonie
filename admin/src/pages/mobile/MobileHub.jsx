@@ -19,15 +19,12 @@ export default function MobileHub() {
   const api = useApi()
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 60_000 })
   const { data: ai } = useAiStatus()
-  // A tile with a module shows once /me says the role has it.
-  const shown = MOBILE_MODULES.filter(m => !m.module || me?.is_platform_admin
+  // A tile with a module shows once /me says the role has it; hub: false has no tile.
+  const shown = MOBILE_MODULES.filter(m => m.hub !== false).filter(m => !m.module || me?.is_platform_admin
     || (me?.permissions?.[m.module] ?? 'none') !== 'none')
   return (
     <div className="min-h-full flex flex-col">
       <div className="flex-1 p-4 space-y-3">
-        <p className="text-sm text-muted-foreground px-0.5">
-          Mobile-optimised tools. Add this page to your home screen for quick access.
-        </p>
         {/* Capture to For review (migration 281): a photo, a voice note or a line. */}
         {(me?.is_platform_admin || (me?.permissions?.ai_assistant ?? 'none') !== 'none') && <CaptureButton venueId={readVenue()} />}
         <div className="grid grid-cols-2 gap-3">
@@ -43,6 +40,7 @@ export default function MobileHub() {
                 aria-label={m.label + (badge ? `, ${badge.count} to do${badge.late ? ', some late' : ''}` : '')}
                 className="relative flex flex-col items-start gap-2 border rounded-xl p-3 bg-background hover:bg-accent active:bg-accent touch-manipulation min-h-[120px] min-w-0"
               >
+                {!badge && m.Badge && <m.Badge />}
                 {badge && (
                   <span data-testid="mobile-tile-badge" data-late={badge.late ? 'yes' : 'no'}
                     className={cn('absolute top-2.5 right-2.5 min-w-[26px] h-[26px] px-1.5 rounded-full text-white text-xs font-bold flex items-center justify-center',

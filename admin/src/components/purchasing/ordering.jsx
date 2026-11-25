@@ -36,7 +36,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Loader2, Plus, Search, Printer, FileText, FileSpreadsheet, Mail, Check, AlertTriangle, Truck,
   ClipboardList, ChevronRight, ChevronDown, X, PackageCheck, Send, Repeat, Thermometer, Snowflake, Eye,
-  Hourglass, Scissors, Undo2, Copy, Clock, Phone, Pencil, ShoppingBasket, PackagePlus,
+  Hourglass, Scissors, Undo2, Copy, Clock, Phone, Pencil, ShoppingBasket, PackagePlus, MoreVertical, History,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { canScan, scanBarcode } from '@/lib/officeApp'
@@ -1572,6 +1572,7 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
   const [dateAsk, setDateAsk] = useState(null)
   const [checkout, setCheckout] = useState(false)
   const [quick, setQuick] = useState(false)
+  const [history, setHistory] = useState(false)
   // The supplier's order reference being typed (null = not editing).
   const [refEdit, setRefEdit] = useState(null)
   const done = saved => {
@@ -1640,24 +1641,42 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
   ], po.delivery_charge) : null
   const shown = draft || po
 
+  // The top card's menu: the files, the copies for a supplier's website,
+  // Correct the delivery once received, and the order's details and history.
+  const menuItems = [
+    ...(po.no_order ? [] : [
+      { key: 'print', label: 'Print', icon: Printer, disabled: !!busy, onClick: () => file('html') },
+      { key: 'pdf', label: 'PDF', icon: FileText, disabled: !!busy, onClick: () => file('pdf') },
+      { key: 'excel', label: 'Excel', icon: FileSpreadsheet, disabled: !!busy, onClick: () => file('xlsx') },
+      { key: 'checkout', label: 'Copy for checkout', icon: Copy, onClick: () => setCheckout(true) },
+      { key: 'quick-order', label: 'Codes for quick order', icon: Copy, onClick: () => setQuick(true) },
+    ]),
+    ...(canOrder && po.status === 'received' ? [{ key: 'correct', label: 'Correct the delivery', icon: PackageCheck, onClick: () => setReceiving(true) }] : []),
+    { key: 'history', label: 'Details and history', icon: History, onClick: () => setHistory(true) },
+  ]
+
   return (
     <div className={cn('space-y-4', phone ? 'p-3' : 'p-4 max-w-4xl mx-auto')}>
       <div className="flex items-center gap-2">
         <button type="button" onClick={onBack} className="w-11 h-11 -ml-2 flex items-center justify-center rounded-lg hover:bg-muted touch-manipulation" aria-label="Back"><ArrowLeft className="w-4 h-4" /></button>
         <div className="flex-1 min-w-0">
           <p className="font-semibold truncate">{po.supplier_name} <span className="font-normal text-muted-foreground">{poNumberLabel(po.number)}</span></p>
-          <p className="text-xs text-muted-foreground truncate">{po.venue_name}{po.account_ref ? ` · account ${po.account_ref}` : ''}</p>
+          <p className="text-xs text-muted-foreground truncate">{po.venue_name}</p>
         </div>
         {po.no_order && <NoOrderBadge />}
-        <PoStatusBadge status={po.status} />
       </div>
 
-      <div className="rounded-xl border bg-background p-4 space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm text-muted-foreground">{po.no_order ? 'Arrived' : 'Delivery'}</span>
-          {open && canOrder
-            ? <DateButton value={po.delivery_date} min={po.today} onChange={changeDate} label="Delivery date" />
-            : <span className="font-medium">{fmtDateLong(po.delivery_date)}</span>}
+      {/* The top card: the day, the supplier's reference and the status. The rest is in its menu. */}
+      <div className="rounded-xl border bg-background p-4 space-y-3" data-testid="po-top">
+        <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1 min-h-[48px]">
+            <span className="text-sm text-muted-foreground">{po.no_order ? 'Arrived' : 'Delivery'}</span>
+            {open && canOrder
+              ? <DateButton value={po.delivery_date} min={po.today} onChange={changeDate} label="Delivery date" />
+              : <span className="font-medium">{fmtDateLong(po.delivery_date)}</span>}
+          </div>
+          {busy && <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-label="Making the file" />}
+          <PoMenu items={menuItems} />
         </div>
         {dateAsk && (
           <div className={cn('rounded-lg border px-3 py-2 text-sm space-y-2',
@@ -1675,40 +1694,22 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
             </div>
           </div>
         )}
-        {!po.no_order && <PoDeliveryDetails po={po} />}
-        <SupplierRefRow po={po} canEdit={canOrder && po.status !== 'cancelled'} editing={refEdit} onEdit={setRefEdit}
-          onSave={() => saveRef.mutate(refEdit.trim())} saving={saveRef.isPending} error={saveRef.error} />
-        <p className="text-sm text-muted-foreground">
-          {po.requested_by && <>Asked for by {po.requested_by}<br /></>}
-          {po.no_order ? 'Booked in without an order' : 'Placed'} {new Date(po.created_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}{po.created_by ? ` by ${po.created_by}` : ''}
-          {po.sent_at && <><br />Sent {new Date(po.sent_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })} ({SENT_VIA.find(v => v.key === po.sent_via)?.label.toLowerCase() || po.sent_via}{po.sent_to ? ` to ${po.sent_to}` : ''})</>}
-          {po.received_at && <><br />Received {new Date(po.received_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}{po.received_by ? ` by ${po.received_by}` : ''}</>}
-        </p>
-        {po.supplier_phone && <p className="text-sm">Phone <a className="underline" href={`tel:${po.supplier_phone}`}>{po.supplier_phone}</a></p>}
-        {po.notes && <p className="text-sm rounded-lg bg-muted/50 px-3 py-2">Note to supplier: {po.notes}</p>}
-        {po.send_error && po.status === 'to_send' && (
-          <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">Email failed: {po.send_error}</p>
-        )}
-        {po.amended_at && po.status === 'to_send' && (
-          <p className="text-sm text-orange-900 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
-            Changed on {when(po.amended_at)}{po.amended_by ? ` by ${po.amended_by}` : ''} after it was sent. Send it again so {po.supplier_name} has the new quantities.
-          </p>
-        )}
-        {(po.split_from_po || po.split_into?.length > 0) && (
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            {po.split_from_po && (
-              <button type="button" className="underline touch-manipulation min-h-[44px]" onClick={() => onOpenPo(po.split_from_po.id)}>
-                Split off {poNumberLabel(po.split_from_po.number)} ({fmtDate(po.split_from_po.delivery_date)})
-              </button>
-            )}
-            {po.split_into?.map(x => (
-              <button key={x.id} type="button" className="underline touch-manipulation min-h-[44px]" onClick={() => onOpenPo(x.id)}>
-                Part moved to {poNumberLabel(x.number)} ({fmtDate(x.delivery_date)})
-              </button>
-            ))}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <PoStatusBadge status={po.status} big />
+          <div className={cn('flex-1', refEdit != null ? 'basis-full' : 'min-w-[10rem]')}>
+            <SupplierRefRow po={po} canEdit={canOrder && po.status !== 'cancelled'} editing={refEdit} onEdit={setRefEdit}
+              onSave={() => saveRef.mutate(refEdit.trim())} saving={saveRef.isPending} error={saveRef.error} />
           </div>
-        )}
+        </div>
       </div>
+      {po.send_error && po.status === 'to_send' && (
+        <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">Email failed: {po.send_error}</p>
+      )}
+      {po.amended_at && po.status === 'to_send' && (
+        <p className="text-sm text-orange-900 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+          Changed on {when(po.amended_at)}{po.amended_by ? ` by ${po.amended_by}` : ''} after it was sent. Send it again so {po.supplier_name} has the new quantities.
+        </p>
+      )}
       {splitDone && (
         <div className="rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-sm space-y-1">
           <p className="flex flex-wrap items-center gap-2">
@@ -1750,14 +1751,6 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
           )}
         </div>
       )}
-      {!po.no_order && <div className="flex flex-wrap gap-2">
-        <button type="button" className={btn.outline} disabled={!!busy} onClick={() => file('html')}><Printer className="w-4 h-4" />Print</button>
-        <button type="button" className={btn.outline} disabled={!!busy} onClick={() => file('pdf')}><FileText className="w-4 h-4" />PDF</button>
-        <button type="button" className={btn.outline} disabled={!!busy} onClick={() => file('xlsx')}><FileSpreadsheet className="w-4 h-4" />Excel</button>
-        <button type="button" className={btn.outline} onClick={() => setCheckout(true)} data-testid="po-checkout"><Copy className="w-4 h-4" />Copy for checkout</button>
-        <button type="button" className={btn.outline} onClick={() => setQuick(true)} data-testid="po-quick-order"><Copy className="w-4 h-4" />Codes for quick order</button>
-        {busy && <Loader2 className="w-4 h-4 animate-spin self-center" />}
-      </div>}
       <ErrorNote error={send.error || cancel.error || patch.error || fileErr || saveQty.error} />
 
       <section className="rounded-xl border bg-background overflow-hidden">
@@ -1872,9 +1865,6 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
         </div>
       )}
 
-      {canOrder && po.status === 'received' && (
-        <button type="button" className={btn.outline} onClick={() => setReceiving(true)}>Correct the delivery</button>
-      )}
       {canApprove && open && (
         <div className="flex items-center justify-end gap-2 pt-2">
           <span className="text-xs text-muted-foreground">Cancel this order</span>
@@ -1886,6 +1876,7 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
         <MarkSentModal po={po} onClose={() => setMarkSent(false)} onSaved={saved => { done(saved); setMarkSent(false) }} />
       )}
       {checkout && <CheckoutCopyModal po={po} onClose={() => setCheckout(false)} />}
+      {history && <PoHistoryModal po={po} onOpenPo={id => { setHistory(false); onOpenPo(id) }} onClose={() => setHistory(false)} />}
       {quick && (
         <QuickOrderModal onClose={() => setQuick(false)}
           groups={[{
@@ -1909,6 +1900,103 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
         <AddPoItemsModal po={po} added={added} onToggle={toggleAdded} onClose={() => setPicking(false)} />
       )}
     </div>
+  )
+}
+
+/**
+ * The three-dot menu at the top right of an order's top card (the office's
+ * Purchasing page and the phone's): every row 48 px, closes on a pick, a tap
+ * outside or Escape.
+ */
+function PoMenu({ items }) {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    const onKey = e => { if (e.key === 'Escape') setOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+  return (
+    <div className="relative shrink-0 -mr-2">
+      <button type="button" onClick={() => setOpen(o => !o)} aria-label="More for this order" aria-haspopup="menu" aria-expanded={open}
+        data-testid="po-menu"
+        className="w-12 h-12 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted touch-manipulation">
+        <MoreVertical className="w-5 h-5" />
+      </button>
+      {open && (
+        <>
+          <button type="button" aria-label="Close the menu" className="fixed inset-0 z-30 w-full h-full cursor-default" onClick={() => setOpen(false)} />
+          <div role="menu" className="absolute right-0 top-full mt-1 z-40 w-64 max-w-[calc(100vw-2rem)] max-h-[70vh] overflow-y-auto rounded-xl border bg-background shadow-xl py-1"
+            data-testid="po-menu-panel">
+            {items.map(it => {
+              const Icon = it.icon
+              return (
+                <button key={it.key} type="button" role="menuitem" disabled={it.disabled} data-testid={'po-' + it.key}
+                  onClick={() => { setOpen(false); it.onClick() }}
+                  className="w-full flex items-center gap-3 min-h-[48px] px-4 text-left text-sm font-medium touch-manipulation hover:bg-muted disabled:opacity-50">
+                  <Icon className="w-4 h-4 text-muted-foreground shrink-0" />{it.label}
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Details and history, from the top card's menu: who asked for it, placed,
+ * sent and received it and when, and the details the card leaves out (the
+ * account number, the supplier's phone, the delivery slot and the driver's
+ * phone, the note to the supplier, the orders it was split from or into).
+ */
+function PoHistoryModal({ po, onOpenPo, onClose }) {
+  const at = t => new Date(t).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
+  const via = SENT_VIA.find(v => v.key === po.sent_via)?.label.toLowerCase() || po.sent_via
+  const steps = [
+    po.requested_by && { key: 'asked', label: 'Asked for', text: 'by ' + po.requested_by },
+    { key: 'placed', label: po.no_order ? 'Booked in without an order' : 'Placed', text: at(po.created_at) + (po.created_by ? ' by ' + po.created_by : '') },
+    po.sent_at && { key: 'sent', label: 'Sent', text: at(po.sent_at) + (via ? ' (' + via + (po.sent_to ? ' to ' + po.sent_to : '') + ')' : '') },
+    po.amended_at && { key: 'changed', label: 'Changed after sending', text: at(po.amended_at) + (po.amended_by ? ' by ' + po.amended_by : '') },
+    po.received_at && { key: 'received', label: 'Received', text: at(po.received_at) + (po.received_by ? ' by ' + po.received_by : '') },
+    po.status === 'cancelled' && { key: 'cancelled', label: 'Cancelled', text: '' },
+  ].filter(Boolean)
+  const details = !!(po.account_ref || po.supplier_phone || po.notes || !po.no_order)
+  return (
+    <Modal title={`${poNumberLabel(po.number)} · ${po.supplier_name}`} onClose={onClose}
+      footer={<button type="button" className={btn.outline} onClick={onClose}>Done</button>}>
+      <ol className="space-y-3" data-testid="po-history-list">
+        {steps.map(x => (
+          <li key={x.key} className="flex gap-3" data-testid="po-history-step" data-step={x.key}>
+            <span className="mt-1.5 w-2.5 h-2.5 rounded-full bg-primary shrink-0" aria-hidden />
+            <span className="text-sm"><span className="font-medium">{x.label}</span>{x.text ? ' ' + x.text : ''}</span>
+          </li>
+        ))}
+      </ol>
+      {details && (
+        <div className="border-t pt-3 space-y-2 empty:hidden">
+          {po.account_ref && <p className="text-sm">Account {po.account_ref}</p>}
+          {po.supplier_phone && <p className="text-sm">Phone <a className="underline" href={`tel:${po.supplier_phone}`}>{po.supplier_phone}</a></p>}
+          {!po.no_order && <PoDeliveryDetails po={po} />}
+          {po.notes && <p className="text-sm rounded-lg bg-muted/50 px-3 py-2">Note to supplier: {po.notes}</p>}
+        </div>
+      )}
+      {(po.split_from_po || po.split_into?.length > 0) && (
+        <div className="border-t pt-3 flex flex-wrap items-center gap-2 text-sm">
+          {po.split_from_po && (
+            <button type="button" className="underline touch-manipulation min-h-[44px]" onClick={() => onOpenPo(po.split_from_po.id)}>
+              Split off {poNumberLabel(po.split_from_po.number)} ({fmtDate(po.split_from_po.delivery_date)})
+            </button>
+          )}
+          {po.split_into?.map(x => (
+            <button key={x.id} type="button" className="underline touch-manipulation min-h-[44px]" onClick={() => onOpenPo(x.id)}>
+              Part moved to {poNumberLabel(x.number)} ({fmtDate(x.delivery_date)})
+            </button>
+          ))}
+        </div>
+      )}
+    </Modal>
   )
 }
 
@@ -2123,12 +2211,15 @@ function SupplierRefRow({ po, canEdit, editing, onEdit, onSave, saving, error })
   }
   if (!po.supplier_ref && po.status === 'to_send') return null
   return (
-    <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="po-ref">
-      {po.supplier_ref
-        ? <span>Their reference <span className="font-medium tabular-nums" data-testid="po-ref-value">{po.supplier_ref}</span></span>
-        : <span className="text-muted-foreground">No reference from {po.supplier_name}</span>}
+    <div className="flex items-center gap-2 text-sm min-w-0" data-testid="po-ref">
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground truncate">Their reference</p>
+        {po.supplier_ref
+          ? <p className="font-semibold tabular-nums truncate" data-testid="po-ref-value">{po.supplier_ref}</p>
+          : <p className="text-muted-foreground">None yet</p>}
+      </div>
       {canEdit && (
-        <button type="button" className={cn(btn.ghost, 'h-11')} onClick={() => onEdit(po.supplier_ref || '')} data-testid="po-ref-change">
+        <button type="button" className={cn(btn.ghost, 'h-12 shrink-0')} onClick={() => onEdit(po.supplier_ref || '')} data-testid="po-ref-change">
           <Pencil className="w-3.5 h-3.5" />{po.supplier_ref ? 'Change' : 'Add it'}
         </button>
       )}

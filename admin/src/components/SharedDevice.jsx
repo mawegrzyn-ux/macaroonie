@@ -6,14 +6,20 @@
 //   SharedDeviceLayer     mounted by AppShell and MobileShell: asks "Who is
 //                         this?" (a name, then a PIN on a pad) when a change
 //                         comes back asking, shows who is switched in with a
-//                         one-tap Lock, locks after IDLE_MS without a tap,
-//                         and checks the device is still shared.
+//                         one-tap Lock (the office's floating pill; the phone
+//                         passes pill={false} and shows them in its menu,
+//                         components/mobile/MobileMenu.jsx), locks after
+//                         IDLE_MS without a tap, and checks the device is
+//                         still shared.
+//   useSharedLock()       Lock for a menu: the person off this device now.
+//   askWhoNow()           opens "Who is this?" (switch person) from a menu.
 //   SharedDeviceSettings  Settings and the phone's This device page: mark this
 //                         device shared for a venue (Settings Manage), stop
 //                         it, and the group's other shared devices.
 //   OfficePinSettings     the person's own office PIN (never on a shared device).
 
 import { useEffect, useState } from 'react'
+import { useAuth0 } from '@auth0/auth0-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Lock, UserRound, X, Delete, Loader2, Tablet, KeyRound, Check } from 'lucide-react'
 import { useApi } from '@/lib/api'
@@ -22,7 +28,7 @@ import { usePermission } from '@/hooks/usePermission'
 import { inOfficeApp } from '@/lib/officeApp'
 import {
   useSharedDevice, setWhoHandler, setServerCalls, startPerson, endPerson, personToken, touched,
-  keepDevice, forgetDevice,
+  keepDevice, forgetDevice, askWho,
 } from '@/lib/sharedDevice'
 
 // A keyboard for the PIN only where there is no touch screen (a desk computer).
@@ -33,7 +39,24 @@ const btnPrimary = 'inline-flex items-center justify-center gap-2 min-h-[48px] p
 
 // ── The layer: Who is this?, the person's pill, Lock ─────────────
 
-export function SharedDeviceLayer() {
+/** Lock: the person switched in is off this device now (the server is told). */
+export function useSharedLock() {
+  const api = useApi()
+  const qc = useQueryClient()
+  return async function lock() {
+    const token = personToken()
+    endPerson()
+    if (token) await api.post('/shared-devices/lock', {}).catch(() => {})
+    qc.invalidateQueries()
+  }
+}
+
+/** "Who is this?" from a menu (switch person): closing it does nothing. */
+export function askWhoNow() {
+  askWho('person_needed').catch(() => {})
+}
+
+export function SharedDeviceLayer({ pill = true }) {
   const api = useApi()
   const qc = useQueryClient()
   const { device, person } = useSharedDevice()
@@ -65,17 +88,12 @@ export function SharedDeviceLayer() {
     return () => { window.removeEventListener('pointerdown', on, true); window.removeEventListener('keydown', on, true) }
   }, [person])
 
-  async function lock() {
-    const token = personToken()
-    endPerson()
-    if (token) await api.post('/shared-devices/lock', {}).catch(() => {})
-    qc.invalidateQueries()
-  }
+  const lock = useSharedLock()
 
   if (!device) return null
   return (
     <>
-      <div className="fixed z-[60] right-3 bottom-3 touch:max-[700px]:bottom-[4.5rem] flex items-center gap-1 rounded-full border bg-background shadow-lg pl-3 pr-1 py-1"
+      {pill && <div className="fixed z-[60] right-3 bottom-3 touch:max-[700px]:bottom-[4.5rem] flex items-center gap-1 rounded-full border bg-background shadow-lg pl-3 pr-1 py-1"
         data-testid="shared-pill">
         <Tablet className="w-4 h-4 text-muted-foreground shrink-0" aria-hidden />
         {person ? (
@@ -94,7 +112,7 @@ export function SharedDeviceLayer() {
             <UserRound className="w-4 h-4" /> {device.name}: who is this?
           </button>
         )}
-      </div>
+      </div>}
       {asking && (
         <WhoIsThis code={asking.code}
           onDone={() => { const a = asking; setAsking(null); qc.invalidateQueries({ queryKey: ['me'] }); a.resolve() }}
@@ -248,6 +266,8 @@ export function SharedDeviceSettings() {
   const { canView, canManage } = usePermission('settings')
   const { data: venues = [] } = useQuery({ queryKey: ['venues'], queryFn: () => api.get('/venues') })
   const { data: devices = [] } = useQuery({ queryKey: ['shared-devices'], queryFn: () => api.get('/shared-devices'), enabled: canView })
+  // This device as the server sees it: can_stop is Settings Manage or having shared it.
+  const { data: here } = useQuery({ queryKey: ['shared-device-this', device?.id], queryFn: () => api.get('/shared-devices/this'), enabled: !!device })
   const [venueId, setVenueId] = useState('')
   const [name, setName] = useState('')
   const [message, setMessage] = useState(null)
@@ -258,10 +278,19 @@ export function SharedDeviceSettings() {
     onSuccess: r => { keepDevice(r.device, r.token); setName(''); setMessage('This device is now shared for ' + r.device.venue_name + '.'); qc.invalidateQueries({ queryKey: ['shared-devices'] }) },
     onError: e => setMessage(errText(e)),
   })
+  const { logout } = useAuth0()
   const stop = useMutation({
     mutationFn: id => api.delete('/shared-devices/' + id),
-    onSuccess: (_, id) => {
+    onSuccess: (r, id) => {
       if (device?.id === id) { endPerson(); forgetDevice() }
+      // Stopped here with nobody's PIN: sign out, so getting back in needs the
+      // account's own sign-in (the Office app's logout is its auth.signOut).
+      if (r?.sign_out) {
+        setMessage('Stopped. Signing out.')
+        try { localStorage.removeItem('maca_auth0_org_hint') } catch { /* ignore */ }
+        logout({ logoutParams: { returnTo: window.location.origin } })
+        return
+      }
       setMessage('Stopped.')
       qc.invalidateQueries({ queryKey: ['shared-devices'] })
     },
@@ -276,7 +305,7 @@ export function SharedDeviceSettings() {
             This device is shared for <strong>{device.venue_name}</strong> as <strong>{device.name}</strong>. Before
             any change on it, people say who they are with their PIN, and Lock is always one tap.
           </p>
-          {canManage && <Confirmed label="Stop sharing this device" confirmLabel="Yes, stop sharing" testId="shared-stop"
+          {(canManage || here?.can_stop) && <Confirmed label="Stop sharing this device" confirmLabel="Yes, stop sharing" testId="shared-stop"
             disabled={stop.isPending} onConfirm={() => stop.mutate(device.id)} />}
         </div>
       ) : (
@@ -315,7 +344,7 @@ export function SharedDeviceSettings() {
                 <p className="text-sm font-medium truncate">{d.name}{device?.id === d.id ? ' (this one)' : ''}</p>
                 <p className="text-xs text-muted-foreground truncate">{d.venue_name}{d.person_name ? ' · ' + d.person_name + ' is on it' : ''}</p>
               </div>
-              {canManage && device?.id !== d.id && (
+              {(canManage || d.can_stop) && device?.id !== d.id && (
                 <Confirmed label="Stop" confirmLabel="Yes, stop" testId="shared-device-stop" disabled={stop.isPending} onConfirm={() => stop.mutate(d.id)} />
               )}
             </div>

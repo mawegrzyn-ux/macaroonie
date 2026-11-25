@@ -17,7 +17,7 @@ export function Section() {
         over a separate Vite project / subdomain so it shares the existing Auth0 session,
         API, and GitHub Actions deploy pipeline with zero new infra (no new Nginx server
         block, no new DNS record, no second Auth0 application). It gets its own installable
-        identity ("Macaroonie Ops") purely through a second static PWA manifest swapped in
+        identity ("Macaroonie Office", short name Office; Ops before 25 Nov 2026) purely through a second static PWA manifest swapped in
         at runtime — everything else about the app is unchanged.
       </P>
       <H3>Routing and layout</H3>
@@ -32,8 +32,8 @@ export function Section() {
         <Mono>/mobile</Mono>), gathered by <Mono>main.jsx</Mono>, which keeps the tree and its
         catch-all to the hub.
         <Mono> admin/src/components/mobile/MobileShell.jsx</Mono> replaces
-        <Mono> AppShell</Mono>'s sidebar entirely with a minimal header (back arrow / title /
-        sign out, safe-area aware) — there is no shared chrome between the two shells by
+        <Mono> AppShell</Mono>'s sidebar entirely with a minimal header (back arrow / title (Office on the hub)
+        and the group&apos;s name / the three-dot menu, safe-area aware) — there is no shared chrome between the two shells by
         design; the desktop sidebar assumes a ≥1015px tablet per the Standard Design Rules,
         which is the wrong shape for a phone.
       </P>
@@ -266,8 +266,8 @@ export function Section() {
         than a rebuild: <Mono>MobileShell.jsx</Mono> exports{' '}
         <Mono>useHideMobileHeader()</Mono> — called by <Mono>MobileDayDeclaration</Mono> to
         suppress the shell's header for as long as it's mounted — and{' '}
-        <Mono>MobileLogoutButton</Mono>, the same sign-out button the shell header uses, so
-        the replacement header can fold sign-out back in. <Mono>DayView</Mono> itself gained
+        <Mono>MobileMenu</Mono> (re-exported from <Mono>components/mobile/MobileMenu.jsx</Mono>), the
+        same three-dot menu the shell header uses, so the replacement header keeps it. <Mono>DayView</Mono> itself gained
         a <Mono>hideHeader</Mono> + <Mono>onStateChange</Mono> prop pair (the same shape as{' '}
         <Mono>ChecklistRunPanel</Mono>'s existing <Mono>hideHeader</Mono>/
         <Mono>onStateChange</Mono>): with <Mono>hideHeader</Mono>, it skips its own header
@@ -313,16 +313,33 @@ export function Section() {
       </P>
       <H3>Notices and the Office app (migration 262)</H3>
       <P>
-        <Mono>/mobile/notices</Mono> (<Mono>MobileNotices</Mono>, tile <Mono>notices</Mono>): the person&apos;s push
+        <Mono>/mobile/notices</Mono> (<Mono>MobileNotices</Mono>, from the header menu): the person&apos;s push
         notices (see Today: Task notices). Inside the Macaroonie Office app the phone pages use its bridge for
         sign-in, the push token, speech (<Mono>ChatView</Mono> <Mono>talkMode</Mono> on <Mono>/mobile/assistant</Mono>)
         and the order form&apos;s Scan button (<Mono>canScan()</Mono> / <Mono>scanBarcode()</Mono>). The hub hides a
         tile with a <Mono>module</Mono> the role has none of (the Allergens tile).
       </P>
+      <H3>The header menu and tiles without a tile (25 Nov 2026)</H3>
+      <P>
+        <Mono>components/mobile/MobileMenu.jsx</Mono> is the three-dot button at the right of the header
+        (<Mono>data-testid</Mono> <Mono>mobile-menu</Mono>, an amber dot on a shared device with nobody switched
+        in) and its panel (<Mono>mobile-menu-panel</Mono>, rows 48 px, closes on a pick, a tap outside or Escape):
+        Signed in as (<Mono>/me</Mono> <Mono>full_name</Mono> or <Mono>email</Mono>); on a shared device the
+        device, the person (<Mono>shared-person</Mono>) with Lock (<Mono>useSharedLock()</Mono>) and Switch person,
+        or Who is this? (<Mono>askWhoNow()</Mono>, both from <Mono>components/SharedDevice.jsx</Mono>); This device
+        (<Mono>/mobile/device</Mono>); Switch location (2+ groups: <Mono>TenantSwitcherModal</Mono>, then the same
+        page fresh); Notices (<Mono>/mobile/notices</Mono>); Sign out (<Mono>signOut()</Mono>). The shell mounts{' '}
+        <Mono>{'<SharedDeviceLayer pill={false} />'}</Mono>, so the phone has no floating pill; the office keeps it.
+      </P>
+      <P>
+        A <Mono>MOBILE_MODULES</Mono> entry with <Mono>hub: false</Mono> keeps its route, its header title and
+        links to it, with no tile: Wages (Today&apos;s wages task, <Mono>shared/forms.js</Mono>{' '}
+        <Mono>phone</Mono>), Pepper (the ask bar), Notices and This device (the menu).
+      </P>
       <H3>Capture, This device and the iPhone build (step 6)</H3>
       <P>
         The hub and Today have <Mono>CaptureButton</Mono> (see Pepper: Captures). <Mono>/mobile/device</Mono>{' '}
-        (<Mono>MobileDevice</Mono>, tile <Mono>device</Mono>) holds <Mono>OfficePinSettings</Mono> and{' '}
+        (<Mono>MobileDevice</Mono>, from the header menu) holds <Mono>OfficePinSettings</Mono> and{' '}
         <Mono>SharedDeviceSettings</Mono> (see Shared devices); <Mono>MobileShell</Mono> mounts{' '}
         <Mono>SharedDeviceLayer</Mono>. The Office app builds for both platforms (<Mono>app.json</Mono>{' '}
         <Mono>platforms</Mono>, <Mono>ios.infoPlist</Mono> reason strings, <Mono>app.config.js</Mono> push mode,{' '}

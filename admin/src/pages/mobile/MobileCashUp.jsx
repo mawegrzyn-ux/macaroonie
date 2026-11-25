@@ -17,7 +17,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, Check, Loader2 } from 'lucide-rea
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { fmt, getMonday, isoWeekDates, StatusBadge, SaveIndicator, DayView, WeekSubmitButton } from '@/pages/CashRecon'
-import { useHideMobileHeader, MobileLogoutButton } from '@/components/mobile/MobileShell'
+import { useHideMobileHeader, MobileMenu } from '@/components/mobile/MobileShell'
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -58,7 +58,7 @@ function MobileDayDeclaration({ venueId, date, onBack }) {
             {dayState.submitPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Unsubmit'}
           </button>
         ))}
-        <MobileLogoutButton />
+        <MobileMenu />
       </header>
       <div className="flex-1 min-h-0">
         <DayView venueId={venueId} date={date} hideHeader onStateChange={setDayState} />

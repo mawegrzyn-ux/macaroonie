@@ -345,6 +345,31 @@ export function Section() {
           ['Tips', 'The tip pots and each person\'s share from the Rota page; the title bar shows the total shared with staff this week. In Edit layout, Hide pots / Hide staff shares / Hide moves pick which of its three parts show, so you can add the widget more than once and lay the parts out separately.'],
         ]}
       />
+      <H3>The rota on the phone</H3>
+      <P>
+        On the phone app (<strong>ops.</strong> or the Macaroonie Office app) the{' '}
+        <strong>Rota</strong> tile opens this week's rota for the restaurant picked at the top. Use
+        the arrows, or swipe across the page, for the week before or after; <strong>Back to this
+        week</strong> comes back. Three views:
+      </P>
+      <DataTable
+        head={['View', 'Shows']}
+        rows={[
+          ['By day', 'A card per day: who is on with their shifts or hours and role, who is off and why (SICK, PTO and so on), anyone off the rota that day (left, or an off-rota period), and the day\'s people and hours. The row of days at the top stays put and jumps to a day; today is picked out.'],
+          ['By person', 'One row per person: a box per day with the hours they are on, S for sick, P for holiday (paid time off), U unpaid, A absent, and their hours for the week.'],
+          ['Me', 'Your own week. The first time, tap your name (the phone remembers it); Not you? picks again.'],
+        ]}
+      />
+      <P>
+        If you can edit the rota, tap a person's day (a row on By day, a box on By person, a day on
+        Me) to set each shift <strong>Off</strong>, <strong>On</strong>, <strong>Sick</strong> or{' '}
+        <strong>Holiday</strong>, then <strong>Save</strong>. On an hourly rota you set the times
+        instead: add hours (or a shift's times) and pick what each period is. <strong>Add
+        someone</strong> under a day puts a person who isn't on yet onto it. It saves to the same
+        rota as the office, so the grid shows the change straight away; the rest of the week stays
+        as it was. People who can only view the rota see it with a View only note, and nothing
+        opens. Pay and tips stay in the office.
+      </P>
       <InfoBox type="tip">
         Access is set per module in Access: Staff (staff list, roles, rota setup), Rota (view or
         edit the rota), Rota pay (hours and pay, pay overrides and filling Cash Recon wages),

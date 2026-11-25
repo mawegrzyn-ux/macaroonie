@@ -9,6 +9,7 @@ import StaffRoles from '@/pages/StaffRoles'
 import Rota from '@/pages/Rota'
 import RotaSetup from '@/pages/RotaSetup'
 import RotaDashboard from '@/pages/RotaDashboard'
+import MobileRota from '@/pages/mobile/MobileRota'
 
 export const routes = [
   { path: 'staff', shell: 'office', element: <Staff /> },
@@ -16,4 +17,5 @@ export const routes = [
   { path: 'rota', shell: 'office', element: <Rota /> },
   { path: 'rota/setup', shell: 'office', element: <RotaSetup /> },
   { path: 'rota-dashboard', shell: 'office', element: <RotaDashboard /> },
+  { path: 'rota', shell: 'mobile', element: <MobileRota /> },
 ]
