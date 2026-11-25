@@ -1,0 +1,15 @@
+<%~ include('./_head', it) %>
+<section class="page-hero">
+  <div class="wrap narrow">
+    <p class="crumbs"><a href="/try">Try it</a></p>
+    <span class="badge">Coming next</span>
+    <h1><%= it.page.short %></h1>
+    <p class="lead"><%= it.page.description %></p>
+    <p>This sandbox is being built now. Until it's ready, the screenshots show the real thing.</p>
+    <div class="ctas">
+      <a class="btn btn-primary" href="/screenshots">See the screenshots</a>
+      <a class="btn btn-ghost" href="/features">Take the tour</a>
+    </div>
+  </div>
+</section>
+<%~ include('./_foot', it) %>

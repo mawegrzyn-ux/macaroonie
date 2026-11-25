@@ -1,0 +1,31 @@
+<%~ include('./_head', it) %>
+<section class="page-hero">
+  <div class="wrap narrow">
+    <h1>What Macaroonie does</h1>
+    <p class="lead">Six parts, one system. Tap one to open it.</p>
+  </div>
+</section>
+<section class="tight">
+  <div class="wrap">
+    <%~ include('./_tiles', it) %>
+  </div>
+</section>
+<section class="soft">
+  <div class="wrap">
+    <h2>Everything inside</h2>
+    <p class="sub">Each part in a line. Tap a name for more.</p>
+    <div class="index-cols">
+      <% it.groups.forEach(function (g) { %>
+        <div class="index-col">
+          <h3><a href="/features/<%= g.slug %>"><%= g.title %></a></h3>
+          <ul>
+            <% g.parts.forEach(function (p) { %>
+              <li><a href="/features/<%= g.slug %>#<%= p.id %>"><%= p.name %></a></li>
+            <% }) %>
+          </ul>
+        </div>
+      <% }) %>
+    </div>
+  </div>
+</section>
+<%~ include('./_foot', it) %>

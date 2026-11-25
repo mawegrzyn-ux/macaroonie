@@ -1,0 +1,34 @@
+<%
+/* The screenshots (services/platformSite/screenshots.js): a grid of
+   pictures, each a button that opens it full size in a dialog (site.js);
+   without JavaScript each is a link to the large image. */
+%>
+<%~ include('./_head', it) %>
+<section class="page-hero">
+  <div class="wrap narrow">
+    <h1>Screenshots</h1>
+    <p class="lead">The real screens, filled with an invented group's menus, tables and bookings. Tap one to see it larger.</p>
+  </div>
+</section>
+<section class="tight">
+  <div class="wrap">
+    <div class="gallery">
+      <% it.gallery.forEach(function (key, i) { %>
+        <% const s = it.shots[key] %>
+        <figure class="framed">
+          <a class="zoom" href="/site/img/<%= s.name %>-1600.webp" data-zoom="<%= s.name %>">
+            <span class="sr">Open larger: </span>
+            <%~ include('./_shot', { shot: s, eager: i < 2, sizes: '(min-width: 1120px) 540px, (min-width: 760px) 50vw, 100vw' }) %>
+          </a>
+          <figcaption><strong><%= s.title %></strong> <%= s.caption %></figcaption>
+        </figure>
+      <% }) %>
+    </div>
+  </div>
+</section>
+<dialog class="lightbox" id="lightbox" aria-label="Screenshot">
+  <form method="dialog"><button class="lb-close" type="submit">Close</button></form>
+  <img alt="" id="lightbox-img">
+  <p id="lightbox-cap"></p>
+</dialog>
+<%~ include('./_foot', it) %>

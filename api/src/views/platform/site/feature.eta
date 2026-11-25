@@ -1,0 +1,67 @@
+<%
+/* One feature group's page (/features/<slug>): the line, the points, the
+   screenshot, then each part as a button that opens its detail in place
+   (/features/<slug>#<part> opens that part). */
+const g = it.group
+const at = it.groups.indexOf(g)
+const prev = it.groups[(at + it.groups.length - 1) % it.groups.length]
+const next = it.groups[(at + 1) % it.groups.length]
+%>
+<%~ include('./_head', it) %>
+<section class="page-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="/features">Features</a></p>
+    <h1><%= g.title %></h1>
+    <p class="lead"><%= g.line %></p>
+  </div>
+</section>
+<section class="tight">
+  <div class="wrap split">
+    <div>
+      <ul class="ticks big">
+        <% g.points.forEach(function (pt) { %><li><%= pt %></li><% }) %>
+      </ul>
+    </div>
+    <figure class="framed">
+      <%~ include('./_shot', { shot: it.shots[g.shot], eager: true, sizes: '(min-width: 1120px) 560px, 100vw' }) %>
+      <% if (it.shots[g.shot]) { %><figcaption><%= it.shots[g.shot].caption %></figcaption><% } %>
+    </figure>
+  </div>
+</section>
+<section class="soft">
+  <div class="wrap">
+    <h2>What's inside</h2>
+    <p class="sub">Tap a part to open it.</p>
+    <div class="parts" data-drill-list>
+      <% g.parts.forEach(function (p) { %>
+        <div class="part" id="<%= p.id %>">
+          <h3>
+            <button type="button" aria-expanded="false" aria-controls="part-<%= p.id %>">
+              <span><%= p.name %></span>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </h3>
+          <div class="part-body" id="part-<%= p.id %>">
+            <p><%= p.text %></p>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+  </div>
+</section>
+<section class="tight">
+  <div class="wrap">
+    <div class="fits">
+      <div>
+        <h2>How it fits</h2>
+        <p><%= g.fits %></p>
+      </div>
+      <a class="btn btn-primary" href="/architecture#<%= g.arch %>">See how it works</a>
+    </div>
+    <nav class="pager" aria-label="Other parts">
+      <a href="/features/<%= prev.slug %>"><span>Previous</span><%= prev.title %></a>
+      <a href="/features/<%= next.slug %>"><span>Next</span><%= next.title %></a>
+    </nav>
+  </div>
+</section>
+<%~ include('./_foot', it) %>

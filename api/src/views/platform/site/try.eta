@@ -1,0 +1,25 @@
+<%~ include('./_head', it) %>
+<section class="page-hero">
+  <div class="wrap narrow">
+    <h1>Try it</h1>
+    <p class="lead">Small sandboxes of the real designers, in your browser. Nothing to sign up for, and nothing you do is kept.</p>
+  </div>
+</section>
+<section class="tight">
+  <div class="wrap">
+    <div class="cards two">
+      <% it.tryPages.forEach(function (p) { %>
+        <article class="card try-card">
+          <%~ include('./_shot', { shot: it.shots[p.shot], sizes: '(min-width: 1120px) 540px, 100vw' }) %>
+          <div class="pad">
+            <% if (p.soon) { %><span class="badge">Coming next</span><% } %>
+            <h2><%= p.short %></h2>
+            <p><%= p.description %></p>
+            <% if (!p.soon) { %><a class="btn btn-primary" href="<%= p.path %>">Open the sandbox</a><% } %>
+          </div>
+        </article>
+      <% }) %>
+    </div>
+  </div>
+</section>
+<%~ include('./_foot', it) %>

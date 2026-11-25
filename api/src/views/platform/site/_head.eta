@@ -1,0 +1,66 @@
+<%
+/* The platform site's head and header, shared by every page
+   (services/platformSite/pages.js). Data: page, nav, origin, shots, asset(),
+   officeUrl. Closed by _foot.eta. */
+const og = it.shots[it.page.shot]
+const here = it.page.path
+%>
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title><%= it.page.title %></title>
+<meta name="description" content="<%= it.page.description %>">
+<link rel="canonical" href="<%= it.origin %><%= here %>">
+<% if (it.page.soon) { %><meta name="robots" content="noindex">
+<% } %>
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Macaroonie">
+<meta property="og:title" content="<%= it.page.title %>">
+<meta property="og:description" content="<%= it.page.description %>">
+<meta property="og:url" content="<%= it.origin %><%= here %>">
+<% if (og) { %><meta property="og:image" content="<%= it.origin %>/site/img/<%= og.name %>-1200.jpg">
+<meta property="og:image:alt" content="<%= og.alt %>">
+<meta name="twitter:card" content="summary_large_image">
+<% } %>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#630812">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="<%= it.asset('site.css') %>">
+<script>document.documentElement.className += ' js'</script>
+<script src="<%= it.asset('site.js') %>" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Macaroonie home">
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <ellipse cx="32" cy="42" rx="22" ry="10" fill="#f4a7b9"/>
+        <ellipse cx="32" cy="34" rx="22" ry="5" fill="#fdf3c8"/>
+        <ellipse cx="32" cy="26" rx="22" ry="10" fill="#f4a7b9"/>
+        <circle cx="22" cy="25" r="1.8" fill="#e8829a" opacity="0.7"/>
+        <circle cx="32" cy="27" r="1.8" fill="#e8829a" opacity="0.7"/>
+        <circle cx="42" cy="25" r="1.8" fill="#e8829a" opacity="0.7"/>
+        <ellipse cx="28" cy="20" rx="8" ry="4" fill="white" opacity="0.25"/>
+      </svg>
+      <span>Macaroonie</span>
+    </a>
+    <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <nav class="links" id="site-nav" aria-label="Main">
+      <% it.nav.forEach(function (n) { %>
+        <% const on = here === n.path || here.indexOf(n.path + '/') === 0 %>
+        <a href="<%= n.path %>"<% if (on) { %> aria-current="page"<% } %>><%= n.label %></a>
+      <% }) %>
+      <a class="btn btn-primary" href="/#interest">Register interest</a>
+      <a class="btn btn-ghost" href="<%= it.officeUrl %>">Sign in</a>
+    </nav>
+  </div>
+</header>
+<main id="main">

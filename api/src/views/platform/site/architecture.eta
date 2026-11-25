@@ -1,0 +1,77 @@
+<%
+/* The architecture picture (services/platformSite/architecture.js): layers
+   of buttons with connectors between them; each button opens its part's
+   detail in the panel beside the picture (under it on a phone).
+   /architecture#<part> opens that part. Without JavaScript every detail
+   shows, in a list under the picture. */
+const rows = []
+it.layers.forEach(function (l) {
+  const last = rows[rows.length - 1]
+  if (last && last[0].row === l.row) last.push(l)
+  else rows.push([l])
+})
+%>
+<%~ include('./_head', it) %>
+<section class="page-hero">
+  <div class="wrap narrow">
+    <h1>How it works</h1>
+    <p class="lead">One system, from the tablet on the counter to the cloud. Tap any part of the picture to see what it does and why it matters.</p>
+  </div>
+</section>
+<section class="tight">
+  <div class="wrap arch-wrap">
+    <div class="arch" data-arch>
+      <% rows.forEach(function (row, ri) { %>
+        <% if (ri > 0) { %>
+          <div class="link" aria-hidden="true">
+            <svg viewBox="0 0 40 44" width="40" height="44"><path d="M20 2v40M12 10l8-8 8 8M12 34l8 8 8-8" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span><%= row[0].link %></span>
+          </div>
+        <% } %>
+        <div class="arch-row cols-<%= row.length %>">
+          <% row.forEach(function (l) { %>
+            <div class="layer layer-<%= l.id %>" role="group" aria-labelledby="layer-<%= l.id %>">
+              <p class="layer-name" id="layer-<%= l.id %>"><%= l.name %> <span><%= l.note %></span></p>
+              <div class="layer-parts">
+                <% l.parts.forEach(function (p) { %>
+                  <button class="part-btn" type="button" id="btn-<%= p.id %>" data-part="<%= p.id %>" aria-expanded="false" aria-controls="detail-<%= p.id %>">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><%~ p.icon %></svg>
+                    <span><%= p.name %></span>
+                  </button>
+                <% }) %>
+              </div>
+            </div>
+          <% }) %>
+        </div>
+      <% }) %>
+    </div>
+    <div class="arch-detail">
+      <div class="detail-intro" data-intro>
+        <h2>Tap a part</h2>
+        <p>Each box in the picture is a real part of Macaroonie. Tap one to read what it does.</p>
+      </div>
+      <% it.layers.forEach(function (l) { %>
+        <% l.parts.forEach(function (p) { %>
+          <section class="detail" id="detail-<%= p.id %>" aria-labelledby="dh-<%= p.id %>">
+            <p class="detail-layer"><%= l.name %></p>
+            <h2 id="dh-<%= p.id %>" tabindex="-1"><%= p.name %></h2>
+            <p><%= p.text %></p>
+            <p class="why"><strong>Why it matters.</strong> <%= p.why %></p>
+          </section>
+        <% }) %>
+      <% }) %>
+    </div>
+  </div>
+</section>
+<section class="soft">
+  <div class="wrap">
+    <h2>In short</h2>
+    <div class="facts">
+      <div class="fact"><b>Keeps trading</b><span>The venue hub takes orders and prints with the internet down, and the cloud catches up after.</span></div>
+      <div class="fact"><b>One record</b><span>Every change to an order is kept in order, so a figure always traces back to what happened.</span></div>
+      <div class="fact"><b>Walled off</b><span>Each business sees only its own data, enforced by the database itself.</span></div>
+      <div class="fact"><b>One version</b><span>Every venue runs the same release, and devices update themselves.</span></div>
+    </div>
+  </div>
+</section>
+<%~ include('./_foot', it) %>

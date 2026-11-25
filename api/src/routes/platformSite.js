@@ -7,6 +7,12 @@
 // plugin), apex host only:
 //   GET /             the platform page with the register-interest form
 //                     (views/platform/landing.eta)
+//   GET the site's    /features, /features/<group>, /architecture,
+//   other pages       /screenshots, /try, /try/<sandbox>: one record each in
+//                     services/platformSite/pages.js, views in
+//                     views/platform/site/
+//   GET /site/<file>  the site's CSS, JS and screenshots (api/platform-site/)
+//   GET /sitemap.xml  the site's pages
 //   GET /sw.js        a service worker that removes itself: the admin used to
 //                     be installed on the apex, and its cached copy would keep
 //                     showing instead of this page
@@ -29,6 +35,11 @@ import { sql } from '../config/db.js'
 import { env } from '../config/env.js'
 import { sendEmail } from '../services/emailSvc.js'
 import { platformHostKind, officeOrigin, opsOrigin } from '../services/platformHost.js'
+import { sitePage, sitemapXml, NAV, TRY_PAGES } from '../services/platformSite/pages.js'
+import { assetUrl, serveAsset } from '../services/platformSite/assets.js'
+import { FEATURE_GROUPS } from '../services/platformSite/features.js'
+import { ARCH_LAYERS } from '../services/platformSite/architecture.js'
+import { SHOTS, GALLERY } from '../services/platformSite/screenshots.js'
 
 const PASS_PREFIXES = [
   '/api/', '/manage', '/reservations', '/widget-api', '/widget/', '/ws',
@@ -81,6 +92,10 @@ async function notify(row, log) {
   }).catch(err => log.warn({ err }, 'interest notification email failed'))
 }
 
+function siteOrigin() {
+  return env.PUBLIC_SITE_SCHEME + '://' + env.PUBLIC_ROOT_DOMAIN
+}
+
 async function platformSite(app) {
   app.addHook('onRequest', async (req, reply) => {
     if (platformHostKind(req.hostname || req.headers.host) !== 'apex') return
@@ -88,12 +103,22 @@ async function platformSite(app) {
     const path = req.url.split('?')[0]
     if (PASS_PREFIXES.some(p => path === p.replace(/\/$/, '') || path.startsWith(p))) return
 
-    if (path === '/') {
+    const page = sitePage(path)
+    if (page) {
       reply.header('Cache-Control', 'public, max-age=0, must-revalidate')
-      await reply.view('platform/landing.eta', {
+      await reply.view(page.view, {
         officeUrl: officeOrigin(), opsUrl: opsOrigin(),
-        rootDomain: env.PUBLIC_ROOT_DOMAIN, year: new Date().getFullYear(),
+        rootDomain: env.PUBLIC_ROOT_DOMAIN, origin: siteOrigin(), year: new Date().getFullYear(),
+        page, nav: NAV, tryPages: TRY_PAGES, groups: FEATURE_GROUPS, layers: ARCH_LAYERS,
+        shots: SHOTS, gallery: GALLERY, asset: assetUrl,
+        group: page.group ? FEATURE_GROUPS.find(g => g.slug === page.group) : null,
       })
+      return reply
+    }
+    if (serveAsset(path, req.url.split('?')[1], reply)) return reply
+    if (path === '/sitemap.xml') {
+      reply.header('Cache-Control', 'public, max-age=3600')
+      reply.type('application/xml').send(sitemapXml(siteOrigin()))
       return reply
     }
     if (path === '/sw.js') {
@@ -102,7 +127,7 @@ async function platformSite(app) {
       return reply
     }
     if (path === '/robots.txt') {
-      reply.type('text/plain').send('User-agent: *\nAllow: /\n')
+      reply.type('text/plain').send('User-agent: *\nAllow: /\nSitemap: ' + siteOrigin() + '/sitemap.xml\n')
       return reply
     }
     reply.redirect(301, officeOrigin() + req.url)

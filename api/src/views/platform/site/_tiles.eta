@@ -1,0 +1,35 @@
+<%
+/* The six feature tiles (services/platformSite/features.js), each a button
+   that opens its drill-down right under its row (site.js; the grid's dense
+   packing puts a full-width panel below the row of the tile before it).
+   Without JavaScript every panel shows. Data: groups, shots. */
+%>
+<div class="tiles" data-drill-group>
+  <% it.groups.forEach(function (g, i) { %>
+    <button class="tile" type="button" id="tile-<%= g.slug %>" aria-expanded="false" aria-controls="drill-<%= g.slug %>">
+      <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><%~ g.icon %></svg></span>
+      <span class="tile-text">
+        <span class="tile-title"><%= g.title %></span>
+        <span class="tile-line"><%= g.line %></span>
+      </span>
+      <span class="chev" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></span>
+    </button>
+    <section class="drill" id="drill-<%= g.slug %>" aria-labelledby="tile-<%= g.slug %>">
+      <div class="drill-body">
+        <div>
+          <h3><%= g.title %></h3>
+          <p class="drill-line"><%= g.line %></p>
+          <ul class="ticks">
+            <% g.points.forEach(function (pt) { %><li><%= pt %></li><% }) %>
+          </ul>
+          <p class="drill-links">
+            <a class="btn btn-primary" href="/features/<%= g.slug %>">More on <%= g.title.toLowerCase() %></a>
+            <a class="btn btn-ghost" href="/architecture#<%= g.arch %>">How it fits</a>
+          </p>
+        </div>
+        <%~ include('./_shot', { shot: it.shots[g.shot], sizes: '(min-width: 1120px) 520px, 100vw' }) %>
+      </div>
+      <button class="drill-close" type="button" data-close="tile-<%= g.slug %>">Close</button>
+    </section>
+  <% }) %>
+</div>
