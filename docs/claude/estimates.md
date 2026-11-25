@@ -119,8 +119,15 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | W2 Home and the feature tour: one sentence of message, the product areas each with a drill-down (what it does, how it helps, a screenshot) | 12 to 18 min (written content, about 1 min per 10 entries, plus layout) | 2 min to commit (to 15:21) | PR A, below |  |  | claude-opus-5-5 / high, fresh agent |  |
 | W3 The architecture page: one picture (devices, venue hub, cloud, data, tenants) where each part opens its detail | 8 to 12 min | 1 min to commit (to 15:22) | PR A, below |  |  | claude-opus-5-5 / high, fresh agent |  |
 | W4 Screenshots: the real till, kitchen screen, kiosk and office pages on demo data, taken by Playwright and kept as optimised images | 10 to 15 min | 28 min (to 15:50), then tests, browser at 390, 1015 and 1440 and docs 11 (to 16:01) | 16.5 min: PR #518 (the first create got a 502) opened 16:05, CI green first time 16:10:37, the merge refused with GitHub server errors for 8 minutes, merged 16:18:26 | **69.5 min for PR A** (15:08:52 to 16:18:26) |  | claude-opus-5-5 / high, fresh agent | Over: a seeded harness signed in to the admin, the till, kitchen screen and kiosk, nine shots in three sizes each. |
-| W5 Try it: a kitchen flow sandbox (stations, splitter, printers; send a dummy order and watch it go), nothing saved | 12 to 18 min | | PR B, below | | | | |
-| W6 Try it: a kiosk sandbox (colours, fonts, text sizes, a few dishes; a basic welcome, menu, dish, basket, done flow), drawn with the kiosk's own design rules | 10 to 15 min | | PR B: tests, browser and docs 12, PR 7 plus 8 of CI slack | | | | |
+| W5 Try it: a kitchen flow sandbox (stations, splitter, printers; send a dummy order and watch it go), nothing saved | 12 to 18 min | 9 min after 5 reading (16:08 to 16:17) | PR B, below |  |  | claude-opus-5-5 / high, fresh agent | Runs the real kitchen code in the browser (`createBench()`, `stationTickets()`, the print preview), served from `shared/` by an allowlist. |
+| W6 Try it: a kiosk sandbox (colours, fonts, text sizes, a few dishes; a basic welcome, menu, dish, basket, done flow), drawn with the kiosk's own design rules | 10 to 15 min | 3 min (to 16:20), then tests, browser at 390, 1015 and 1440 and docs 6 (to 16:26) | 9.5 min: PR #519 opened 16:27, CI green first time 16:35:47, merged 16:36 | **33 min for PR B** (16:03, built while PR A merged, to 16:36) |  | claude-opus-5-5 / high, fresh agent | Styled by `shared/kiosk.js`; the five screens are a small stand-in for the kiosk app. |
+| W7 The real kiosk designer on macaroonie.com: the admin's designer in a demo build with an in-memory stand-in for the API (demo group, menu, designs; saves kept in the visitor's browser only) | fourth revision (first time running admin pages without sign-in): 10 to 14 min | | PR C, below | | | | Estimated 25 Nov 2026 before starting (the owner: "fully fledged designer experience, especially for kiosks, including images"); plus 8 reading. |
+| W8 The real kiosk app as the designer's preview, in a demo mode fed by the designer (no API, no orders sent) | 10 to 15 min | | PR C, below | | | | |
+| W9 Images: a built-in set of drawn dish pictures, and the visitor's own uploads kept in their browser, through the designer's media picker | 8 to 12 min | | PR C, below | | | | |
+| W10 Serving the demo build on the apex (a second admin entry, kept out of the office precache) and the page | 6 to 10 min | | PR C: tests, browser and docs 15, PR 7 plus 8 of CI slack | | | | |
+| W11 The kitchen walkthrough engine: a scripted service on the real kitchen code (`createBench()`), steps that can go back and forward | 10 to 14 min | | PR D, below | | | | The owner: "for KDS more of a flow walk through, designer is confusing; make walkthrough complex". Built beside PR C. |
+| W12 The walkthrough's story: a busy service (till, kiosk, online and delivery orders; two grills split; a fryer, cold and bar; courses held; an allergy; a remake; the pass, packing check and ready board), about 15 narrated steps in chapters | 10 to 15 min | | PR D, below | | | | |
+| W13 The walkthrough's screen: the kitchen map with the active path lit, each station's screen, the printer, the ready board, chapters, play, back and next | 12 to 18 min | | PR D: tests, browser and docs 12, PR 7 plus 8 of CI slack | | | | |
 
 ## Running totals
 
@@ -145,6 +152,7 @@ XS under half a session, S about 1, M 2 to 3, L 4 to 8, XL more than 8.
 | 47 phase 5 (Square: connector, token and OAuth, webhooks, the page), the halved scale with a new vendor | 4 sub-steps, 1 PR | 1.02 to 1.25 (61 to 75 min) | 0.78 (47 min; build 38, merge 7.5) | about 0.69 |
 | Till and kiosk improvements T1 to T5 (owner's list), fourth revision | 5 small items, 1 PR | 0.97 to 1.18 (58 to 71 min) | 0.88 (53 min; build 41, merge 11) | about 0.82 |
 | macaroonie.com showcase part A (frame, home and tour, architecture, screenshots), fourth revision | 4 sub-steps, 1 PR | 1.22 to 1.53 (73 to 92 min) | 1.16 (69.5 min; build 52, merge 16.5, of it 8 on GitHub errors) | about 0.84 |
+| macaroonie.com showcase part B (kitchen flow and kiosk sandboxes) | 2 sub-steps, 1 PR | 0.88 to 1.07 (53 to 64 min) | 0.55 (33 min; build 23, merge 9.5) | about 0.56 |
 
 ## The backlog estimates being tested (22 Nov 2026)
 
@@ -362,4 +370,9 @@ next edit). Cost is estimated from each message's tokens at list prices; cached 
 - The five items took 12 minutes together against 25 to 38: small, well-placed changes. Tests, both browser widths (till app, admin and kiosk designer) and docs took 27, more than half the step: five areas' test files run one at a time, two builds, and a browser harness for three apps.
 - **For the scale:** for a list of small items across apps, estimate the items at 2 to 4 minutes each, and the checking at 20 to 30 minutes for each app the browser check must open.
 
+### macaroonie.com showcase against the fourth revision (25 Nov 2026)
+
+- Part A: estimated 73 to 92, actual 69.5 (84% of the midpoint). The screenshots (W4) took 28 against 10 to 15: a seeded demo group, sign-in to the admin, and the till, kitchen screen and kiosk, nine shots in three sizes. 8 minutes of the merge were GitHub refusing the merge with server errors.
+- Part B: estimated 53 to 64, actual 33 (56%): the sandboxes reused the shared kitchen and kiosk rules and part A's frame, and the browser check needed no sign-in (public pages).
+- **For the scale:** screenshots of the signed-in apps cost 20 to 30 minutes (a harness with demo data), not 10 to 15. Public pages with no sign-in check fast. Both parts together: 102.5 minutes against 126 to 156 (73% of the midpoint).
 

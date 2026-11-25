@@ -1,0 +1,7 @@
+# macaroonie.com: a guided walk through a busy kitchen
+
+- The kitchen page under Try it on macaroonie.com is now a walkthrough instead of a designer: a busy Friday night at an invented restaurant, Harbour & Co on the Quayside, told in five chapters and twenty short steps.
+- Each step says in two sentences what just happened and why it matters, lights the ways the dishes took on a map of the kitchen, and shows the screens that matter: the grills, the fryer, the bar, the pass and packing as the kitchen screens draw them, the printers' tickets, the collection board and the kitchen's timers.
+- It covers tables ordering starters and mains together (the mains held until the server fires them), a meal deal from the kiosk, a website order for later, a GloriaFood delivery, two grills sharing the burgers, fries timed to come out with the burgers, an allergy shown on every screen and ticket, a ticket bumped too soon and brought back, a dropped plate remade, the pass bringing a table together, the packing check on a delivery bag and the board showing numbers to collect.
+- Back, Next, Play and Restart, the arrow keys and space, a link to any step (`#step-7`), and a phone layout with the words first and one screen at a time. Moving dishes stop when the device asks for less motion.
+- Everything on the screens is worked out by Macaroonie's own kitchen rules in the browser; nothing is sent anywhere.

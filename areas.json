@@ -1231,6 +1231,7 @@
     "api/test/home-sites.test.mjs",
     "api/test/home-suggestions.test.mjs",
     "api/test/nav-default.test.mjs",
+    "api/test/kitchen-walk.test.mjs",
     "api/test/open-page.test.mjs",
     "api/test/platform-site.test.mjs",
     "api/test/ops-sources.test.mjs",

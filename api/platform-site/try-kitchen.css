@@ -1,0 +1,171 @@
+/* The kitchen walkthrough (views/platform/site/try-kitchen-flow.eta, drawn by
+   try-kitchen.js). Loaded after site.css on that page only. The tickets copy
+   the kitchen screen app's layout (pos/src/kitchen/KitchenApp.jsx); their
+   colours come from shared/pos/kitchenColours.js as inline styles. */
+
+.kw-wrap { max-width: 1400px; }
+.kw-hero { padding: 28px 0 4px; }
+.kw-hero h1 { font-size: clamp(30px, 4vw, 44px); margin-bottom: 4px; }
+.kw-hero p.lead { max-width: 52em; font-size: 17px; margin: 10px 0 0; }
+.kw-body { padding-top: 12px; }
+.kw { display: grid; gap: 18px; }
+.kw-note { color: var(--muted); font-size: 14px; margin: 18px 0 0; max-width: 60em; }
+
+/* Narration and chapters */
+.kw-top { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.kw-narr { background: var(--cream); border: 1px solid var(--line); border-radius: 18px; padding: 16px 18px; min-width: 0; }
+.kw-where { margin: 0 0 6px; font-size: 14px; color: var(--muted); font-weight: 600; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.kw-clock { color: var(--maroon); font-variant-numeric: tabular-nums; }
+.kw-title { font-size: clamp(24px, 3vw, 32px); color: var(--maroon); outline: none; }
+.kw-text p { margin: 10px 0 0; font-size: 17px; max-width: 44em; }
+.kw-look { margin: 10px 0 0; font-size: 14px; font-weight: 600; color: var(--ink); }
+.kw-look[hidden] { display: none; }
+.kw-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.kw-controls .btn { min-width: 96px; }
+.kw-controls .btn:disabled { opacity: .45; cursor: default; }
+.kw-play[aria-pressed="true"] { background: var(--maroon); color: var(--white); }
+.kw-keys { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+.kw-chapters { min-width: 0; }
+.kw-chlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.kw-ch { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 10px; padding: 4px 6px 4px 4px; border-radius: 14px; }
+.kw-ch-on { background: var(--pink-soft); }
+.kw-chbtn { min-height: 48px; display: flex; align-items: center; gap: 10px; border: 0; background: none; text-align: left; font-weight: 600; font-size: 15px; cursor: pointer; touch-action: manipulation; padding: 0 6px; border-radius: 12px; }
+.kw-chno { width: 28px; height: 28px; border-radius: 50%; background: var(--maroon); color: var(--white); display: inline-flex; align-items: center; justify-content: center; font-size: 13px; flex: none; }
+.kw-dots { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.kw-dot { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--white); font-weight: 600; font-size: 14px; cursor: pointer; touch-action: manipulation; font-variant-numeric: tabular-nums; }
+.kw-dot.kw-seen { background: #f3eff0; color: var(--muted); }
+.kw-dot[aria-current="step"] { background: var(--maroon); color: var(--white); border-color: var(--maroon); }
+@media (min-width: 1180px) {
+  .kw-top { grid-template-columns: minmax(0, 1fr) 400px; align-items: start; }
+}
+
+/* The map and the screens */
+.kw-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (min-width: 1180px) {
+  .kw-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+  .kw-mapwrap { position: sticky; top: 80px; }
+}
+.kw-mapwrap { background: #f7f5f5; border: 1px solid var(--line); border-radius: 18px; padding: 6px 10px 10px; min-width: 0; }
+.kw-mapwrap summary { min-height: 48px; display: flex; align-items: center; font-weight: 700; cursor: pointer; touch-action: manipulation; padding: 0 4px; }
+.kw-map { width: 100%; }
+.kw-svg { display: block; width: 100%; height: auto; }
+.kw-wire { fill: none; stroke: #d6d3d1; stroke-width: 2.2; }
+.kw-wire.kw-lit { stroke: var(--maroon); stroke-width: 4.5; }
+.kw-node-bg { fill: var(--white); stroke: #d6d3d1; stroke-width: 1.5; }
+.kw-node.kind-start .kw-node-bg { fill: #fff7ed; }
+.kw-node.kw-on .kw-node-bg { stroke: var(--maroon); stroke-width: 3.5; fill: #fff5f7; }
+.kw-node-name { font: 700 19px/1 Inter, system-ui, sans-serif; fill: var(--ink); }
+.kw-node-role { font: 500 14px/1 Inter, system-ui, sans-serif; fill: var(--muted); }
+.kw-badge circle { fill: var(--maroon); stroke: var(--white); stroke-width: 2; }
+.kw-badge text { font: 700 14px/1 Inter, system-ui, sans-serif; fill: var(--white); text-anchor: middle; }
+.kw-dish rect { fill: var(--maroon); }
+.kw-dish text { font: 700 14px/1 Inter, system-ui, sans-serif; fill: var(--white); text-anchor: middle; }
+.kw-legend { margin: 6px 4px 0; font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.kw-key { display: inline-block; width: 22px; height: 4px; border-radius: 2px; margin-left: 6px; }
+.kw-key-lit { background: var(--maroon); }
+.kw-key-on { height: 14px; width: 18px; border: 3px solid var(--maroon); background: #fff5f7; border-radius: 4px; }
+.kw-screens { display: grid; gap: 14px; min-width: 0; }
+.kw-more { justify-self: start; }
+
+/* A screen: a dark kitchen screen, a printer's paper, a board, a plain card */
+.kw-screen { background: #18181b; color: #f4f4f5; border-radius: 16px; padding: 10px; min-width: 0; }
+.kw-screen-head { display: flex; align-items: center; gap: 8px; min-height: 32px; margin-bottom: 8px; flex-wrap: wrap; }
+.kw-screen-head b { font-size: 16px; }
+.kw-strip { width: 6px; height: 22px; border-radius: 3px; }
+.kw-screen-sub { font-size: 13px; color: #a1a1aa; }
+.kw-empty { color: #a1a1aa; margin: 4px 2px; font-size: 14px; }
+.kw-more-tickets { color: #d4d4d8; font-size: 13px; margin: 0; align-self: center; }
+.kw-screen-printer, .kw-screen-plain { background: #f5f5f4; color: var(--ink); border: 1px solid var(--line); }
+.kw-screen-printer .kw-screen-sub, .kw-screen-plain .kw-screen-sub, .kw-screen-printer .kw-empty, .kw-screen-plain .kw-empty { color: var(--muted); }
+
+/* Tickets, as the kitchen screen draws them */
+.kw-tickets { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 8px; align-items: start; }
+.kw-ticket { background: #0d0d0d; border-radius: 6px; overflow: hidden; box-shadow: 0 0 0 1px rgba(255, 255, 255, .1); font-size: 14px; line-height: 1.25; min-width: 0; }
+.kw-ticket.kw-focus { box-shadow: 0 0 0 3px #22d3ee; }
+.kw-thead { padding: 6px 8px; }
+.kw-trow { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.kw-ttitle { font-weight: 700; font-size: 15px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kw-tbadge { background: #fff; color: #000; font-weight: 900; padding: 0 6px; border-radius: 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kw-ttimer { font-weight: 900; padding: 0 5px; border-radius: 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kw-tquiet { background: rgba(0, 0, 0, .3); color: #fff; }
+.kw-tsub { margin-top: 4px; font-size: 12px; flex-wrap: wrap; gap: 3px 6px; }
+.kw-tn { opacity: .8; font-weight: 600; }
+.kw-tsrc { background: #e8542a; color: #fff; font-weight: 700; padding: 0 5px; border-radius: 4px; }
+.kw-ttype { padding: 0 5px; border-radius: 4px; font-weight: 700; white-space: nowrap; }
+.kw-tcvr { margin-left: auto; opacity: .8; }
+.kw-tallergy { background: #dc2626; color: #fff; font-weight: 700; font-size: 13px; padding: 4px 8px; }
+.kw-tnote { background: #fde047; color: #000; font-weight: 600; font-size: 13px; padding: 3px 8px; }
+.kw-tnote-item { padding-left: 20px; }
+.kw-telse { background: #27272a; color: rgba(255, 255, 255, .8); font-size: 12px; font-weight: 600; padding: 2px 8px; }
+.kw-tcourse { background: #27272a; color: rgba(255, 255, 255, .8); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 8px; }
+.kw-tcourse.kw-theld { background: #3f3f46; color: #d4d4d8; }
+.kw-titem { border-bottom: 1px solid rgba(0, 0, 0, .6); }
+.kw-tline { display: flex; align-items: flex-start; gap: 6px; padding: 4px 8px; font-weight: 700; }
+.kw-tvoid { text-decoration: line-through; }
+.kw-tq { font-variant-numeric: tabular-nums; flex: none; }
+.kw-tname { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.kw-ttick { flex: none; font-weight: 900; }
+.kw-tchip { flex: none; font-size: 10px; font-weight: 800; padding: 1px 4px; border-radius: 3px; background: rgba(0, 0, 0, .4); color: #fff; align-self: center; }
+.kw-tchip-void { background: #dc2626; }
+.kw-tchip-remake { background: #f97316; color: #000; }
+.kw-tinfo { padding: 0 8px 3px; font-size: 11px; font-weight: 600; }
+.kw-tsleeps { color: #c7d2fe; }
+.kw-twhere { color: #fde68a; }
+.kw-tfrom { color: #bae6fd; }
+.kw-tmod { padding: 1px 8px 1px 20px; font-size: 12px; font-weight: 600; }
+.kw-tmod-remove { background: #fff; color: #dc2626; font-weight: 700; }
+.kw-tmod-add { background: #fff; color: #d61fbf; font-weight: 700; }
+.kw-tpart { display: flex; justify-content: space-between; gap: 6px; padding: 1px 8px 2px 20px; font-size: 12px; font-weight: 600; }
+.kw-tpart-done { opacity: .6; }
+
+/* Printers */
+.kw-papers { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; align-items: start; }
+.kw-papers figure { margin: 0; display: grid; gap: 4px; min-width: 0; }
+.kw-papers figcaption { font-size: 12px; color: var(--muted); }
+.kw-paper { border-radius: 4px; box-shadow: 0 1px 4px rgba(0, 0, 0, .15); overflow-x: auto; max-width: 100%; }
+.kw-paper-new { box-shadow: 0 0 0 3px var(--maroon); }
+
+/* The order ready board */
+.kw-board { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.kw-board-col { background: #0b0b0c; border-radius: 10px; padding: 8px; min-width: 0; }
+.kw-board-col h3 { font: 800 13px/1.2 Inter, system-ui, sans-serif; text-transform: uppercase; letter-spacing: .08em; color: #a1a1aa; margin: 0 0 8px; }
+.kw-board-col:last-child h3 { color: #4ade80; }
+.kw-board-col ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; }
+.kw-num { background: #27272a; border-radius: 8px; padding: 6px 8px; display: grid; gap: 2px; min-width: 0; }
+.kw-num-ready { background: #166534; }
+.kw-num.kw-focus { box-shadow: 0 0 0 3px #22d3ee; }
+.kw-num-n { font: 800 22px/1.1 Inter, system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.kw-num-name { font-size: 12px; color: #d4d4d8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kw-num-status { justify-self: start; font-size: 11px; font-weight: 800; color: #000; padding: 1px 6px; border-radius: 4px; }
+
+/* Plain cards: the Sleeper, the timers */
+.kw-plain { display: grid; gap: 10px; }
+.kw-plain-note { margin: 0; font-size: 14px; color: var(--muted); }
+.kw-held { margin: 0; padding-left: 18px; font-size: 14px; display: grid; gap: 4px; }
+.kw-table-wrap { overflow-x: auto; }
+.kw-table { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--white); border-radius: 10px; overflow: hidden; }
+.kw-table caption { text-align: left; font-weight: 700; padding: 0 0 6px; }
+.kw-table th, .kw-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.kw-table td { font-variant-numeric: tabular-nums; }
+.kw-table thead th { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.kw-timer-target { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
+.kw-good { color: var(--ok); font-weight: 700; }
+.kw-meh { color: #b45309; font-weight: 700; }
+.kw-bad { color: var(--err); font-weight: 700; }
+
+/* A phone: one screen at a time, smaller tickets */
+@media (max-width: 699px) {
+  /* The step's words, then its screen, then the chapters to jump between. */
+  .kw-top { display: contents; }
+  .kw-narr { order: 1; padding: 14px; }
+  .kw-grid { order: 2; }
+  .kw-chapters { order: 3; }
+  .kw-screens { order: 1; }
+  .kw-mapwrap { order: 2; }
+  .kw-text p { font-size: 16px; }
+  .kw-controls .btn { flex: 1 1 calc(50% - 8px); min-width: 0; }
+  .kw-keys { display: none; }
+  .kw-ch { grid-template-columns: minmax(0, 1fr); }
+  .kw-tickets { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .kw-papers { grid-template-columns: minmax(0, 1fr); }
+}
