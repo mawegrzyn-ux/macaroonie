@@ -6,9 +6,12 @@
 // picker" pattern as modules.js elsewhere in this app. `areas` are the Today feed's task
 // areas (api/src/services/opsToday.js) a tile's badge counts; Today counts
 // every task. `module` hides the tile from someone whose role has none of it.
+// `Badge`, a component, draws a tile's own count (today's bookings) when
+// the Today feed gives it none.
 
-import { ListTodo, LayoutGrid, Receipt, ShoppingCart, Wallet, Users, ShoppingBag, Wheat, Sparkles, BarChart3, Bell, Tablet, CalendarRange, GanttChart } from 'lucide-react'
+import { ListTodo, LayoutGrid, Receipt, ShoppingCart, Wallet, Users, ShoppingBag, Wheat, Sparkles, BarChart3, Bell, Tablet, CalendarRange, GanttChart, ClipboardList } from 'lucide-react'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
+import { TodayBookingsBadge } from '@/components/bookings/PhoneBadge'
 
 export const MOBILE_MODULES = [
   {
@@ -65,6 +68,15 @@ export const MOBILE_MODULES = [
     icon: GanttChart,
     path: '/mobile/timeline',
     module: 'bookings',
+  },
+  {
+    key: 'guest-list',
+    label: 'Guest list',
+    description: 'Today\'s guests by time: search, notes and allergies, arrived and seated',
+    icon: ClipboardList,
+    path: '/mobile/guest-list',
+    module: 'bookings',
+    Badge: TodayBookingsBadge,
   },
   {
     key: 'wages',

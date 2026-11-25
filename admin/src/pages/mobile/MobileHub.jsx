@@ -43,6 +43,7 @@ export default function MobileHub() {
                 aria-label={m.label + (badge ? `, ${badge.count} to do${badge.late ? ', some late' : ''}` : '')}
                 className="relative flex flex-col items-start gap-2 border rounded-xl p-3 bg-background hover:bg-accent active:bg-accent touch-manipulation min-h-[120px] min-w-0"
               >
+                {!badge && m.Badge && <m.Badge />}
                 {badge && (
                   <span data-testid="mobile-tile-badge" data-late={badge.late ? 'yes' : 'no'}
                     className={cn('absolute top-2.5 right-2.5 min-w-[26px] h-[26px] px-1.5 rounded-full text-white text-xs font-bold flex items-center justify-center',
