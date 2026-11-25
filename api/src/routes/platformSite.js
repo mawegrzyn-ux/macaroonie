@@ -12,6 +12,9 @@
 //                     services/platformSite/pages.js, views in
 //                     views/platform/site/
 //   GET /site/<file>  the site's CSS, JS and screenshots (api/platform-site/)
+//   GET /site/demo/<build>/<file>
+//                     the kiosk designer demo's two builds (admin/dist-demo,
+//                     pos/dist-demo: services/platformSite/demoBuilds.js)
 //   GET /site/shared/<version>/<file>
 //                     the shared rules the /try sandboxes run in the browser
 //                     (an allowlist: services/platformSite/sharedModules.js)
@@ -41,6 +44,7 @@ import { platformHostKind, officeOrigin, opsOrigin } from '../services/platformH
 import { sitePage, sitemapXml, NAV, TRY_PAGES } from '../services/platformSite/pages.js'
 import { assetUrl, serveAsset } from '../services/platformSite/assets.js'
 import { sharedBase, sharedPreloads, serveShared } from '../services/platformSite/sharedModules.js'
+import { serveDemo, DEMO_PAGES } from '../services/platformSite/demoBuilds.js'
 import { FEATURE_GROUPS } from '../services/platformSite/features.js'
 import { ARCH_LAYERS } from '../services/platformSite/architecture.js'
 import { SHOTS, GALLERY } from '../services/platformSite/screenshots.js'
@@ -114,11 +118,12 @@ async function platformSite(app) {
         officeUrl: officeOrigin(), opsUrl: opsOrigin(),
         rootDomain: env.PUBLIC_ROOT_DOMAIN, origin: siteOrigin(), year: new Date().getFullYear(),
         page, nav: NAV, tryPages: TRY_PAGES, groups: FEATURE_GROUPS, layers: ARCH_LAYERS,
-        shots: SHOTS, gallery: GALLERY, asset: assetUrl, sharedBase, sharedPreloads,
+        shots: SHOTS, gallery: GALLERY, asset: assetUrl, sharedBase, sharedPreloads, demoPages: DEMO_PAGES,
         group: page.group ? FEATURE_GROUPS.find(g => g.slug === page.group) : null,
       })
       return reply
     }
+    if (serveDemo(path, req.headers['accept-encoding'], reply)) return reply
     if (serveShared(path, req.headers['accept-encoding'], reply)) return reply
     if (serveAsset(path, req.url.split('?')[1], reply)) return reply
     if (/^\/(features|try)\//.test(path)) {

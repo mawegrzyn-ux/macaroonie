@@ -46,7 +46,7 @@
   <section class="soft">
     <div class="wrap">
       <h2>Try it</h2>
-      <p class="sub">Small sandboxes of the real designers, in your browser: set up a kitchen and send it an order, or design a kiosk and tap through it.</p>
+      <p class="sub">Hands on, in your browser: set up a kitchen and send it an order, or design a kiosk with the real kiosk designer and tap through it.</p>
       <div class="cards two">
         <% it.tryPages.forEach(function (p) { %>
           <a class="card try-card" href="<%= p.soon ? '/try' : p.path %>">

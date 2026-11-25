@@ -153,21 +153,3 @@ export function DemoDesigns() {
     </div>
   )
 }
-
-const PHONE = '(max-width: 639px)'
-
-/** A phone-sized window. */
-export function usePhone() {
-  const [phone, setPhone] = useState(() => window.matchMedia(PHONE).matches)
-  useEffect(() => {
-    const mq = window.matchMedia(PHONE)
-    const on = () => setPhone(mq.matches)
-    mq.addEventListener('change', on)
-    return () => mq.removeEventListener('change', on)
-  }, [])
-  return phone
-}
-
-export function PhoneDemo() {
-  return null
-}

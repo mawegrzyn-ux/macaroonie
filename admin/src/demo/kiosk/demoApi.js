@@ -12,8 +12,9 @@
 
 import { normaliseDesign } from '@shared/kiosk.js'
 import {
-  getDemo, setDemo, demoSetup, demoVenue, demoMedia, MAX_UPLOADS, MAX_UPLOAD_CHARS, MAX_SIDE,
+  getDemo, setDemo, demoSetup, demoVenue, demoMedia, MAX_UPLOADS, MAX_UPLOAD_BYTES, MAX_SIDE,
 } from './demoStore.js'
+import { keepPicture, forgetPicture, picturesReady } from './demoPictures.js'
 
 export const DEMO_NOTE = 'In the demo this isn\'t sent anywhere.'
 const KIOSK_APP = import.meta.env.VITE_DEMO_KIOSK_APP || '/site/demo/kiosk-app/demo-kiosk.html'
@@ -56,7 +57,8 @@ function mediaList(query) {
 }
 
 // A picture from the visitor's computer: drawn smaller on a canvas (so only
-// a picture goes in, never the file as it came) and kept as a data: URL.
+// a picture goes in, never the file as it came) and kept in this browser
+// (demoPictures.js), never sent anywhere.
 async function shrink(file) {
   if (!/^image\/(png|jpeg|webp|gif|avif)$/.test(file?.type || '')) refuse('In the demo you can add a JPEG, PNG, WebP or GIF picture.')
   if (file.size > 15 * 1024 * 1024) refuse('That picture is over 15 MB: pick a smaller one.')
@@ -77,8 +79,8 @@ async function shrink(file) {
     canvas.getContext('2d').drawImage(img, 0, 0, w, h)
     // WebP keeps a cut-out's see-through background; smaller until it fits.
     for (const quality of [0.86, 0.75, 0.62, 0.5]) {
-      const data = canvas.toDataURL('image/webp', quality)
-      if (data.length <= MAX_UPLOAD_CHARS) return { data, w, h }
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', quality))
+      if (blob && blob.size <= MAX_UPLOAD_BYTES) return { blob, w, h }
     }
     refuse('That picture is too detailed to keep in the demo. Try a smaller one.')
   } finally {
@@ -89,10 +91,13 @@ async function shrink(file) {
 async function upload(path, file) {
   if (path !== '/media/items/upload') refuse(DEMO_NOTE)
   if (getDemo().uploads.length >= MAX_UPLOADS) refuse('The demo keeps up to ' + MAX_UPLOADS + ' of your pictures: delete one in the picker first.')
-  const { data, w, h } = await shrink(file)
+  try { await picturesReady() } catch { refuse('This browser can\'t keep your own pictures here (a private window, perhaps). The demo\'s own pictures still work.') }
+  const { blob, w, h } = await shrink(file)
+  const id = newId()
+  const url = await keepPicture(id, blob)
   const item = {
-    id: 'upload-' + newId(), filename: String(file.name || 'Picture').slice(0, 120), url: data, mimetype: 'image/webp', kind: 'image',
-    width: w, height: h, bytes: Math.round(data.length * 0.74), scope: 'kiosk', category_id: null, category_name: null,
+    id: 'upload-' + id, filename: String(file.name || 'Picture').slice(0, 120), url, mimetype: blob.type || 'image/webp', kind: 'image',
+    width: w, height: h, bytes: blob.size, scope: 'kiosk', category_id: null, category_name: null,
     created_at: new Date().toISOString(),
   }
   setDemo(s => ({ uploads: [item, ...s.uploads] }))
@@ -128,7 +133,11 @@ async function call(method, path, body) {
   if (p[0] === 'media' && p[1] === 'items' && p[2] && (method === 'DELETE' || method === 'PATCH')) {
     const item = s.uploads.find(x => x.id === p[2])
     if (!item) refuse('The demo\'s own pictures stay: only pictures you added can be changed or deleted.')
-    if (method === 'DELETE') { setDemo(x => ({ uploads: x.uploads.filter(u => u.id !== item.id) })); return null }
+    if (method === 'DELETE') {
+      setDemo(x => ({ uploads: x.uploads.filter(u => u.id !== item.id) }))
+      forgetPicture(item.url)
+      return null
+    }
     const filename = String(body?.filename || item.filename).slice(0, 120)
     setDemo(x => ({ uploads: x.uploads.map(u => (u.id === item.id ? { ...u, filename } : u)) }))
     return { ...item, filename }
@@ -146,11 +155,11 @@ const API = {
   put: (path, body) => call('PUT', path, body),
   delete: (path, body) => call('DELETE', path, body),
   upload: (path, file) => upload(path, file),
-  download: () => refuse(DEMO_NOTE),
-  blob: () => refuse(DEMO_NOTE),
-  postBlob: () => refuse(DEMO_NOTE),
-  postDownload: () => refuse(DEMO_NOTE),
-  stream: () => refuse(DEMO_NOTE),
+  download: async () => refuse(DEMO_NOTE),
+  blob: async () => refuse(DEMO_NOTE),
+  postBlob: async () => refuse(DEMO_NOTE),
+  postDownload: async () => refuse(DEMO_NOTE),
+  stream: async () => refuse(DEMO_NOTE),
 }
 
 export function useApi() { return API }

@@ -17,6 +17,7 @@
 //                SHOTS in screenshots.js)
 //   css, script  a page's own stylesheet and module script (files in
 //                api/platform-site/; the sandboxes)
+//   open         the Try it page's button for it (else 'Open the sandbox')
 //   shared       the shared modules the script imports (sharedModules.js),
 //                preloaded by the head
 //   cta          the heading of the register-interest band at the foot
@@ -59,7 +60,7 @@ export const PAGES = [
   {
     path: '/try', view: 'platform/site/try.eta', nav: 'Try it',
     title: 'Try it | ' + BASE,
-    description: 'Hands-on sandboxes: set up a kitchen flow or design a kiosk, in your browser.',
+    description: 'Hands on, in your browser: set up a kitchen flow, or design a kiosk with the real kiosk designer.',
     shot: 'kitchen-flow',
   },
   {
@@ -72,12 +73,14 @@ export const PAGES = [
     cta: 'Like what you see?',
   },
   {
+    // The office's real kiosk designer with an invented menu (demoBuilds.js).
     path: '/try/kiosk', view: 'platform/site/try-kiosk.eta',
-    title: 'Kiosk designer sandbox | ' + BASE,
+    title: 'Kiosk designer demo | ' + BASE,
     short: 'Design a kiosk',
-    description: 'Pick a look and the steps a guest goes through, and see the kiosk change as you go.',
+    description: 'The real kiosk designer with a menu we made up: change the look and the pictures, and tap through the kiosk as a guest would.',
     shot: 'kiosk-designer',
-    css: 'try.css', script: 'try-kiosk.js', shared: ['kiosk.js'],
+    css: 'try.css',
+    open: 'Open the designer',
     cta: 'Like what you see?',
   },
 ]

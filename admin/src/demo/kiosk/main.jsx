@@ -18,7 +18,9 @@ import { installDropGuard } from '@/lib/fileDrop'
 import KioskDesigner from '@/pages/KioskDesigner'
 import { getDemo } from './demoStore.js'
 import { startKioskBridge } from './bridge.js'
-import { DemoBar, DemoDesigns, PhoneDemo, usePhone } from './DemoShell.jsx'
+import { picturesReady } from './demoPictures.js'
+import { DemoBar, DemoDesigns } from './DemoShell.jsx'
+import PhoneDemo, { usePhone } from './PhoneDemo.jsx'
 import '@/index.css'
 
 if (navigator.maxTouchPoints > 0) document.documentElement.setAttribute('data-touch', '')
@@ -27,6 +29,8 @@ document.documentElement.style.setProperty('--site-accent', '#0b5d7a')
 document.documentElement.style.setProperty('--site-accent-soft', 'rgba(11, 93, 122, 0.10)')
 installDropGuard()
 startKioskBridge()
+// The worker that shows the visitor's own pictures (none in a private window: they can't add any there).
+picturesReady().catch(() => {})
 
 // The design open last time, else the demo's own.
 const start = getDemo().designs.find(d => d.id === getDemo().open) || getDemo().designs[0]
@@ -35,6 +39,8 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
 })
 
+// A phone gets the kiosk with a few settings (PhoneDemo.jsx): the designer
+// and its media picker are made for 1015 px and up.
 function Demo() {
   const phone = usePhone()
   if (phone) return <PhoneDemo />

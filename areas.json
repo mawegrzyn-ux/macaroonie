@@ -469,6 +469,7 @@
   "kiosk": {
    "paths": [
     "admin/demo-kiosk.html",
+    "admin/public-demo/**",
     "admin/src/components/media/PicturePick.jsx",
     "admin/src/components/pos/KiosksSection.jsx",
     "admin/src/demo/kiosk/**",

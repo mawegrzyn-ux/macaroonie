@@ -3,7 +3,8 @@
 // The sandboxes on /try run the real rules in the browser (rule 12: no second
 // implementation): the kitchen flow sandbox routes its test order with the
 // kitchen test bench (shared/pos/kitchenBench.js, kitchen.js, kitchenPrint.js,
-// ticketHtml.js), the kiosk sandbox draws with shared/kiosk.js. Those files are
+// ticketHtml.js). (The kiosk demo is a build of the real apps instead:
+// demoBuilds.js.) Those files are
 // plain ESM with no Node-only imports, so they are served as they are, at
 //
 //   /site/shared/<version>/<path under shared/>
@@ -26,7 +27,7 @@ import { fileURLToPath } from 'node:url'
 export const SHARED_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../shared')
 
 /** The modules the pages import (paths under shared/). */
-export const ENTRIES = ['pos/kitchenBench.js', 'pos/kitchenPrint.js', 'pos/ticketHtml.js', 'kiosk.js']
+export const ENTRIES = ['pos/kitchenBench.js', 'pos/kitchenPrint.js', 'pos/ticketHtml.js']
 
 const IMPORT = /(?:^|\n)\s*(?:import|export)\s[^'"`;]*?\sfrom\s+['"](\.{1,2}\/[^'"]+\.js)['"]/g
 const PREFIX = '/site/shared/'

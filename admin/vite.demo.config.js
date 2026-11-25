@@ -32,6 +32,8 @@ function demoApi() {
 
 export default defineConfig({
   base: '/site/demo/kiosk-designer/',
+  // pictures-sw.js: the worker that shows the visitor's own pictures (src/demo/kiosk/demoPictures.js).
+  publicDir: 'public-demo',
   plugins: [demoApi(), react()],
   resolve: {
     alias: {

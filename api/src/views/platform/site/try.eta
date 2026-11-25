@@ -2,7 +2,7 @@
 <section class="page-hero">
   <div class="wrap narrow">
     <h1>Try it</h1>
-    <p class="lead">Small sandboxes of the real designers, in your browser, running the same rules as the real thing. Nothing to sign up for, and nothing you do is sent anywhere.</p>
+    <p class="lead">Hands on, in your browser: a kitchen sandbox running the same rules as the real thing, and the real kiosk designer with a menu we made up. Nothing to sign up for, and nothing you do is sent anywhere.</p>
   </div>
 </section>
 <section class="tight">
@@ -15,7 +15,7 @@
             <% if (p.soon) { %><span class="badge">Coming next</span><% } %>
             <h2><%= p.short %></h2>
             <p><%= p.description %></p>
-            <% if (!p.soon) { %><a class="btn btn-primary" href="<%= p.path %>">Open the sandbox</a><% } %>
+            <% if (!p.soon) { %><a class="btn btn-primary" href="<%= p.path %>"><%= p.open || 'Open the sandbox' %></a><% } %>
           </div>
         </article>
       <% }) %>

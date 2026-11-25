@@ -1,9 +1,10 @@
 // src/demo/kiosk/demoStore.js
 //
 // What the kiosk designer demo (macaroonie.com/try/kiosk) keeps: the
-// visitor's designs, the pictures they added and the pictures they gave
-// dishes. In memory, and in this browser's localStorage so a reload keeps
-// them (try/catch: a private window or a full store just keeps them in
+// visitor's designs, the pictures they added (the list; the pictures
+// themselves are in Cache Storage, demoPictures.js) and the pictures they
+// gave dishes. In memory, and in this browser's localStorage so a reload
+// keeps them (try/catch: a private window or a full store just keeps them in
 // memory). Nothing ever leaves the browser.
 //
 // The menu, venue and order types are fixed (demoData.json, made by
@@ -13,13 +14,14 @@
 import { normaliseDesign } from '@shared/kiosk.js'
 import data from './demoData.json'
 import { pictureUrl, BUILT_IN } from './pictures.js'
+import { forgetAllPictures } from './demoPictures.js'
 
 const KEY = 'maca_kiosk_demo_v1'
-// Pictures a visitor adds: at most this many, each at most this long once
-// made smaller (a data: URL, about 1.37 characters a byte).
-export const MAX_UPLOADS = 8
-export const MAX_UPLOAD_CHARS = 300_000
-export const MAX_SIDE = 900
+// Pictures a visitor adds (kept by demoPictures.js): at most this many, each
+// at most this big once made smaller.
+export const MAX_UPLOADS = 12
+export const MAX_UPLOAD_BYTES = 600_000
+export const MAX_SIDE = 1200
 
 const listeners = new Set()
 let state = load()
@@ -65,6 +67,7 @@ export function setDemo(patch) {
 /** Back to the design and pictures the demo starts with. */
 export function resetDemo() {
   try { localStorage.removeItem(KEY) } catch { /* nothing kept */ }
+  forgetAllPictures()
   state = blank()
   for (const l of listeners) l()
 }
