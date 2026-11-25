@@ -116,7 +116,7 @@ export default function MobileMenu({ className }) {
                         <Lock className="w-4 h-4" /> Lock
                       </button>
                       <button type="button" onClick={pick(askWhoNow)} data-testid="shared-switch"
-                        className="inline-flex items-center justify-center gap-1.5 min-h-[48px] px-3 rounded-lg border bg-background text-sm font-medium touch-manipulation hover:bg-muted">
+                        className="inline-flex items-center justify-center gap-1.5 min-h-[48px] px-3 rounded-lg border bg-background text-sm font-medium whitespace-nowrap touch-manipulation hover:bg-muted">
                         <UserRound className="w-4 h-4" /> Switch person
                       </button>
                     </div>

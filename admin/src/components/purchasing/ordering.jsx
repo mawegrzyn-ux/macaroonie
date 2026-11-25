@@ -1696,7 +1696,7 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
         )}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <PoStatusBadge status={po.status} big />
-          <div className="flex-1 min-w-[12rem]">
+          <div className={cn('flex-1', refEdit != null ? 'basis-full' : 'min-w-[10rem]')}>
             <SupplierRefRow po={po} canEdit={canOrder && po.status !== 'cancelled'} editing={refEdit} onEdit={setRefEdit}
               onSave={() => saveRef.mutate(refEdit.trim())} saving={saveRef.isPending} error={saveRef.error} />
           </div>
@@ -2211,12 +2211,15 @@ function SupplierRefRow({ po, canEdit, editing, onEdit, onSave, saving, error })
   }
   if (!po.supplier_ref && po.status === 'to_send') return null
   return (
-    <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="po-ref">
-      {po.supplier_ref
-        ? <span>Their reference <span className="font-medium tabular-nums" data-testid="po-ref-value">{po.supplier_ref}</span></span>
-        : <span className="text-muted-foreground">No reference from {po.supplier_name}</span>}
+    <div className="flex items-center gap-2 text-sm min-w-0" data-testid="po-ref">
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground truncate">Their reference</p>
+        {po.supplier_ref
+          ? <p className="font-semibold tabular-nums truncate" data-testid="po-ref-value">{po.supplier_ref}</p>
+          : <p className="text-muted-foreground">None yet</p>}
+      </div>
       {canEdit && (
-        <button type="button" className={cn(btn.ghost, 'h-11')} onClick={() => onEdit(po.supplier_ref || '')} data-testid="po-ref-change">
+        <button type="button" className={cn(btn.ghost, 'h-12 shrink-0')} onClick={() => onEdit(po.supplier_ref || '')} data-testid="po-ref-change">
           <Pencil className="w-3.5 h-3.5" />{po.supplier_ref ? 'Change' : 'Add it'}
         </button>
       )}
