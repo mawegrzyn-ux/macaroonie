@@ -1,0 +1,30 @@
+<%
+/* The platform site's footer: a register-interest call to action (the form
+   itself is on the home page, so the home page leaves it out), then the
+   links. Opened by _head.eta. */
+%>
+</main>
+<% if (it.page.path !== '/') { %>
+<section class="cta-band">
+  <div class="wrap">
+    <div>
+      <h2>See it with your own venues</h2>
+      <p>We're taking on our first groups and franchisees. Leave your details and we'll show you round.</p>
+    </div>
+    <a class="btn btn-light" href="/#interest">Register interest</a>
+  </div>
+</section>
+<% } %>
+<footer class="site-foot">
+  <div class="wrap">
+    <nav aria-label="Footer">
+      <a href="/">Home</a>
+      <% it.nav.forEach(function (n) { %><a href="<%= n.path %>"><%= n.label %></a><% }) %>
+      <a href="/#interest">Register interest</a>
+      <a href="<%= it.officeUrl %>">Sign in</a>
+    </nav>
+    <span>&copy; <%= it.year %> Macaroonie</span>
+  </div>
+</footer>
+</body>
+</html>

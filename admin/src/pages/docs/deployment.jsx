@@ -17,7 +17,7 @@ export function Section() {
         rows={[
           ['office.macaroonie.com', 'The admin portal (admin/dist) plus the API paths', 'nginx: scripts/nginx-office-ops.sh'],
           ['ops.macaroonie.com', 'The same admin build; / goes to /mobile/, the SPA sends any non-/mobile route to /mobile (IS_OPS_HOST in lib/hosts.js), and the page links /ops.webmanifest (scope /) so Android installs it as its own app', 'nginx: scripts/nginx-office-ops.sh'],
-          ['macaroonie.com (and www.)', 'The platform page: features, franchises, who it is for, roadmap (EPOS, kitchen screens, kiosks, loyalty; AI insights, AI assistant, MCP), how we build, team and the register-interest form (routes/platformSite.js, views/platform/landing.eta, plain HTML, edit the copy there). Other GETs 301 to the same path on office.; API paths (/api, /manage, /reservations, /widget-api, /ws, /webhooks, /uploads, /order-api) pass through; /sw.js is a service worker that removes itself so an admin installed on the apex stops showing', 'nginx: scripts/nginx-apex-landing.sh'],
+          ['macaroonie.com (and www.)', 'The platform site: home with the register-interest form, the feature tour, the architecture, screenshots and the sandboxes (routes/platformSite.js, services/platformSite/, views/platform/; see Platform site). Its files at /site/ (nginx: scripts/ensure-nginx-site-assets.sh, run by the deploy). Other GETs 301 to the same path on office.; API paths (/api, /manage, /reservations, /widget-api, /ws, /webhooks, /uploads, /order-api) pass through; /sw.js is a service worker that removes itself so an admin installed on the apex stops showing', 'nginx: scripts/nginx-apex-landing.sh'],
           ['screens.macaroonie.com', 'The menu screens\' player (screen/, routes/screenSite.js), /screen-api and /ws', 'wildcard server block (nothing to set up)'],
           ['{slug}.macaroonie.com', 'Tenant sites (routes/siteRenderer.js). office, ops, pos and screens are in RESERVED_SUBDOMAINS', 'wildcard server block'],
           ['Custom domains (www.yourrestaurant.com)', 'Tenant sites, matched by tenant_site.custom_domain', 'nginx: the domain sync (scripts/custom-domains-sync.sh, systemd timer installed by the deploy) runs scripts/nginx-custom-domain.sh per verified domain (Website CMS → Custom domain lifecycle)'],
@@ -236,7 +236,7 @@ git push origin main
 #   4. node scripts/migrate.js   (auto-baselines then applies pending)
 #   5. npm install + build (admin, then the till app in pos/)
 #   6. pm2 restart macaroonie-api
-#   7. nginx patches (sudo): /manage on the apex, SPA cache headers,
+#   7. nginx patches (sudo): /manage and /site/ on the apex, SPA cache headers,
 #      http2 on every https listen (ensure-nginx-http2.sh), big media
 #      uploads (ensure-nginx-media-upload.sh), 5 minutes for Pepper's
 #      chat (ensure-nginx-ai-timeout.sh), domain sync

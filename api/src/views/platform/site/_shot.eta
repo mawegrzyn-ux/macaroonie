@@ -1,0 +1,12 @@
+<%
+/* One screenshot (a SHOTS entry, services/platformSite/screenshots.js) as a
+   picture: WebP at two widths, a JPEG for browsers without WebP. Data: shot,
+   sizes (the sizes attribute), eager (true: the first image on the page). */
+const s = it.shot
+%>
+<% if (s) { %>
+<picture class="shot<%= s.tall ? ' tall' : '' %>">
+  <source type="image/webp" srcset="/site/img/<%= s.name %>-800.webp 800w, /site/img/<%= s.name %>-1600.webp <%= s.big || 1600 %>w" sizes="<%= it.sizes || '(min-width: 1120px) 560px, 100vw' %>">
+  <img src="/site/img/<%= s.name %>-1200.jpg" width="<%= s.w %>" height="<%= s.h %>" alt="<%= s.alt %>"<% if (!it.eager) { %> loading="lazy"<% } %> decoding="async">
+</picture>
+<% } %>
