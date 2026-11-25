@@ -14,7 +14,7 @@
 //     .sync(since)           GET /pos-api/kitchen/sync
 //     .submit(screen, events) POST /pos-api/events (kitchen events only)
 //     .switchFlow(flowId, by, screen)  PUT /pos-api/kitchen/flow (screen null: the bench itself)
-//     .sendOrder(spec)       a test order into the kitchen
+//     .sendOrder(spec)       a test order into the kitchen (till, online or GloriaFood)
 //     .randomSpec()          a test order made up from the menu
 //     .fireCourse(orderId, courseId) / .voidItem(orderId, itemId) / .clear()
 //
@@ -79,6 +79,7 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
     log: [],
     number: 0,
     webNumber: 0,
+    gfNumber: 0,
     balanceLast: {},   // each Splitter's last pick (the sequencer keeps it in kds_balance_turns)
   }
   const by = (rows, f) => Object.fromEntries((rows || []).map(r => [r.id, f(r)]))
@@ -199,17 +200,24 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
 
   /**
    * A test order into the kitchen. spec:
-   *   source      'till' | 'online'
+   *   source      'till' | 'online' | 'gloriafood'
    *   order_type_id, revenue_stream_id
    *   device_id   the till or kiosk it is sent from (till orders; flow links
    *               can be for one till)
    *   table_id    a table (till orders), else a counter order with a number
    *   tent        a tent number (till counter orders)
    *   name        the customer's name (a till order's name, an online guest)
+   *   covers      a table's covers (till table orders; 2 when missing)
+   *   allergy     the order's allergy flag: on a till order the till's
+   *               { allergens, diets, note } (shared/pos/allergy.js), on an
+   *               online or GloriaFood order the guest's words
+   *   promised_at, fire_at  online and GloriaFood orders: when it is wanted,
+   *               and when its dishes go to the kitchen (an order for later)
    *   hold_courses  dishes in later courses wait to be fired
    *   note
-   *   lines       [{ item_id, qty, note, parts }] (parts: a combo's picks;
-   *               made up when missing)
+   *   lines       [{ item_id, qty, note, parts, modifiers }] (parts: a combo's
+   *               picks, made up when missing; modifiers: till lines'
+   *               [{ label, prefix }], online lines' options [{ label }])
    * Returns { ok, id, number } or { ok: false, error }.
    */
   function sendOrder(spec) {
@@ -223,21 +231,23 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
     const streamId = spec.revenue_stream_id || null
     const partsOf = l => (isCombo(items[l.item_id]) ? (l.parts || randomComboParts(items[l.item_id], ctx, rng)) : null)
 
-    if (spec.source === 'online') {
-      st.webNumber++
+    if (spec.source === 'online' || spec.source === 'gloriafood') {
+      const gf = spec.source === 'gloriafood'
+      const n = gf ? ++st.gfNumber : ++st.webNumber
       const orderId = uuid(rng)
       const type = (data.order_types || []).find(t => t.id === typeId)
       const stream = (data.streams || []).find(r => r.id === streamId)
       const order = {
-        id: 'web-' + orderId, order_id: orderId, number: 'W' + st.webNumber, guest: clip(spec.name, 80) || 'Test guest',
+        id: (gf ? 'gf-' : 'web-') + orderId, order_id: orderId, number: (gf ? 'G' : 'W') + n, guest: clip(spec.name, 80) || 'Test guest',
         table: null, type: typeId, type_name: type?.name || null,
         stream: stream?.id || null, stream_name: stream?.name || null, note: spec.note || null,
+        allergy: clip(spec.allergy, 500), promised_at: spec.promised_at || null, fire_at: spec.fire_at || null,
         items: lines.map((l, i) => {
           const it = items[l.item_id]
           const parts = partsOf(l)
           return {
             id: 'i' + (i + 1), name: it.kitchen_name || it.name, qty: l.qty, item_id: it.id, section_id: it.section_id || null,
-            revenue_stream_id: streamId, options: [], note: l.note || null,
+            revenue_stream_id: streamId, options: (l.modifiers || []).map(m => ({ label: String(m.label || '').slice(0, 120) })).filter(m => m.label), note: l.note || null,
             ...(parts ? { parts: parts.map(p => ({ name: p.kitchen_name || p.name, item_id: p.item_id, section_id: p.section_id, options: [] })) } : {}),
           }
         }),
@@ -260,14 +270,15 @@ export function createBench(data, { now = () => new Date().toISOString(), rng = 
     const first = sorts.length ? Math.min(...sorts) : null
     const check = {
       id: checkId, mode: table ? 'table' : 'counter', number: st.number, order_no: table ? null : st.number,
-      table_id: table?.id || null, tab_name: clip(spec.name, 60), covers: table ? 2 : null, server_id: null,
+      table_id: table?.id || null, tab_name: clip(spec.name, 60), covers: table ? (Number(spec.covers) || 2) : null, server_id: null,
       order_type_id: typeId, tent: table ? null : clip(spec.tent, 10), note: spec.note || null, revenue_stream_id: streamId,
+      allergy: spec.allergy && typeof spec.allergy === 'object' ? spec.allergy : null,
       lines: lines.map(l => {
         const it = items[l.item_id]
         const sort = it.course_id ? (c.courses[it.course_id]?.sort_order ?? 0) : null
         return {
           id: ulid(), item_id: it.id, section_id: it.section_id || null, name: it.name, kitchen_name: it.kitchen_name || null,
-          qty: l.qty, modifiers: [], note: l.note || null, allergies: [], seat: null,
+          qty: l.qty, modifiers: l.modifiers || [], note: l.note || null, allergies: [], seat: null,
           course_id: it.course_id || null, combo: partsOf(l), revenue_stream_id: streamId,
           send_id: sendId, status: 'sent', held: !!(spec.hold_courses && sort != null && sort > first),
         }

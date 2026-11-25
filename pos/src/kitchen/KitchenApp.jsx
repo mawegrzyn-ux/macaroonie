@@ -32,7 +32,7 @@ import {
   itemState, readyOrders, isOrderLevel, stationSettings, partRows,
 } from '@shared/pos/kitchen.js'
 import { orderInfo } from '@shared/orderInfo.js'
-import { ticketColours, sectionColour } from '@shared/pos/kitchenColours.js'
+import { ticketColours, sectionColour, rowLook, ticketLook } from '@shared/pos/kitchenColours.js'
 import {
   useKitchen, useOrders, useCfg, bootKitchen, nowIso, myStations, currentStation, setPrefs, bump, recall, itemDone, itemChecked,
   remake, priority, collected, unlockAudio, chime, loadConfig, toast, activeFlow, switchFlow, disconnect, moveScreen, inBench, inLiveView, flowSwitchHere,
@@ -440,15 +440,13 @@ function Ticket({ t, n, station, now, text, selected, alert, onSelect, names, ty
   const asleep = !!t.sleeping_until
   const tone = asleep ? 'ok' : ageTone(t.since, now, station)
   const fresh = alert && Date.now() - alert < 30000
-  // At the expo / a runner: every dish has reached it, nothing still on its way.
-  const live = t.items.filter(i => i.state !== 'voided' && i.state !== 'held')
-  const allDone = isOrderLevel(station) && live.length > 0 && live.every(i => i.state === 'active' || i.state === 'done')
-  // The packing check: every dish ticked off, waiting for READY / DONE.
-  const checked = isOrderLevel(station) && t.all_ticked
+  // At the expo / a runner: every dish has reached it (prepared), or every
+  // dish is ticked off, waiting for READY / DONE (the packing check).
+  const { key: headKey, prepared: allDone, checked } = ticketLook(t, station, !!fresh)
   // Dishes on this ticket go on different ways: label each one.
+  const live = t.items.filter(i => i.state !== 'voided' && i.state !== 'held')
   const nextKeys = new Set(live.map(i => (i.next || []).join(',')))
   const showNext = !isOrderLevel(station) && nextKeys.size > 1
-  const headKey = o.priority ? 'head_rush' : fresh ? 'head_new' : checked ? 'head_checked' : allDone ? 'head_prepared' : 'head'
   const head = look.state[headKey]
   const timer = tone === 'late' ? look.state.timer_late : tone === 'warn' ? look.state.timer_warn : null
   const typeIndex = (types || []).findIndex(x => x.id === o.type)
@@ -518,16 +516,6 @@ function groupByCourse(items) {
     map.get(key).items.push(i)
   }
   return [...map.values()].sort((a, b) => (a.held ? 1 : 0) - (b.held ? 1 : 0) || a.sort - b.sort)
-}
-
-/** A dish row's look: 'todo' | 'ticked' | 'upcoming' | 'held' | 'voided' (kitchenColours.js). */
-export function rowLook(item) {
-  const st = item.state
-  if (st === 'voided') return 'voided'
-  if (st === 'held') return 'held'
-  if (st === 'done' || item.ticked) return 'ticked'
-  if (st === 'upcoming') return 'upcoming'
-  return 'todo'
 }
 
 function ItemRow({ item, order, station, text, names, showNext, look }) {
