@@ -1,0 +1,36 @@
+<%~ include('./_head', it) %>
+<%
+/* The kiosk sandbox (/try/kiosk). The controls and the preview are drawn by
+   api/platform-site/try-kiosk.js with the kiosk's own design rules
+   (shared/kiosk.js), served from it.sharedBase()
+   (services/platformSite/sharedModules.js). */
+%>
+<section class="page-hero try-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="/try">Try it</a></p>
+    <h1>Design a kiosk</h1>
+    <p class="lead">Pick a colour, fonts and text sizes, name a few dishes, then tap through the kiosk as a guest would: welcome, menu, a dish, the order and done.</p>
+  </div>
+</section>
+<section class="tight try-body">
+  <div class="wrap">
+    <div class="ks" id="ks" data-shared="<%= it.sharedBase() %>">
+      <div class="ks-controls" aria-label="Design"><p class="kf-loading">Loading the designer...</p></div>
+      <div class="ks-stage">
+        <div class="ks-steps" role="group" aria-label="Jump to a screen">
+          <button type="button" data-step="welcome">Welcome</button>
+          <button type="button" data-step="menu">Menu</button>
+          <button type="button" data-step="dish">Dish</button>
+          <button type="button" data-step="order">Order</button>
+          <button type="button" data-step="done">Done</button>
+        </div>
+        <div class="ks-device">
+          <div class="ksk" role="region" aria-label="Kiosk preview"></div>
+        </div>
+        <p class="ks-note">A preview: orders aren't sent anywhere and nothing is saved. It uses the kiosk's own design rules: the fonts, text sizes and words are the real kiosk's.</p>
+      </div>
+    </div>
+    <noscript><p>The sandbox needs JavaScript. The <a href="/screenshots">screenshots</a> show the real kiosk.</p></noscript>
+  </div>
+</section>
+<%~ include('./_foot', it) %>

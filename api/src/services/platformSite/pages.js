@@ -72,11 +72,13 @@ export const PAGES = [
     cta: 'Like what you see?',
   },
   {
-    path: '/try/kiosk', view: 'platform/site/soon.eta', soon: true,
+    path: '/try/kiosk', view: 'platform/site/try-kiosk.eta',
     title: 'Kiosk designer sandbox | ' + BASE,
     short: 'Design a kiosk',
     description: 'Pick a look and the steps a guest goes through, and see the kiosk change as you go.',
     shot: 'kiosk-designer',
+    css: 'try.css', script: 'try-kiosk.js', shared: ['kiosk.js'],
+    cta: 'Like what you see?',
   },
 ]
 
