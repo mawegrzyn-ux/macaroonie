@@ -116,6 +116,11 @@ async function platformSite(app) {
       return reply
     }
     if (serveAsset(path, req.url.split('?')[1], reply)) return reply
+    if (/^\/(features|try)\//.test(path)) {
+      // Under the site's own folders: a page that isn't there, not an old admin bookmark.
+      reply.code(404).type('text/plain').send('Not found')
+      return reply
+    }
     if (path === '/sitemap.xml') {
       reply.header('Cache-Control', 'public, max-age=3600')
       reply.type('application/xml').send(sitemapXml(siteOrigin()))

@@ -4,6 +4,7 @@
 // page and /features, and a page of its own at /features/<slug>.
 //
 //   slug, title, line   the address, the name and what it does in one line
+//   tile                the few words on its tile
 //   icon                the inside of a 24 x 24 line icon (SVG markup)
 //   points              three to five benefits, in plain words
 //   parts               the pieces inside the group, each opened in place on
@@ -18,6 +19,7 @@
 export const FEATURE_GROUPS = [
   {
     slug: 'guests',
+    tile: 'Bookings, website, ordering, loyalty.',
     title: 'Guests',
     line: 'Bookings, your website, online ordering and loyalty, all from the same menus and guest records.',
     icon: '<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0M16 11a3 3 0 1 0 0-6M21 20a6 6 0 0 0-4-5.6"/>',
@@ -42,6 +44,7 @@ export const FEATURE_GROUPS = [
   },
   {
     slug: 'service',
+    tile: 'Till, kitchen screens, kiosks, menu screens.',
     title: 'Service',
     line: 'The till, kitchen screens, self-order kiosks and menu screens, working together at the venue.',
     icon: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
@@ -66,6 +69,7 @@ export const FEATURE_GROUPS = [
   },
   {
     slug: 'menus',
+    tile: 'One menu for everything guests see.',
     title: 'Menus',
     line: 'One menu feeds the till, the kiosks, the screens, the website, online ordering and print.',
     icon: '<path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h8M8 16h5"/>',
@@ -89,6 +93,7 @@ export const FEATURE_GROUPS = [
   },
   {
     slug: 'back-office',
+    tile: 'Cash, rota, purchasing, safety, reports.',
     title: 'Back office',
     line: 'Cash-up, rotas, purchasing, food safety and reports, on a tablet or a phone.',
     icon: '<path d="M4 19V5M4 19h16M8 15l4-4 3 3 5-6"/>',
@@ -113,6 +118,7 @@ export const FEATURE_GROUPS = [
   },
   {
     slug: 'pepper',
+    tile: 'The assistant that does the busywork.',
     title: 'Pepper',
     line: 'Ask in your own words: Pepper finds the answer or does the job, within what your role allows.',
     icon: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M9 11h.01M12 11h.01M15 11h.01"/>',
@@ -135,6 +141,7 @@ export const FEATURE_GROUPS = [
   },
   {
     slug: 'one-platform',
+    tile: 'Many venues, each business walled off.',
     title: 'One platform',
     line: 'Many venues and franchisees on one system, each business in its own space.',
     icon: '<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7l8-4z"/><path d="M9 12l2 2 4-4"/>',

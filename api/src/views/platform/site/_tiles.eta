@@ -10,7 +10,7 @@
       <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><%~ g.icon %></svg></span>
       <span class="tile-text">
         <span class="tile-title"><%= g.title %></span>
-        <span class="tile-line"><%= g.line %></span>
+        <span class="tile-line"><%= g.tile %></span>
       </span>
       <span class="chev" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></span>
     </button>

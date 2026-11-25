@@ -166,7 +166,7 @@
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(data.email || '')) return show('Please enter a valid email address.')
       if (!data.consent) return show('Please tick the box so we can store your details.')
       btn.disabled = true
-      btn.textContent = 'Sending…'
+      btn.textContent = 'Sending\u2026'
       fetch('/api/platform-interest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

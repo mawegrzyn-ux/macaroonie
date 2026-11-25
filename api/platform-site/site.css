@@ -19,7 +19,7 @@ button { font: inherit; color: inherit; }
 .skip:focus { top: 8px; }
 
 /* Header */
-header.top { position: sticky; top: 0; z-index: 20; background: rgba(255,255,255,0.96); border-bottom: 1px solid var(--line); }
+header.top { position: sticky; top: 0; z-index: 20; background: var(--white); border-bottom: 1px solid var(--line); }
 header.top .wrap { display: flex; align-items: center; gap: 12px; min-height: 64px; flex-wrap: wrap; }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 22px; color: var(--maroon); min-height: 48px; }
 .brand svg { width: 34px; height: 34px; }
@@ -107,7 +107,7 @@ p.sub { color: var(--muted); font-size: 17px; max-width: 40em; margin: 12px 0 0;
 .drill { grid-column: 1 / -1; position: relative; border: 1px solid var(--maroon); border-radius: 18px; background: var(--white); padding: 22px 18px 18px; }
 .js .drill:not(.open) { display: none; }
 .drill-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; align-items: start; }
-@media (min-width: 860px) { .drill-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); } .drill { padding: 28px; } }
+@media (min-width: 860px) { .drill-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); } .drill { padding: 28px; } .drill-body > .shot { margin-top: 48px; } }
 .drill h3 { font-size: 26px; color: var(--maroon); padding-right: 80px; }
 .drill-line { font-size: 17px; color: var(--muted); margin: 8px 0 0; }
 .drill .shot { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
