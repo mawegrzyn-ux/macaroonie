@@ -43,6 +43,7 @@
     "admin/src/pages/Tables.jsx",
     "admin/src/pages/TestData.jsx",
     "admin/src/pages/Timeline.jsx",
+    "admin/src/pages/mobile/MobileTimeline.jsx",
     "admin/src/pages/docs/email-system.jsx",
     "admin/src/pages/help/bookings.jsx",
     "admin/src/pages/help/customers.jsx",

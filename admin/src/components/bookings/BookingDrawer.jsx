@@ -23,13 +23,8 @@ import {
 import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
 import { cn, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
+import { statusChoices } from '@/components/bookings/statuses'
 
-// All statuses an operator can manually set.
-// pending_payment is excluded — it is set by Stripe, not manually.
-const SELECTABLE_STATUSES = [
-  'unconfirmed', 'confirmed', 'reconfirmed', 'arrived',
-  'seated', 'checked_out', 'no_show', 'cancelled',
-]
 
 const STATUS_DOT = {
   unconfirmed:     'bg-amber-500',
@@ -136,12 +131,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
     queryFn:  () => api.get(`/venues/${booking.venue_id}/rules`),
   })
 
-  const selectableStatuses = SELECTABLE_STATUSES.filter(s => {
-    if (s === 'unconfirmed')  return (rules?.enable_unconfirmed_flow   ?? false) || booking.status === 'unconfirmed'
-    if (s === 'reconfirmed')  return (rules?.enable_reconfirmed_status ?? false) || booking.status === 'reconfirmed'
-    if (s === 'arrived')      return (rules?.enable_arrived_status     ?? true)  || booking.status === 'arrived'
-    return true
-  })
+  const selectableStatuses = statusChoices(rules, booking.status)
 
   // ── Tables for picker ─────────────────────────────────────
   const { data: tables = [] } = useQuery({

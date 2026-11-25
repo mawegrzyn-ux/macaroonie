@@ -17,6 +17,7 @@ import { useApi } from '@/lib/api'
 import { cn, formatTime, STATUS_LABELS, STATUS_COLOURS, openPicker } from '@/lib/utils'
 import BookingDrawer from '@/components/bookings/BookingDrawer'
 import NewBookingModal from '@/components/bookings/NewBookingModal'
+import { SELECTABLE_STATUSES, statusChoices, INACTIVE_STATUSES } from '@/components/bookings/statuses'
 import { usePermission } from '@/hooks/usePermission'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { usePepperPage } from '@/lib/pepperPage'
@@ -24,7 +25,6 @@ import { useDeepLink } from '@/lib/deepLink'
 import { useLinked } from '@/lib/linked'
 import { retryUnlessRefused } from '@/components/reports/shared'
 
-const SELECTABLE_STATUSES = ['unconfirmed', 'confirmed', 'reconfirmed', 'arrived', 'seated', 'checked_out', 'no_show', 'cancelled']
 
 const STATUS_DOT = {
   unconfirmed:     'bg-amber-500',
@@ -147,8 +147,6 @@ export default function Bookings() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['bookings', venueId, date] }),
   })
 
-  const INACTIVE_STATUSES = new Set(['cancelled', 'no_show', 'checked_out'])
-
   const filtered = useMemo(() => {
     let list = [...bookings].sort((a, b) =>
       new Date(a.starts_at) - new Date(b.starts_at)
@@ -198,12 +196,7 @@ export default function Bookings() {
   }, [filtered])
 
   function selectableFor(booking) {
-    return SELECTABLE_STATUSES.filter(s => {
-      if (s === booking.status) return false
-      if (s === 'unconfirmed') return (rules?.enable_unconfirmed_flow ?? false) || booking.status === 'unconfirmed'
-      if (s === 'reconfirmed') return (rules?.enable_reconfirmed_status ?? false) || booking.status === 'reconfirmed'
-      return true
-    })
+    return statusChoices(rules, booking.status).filter(s => s !== booking.status)
   }
 
   function exportCSV() {
