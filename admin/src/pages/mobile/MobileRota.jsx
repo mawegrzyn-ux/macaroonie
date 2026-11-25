@@ -157,7 +157,7 @@ export default function MobileRota() {
           canEdit={canEditRota} onEdit={(s, d) => setEditing({ staff: s, date: d })} />
       )}
       {week && view === 'me' && (
-        <MyWeek week={week} dates={dates} staff={staff} shiftById={shiftById} entriesOf={entriesOf} me={me}
+        <MyWeek key={venueId} week={week} dates={dates} staff={staff} shiftById={shiftById} entriesOf={entriesOf} me={me}
           venueId={venueId} canEdit={canEditRota} onEdit={(s, d) => setEditing({ staff: s, date: d })} />
       )}
 

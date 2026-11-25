@@ -108,6 +108,36 @@ export function Section() {
         part, then <strong>Yes, refund</strong>. See Deposits &amp; Payments.
       </P>
 
+      <H3>Bookings on the phone</H3>
+      <P>
+        The phone app (<strong>ops.</strong> or the Macaroonie Office app) has two booking tiles for
+        anyone with the Bookings module. Both open today at the restaurant this phone is on (the one
+        it is shared for, or the one picked on Today); the arrows and the day button move the day,
+        and Back to today comes back. Changes go through the same bookings as the office Timeline,
+        so they show on every screen straight away.
+      </P>
+      <DataTable
+        head={['Tile', 'What it does']}
+        rows={[
+          ['Timeline', 'A row per table with its bookings as blocks along the day: swipe the times sideways, the table names stay put. It opens at the current time with a red line at now. Cancelled and no-show bookings are hidden until you tap Show cancelled.'],
+          ['Guest list', 'The day\'s bookings by time: covers, table, status and notes, with a red warning sign when the notes mention an allergy or intolerance. Search by name or phone; the chips filter by status (Still to come leaves out cancelled, no-show and checked out). Arrived and Seated sit on each row. The tile shows how many bookings are still on today.'],
+        ]}
+      />
+      <P>
+        Tap a booking on either page for its details: time, covers, table, phone (tap to call),
+        email, notes and the allergy warning, and the status buttons the restaurant uses (see
+        Booking statuses). <strong>Cancelled</strong> and <strong>No show</strong> ask for a second
+        tap. People with Bookings View can look but not change.
+      </P>
+      <P>
+        The <strong>+</strong> beside the day makes a booking: pick the restaurant, the day and the
+        covers, then one of the times still free for that many (the same times the office and the
+        widget offer). The time and its table are held for a few minutes while you add the
+        guest's name, phone, email (optional) and notes; <strong>Book</strong> confirms it and the
+        list moves to its day. Cancel lets the time go. For a table of your choice, a booking
+        that needs another one moved, or a walk-in, use New booking on the office Timeline.
+      </P>
+
       <H3>Viewing all bookings</H3>
       <P>
         The <strong>Bookings</strong> page in the sidebar shows a searchable, filterable list of
