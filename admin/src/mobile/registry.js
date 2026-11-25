@@ -9,9 +9,12 @@
 // `hub: false` keeps the page (its route, the header's title, links to it)
 // with no tile: Wages (reached from Today's wages task), Pepper (the ask bar
 // at the bottom of the hub), Notices and This device (the header's menu).
+// `Badge`, a component, draws a tile's own count (today's bookings) when
+// the Today feed gives it none.
 
-import { ListTodo, LayoutGrid, Receipt, ShoppingCart, Wallet, Users, ShoppingBag, Wheat, Sparkles, BarChart3, Bell, Tablet } from 'lucide-react'
+import { ListTodo, LayoutGrid, Receipt, ShoppingCart, Wallet, Users, ShoppingBag, Wheat, Sparkles, BarChart3, Bell, Tablet, CalendarRange, GanttChart, ClipboardList } from 'lucide-react'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
+import { TodayBookingsBadge } from '@/components/bookings/PhoneBadge'
 
 export const MOBILE_MODULES = [
   {
@@ -52,6 +55,31 @@ export const MOBILE_MODULES = [
     icon: Wallet,
     path: '/mobile/cash-up',
     areas: ['cash'],
+  },
+  {
+    key: 'rota',
+    label: 'Rota',
+    description: 'Who\'s on this week, by day or by person, and your own shifts',
+    icon: CalendarRange,
+    path: '/mobile/rota',
+    module: 'rota',
+  },
+  {
+    key: 'timeline',
+    label: 'Timeline',
+    description: 'The day\'s bookings table by table; tap one to mark it arrived or seated',
+    icon: GanttChart,
+    path: '/mobile/timeline',
+    module: 'bookings',
+  },
+  {
+    key: 'guest-list',
+    label: 'Guest list',
+    description: 'Today\'s guests by time: search, notes and allergies, arrived and seated',
+    icon: ClipboardList,
+    path: '/mobile/guest-list',
+    module: 'bookings',
+    Badge: TodayBookingsBadge,
   },
   {
     key: 'wages',
