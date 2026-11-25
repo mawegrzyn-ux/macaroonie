@@ -17,6 +17,7 @@ import { prepareFile } from './attachments'
 import { canListen, listen } from '@/lib/speech'
 import { useVenueWords } from './venueWords'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
+import { photoCapture } from '../../lib/officeApp'
 
 const NOTE_MAX = 2000
 const btn = 'inline-flex items-center justify-center gap-2 min-h-[48px] px-4 rounded-lg border text-sm font-medium touch-manipulation hover:bg-muted disabled:opacity-50'
@@ -136,7 +137,7 @@ function CaptureSheet({ venueId, onClose, onSaved }) {
               <Type className="w-5 h-5" /> Type
             </button>
           </div>
-          <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={pickPhoto} />
+          <input ref={fileRef} type="file" accept="image/*" capture={photoCapture()} className="hidden" onChange={pickPhoto} />
           {mode === 'photo' && photo && <img src={photo.preview} alt="The photo to keep" className="w-full max-h-64 object-contain rounded-lg border" />}
           {mode && (
             <label className="block text-sm font-medium">

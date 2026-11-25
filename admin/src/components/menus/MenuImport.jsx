@@ -23,6 +23,7 @@ import { useAiStatus } from '@/components/ai/ChatView'
 import { prepareFile, sizeText } from '@/components/ai/attachments'
 import { Field, Input, TextArea, Btn, PriceInput } from '@/components/menus/shared'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
+import { photoCapture } from '../../lib/officeApp'
 
 const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/heic,application/pdf,.pdf'
@@ -233,7 +234,7 @@ export function MenuImport({ venues = [], venueId = null, hideVenue = false, onC
         </FileDropArea>
         <input ref={fileRef} type="file" accept={ACCEPT} multiple className="sr-only" data-testid="mi-file-input"
           onChange={e => { const l = [...(e.target.files || [])]; e.target.value = ''; add(l) }} />
-        <input ref={camRef} type="file" accept="image/*" capture="environment" className="sr-only"
+        <input ref={camRef} type="file" accept="image/*" capture={photoCapture()} className="sr-only"
           onChange={e => { const l = [...(e.target.files || [])]; e.target.value = ''; add(l) }} />
         <div className="flex flex-wrap gap-2 relative">
           <Btn variant="secondary" onClick={() => fileRef.current?.click()} disabled={reading}><Upload className="w-4 h-4" /> Choose files</Btn>

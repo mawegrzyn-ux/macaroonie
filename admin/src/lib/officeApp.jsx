@@ -11,6 +11,7 @@
 //   push.token()        the app's Expo push token (lib/push.js)
 //   speech.*            the phone's recognition and voice (lib/speech.js)
 //   scanner.scan()      the camera's barcode scanner              -> Promise<string|null>
+//   camera.permission() asks for the camera once                  -> Promise<boolean>
 //   platform            'android' | 'ios' (step 6d: the iPhone build)
 //
 // OfficeAuthProvider stands in for Auth0Provider there: it fills Auth0's own
@@ -58,3 +59,18 @@ export async function scanBarcode() {
   return s?.scan ? s.scan() : null
 }
 export const canScan = () => !!officeBridge()?.scanner?.scan
+
+// A photo input's capture attribute (photoCapture()): in a browser the
+// camera opens straight away. Inside the app it does so only once the app
+// has the camera: Android refuses the camera to an app that declares it until
+// it is granted, so a Photo button did nothing at all (25 Nov 2026). The app
+// is asked once, when the page loads; until it says yes, or in a build of the
+// app without camera.permission, a photo input opens the phone's picker
+// (camera or gallery) instead.
+let cameraOk = null
+if (typeof window !== 'undefined') {
+  const ask = officeBridge()?.camera?.permission
+  if (ask) Promise.resolve().then(ask).then(ok => { cameraOk = !!ok }, () => { cameraOk = false })
+}
+export const photoCapture = () => (!officeBridge() ? 'environment' : cameraOk ? 'environment' : undefined)
+

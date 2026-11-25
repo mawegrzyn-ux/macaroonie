@@ -19,6 +19,7 @@ import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { ReadReceiptButton, ReceiptNote } from '@/components/cashRecon/ReceiptRead'
 import { useFormFill, FilledMark, filledClass } from '@/components/forms/fill'
+import { photoCapture } from '../../lib/officeApp'
 
 function todayStr() {
   return format(new Date(), 'yyyy-MM-dd')
@@ -153,7 +154,7 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
 
           <div>
             <label className="block text-sm font-medium mb-1.5">Receipt photo</label>
-            <input type="file" accept="image/*" capture="environment" ref={fileRef} className="hidden"
+            <input type="file" accept="image/*" capture={photoCapture()} ref={fileRef} className="hidden"
               onChange={e => pickPhoto(e.target.files[0])} />
             {photo?.preview ? (
               <div className="relative inline-block">

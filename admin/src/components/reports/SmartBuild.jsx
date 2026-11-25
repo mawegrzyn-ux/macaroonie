@@ -35,6 +35,7 @@ import { prepareFile, sizeText } from '@/components/ai/attachments'
 import { useVenues, Modal, Field, PageHeader, inputCls } from '@/components/staff/shared'
 import ResultCard from '@/components/reports/ResultCard'
 import { Problems, reportPath } from '@/components/reports/shared'
+import { photoCapture } from '../../lib/officeApp'
 
 const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/heic,application/pdf,.pdf'
@@ -207,7 +208,7 @@ export function DescribeCard({ catalogue }) {
 
         <input ref={fileRef} type="file" accept={ACCEPT} multiple className="sr-only" data-testid="smart-file-input"
           onChange={e => { const l = [...(e.target.files || [])]; e.target.value = ''; add(l) }} />
-        <input ref={camRef} type="file" accept="image/*" capture="environment" className="sr-only"
+        <input ref={camRef} type="file" accept="image/*" capture={photoCapture()} className="sr-only"
           onChange={e => { const l = [...(e.target.files || [])]; e.target.value = ''; add(l) }} />
         <div className="relative flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} data-testid="smart-add-file" className={btn}>

@@ -35,6 +35,7 @@ import { prepareFile, sizeText } from '@/components/ai/attachments'
 import { NumInput, QtyStepper, StorageBadge, btn, money, fmtDate, fileToBase64, useCategories, IS_TOUCH, CodeTag } from '@/components/purchasing/shared'
 import { UNITS, unitsForBase, packBaseQty, fmtNum, formatBase } from '@shared/procurement.js'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
+import { photoCapture } from '../../lib/officeApp'
 
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/heic,application/pdf,.pdf'
 const MAX_FILES = 6
@@ -135,7 +136,7 @@ export function InvoiceReader({ po, onRead, disabled }) {
         </div>
       </FileDropArea>
       <input ref={fileRef} type="file" accept={ACCEPT} multiple className="sr-only" data-testid="inv-file-input" onChange={pick} />
-      <input ref={camRef} type="file" accept="image/*" capture="environment" className="sr-only" onChange={pick} />
+      <input ref={camRef} type="file" accept="image/*" capture={photoCapture()} className="sr-only" onChange={pick} />
       <div className="flex flex-wrap items-center gap-2 relative">
         {IS_TOUCH && <button type="button" className={btn.outline} onClick={() => camRef.current?.click()} disabled={reading || disabled}><Camera className="w-4 h-4" />Take a photo</button>}
         <button type="button" className={btn.outline} onClick={() => fileRef.current?.click()} disabled={reading || disabled}><Upload className="w-4 h-4" />Choose files</button>

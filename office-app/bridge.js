@@ -19,6 +19,10 @@ export const CALLS = {
   'speech.speak':        (s, a) => s.speech.speak(a),
   'speech.stopSpeaking': s => s.speech.stopSpeaking(),
   'scan':                s => s.scanner.scan(),
+  // The camera for a photo picked by the page's file input: Android refuses
+  // the camera to an app that declares it until it has been granted, so a
+  // Photo button did nothing until someone had opened the scanner.
+  'camera.permission':   s => s.camera.permission(),
 }
 
 /** platform: 'android' | 'ios' (React Native's Platform.OS), shown to the page as MacaroonieOffice.platform. */
@@ -67,7 +71,8 @@ export function bridgeScript(version, platform = 'android') {
       speak: function (o) { return call('speech.speak', o); },
       stopSpeaking: function () { return call('speech.stopSpeaking'); }
     },
-    scanner: { scan: function () { return call('scan'); } }
+    scanner: { scan: function () { return call('scan'); } },
+    camera: { permission: function () { return call('camera.permission'); } }
   };
 })(); true;`
 }
