@@ -8,13 +8,17 @@
 //                                       the Timeline's and Bookings page's, so the
 //                                       booking socket refreshes all of them)
 //   PATCH /bookings/:id/status          a status (statuses.js: what the venue offers)
+//   GET   /venues/:id/slots             times free for the covers (get_available_slots())
+//   POST  /bookings/holds, POST /bookings   hold the time, then book it, as the
+//                                       office's New booking does (no deposit on the
+//                                       staff path; the table is the one the time came with)
 // The phone's venue: the one picked on these pages, else the venue this device
 // is shared for, else the Today page's, else the first.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO, addDays } from 'date-fns'
-import { ChevronLeft, ChevronRight, CalendarDays, Phone, Mail, TriangleAlert, X, Plus, StickyNote } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CalendarDays, Loader2, Phone, Mail, TriangleAlert, X, Minus, Plus, StickyNote } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, formatTime, STATUS_LABELS, STATUS_COLOURS, openPicker } from '@/lib/utils'
 import { sharedDevice } from '@/lib/sharedDevice'
@@ -237,6 +241,180 @@ function Note({ label, text }) {
       <p className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1"><StickyNote className="w-3 h-3" /> {label}</p>
       <p className="text-sm whitespace-pre-wrap break-words">{text}</p>
     </div>
+  )
+}
+
+// ── A new booking ─────────────────────────────────────────────
+
+/**
+ * The phone's New booking, full screen: restaurant, day, covers, then the
+ * times free for them (GET /venues/:id/slots), then the guest. Picking a
+ * time holds its table (POST /bookings/holds, as the office does) so it
+ * can't go while the details are typed; Book confirms the hold
+ * (POST /bookings); leaving lets the hold go. Times another booking would
+ * have to move for are left to the office's New booking.
+ */
+export function NewBookingSheet({ venues, venueId: startVenue, date: startDate, onClose, onCreated }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const [venueId, setVenueId] = useState(startVenue)
+  const venue = venues.find(v => v.id === venueId)
+  const today = venueToday(venue?.timezone)
+  const [date, setDate] = useState(startDate && startDate >= today ? startDate : today)
+  const [covers, setCovers] = useState(2)
+  const [slot, setSlot] = useState(null)
+  const [hold, setHold] = useState(null)
+  const holdRef = useRef(null)
+  const [guest, setGuest] = useState({ name: '', phone: '', email: '', notes: '' })
+  const [problem, setProblem] = useState(null)
+  const { data: rules } = useBookingRules(venueId)
+  const min = rules?.min_covers ?? 1
+  const max = rules?.max_covers ?? 20
+
+  const slotsQ = useQuery({
+    queryKey: ['slots', venueId, date, covers],
+    queryFn: () => api.get(`/venues/${venueId}/slots?date=${date}&covers=${covers}`),
+    enabled: !!venueId && !!date,
+  })
+  const times = (slotsQ.data?.slots ?? []).filter(s => s.available && (s.table_id || s.combination_id))
+  const { data: tables = [] } = useQuery({
+    queryKey: ['tables', venueId], queryFn: () => api.get(`/venues/${venueId}/tables`), enabled: !!venueId,
+  })
+  const heldAt = hold && !hold.combination_id ? tables.find(t => t.id === hold.table_id)?.label : null
+
+  // Let a hold go: on a new time, a change of day or covers, and on leaving.
+  function letGo() {
+    const h = holdRef.current
+    holdRef.current = null
+    setHold(null)
+    if (h) api.delete(`/bookings/holds/${h.id}`).catch(() => {})
+  }
+  useEffect(() => () => letGo(), []) // eslint-disable-line react-hooks/exhaustive-deps
+  function change(fn) { letGo(); setSlot(null); setProblem(null); fn() }
+
+  const holdIt = useMutation({
+    mutationFn: s => api.post('/bookings/holds', {
+      venue_id: venueId,
+      ...(s.table_id ? { table_id: s.table_id } : { combination_id: s.combination_id }),
+      starts_at: s.slot_time, covers, guest_name: 'TBC', guest_email: 'tbc@placeholder.com',
+    }),
+    onSuccess: h => { holdRef.current = h; setHold(h) },
+    onError: e => { setSlot(null); setProblem(e.message); slotsQ.refetch() },
+  })
+  function pick(s) {
+    if (slot?.slot_time === s.slot_time) return
+    letGo(); setProblem(null); setSlot(s); holdIt.mutate(s)
+  }
+
+  const book = useMutation({
+    mutationFn: () => api.post('/bookings', {
+      hold_id: holdRef.current.id,
+      guest_name: guest.name.trim(),
+      ...(guest.email.trim() ? { guest_email: guest.email.trim() } : {}),
+      guest_phone: guest.phone.trim() || null,
+      covers,
+      guest_notes: guest.notes.trim() || null,
+      status: 'confirmed',
+    }),
+    onSuccess: b => {
+      holdRef.current = null
+      qc.invalidateQueries({ queryKey: ['bookings', b.venue_id] })
+      onCreated?.(b, date, venueId)
+    },
+    onError: e => setProblem(e.message),
+  })
+  const emailBad = guest.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guest.email.trim())
+  const ready = hold && guest.name.trim() && !emailBad && !book.isPending
+
+  return (
+    <div className="fixed inset-0 z-50 bg-page flex flex-col" role="dialog" aria-modal="true" aria-label="New booking" data-testid="mbk-new-sheet">
+      <div className="flex items-center gap-2 px-2 h-14 border-b bg-background shrink-0" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+        <button type="button" onClick={onClose} className="h-12 px-3 rounded-lg text-sm touch-manipulation hover:bg-muted">Cancel</button>
+        <h2 className="flex-1 text-center text-base font-semibold">New booking</h2>
+        <span className="w-[72px]" />
+      </div>
+      <div className="flex-1 overflow-y-auto p-3 space-y-3 pb-28">
+        <section className="border rounded-xl bg-background p-3 space-y-3">
+          {venues.length > 1 && (
+            <select value={venueId} onChange={e => change(() => setVenueId(e.target.value))} aria-label="Restaurant" data-testid="mbk-new-venue"
+              className="w-full border rounded-lg px-3 min-h-[48px] text-sm bg-background touch-manipulation">
+              {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+            </select>
+          )}
+          <label className="relative flex items-center gap-2 h-12 px-3 rounded-lg border bg-background text-sm font-medium touch-manipulation">
+            <CalendarDays className="w-4 h-4 text-muted-foreground" />
+            <span className="flex-1" data-testid="mbk-new-date">{date === today ? 'Today, ' : ''}{format(parseISO(date), 'EEEE d MMMM')}</span>
+            <span className="text-xs text-primary">Change</span>
+            <input type="date" value={date} min={today} onClick={openPicker} aria-label="Day"
+              onChange={e => e.target.value && change(() => setDate(e.target.value))}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+          </label>
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium flex-1">Covers</span>
+            <button type="button" aria-label="Fewer covers" disabled={covers <= min} onClick={() => change(() => setCovers(c => Math.max(min, c - 1)))}
+              className="w-12 h-12 rounded-lg border flex items-center justify-center touch-manipulation disabled:opacity-40"><Minus className="w-5 h-5" /></button>
+            <span className="w-10 text-center text-xl font-semibold tabular-nums" data-testid="mbk-covers">{covers}</span>
+            <button type="button" aria-label="More covers" disabled={covers >= max} onClick={() => change(() => setCovers(c => Math.min(max, c + 1)))}
+              className="w-12 h-12 rounded-lg border flex items-center justify-center touch-manipulation disabled:opacity-40"><Plus className="w-5 h-5" /></button>
+          </div>
+        </section>
+
+        <section className="border rounded-xl bg-background p-3 space-y-2">
+          <h3 className="text-sm font-semibold">Time</h3>
+          {slotsQ.isLoading && <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />}
+          {slotsQ.error && <p className="text-sm text-red-700">{slotsQ.error.message}</p>}
+          {slotsQ.data && !times.length && <p className="text-sm text-muted-foreground" data-testid="mbk-no-times">No times free for {covers} on this day.</p>}
+          <div className="grid grid-cols-4 gap-2" data-testid="mbk-times">
+            {times.map(s => {
+              const on = slot?.slot_time === s.slot_time
+              return (
+                <button key={s.slot_time} type="button" onClick={() => pick(s)} aria-pressed={on} data-time={formatTime(s.slot_time)}
+                  className={cn('min-h-[48px] rounded-lg border text-sm font-medium tabular-nums touch-manipulation', on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background')}>
+                  {formatTime(s.slot_time)}
+                </button>
+              )
+            })}
+          </div>
+          {holdIt.isPending && <p className="text-xs text-muted-foreground">Holding the table…</p>}
+          {hold && slot && (
+            <p className="text-xs text-muted-foreground" data-testid="mbk-held">
+              {formatTime(slot.slot_time)} held for a few minutes while you add the guest: {heldAt ? 'table ' + heldAt : 'tables chosen for you'}.
+            </p>
+          )}
+        </section>
+
+        <section className="border rounded-xl bg-background p-3 space-y-3">
+          <h3 className="text-sm font-semibold">Guest</h3>
+          <Input label="Name" value={guest.name} onChange={v => setGuest(g => ({ ...g, name: v }))} autoComplete="off" testid="mbk-name" />
+          <Input label="Phone" type="tel" inputMode="tel" value={guest.phone} onChange={v => setGuest(g => ({ ...g, phone: v }))} testid="mbk-phone" />
+          <Input label="Email (optional)" type="email" inputMode="email" value={guest.email} onChange={v => setGuest(g => ({ ...g, email: v }))} testid="mbk-email"
+            error={emailBad ? 'That email doesn\'t look right' : null} />
+          <label className="block">
+            <span className="text-xs font-medium text-muted-foreground">Notes: allergies, occasion, high chair</span>
+            <textarea value={guest.notes} onChange={e => setGuest(g => ({ ...g, notes: e.target.value }))} rows={3} maxLength={1000} data-testid="mbk-notes"
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-base bg-background" />
+          </label>
+        </section>
+        {problem && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2" data-testid="mbk-problem">{problem}</p>}
+      </div>
+      <div className="fixed bottom-0 inset-x-0 p-3 bg-background border-t" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
+        <button type="button" disabled={!ready} onClick={() => book.mutate()} data-testid="mbk-book"
+          className="w-full min-h-[52px] rounded-lg bg-primary text-primary-foreground text-base font-semibold touch-manipulation disabled:opacity-50">
+          {book.isPending ? 'Booking…' : !slot ? 'Pick a time' : !guest.name.trim() ? 'Add the guest\'s name' : `Book ${covers} at ${formatTime(slot.slot_time)}`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function Input({ label, value, onChange, error, testid, ...rest }) {
+  return (
+    <label className="block">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <input value={value} onChange={e => onChange(e.target.value)} data-testid={testid} {...rest}
+        className={cn('mt-1 w-full h-12 rounded-lg border px-3 text-base bg-background', error && 'border-red-500')} />
+      {error && <span className="text-xs text-red-700">{error}</span>}
+    </label>
   )
 }
 

@@ -9,7 +9,7 @@
 // sitting (or first booking) to its last; today opens at the current time,
 // with a red line at now. Tap a block for the booking: its details and
 // status (components/bookings/phone.jsx, the office's routes). Cancelled
-// and no-show bookings are hidden unless asked for.
+// and no-show bookings are hidden unless asked for. + makes a booking.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -19,7 +19,7 @@ import { cn, formatTime, STATUS_COLOURS } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import {
-  usePhoneVenue, useDayBookings, venueToday, VenueDayBar, BookingSheet, allergyIn, useDayFigures,
+  usePhoneVenue, useDayBookings, venueToday, VenueDayBar, BookingSheet, NewBookingSheet, allergyIn, useDayFigures,
 } from '@/components/bookings/phone'
 
 const HOUR_W = 120     // px per hour: a 90 minute booking is 180 px, room for a name
@@ -35,6 +35,7 @@ export default function MobileTimeline() {
   const [date, setDate] = useState(null)
   const day = date ?? today
   const [open, setOpen] = useState(null)
+  const [adding, setAdding] = useState(false)
   const [showAll, setShowAll] = useState(false)
   const { canManage } = usePermission('bookings')
 
@@ -104,7 +105,7 @@ export default function MobileTimeline() {
   return (
     <div className="p-3 pb-10 space-y-3" data-testid="mtl">
       <VenueDayBar venues={venues} venueId={venueId} setVenueId={id => { setVenueId(id); setDate(null) }}
-        date={day} setDate={setDate} today={today} />
+        date={day} setDate={setDate} today={today} canAdd={canManage} onNew={() => setAdding(true)} />
       {!canManage && <ReadOnlyNotice what="the bookings" />}
 
       <div className="flex flex-wrap items-center justify-between gap-x-2 text-sm">
@@ -168,6 +169,10 @@ export default function MobileTimeline() {
       <p className="text-[11px] text-muted-foreground px-1">Swipe the times sideways. Tap a booking for its details and status.</p>
 
       {open && <BookingSheet booking={open} bookings={bookings} onClose={() => setOpen(null)} />}
+      {adding && (
+        <NewBookingSheet venues={venues} venueId={venueId} date={day} onClose={() => setAdding(false)}
+          onCreated={(b, d, v) => { setAdding(false); if (v !== venueId) setVenueId(v); setDate(d) }} />
+      )}
     </div>
   )
 }

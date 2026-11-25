@@ -7,7 +7,7 @@
 // under All), and Arrived / Seated on the row for the host stand (bookings
 // Manage, the statuses the venue offers). Tap a row for the booking's sheet.
 // Same day, same routes and same cache as the phone timeline and the office
-// Bookings page (components/bookings/phone.jsx).
+// Bookings page (components/bookings/phone.jsx). + makes a booking.
 
 import { useMemo, useState } from 'react'
 import { Search, TriangleAlert, StickyNote, Loader2, X } from 'lucide-react'
@@ -16,7 +16,7 @@ import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { statusChoices, INACTIVE_STATUSES } from '@/components/bookings/statuses'
 import {
-  usePhoneVenue, useDayBookings, useBookingRules, useSetStatus, venueToday, VenueDayBar, BookingSheet,
+  usePhoneVenue, useDayBookings, useBookingRules, useSetStatus, venueToday, VenueDayBar, BookingSheet, NewBookingSheet,
   StatusPill, tableText, allergyIn, useDayFigures,
 } from '@/components/bookings/phone'
 
@@ -32,6 +32,7 @@ export default function MobileGuestList() {
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState('coming')
   const [open, setOpen] = useState(null)
+  const [adding, setAdding] = useState(false)
   const { canManage } = usePermission('bookings')
   const { data: bookings = [], isLoading } = useDayBookings(venueId, day)
   const { data: rules } = useBookingRules(venueId)
@@ -63,7 +64,7 @@ export default function MobileGuestList() {
   return (
     <div className="p-3 pb-10 space-y-3" data-testid="mgl">
       <VenueDayBar venues={venues} venueId={venueId} setVenueId={id => { setVenueId(id); setDate(null) }}
-        date={day} setDate={setDate} today={today} />
+        date={day} setDate={setDate} today={today} canAdd={canManage} onNew={() => setAdding(true)} />
       {!canManage && <ReadOnlyNotice what="the bookings" />}
 
       <div className="grid grid-cols-3 gap-2 text-center" data-testid="mgl-figures">
@@ -136,6 +137,10 @@ export default function MobileGuestList() {
       {setStatus.error && <p className="text-xs text-red-700">{setStatus.error.message}</p>}
 
       {open && <BookingSheet booking={open} bookings={bookings} onClose={() => setOpen(null)} />}
+      {adding && (
+        <NewBookingSheet venues={venues} venueId={venueId} date={day} onClose={() => setAdding(false)}
+          onCreated={(b, d, v) => { setAdding(false); if (v !== venueId) setVenueId(v); setDate(d); setFilter('coming'); setQ('') }} />
+      )}
     </div>
   )
 }
