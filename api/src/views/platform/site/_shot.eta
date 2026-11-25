@@ -5,8 +5,8 @@
 const s = it.shot
 %>
 <% if (s) { %>
-<picture class="shot">
-  <source type="image/webp" srcset="/site/img/<%= s.name %>-800.webp 800w, /site/img/<%= s.name %>-1600.webp 1600w" sizes="<%= it.sizes || '(min-width: 1120px) 560px, 100vw' %>">
+<picture class="shot<%= s.tall ? ' tall' : '' %>">
+  <source type="image/webp" srcset="/site/img/<%= s.name %>-800.webp 800w, /site/img/<%= s.name %>-1600.webp <%= s.big || 1600 %>w" sizes="<%= it.sizes || '(min-width: 1120px) 560px, 100vw' %>">
   <img src="/site/img/<%= s.name %>-1200.jpg" width="<%= s.w %>" height="<%= s.h %>" alt="<%= s.alt %>"<% if (!it.eager) { %> loading="lazy"<% } %> decoding="async">
 </picture>
 <% } %>
