@@ -627,6 +627,20 @@ export function Section() {
         Photos are JPEG, PNG, GIF or WebP up to 5 MB (big ones are made smaller on the phone first). Captures
         opened or dismissed are cleared after 30 days.
       </P>
+      <H3>Capture a picture from your gallery</H3>
+      <P>
+        <strong>Photo</strong> opens the camera. <strong>From phone</strong>, beside it, picks a picture that is
+        already on the phone (the gallery or its files), in the browser and in the Macaroonie Office app. In the
+        Android app you can also start from the picture: open it in your gallery (or any app), tap{' '}
+        <strong>Share</strong> and choose <strong>Macaroonie Office</strong>. The app opens on its home screen
+        with Capture showing the picture; add a line if you like, check the venue and tap{' '}
+        <strong>Keep for review</strong>. If you aren&apos;t signed in yet, sign in first and Capture opens after
+        (the picture waits ten minutes). A capture keeps one photo: share several and the first is kept, so
+        share the others one at a time. A link or a note shared from another app opens as a typed capture.
+        Capture keeps pictures only, not PDFs or other files. If your role doesn&apos;t have Pepper, the app
+        says the picture wasn&apos;t kept. Sharing to the app needs a version of the app from 26 Nov 2026 or
+        later, and isn&apos;t on the iPhone yet.
+      </P>
       <H3>Your venue&apos;s own words</H3>
       <P>
         Speech gets names wrong that it has never heard: your fridges and hold stations, dishes, staff and

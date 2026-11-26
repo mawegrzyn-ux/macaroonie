@@ -12,6 +12,8 @@ do well inside an app, through a bridge (`bridge.js`, the page's side is
 | `push.token()` | The Today task notices (due soon, late) | `lib/push.js`, `components/notices/NoticeSettings.jsx` |
 | `speech.listen()`, `speech.speak()` | Pepper's dictation and talk mode (`continuous`: one listening through pauses until stopped, Android 13 and up; rules in `speechCore.js`; `hints`: the venue's own words, given to the recogniser as contextual strings) | `lib/speech.js` |
 | `scanner.scan()` | Barcodes into the order form's search | `components/purchasing/ordering.jsx` |
+| `camera.permission()` | The camera for a page's Photo input (asked once) | `lib/officeApp.jsx` `photoCapture()` |
+| `share.take()`, `share.onShared(fn)` | A picture (or a link or a note) shared to the app from the gallery or another app, taken once into Capture (`shareCore.js`) | `lib/officeApp.jsx` `useSharedItem()`, `pages/mobile/MobileHub.jsx` |
 | `platform` | `android` or `ios`: which phone (the notices' device label) | `lib/push.js` |
 
 It is a different app from `android-app/` (Macaroonie Player: the till, kitchen
@@ -25,7 +27,37 @@ keyboard is up, above it; the scanner's Cancel sits above the buttons too.
 
 The pages themselves change with every deploy; a new build of the app is only
 needed when the app's own code changes (the bridge, sign-in, the scanner, the
-layout, speech).
+layout, speech, the share target).
+
+## Sharing to the app (Android)
+
+Since 26 Nov 2026 the app is a share target: in the gallery (or any app),
+Share → Macaroonie Office opens the app with the picture in Capture on the
+phone home. It is
+[`expo-share-intent`](https://github.com/achorein/expo-share-intent) 9.0.0
+(the release for Expo SDK 58; 8.x is SDK 57, 7.x SDK 56) and its config plugin
+in `app.json`:
+
+- `androidIntentFilters` `image/*` and `text/plain` (a link or a note opens as
+  a typed capture), `androidMultiIntentFilters` `image/*` (several pictures:
+  the first is kept and Capture says so). Prebuild puts `SEND` and
+  `SEND_MULTIPLE` intent filters on the main activity (`singleTask`).
+- `disableIOS: true`: the iPhone needs a share extension, an app group and
+  the Apple account; not built yet.
+
+`App.js` (`useShareTarget()`) listens to the library's native module rather
+than its hook (the hook gives one address per file; the content address with
+the sharing app's read grant is tried first, then the copy the module makes
+in the app's cache). The picture is shrunk on the phone with
+`expo-image-manipulator` (2,000 px on the long side, JPEG 0.8, then 0.6 if
+still over 5 MB) and kept in memory only, until the page takes it
+(`share.take()`) or 10 minutes pass (`shareCore.js`). The page is told
+(`share.onShared`) when it is on the phone pages; otherwise, or before
+sign-in, the phone home loads and takes it. Builds made before this have no
+`share` part; the pages feature-detect it.
+
+**A new build is needed** for this (the intent filters and two native
+modules): nothing to set on expo.dev, the build from GitHub picks it up.
 
 ## Setting it up (once, by the owner)
 
@@ -128,7 +160,10 @@ What is set up in the code:
   - back: an iPhone has no back button; a swipe from the left edge goes back
     in the pages (`allowsBackForwardNavigationGestures`).
 - No app links: neither app opens `https://` links of ours from outside (no
-  Android `intentFilters`), so no associated domains are needed. Sign-in
+  Android VIEW `intentFilters` for our hosts; the only added filters are the
+  share target's SEND ones), so no associated domains are needed.
+- Sharing to the app is Android only (`disableIOS` on `expo-share-intent`):
+  the iPhone's share extension comes later. Sign-in
   comes back by the `macaroonie-office://` scheme.
 
 What the owner does, once:
@@ -160,5 +195,7 @@ The Android build is unchanged by any of this.
 `npm test` (Node only, no phone): the bridge both ways (`test/bridge.test.mjs`),
 which addresses stay in the app and where a tapped notice opens
 (`test/links.test.mjs`), the sign-in rules (`test/authCore.test.mjs`),
-one listening's rules (`test/speechCore.test.mjs`), and what differs on an
-iPhone with the iOS settings (`test/ios.test.mjs`).
+one listening's rules (`test/speechCore.test.mjs`), what differs on an
+iPhone with the iOS settings (`test/ios.test.mjs`), and sharing to the app:
+the bridge's share part, what was shared, shrinking and the inbox
+(`test/share.test.mjs`).

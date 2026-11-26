@@ -75,8 +75,10 @@ export function Section() {
         app from Macaroonie Player, the app on tills, kitchen screens, kiosks and menu screens.
       </P>
       <P>
-        The home screen and Today have a <strong>Capture</strong> button (a photo, a voice note or a line kept
-        for For review: see the AI assistant section). <strong>This device</strong> in the three-dot menu is where
+        The home screen and Today have a <strong>Capture</strong> button (a photo, a picture from the phone, a
+        voice note or a line kept for For review: see the AI assistant section). In the Android app,{' '}
+        <strong>Share</strong> a picture from your gallery to <strong>Macaroonie Office</strong> and it opens in
+        Capture on the home screen. <strong>This device</strong> in the three-dot menu is where
         you set your own <strong>office PIN</strong> and where an owner or admin marks a phone or tablet as{' '}
         <strong>shared</strong> (see Shared devices and PINs).
       </P>
