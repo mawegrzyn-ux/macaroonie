@@ -22,6 +22,7 @@ import { usePermission } from '@/hooks/usePermission'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS, openPicker } from '@/lib/utils'
 import BookingDrawer from '@/components/bookings/BookingDrawer'
 import NewBookingModal from '@/components/bookings/NewBookingModal'
+import { tableRuns } from '@/components/bookings/tableRuns'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { useSettings, hexToRgba } from '@/contexts/SettingsContext'
 import { usePepperPage } from '@/lib/pepperPage'
@@ -974,32 +975,16 @@ export default function Timeline() {
     for (const b of bookingsRes) {
       if (!Array.isArray(b.member_table_ids) || b.member_table_ids.length < 2) continue
 
-      // Sort member tables by their position in the rendered timeline
-      const sorted = b.member_table_ids
-        .filter(id => rowIndex.has(id))
-        .map(id => ({ id, i: rowIndex.get(id) }))
-        .sort((a, c) => a.i - c.i)
+      // Runs of member tables on neighbouring rows (a gap in the rows = a
+      // separate tile); the phone timeline draws its boxes from the same rule.
+      const runs = tableRuns(b.member_table_ids, rowIndex)
+      if (runs.reduce((n, r) => n + r.ids.length, 0) < 2) continue
 
-      if (sorted.length < 2) continue
-
-      // Split into contiguous groups (gap in row index = new group = separate tile)
-      const groups = []
-      let group = [sorted[0]]
-      for (let k = 1; k < sorted.length; k++) {
-        if (sorted[k].i === sorted[k - 1].i + 1) {
-          group.push(sorted[k])
-        } else {
-          groups.push(group)
-          group = [sorted[k]]
-        }
-      }
-      groups.push(group)
-
-      // First table of each group → spanRows = group size; rest → 0 (hidden)
+      // First table of each run → spanRows = run size; rest → 0 (hidden)
       const spanInfo = new Map()
-      for (const g of groups) {
-        spanInfo.set(g[0].id, g.length)
-        for (let k = 1; k < g.length; k++) spanInfo.set(g[k].id, 0)
+      for (const r of runs) {
+        spanInfo.set(r.ids[0], r.ids.length)
+        for (let k = 1; k < r.ids.length; k++) spanInfo.set(r.ids[k], 0)
       }
       result.set(b.id, spanInfo)
     }
