@@ -20,6 +20,7 @@
 import { subject, text, number, money, percent, yesno, choice, moment, duration, sum, avg, count, countDistinct, ratio, one, many } from './define.js'
 import { TENDERS, CHECK_EVENTS, VENUE_EVENTS } from '../../../../shared/pos/checks.js'
 import { PROVIDERS } from '../../services/cardMachines/index.js'
+import { tableLabelSql } from '../../../../shared/pos/tables.js'
 import { ZONE_TYPES } from '../../../../shared/pos/tillLayout.js'
 import { TAP_ZONES, TAPS_KEEP_DAYS } from '../../../../shared/pos/tillTaps.js'
 
@@ -45,6 +46,8 @@ export const EVENT_LABELS = {
   'check.opened': 'Order opened',
   'check.covers_set': 'Guests changed',
   'check.table_moved': 'Moved to another table',
+  'check.tables_joined': 'Tables combined',
+  'check.tables_split': 'Table split off',
   'check.server_changed': 'Server changed',
   'check.stream_set': 'Revenue stream changed',
   'check.order_type_set': 'Order type changed',
@@ -270,6 +273,13 @@ export const subjects = [
       tab_name: text('tab_name', { label: 'Name on the order', pii: true }),
       tent: text('tent', { label: 'Tent number' }),
       covers: number('covers', { label: 'Guests', adds: true, decimals: 0, synonyms: ['covers', 'pax', 'heads'] }),
+      // Combined tables (migration 297): "4 + 5", the words the till, tickets
+      // and receipts use (tableLabelSql(), shared/pos/tables.js).
+      tables: text({ sql: tableLabelSql('{t}') }, { label: 'Tables', about: 'The table the check was on, or every table it held when tables were combined for one party ("4 + 5", the main table first). Empty for tabs and counter orders.',
+        synonyms: ['combined tables', 'joined tables', 'tables pushed together'],
+        instructions: 'For one table\'s sales use the Table link, which is the check\'s main table. This is what the check was called, with any tables combined with it.' }),
+      tables_held: number({ sql: "(CASE WHEN {t}.table_id IS NULL THEN 0 ELSE 1 + cardinality({t}.joined_table_ids) END)" }, { label: 'Tables held', decimals: 0,
+        about: 'How many tables the check held: 1 at one table, more when tables were combined, 0 for tabs and counter orders.' }),
       opened_at: moment('opened_at', { label: 'Opened' }),
       closed_at: moment('closed_at', { label: 'Closed' }),
       time_open: duration({ sql: 'EXTRACT(EPOCH FROM ({t}.closed_at - {t}.opened_at))' }, { label: 'Time open' }),

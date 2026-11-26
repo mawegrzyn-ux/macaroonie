@@ -104,6 +104,7 @@ import { countParts } from '../combos.js'
 import { isId } from './ids.js'
 import { numberText } from './numbers.js'
 import { allergyText } from './allergy.js'
+import { tableLabel } from './tables.js'
 
 export const KITCHEN_DEVICE_EVENTS = [
   'kitchen.item_done', 'kitchen.item_checked', 'kitchen.bumped', 'kitchen.recalled', 'kitchen.remake', 'kitchen.priority', 'kitchen.collected',
@@ -117,7 +118,7 @@ export const KITCHEN_EVENTS = [...KITCHEN_DEVICE_EVENTS, ...KITCHEN_SERVER_EVENT
 // Till events that change what the kitchen shows.
 export const KITCHEN_CHECK_EVENTS = [
   'lines.sent', 'course.fired', 'line.voided', 'lines.moved', 'check.merged',
-  'check.table_moved', 'check.renamed', 'check.covers_set', 'check.server_changed', 'check.note_set',
+  'check.table_moved', 'check.tables_joined', 'check.tables_split', 'check.renamed', 'check.covers_set', 'check.server_changed', 'check.note_set',
   'check.order_type_set', 'check.stream_set', 'check.tent_set', 'check.allergy_set',
 ]
 
@@ -989,7 +990,8 @@ function headerFromCheck(check, cfg) {
     number,
     counter: check.mode === 'counter',
     board: check.mode === 'counter',
-    table: check.table_id ? (cfg.tables?.[check.table_id]?.label || null) : null,
+    // "4", or "4 + 5" with tables combined (shared/pos/tables.js).
+    table: tableLabel(check, cfg.tables),
     tab: check.table_id ? null : (check.tab_name || null),
     covers: check.covers ?? null,
     server: cfg.staff?.[check.server_id]?.name || null,

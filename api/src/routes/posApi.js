@@ -867,7 +867,7 @@ export default async function posApiRoutes(app) {
       const d = req.posDevice
       const q = z.object({ status: z.enum(['open', 'closed', 'void']).default('closed'), limit: z.coerce.number().int().min(1).max(200).default(60) }).parse(req.query)
       return withTenant(d.tenant_id, tx => tx`
-        SELECT id, number, number_code, order_no, mode, table_id, tab_name, covers, server_id, status, opened_at, closed_at, total, paid, refunded, day_id
+        SELECT id, number, number_code, order_no, mode, table_id, joined_table_ids, tab_name, covers, server_id, status, opened_at, closed_at, total, paid, refunded, day_id
           FROM pos_checks
          WHERE tenant_id = ${d.tenant_id} AND venue_id = ${d.venue_id} AND status = ${q.status} AND NOT is_generated
          ORDER BY COALESCE(closed_at, opened_at) DESC

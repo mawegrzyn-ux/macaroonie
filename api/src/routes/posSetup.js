@@ -85,6 +85,7 @@ import {
   SHARE_MODES, RUSH_COUNT_MAX,
 } from '../../../shared/pos/kitchen.js'
 import { KITCHEN_COLOUR_KEYS, SECTION_COLOURS_MAX, normaliseKitchenColours } from '../../../shared/pos/kitchenColours.js'
+import { tableLabelSql } from '../../../shared/pos/tables.js'
 import { MAX_TIMERS, TIMER_PER, TIMER_FROM_WHEN, normaliseTimers, timerProblems, resolveTimers } from '../../../shared/pos/kitchenTimers.js'
 import { PULL_TIMES } from '../../../shared/pos/pullTimes.js'
 import { cleanOrderRange, rangesOverlap, freeOrderRange, ORDER_NO_MAX } from '../../../shared/pos/numbers.js'
@@ -2493,12 +2494,12 @@ export default async function posSetupRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
       return tx`
-        SELECT c.id, c.number, c.number_code, c.order_no, c.mode, c.table_id, t.label AS table_label, c.tab_name, c.covers,
+        SELECT c.id, c.number, c.number_code, c.order_no, c.mode, c.table_id, c.joined_table_ids,
+               ${tx.unsafe(tableLabelSql('c'))} AS table_label, c.tab_name, c.covers,
                c.server_id, COALESCE(s.name, k.name) AS server_name, c.revenue_stream_id, c.order_type_id, o.name AS order_type_name, c.tent, c.status, c.opened_at, c.closed_at,
                c.subtotal, c.discount, c.service_charge, c.total, c.paid, c.tips, c.refunded, c.day_id,
                c.state->'cancelled'->>'reason' AS cancel_reason
           FROM pos_checks c
-          LEFT JOIN tables t ON t.id = c.table_id AND t.tenant_id = c.tenant_id
           LEFT JOIN cash_staff s ON s.id = c.server_id AND s.tenant_id = c.tenant_id
           LEFT JOIN pos_devices k ON k.id = c.server_id AND k.tenant_id = c.tenant_id AND k.kind = 'kiosk'
           LEFT JOIN order_types o ON o.id = c.order_type_id AND o.tenant_id = c.tenant_id
