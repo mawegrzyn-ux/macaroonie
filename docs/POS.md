@@ -777,6 +777,32 @@ Three more till settings from service, all device settings (`DeviceSettings` in
 
 ---
 
+### 8.13 Combined tables (migration 297, 26 Nov 2026)
+
+A party across several tables is one check: it keeps its main table (`table_id`) and holds the
+others in `joined_table_ids` (absent when none). `shared/pos/tables.js` is the one set of rules.
+
+- Events `check.tables_joined` / `check.tables_split` `{ table_ids }`: open checks on a table only
+  (no counter orders, tabs or kiosks), no permission of their own (as `check.table_moved`), twelve
+  tables at most. A table another open check holds, as its main table or a joined one, is refused
+  (`table_held`): the till merges that check in first (`check.merged`, with its own permission) and
+  sends both events in one batch. No check opens on, or moves to, a table joined to another open
+  check; a main table still takes a second check (split bills).
+- Who holds a table is not in the checks an event touches, so the sequencer asks its store
+  (`openChecksOnTables()`, over Postgres and in the hub's mirror) and hands `applyEvent()` the
+  `holders`; the till does the same from the checks it has. A hub decides these events as the
+  cloud does.
+- A table is held while its check is open: closing, cancelling or merging frees them all, and the
+  closed check keeps the list as a record. A move keeps the joined tables (the one it moves to
+  becomes the main table); a tab holds none.
+- `pos_checks.joined_table_ids` is a projection like the rest (`projectionRows()`). `tableLabel()`
+  ("4 + 5") names the tables on kitchen orders, tickets, bills and receipts; `tableLabelSql()` in
+  the admin's check list and the reports' Tables field.
+- The till: a Combine tables mode on the floor (plan, phone tiles and rows), the party shown as
+  one (ring, link mark, a line on the plan, the total once), the check's Combine tables window
+  (join, split), and bookings' table combinations as one-tap picks (`tillConfig()`
+  `table_combinations`).
+
 ## 9. Kitchen screens (KDS)
 
 Address: `kitchen.<domain>` (`kds.<domain>` forwards there) since 18 Oct 2026; screens paired on the till address before then move with one tap (section 8, `pos/src/lib/appHost.js`).

@@ -1461,6 +1461,88 @@ export function Section() {
         replayed), <Mono>shared/pos/test/tillLayout.test.mjs</Mono>.
       </P>
 
+      <H3>Combined tables (26 Nov 2026, migration 297)</H3>
+      <P>
+        A party across several tables is one check. The check keeps its main table (<Mono>table_id</Mono>) and
+        holds the others in <Mono>joined_table_ids</Mono> (in the order joined; the key is absent when it holds
+        none, so the synced state of every other check is unchanged). <Mono>shared/pos/tables.js</Mono> is the one
+        set of rules: <Mono>joinedTables(c)</Mono>, <Mono>tablesOf(c)</Mono> (main first), <Mono>holdsTable()</Mono>,{' '}
+        <Mono>tableLabel(check, tables)</Mono> (&quot;4 + 5&quot;; <Mono>tables</Mono> a list or a map by id),{' '}
+        <Mono>tableTitle()</Mono> (&quot;Table 4&quot; / &quot;Tables 4 + 5&quot;), <Mono>tableLabelSql(alias)</Mono> (the
+        same label in SQL for a <Mono>pos_checks</Mono> row), <Mono>tablesAsked(event, checks)</Mono>,{' '}
+        <Mono>tableHolders(checks, tableIds, exceptId)</Mono>, <Mono>combinePlan(check, tableIds, checks)</Mono> and{' '}
+        <Mono>CHECK_TABLES_MAX</Mono> (12, the main table included).
+      </P>
+      <DataTable
+        head={['Event', 'Payload', 'Rules (applyEvent)']}
+        rows={[
+          ['check.tables_joined', '{ table_ids: [uuid] }', 'Open checks only, on a table, never a counter order (no_table) or from a kiosk. Not the main table, no table twice, 12 in all. A table already joined is left as it is. With the venue\'s tables known, each must be one of them (code table). With holders known, none may be held by another open check, as its main table or a joined one (code table_held). No permission of its own, as check.table_moved has none.'],
+          ['check.tables_split', '{ table_ids: [uuid] }', 'Each must be joined to the check (code missing). The main table is never split off: the check moves.'],
+          ['check.opened / check.table_moved', 'table_id', 'Refused (table_held) when the table is joined to another open check. A main table still takes a second check (split bills). A move keeps the joined tables, drops the one it moves to, and clears them all when the check becomes a tab.'],
+          ['check.merged', '', 'The check merged away holds no tables any more; the one it went into keeps its own.'],
+          ['check.closed', '', 'Nothing is cleared: a table is held only while its check is open, and the closed check keeps the list as a record.'],
+          ['check.reopened', '', 'With holders known, joined tables another open check holds now are dropped.'],
+        ]}
+      />
+      <P>
+        <strong>Who holds a table.</strong> <Mono>applyEvent()</Mono> only sees the checks an event touches, so the
+        rules about other checks read two optional things from its context: <Mono>ctx.holders</Mono> (the open
+        checks holding any of <Mono>tablesAsked(event)</Mono>, as <Mono>tableHolders()</Mono> shapes them) and the
+        venue&apos;s tables (<Mono>ctx.tables</Mono>, else <Mono>ctx.print.tables</Mono>, which the sequencer&apos;s
+        context and the hub&apos;s copy of it already carry). The sequencer asks its store:{' '}
+        <Mono>openChecksOnTables(tableIds)</Mono>, implemented over Postgres (<Mono>sequencer()</Mono> in{' '}
+        <Mono>posSvc.js</Mono>: <Mono>status = &apos;open&apos;</Mono> and <Mono>table_id = ANY(ids) OR
+        joined_table_ids &amp;&amp; ids</Mono>) and in the hub&apos;s mirror (<Mono>shared/pos/mirror.js</Mono>), so a
+        hub decides these events as the cloud does. The till passes both in <Mono>dispatchMany()</Mono> from the
+        checks it has. Without them (a replay, the Test data page&apos;s generator, a store without the method)
+        those rules are skipped. Nothing is kept in a module variable.
+      </P>
+      <P>
+        <strong>The column.</strong> Migration 297 adds <Mono>pos_checks.joined_table_ids uuid[] NOT NULL DEFAULT
+        &apos;&#123;&#125;&apos;</Mono>, written by <Mono>projectionRows()</Mono> like every other column (so the Test
+        till sales, which store checks through it, carry it too). Older checks hold no joined tables, which the
+        default says, so <Mono>CHECK_BREAKDOWNS_V</Mono> / <Mono>proj_v</Mono> is not raised.{' '}
+        <Mono>GET /pos-api/checks</Mono> (and the hub&apos;s <Mono>listChecks()</Mono>) returns it;{' '}
+        <Mono>GET /api/pos/venues/:venueId/checks</Mono> returns it and a <Mono>table_label</Mono> made by{' '}
+        <Mono>tableLabelSql()</Mono>. The report catalogue&apos;s <Mono>till.checks</Mono> has the fields{' '}
+        <Mono>tables</Mono> (the same SQL) and <Mono>tables_held</Mono>; the <Mono>table</Mono> link is still the
+        main table.
+      </P>
+      <P>
+        <strong>Names.</strong> <Mono>headerFromCheck()</Mono> (<Mono>shared/pos/kitchen.js</Mono>) and{' '}
+        <Mono>header()</Mono> (<Mono>shared/pos/printing.js</Mono>) take the table from <Mono>tableLabel()</Mono>, so
+        kitchen screens, kitchen tickets, the pass, bills and receipts say &quot;4 + 5&quot; with no change of
+        their own; both events are in <Mono>KITCHEN_CHECK_EVENTS</Mono>, so an order already in the kitchen is
+        renamed when tables join or split.
+      </P>
+      <P>
+        <strong>The till.</strong> <Mono>pos/src/lib/checkOps.js</Mono>: <Mono>openCheck(&#123; join_table_ids &#125;)</Mono>{' '}
+        (the open and the join in one <Mono>dispatchMany()</Mono>), <Mono>combineChanges(check, want, checks)</Mono>{' '}
+        → <Mono>&#123; split, join, merge, blocked &#125;</Mono>, <Mono>applyCombine(check, changes, approver)</Mono>{' '}
+        (splits, then each <Mono>check.merged</Mono>, then one <Mono>check.tables_joined</Mono>; all or nothing),{' '}
+        <Mono>checksByTable(open)</Mono>, <Mono>combinationsWith(config, tableId)</Mono>, <Mono>tableTitleOf()</Mono>,{' '}
+        <Mono>itemCount()</Mono>, <Mono>mergeable()</Mono>. <Mono>pos/src/components/CombineModal.jsx</Mono>: the
+        check&apos;s <Mono>CombineModal</Mono> (<Mono>combine-picker</Mono>, <Mono>combine-table</Mono> with{' '}
+        <Mono>data-state</Mono> main | on | busy | stuck | free, <Mono>combine-label</Mono>,{' '}
+        <Mono>combine-suggestion</Mono>, <Mono>combine-done</Mono>, <Mono>combine-cancel</Mono>),{' '}
+        <Mono>CombineConfirm</Mono> (<Mono>combine-merge</Mono>, <Mono>combine-merge-order</Mono>,{' '}
+        <Mono>combine-merge-go</Mono>, <Mono>combine-merge-cancel</Mono>) and <Mono>runCombine()</Mono> (the
+        manager&apos;s approval for <Mono>transfer</Mono> when there is a merge). <Mono>screens/Floor.jsx</Mono>:
+        the mode (<Mono>combine-start</Mono>, <Mono>combine-bar</Mono>, <Mono>combine-picked</Mono>,{' '}
+        <Mono>combine-go</Mono>), <Mono>table-tile</Mono> with <Mono>data-label</Mono>, <Mono>data-state</Mono>,{' '}
+        <Mono>data-party</Mono>, <Mono>data-main</Mono> and <Mono>data-picked</Mono>, the plan&apos;s{' '}
+        <Mono>table-link</Mono> lines, and <Mono>check-row</Mono>&apos;s <Mono>data-title</Mono>. More has{' '}
+        <Mono>action-combine</Mono>, Move table <Mono>table-combine</Mono>, and <Mono>BUTTON_ACTIONS</Mono> the
+        action <Mono>combine</Mono> (<Mono>runButton()</Mono> in <Mono>Check.jsx</Mono>).
+      </P>
+      <P>
+        <strong>Bookings&apos; combinations.</strong> <Mono>tillConfig()</Mono> sends{' '}
+        <Mono>table_combinations: [&#123; id, name, table_ids &#125;]</Mono>: the venue&apos;s active{' '}
+        <Mono>table_combinations</Mono> whose tables the till has. The till only offers them as one-tap picks; it
+        never writes to them. Tests: <Mono>shared/pos/test/tables.test.mjs</Mono>,{' '}
+        <Mono>api/test/till-combine.test.mjs</Mono>.
+      </P>
+
       <H3>Check and order numbers (per device)</H3>
       <P>
         Migration 217: every till and kiosk numbers its own checks, so the cloud, the venue hub and a
