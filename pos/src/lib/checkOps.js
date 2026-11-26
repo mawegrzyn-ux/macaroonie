@@ -9,6 +9,7 @@ import { configItem, dealItem, comboCtx, autoCombosFor, checkOffers } from '@sha
 import { chargesWhere, chargeList, chargeFromList } from '@shared/pos/charges.js'
 import { heldCourses } from '@shared/pos/checks.js'
 import { counterTill, leaveUnsent, receiptModeOf, orderPromptOf } from '@shared/pos/tillSettings.js'
+import { joinedTables, tablesOf, combinePlan, tableTitle } from '@shared/pos/tables.js'
 
 export { counterTill, leaveUnsent, receiptModeOf, orderPromptOf }
 import { dispatch, dispatchMany, getState, currentChecks, soldOutMap } from './store.js'
@@ -292,17 +293,77 @@ export function addListCharge(check, chargeId) {
 }
 
 /** Open a check. Returns { ok, checkId } or { ok: false, error }. */
-export function openCheck({ mode, table_id = null, tab_name = null, covers = null, revenue_stream_id = null, order_type_id = null, tent = null }) {
+export function openCheck({ mode, table_id = null, tab_name = null, covers = null, revenue_stream_id = null, order_type_id = null, tent = null, join_table_ids = [] }) {
   const { config } = getState()
   const streamId = revenue_stream_id || defaultStreamId(config)
   const typeId = order_type_id || defaultTypeId(config, streamId)
   const checkId = ulid()
-  const r = dispatch('check.opened', {
-    mode, table_id, tab_name, covers, revenue_stream_id: streamId, order_type_id: typeId, tent: tent || null,
-    charges: chargesFor(config, { streamId, typeId }),
-  }, { check_id: checkId })
+  // join_table_ids: free tables combined before ordering, one check holding them all.
+  const r = dispatchMany([
+    ['check.opened', {
+      mode, table_id, tab_name, covers, revenue_stream_id: streamId, order_type_id: typeId, tent: tent || null,
+      charges: chargesFor(config, { streamId, typeId }),
+    }, { check_id: checkId }],
+    ...(table_id && join_table_ids.length ? [['check.tables_joined', { table_ids: join_table_ids }, { check_id: checkId }]] : []),
+  ])
   return r.ok ? { ok: true, checkId } : r
 }
+
+// ── Combined tables (shared/pos/tables.js) ───────────────────────
+
+/** What a check's tables are called on the till: "Table 4", "Tables 4 + 5", or null. */
+export const tableTitleOf = (check, config) => tableTitle(check, config?.tables)
+
+/** A check's items as the Combine window says them: how many, and its total's lines. */
+export const itemCount = check => (check?.lines || []).filter(isActiveLine).reduce((n, l) => n + (Number(l.qty) || 0), 0)
+
+/** Can this check be merged into another (Combine, Merge checks)? Not with a payment on it. */
+export const mergeable = check => !(check?.payments || []).some(p => !p.voided)
+
+/**
+ * What the till's Combine will do for `check`: `want` = the tables it should
+ * hold beside its main one. Tables left out are split off; new ones join,
+ * and one another open check holds brings that check with it (merged in,
+ * with every table it held).
+ *   -> { split: [ids], join: [ids], merge: [checks], blocked: [checks with payments] }
+ */
+export function combineChanges(check, want, checks = currentChecks()) {
+  const now = joinedTables(check)
+  const wanted = [...new Set(want)].filter(id => id !== check.table_id)
+  const plan = combinePlan(check, wanted.filter(id => !now.includes(id)), checks)
+  return {
+    split: now.filter(id => !wanted.includes(id)),
+    join: plan.join,
+    merge: plan.merge,
+    blocked: plan.merge.filter(c => !mergeable(c)),
+  }
+}
+
+/**
+ * Do it, in one go (none is kept if one is refused): the splits, each merge
+ * (approver: the manager who allowed moving items between checks, when the
+ * person's role doesn't), then the join.
+ */
+export function applyCombine(check, changes, approver = null) {
+  const at = { check_id: check.id }
+  const specs = [
+    ...(changes.split.length ? [['check.tables_split', { table_ids: changes.split }, at]] : []),
+    ...changes.merge.map(other => ['check.merged', { into_check_id: check.id }, { check_id: other.id, approved_by: approver }]),
+    ...(changes.join.length ? [['check.tables_joined', { table_ids: changes.join }, at]] : []),
+  ]
+  if (!specs.length) return { ok: true, nothing: true }
+  return dispatchMany(specs)
+}
+
+/** The open checks holding a table (as its main table or a joined one), by table id. */
+export function checksByTable(open) {
+  const m = {}
+  for (const c of open) for (const id of tablesOf(c)) (m[id] ||= []).push(c)
+  return m
+}
+
+/** Bookings' table combinations (the till's config) that have this table, as one-tap choices. */
+export const combinationsWith = (config, tableId) => (config?.table_combinations || []).filter(x => x.table_ids.includes(tableId))
 
 // receiptModeOf(config, streamId) and orderPromptOf(config, streamId): the
 // till's own choice, else the revenue stream's (shared/pos/tillSettings.js,

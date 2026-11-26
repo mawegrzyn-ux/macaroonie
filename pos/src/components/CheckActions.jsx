@@ -3,13 +3,14 @@
 // shared/pos/discounts.js), charges (the location's matrix of revenue
 // streams by order types, from the company's list, or typed in;
 // shared/pos/charges.js), offers, move items to
-// another check (split), merge checks, move table, change server, order type
+// another check (split), merge checks, move table, combine tables
+// (CombineModal.jsx), change server, order type
 // (with the name and tent number it asks for) or revenue stream, items not on
 // the menu, no sale, dishes sold out.
 
 import { useEffect, useState } from 'react'
 import {
-  Users, Table2, UserRound, Building2, Percent, HandCoins, Gift, Split, Merge, Flame, StickyNote, Printer,
+  Users, Table2, UserRound, Building2, Percent, HandCoins, Gift, Split, Merge, Flame, StickyNote, Printer, Link2,
   Vault, PenLine, Check, Hourglass, Send, XCircle, Ban, RotateCcw, Plus, ShoppingBag, Flag, Star, ShieldCheck, AlertTriangle, BookOpen,
 } from 'lucide-react'
 import { ulid } from '@shared/pos/ids.js'
@@ -19,6 +20,7 @@ import { MANAGER_ALWAYS } from '@shared/pos/permissions.js'
 import { chargeLabel, chargeValueText, chargeOnText, copyOfCharge, onDishes, CHARGE_PERCENT_MAX, CHARGE_AMOUNT_MAX } from '@shared/pos/charges.js'
 import { discountList, fitsScope, discountValueText } from '@shared/pos/discounts.js'
 import { allergyText, allergyOn } from '@shared/pos/allergy.js'
+import { tablesOf, joinedTables, tableLabel } from '@shared/pos/tables.js'
 import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } from './ui.jsx'
 import OrderPrompt from './OrderPrompt.jsx'
 import { useTillNav, TillMenuSection } from './TillMenu.jsx'
@@ -26,7 +28,7 @@ import { dispatch, dispatchMany, toast, useChecks, getState, can, soldOutMap, se
 import {
   defaultHeld, sendCheck, streamOf, byId, addOpenItem, promotionsFor, refreshPromotions,
   streamTypes, typeOf, checkPrompts, rerateLines, defaultTypeId, chargesFor, orderPromptOf,
-  listCharges, listCharge, chargeNames, coversOf, coursesOn, tablesOn, notFired, sendAllSpecs, isActiveLine,
+  listCharges, listCharge, chargeNames, coversOf, coursesOn, tablesOn, notFired, sendAllSpecs, isActiveLine, tableTitleOf,
 } from '../lib/checkOps.js'
 import { CoversModal, CheckRow } from '../screens/Floor.jsx'
 import { flowNameOf } from '../lib/orderFlows.js'
@@ -57,6 +59,8 @@ export function ActionsMenu({ check, config, menus = null, onPick, onClose }) {
     // use tables puts nothing on one (lib/checkOps.js).
     !counter && (coversOf(config, check.revenue_stream_id) !== 'off' || check.covers) && { key: 'covers', label: 'Guests', icon: Users, hint: check.covers ? check.covers + ' covers' : 'not set' },
     !counter && (tablesOn(config) || check.table_id) && { key: 'table', label: check.table_id ? 'Move table' : 'Put on a table', icon: Table2 },
+    // The party's other tables (shared/pos/tables.js): an order at a table, at a location with more than one.
+    !counter && check.table_id && (config.tables || []).length > 1 && { key: 'combine', label: 'Combine tables', icon: Link2, hint: joinedTables(check).length ? tableLabel(check, config.tables) : 'one party, several tables' },
     { key: 'name', label: 'Name', icon: StickyNote, hint: check.tab_name || '' },
     { key: 'type', label: 'Order type', icon: ShoppingBag, hint: [typeOf(config, check.order_type_id)?.name, check.tent ? 'Tent ' + check.tent : null].filter(Boolean).join(' · ') },
     (checkPrompts(config, check).ask_tent !== 'off' || check.tent) && { key: 'tent', label: 'Tent number', icon: Flag, hint: check.tent || 'not set' },
@@ -720,9 +724,12 @@ export function MergeModal({ check, config, onClose }) {
 
 // ── Table, name, server, revenue centre, guests ──────────────────
 
-export function TableModal({ check, config, onClose }) {
+export function TableModal({ check, config, onClose, onCombine = null }) {
   const checks = useChecks()
-  const busy = new Set(Object.values(checks).filter(c => c.status === 'open' && c.table_id && c.id !== check.id).map(c => c.table_id))
+  // Tables another open check holds, as its main table or one joined to it;
+  // this order's own joined tables say so (moving to one makes it the main table).
+  const busy = new Set(Object.values(checks).filter(c => c.status === 'open' && c.id !== check.id).flatMap(tablesOf))
+  const joined = joinedTables(check)
   const move = tableId => {
     const r = dispatch('check.table_moved', { table_id: tableId }, { check_id: check.id })
     if (!r.ok) return toast(r.error, 'bad')
@@ -734,10 +741,14 @@ export function TableModal({ check, config, onClose }) {
         {(config.tables || []).map(t => (
           <button key={t.id} className={cx('btn h-20 flex-col gap-0', t.id === check.table_id && 'btn-primary', busy.has(t.id) && t.id !== check.table_id && 'border-warn')} onClick={() => move(t.id)}>
             <span className="text-xl">{t.label}</span>
-            <span className="text-xs font-normal">{busy.has(t.id) ? 'in use' : t.max_covers + ' seats'}</span>
+            <span className="text-xs font-normal">{busy.has(t.id) ? 'in use' : joined.includes(t.id) ? 'joined' : t.max_covers + ' seats'}</span>
           </button>
         ))}
       </div>
+      {joined.length > 0 && <div className="text-sm text-muted mt-3">The tables joined to this order stay with it when it moves.</div>}
+      {check.table_id && onCombine && (config.tables || []).length > 1 && (
+        <button className="btn w-full mt-4" onClick={onCombine} data-testid="table-combine"><Link2 size={18} /> Combine tables</button>
+      )}
       {check.table_id && <button className="btn w-full mt-4" onClick={() => move(null)}>Make it a tab (no table)</button>}
     </Modal>
   )
@@ -870,7 +881,7 @@ export function StreamModal({ check, config, onClose }) {
 export function GuestsModal({ check, config, onClose }) {
   const table = (config.tables || []).find(t => t.id === check.table_id)
   return (
-    <CoversModal title={table ? 'Table ' + table.label : 'Check ' + checkLabel(check)} max={table?.max_covers} initial={check.covers} onClose={onClose} doneLabel="Save"
+    <CoversModal title={tableTitleOf(check, config) || 'Check ' + checkLabel(check)} max={joinedTables(check).length ? null : table?.max_covers} initial={check.covers} onClose={onClose} doneLabel="Save"
       onDone={n => {
         // A charge for parties of N counts by itself once the party reaches N.
         const r = dispatch('check.covers_set', { covers: n }, { check_id: check.id })
