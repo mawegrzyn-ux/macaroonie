@@ -22,6 +22,12 @@
 //   venueState()           -> { last_seq, numbers: { [deviceId]: numbers.js }, day | null }
 //   openDay({ business_date, at }) -> day { id, business_date }
 //   loadChecks(ids)        -> { [id]: check }
+//   openChecksOnTables(tableIds) -> [check] the venue's open checks holding
+//                             any of the tables, as their main table or a
+//                             joined one (shared/pos/tables.js): asked for
+//                             events that put a check on a table or join
+//                             tables to it. A store without it skips the
+//                             rules about tables another check holds.
 //   openCheckCount(dayId)  -> number
 //   saveEvent(event)       (event has seq and assigned)
 //   saveChecks({ [id]: check }, event)
@@ -72,6 +78,7 @@ import {
 } from './kitchen.js'
 import { kitchenPrintJobs, hasPrinters } from './kitchenPrint.js'
 import { noteNumbers } from './numbers.js'
+import { tablesAsked, tableHolders } from './tables.js'
 
 // Events that can send dishes through a Splitter.
 const BALANCE_EVENTS = ['lines.sent', 'course.fired', 'kitchen.order_in']
@@ -167,7 +174,10 @@ export function createSequencer(store) {
           const why = loyaltyProblem(stored, reward, await store.loadLoyaltyRedemption(reward.id))
           if (why) return refuse(why, 'loyalty')
         }
-        const r = applyEvent(before, stored, ctx)
+        // Who holds the tables this event asks for (combined tables, tables.js).
+        const asked = store.openChecksOnTables ? tablesAsked(stored, before) : []
+        const holders = asked.length ? tableHolders(await store.openChecksOnTables(asked), asked, stored.check_id) : null
+        const r = applyEvent(before, stored, holders ? { ...ctx, holders } : ctx)
         if (!r.ok) return refuse(r.error, r.code)
         changed = r.checks
         const kitchenIds = ctx.kitchen?.enabled ? kitchenOrdersForCheckEvent(stored) : []

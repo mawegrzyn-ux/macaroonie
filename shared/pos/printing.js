@@ -24,9 +24,11 @@ import { checkTotals, isActiveLine, modifierText, groupModifiers } from './prici
 import { countParts } from '../combos.js'
 import { chargeLabel } from './charges.js'
 import { TENDERS, checkLabel } from './checks.js'
+import { tableLabel } from './tables.js'
 
 function header(check, cfg, at) {
-  const table = check.table_id ? (cfg.tables?.[check.table_id]?.label || null) : null
+  // "4", or "4 + 5" with tables combined (shared/pos/tables.js).
+  const table = tableLabel(check, cfg.tables)
   return {
     table,
     tab: table ? null : (check.order_no != null ? 'ORDER ' + check.order_no : (check.tab_name || 'TAB ' + checkLabel(check))),

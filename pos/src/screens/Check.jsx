@@ -30,7 +30,7 @@ import LayoutScreen from '../components/LayoutScreen.jsx'
 import {
   addItem, addChosen, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck, needsSendChoice, comboStartFrom, copyOfLine,
   coversMissing, seatCourseParts, addListCharge, counterSends, unsentAtPay, notFired, tablesOn, itemCounts, showsItemCounts,
-  leaveUnsent, takesOffCounted, lineToTakeOff, selectionFromLine, canChangeOptions, lineFields, changeLine,
+  leaveUnsent, takesOffCounted, lineToTakeOff, selectionFromLine, canChangeOptions, lineFields, changeLine, tableTitleOf,
 } from '../lib/checkOps.js'
 import { cx, money, elapsed, useApproval, fillStyle } from '../components/ui.jsx'
 import { useTillNav } from '../components/TillMenu.jsx'
@@ -53,6 +53,7 @@ import {
   MergeModal, TableModal, NameModal, ServerModal, StreamModal, OrderTypeModal, GuestsModal, OpenItemModal, NoSale, SoldOutModal,
   CancelOrderModal, applyDiscountPreset, UnsentModal, LeaveModal,
 } from '../components/CheckActions.jsx'
+import CombineModal from '../components/CombineModal.jsx'
 
 export default function CheckScreen({ checkId, onBack, onOpen, counter = false, then = null }) {
   const { config } = useTill()
@@ -184,7 +185,8 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
 
   // A counter order: no guests, table, seats or courses; paid first, sent as it is paid.
   const isCounter = counter || check.mode === 'counter'
-  const table = check.table_id ? (config.tables || []).find(t => t.id === check.table_id) : null
+  // "Table 4", or "Tables 4 + 5" with tables combined (shared/pos/tables.js).
+  const table = tableTitleOf(check, config)
   const stream = streamOf(config, check.revenue_stream_id)
   const type = typeOf(config, check.order_type_id)
   const t = checkTotals(check)
@@ -440,7 +442,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
       {!hidden.has('back') && <button className="btn btn-ghost text-inherit w-12 px-0" style={buttonBorderStyle(orderZone)} onClick={() => leave()} aria-label="Back" data-testid="check-back"><ArrowLeft size={22} /></button>}
       <button className="flex-1 min-w-0 text-left" onClick={() => setModal({ kind: 'actions' })}>
         <div className="font-bold text-lg truncate">
-          {table ? 'Table ' + table.label : check.order_no != null ? 'Order #' + check.order_no : check.tab_name || 'Tab'}
+          <span data-testid="check-title">{table || (check.order_no != null ? 'Order #' + check.order_no : check.tab_name || 'Tab')}</span>
           {check.order_no == null && <span className="zone-muted font-normal text-sm ml-2">{checkLabel(check)}</span>}
         </div>
         <div className="text-xs zone-muted truncate flex items-center gap-2">
@@ -538,6 +540,9 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
       case 'allergy': return setModal({ kind: 'allergy' })
       case 'table': return isCounter ? toast('Counter orders don\'t go on a table', 'bad')
         : tablesOn(config) || check.table_id ? setModal({ kind: 'table' }) : toast('This till doesn\'t use tables', 'bad')
+      case 'combine': return isCounter ? toast('Counter orders don\'t go on a table', 'bad')
+        : !check.table_id ? toast('Put the order on a table first', 'bad')
+        : (config.tables || []).length > 1 ? setModal({ kind: 'combine' }) : toast('There are no other tables to combine with', 'bad')
       case 'move': return setModal({ kind: 'move' })
       case 'merge': return setModal({ kind: 'merge' })
       case 'charges': return setModal({ kind: 'sc' })
@@ -613,7 +618,8 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false, 
       {modal?.kind === 'allergy' && <AllergyModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'move' && <MoveModal check={check} config={config} preselect={modal.lineIds || []} onClose={close} onOpen={onOpen} />}
       {modal?.kind === 'merge' && <MergeModal check={check} config={config} onClose={close} />}
-      {modal?.kind === 'table' && <TableModal check={check} config={config} onClose={close} />}
+      {modal?.kind === 'table' && <TableModal check={check} config={config} onClose={close} onCombine={() => setModal({ kind: 'combine' })} />}
+      {modal?.kind === 'combine' && <CombineModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'name' && <NameModal check={check} onClose={close} />}
       {modal?.kind === 'server' && <ServerModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'stream' && <StreamModal check={check} config={config} onClose={close} />}
