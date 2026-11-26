@@ -265,6 +265,8 @@ function eventText(e, lines, names, lookups = {}) {
     case 'check.opened': return 'Opened' + (p.covers ? ' for ' + p.covers : '') + (p.tab_name ? ' as ' + p.tab_name : '')
     case 'check.covers_set': return 'Covers set to ' + p.covers
     case 'check.table_moved': return 'Moved to another table'
+    case 'check.tables_joined': return 'Tables combined'
+    case 'check.tables_split': return 'Table split off'
     case 'check.server_changed': return 'Given to ' + (names[p.server_id] || 'someone else')
     case 'check.stream_set': return 'Revenue stream changed to ' + (lookups.revenue_streams?.[p.revenue_stream_id] || 'another')
     case 'check.order_type_set': return 'Order type ' + (lookups.order_types?.[p.order_type_id] || 'changed') + (p.tab_name ? ', name ' + p.tab_name : '') + (p.tent ? ', tent ' + p.tent : '')
@@ -421,7 +423,7 @@ function ChecksTab({ venueId, dayId, setDayId, openCheck = null, onLinkDone }) {
                   {c.order_no != null && c.number_code && <span className="block text-[11px] text-muted-foreground">{numberText(c)}</span>}
                 </span>
                 <span className="flex-1 min-w-0">
-                  <span className="block text-sm truncate">{c.table_label ? 'Table ' + c.table_label : c.tab_name || (c.mode === 'counter' ? 'Counter' : 'Tab')}</span>
+                  <span className="block text-sm truncate">{c.table_label ? (c.table_label.includes(' + ') ? 'Tables ' : 'Table ') + c.table_label : c.tab_name || (c.mode === 'counter' ? 'Counter' : 'Tab')}</span>
                   <span className="block text-xs text-muted-foreground truncate">
                     {[c.order_type_name, c.tent && 'tent ' + c.tent, c.server_name].filter(Boolean).join(' · ')} · {time(c.opened_at)}{c.closed_at ? '–' + time(c.closed_at) : ''}
                   </span>

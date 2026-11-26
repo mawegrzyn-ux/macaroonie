@@ -23,6 +23,7 @@
 import { createSequencer } from './sequencer.js'
 import { dayFigures } from './reports.js'
 import { checkTotals } from './pricing.js'
+import { tablesOf, joinedTables } from './tables.js'
 import { cardNeed } from './cards.js'
 import { loyaltyNeed } from '../loyalty.js'
 
@@ -77,6 +78,8 @@ function viewStore(base, mirror) {
     },
     loadChecks: ids => Object.fromEntries(ids.filter(id => s.checks.has(id)).map(id => [id, clone(s.checks.get(id))])),
     openCheckCount: () => [...s.checks.values()].filter(c => c.status === 'open').length,
+    // Who holds these tables (combined tables, tables.js): the hub refuses what the cloud would.
+    openChecksOnTables: ids => [...s.checks.values()].filter(c => c.status === 'open' && tablesOf(c).some(id => ids.includes(id))).map(clone),
     saveEvent: e => { s.events.set(e.id, { id: e.id, seq: e.seq, type: e.type, check_id: e.check_id, assigned: e.assigned }) },
     saveChecks: changed => { for (const [id, c] of Object.entries(changed)) s.checks.set(id, clone(c)) },
     saveJobs: () => {},
@@ -332,7 +335,7 @@ export function createMirror({ hubId, context = null, snapshot: saved = null } =
       const t = checkTotals(c)
       return {
         id: c.id, number: c.number, number_code: c.number_code || null, order_no: c.order_no ?? null, mode: c.mode,
-        table_id: c.table_id || null, tab_name: c.tab_name || null, covers: c.covers || null, server_id: c.server_id || null,
+        table_id: c.table_id || null, joined_table_ids: joinedTables(c), tab_name: c.tab_name || null, covers: c.covers || null, server_id: c.server_id || null,
         status: c.status, opened_at: c.opened_at, closed_at: c.closed_at || null, total: t.total, paid: t.paid, refunded: t.refunded, day_id: c.day_id,
       }
     })

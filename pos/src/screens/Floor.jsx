@@ -16,19 +16,31 @@
 // waiting (the till's Swipe left says which comes first), always asking
 // first in the Send or Fire window, so a swipe made by mistake does nothing;
 // right pays.
+//
+// Combined tables (shared/pos/tables.js): a party across several tables is
+// one check. Its tables show as one party: the same colour, a ring and a
+// link mark with "4 + 5" on each, a line between them on the plan, and the
+// total, guests and timer on the main table only; a tap on any of them opens
+// the check. In the lists it is one entry, "Tables 4 + 5". Combine tables
+// (above the tables) is a mode: tap the party's tables, then Combine. Free
+// tables open one check holding them all; a table with an open order takes
+// the others, and a second order among them is merged in after one question.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Plus, Users, Hourglass, ReceiptText, Send, Flame, CreditCard } from 'lucide-react'
+import { Plus, Users, Hourglass, ReceiptText, Send, Flame, CreditCard, Link2, X } from 'lucide-react'
 import { useTill, useChecks, toast, serverName } from '../lib/store.js'
 import {
   openCheck, defaultStreamId, typeOf, streamTypes, defaultTypeId, promptsFor, orderPromptOf, coversOf,
   tablesOn, phoneTablesList, swipeLeftAction, missingDetails, coversMissing,
+  checksByTable, combineChanges, combinationsWith, tableTitleOf,
 } from '../lib/checkOps.js'
 import { useNarrow } from '../lib/tillLayout.js'
 import { useRowSwipe } from '../lib/rowSwipe.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { checkLabel, heldCourses } from '@shared/pos/checks.js'
-import { Modal, Keypad, cx, money, elapsed, useTick } from '../components/ui.jsx'
+import { joinedTables, tablesOf, tableLabel } from '@shared/pos/tables.js'
+import { Modal, Keypad, cx, money, elapsed, useTick, useApproval } from '../components/ui.jsx'
+import { CombineConfirm, runCombine } from '../components/CombineModal.jsx'
 import OrderPrompt from '../components/OrderPrompt.jsx'
 import { SendModal, FireModal } from '../components/CheckActions.jsx'
 
@@ -47,6 +59,11 @@ export default function Floor({ onOpen }) {
   const [choose, setChoose] = useState(null) // { table, checks }
   const [newTab, setNewTab] = useState(false)
   const [confirm, setConfirm] = useState(null) // { kind: 'send' | 'fire', checkId }: a row swiped left asks first
+  // Combine tables: the tables tapped so far, in order (null = not combining),
+  // and the question before another order is merged in.
+  const [combine, setCombine] = useState(null)
+  const [merging, setMerging] = useState(null) // { check, changes }
+  const approve = useApproval()
   // A phone: one half at a time.
   const narrow = useNarrow()
   const [pane, setPane] = useState('tables')
@@ -58,14 +75,12 @@ export default function Floor({ onOpen }) {
 
   // Counter orders are a counter till's: never on a table-service till's floor.
   const open = useMemo(() => Object.values(checks).filter(c => c.status === 'open' && c.mode !== 'counter'), [checks])
-  const byTable = useMemo(() => {
-    const m = {}
-    for (const c of open) if (c.table_id) (m[c.table_id] ||= []).push(c)
-    return m
-  }, [open])
+  // By every table a check holds: a joined table shows its party's check.
+  const byTable = useMemo(() => checksByTable(open), [open])
 
-  const startTable = (table, covers) => {
-    const r = openCheck({ mode: 'table', table_id: table.id, covers, revenue_stream_id: defaultStreamId(config, { areaId: table.floor_area_id }) })
+  // join: more tables for the new check to hold (free tables combined before ordering).
+  const startTable = (table, covers, join = []) => {
+    const r = openCheck({ mode: 'table', table_id: table.id, covers, revenue_stream_id: defaultStreamId(config, { areaId: table.floor_area_id }), join_table_ids: join })
     if (!r.ok) return toast(r.error, 'bad')
     setAsk(null)
     onOpen(r.checkId)
@@ -73,12 +88,42 @@ export default function Floor({ onOpen }) {
   // A new check on a table: the guests asked first as its revenue stream
   // says (Store tech > Revenue streams, or the till's own choice): never,
   // with a Skip, or without one.
-  const newOnTable = table => {
+  const newOnTable = (table, join = []) => {
     const rule = coversOf(config, defaultStreamId(config, { areaId: table.floor_area_id }))
-    if (rule === 'off') return startTable(table, null)
-    setAsk({ table, skip: rule === 'ask' })
+    if (rule === 'off') return startTable(table, null, join)
+    setAsk({ table, skip: rule === 'ask', join })
   }
+
+  // Combine tables: a tap picks a table, or lets it go. A table of a party
+  // already combined brings its party's other tables with it.
+  const pickTable = table => {
+    const party = [...new Set([table.id, ...(byTable[table.id] || []).flatMap(tablesOf)])]
+    setCombine(c => (c.includes(table.id) ? c.filter(id => !party.includes(id)) : [...c, ...party.filter(id => !c.includes(id))]))
+  }
+  // Combine: the first table picked with an open order keeps its order and
+  // takes the other tables (their orders merged in, after the question);
+  // with no order among them, one new check opens on the first table and
+  // holds the rest.
+  const finishCombine = async () => {
+    const ids = combine || []
+    if (ids.length < 2) return toast('Tap two or more tables to combine', 'info')
+    const holders = []
+    for (const id of ids) for (const c of byTable[id] || []) if (!holders.includes(c)) holders.push(c)
+    if (!holders.length) {
+      const table = (config.tables || []).find(t => t.id === ids[0])
+      setCombine(null)
+      return newOnTable(table, ids.slice(1))
+    }
+    const check = holders[0]
+    const changes = combineChanges(check, [...joinedTables(check), ...ids], checks)
+    if (!changes.join.length) return toast('Those tables are one party already', 'info')
+    if (changes.blocked.length) return toast((tableTitleOf(changes.blocked[0], config) || 'A table') + ' is part paid: move its items instead', 'bad')
+    if (changes.merge.length) return setMerging({ check, changes })
+    if (await runCombine(check, changes, config, approve)) setCombine(null)
+  }
+
   const tapTable = table => {
+    if (combine) return pickTable(table)
     const list = byTable[table.id] || []
     if (list.length === 1) return onOpen(list[0].id)
     if (list.length > 1) return setChoose({ table, checks: list })
@@ -115,8 +160,13 @@ export default function Floor({ onOpen }) {
 
   const byLabel = (a, b) => String(a.label).localeCompare(String(b.label), undefined, { numeric: true })
   const roomTables = area ? (config.tables || []).filter(t => t.floor_area_id === area.id).sort(byLabel) : areas.length ? unplaced : config.tables || []
+  const allTables = config.tables || []
+  const picked = combine || []
+  // While combining: bookings' combinations with a table picked, not picked whole yet.
+  const suggested = [...new Map(picked.flatMap(id => combinationsWith(config, id)).map(x => [x.id, x])).values()].filter(x => x.table_ids.some(id => !picked.includes(id)))
+  const canCombine = allTables.length > 1
   const tablesPane = (
-    <div className="flex-1 min-w-0 min-h-0 flex flex-col" data-testid="floor-tables">
+    <div className="flex-1 min-w-0 min-h-0 flex flex-col" data-testid="floor-tables" data-combining={combine ? '1' : '0'}>
       <div className="flex items-center gap-2 p-3 scroll-x">
         {areas.map(a => (
           <button key={a.id} className={cx('chip shrink-0', areaId === a.id && 'chip-on')} onClick={() => setAreaId(a.id)}>{a.name}</button>
@@ -124,14 +174,36 @@ export default function Floor({ onOpen }) {
         {(unplaced.length > 0 || !areas.length) && (
           <button className={cx('chip shrink-0', areaId === LIST && 'chip-on')} onClick={() => setAreaId(LIST)}>{areas.length ? 'Other tables' : 'Tables'}</button>
         )}
-        {!narrow && <div className="ml-auto text-sm text-muted shrink-0 pr-1">{open.length} open · {mine} yours</div>}
+        {canCombine && !combine && (
+          <button className="chip shrink-0 ml-auto inline-flex items-center gap-1.5" onClick={() => setCombine([])} data-testid="combine-start"><Link2 size={16} /> Combine tables</button>
+        )}
+        {!narrow && <div className={cx('text-sm text-muted shrink-0 pr-1', (!canCombine || combine) && 'ml-auto')}>{open.length} open · {mine} yours</div>}
       </div>
+      {combine && (
+        <div className="mx-3 mb-3 rounded-2xl bg-ink text-white p-3 flex items-center gap-2 flex-wrap" data-testid="combine-bar">
+          <Link2 size={20} className="shrink-0" />
+          <div className="flex-1 min-w-[160px]">
+            <div className="font-semibold" data-testid="combine-picked">
+              {picked.length ? 'Tables ' + picked.map(id => allTables.find(t => t.id === id)?.label).filter(Boolean).join(' + ') : 'Combine tables'}
+            </div>
+            <div className="text-xs opacity-80">Tap the tables one party sits at, then Combine.</div>
+          </div>
+          {suggested.map(x => (
+            <button key={x.id} className="chip shrink-0 text-ink" data-testid="combine-suggestion"
+              onClick={() => setCombine(c => [...c, ...x.table_ids.filter(id => !c.includes(id))])}>{x.name}</button>
+          ))}
+          <div className="flex gap-2 shrink-0 ml-auto">
+            <button className="btn h-12" onClick={() => setCombine(null)} data-testid="combine-cancel"><X size={18} /> Cancel</button>
+            <button className="btn btn-primary h-12" disabled={picked.length < 2} onClick={finishCombine} data-testid="combine-go">Combine</button>
+          </div>
+        </div>
+      )}
       <div className="flex-1 min-h-0 px-3 pb-3">
         {rows
-          ? <TableRows tables={roomTables} byTable={byTable} config={config} onTap={tapTable} checkRow={checkRow} empty={area ? 'No tables in this room yet.' : null} />
+          ? <TableRows tables={roomTables} byTable={byTable} config={config} onTap={tapTable} checkRow={checkRow} picked={combine} empty={area ? 'No tables in this room yet.' : null} />
           : area && !narrow
-            ? <Plan area={area} tables={(config.tables || []).filter(t => t.floor_area_id === area.id)} byTable={byTable} onTap={tapTable} />
-            : <TableGrid tables={roomTables} byTable={byTable} onTap={tapTable} empty={area ? 'No tables in this room yet.' : null} />}
+            ? <Plan area={area} tables={allTables.filter(t => t.floor_area_id === area.id)} allTables={allTables} byTable={byTable} open={open} onTap={tapTable} picked={combine} />
+            : <TableGrid tables={roomTables} allTables={allTables} byTable={byTable} onTap={tapTable} picked={combine} empty={area ? 'No tables in this room yet.' : null} />}
       </div>
     </div>
   )
@@ -169,8 +241,13 @@ export default function Floor({ onOpen }) {
       )}
 
       {ask && (
-        <CoversModal title={'Table ' + ask.table.label} max={ask.table.max_covers} onClose={() => setAsk(null)} onDone={n => startTable(ask.table, n)}
-          onSkip={ask.skip ? () => startTable(ask.table, null) : null} />
+        <CoversModal title={tableTitleOf({ table_id: ask.table.id, joined_table_ids: ask.join || [] }, config)} max={ask.join?.length ? null : ask.table.max_covers}
+          onClose={() => setAsk(null)} onDone={n => startTable(ask.table, n, ask.join)}
+          onSkip={ask.skip ? () => startTable(ask.table, null, ask.join) : null} />
+      )}
+      {merging && (
+        <CombineConfirm check={merging.check} changes={merging.changes} config={config} onClose={() => setMerging(null)}
+          onConfirm={async () => { if (await runCombine(merging.check, merging.changes, config, approve)) { setMerging(null); setCombine(null) } }} />
       )}
       {choose && (
         <Modal title={'Table ' + choose.table.label} onClose={() => setChoose(null)}>
@@ -209,30 +286,52 @@ const STATE_STYLE = {
   billed: 'bg-warn text-white border-warn',
 }
 
-function TableTile({ table, list, style, onTap, compact = false }) {
+// The ring round every table of a combined party, in its state's colour.
+const PARTY_RING = { open: 'ring-brand', held: 'ring-held', billed: 'ring-warn' }
+
+/**
+ * A table on the floor. list: the open checks holding it. A table joined to
+ * a party (not its main table) says who it is with and leaves the total,
+ * guests and timer to the main table. picked: its place among the tables
+ * tapped in Combine tables (0 = not picked), or null when not combining.
+ */
+function TableTile({ table, list, allTables, style, onTap, compact = false, picked = null }) {
   const state = tableState(list)
-  const c = list?.[0]
-  const total = (list || []).reduce((s, x) => s + checkTotals(x).total, 0)
-  const covers = (list || []).reduce((s, x) => s + (Number(x.covers) || 0), 0)
+  // Checks whose main table this is, and the party it is joined to.
+  const own = (list || []).filter(x => x.table_id === table.id)
+  const c = own[0]
+  const party = (list || []).find(x => joinedTables(x).length)
+  const total = own.reduce((s, x) => s + checkTotals(x).total, 0)
+  const covers = own.reduce((s, x) => s + (Number(x.covers) || 0), 0)
   return (
-    <button onClick={() => onTap(table)} style={style}
-      className={cx('border-2 flex flex-col items-center justify-center text-center touch-manipulation active:scale-[0.97] transition-transform shadow-sm overflow-hidden',
-        table.shape === 'round' ? 'rounded-full' : 'rounded-2xl', STATE_STYLE[state])}>
+    <button onClick={() => onTap(table)} style={style} data-testid="table-tile" data-table={table.id} data-label={table.label} data-state={state}
+      data-party={party ? tableLabel(party, allTables) : ''} data-main={party ? (party.table_id === table.id ? '1' : '0') : ''} data-picked={picked ? String(picked) : ''}
+      className={cx('relative border-2 flex flex-col items-center justify-center text-center touch-manipulation active:scale-[0.97] transition-transform shadow-sm',
+        table.shape === 'round' ? 'rounded-full' : 'rounded-2xl', STATE_STYLE[state],
+        picked ? 'ring-4 ring-offset-2 ring-ink' : party && 'ring-2 ring-offset-2 ' + PARTY_RING[state])}>
+      {picked ? <span className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-ink text-white text-sm font-bold flex items-center justify-center shadow">{picked}</span> : null}
       <div className={cx('font-bold leading-none', compact ? 'text-lg' : 'text-xl')}>{table.label}</div>
+      {party && (
+        <div className="text-[11px] leading-tight mt-1 font-semibold inline-flex items-center gap-0.5 max-w-full px-1" data-testid="table-party">
+          <Link2 size={11} className="shrink-0" /><span className="truncate">{tableLabel(party, allTables)}</span>
+        </div>
+      )}
       {c ? (
-        <div className="text-[12px] leading-tight mt-1 opacity-95 font-semibold">
+        <div className="text-[12px] leading-tight mt-0.5 opacity-95 font-semibold">
           <div>{money(total)}</div>
           <div className="flex items-center justify-center gap-1">{covers ? <><Users size={11} />{covers}</> : null} {elapsed(c.opened_at)}</div>
-          {list.length > 1 && <div>{list.length} checks</div>}
+          {own.length > 1 && <div>{own.length} checks</div>}
         </div>
-      ) : (
+      ) : !list?.length ? (
         <div className="text-[12px] text-muted mt-1">{table.max_covers} seats</div>
-      )}
+      ) : null}
     </button>
   )
 }
 
-function Plan({ area, tables, byTable, onTap }) {
+const placeOf = (picked, id) => (picked ? picked.indexOf(id) + 1 : null)
+
+function Plan({ area, tables, allTables, byTable, open, onTap, picked = null }) {
   const box = useRef(null)
   const [size, setSize] = useState({ w: 800, h: 500 })
   useEffect(() => {
@@ -242,21 +341,43 @@ function Plan({ area, tables, byTable, onTap }) {
     return () => ro.disconnect()
   }, [])
   const scale = Math.max(8, Math.min(size.w / area.width, size.h / area.height))
+  const boxOf = t => {
+    const turned = t.rotation === 90 || t.rotation === 270
+    const w = (turned ? t.h : t.w) || 3, h = (turned ? t.w : t.h) || 3
+    return { left: (t.x || 0) * scale, top: (t.y || 0) * scale, width: w * scale, height: h * scale, small: Math.min(w, h) * scale < 70 }
+  }
+  // A line from a combined party's main table to each table joined to it
+  // (the ones in this room), in the party's colour.
+  const here = new Map(tables.map(t => [t.id, boxOf(t)]))
+  const mid = b => ({ x: b.left + b.width / 2, y: b.top + b.height / 2 })
+  const links = (open || []).flatMap(c => {
+    const from = here.get(c.table_id)
+    if (!from) return []
+    const state = tableState(byTable[c.table_id])
+    return joinedTables(c).filter(id => here.has(id)).map(id => ({ key: c.id + id, a: mid(from), b: mid(here.get(id)), state }))
+  })
   return (
     <div ref={box} className="w-full h-full">
-      <div className="relative mx-auto rounded-2xl bg-white border border-line" style={{ width: area.width * scale, height: area.height * scale }}>
+      <div className="relative mx-auto rounded-2xl bg-white border border-line" style={{ width: area.width * scale, height: area.height * scale }} data-testid="floor-plan">
         {(area.decor || []).map(d => (
           <div key={d.id} className={cx('absolute flex items-center justify-center text-xs font-semibold text-muted pointer-events-none',
             d.kind === 'wall' ? 'bg-slate-400' : d.kind === 'bar' ? 'bg-amber-100 border border-amber-300 rounded-lg' : d.kind === 'plant' ? 'bg-green-100 rounded-full' : '')}
             style={{ left: d.x * scale, top: d.y * scale, width: d.w * scale, height: d.h * scale }}>{d.text}</div>
         ))}
+        {links.length > 0 && (
+          <svg className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden>
+            {links.map(l => (
+              <line key={l.key} x1={l.a.x} y1={l.a.y} x2={l.b.x} y2={l.b.y} stroke="currentColor" strokeWidth="8" strokeLinecap="round" data-testid="table-link"
+                className={l.state === 'billed' ? 'text-warn' : l.state === 'held' ? 'text-held' : 'text-brand'} />
+            ))}
+          </svg>
+        )}
         {tables.map(t => {
-          const turned = t.rotation === 90 || t.rotation === 270
-          const w = (turned ? t.h : t.w) || 3, h = (turned ? t.w : t.h) || 3
+          const b = boxOf(t)
           return (
-            <TableTile key={t.id} table={t} list={byTable[t.id]} onTap={onTap}
-              compact={Math.min(w, h) * scale < 70}
-              style={{ position: 'absolute', left: (t.x || 0) * scale, top: (t.y || 0) * scale, width: w * scale, height: h * scale }} />
+            <TableTile key={t.id} table={t} list={byTable[t.id]} allTables={allTables} onTap={onTap} picked={placeOf(picked, t.id)}
+              compact={b.small}
+              style={{ position: 'absolute', left: b.left, top: b.top, width: b.width, height: b.height }} />
           )
         })}
       </div>
@@ -266,12 +387,12 @@ function Plan({ area, tables, byTable, onTap }) {
 
 const NO_TABLES = 'No tables yet. Add tables in Macaroonie (Tables) and place them on the floor plan (Store tech, Floor plan).'
 
-function TableGrid({ tables, byTable, onTap, empty = null }) {
+function TableGrid({ tables, allTables, byTable, onTap, picked = null, empty = null }) {
   if (!tables.length) return <div className="card p-6 text-muted">{empty || NO_TABLES}</div>
   return (
     <div className="h-full overflow-y-auto">
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))' }}>
-        {tables.map(t => <TableTile key={t.id} table={t} list={byTable[t.id]} onTap={onTap} style={{ height: 110 }} />)}
+      <div className="grid gap-3 p-2.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))' }}>
+        {tables.map(t => <TableTile key={t.id} table={t} list={byTable[t.id]} allTables={allTables} onTap={onTap} picked={placeOf(picked, t.id)} style={{ height: 110 }} />)}
       </div>
     </div>
   )
@@ -281,20 +402,26 @@ function TableGrid({ tables, byTable, onTap, empty = null }) {
  * A phone's tables as rows (the till's On a phone: List), in the order of
  * their names: a free table opens a check when tapped; a table with one
  * check is that check's row, which swipes; one with several says so and,
- * tapped, lists them (each of those swipes too).
+ * tapped, lists them (each of those swipes too). A combined party is one
+ * row, at its main table ("Tables 4 + 5"): its joined tables have no row of
+ * their own. picked: the tables tapped in Combine tables (null = not
+ * combining); a picked row is ringed.
  */
-function TableRows({ tables, byTable, config, onTap, checkRow, empty = null }) {
+function TableRows({ tables, byTable, config, onTap, checkRow, picked = null, empty = null }) {
   if (!tables.length) return <div className="card p-6 text-muted">{empty || NO_TABLES}</div>
+  const ring = id => (picked?.includes(id) ? 'rounded-2xl ring-4 ring-ink' : '')
   return (
-    <div className="h-full overflow-y-auto space-y-2" data-testid="table-rows">
+    <div className="h-full overflow-y-auto space-y-2 p-1" data-testid="table-rows">
       {tables.map(t => {
         const list = byTable[t.id] || []
-        if (list.length === 1) return checkRow(list[0], () => onTap(t))
+        // Joined to a party whose row is at its main table.
+        if (list.length && list.every(c => c.table_id !== t.id)) return null
+        if (list.length === 1) return <div key={t.id} className={ring(t.id)} data-picked={picked?.includes(t.id) ? '1' : ''}>{checkRow(list[0], () => onTap(t))}</div>
         const total = list.reduce((s, x) => s + checkTotals(x).total, 0)
         const state = tableState(list)
         return (
-          <button key={t.id} onClick={() => onTap(t)} data-testid="table-row" data-table={t.id} data-state={state}
-            className="w-full card p-3 flex items-center gap-3 text-left touch-manipulation active:bg-page">
+          <button key={t.id} onClick={() => onTap(t)} data-testid="table-row" data-table={t.id} data-label={t.label} data-state={state} data-picked={picked?.includes(t.id) ? '1' : ''}
+            className={cx('w-full card p-3 flex items-center gap-3 text-left touch-manipulation active:bg-page', ring(t.id))}>
             <div className={cx('w-12 h-12 border-2 flex items-center justify-center font-bold shrink-0', t.shape === 'round' ? 'rounded-full' : 'rounded-xl', STATE_STYLE[state])}>{t.label}</div>
             <div className="flex-1 min-w-0">
               <div className="font-semibold truncate">Table {t.label}</div>
@@ -308,10 +435,10 @@ function TableRows({ tables, byTable, config, onTap, checkRow, empty = null }) {
   )
 }
 
-/** What a check's row is called: its table, its name, its order number, else Tab T2-4. */
+/** What a check's row is called: its table ("Tables 4 + 5" when combined), its name, its order number, else Tab T2-4. */
 export function rowTitle(check, config) {
-  const table = check.table_id ? (config.tables || []).find(x => x.id === check.table_id) : null
-  if (table) return 'Table ' + table.label
+  const tables = tableTitleOf(check, config)
+  if (tables) return tables
   return check.tab_name || (check.order_no != null ? 'Order #' + check.order_no : 'Tab ' + checkLabel(check))
 }
 
@@ -326,11 +453,16 @@ export function CheckRow({ check, config, onClick, active = false, buttonProps =
   const server = { name: serverName(config, check.server_id) }
   const held = heldCourses(check).length
   return (
-    <button onClick={onClick} {...buttonProps} data-testid="check-row" data-check={check.id}
+    <button onClick={onClick} {...buttonProps} data-testid="check-row" data-check={check.id} data-title={rowTitle(check, config)}
       className={cx('w-full card p-3 flex items-center gap-3 text-left touch-manipulation active:bg-page', active && 'ring-2 ring-brand', buttonProps?.className)}>
       <div className={cx('w-12 h-12 rounded-xl flex items-center justify-center font-bold shrink-0',
         check.billed ? 'bg-warn text-white' : held ? 'bg-held text-white' : 'bg-brand-soft text-brand')}>
-        {table ? table.label : check.order_no != null ? '#' + check.order_no : <ReceiptText size={20} />}
+        {table ? (
+          <span className="flex flex-col items-center leading-none">
+            <span>{table.label}</span>
+            {joinedTables(check).length > 0 && <span className="text-[10px] mt-0.5">+{joinedTables(check).length}</span>}
+          </span>
+        ) : check.order_no != null ? '#' + check.order_no : <ReceiptText size={20} />}
       </div>
       <div className="flex-1 min-w-0">
         <div className="font-semibold truncate">{rowTitle(check, config)}</div>

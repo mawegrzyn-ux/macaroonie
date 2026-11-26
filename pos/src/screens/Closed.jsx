@@ -9,6 +9,7 @@ import { ulid } from '@shared/pos/ids.js'
 import { checkTotals, modifierText, groupModifiers } from '@shared/pos/pricing.js'
 import { checkLabel, TENDERS } from '@shared/pos/checks.js'
 import { numberText } from '@shared/pos/numbers.js'
+import { tablesOf, tableTitle } from '@shared/pos/tables.js'
 import { useTill, useChecks, dispatch, toast, printBill, server, loadCheck, cardRefund, serverName } from '../lib/store.js'
 import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } from '../components/ui.jsx'
 import { useNarrow } from '../lib/tillLayout.js'
@@ -31,13 +32,13 @@ export default function Closed() {
     const local = Object.values(checks).filter(c => c.status === 'closed' || c.status === 'void')
     const ids = new Set(local.map(c => c.id))
     const rows = [
-      ...local.map(c => ({ id: c.id, number: c.number, number_code: c.number_code, order_no: c.order_no, table_id: c.table_id, tab_name: c.tab_name, closed_at: c.closed_at, total: checkTotals(c).total, status: c.status, cancelled: !!c.cancelled, local: true })),
+      ...local.map(c => ({ id: c.id, number: c.number, number_code: c.number_code, order_no: c.order_no, table_id: c.table_id, joined_table_ids: c.joined_table_ids || [], tab_name: c.tab_name, closed_at: c.closed_at, total: checkTotals(c).total, status: c.status, cancelled: !!c.cancelled, local: true })),
       ...remote.filter(r => !ids.has(r.id)),
     ].sort((a, b) => String(b.closed_at || '').localeCompare(String(a.closed_at || '')))
     const term = q.trim().toLowerCase()
     if (!term) return rows
     return rows.filter(r => checkLabel(r).toLowerCase().includes(term) || (numberText(r) || '').toLowerCase().includes(term) || (r.tab_name || '').toLowerCase().includes(term)
-      || ((config.tables || []).find(t => t.id === r.table_id)?.label || '').toLowerCase() === term)
+      || tablesOf(r).some(id => ((config.tables || []).find(t => t.id === id)?.label || '').toLowerCase() === term))
   }, [checks, remote, q, config])
 
   const open = async row => {
@@ -63,12 +64,12 @@ export default function Closed() {
         </div>
         <div className="flex-1 overflow-y-auto divide-y divide-line">
           {list.map(r => {
-            const table = (config.tables || []).find(t => t.id === r.table_id)
+            const tables = tableTitle(r, config.tables)
             return (
               <button key={r.id} className={cx('w-full p-3 flex items-center gap-3 text-left', selected === r.id && 'bg-brand-soft')} onClick={() => open(r)}>
                 <div className="w-16 font-bold">{checkLabel(r)}</div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold truncate">{table ? 'Table ' + table.label : r.tab_name || 'Tab'}{r.status === 'void' ? (r.cancelled ? ' (cancelled)' : ' (empty)') : ''}</div>
+                  <div className="font-semibold truncate">{tables || r.tab_name || 'Tab'}{r.status === 'void' ? (r.cancelled ? ' (cancelled)' : ' (empty)') : ''}</div>
                   <div className="text-xs text-muted">{r.closed_at ? new Date(r.closed_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}</div>
                 </div>
                 <div className="font-bold tabular-nums">{money(r.total)}</div>
@@ -96,7 +97,7 @@ function ClosedDetail({ check, config }) {
   const [amount, setAmount] = useState('')
   const [tender, setTender] = useState('cash')
   const t = checkTotals(check)
-  const table = (config.tables || []).find(x => x.id === check.table_id)
+  const tables = tableTitle(check, config.tables)
   const reopen = async () => {
     const approver = await approve('reopen', null, 'Reopening a closed check needs a manager.')
     if (approver === false) return
@@ -130,7 +131,7 @@ function ClosedDetail({ check, config }) {
   return (
     <div className="max-w-2xl space-y-4">
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="text-2xl font-bold w-full sm:w-auto sm:flex-1">Check {checkLabel(check)} · {table ? 'Table ' + table.label : check.tab_name || 'Tab'}</div>
+        <div className="text-2xl font-bold w-full sm:w-auto sm:flex-1">Check {checkLabel(check)} · {tables || check.tab_name || 'Tab'}</div>
         <button className="btn" onClick={() => printBill(check)}><Printer size={18} /> Receipt</button>
         {check.status === 'closed' && <>
           <button className="btn" onClick={() => { setMode('reopen'); setReason('') }}><RotateCcw size={18} /> Reopen</button>

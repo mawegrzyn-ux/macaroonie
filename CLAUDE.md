@@ -49,7 +49,7 @@ lives in that area's file, which is read only when a task touches the area.
 | `docs/claude/outstanding/<area>.md` | What isn't built, known limits and follow-ups, one file per area (`OUTSTANDING.md` is only the index). |
 | `docs/claude/estimates.md` | Each feature step's estimate against what it took (build, merge, model, effort). Add a row for every step you build. |
 | `areas.json` | Which files belong to which area; checked by `scripts/check-areas.mjs` (see Working in parallel). |
-| `docs/*.md` | Design documents: `POS.md`, `REPORTS.md`, `CHAT_FIRST.md`, `PEPPER_FIRST.md`, `ORDERING_APP.md`, `ANDROID_HUB.md`, `SALES_IMPORT.md`, `CATALOGUE.md`, `PARALLEL_WORK.md`. |
+| `docs/*.md` | Design documents: `POS.md`, `REPORTS.md`, `CHAT_FIRST.md`, `PEPPER_FIRST.md`, `ORDERING_APP.md`, `ANDROID_HUB.md`, `SALES_IMPORT.md`, `CATALOGUE.md`, `PARALLEL_WORK.md`, `INVENTORY.md`. |
 | `docs/claude/backup/` | The whole CLAUDE.md as it was on 21 Nov 2026, before it was split. Never loaded; searches skip it (the root `.ignore`). |
 
 The areas:

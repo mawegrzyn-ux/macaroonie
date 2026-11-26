@@ -25,6 +25,7 @@ import { sharedDevice } from '@/lib/sharedDevice'
 import { useRealtimeBookings } from '@/hooks/useRealtimeBookings'
 import { usePermission } from '@/hooks/usePermission'
 import { statusChoices } from '@/components/bookings/statuses'
+import { tableIdsOf } from '@/components/bookings/tableRuns'
 
 const VENUE_KEY = 'maca_phone_bookings_venue'
 const TODAY_VENUE_KEY = 'maca_today_venue' // the Today page's venue (pages/Home.jsx VENUE_KEY)
@@ -93,9 +94,24 @@ export function StatusPill({ status, className }) {
   )
 }
 
-/** Covers and the table (or tables) a booking sits at. */
-export function tableText(b) {
+/** A venue's tables (the Tables page's and the office Timeline's query). */
+export function useVenueTables(venueId) {
+  const api = useApi()
+  return useQuery({ queryKey: ['tables', venueId], queryFn: () => api.get(`/venues/${venueId}/tables`), enabled: !!venueId })
+}
+
+/**
+ * The table (or tables) a booking sits at. A combination is named by its
+ * tables ("T4 + T5", sort order) when the venue's tables are given: its own
+ * name is whatever was typed on the Tables page and may not say which.
+ */
+export function tableText(b, tables) {
   if (b.table_is_unallocated) return 'Unallocated'
+  const ids = tableIdsOf(b)
+  if (ids.length > 1 && tables?.length) {
+    const labels = ids.map(id => tables.find(t => t.id === id)?.label).filter(Boolean)
+    if (labels.length === ids.length) return labels.join(' + ')
+  }
   return b.combination_name || b.table_label || ''
 }
 
@@ -151,6 +167,7 @@ export function BookingSheet({ booking: initial, bookings, onClose }) {
   const booking = bookings?.find(b => b.id === initial.id) ?? initial
   const { canManage } = usePermission('bookings')
   const { data: rules } = useBookingRules(booking.venue_id)
+  const { data: tables } = useVenueTables(booking.venue_id)
   const setStatus = useSetStatus()
   const [asking, setAsking] = useState(null)
   const choices = statusChoices(rules, booking.status)
@@ -178,7 +195,7 @@ export function BookingSheet({ booking: initial, bookings, onClose }) {
           <div className="grid grid-cols-3 gap-2 text-center">
             <Fact label="Time" value={`${formatTime(booking.starts_at)}–${formatTime(booking.ends_at)}`} />
             <Fact label="Covers" value={booking.covers} />
-            <Fact label="Table" value={tableText(booking) || '–'} />
+            <Fact label={tableIdsOf(booking).length > 1 ? 'Tables' : 'Table'} value={tableText(booking, tables) || '–'} />
           </div>
           <div className="flex items-center gap-2"><span className="text-xs text-muted-foreground">Status</span><StatusPill status={booking.status} /></div>
           {(booking.guest_phone || email) && (
@@ -277,9 +294,7 @@ export function NewBookingSheet({ venues, venueId: startVenue, date: startDate, 
     enabled: !!venueId && !!date,
   })
   const times = (slotsQ.data?.slots ?? []).filter(s => s.available && (s.table_id || s.combination_id))
-  const { data: tables = [] } = useQuery({
-    queryKey: ['tables', venueId], queryFn: () => api.get(`/venues/${venueId}/tables`), enabled: !!venueId,
-  })
+  const { data: tables = [] } = useVenueTables(venueId)
   const heldAt = hold && !hold.combination_id ? tables.find(t => t.id === hold.table_id)?.label : null
 
   // Let a hold go: on a new time, a change of day or covers, and on leaving.

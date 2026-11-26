@@ -119,8 +119,8 @@ export function Section() {
       <DataTable
         head={['Tile', 'What it does']}
         rows={[
-          ['Timeline', 'A row per table with its bookings as blocks along the day: swipe the times sideways, the table names stay put. It opens at the current time with a red line at now. Cancelled and no-show bookings are hidden until you tap Show cancelled.'],
-          ['Guest list', 'The day\'s bookings by time: covers, table, status and notes, with a red warning sign when the notes mention an allergy or intolerance. Search by name or phone; the chips filter by status (Still to come leaves out cancelled, no-show and checked out). Arrived and Seated sit on each row. The tile shows how many bookings are still on today.'],
+          ['Timeline', 'A row per table with its bookings as blocks along the day: swipe the times sideways, the table names stay put. It opens at the current time with a red line at now. A booking on several tables is one box across their rows, with the tables it covers (T4 + T5), when those tables are next to each other in the list (the order on the Tables page). When they are apart it is a box per group of neighbouring tables, each with a dashed edge, a link mark and the other tables (also T8): tap any of them for the same booking. Cancelled and no-show bookings are hidden until you tap Show cancelled.'],
+          ['Guest list', 'The day\'s bookings by time: covers, table, status and notes, with a red warning sign when the notes mention an allergy or intolerance. A booking on several tables is listed once, with all its tables. Search by name or phone; the chips filter by status (Still to come leaves out cancelled, no-show and checked out). Arrived and Seated sit on each row. The tile shows how many bookings are still on today.'],
         ]}
       />
       <P>

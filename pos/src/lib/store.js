@@ -14,6 +14,7 @@
 
 import { useSyncExternalStore } from 'react'
 import { applyEvent, eventProblem, CHECK_EVENTS } from '@shared/pos/checks.js'
+import { tablesAsked, tableHolders } from '@shared/pos/tables.js'
 import { permissionProblem, managerProblem } from '@shared/pos/permissions.js'
 import { billOps, receiptHere } from '@shared/pos/printing.js'
 import { hashPin } from '@shared/pos/pin.js'
@@ -453,12 +454,18 @@ export function dispatchMany(specs) {
   if (!state.staff) return { ok: false, error: 'Sign in first' }
   let checks = currentChecks()
   const before = checks
-  const ctx = { staffById: staffById(), settings: state.config?.settings || null }
+  // The venue's tables, and for each event who holds the tables it asks for
+  // (combined tables, shared/pos/tables.js): the till refuses here what the
+  // sequencer would, from the checks it has.
+  const ctx = {
+    staffById: staffById(), settings: state.config?.settings || null,
+    tables: Object.fromEntries((state.config?.tables || []).map(t => [t.id, t])),
+  }
   const events = []
   for (const [type, payload, opts] of specs) {
     const e = makeEvent(type, payload, opts)
     if (CHECK_EVENTS.includes(type)) {
-      const r = applyEvent(checks, e, ctx)
+      const r = applyEvent(checks, e, { ...ctx, holders: tableHolders(checks, tablesAsked(e, checks), e.check_id) })
       if (!r.ok) return { ok: false, error: r.error, code: r.code }
       checks = { ...checks, ...r.checks }
     } else {

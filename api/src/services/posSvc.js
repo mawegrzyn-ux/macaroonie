@@ -32,6 +32,7 @@ import { normalisePermissions, normaliseApprovals, DEFAULT_POS_ROLES } from '../
 import { normaliseDiscount } from '../../../shared/pos/discounts.js'
 import { normaliseCharge } from '../../../shared/pos/charges.js'
 import { TENDERS } from '../../../shared/pos/checks.js'
+import { joinedTables } from '../../../shared/pos/tables.js'
 import { STALE_HOURS } from '../../../shared/pos/kitchen.js'
 import { normaliseKitchenColours } from '../../../shared/pos/kitchenColours.js'
 import { pullTimes } from '../../../shared/pos/pullTimes.js'
@@ -362,6 +363,16 @@ export async function tillConfig(tx, tenantId, venueId) {
         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND revoked_at IS NULL`,
   ])
   const staff = await loadTillStaff(tx, tenantId, venueId, { signIn: true })
+  // Bookings' table combinations (Tables > Combinations), as one-tap choices
+  // in the till's Combine tables window: the ones whose tables the till has.
+  const shown = new Set(tables.map(t => t.id))
+  const combinations = (await tx`
+    SELECT c.id, c.name, array_agg(m.table_id ORDER BY t.sort_order, t.label) AS table_ids
+      FROM table_combinations c
+      JOIN table_combination_members m ON m.combination_id = c.id
+      JOIN tables t ON t.id = m.table_id AND t.tenant_id = c.tenant_id
+     WHERE c.tenant_id = ${tenantId} AND c.venue_id = ${venueId} AND c.is_active
+     GROUP BY c.id ORDER BY c.name`).filter(c => c.table_ids.length > 1 && c.table_ids.every(id => shown.has(id)))
   // The order flows that run here; the dishes the tills' prompts offer
   // carry their photos (a prompt's look can show them).
   const flows = await loadOrderFlows(tx, tenantId, venueId)
@@ -393,6 +404,7 @@ export async function tillConfig(tx, tenantId, venueId) {
     courses,
     floor_areas: areas.map(a => ({ ...a, decor: a.decor || [] })),
     tables,
+    table_combinations: combinations,
     roles: roles.map(r => ({ id: r.id, name: r.name, permissions: normalisePermissions(r.permissions || {}) })),
     staff,
     menus,
@@ -554,6 +566,8 @@ export function projectionRows(c, { tenantId, venueId, seq, totals }) {
     id: c.id, tenant_id: tenantId, venue_id: venueId, day_id: c.day_id ?? null,
     number: c.number ?? null, number_code: c.number_code ?? null, order_no: c.order_no ?? null,
     mode: c.mode, table_id: c.table_id ?? null, tab_name: c.tab_name ?? null, covers: c.covers ?? null,
+    // The other tables it holds (combined tables, shared/pos/tables.js, migration 297).
+    joined_table_ids: joinedTables(c).filter(asUuid),
     server_id: c.server_id ?? null, revenue_stream_id: c.revenue_stream_id ?? null,
     order_type_id: c.order_type_id ?? null, tent: c.tent ?? null,
     status: c.status, opened_at: c.opened_at ?? null, closed_at: c.closed_at ?? null,
@@ -610,6 +624,7 @@ async function saveCheck(tx, tenantId, venueId, c, seq) {
     INSERT INTO pos_checks ${tx({ ...r.check, state: tx.json(c) })}
     ON CONFLICT (id) DO UPDATE SET
       number = EXCLUDED.number, number_code = EXCLUDED.number_code, order_no = EXCLUDED.order_no, mode = EXCLUDED.mode, table_id = EXCLUDED.table_id,
+      joined_table_ids = EXCLUDED.joined_table_ids,
       tab_name = EXCLUDED.tab_name, covers = EXCLUDED.covers, server_id = EXCLUDED.server_id,
       revenue_stream_id = EXCLUDED.revenue_stream_id, order_type_id = EXCLUDED.order_type_id, tent = EXCLUDED.tent,
       status = EXCLUDED.status, closed_at = EXCLUDED.closed_at,
@@ -809,6 +824,16 @@ export function sequencer(tenantId, venueId, { deviceId = null, hubId = null } =
       // Test checks (the Test data page, migration 245) are no till's: an event naming one finds no check.
       const rows = await tx`SELECT id, state FROM pos_checks WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND id = ANY(${ids}::text[]) AND NOT is_generated`
       return Object.fromEntries(rows.map(r => [r.id, r.state]))
+    },
+    // Who holds these tables, as a main table or a joined one (shared/pos/tables.js).
+    async openChecksOnTables(ids) {
+      const list = ids.filter(asUuid)
+      if (!list.length) return []
+      const rows = await tx`
+        SELECT state FROM pos_checks
+         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND status = 'open' AND NOT is_generated
+           AND (table_id = ANY(${list}::uuid[]) OR joined_table_ids && ${list}::uuid[])`
+      return rows.map(r => r.state)
     },
     async openCheckCount() {
       const [{ n }] = await tx`SELECT count(*)::int AS n FROM pos_checks WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND status = 'open'`

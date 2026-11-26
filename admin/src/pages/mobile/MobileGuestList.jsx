@@ -1,7 +1,8 @@
 // src/pages/mobile/MobileGuestList.jsx
 //
 // The day's guest list on a phone (/mobile/guest-list, `bookings` module):
-// every booking by time with its covers, table, status and notes, a red flag
+// every booking by time with its covers, table (a booking on several tables
+// once, its tables named), status and notes, a red flag
 // when the notes mention an allergy, search by name or phone, a filter by
 // status (still to come by default: cancelled, no-show and checked out are
 // under All), and Arrived / Seated on the row for the host stand (bookings
@@ -16,7 +17,7 @@ import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { statusChoices, INACTIVE_STATUSES } from '@/components/bookings/statuses'
 import {
-  usePhoneVenue, useDayBookings, useBookingRules, useSetStatus, venueToday, VenueDayBar, BookingSheet, NewBookingSheet,
+  usePhoneVenue, useDayBookings, useBookingRules, useVenueTables, useSetStatus, venueToday, VenueDayBar, BookingSheet, NewBookingSheet,
   StatusPill, tableText, allergyIn, useDayFigures,
 } from '@/components/bookings/phone'
 
@@ -36,6 +37,7 @@ export default function MobileGuestList() {
   const { canManage } = usePermission('bookings')
   const { data: bookings = [], isLoading } = useDayBookings(venueId, day)
   const { data: rules } = useBookingRules(venueId)
+  const { data: tables } = useVenueTables(venueId)
   const setStatus = useSetStatus()
   const figures = useDayFigures(bookings)
 
@@ -111,7 +113,7 @@ export default function MobileGuestList() {
                     <span className="text-sm font-semibold truncate">{b.guest_name}</span>
                     {allergyIn(b) && <TriangleAlert className="w-4 h-4 shrink-0 text-red-600" aria-label="Allergy in the notes" data-testid="mgl-allergy" />}
                   </span>
-                  <span className="block text-xs text-muted-foreground">{b.covers} {b.covers === 1 ? 'cover' : 'covers'}{tableText(b) ? ' · ' + tableText(b) : ''}</span>
+                  <span className="block text-xs text-muted-foreground" data-testid="mgl-where">{b.covers} {b.covers === 1 ? 'cover' : 'covers'}{tableText(b, tables) ? ' · ' + tableText(b, tables) : ''}</span>
                   {(b.guest_notes || b.operator_notes) && (
                     <span className={cn('mt-1 flex items-start gap-1 text-xs', allergyIn(b) ? 'text-red-700' : 'text-muted-foreground')}>
                       <StickyNote className="w-3 h-3 mt-0.5 shrink-0" /><span className="line-clamp-2">{[b.guest_notes, b.operator_notes].filter(Boolean).join(' · ')}</span>
