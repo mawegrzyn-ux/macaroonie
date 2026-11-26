@@ -292,6 +292,8 @@ export const BUTTON_ACTIONS = [
   { key: 'tent', label: 'Tent number', check: true, group: 'Order' },
   { key: 'allergy', label: 'Allergy', check: true, group: 'Order' },
   { key: 'table', label: 'Table', check: true, group: 'Order' },
+  // Combined tables (shared/pos/tables.js): the party's other tables.
+  { key: 'combine', label: 'Combine tables', check: true, group: 'Order' },
   { key: 'move', label: 'Split / move items', check: true, group: 'Order' },
   { key: 'merge', label: 'Merge checks', check: true, group: 'Order' },
   { key: 'charges', label: 'Charges', check: true, group: 'Order' },

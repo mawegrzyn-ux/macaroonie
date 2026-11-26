@@ -29,9 +29,12 @@ import { chargeProblem, chargeMismatch, chargeList, onCheck, switchCharges, CHEC
 import { discountList, presetMismatch } from './discounts.js'
 import { allergyProblem, cleanAllergy, mergeAllergy } from './allergy.js'
 import { flowChargeAdd, cleanFlowsOff, isFlowKey, FLOWS_OFF_MAX } from './orderFlows.js'
+import { CHECK_TABLES_MAX, joinedTables, tablesOf, joinedElsewhere, heldElsewhere, withJoined } from './tables.js'
 
 export const CHECK_EVENTS = [
   'check.opened', 'check.covers_set', 'check.table_moved', 'check.server_changed',
+  // Combined tables (shared/pos/tables.js): the other tables a party sits at.
+  'check.tables_joined', 'check.tables_split',
   'check.stream_set', 'check.order_type_set', 'check.tent_set',
   'check.renamed', 'check.note_set', 'check.allergy_set', 'check.member_set',
   // An order flow's prompt asked (shared/pos/orderFlows.js): not asked again.
@@ -207,6 +210,13 @@ export function eventProblem(e) {
     case 'check.table_moved':
       if (p.table_id != null && !isUuid(p.table_id)) return bad('table_id')
       return optText(p.tab_name, 80) ? null : bad('tab_name')
+    case 'check.tables_joined':
+    case 'check.tables_split': {
+      // Tables joined to the check, or split off it again (shared/pos/tables.js).
+      const ids = p.table_ids
+      if (!Array.isArray(ids) || !ids.length || ids.length >= CHECK_TABLES_MAX || !ids.every(isUuid)) return bad('table_ids')
+      return new Set(ids).size === ids.length ? null : bad('table_ids: the same table twice')
+    }
     case 'check.server_changed':
       return isUuid(p.server_id) ? null : bad('server_id')
     case 'check.stream_set': {
@@ -437,7 +447,7 @@ function newCheck(e) {
 }
 
 const OPEN_ONLY = new Set([
-  'check.covers_set', 'check.table_moved', 'check.server_changed', 'check.stream_set',
+  'check.covers_set', 'check.table_moved', 'check.tables_joined', 'check.tables_split', 'check.server_changed', 'check.stream_set',
   'check.order_type_set', 'check.tent_set', 'check.renamed', 'check.allergy_set', 'check.flow_asked',
   'line.added', 'line.changed', 'line.deleted', 'lines.sent', 'course.fired', 'line.voided',
   'discount.applied', 'discount.removed', 'promotions.set',
@@ -452,6 +462,12 @@ const OPEN_ONLY = new Set([
  *           = the venue's till settings: its approvals switches, its list
  *           of discounts, settings.discounts, shared/pos/discounts.js, and
  *           of charges, settings.charges, shared/pos/charges.js)
+ *           For tables (shared/pos/tables.js), when the caller knows them:
+ *           holders = the open checks holding any of tablesAsked(event)
+ *           (tableHolders(): the sequencer's from its store, the till's from
+ *           the checks it has), and tables (or print.tables) = the venue's
+ *           tables { [id]: { label } }. Without them those rules are skipped
+ *           (a replay, the Test data page).
  * Returns { ok: true, checks: { [id]: check } } with only the checks it
  * changed (new objects; the input is never changed), or { ok: false, error, code }.
  */
@@ -476,8 +492,20 @@ export function applyEvent(checks, e, ctx = {}) {
     return why ? fail(why, 'manager') : null
   }
 
+  // The venue's tables and who holds the ones this event asks for, when known.
+  const venueTables = ctx.tables || ctx.print?.tables || null
+  const tableName = id => (venueTables?.[id]?.label != null ? 'Table ' + venueTables[id].label : 'That table')
+  // A table joined to another open check is that party's: no new check
+  // opens on it and none moves to it until it is split off.
+  const takenProblem = tableId => {
+    if (!tableId || !ctx.holders || !joinedElsewhere(ctx.holders, tableId, e.check_id)) return null
+    return fail(tableName(tableId) + ' is combined with another order: split it off that order first', 'table_held')
+  }
+
   if (e.type === 'check.opened') {
     if (checks[e.check_id]) return fail('This check already exists', 'duplicate')
+    const taken = takenProblem(p.table_id)
+    if (taken) return taken
     return done({ [e.check_id]: newCheck(e) }, e)
   }
 
@@ -511,12 +539,47 @@ export function applyEvent(checks, e, ctx = {}) {
       c.covers = p.covers
       break
 
-    case 'check.table_moved':
+    case 'check.table_moved': {
+      const taken = takenProblem(p.table_id)
+      if (taken) return taken
+      // The party moves, its joined tables stay with it: only a joined
+      // table it moves to stops being one (the old main table is freed),
+      // and a check made a tab holds no tables at all.
+      const kept = p.table_id ? joinedTables(c).filter(id => id !== p.table_id) : []
       c.table_id = p.table_id ?? null
+      withJoined(c, kept)
       if (p.tab_name !== undefined) c.tab_name = p.tab_name
       if (c.table_id) c.mode = c.mode === 'counter' ? 'counter' : 'table'
       else if (c.mode === 'table') c.mode = 'tab'
       break
+    }
+
+    case 'check.tables_joined': {
+      // No permission of its own, as moving a table has none.
+      if (!c.table_id || c.mode === 'counter') return fail('Put the order on a table first', 'no_table')
+      if (p.table_ids.includes(c.table_id)) return fail('That is the order\'s own table', 'invalid')
+      const have = new Set(tablesOf(c))
+      const add = p.table_ids.filter(id => !have.has(id))
+      if (have.size + add.length > CHECK_TABLES_MAX) return fail('An order holds ' + CHECK_TABLES_MAX + ' tables at most', 'invalid')
+      if (venueTables) {
+        const unknown = add.find(id => !venueTables[id])
+        if (unknown) return fail('That table isn\'t one of this location\'s', 'table')
+      }
+      if (ctx.holders) {
+        const held = add.find(id => heldElsewhere(ctx.holders, id, c.id))
+        if (held) return fail(tableName(held) + ' has an open order: merge it into this one first', 'table_held')
+      }
+      withJoined(c, [...joinedTables(c), ...add])
+      break
+    }
+
+    case 'check.tables_split': {
+      const drop = new Set(p.table_ids)
+      const joined = joinedTables(c)
+      if (p.table_ids.some(id => !joined.includes(id))) return fail('That table isn\'t combined with this order', 'missing')
+      withJoined(c, joined.filter(id => !drop.has(id)))
+      break
+    }
 
     case 'check.server_changed': {
       if (c.server_id !== e.staff_id) { const no = need('take_over'); if (no) return no }
@@ -915,6 +978,8 @@ export function applyEvent(checks, e, ctx = {}) {
       c.lines = []
       c.discounts = []
       c.promotions = []
+      // Merged away, it holds no tables (the check it went into keeps its own).
+      withJoined(c, [])
       c.status = 'merged'
       c.merged_into = t.id
       c.closed_at = e.client_at ?? null
@@ -994,6 +1059,9 @@ export function applyEvent(checks, e, ctx = {}) {
       c.closed_at = null
       c.closed_by = null
       c.reopened = (c.reopened || 0) + 1
+      // Its joined tables come back with it, but for the ones another open
+      // check has taken since.
+      if (ctx.holders) withJoined(c, joinedTables(c).filter(id => !heldElsewhere(ctx.holders, id, c.id)))
       c.final = null
       c.cancelled = null
       delete c.cancelling
