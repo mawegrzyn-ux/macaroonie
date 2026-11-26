@@ -12,6 +12,9 @@
 //   - speech: the phone's own recognition and voice, for Pepper's dictation
 //     and talk mode (admin/src/lib/speech.js)
 //   - a barcode scanner (Scanner.js), for the order form's Scan button
+//   - share: a picture (or a link or a note) shared to the app from the
+//     gallery or another app, kept until the page takes it into Capture
+//     (shareCore.js; Android only for now)
 // Links off our two hosts open in the phone's browser; the back button goes
 // back in the pages. Android and iPhone from the same code (README.md); what
 // differs is kept in small files the tests run in Node: the keyboard and the
@@ -23,7 +26,7 @@
 // clear of all three: the web view sits inside the safe area, and while the
 // keyboard is up it ends where the keyboard starts.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, BackHandler, Keyboard, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, AppState, BackHandler, Keyboard, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView } from 'react-native-webview'
 import Constants from 'expo-constants'
@@ -32,8 +35,11 @@ import * as Notifications from 'expo-notifications'
 import * as Speech from 'expo-speech'
 import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition'
 import { createAuth } from './auth'
-import { bridgeScript, makeHandler } from './bridge'
-import { opsUrl, staysInApp, bridgeAllowed, noticeUrl } from './links'
+import { bridgeScript, makeHandler, sharedScript } from './bridge'
+import { opsUrl, staysInApp, bridgeAllowed, noticeUrl, onPhonePages } from './links'
+import { ShareIntentModule } from 'expo-share-intent'
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator'
+import { createShareInbox, whatWasShared, readShared, fitWithin, SHARE_MAX_EDGE } from './shareCore'
 import { Camera } from 'expo-camera'
 import Scanner from './Scanner'
 import { createSession } from './speechCore'
@@ -124,6 +130,46 @@ const speech = {
   stopSpeaking: () => Speech.stop(),
 }
 
+// Something shared to the app from another app: one item, in memory only,
+// until the page takes it (share.take) or SHARE_KEEP_MS passes (shareCore.js).
+const shareInbox = createShareInbox()
+
+/** A shared picture as base64 JPEG data, its longest side at most SHARE_MAX_EDGE (decoded small, so a 50 MP photo never sits in memory whole). */
+async function shrinkPicture(uri, quality) {
+  const loaded = await ImageManipulator.manipulate(uri, { maxWidth: SHARE_MAX_EDGE, maxHeight: SHARE_MAX_EDGE }).renderAsync()
+  const fit = fitWithin(loaded.width, loaded.height)
+  const image = fit ? await ImageManipulator.manipulate(loaded).resize(fit).renderAsync() : loaded
+  const saved = await image.saveAsync({ compress: quality, format: SaveFormat.JPEG, base64: true })
+  return saved.base64
+}
+
+/**
+ * The app as a share target (Android; the iPhone needs a share extension,
+ * not built yet). expo-share-intent's module sends what arrived, when the
+ * app was opened by the share and when a share reaches it while it is open
+ * (onChange); getShareIntent() asks for one that opened the app. Its own
+ * hook isn't used: it hands over only one address per file, and the content
+ * address (with the read grant the sharing app gave) is the one to try first.
+ */
+function useShareTarget(onArrived) {
+  const arrived = useRef(onArrived)
+  arrived.current = onArrived
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !ShareIntentModule) return undefined
+    const changed = ShareIntentModule.addListener('onChange', async e => {
+      try { ShareIntentModule.clearShareIntent('') } catch { /* nothing to clear */ }
+      try {
+        const item = await readShared(whatWasShared(e?.value), shrinkPicture)
+        if (item) { shareInbox.put(item); arrived.current?.() }
+      } catch { /* nothing kept */ }
+    })
+    const check = () => { Promise.resolve(ShareIntentModule.getShareIntent('')).catch(() => {}) }
+    check()
+    const state = AppState.addEventListener('change', s => { if (s === 'active') check() })
+    return () => { changed.remove(); state.remove() }
+  }, [])
+}
+
 export default function App() {
   return <SafeAreaProvider><Office /></SafeAreaProvider>
 }
@@ -151,8 +197,10 @@ function Office() {
   const [scanning, setScanning] = useState(null) // the scan's resolve while the camera is open
   const [startUrl, setStartUrl] = useState(opsUrl(ROOT))
   const [webKey, setWebKey] = useState(0)
+  const [shareWaiting, setShareWaiting] = useState(false)
   const web = useRef(null)
   const canGoBack = useRef(false)
+  const pageUrl = useRef(startUrl)
 
   useEffect(() => { auth.restore().then(u => setUser(u)).catch(() => setUser(null)) }, [])
 
@@ -168,6 +216,15 @@ function Office() {
   }, [])
 
   const run = useCallback(script => web.current?.injectJavaScript(script), [])
+
+  // A share arrived: on the phone pages the page is told (it opens the hub's
+  // Capture); anywhere else, or before sign-in, the phone home opens and
+  // takes it when it loads.
+  useShareTarget(() => {
+    setShareWaiting(true)
+    if (onPhonePages(pageUrl.current, ROOT)) run(sharedScript())
+    else { const home = opsUrl(ROOT); pageUrl.current = home; setStartUrl(home); setWebKey(n => n + 1) }
+  })
   const handle = useMemo(() => makeHandler({
     run,
     allowed: url => bridgeAllowed(url, ROOT),
@@ -182,6 +239,7 @@ function Office() {
       speech,
       scanner: { scan: () => new Promise(resolve => setScanning(() => resolve)) },
       // true when the camera may be used (asked once; Android remembers the answer).
+      share: { take: async () => { setShareWaiting(false); return shareInbox.take() } },
       camera: {
         permission: async () => {
           const now = await Camera.getCameraPermissionsAsync()
@@ -226,6 +284,7 @@ function Office() {
           {signingIn ? <ActivityIndicator color={NAVY} /> : <Text style={s.buttonText}>Sign in</Text>}
         </Pressable>
         {problem && <Text style={s.problem}>{problem}</Text>}
+        {shareWaiting && <Text style={s.small}>Sign in, and what you shared opens in Capture.</Text>}
         <Text style={s.small}>Signing in opens your phone&apos;s browser, then comes back here.</Text>
       </View>
     )
@@ -242,7 +301,7 @@ function Office() {
           style={s.web}
           injectedJavaScriptBeforeContentLoaded={bridgeScript(VERSION, Platform.OS)}
           onMessage={e => handle(e.nativeEvent.data, e.nativeEvent.url)}
-          onNavigationStateChange={n => { canGoBack.current = n.canGoBack }}
+          onNavigationStateChange={n => { canGoBack.current = n.canGoBack; if (n.url) pageUrl.current = n.url }}
           onShouldStartLoadWithRequest={req => {
             if (staysInApp(req.url, ROOT)) return true
             Linking.openURL(req.url).catch(() => {})

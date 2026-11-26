@@ -11,7 +11,7 @@
 // reusable piece, not a one-off page.
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, LayoutGrid } from 'lucide-react'
 import { useApi } from '@/lib/api'
@@ -22,6 +22,7 @@ import { MOBILE_MODULES } from '@/mobile/registry'
 import { IS_OPS_HOST } from '@/lib/hosts'
 import PageErrorBoundary from '@/components/PageErrorBoundary'
 import { SharedDeviceLayer } from '@/components/SharedDevice'
+import { useSharedGoesToHub } from '@/lib/officeApp'
 
 // Lets a mobile page (e.g. a full-page detail drilled into from a list —
 // see MobileCashUp's day view) suppress this shell's own header when it
@@ -102,6 +103,10 @@ export default function MobileShell() {
   const isHub = location.pathname === '/mobile' || location.pathname === '/mobile/'
   const activeModule = MOBILE_MODULES.find(m => location.pathname.startsWith(m.path))
   const title = isHub ? 'Office' : (activeModule?.label ?? 'Office')
+  // A picture shared to the Office app while another phone page is open: the
+  // hub takes it into Capture (MobileHub, lib/officeApp.jsx).
+  const navigate = useNavigate()
+  useSharedGoesToHub(isHub, () => navigate('/mobile'))
 
   // The group this phone works in, beside the title on every page; the
   // three-dot menu (MobileMenu) holds switch location and the rest.

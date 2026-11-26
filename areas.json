@@ -1267,6 +1267,7 @@
     "office-app/package-lock.json",
     "office-app/package.json",
     "office-app/scanCore.js",
+    "office-app/shareCore.js",
     "office-app/speechCore.js",
     "office-app/test/**",
     "shared/nav/links.js",
