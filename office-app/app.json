@@ -71,7 +71,20 @@
         }
       ],
       "expo-secure-store",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-share-intent",
+        {
+          "androidIntentFilters": [
+            "image/*",
+            "text/plain"
+          ],
+          "androidMultiIntentFilters": [
+            "image/*"
+          ],
+          "disableIOS": true
+        }
+      ]
     ],
     "extra": {
       "eas": {

@@ -23,13 +23,18 @@ export const CALLS = {
   // the camera to an app that declares it until it has been granted, so a
   // Photo button did nothing until someone had opened the scanner.
   'camera.permission':   s => s.camera.permission(),
+  // A picture or words shared to the app from another app (shareCore.js),
+  // once: { kind: 'image', name, type, dataBase64, more } | { kind: 'text',
+  // text } | { kind: 'refused', message } | null. Older builds have no
+  // share part: the page feature-detects MacaroonieOffice.share.
+  'share.take':          s => (s.share ? s.share.take() : null),
 }
 
 /** platform: 'android' | 'ios' (React Native's Platform.OS), shown to the page as MacaroonieOffice.platform. */
 export function bridgeScript(version, platform = 'android') {
   return `(function () {
   if (window.MacaroonieOffice) return;
-  var seq = 0, waiting = {}, listeners = {};
+  var seq = 0, waiting = {}, listeners = {}, sharedListeners = [];
   function post(msg) { window.ReactNativeWebView.postMessage(JSON.stringify(msg)); }
   function call(type, args) {
     return new Promise(function (resolve, reject) {
@@ -48,6 +53,9 @@ export function bridgeScript(version, platform = 'android') {
       if (name === 'text' && l.onText) l.onText(value.text, !!value.final);
       if (name === 'error' && l.onError) l.onError(value);
       if (name === 'end') { delete listeners[id]; if (l.onEnd) l.onEnd(); }
+    },
+    shared: function () {
+      sharedListeners.slice().forEach(function (fn) { try { fn(); } catch (e) {} });
     }
   };
   window.MacaroonieOffice = {
@@ -72,17 +80,27 @@ export function bridgeScript(version, platform = 'android') {
       stopSpeaking: function () { return call('speech.stopSpeaking'); }
     },
     scanner: { scan: function () { return call('scan'); } },
-    camera: { permission: function () { return call('camera.permission'); } }
+    camera: { permission: function () { return call('camera.permission'); } },
+    share: {
+      take: function () { return call('share.take'); },
+      onShared: function (fn) {
+        if (typeof fn !== 'function') return function () {};
+        sharedListeners.push(fn);
+        return function () { sharedListeners = sharedListeners.filter(function (f) { return f !== fn; }); };
+      }
+    }
   };
 })(); true;`
 }
 
 const js = v => JSON.stringify(v === undefined ? null : v)
 export const replyScript = (id, ok, value) => `window.__macaOffice && window.__macaOffice.reply(${js(id)}, ${ok ? 'true' : 'false'}, ${js(value)}); true;`
+/** Tells the page something was shared to the app; the page then calls share.take(). The notice holds no data. */
+export const sharedScript = () => 'window.__macaOffice && window.__macaOffice.shared && window.__macaOffice.shared(); true;'
 export const eventScript = (id, name, value) => `window.__macaOffice && window.__macaOffice.event(${js(id)}, ${js(name)}, ${js(value)}); true;`
 
 /**
- * The app's side. services: { auth, push, speech, scanner } (speech.listen
+ * The app's side. services: { auth, push, speech, scanner, camera, share } (speech.listen
  * takes { lang, continuous, hints, onText, onEnd, onError } and returns stop();
  * hints: the venue's own words, cleanHints());
  * run(script)

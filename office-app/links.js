@@ -35,3 +35,11 @@ export function noticeUrl(path, root) {
   if (p === '/') return opsUrl(root, '/mobile/today')
   return opsUrl(root, p)
 }
+
+/** Whether an address is one of the phone pages (ops.<root>/mobile...), where a shared picture can open in Capture. */
+export function onPhonePages(url, root) {
+  const u = String(url || '')
+  if (!/^https:\/\//i.test(u) || hostOf(u) !== 'ops.' + root) return false
+  const path = (/^https:\/\/[^/?#]+(\/[^?#]*)?/i.exec(u)?.[1]) || '/'
+  return path === '/mobile' || path.startsWith('/mobile/')
+}

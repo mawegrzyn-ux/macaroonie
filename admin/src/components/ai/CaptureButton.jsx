@@ -7,10 +7,22 @@
 // (no model call): it waits on For review until someone opens it in Pepper.
 // Photos are shrunk on the phone first (prepareFile()) and checked by the
 // server like a chat file (5 MB, JPEG / PNG / GIF / WebP).
+//
+// shared (26 Nov 2026): a picture, or a link or a note, shared to the Office
+// app from another app (the hub's useSharedItem(), lib/officeApp.jsx) opens
+// the window with it, through the same prepareFile() and checks as a picked
+// photo. One photo per capture: when several pictures were shared, the first
+// is kept and the window says so.
+//
+// From phone (26 Nov 2026): a picture already on the phone (the gallery or
+// its files), through a second file input without capture, beside Photo
+// (the camera where the browser or the app has it). Four buttons, two by two:
+// each is one tap, nothing hides behind a second choice, and the labels fit
+// on one line at 390 px. Images only, as Photo: a capture is a photo.
 
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Camera, Mic, Type, X, Loader2, Check, Inbox, Square } from 'lucide-react'
+import { Camera, ImagePlus, Mic, Type, X, Loader2, Check, Inbox, Square } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { prepareFile } from './attachments'
@@ -24,12 +36,20 @@ const btn = 'inline-flex items-center justify-center gap-2 min-h-[48px] px-4 rou
 const btnPrimary = 'inline-flex items-center justify-center gap-2 min-h-[48px] px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold touch-manipulation disabled:opacity-50'
 const errText = e => e?.body?.error || e?.message || 'Something went wrong'
 
-export default function CaptureButton({ venueId = null, className }) {
+export default function CaptureButton({ venueId = null, className, shared = null, onSharedDone }) {
   const [open, setOpen] = useState(false)
   const [done, setDone] = useState(null)
+  const [initial, setInitial] = useState(null)
+  // Something shared to the app: open the window with it (each share its own window).
+  useEffect(() => {
+    if (!shared) return
+    setInitial(shared); setOpen(true); setDone(null)
+    onSharedDone?.()
+  }, [shared])   // eslint-disable-line react-hooks/exhaustive-deps
+  const close = () => { setOpen(false); setInitial(null) }
   return (
     <>
-      <button type="button" onClick={() => { setOpen(true); setDone(null) }} data-testid="capture-open"
+      <button type="button" onClick={() => { setInitial(null); setOpen(true); setDone(null) }} data-testid="capture-open"
         className={cn('w-full flex items-center gap-3 rounded-xl border bg-background px-4 min-h-[56px] text-left touch-manipulation hover:bg-accent', className)}>
         <span className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0"><Inbox className="w-5 h-5" /></span>
         <span className="flex-1 min-w-0">
@@ -39,39 +59,66 @@ export default function CaptureButton({ venueId = null, className }) {
           </span>
         </span>
       </button>
-      {open && <CaptureSheet venueId={venueId} onClose={() => setOpen(false)} onSaved={text => { setOpen(false); setDone(text) }} />}
+      {open && <CaptureSheet key={initial?.key || 'own'} venueId={venueId} initial={initial} onClose={close} onSaved={text => { close(); setDone(text) }} />}
     </>
   )
 }
 
-function CaptureSheet({ venueId, onClose, onSaved }) {
+const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif']
+const NOT_A_PHOTO = 'Capture keeps a photo (JPEG, PNG, GIF or WebP). That file isn\'t one, so it wasn\'t added.'
+
+function CaptureSheet({ venueId, initial = null, onClose, onSaved }) {
   const api = useApi()
   const qc = useQueryClient()
   const { data: venues = [] } = useQuery({ queryKey: ['venues'], queryFn: () => api.get('/venues') })
   const [venue, setVenue] = useState(venueId || '')
   const [mode, setMode] = useState(null)        // 'photo' | 'voice' | 'text'
   const [note, setNote] = useState('')
-  const [photo, setPhoto] = useState(null)      // { file, preview }
+  const [photo, setPhoto] = useState(null)      // { file, preview, from: 'camera' | 'phone' | 'shared' }
   const [hearing, setHearing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const [notice, setNotice] = useState(null)   // not an error: e.g. only the first of several shared pictures was kept
   const stop = useRef(null)
   const fileRef = useRef(null)
+  const phoneRef = useRef(null)
   const words = useVenueWords(venue || null)
   useEffect(() => { if (!venue && venues.length) setVenue(venues[0].id) }, [venues, venue])
-  useEffect(() => () => { stop.current?.(); if (photo?.preview) URL.revokeObjectURL(photo.preview) }, [])   // eslint-disable-line react-hooks/exhaustive-deps
+  const preview = useRef(null)
+  useEffect(() => () => { stop.current?.(); if (preview.current) URL.revokeObjectURL(preview.current) }, [])
 
-  async function pickPhoto(e) {
-    const f = e.target.files?.[0]
-    e.target.value = ''
-    if (!f) return
+  /** A photo from the camera, the phone or a share: shrunk (prepareFile()) and shown; the server checks it again. */
+  async function takePhoto(f, from) {
     setError(null)
+    if (!f) return
+    if (f.type ? !PHOTO_TYPES.includes(f.type.toLowerCase()) : !/\.(jpe?g|png|gif|webp|heic|heif)$/i.test(f.name || '')) { setError(NOT_A_PHOTO); return }
     try {
       const file = await prepareFile(f)
-      setPhoto({ file, preview: URL.createObjectURL(file) })
+      if (preview.current) URL.revokeObjectURL(preview.current)
+      preview.current = URL.createObjectURL(file)
+      setPhoto({ file, preview: preview.current, from })
       setMode('photo')
     } catch (err) { setError(errText(err)) }
   }
+
+  function pickPhoto(e, from) {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (f) { setNotice(null); takePhoto(f, from) }
+  }
+
+  // Shared to the app: a picture as the photo, words as a typed note, anything else a polite no.
+  useEffect(() => {
+    if (!initial) return
+    if (initial.kind === 'image') {
+      takePhoto(initial.file, 'shared')
+      if (initial.more > 0) setNotice('You shared ' + (initial.more + 1) + ' pictures: the first is here. A capture keeps one photo, so share the others one at a time.')
+    } else if (initial.kind === 'text') {
+      setMode('text'); setNote(String(initial.text || '').slice(0, NOTE_MAX))
+    } else if (initial.kind === 'refused') {
+      setError(initial.message)
+    }
+  }, [initial])   // eslint-disable-line react-hooks/exhaustive-deps
 
   function talk() {
     if (hearing) { stop.current?.(); return }
@@ -123,21 +170,28 @@ function CaptureSheet({ venueId, onClose, onSaved }) {
               </select>
             </label>
           )}
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => fileRef.current?.click()} data-testid="capture-photo"
-              className={cn(btn, 'flex-col h-20', mode === 'photo' && 'border-primary bg-primary/5')}>
+              className={cn(btn, 'flex-col h-16 gap-1', mode === 'photo' && photo?.from !== 'phone' && 'border-primary bg-primary/5')}>
               <Camera className="w-5 h-5" /> Photo
             </button>
+            <button type="button" onClick={() => phoneRef.current?.click()} data-testid="capture-from-phone"
+              className={cn(btn, 'flex-col h-16 gap-1', mode === 'photo' && photo?.from === 'phone' && 'border-primary bg-primary/5')}>
+              <ImagePlus className="w-5 h-5" /> From phone
+            </button>
             <button type="button" onClick={talk} disabled={!canListen()} data-testid="capture-voice"
-              className={cn(btn, 'flex-col h-20', mode === 'voice' && 'border-primary bg-primary/5', hearing && 'bg-red-50 border-red-400 text-red-800')}>
+              className={cn(btn, 'flex-col h-16 gap-1', mode === 'voice' && 'border-primary bg-primary/5', hearing && 'bg-red-50 border-red-400 text-red-800')}>
               {hearing ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />} {hearing ? 'Stop' : 'Voice note'}
             </button>
             <button type="button" onClick={() => { setMode('text'); setError(null) }} data-testid="capture-text"
-              className={cn(btn, 'flex-col h-20', mode === 'text' && 'border-primary bg-primary/5')}>
+              className={cn(btn, 'flex-col h-16 gap-1', mode === 'text' && 'border-primary bg-primary/5')}>
               <Type className="w-5 h-5" /> Type
             </button>
           </div>
-          <input ref={fileRef} type="file" accept="image/*" capture={photoCapture()} className="hidden" onChange={pickPhoto} />
+          <input ref={fileRef} type="file" accept="image/*" capture={photoCapture()} className="hidden" onChange={e => pickPhoto(e, 'camera')} data-testid="capture-photo-input" />
+          {/* No capture: the phone's picker (gallery and files), in the app and in a browser. */}
+          <input ref={phoneRef} type="file" accept="image/*" className="hidden" onChange={e => pickPhoto(e, 'phone')} data-testid="capture-from-phone-input" />
+          {notice && <p className="text-sm text-muted-foreground" data-testid="capture-notice">{notice}</p>}
           {mode === 'photo' && photo && <img src={photo.preview} alt="The photo to keep" className="w-full max-h-64 object-contain rounded-lg border" />}
           {mode && (
             <label className="block text-sm font-medium">
@@ -146,7 +200,7 @@ function CaptureSheet({ venueId, onClose, onSaved }) {
                 className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm touch-manipulation" />
             </label>
           )}
-          {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+          {error && <p className="text-sm text-destructive" role="alert" data-testid="capture-error">{error}</p>}
           <div className="flex gap-2">
             <button type="button" onClick={save} disabled={!ready} className={cn(btnPrimary, 'flex-1')} data-testid="capture-save">
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Keep for review

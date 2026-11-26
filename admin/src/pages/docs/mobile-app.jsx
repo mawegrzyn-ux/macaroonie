@@ -350,6 +350,33 @@ export function Section() {
         a UPC-A read as EAN-13). Not built yet: <Mono>eas build -p ios</Mono> needs the owner&apos;s Apple
         developer account (<Mono>office-app/README.md</Mono>). Tests: <Mono>office-app/test/ios.test.mjs</Mono>.
       </P>
+      <H3>Sharing to the Office app (26 Nov 2026)</H3>
+      <P>
+        The Android app is a share target: <Mono>expo-share-intent</Mono> (9.0.0, for Expo SDK 58) and its config
+        plugin in <Mono>office-app/app.json</Mono> put <Mono>SEND</Mono> (<Mono>image/*</Mono>,{' '}
+        <Mono>text/plain</Mono>) and <Mono>SEND_MULTIPLE</Mono> (<Mono>image/*</Mono>) intent filters on the main
+        activity; the iPhone&apos;s share extension is off (<Mono>disableIOS</Mono>). <Mono>App.js</Mono>{' '}
+        (<Mono>useShareTarget()</Mono>) listens to the library&apos;s native module (<Mono>onChange</Mono>,{' '}
+        <Mono>getShareIntent()</Mono> on start and on coming to the front), and <Mono>office-app/shareCore.js</Mono>{' '}
+        has the rules: <Mono>whatWasShared()</Mono> (the first picture and how many more, words, or a refusal),{' '}
+        <Mono>readShared()</Mono> (the picture shrunk natively with <Mono>expo-image-manipulator</Mono> to 2,000 px
+        on the long side, JPEG 0.8 then 0.6, at most 5 MB, the content address tried before the cached copy),{' '}
+        <Mono>createShareInbox()</Mono> (one item, in memory only, taken once, dropped after 10 minutes). The
+        bridge&apos;s share part: <Mono>MacaroonieOffice.share.take()</Mono> (the call{' '}
+        <Mono>share.take</Mono>, behind the same <Mono>bridgeAllowed()</Mono> check as the token:{' '}
+        <Mono>{"{ kind: 'image', name, type, dataBase64, more }"}</Mono> | <Mono>{"{ kind: 'text', text }"}</Mono> |{' '}
+        <Mono>{"{ kind: 'refused', message }"}</Mono> | <Mono>null</Mono>) and{' '}
+        <Mono>share.onShared(fn)</Mono>, fired by <Mono>sharedScript()</Mono> with no data in it. On a share the
+        app tells a page on <Mono>{'ops.<root>/mobile'}</Mono> (<Mono>onPhonePages()</Mono> in{' '}
+        <Mono>links.js</Mono>), or loads the phone home. Page side, <Mono>lib/officeApp.jsx</Mono>:{' '}
+        <Mono>canTakeShared()</Mono>, <Mono>onShared()</Mono>, <Mono>sharedItem()</Mono> (base64 to a{' '}
+        <Mono>File</Mono>, JPEG / PNG / GIF / WebP only), <Mono>takeShared()</Mono>,{' '}
+        <Mono>useSharedItem(ready)</Mono> (<Mono>MobileHub</Mono>, once <Mono>/me</Mono> is loaded) and{' '}
+        <Mono>useSharedGoesToHub()</Mono> (<Mono>MobileShell</Mono>: another phone page goes to the hub). The hub
+        opens <Mono>CaptureButton</Mono> with it, or shows <Mono>shared-no-capture</Mono> to a role without Pepper.
+        Everything is feature-detected, so builds of the app from before this behave as they did. Tests:{' '}
+        <Mono>office-app/test/share.test.mjs</Mono>.
+      </P>
     </section>
   )
 }

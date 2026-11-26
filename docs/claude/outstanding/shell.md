@@ -133,3 +133,13 @@ Built (PR A): the frame (page registry, one head and footer, `/site/` files with
 - **The fonts still come from Google Fonts**, as the old page's did; self-hosting them under `/site/` would drop a third-party request.
 - **The nginx step** (`scripts/ensure-nginx-site-assets.sh`) runs on the next deploy; until it has, `/site/` files on the live apex would be looked for in the admin's build. It inserts before `location ^~ /manage` (or `location /api/`), so it needs one of those in the apex config, as every apex block made by `setup.sh` and `ensure-nginx-manage.sh` has.
 - Browser checks were run in Chromium at 390, 1015 and 1440 px, not on a real phone or tablet, and with no screen reader.
+
+**67. Sharing to Macaroonie Office: what is left (26 Nov 2026, no migration)**
+
+Built: the Android share target (a picture, a link or a note) into Capture on the phone hub. Not done:
+- **The iPhone**: `expo-share-intent`'s plugin has `disableIOS: true`. An iPhone share extension needs the owner's Apple account, an app group (`iosAppGroupIdentifier`) and the extension's own provisioning profile in EAS; then `App.js`'s `useShareTarget()` must handle the iOS path (the module answers through the app's URL scheme, `getShareIntent(url)`).
+- **Several pictures**: only the first is kept (a capture is one photo); Capture says how many were left out. Keeping several would need a capture with several attachments (route, `ai_captures`, For review, Open in Pepper).
+- **PDFs and other files**: refused (the capture route keeps an image only). Sharing a PDF invoice would need a capture kind for a file.
+- **Tried only in a browser with a stand-in bridge** (Playwright at 390 px) and on the prebuild's manifest: not on a real phone. To check on a phone with the new build: share one picture, several, a big HEIC, a screenshot, a picture from Files / Downloads (the content address), a link from Chrome; while signed out; while on another phone page; while on an office page; with the app closed and open.
+- The module's copy of a shared file in the app's cache, and the image manipulator's output, are left to Android's cache clearing.
+- A share arriving while an office page (not the phone pages) is open in the app reloads the phone home, losing that page's state.

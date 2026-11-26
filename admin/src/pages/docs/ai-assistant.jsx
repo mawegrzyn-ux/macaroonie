@@ -1077,6 +1077,18 @@ export function Section() {
         <Mono>ask.files</Mono>). Report catalogue: left out (conversations and files). Tests:{' '}
         <Mono>api/test/pepper-captures.test.mjs</Mono>.
       </P>
+      <P>
+        Where a photo comes from (26 Nov 2026, no API change): <Mono>capture-photo</Mono> (the camera through{' '}
+        <Mono>photoCapture()</Mono>), <Mono>capture-from-phone</Mono> (a second file input,{' '}
+        <Mono>accept=&quot;image/*&quot;</Mono> without <Mono>capture</Mono>: the gallery and files), and{' '}
+        <Mono>shared</Mono>: a picture or words shared to the Office app, handed in by the hub
+        (<Mono>{'<CaptureButton shared onSharedDone>'}</Mono>; see Mobile: Sharing to the Office app). All three go
+        through <Mono>takePhoto()</Mono>: an image type check on the page, <Mono>prepareFile()</Mono>, the same
+        preview and the same <Mono>POST /api/ai/captures</Mono>. Shared words open in Type; several shared
+        pictures keep the first, with <Mono>capture-notice</Mono> saying so; a refusal shows in{' '}
+        <Mono>capture-error</Mono>. Images only: the route keeps an image, For review shows it as one, and a PDF
+        would need a capture kind of its own.
+      </P>
       <H3>The venue&apos;s own words for speech (step 6c)</H3>
       <P>
         <Mono>GET /api/ai/venue-words?venue_id=</Mono> (no table): the venue&apos;s fridge and hold station names
