@@ -21,7 +21,7 @@ import { resetAndSeed, A } from './support/seed.mjs'
 import { fillTenant } from './support/fixtures.mjs'
 import { sellTwoDays } from './support/tillDays.mjs'
 import { runner } from './support/reports.mjs'
-import { CATALOGUE, CATALOGUE_MODULES, AREAS, catalogueView } from '../src/reports/catalogue/index.js'
+import { CATALOGUE, CATALOGUE_MODULES, AREAS, catalogueView, canSee } from '../src/reports/catalogue/index.js'
 import { PLANNED, SETTINGS, LEFT_OUT, checkDecisions, tableDecisions, catalogueTables } from '../src/reports/catalogue/decisions.js'
 import { tableCoverage, secretsRead, columnUse } from '../src/reports/catalogue/coverage.js'
 import { MODULE_KEYS } from '../src/config/modules.js'
@@ -72,7 +72,7 @@ test('every table in the database has one decision, and every decision names a t
 
   // The tables report subjects read are the ones the catalogue says it reads.
   const read = catalogueTables(CATALOGUE)
-  assert.deepEqual(read.get('pos_check_lines'), ['till.lines', 'till.voids', 'sales.dishes', 'stock.on_hand', 'stock.moves', 'stock.count_lines', 'stock.waste', 'recipes.coverage'])
+  assert.deepEqual(read.get('pos_check_lines'), ['till.lines', 'till.voids', 'sales.dishes', 'stock.on_hand', 'stock.moves', 'stock.count_lines', 'stock.waste', 'stock.variance', 'stock.food_cost', 'recipes.coverage'])
   assert.deepEqual(read.get('cash_staff'), ['till.takers', 'rota.staff_weeks', 'rota.weeks', 'rota.pot_weeks', 'rota.tip_shares', 'staff.people'])
   assert.deepEqual(read.get('gloriafood_orders'), ['online.sales'])
   assert.deepEqual(read.get('kds_log'), ['kitchen.tickets', 'kitchen.remakes'])
@@ -139,7 +139,7 @@ test('a table nobody has decided on, one decided twice and a stale name are each
 
 test('every id column of a table a subject reads is linked, offered or left out on purpose', t => {
   const cover = tableCoverage(CATALOGUE, columns)
-  assert.deepEqual(cover.derived, ['till.takers', 'sales.checks', 'sales.dishes', 'sales.tenders', 'online.sales', 'cash.days', 'cash.weeks', 'rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.tip_moves', 'stock.on_hand', 'stock.moves', 'stock.count_lines', 'stock.waste', 'stock.transfers', 'recipes.costs', 'recipes.coverage', 'recipes.margins', 'safety.days', 'local.weather', 'local.weather_hours'])
+  assert.deepEqual(cover.derived, ['till.takers', 'sales.checks', 'sales.dishes', 'sales.tenders', 'online.sales', 'cash.days', 'cash.weeks', 'rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.tip_moves', 'stock.on_hand', 'stock.moves', 'stock.count_lines', 'stock.waste', 'stock.transfers', 'stock.variance', 'stock.food_cost', 'recipes.costs', 'recipes.coverage', 'recipes.margins', 'safety.days', 'local.weather', 'local.weather_hours'])
   // Every table a subject reads as it is, is a table of the database.
   assert.deepEqual(cover.tables.map(x => x.table).filter(x => !tables.includes(x)), [])
 
@@ -239,6 +239,20 @@ test('nothing secret is read, every module asked for exists, and no SQL leaves t
   assert.equal(view.subjects['bookings.bookings'].fields.guest_notes.pii, true)
   assert.equal(view.subjects['online.orders'].fields.allergy_note.pii, true)
   assert.equal(view.subjects['guests.customers'].fields.notes.pii, true)
+
+  // A field can need several modules, every one of them (an item's share of food sales: pounds over sales).
+  assert.equal(canSee({ needs: ['costing', 'pos_reports'] }, { costing: 'view', pos_reports: 'view' }), true)
+  assert.equal(canSee({ needs: ['costing', 'pos_reports'] }, { pos_reports: 'view' }), false, 'till reports alone')
+  assert.equal(canSee({ needs: ['costing', 'pos_reports'] }, { costing: 'manage' }), false, 'Costing alone')
+  assert.equal(canSee({ needs: 'costing' }, { costing: 'view' }), true)
+  assert.equal(canSee({}, {}), true)
+  const share = CATALOGUE.subjects['stock.variance'].fields.share_pct
+  assert.deepEqual(share.needs, ['costing', 'pos_reports'])
+  const stockAndTill = catalogueView({ stock: 'view', pos_reports: 'view', reports: 'use' })
+  assert.ok(!stockAndTill.subjects['stock.variance'].fields.share_pct, 'not offered without Costing view')
+  assert.ok(stockAndTill.subjects['stock.variance'].fields.unexplained, 'the quantities are')
+  assert.ok(catalogueView({ stock: 'view', pos_reports: 'view', costing: 'view' }).subjects['stock.variance'].fields.share_pct)
+  assert.ok(!catalogueView({ costing: 'view' }).subjects['stock.food_cost'].fields.over_band, 'over the band needs till reports view')
 })
 
 test('what was said to Pepper and a new location\'s plan are never read', () => {

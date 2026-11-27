@@ -12,7 +12,17 @@
 // and cancelled; the transfers lists. Phase 5 (migration 311), late, after the
 // till's, kiosk's and online orders' sales: the venue's day of usage worked out
 // by Recompute (stock_usage_days, dish_cost_days, the day's mark and the
-// venue's run), the Usage tab and Menu margins' Sold tab read.
+// venue's run), the Usage tab and Menu margins' Sold tab read. Phase 6a
+// (migration 312), late too: the variance band saved, a second full count
+// approved (the period since the first: stock_periods), its variance, an
+// item's evidence, key items and by venue read, the period closed, an item
+// reviewed (stock_variance_reviews), reopened with a note and closed again;
+// then a late sale on its last day (stock_usage_late and its items: written
+// here, only the usage job makes them when a sale reaches a closed day late,
+// as api/test/stock-variance.test.mjs does) read back through the current
+// period's variance and the item's ledger.
+import { sql } from '../app.mjs'
+
 export const order = 87
 // Phase 5: usage from sales is worked out after the till's and online orders' sales (fillLate).
 export const lateOrder = 175
@@ -129,4 +139,50 @@ export async function fillLate(ctx) {
   await step('stock usage recompute', () => post(`/api/stock/venues/${V}/usage/recompute`, { from, to: u.today }))
   await step('stock usage read', () => get(`/api/stock/venues/${V}/usage?from=${from}&to=${u.today}`))
   await step('menu margins sold', () => get(`/api/menu-margins/sold?venue_id=${V}&from=${from}&to=${u.today}`))
+
+  // Variance (phase 6a, migration 312): a second full count approved makes the period since the first;
+  // its variance, an item's evidence, key items, by venue; the band; closed, reviewed, reopened with a
+  // note and closed again (so its figures are frozen for the reports).
+  await step('stock variance band', () => ctx.put('/api/stock/variance-settings', { band_pct: 1, item_pct: 3, item_pounds: 50 }))
+  const count = await step('stock closing count', () => post(`/api/stock/venues/${V}/counts`, { kind: 'full', note: ctx.mark + ' month end' }))
+  if (!count) return
+  const sheet = await step('stock closing count read', () => get('/api/stock/counts/' + count.id))
+  const itemId = sheet && Object.keys(sheet.items || {})[0]
+  if (itemId) await step('stock closing count line', () => ctx.put(`/api/stock/counts/${count.id}/lines`, { item_id: itemId, area_id: null, entries: [{ qty: 4, unit: 'kg' }] }))
+  await step('stock closing count submit', () => post(`/api/stock/counts/${count.id}/submit`, { all_zero: true }))
+  const approved = await step('stock closing count approve', () => post(`/api/stock/counts/${count.id}/approve`, {}))
+  const periodId = approved?.periods_made?.[0]
+  await step('stock periods', () => get(`/api/stock/venues/${V}/periods`))
+  await step('stock variance current', () => get(`/api/stock/venues/${V}/variance?period=current`))
+  await step('stock variance key', () => get(`/api/stock/venues/${V}/variance/key`))
+  if (!periodId) return
+  ctx.ids.stockPeriod = periodId
+  await step('stock variance', () => get(`/api/stock/venues/${V}/variance?period=${periodId}`))
+  if (itemId) {
+    await step('stock variance item', () => get(`/api/stock/venues/${V}/variance/items/${itemId}?period=${periodId}`))
+    await step('stock variance by venue', () => get(`/api/stock/variance/by-venue?item=${itemId}`))
+  }
+  await step('stock period close', () => post(`/api/stock/periods/${periodId}/close`, {}))
+  if (itemId) await step('stock variance review', () => post(`/api/stock/periods/${periodId}/items/${itemId}/review`, { reviewed: true, note: ctx.mark + ' checked the shelf' }))
+  await step('stock period reopen', () => post(`/api/stock/periods/${periodId}/reopen`, { note: ctx.mark + ' a delivery was booked in late' }))
+  await step('stock period close again', () => post(`/api/stock/periods/${periodId}/close`, {}))
+  // A late sale on the closed period's last day, landing in the period running since the latest full count.
+  if (itemId) {
+    const late = await step('stock late sale', async () => {
+      const [p] = await sql`SELECT COALESCE(days_to, to_at::date)::text AS day, to_at FROM stock_periods WHERE id = ${periodId} AND tenant_id = ${ctx.tenantId}`
+      const [l] = await sql`
+        INSERT INTO stock_usage_late (tenant_id, venue_id, day, closed_period_id, period_id, at, lines, net_pence, net_food_pence, cost)
+        VALUES (${ctx.tenantId}, ${V}, ${p.day}::date, ${periodId}, NULL, ${p.to_at}, 1, 900, 900, 1.2)
+        RETURNING id`
+      await sql`
+        INSERT INTO stock_usage_late_items (tenant_id, late_id, item_id, qty_base, cost_per_base)
+        VALUES (${ctx.tenantId}, ${l.id}, ${itemId}, 200, 0.006)`
+      return l
+    })
+    if (late) {
+      ctx.ids.stockUsageLate = late.id
+      await step('stock variance late sales', () => get(`/api/stock/venues/${V}/variance?period=current`))
+      await step('stock ledger late sales', () => get(`/api/stock/venues/${V}/items/${itemId}/moves`))
+    }
+  }
 }

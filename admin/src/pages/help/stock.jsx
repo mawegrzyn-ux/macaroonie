@@ -4,7 +4,9 @@
 // and the phone, key-item counts, approval, blind counts, adjustments, the
 // count day on Today, Pepper; phase 4b: waste, its reasons and WRAP's kinds,
 // till voids marked wasted, transfers between venues, the phone's waste page;
-// phase 5: usage from sales, the Usage tab, Recompute, ordering up to par).
+// phase 5: usage from sales, the Usage tab, Recompute, ordering up to par;
+// phase 6a: variance by period, food cost actual and theoretical, closing and
+// reopening a period, why an item is out, reviewing, the variance band).
 // Help.jsx gathers every file in this folder
 // (except parts.jsx) and shows them by order, then id.
 import { H2, H3, P, InfoBox, DataTable } from './parts.jsx'
@@ -21,7 +23,7 @@ export function Section() {
         <strong>Stock</strong> (main menu, under Stock) shows what you have at each venue and is where you count it.
         Nothing on it is typed in as a stock level: what is on hand is worked out from what happened, the last
         approved count plus every delivery booked in, adjustment, waste and transfer since, less what sales took
-        off. Pick the venue at the top; the page has seven tabs: On hand, Usage, Counts, Waste, Transfers,
+        off. Pick the venue at the top; the page has eight tabs: On hand, Usage, Variance, Counts, Waste, Transfers,
         Adjustments and Settings.
       </P>
       <InfoBox type="info">
@@ -289,6 +291,98 @@ export function Section() {
         each trading day, by channel, with its value with Costing view) and <strong>Dish sales and theoretical
         cost</strong> (units, net sales, theoretical cost, GP and cost % of what really sold), with the starters
         <strong> Theoretical food cost by week</strong> and <strong>Uncosted dishes by sales</strong>.
+      </P>
+
+      <H3>Variance: what was used against what sales took</H3>
+      <P>
+        The <strong>Variance</strong> tab puts a pound figure on the gap between what the counts say was used and
+        what the dishes sold should have used. It works by <strong>period</strong>: a period runs from one approved
+        full count at the venue to the next, and is made when the later count is approved. Until then the tab shows
+        the period running since the last full count, to now.
+      </P>
+      <DataTable
+        head={['Figure', 'What it is']}
+        rows={[
+          ['Actual usage', 'The opening count, plus what was received and sent here from another venue, less what was sent away (and lost on the way), less the closing count.'],
+          ['Theoretical', 'What sales took off by their recipes in the period (the Usage tab). Late sales from a closed period that landed here are marked.'],
+          ['Waste', 'Waste logged, and dishes voided on the till as wasted.'],
+          ['Variance', 'Actual less theoretical: above zero, more was used than sales explain.'],
+          ['Unexplained', 'The variance less waste and adjustments (an adjustment says why, so it explains its part). This is what the counts found against what the documents say.'],
+        ]}
+      />
+      <P>
+        Items are listed by pounds of unexplained loss, biggest first, each with its share of the venue&apos;s food
+        sales (<em>0.8 pts of food sales</em>), and the ones over the band are marked <strong>Flagged</strong>
+        (<strong>Over</strong> when more was found than expected). <strong>Only flagged</strong> narrows the list. At
+        the top, <strong>Food cost</strong> shows the actual food cost % (what was used, over net food sales) beside
+        the theoretical (what sales took), the gap between them in points, and whether the unexplained loss is over
+        the venue band. Net food sales are food and drink, VAT out: retail goods and services are left out.
+        Pounds need Costing view; the food cost % and shares of sales need Till reports view as well, in reports
+        too (an item&apos;s share of food sales needs both, and whether a period was over the band needs Till
+        reports view).
+      </P>
+      <P>
+        In the period running since the last full count, an item has actual usage only once it is counted again: a
+        key-item count of the item is enough. The actual food cost % and the gap are shown only when every item
+        sales used has actual usage (both sides then cover the same items), so in that period they wait for the next
+        full count: the tile says <em>not known yet</em> and how many items aren&apos;t counted; the theoretical food
+        cost shows all the time. <strong>Key items</strong> shows what each key-item count found
+        against the documents since the count before it, for the last two weeks, so a daily count of proteins gives
+        a daily figure. <strong>By venue</strong> shows one item at every venue (<em>which site loses most on
+        chicken</em>), at each venue&apos;s latest period or since its last full count.
+      </P>
+      <H3>Why an item is out</H3>
+      <P>
+        Tap an item for its figures and <strong>Why it may be</strong>: what the documents say about it in the
+        period, each with where to put it right. Dishes sold without a recipe that may use it (by their names),
+        deliveries changed after the count, on hand going below zero (a delivery not booked in, or a recipe taking
+        too much off), a unit that changed, waste logged, adjustments, transfers not received yet, late sales from a
+        closed period, and remakes the kitchen logged (they aren&apos;t taken off as usage yet). <strong>Between its
+        counts</strong> shows the item&apos;s figures between each pair of its counts in the period.
+      </P>
+      <H3>Closing and reopening a period</H3>
+      <P>
+        Someone with Stock manage closes a period with <strong>Close the period</strong> (asked first). Closing
+        freezes its figures, like a Z on the till: they stay as they were, whatever changes later. Its trading days
+        are closed too, so usage from sales never works them out again: a sale that reaches a closed day late (a
+        till or hub that synced the next morning) counts in the next open period instead, marked <em>late sales in
+        it</em>, which makes that period look a little better and the closed one a little worse.
+        <strong> Reopen</strong> needs a note saying why; it works the period&apos;s days out again from the sales,
+        late ones in them, and its figures follow the documents until it is closed again. A period can&apos;t be
+        reopened while a later period at the venue is closed: reopen that one first. While usage from sales is being
+        worked out for the venue (every few minutes, for a moment), closing and reopening say so: try again in a
+        minute. Changing whether refunds give stock back (Settings) changes open days only: a closed period&apos;s
+        days keep the setting they were closed with, so switching it makes no late sales.
+      </P>
+      <InfoBox type="info">
+        A day&apos;s sales count at the day&apos;s last sale. Count before opening or after closing: a count taken in
+        the middle of trading has that whole day&apos;s sales after it.
+      </InfoBox>
+      <H3>Reviewing flagged items</H3>
+      <P>
+        When a closed period has flagged items nobody has looked at, Today shows <strong>Variance to review</strong>
+        to people with Stock manage. Open the item, see why it may be, and tap <strong>Mark as reviewed</strong>
+        (with what you found, if you like). Once every flagged item is reviewed it leaves Today.{' '}
+        <strong>Not reviewed after all</strong> asks first, as it takes the review and its note away. Without Stock
+        manage the tab is view only (it says so): the figures show, but closing, reopening and reviewing don&apos;t.
+        <strong> By venue</strong> shows a closed period&apos;s items as they were flagged when it was closed.
+      </P>
+      <H3>The variance band</H3>
+      <P>
+        Settings has the <strong>Variance band</strong> (Stock manage): a venue is over the band when its
+        unexplained loss in a period is more than a number of points of its net food sales (1 by default), and an
+        item is flagged when its unexplained loss, or gain, is over a share of what sales took (3%) and over a sum in
+        pounds (£50).
+      </P>
+      <P>
+        Ask Pepper <em>what was our food cost last week against theoretical?</em> or <em>where are we losing
+        stock?</em> for a period&apos;s food cost and its flagged items, and <em>why are we short on chicken?</em> for
+        one item&apos;s figures and evidence. Closing and reopening are done on the Variance tab. Reports have
+        <strong> Stock variance by period</strong>, <strong>Food cost by period</strong> and <strong>Stock
+        periods</strong>, with the starters <strong>Variance by item</strong> and <strong>Theoretical against
+        actual food cost by week</strong>. A period whose counts left out an item sales used has no actual food
+        cost there either, and the actual food cost % over several periods counts only the sales of the periods
+        that have one.
       </P>
     </section>
   )

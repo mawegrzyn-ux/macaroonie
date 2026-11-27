@@ -11,6 +11,7 @@ import stockSetupRoutes from '../routes/stockSetup.js'
 import stockWasteRoutes from '../routes/stockWaste.js'
 import stockTransferRoutes from '../routes/stockTransfers.js'
 import stockUsageRoutes from '../routes/stockUsage.js'
+import stockVarianceRoutes from '../routes/stockVariance.js'
 
 export const routes = [
   // Stock on hand and each item's ledger (migration 287; inventory phase 4a, migrations 305 to 307)
@@ -25,4 +26,6 @@ export const routes = [
   [stockTransferRoutes, { prefix: '/api/stock' }],
   // Usage from sales: by day and item, uncosted sold dishes, a manual Recompute (phase 5, migration 311)
   [stockUsageRoutes, { prefix: '/api/stock' }],
+  // Periods between full counts and their variance: close, reopen, review, the band (phase 6a, migration 312)
+  [stockVarianceRoutes, { prefix: '/api/stock' }],
 ]

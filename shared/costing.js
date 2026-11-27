@@ -577,6 +577,18 @@ export function margin({ gross_pence, vat_rate = 0, cost = null } = {}) {
   }
 }
 
+/**
+ * A cost in pounds as a share of net sales in pence, in percent to two
+ * places (inventory phase 6a: actual and theoretical food cost %, an item's
+ * unexplained loss as points of the venue's food sales; shared/variance.js
+ * calls it, so pence meet pounds only here). Null for no sales or no cost.
+ */
+export function costShare(costPounds, netPence) {
+  const net = num(netPence)
+  if (costPounds == null || !Number.isFinite(Number(costPounds)) || !(net > 0)) return null
+  return Math.round(Number(costPounds) * 100 / net * 10000) / 100
+}
+
 // ── Links: which recipe a dish uses where (phase 2) ───────────
 //
 // A link (recipe_links, migration 302): { dish_id, recipe_id, portions,

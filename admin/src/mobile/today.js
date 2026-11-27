@@ -32,8 +32,9 @@ const PHONE_PAGES = {
 }
 
 // A tab of an office page with a phone page of its own, or (null) none: the office opens it.
-// Stock's transfers are received on the Stock page (inventory phase 4b); its waste has a phone page.
-const PHONE_TABS = { '/stock': { waste: '/mobile/stock-waste', transfers: null } }
+// Stock's transfers are received on the Stock page (inventory phase 4b); its waste has a phone page;
+// variance is reviewed on the Stock page (phase 6a).
+const PHONE_TABS = { '/stock': { waste: '/mobile/stock-waste', transfers: null, variance: null } }
 
 /** Where a task's page opens on the phone: { to } in this app, or { href } on the office site. */
 export function opsLink(path) {

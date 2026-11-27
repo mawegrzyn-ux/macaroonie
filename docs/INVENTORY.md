@@ -7,7 +7,10 @@ built" and "Phase 3 as built" under section 11). Phase 4 built on 27 Nov 2026: 4
 the stock module, storage areas, counts by area with approval, migrations 305 to 307; see "Phase 4a as built") and 4b
 (waste with its reasons and the till's voids marked wasted, transfers between venues, migrations 308 and 309; see "Phase
 4b as built"). Phase 5 built on 27 Nov 2026 (usage from sales: stock on hand takes sales off, dish margins as sold,
-order up to par; migration 311; see "Phase 5 as built"). Phases 6 to 10 are a plan. The decisions in section 12 are taken as
+order up to par; migration 311; see "Phase 5 as built"). Phase 6a built on 27 Nov 2026 (stock periods, variance by
+period, food cost actual and theoretical, the Variance tab, explain_variance, Today's variance to review; migration 312;
+see "Phase 6a as built"); 6b (the Cash Recon week line, dashboard widgets, the other Today items, rule triggers) is next.
+Phases 7 to 10 are a plan. The decisions in section 12 are taken as
 recommended, D1 to D12.** The owner's ask when building started: "recipes variations, per revenue stream/order type
 matrix, and per location (or ability to link a different recipe to menu items in different locations)",
 "stock take module" and "reports". The variation matrix is part of phase 2's links (5.4).
@@ -435,6 +438,14 @@ unexplained       = variance - logged waste
 - Pepper's `explain_variance` lists the evidence for a flagged item: dishes sold without a recipe
   that use it, deliveries corrected after the count, negative on hand during the period, a unit
   that changed, waste logged, and transfers not received.
+- *As built (phase 6a): adjustments explain their part like waste (explained = waste - adjusted,
+  unexplained = variance - explained), so unexplained is what the counts found against the ledger;
+  transfers out include what was lost in transit; one price per item for the period (the average
+  paid, else the last paid, else the standard price); net food sales are food and drink by the
+  catalogue's type (goods and services out), so "food cost" is food and drink cost. Both band
+  rules flag gains as well as losses. The actual food cost % is given only when every item sales
+  used has actual usage, so both sides cover the same items: the period running since the latest
+  full count shows theoretical only until the next full count (review fixes).*
 
 ### 8.2 Menu margins and engineering
 
@@ -554,7 +565,7 @@ scale; steps that follow the same day run nearer half.
 | 3 | **Built 27 Nov 2026.** Pepper reads recipes (sheet, PDF, photo, text) into drafts; match dishes to recipes; coverage by sales value | Most of a menu costed in a sitting | 50 to 65 |
 | 4 | **Built 27 Nov 2026.** 4a: the `stock` module; storage areas; stocktake (drafts, units, approval, key items, phone and scanner); adjustments; `loadStockMoves()`. 4b: waste (reasons in WRAP's kinds, till voids marked wasted, the phone's waste page); transfers in two steps | Stock run from documents | 90 to 110 |
 | 5 | **Built 27 Nov 2026.** Usage from sales (till, kiosk, online, imported); on hand with sales taken off; order to par minus stock | Stock on hand that follows trading | 70 to 90 |
-| 6 | Periods and variance; actual and theoretical food cost; the Cash Recon line; widgets; Today tasks; `explain_variance` | A pound figure on the gap, per item and venue | 70 to 90 |
+| 6 | **6a built 27 Nov 2026**: periods and variance; actual and theoretical food cost; `explain_variance`; variance to review on Today. **6b next**: the Cash Recon line; widgets; the other Today tasks; rule triggers | A pound figure on the gap, per item and venue | 70 to 90 |
 | 7 | Engineering from real sales; scenarios; what-if; push prices; price creep and its rule trigger | Pricing decisions made in the app | 60 to 80 |
 | 8 | Allergens on supplier products; the roll-up check and its Today item; suggested calories | Declared allergens checked against recipes | 50 to 65 |
 | 9 | Suggested orders from usage and bookings; returns and credit notes | Orders proposed, not just listed | 60 to 80 |
@@ -738,6 +749,40 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
   them; GloriaFood orders are listed as sold without a recipe; a recipe change marks every venue (a venue link only its
   venue); the order form counts every placed order not received as on order, and pars stay "the par as it is" until a
   venue's first approved count unless the venue says otherwise.
+
+### Phase 6a as built (27 Nov 2026)
+
+- **Migration** 312: `stock_periods` (venue, opening and closing count, their moments, open | closed, the trading days it
+  holds once closed, frozen `figures`, who closed and reopened it, the reopen note, a history), `stock_variance_reviews`
+  (the reviewed flag per item), `stock_usage_late` and its items (late sales on a closed day), the band on
+  `stock_settings` (`variance_band_pct` 1, `variance_item_pct` 3, `variance_item_pounds` 50) and `dish_cost_days.item_type`;
+  all RLS forced. The migration made periods between the approved full counts already taken.
+- **Periods**: made when a full count is approved (`periodsForCount()` in `services/stockVarianceSvc.js`; a count dated
+  back splits an open period, and makes none inside a closed one); the period since the latest full count runs to now and
+  isn't stored. Closing (Stock manage) freezes the figures and the days the period holds (each day whose last sale is
+  inside it, and the days wholly inside it); reopening (Stock manage, a note) works those days out again with their late
+  sales and is refused while a later period at the venue is closed.
+- **Closed days (D9)**: `isDayClosed(venueId, day, ranges)` answers from the venue's closed periods, read once per run. A
+  closed day whose sales changed is never worked out again: `keepLateUsage()` keeps the day as worked out now less what
+  was kept, landing in the first open period after it (else the running one, given to the next period when its full
+  count is approved), on the ledger at the day's last sale (so on hand after the closing count is unchanged) and marked.
+- **The rule** `shared/variance.js` (rule 12): `itemVariance()`, `periodVariance()` (ranked by pounds of unexplained
+  loss, share of food sales, the totals, food cost, the band), `itemFlag()`, `keyIntervals()` (an item between each pair
+  of its counts: key items give daily figures when counted daily), `isFoodSale()`, `explainVariance()`; `costShare()` in
+  `shared/costing.js` is where pounds meet pence. A property test checks actual = theoretical + variance and variance =
+  waste - adjusted + unexplained over generated data, and that unexplained is the closing count against the ledger.
+- **Placement**: theoretical is each trading day's usage move at its last sale, as on hand places it, and net food sales
+  are the days whose last sale is in the period; a count mid-trading has the whole day after it (outstanding item 75).
+- **Pages**: the Stock page's Variance tab (periods, items with their evidence, between counts and reviewed; food cost
+  actual and theoretical; By venue; Key items; close and reopen) and the Variance band on Settings. Today: variance to
+  review (a closed period with flagged items not reviewed, Stock manage). Pepper: `variance_summary`, `explain_variance`
+  (read). Reports: Stock variance by period, Food cost by period, Stock periods; starters Variance by item, Theoretical
+  against actual food cost by week. Pounds need Costing view; sales (net food sales, food cost %, share) till reports too.
+- **What the build changed in the plan**: adjustments are explained (8.1); food is food and drink (the catalogue's type
+  can't split them, revenue streams say where, not what); late sales sit on the ledger at their day and count in the
+  period they landed in; Pepper doesn't close or reopen periods (a manager's step on the page, with a note); a period
+  can't be reopened while a later one is closed. 6b adds the Cash Recon line, the widgets, the other Today items and the
+  rule triggers on top.
 
 ## 12. Decisions for the owner
 

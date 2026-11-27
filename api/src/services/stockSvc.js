@@ -32,6 +32,9 @@
 // the venue's trading days (stock_usage_days, worked out by the job
 // jobs/stock-usage.js through services/stockUsageSvc.js), one move per item
 // per day at the day's last sale, with how much came from each channel.
+// Phase 6a (migration 312) added late sales on a closed day (stock_usage_late:
+// what reached a day of a closed period after it was closed), at the day's
+// last sale, marked `late` (variance counts it in the period it landed in).
 //
 //   MOVE_SOURCES, SALES_COUNTED, salesTakenOff(tx, tenantId, venueIds) (up to when
 //   sales are taken off at each venue: the last run), salesNote(state, timezone)
@@ -58,6 +61,7 @@
 import { systemSql, withSystem } from '../config/db.js'
 import { stockOnHand, countUnits, defaultCountUnit, voidReason, transferLineMoves, WASTE_REASON_SEEDS } from '../../../shared/stock.js'
 import { itemsOf } from '../../../shared/stockItems.js'
+import { varianceSettings } from '../../../shared/variance.js'
 import { poNumberLabel } from '../../../shared/procurement.js'
 import { itemCost, AVERAGE_DAYS } from '../../../shared/costing.js'
 import { businessDate } from '../../../shared/pos/reports.js'
@@ -264,6 +268,29 @@ export function salesNote(state, timezone = 'Europe/London') {
   return 'Sales are taken off up to the last run at ' + when + ' (usage from sales is worked out every few minutes; a dish with no recipe takes nothing off).'
 }
 
+/**
+ * Late sales on a closed day (phase 6a, migration 312): what reached a day
+ * inside a closed period after it was closed, kept apart (stock_usage_late)
+ * and never written into the day itself. On the ledger each sits at the
+ * day's last sale (inside the closed period, before its closing count, so
+ * on hand after that count is as it was); `late` tells variance to count it
+ * in the period it landed in, not by its moment.
+ */
+async function lateUsageMoves(tx, tenantId, cut) {
+  const rows = await tx`
+    SELECT l.venue_id, li.item_id, l.at, (-li.qty_base)::float8 AS qty_base, li.cost_per_base::float8 AS cost_per_base,
+           l.day::text AS day, l.id AS source_id
+      FROM stock_usage_late_items li
+      JOIN stock_usage_late l ON l.id = li.late_id AND l.tenant_id = li.tenant_id
+     WHERE li.tenant_id = ${tenantId} ${cutOf(tx, cut, 'l.venue_id', 'li.item_id', 'l.at')}
+     ORDER BY l.at, l.found_at`
+  return rows.map(r => ({
+    venue_id: r.venue_id, item_id: r.item_id, at: r.at, kind: 'usage', qty_base: r.qty_base, cost_per_base: r.cost_per_base,
+    cost_fixed: r.cost_per_base != null, day: r.day, channels: {}, late: true,
+    source: { type: 'late_usage', id: r.source_id, label: 'Late sales on ' + dayWords(r.day) + ' (counted in a later period)' }, by: null,
+  }))
+}
+
 // Where moves come from. Phase 4b added waste (logged, and the till's voids marked wasted) and transfers.
 export const MOVE_SOURCES = [
   { kind: 'delivery', load: deliveryMoves },
@@ -274,6 +301,8 @@ export const MOVE_SOURCES = [
   { kind: 'transfer', load: transferMoves },
   // Phase 5: usage from sales, one move per item per trading day.
   { kind: 'usage', load: usageMoves },
+  // Phase 6a: late sales on a closed day, at the day's last sale.
+  { kind: 'usage', load: lateUsageMoves },
 ]
 
 /**
@@ -413,8 +442,15 @@ export async function loadCountItems(tx, tenantId, itemIds) {
 }
 
 export async function loadStockSettings(tx, tenantId) {
-  const [s] = await tx`SELECT second_person_approves, blind_count, refunds_return_stock FROM stock_settings WHERE tenant_id = ${tenantId}`
-  return { second_person_approves: !!s?.second_person_approves, blind_count: !!s?.blind_count, refunds_return_stock: !!s?.refunds_return_stock }
+  const [s] = await tx`
+    SELECT second_person_approves, blind_count, refunds_return_stock,
+           variance_band_pct::float8 AS variance_band_pct, variance_item_pct::float8 AS variance_item_pct, variance_item_pounds::float8 AS variance_item_pounds
+      FROM stock_settings WHERE tenant_id = ${tenantId}`
+  return {
+    second_person_approves: !!s?.second_person_approves, blind_count: !!s?.blind_count, refunds_return_stock: !!s?.refunds_return_stock,
+    // Phase 6a (migration 312): the variance band (saved on its own: PUT /api/stock/variance-settings).
+    variance: varianceSettings(s || null),
+  }
 }
 
 export async function loadVenueSettings(tx, tenantId, venueId) {

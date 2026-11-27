@@ -58,6 +58,12 @@ export const AREAS = [
 
 const AGGS = ['sum', 'avg', 'min', 'max', 'count', 'count_distinct']
 
+// A field's, figure's or link's `needs`: one module, or a list of modules
+// the person must be able to view, every one of them (a share of food sales
+// worked out from pounds needs Costing and Till reports).
+const needsOf = needs => (!needs ? [] : [].concat(needs))
+const knownNeeds = needs => !needs || ((Array.isArray(needs) || typeof needs === 'string') && needsOf(needs).every(k => MODULE_KEYS.includes(k)))
+
 function build(lists) {
   const subjects = {}
   for (const s of lists.flat()) {
@@ -102,10 +108,10 @@ function build(lists) {
       check('field ' + f.key, f.sql)
       if (f.bound) check('field ' + f.key + ' bound', f.bound)
       if (f.type === 'choice' && (!f.labels || !Object.keys(f.labels).length)) fail(s, 'field ' + f.key + ' is a choice without labels')
-      if (f.needs && !MODULE_KEYS.includes(f.needs)) fail(s, 'field ' + f.key + ' needs an unknown module')
+      if (!knownNeeds(f.needs)) fail(s, 'field ' + f.key + ' needs an unknown module')
     }
     for (const m of Object.values(s.measures)) {
-      if (m.needs && !MODULE_KEYS.includes(m.needs)) fail(s, 'measure ' + m.key + ' needs an unknown module')
+      if (!knownNeeds(m.needs)) fail(s, 'measure ' + m.key + ' needs an unknown module')
       if (m.ratio) {
         for (const part of m.ratio) {
           const p = s.measures[part]
@@ -122,7 +128,7 @@ function build(lists) {
     for (const l of Object.values(s.links)) {
       const to = subjects[l.to]
       if (!to) fail(s, 'link ' + l.key + ' leads to "' + l.to + '", which isn\'t a subject')
-      if (l.needs && !MODULE_KEYS.includes(l.needs)) fail(s, 'link ' + l.key + ' needs an unknown module')
+      if (!knownNeeds(l.needs)) fail(s, 'link ' + l.key + ' needs an unknown module')
       // Rows worked out in code are filled for the run's own subject, its
       // venues and period: nothing can reach them through a link.
       if (to.from.work) fail(s, 'link ' + l.key + ' leads to ' + to.key + ', whose rows are worked out for each run')
@@ -236,9 +242,9 @@ export async function tenantCatalogue(tenantId) {
 /** Every module a subject, field, figure or link of the catalogue asks for. */
 export const CATALOGUE_MODULES = [...new Set(Object.values(CATALOGUE.subjects).flatMap(s => [
   s.module,
-  ...Object.values(s.fields).map(f => f.needs),
-  ...Object.values(s.measures).map(m => m.needs),
-  ...Object.values(s.links).map(l => l.needs),
+  ...Object.values(s.fields).flatMap(f => needsOf(f.needs)),
+  ...Object.values(s.measures).flatMap(m => needsOf(m.needs)),
+  ...Object.values(s.links).flatMap(l => needsOf(l.needs)),
 ]).filter(Boolean))]
 
 // View on the module, or the level a subject asks for (Pepper's Activity is Manage).
@@ -246,8 +252,8 @@ const can = (levels, moduleKey, level = 'view') => !moduleKey || permissionAtLea
 
 /** May the person report on this subject (start a report from it, or count its rows)? */
 export const canReportOn = (subject, levels) => !subject.hidden && can(levels, subject.module, subject.level)
-/** May the person see this field or follow this link? */
-export const canSee = (def, levels) => can(levels, def.needs)
+/** May the person see this field or follow this link? View on every module its `needs` names. */
+export const canSee = (def, levels) => needsOf(def.needs).every(k => can(levels, k))
 
 /** How a figure may be added up when it is worked out for each of another subject's rows first (through a "many" link). */
 export const ACROSS_AGGS = ['sum', 'count', 'min', 'max']

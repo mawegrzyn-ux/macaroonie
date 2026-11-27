@@ -8,6 +8,9 @@
 //                 off up to the last run of usage from sales (phase 5)
 //   Usage         what sales took off, by item or day with each channel's
 //                 part, dishes sold without a full recipe, Recompute (phase 5)
+//   Variance      a period's actual usage against theoretical, waste and the
+//                 unexplained part per item, food cost actual and theoretical,
+//                 by venue, key items between counts, close and reopen (phase 6a)
 //   Counts        the counts, starting one, counting by area, review, approve
 //   Adjustments   stock put right with a reason (Stock manage)
 //   Waste         logging waste (Stock use), a day's waste with the till's
@@ -16,12 +19,14 @@
 //                 way here, cancelling, the history (phase 4b)
 //   Settings      storage areas, key-item lists, approval and blind counts,
 //                 the count day, waste reasons (Stock manage; read only below it)
-// The address says where it opens: ?venue= &tab= (on-hand | usage | counts |
-// adjustments | waste | transfers | settings) &count= (a count) &item= (an
+// The address says where it opens: ?venue= &tab= (on-hand | usage | variance |
+// counts | adjustments | waste | transfers | settings) &period= (a stock
+// period on the Variance tab: Today's variance to review) &count= (a count) &item= (an
 // item's history) &transfer= (a transfer to receive) &date= (the Waste tab's
 // trading day) &waste= (an entry on it: a Waste report's row).
 // API: routes/stock.js, routes/stockCounts.js, routes/stockSetup.js,
-// routes/stockWaste.js, routes/stockTransfers.js, routes/stockUsage.js.
+// routes/stockWaste.js, routes/stockTransfers.js, routes/stockUsage.js,
+// routes/stockVariance.js.
 
 import { lazy, Suspense, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -36,11 +41,13 @@ const StockSettings = lazy(() => import('@/components/stock/StockSettings'))
 const Waste = lazy(() => import('@/components/stock/Waste'))
 const Transfers = lazy(() => import('@/components/stock/Transfers'))
 const Usage = lazy(() => import('@/components/stock/Usage'))
+const Variance = lazy(() => import('@/components/stock/Variance'))
 
 // The tabs, in order.
 const TABS = [
   { value: 'on-hand', label: 'On hand' },
   { value: 'usage', label: 'Usage' },
+  { value: 'variance', label: 'Variance' },
   { value: 'counts', label: 'Counts' },
   { value: 'waste', label: 'Waste' },
   { value: 'transfers', label: 'Transfers' },
@@ -71,16 +78,17 @@ export default function Stock() {
   return (
     <div className="h-full overflow-y-auto bg-page" data-testid="stock-page">
       <PageHeader icon={Boxes} title="Stock">
-        <VenuePicker venues={venues} venueId={venueId} onChange={id => { setVenueId(id); set({ count: '', item: '', transfer: '', date: '', waste: '' }) }} />
+        <VenuePicker venues={venues} venueId={venueId} onChange={id => { setVenueId(id); set({ count: '', item: '', transfer: '', date: '', waste: '', period: '' }) }} />
       </PageHeader>
       <div className="max-w-6xl mx-auto p-4 space-y-4">
         <div className="overflow-x-auto">
-          <Segmented value={tab} onChange={t => set({ tab: t === 'on-hand' ? '' : t, count: '', item: '', transfer: '', date: '', waste: '' })} options={TABS} testid="stock-tabs" />
+          <Segmented value={tab} onChange={t => set({ tab: t === 'on-hand' ? '' : t, count: '', item: '', transfer: '', date: '', waste: '', period: '' })} options={TABS} testid="stock-tabs" />
         </div>
         {!venueId ? wait : (
           <Suspense fallback={wait}>
             {tab === 'on-hand' && <OnHand venueId={venueId} openItem={params.get('item')} onOpenItem={id => set({ item: id })} />}
             {tab === 'usage' && <Usage venueId={venueId} canManage={canManage} />}
+            {tab === 'variance' && <Variance venueId={venueId} askedPeriod={params.get('period')} canManage={canManage} />}
             {tab === 'counts' && <Counts venueId={venueId} countId={params.get('count')} onOpenCount={id => set({ count: id })} />}
             {tab === 'waste' && <Waste venueId={venueId} askedDay={params.get('date')} picked={params.get('waste')} />}
             {tab === 'transfers' && <Transfers venueId={venueId} transferId={params.get('transfer')} onOpenTransfer={id => set({ transfer: id })} />}

@@ -18,10 +18,14 @@
 // (migrations 308 and 309): waste (logged, and the till's voids marked
 // wasted, broken into items through the recipe; test till sales left out)
 // and transfers between venues (sent, received, lost in transit), both
-// worked out in code too; on hand and the ledger take them in.
+// worked out in code too; on hand and the ledger take them in. Phase 6a
+// (migration 312): stock periods between two approved full counts, their
+// variance per item (actual usage against theoretical, waste, the
+// unexplained part: shared/variance.js) and food cost actual and
+// theoretical, a closed period's figures as they were frozen.
 
 import { subject, text, number, money, percent, yesno, choice, moment, sum, count, countDistinct, ratio, one } from './define.js'
-import { STOCK_TABLES, MOVE_TABLES, COUNT_LINE_TABLES, WASTE_TABLES, TRANSFER_TABLES } from '../work/stock.js'
+import { STOCK_TABLES, MOVE_TABLES, COUNT_LINE_TABLES, WASTE_TABLES, TRANSFER_TABLES, VARIANCE_TABLES } from '../work/stock.js'
 import { WASTE_KINDS, WASTE_WHAT, TRANSFER_STATUSES, MOVE_KINDS } from '../../../../shared/stock.js'
 
 const COSTING = 'costing'
@@ -449,5 +453,135 @@ export const subjects = [
     skip: ['section_id', 'recipe_id'],
     list: ['date', 'venue.name', 'dish', 'channel', 'units', 'net', 'cost', 'gp', 'cost_pct', 'uncosted_units'],
     sort: [{ by: 'date', dir: 'desc' }],
+  }),
+
+  // Phase 6a (migration 312): stock periods, variance by period, food cost actual and theoretical.
+  subject({
+    key: 'stock.variance',
+    label: 'Stock variance by period',
+    one: 'item in a stock period',
+    area: 'stock',
+    module: 'stock',
+    about: 'Each inventory item in each stock period at a venue (a period runs between two approved full counts, on the day it ends): its actual usage (the opening count plus what was received and moved in, less what moved out and the closing count) against what sales took by their recipes (theoretical, late sales from a closed period marked), its waste (the till\'s voids marked wasted too) and adjustments, the variance and the part nothing explains. A closed period\'s figures are the ones frozen when it was closed. Quantities are in each item\'s own unit; values are at the average paid at the venue (else the last paid, else the standard price) and need Costing view.',
+    from: { work: 'stock_variance', tables: VARIANCE_TABLES },
+    idType: 'text',
+    venue: 'venue_id',
+    date: { sql: '{t}.date', label: 'Period ends' },
+    name: 'item_name',
+    open: { page: '/stock?tab=variance&venue=:venue&period=:id', module: 'stock', id: 'period_id', with: { venue: 'venue_id' } },
+    fields: {
+      ...itemFields(),
+      category: text('category', { label: 'Category' }),
+      status: choice('status', { open: 'Open', closed: 'Closed' }, { label: 'Period' }),
+      from_at: moment('from_at', { label: 'Period starts' }),
+      to_at: moment('to_at', { label: 'Period ends at' }),
+      opening: number('opening', { label: 'Opening count' }),
+      received: number('received', { label: 'Received' }),
+      transfers_in: number('transfers_in', { label: 'Transfers in' }),
+      transfers_out: number('transfers_out', { label: 'Transfers out', about: 'What was sent to another venue, what was lost on the way included.' }),
+      closing: number('closing', { label: 'Closing count' }),
+      actual: number('actual', { label: 'Actual usage', synonyms: ['actual usage'], about: 'Opening + received + transfers in - transfers out - closing.' }),
+      theoretical: number('theoretical', { label: 'Theoretical usage', about: 'What sales took by their recipes in the period, late sales from a closed period that landed in it included.' }),
+      late: number('late', { label: 'Late sales in it' }),
+      waste: number('waste', { label: 'Waste' }),
+      adjusted: number('adjusted', { label: 'Adjusted' }),
+      variance: number('variance', { label: 'Variance', synonyms: ['variance'], about: 'Actual less theoretical usage: above zero, more was used than sales explain.' }),
+      unexplained: number('unexplained', { label: 'Unexplained', synonyms: ['unexplained loss'], about: 'The variance less waste and adjustments: what the counts found against the documents.' }),
+      unexplained_pct: percent('unexplained_pct', { label: 'Unexplained % of theoretical' }),
+      unexplained_value: pounds('unexplained_value', { label: 'Unexplained value', synonyms: ['shrinkage'] }),
+      variance_value: pounds('variance_value', { label: 'Variance value' }),
+      actual_value: pounds('actual_value', { label: 'Actual usage value' }),
+      theoretical_value: pounds('theoretical_value', { label: 'Theoretical usage value' }),
+      waste_value: pounds('waste_value', { label: 'Waste value' }),
+      // From pounds and sales: Costing view and till reports view, as the Variance tab gives it (stockAccess().sees_sales).
+      share_pct: percent('share_pct', { label: 'Unexplained, points of food sales', needs: [COSTING, 'pos_reports'], about: 'The unexplained value as a share of the venue\'s net food sales in the period.' }),
+      flagged: yesno('flagged', { label: 'Flagged', about: 'Over the group\'s band: by default over 3% of what sales took and over £50.' }),
+      reviewed: yesno('reviewed', { label: 'Reviewed' }),
+    },
+    measures: {
+      items: count({ label: 'Items' }),
+      flagged_items: count({ label: 'Flagged items', where: '{t}.flagged' }),
+      unexplained_total: value('unexplained_value', { label: 'Unexplained loss', synonyms: ['shrinkage', 'variance'], examples: ['variance by item last month'] }),
+      variance_total: value('variance_value', { label: 'Variance value' }),
+      actual_total: value('actual_value', { label: 'Actual usage value' }),
+      theoretical_total: value('theoretical_value', { label: 'Theoretical usage value' }),
+      waste_total: value('waste_value', { label: 'Waste value in the periods' }),
+    },
+    links: {
+      item: one('purchasing.items', 'item_id', { label: 'Item' }),
+    },
+    list: ['date', 'venue.name', 'item_name', 'actual', 'theoretical', 'waste', 'unexplained', 'base_unit', 'unexplained_value', 'flagged'],
+    sort: [{ by: 'unexplained_value', dir: 'desc' }],
+    skip: ['period_id', 'price'],
+  }),
+
+  subject({
+    key: 'stock.food_cost',
+    label: 'Food cost by period',
+    one: 'stock period',
+    area: 'stock',
+    module: COSTING,
+    about: 'Each stock period at a venue (between two approved full counts, on the day it ends): net food sales (food and drink, not retail goods or services), the actual food cost (what the counts say was used, at the average paid) and the theoretical (what sales took by their recipes), each as a percentage of net food sales. By week, the periods that ended in it. A closed period\'s figures are the ones frozen when it was closed. A period whose counts left out an item sales used has no actual food cost (both sides cover the same items), and the actual food cost % over several periods counts only the sales of the ones that have it.',
+    from: { work: 'stock_food_cost', tables: VARIANCE_TABLES },
+    idType: 'text',
+    venue: 'venue_id',
+    date: { sql: '{t}.date', label: 'Period ends' },
+    open: { page: '/stock?tab=variance&venue=:venue&period=:id', module: 'stock', id: 'id', with: { venue: 'venue_id' } },
+    fields: {
+      status: choice('status', { open: 'Open', closed: 'Closed' }, { label: 'Period' }),
+      from_at: moment('from_at', { label: 'Period starts' }),
+      net_food: money('net_food_pence', { label: 'Net food sales', needs: 'pos_reports', about: 'Food and drink sold in the period, VAT out, late sales that landed in it included.' }),
+      actual_cost: pounds('actual_cost', { label: 'Actual food cost', synonyms: ['actual food cost'] }),
+      theoretical_cost: pounds('theoretical_cost', { label: 'Theoretical food cost (periods)' }),
+      actual_pct: percent('actual_pct', { label: 'Actual food cost %', needs: 'pos_reports', synonyms: ['food cost percent', 'actual food cost'] }),
+      theoretical_pct: percent('theoretical_pct', { label: 'Theoretical food cost % (periods)', needs: 'pos_reports' }),
+      gap_pts: number('gap_pts', { label: 'Gap (points)', needs: 'pos_reports', about: 'Actual less theoretical food cost %, in points.' }),
+      over_band: yesno('over_band', { label: 'Over the band', needs: 'pos_reports', about: 'The unexplained value is more points of net food sales than the group\'s venue band.' }),
+    },
+    measures: {
+      periods: count({ label: 'Periods' }),
+      net_food_sales: sum('net_food_pence', { type: 'money', label: 'Net food sales', needs: 'pos_reports' }),
+      actual_food_cost: sum('actual_cost', { type: 'money', unit: 'pounds', label: 'Actual food cost', needs: COSTING, synonyms: ['actual food cost'] }),
+      // The sales the actual food cost is over: a period with no actual (an item sales used not counted) is left out of both.
+      net_food_sales_counted: sum({ sql: '(CASE WHEN {t}.actual_cost IS NOT NULL THEN {t}.net_food_pence END)' }, { type: 'money', label: 'Net food sales (periods with an actual food cost)', needs: 'pos_reports' }),
+      theoretical_food_cost: sum('theoretical_cost', { type: 'money', unit: 'pounds', label: 'Theoretical food cost (periods)', needs: COSTING }),
+      actual_food_cost_pct: ratio('actual_food_cost', 'net_food_sales_counted', { type: 'percent', label: 'Actual food cost %', needs: 'pos_reports', synonyms: ['food cost percent', 'actual food cost'], about: 'The actual food cost as a share of net food sales, over the periods that have an actual food cost.' }),
+      theoretical_food_cost_pct: ratio('theoretical_food_cost', 'net_food_sales', { type: 'percent', label: 'Theoretical food cost % (periods)', needs: 'pos_reports', about: 'What sales took by their recipes as a share of net food sales.' }),
+    },
+    list: ['date', 'venue.name', 'net_food', 'actual_pct', 'theoretical_pct', 'gap_pts', 'status'],
+    sort: [{ by: 'date', dir: 'desc' }],
+    skip: ['to_at', 'unexplained_value', 'items', 'flagged'],
+  }),
+
+  subject({
+    key: 'stock.periods',
+    label: 'Stock periods',
+    one: 'stock period',
+    area: 'stock',
+    module: 'stock',
+    about: 'Each stock period at a venue: from one approved full count to the next, open (its figures follow the documents) or closed by a manager (its figures frozen), with who closed and reopened it and why, and how many of its items were flagged by the variance band.',
+    from: 'stock_periods',
+    venue: 'venue_id',
+    date: { sql: "({t}.to_at AT TIME ZONE COALESCE((SELECT v.timezone FROM venues v WHERE v.id = {t}.venue_id AND v.tenant_id = {t}.tenant_id), 'Europe/London'))::date", label: 'Period ends' },
+    open: { page: '/stock?tab=variance&venue=:venue&period=:id', module: 'stock', id: 'id', with: { venue: 'venue_id' } },
+    fields: {
+      status: choice('status', { open: 'Open', closed: 'Closed' }, { label: 'Status' }),
+      from_at: moment('from_at', { label: 'Starts' }),
+      to_at: moment('to_at', { label: 'Ends' }),
+      closed_by: text('closed_by', { label: 'Closed by' }),
+      closed_at: moment('closed_at', { label: 'Closed at' }),
+      reopened_by: text('reopened_by', { label: 'Reopened by' }),
+      reopened_at: moment('reopened_at', { label: 'Reopened at' }),
+      reopen_note: text('reopen_note', { label: 'Why it was reopened' }),
+      flagged_items: number({ sql: "(SELECT count(*) FROM jsonb_array_elements(COALESCE({t}.figures->'rows', '[]'::jsonb)) r WHERE (r->>'flagged')::boolean)" }, { label: 'Items flagged when closed', decimals: 0 }),
+    },
+    measures: {
+      periods: count({ label: 'Stock periods' }),
+      closed: count({ label: 'Closed periods', where: "{t}.status = 'closed'" }),
+      open_periods: count({ label: 'Open periods', where: "{t}.status = 'open'" }),
+    },
+    list: ['date', 'venue.name', 'from_at', 'to_at', 'status', 'closed_by', 'flagged_items'],
+    sort: [{ by: 'to_at', dir: 'desc' }],
+    skip: ['opening_count_id', 'closing_count_id', 'days_from', 'days_to', 'history', 'created_at', 'updated_at'],
   }),
 ]

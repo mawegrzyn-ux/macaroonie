@@ -35,7 +35,10 @@
 //   POST /counts/:id/areas/:areaId      { done }: an area finished (or not)
 //   POST /counts/:id/submit             { zero_item_ids?, all_zero? }: a full count names
 //                                       what it confirms as zero (422 not_counted lists the rest)
-//   POST /counts/:id/approve            Manage; approvalProblem() (the second person setting)
+//   POST /counts/:id/approve            Manage; approvalProblem() (the second person setting);
+//                                       a full count makes the stock period since the
+//                                       previous approved full count (phase 6a: periods_made,
+//                                       period_note when it is inside a closed period)
 //   POST /counts/:id/reopen             Manage: a submitted count back to counting
 //   POST /counts/:id/cancel             a draft (Use), a submitted count (Manage); never an approved one
 //   GET  /venues/:venueId/today?date=   Today's stock tasks: the count due on the venue's
@@ -43,7 +46,8 @@
 //                                       submitted: a full count, or its key-item list's;
 //                                       never a quick count), counts waiting for approval,
 //                                       and (phase 4b) transfers sent to the venue waiting
-//                                       to be received
+//                                       to be received, and (phase 6a, Stock manage) closed
+//                                       periods with flagged items not reviewed yet
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
@@ -57,6 +61,7 @@ import {
   loadStockOnHand, loadCountItems, loadStockSettings, loadVenueSettings, countScope, itemCostsAt,
 } from '../services/stockSvc.js'
 import { stockAccess, stockPerson, who } from './stock.js'
+import { periodsForCount, toReview } from '../services/stockVarianceSvc.js'
 
 const canView = requirePermission('stock', 'view')
 const canCount = requirePermission('stock', 'use')
@@ -399,7 +404,9 @@ export default async function stockCountRoutes(app) {
       if (problem) throw httpError(403, problem.message, { code: problem.code })
       const [row] = await tx`UPDATE stock_counts SET status = 'approved', approved_by = ${me}, approved_at = now(), updated_at = now()
                               WHERE id = ${c.id} AND tenant_id = ${req.tenantId} RETURNING ${tx.unsafe(COUNT_COLS)}`
-      return countView(tx, req, row, access, ids)
+      // Phase 6a: an approved full count closes the period since the previous one (a stock period, open until closed).
+      const made = await periodsForCount(tx, req.tenantId, row)
+      return { ...(await countView(tx, req, row, access, ids)), periods_made: made.periods.map(p => p.id), period_note: made.note }
     })
   })
 
@@ -466,11 +473,13 @@ export default async function stockCountRoutes(app) {
           FROM stock_transfers t JOIN venues v ON v.id = t.from_venue_id AND v.tenant_id = t.tenant_id
          WHERE t.tenant_id = ${req.tenantId} AND t.to_venue_id = ${venueId} AND t.status = 'sent'
          ORDER BY t.sent_at`
+      // Phase 6a: closed periods with flagged items nobody has reviewed yet (reviewing is Stock manage).
+      const variance = access.can_manage ? await toReview(tx, req.tenantId, venueId) : []
       return {
         settings, weekday,
         count_due: countDueOn(settings, weekday) && done.n === 0,
         draft: open.find(c => c.status === 'draft') || null,
-        waiting, incoming,
+        waiting, incoming, variance,
         can_count: access.can_count, can_manage: access.can_manage,
       }
     })

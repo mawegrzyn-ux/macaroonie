@@ -73,4 +73,34 @@ export const starters = [
       view: { kind: 'line', x: 'date:week', y: ['theoretical_cost_pct'] },
     },
   }),
+
+  // Phase 6a (migration 312): variance by item over the stock periods, and food cost actual against theoretical.
+  starter({
+    key: 'stock_variance_by_item',
+    name: 'Variance by item',
+    about: 'The stock periods that ended in the last 30 days (between two approved full counts at a venue): each item\'s unexplained loss in pounds, biggest first, with how many periods flagged it. Unexplained is actual usage (what the counts say was used) less what sales took by their recipes, less logged waste and adjustments. Values need Costing view.',
+    period: { relative: 'last_n_days', n: 30 },
+    spec: {
+      subject: 'stock.variance',
+      rows: ['item_name'],
+      values: m('unexplained_total', 'flagged_items', 'items'),
+      sort: [{ by: 'unexplained_total', dir: 'desc' }],
+      drill: { down: ['venue.name', 'date'], rows: ['date', 'venue.name', 'item_name', 'actual', 'theoretical', 'waste', 'unexplained', 'base_unit', 'unexplained_value'] },
+    },
+  }),
+
+  starter({
+    key: 'stock_food_cost_actual_theoretical_week',
+    name: 'Theoretical against actual food cost by week',
+    about: 'Week by week at each venue, from its stock periods (between two approved full counts; a period counts in the week it ends): net food sales, the actual food cost % (what the counts say was used) and the theoretical (what sales took by their recipes), side by side. The gap is waste, recipes that take more than they say, sales without a recipe and stock nobody can account for.',
+    period: { relative: 'last_n_days', n: 84 },
+    spec: {
+      subject: 'stock.food_cost',
+      rows: [{ field: 'date', bucket: 'week' }],
+      values: m('net_food_sales', 'actual_food_cost_pct', 'theoretical_food_cost_pct', 'periods'),
+      sort: [{ by: 'date:week', dir: 'asc' }],
+      drill: { down: ['venue.name'] },
+      view: { kind: 'line', x: 'date:week', y: ['actual_food_cost_pct', 'theoretical_food_cost_pct'] },
+    },
+  }),
 ]

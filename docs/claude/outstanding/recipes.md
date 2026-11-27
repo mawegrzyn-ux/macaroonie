@@ -8,7 +8,7 @@ What is not built, known limits and follow-ups in this area (`docs/claude/areas/
 - A unit a line uses is free text: a line can name a unit nobody has defined (it shows as a gap), and the editor's unit list offers only the units the item knows. There is no bulk "give these items a size" screen.
 - The inventory import and price update don't read yield or units, and the item import doesn't set them; they are typed in the item's drawer.
 - Last paid and average paid read received purchase order lines only; they don't follow stock moves, transfers or credit notes (phase 4 onwards), and the average is over a fixed 90 days.
-- The Recipe costs report subject costs at standard prices only, today's; there is no history of what a recipe cost on a past day (D9: open days are recomputed, closed periods never change, comes with periods in phase 6).
+- The Recipe costs report subject costs at standard prices only, today's; there is no history of what a recipe cost on a past day (D9: open days are recomputed, closed periods never change, comes with periods in phase 6) Periods came with phase 6a (27 Nov 2026): a closed period freezes its variance figures and its days' usage; recipe costs themselves still have no history.
 - Recipe photos come from the media library through `PicturePick`, which needs the person to be able to upload to Media: a cook with Recipes manage but no media access sees the upload refused.
 - No allergens, calories or labels from recipes (phase 8), and `shelf_life_hours` is kept but nothing prints a label with it.
 - Recipes are per group: nothing passes recipes from a franchisor to its franchisees (phase 10).

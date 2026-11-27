@@ -529,6 +529,8 @@ const SOURCES = {
   // venue and not received yet, for whoever may receive it (Stock use). From
   // /api/stock as the person. The phone opens /stock links on its count page,
   // a transfer on the office's Stock page (admin/src/mobile/today.js).
+  // Phase 6a: a closed period with flagged items not reviewed yet, for Stock
+  // manage (who reviews them), opening the Variance tab at that period.
   async stock(ctx, v, s) {
     const t = await callApi(ctx, 'GET', `/api/stock/venues/${v.id}/today?date=${s.date}`)
     const tasks = []
@@ -549,6 +551,16 @@ const SOURCES = {
         detail: 'Submitted' + (c.submitted_by ? ' by ' + c.submitted_by : '') + (c.submitted_at ? ' on ' + shortDate(localParts(c.submitted_at, v.timezone).date) : ''),
         due: null, group: 'now',
         action: { path: '/stock?tab=counts&venue=' + v.id + '&count=' + c.id, label: 'Review it' },
+      })
+    }
+    // Phase 6a: a closed period with flagged items nobody has reviewed (Stock manage reviews them on the Variance tab).
+    for (const p of t.can_manage ? t.variance || [] : []) {
+      tasks.push({
+        key: 'stock_variance:' + p.id, area: 'stock', kind: 'stock_variance_to_review', compliance: false,
+        title: 'Variance to review',
+        detail: plural(p.unreviewed, 'flagged item') + ' not reviewed · period to ' + shortDate(localParts(p.to_at, v.timezone).date),
+        due: null, group: 'now',
+        action: { path: '/stock?tab=variance&venue=' + v.id + '&period=' + p.id, label: 'Review it' },
       })
     }
     for (const x of t.can_count ? t.incoming || [] : []) {

@@ -1,7 +1,8 @@
 // src/pages/docs/stock.jsx
 // The Docs page's "Stock" section (inventory phase 4a: the ledger, storage
 // areas, stocktakes, adjustments; phase 4b: waste and its reasons, till voids
-// marked wasted, transfers between venues; phase 5: usage from sales). Docs.jsx gathers every file in this
+// marked wasted, transfers between venues; phase 5: usage from sales; phase 6a:
+// stock periods and variance). Docs.jsx gathers every file in this
 // folder (except parts.jsx) and shows them by order, then id.
 import { H2, H3, P, Mono, InfoBox } from './parts.jsx'
 
@@ -336,8 +337,8 @@ export function Section() {
         <Mono>USAGE_DAYS</Mono> (14) trading days (<Mono>venueToday()</Mono>: the till&apos;s day start, else 04:00)
         that changed, were marked (<Mono>stock_usage_venues.dirty_from</Mono>, set by <Mono>markUsageDirty()</Mono>:
         the recipe, link and option rule plugins call <Mono>marksUsageOnChange(app)</Mono>, an <Mono>onSend</Mono>{' '}
-        hook; the refunds setting) or were never worked out; <Mono>usageHooks.isDayClosed()</Mono> (false until
-        phase 6) keeps closed days. <Mono>sweepStockUsage()</Mono> (job <Mono>jobs/stock-usage.js</Mono>, every 5
+        hook; the refunds setting) or were never worked out; <Mono>usageHooks.isDayClosed(venueId, day, ranges)</Mono>{' '}
+        keeps closed days (phase 6a: from the venue&apos;s closed periods, below). <Mono>sweepStockUsage()</Mono> (job <Mono>jobs/stock-usage.js</Mono>, every 5
         minutes) registers the venues of groups with recipes, claims due ones with a lease
         (<Mono>running_until</Mono>, <Mono>FOR UPDATE SKIP LOCKED</Mono>), runs each in system mode and lets go
         (<Mono>releaseVenue()</Mono> sets <Mono>last_run_at</Mono>; a Recompute lets go of its lease only, with{' '}
@@ -371,6 +372,97 @@ export function Section() {
         <Mono>dish_cost_days</Mono>); <Mono>stock_usage_marks</Mono> and <Mono>stock_usage_venues</Mono> are decided
         out. Tests: <Mono>shared/test/stockUsage.test.mjs</Mono>, <Mono>api/test/stock-usage.test.mjs</Mono>; the
         fixtures recompute late (<Mono>fillLate</Mono>, after the till&apos;s sales).
+      </P>
+
+      <H3>Stock periods and variance (phase 6a)</H3>
+      <P>
+        Migration 312 (<Mono>docs/INVENTORY.md</Mono> 8.1, decision D9): <Mono>stock_periods</Mono> (tenant, venue,{' '}
+        <Mono>opening_count_id</Mono>, <Mono>closing_count_id</Mono>, <Mono>from_at</Mono> / <Mono>to_at</Mono> the two
+        counts&apos; moments, <Mono>status</Mono> open | closed, <Mono>days_from</Mono> / <Mono>days_to</Mono> the trading
+        days it holds once closed, <Mono>figures</Mono> jsonb frozen at closing, who and when closed and reopened,{' '}
+        <Mono>reopen_note</Mono>, <Mono>history</Mono>), <Mono>stock_variance_reviews</Mono> (period, item, who, when,
+        note), <Mono>stock_usage_late</Mono> and <Mono>stock_usage_late_items</Mono> (late sales on a closed day),{' '}
+        <Mono>stock_settings.variance_band_pct</Mono> / <Mono>variance_item_pct</Mono> / <Mono>variance_item_pounds</Mono>{' '}
+        (1, 3, 50) and <Mono>dish_cost_days.item_type</Mono>. All RLS forced. The migration also made periods between
+        the approved full counts already taken.
+      </P>
+      <P>
+        The rule is <Mono>shared/variance.js</Mono>: <Mono>itemVariance({'{ moves, from, to, price, late }'})</Mono> over
+        the ledger (<Mono>loadStockMoves()</Mono>): opening = on hand at the opening count (<Mono>stockOnHand()</Mono>;
+        0 when the item had no moves before, null when it had moves but no count); closing = the item&apos;s last count
+        after the opening and up to the end (none: actual, variance and unexplained are null); within (opening,
+        closing]: received, transfers in, transfers out (lost in transit included), waste (logged and till voids),
+        adjusted, theoretical (usage moves not marked <Mono>late</Mono>, plus <Mono>late</Mono> landed here). actual =
+        opening + received + transfers in - transfers out - returns (0) - closing; variance = actual - theoretical;
+        explained = waste - adjusted; unexplained = variance - explained, which is the closing count against the
+        ledger summed over the counts in between. One price per item for the period (<Mono>pricesAt()</Mono>: the
+        average paid over the 90 days before its end, else the last paid, else <Mono>itemCost()</Mono>&apos;s
+        standard). <Mono>itemFlag()</Mono>: |unexplained £| over <Mono>item_pounds</Mono> and over{' '}
+        <Mono>item_pct</Mono> of theoretical (any, with none). <Mono>periodVariance()</Mono> ranks by unexplained
+        pounds, adds <Mono>share_pct</Mono> (<Mono>costShare()</Mono> in <Mono>shared/costing.js</Mono>, where pounds
+        meet pence), the totals, the food cost and the band. Food cost is over the same items on both sides: actual
+        over the items counted at both ends, theoretical over every item sales used, so while an item sales used has
+        no actual (<Mono>uncounted_used</Mono>, the period running since the latest full count) <Mono>complete</Mono>{' '}
+        is false and <Mono>actual_value</Mono>, <Mono>actual_pct</Mono> and <Mono>gap_pts</Mono> are null; an item
+        nobody counted that sales didn&apos;t use is in neither side. <Mono>keyIntervals()</Mono>: the figures between each pair of an item&apos;s counts.{' '}
+        <Mono>isFoodSale()</Mono>: food (<Mono>itemType()</Mono> food, which is food and drink) and lines with no dish;
+        never goods or services. <Mono>explainVariance(facts)</Mono> words the evidence with <Mono>EVIDENCE_KINDS</Mono>{' '}
+        (label, fix, a page with no ids).
+      </P>
+      <P>
+        <Mono>services/stockVarianceSvc.js</Mono>: <Mono>periodsForCount()</Mono> (called by{' '}
+        <Mono>POST /counts/:id/approve</Mono> for a full count: the previous approved full count opens a period to it,
+        an approved full count after it gets one from it, an open period it falls in is split, inside a closed one
+        it makes none and says so in <Mono>period_note</Mono>; late sales landed in the running period move to the
+        new one), <Mono>currentPeriod()</Mono> (since the latest approved full count, to now, not stored),{' '}
+        <Mono>periodFigures()</Mono>, <Mono>foodSales()</Mono> (<Mono>dish_cost_days</Mono> of the days whose{' '}
+        <Mono>stock_usage_marks.last_sale_at</Mono> is in the period, as usage is placed, plus landed late sales),{' '}
+        <Mono>periodDays()</Mono> (the days whose last sale is inside, and the days wholly inside),{' '}
+        <Mono>closedRanges()</Mono> / <Mono>dayInRanges()</Mono> (the hook&apos;s data, one query per run),{' '}
+        <Mono>landingPeriod()</Mono> (the first open stored period after the closed one, else null: the running
+        period), <Mono>itemFacts()</Mono>, <Mono>keyFigures()</Mono>, <Mono>loadReviews()</Mono>, <Mono>toReview()</Mono>.
+        Late sales: <Mono>runVenueUsage()</Mono> gives a closed day whose fingerprint changed to{' '}
+        <Mono>keepLateUsage()</Mono>, which works it out (<Mono>workDays()</Mono>, nothing written) and keeps the
+        difference from what was kept and landed before, items and net sales, never rewriting the day; the
+        day&apos;s mark takes the new fingerprint and keeps its last sale. A closed day is compared, and worked out,
+        under the refunds setting its mark was made with (<Mono>keptRefunds()</Mono>: the fingerprint holds it), so
+        switching <Mono>refunds_return_stock</Mono> makes no late sales. On the ledger the late items are usage
+        moves at the day&apos;s last sale (<Mono>lateUsageMoves</Mono>, <Mono>late: true</Mono>), before the
+        period&apos;s closing count.
+      </P>
+      <P>
+        Routes (<Mono>routes/stockVariance.js</Mono>, under <Mono>/api/stock</Mono>): <Mono>GET
+        /venues/:venueId/periods</Mono>, <Mono>GET /venues/:venueId/variance?period=&lt;id|current&gt;</Mono>,{' '}
+        <Mono>GET /venues/:venueId/variance/items/:itemId?period=</Mono> (row, evidence, intervals),{' '}
+        <Mono>GET /venues/:venueId/variance/key?from=&amp;to=</Mono> (at most 62 days),{' '}
+        <Mono>GET /variance/by-venue?item=&amp;which=latest|current</Mono> (a closed period&apos;s row as frozen, flagged
+        then), <Mono>POST /periods/:id/close</Mono> (takes the venue&apos;s usage lease, <Mono>claimVenue()</Mono>, 409{' '}
+        <Mono>running</Mono> while the job holds it, so a run can&apos;t write a day&apos;s usage the frozen figures
+        miss),{' '}
+        <Mono>POST /periods/:id/reopen</Mono> <Mono>{'{ note }'}</Mono> (409 <Mono>later_closed</Mono> while a later
+        period at the venue is closed; takes the usage lease, deletes the period&apos;s days&apos; late sales and works
+        the days out again with <Mono>computeDays()</Mono>), <Mono>POST /periods/:id/items/:itemId/review</Mono>{' '}
+        <Mono>{'{ reviewed, note? }'}</Mono>, <Mono>PUT /variance-settings</Mono>{' '}
+        <Mono>{'{ band_pct, item_pct, item_pounds }'}</Mono> (whole). Reads are Stock view; changes Stock manage (a
+        shared device only at its venue, <Mono>venueProblem()</Mono>). Pounds need Costing view; net food sales, food
+        cost % and <Mono>share_pct</Mono> need till reports view too (<Mono>stockAccess().sees_sales</Mono>). Today:
+        the stock source&apos;s <Mono>stock_variance_to_review</Mono> from <Mono>/venues/:venueId/today</Mono>&apos;s{' '}
+        <Mono>variance</Mono> (closed in the last 60 days, flagged items not reviewed; Stock manage).
+      </P>
+      <P>
+        Pepper: <Mono>variance_summary</Mono> and <Mono>explain_variance</Mono> (read, through these routes, names only;
+        the period as latest, last_closed or current). Registry: <Mono>stock.periods</Mono>; variance and food cost are
+        figures. Reports: <Mono>stock.variance</Mono> (work <Mono>stock_variance</Mono>, a row per item per period
+        ending in the report&apos;s days, frozen figures for closed ones), <Mono>stock.food_cost</Mono> (work{' '}
+        <Mono>stock_food_cost</Mono>, module costing, sales fields and <Mono>over_band</Mono> need till reports; a
+        period with no actual food cost has a null <Mono>actual_cost</Mono>, and <Mono>actual_food_cost_pct</Mono> is
+        over <Mono>net_food_sales_counted</Mono>, the sales of the periods that have one),{' '}
+        <Mono>stock.variance</Mono>&apos;s <Mono>share_pct</Mono> needs <Mono>{"['costing', 'pos_reports']"}</Mono>{' '}
+        (a field&apos;s <Mono>needs</Mono> may be a list: every module in it), <Mono>stock.periods</Mono>{' '}
+        (the table); starters <Mono>stock_variance_by_item</Mono>, <Mono>stock_food_cost_actual_theoretical_week</Mono>.
+        Tests: <Mono>shared/test/variance.test.mjs</Mono> (with the property check of 14),{' '}
+        <Mono>api/test/stock-variance.test.mjs</Mono>; fixtures (late) close, review and reopen a period, and write a
+        late sale (<Mono>stock_usage_late</Mono> and its items) for the tenant sweep.
       </P>
     </section>
   )

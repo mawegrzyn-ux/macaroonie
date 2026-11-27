@@ -67,7 +67,7 @@ const KIND_ICON = {
   orders_to_approve: ClipboardList, cash_up: Wallet, cash_week: Wallet, wages_to_pay: Users, online_orders: ShoppingBag,
   report_alert: BarChart3, failed_email: MailWarning, review_to_check: MessageSquare, screen_offline: Monitor,
   device_offline: MonitorSmartphone, sold_out: Ban, rota_not_ready: CalendarRange,
-  stock_count_due: Boxes, stock_count_to_approve: Boxes, stock_transfer_to_receive: Truck,
+  stock_count_due: Boxes, stock_count_to_approve: Boxes, stock_transfer_to_receive: Truck, stock_variance_to_review: Boxes,
 }
 
 
@@ -75,7 +75,7 @@ const AREA_NAMES = {
   food_safety: 'food safety', checklists: 'checklists', hs_actions: 'the H&S action log',
   purchasing: 'purchasing', cash: 'cash reconciliation', wages: 'wages', online_orders: 'online orders',
   report_alerts: 'report alerts', failed_emails: 'failed booking emails', reviews: 'reviews', screens: 'menu screens',
-  devices: 'tills and devices', sold_out: 'sold out dishes', rota: 'the rota', stock: 'stock counts and transfers',
+  devices: 'tills and devices', sold_out: 'sold out dishes', rota: 'the rota', stock: 'stock counts, transfers and variance',
 }
 
 export function readVenue() { try { return localStorage.getItem(VENUE_KEY) || '' } catch { return '' } }

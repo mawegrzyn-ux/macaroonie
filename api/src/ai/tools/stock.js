@@ -29,6 +29,13 @@
 //   send_transfer   stock sent to another of the group's venues consequential
 //   receive_transfer  a transfer on its way to the venue, received with what
 //                   arrived (as sent where the person says nothing) consequential
+// Phase 6a (migration 312):
+//   variance_summary  a venue's period (between two full counts): food cost
+//                   actual and theoretical, the flagged items, the biggest
+//                   losses (the Variance tab's figures)                 read
+//   explain_variance  one item's variance in a period and the evidence for it,
+//                   each with where it is put right (shared/variance.js) read
+// Closing and reopening a period stay on the page (a manager's step, with a note).
 //
 // The model is given names, never ids (rule 19): items and areas are picked
 // by name, code or barcode, and nothing it returns carries an id.
@@ -74,6 +81,58 @@ const at = (when, tz) => { const l = localParts(when, tz); return longDate(l.dat
 // Where a sale came from (usage from sales, phase 5), as Pepper says it.
 const CHANNEL_WORDS = { till: 'till', kiosk: 'kiosk', online: 'online orders', imported: 'other tills', gloriafood: 'GloriaFood' }
 
+// Variance (phase 6a): which period a person means, as the route's ?period= (an id read here, never shown).
+async function periodQuery(ctx, venue, which = 'latest') {
+  if (which === 'current') return '?period=current'
+  const list = await callApi(ctx, 'GET', `/api/stock/venues/${venue.id}/periods`)
+  const pick = which === 'last_closed' ? list.periods.find(p => p.status === 'closed') : list.periods[0]
+  if (!pick) {
+    if (which === 'last_closed') throw new ToolError(venue.name + ' has no closed stock period yet: a manager closes one on the Stock page\'s Variance tab.', 404)
+    if (!list.current) throw new ToolError(venue.name + ' has no approved full count yet, so there is no variance to show.', 404)
+    return '?period=current'
+  }
+  return '?period=' + pick.id
+}
+const periodText = p => (!p ? null : p.current ? 'since the last full count (' + p.words.replace(/ to now$/, '') + ' to now)' : p.words + ' (' + p.status + ')')
+const ptsText = n => (n == null ? null : (Math.round(n * 100) / 100) + ' points')
+const pctText = n => (n == null ? null : (Math.round(n * 10) / 10) + '%')
+
+/** A period's variance in words (no ids). */
+function varianceWords(venue, v) {
+  const unitOf = r => r.base_unit
+  const one = r => ({
+    item: r.name,
+    unexplained: r.unexplained == null ? 'not counted' : signedBase(r.unexplained, unitOf(r)),
+    ...(r.unexplained_value != null ? { value: pounds(r.unexplained_value) } : {}),
+    ...(r.share_pct != null ? { of_food_sales: ptsText(r.share_pct) } : {}),
+    used: r.actual == null ? null : formatBase(r.actual, unitOf(r)), sales_took: formatBase(r.theoretical, unitOf(r)),
+    ...(r.waste ? { waste: formatBase(r.waste, unitOf(r)) } : {}),
+    ...(r.late ? { late_sales_in_it: formatBase(r.late, unitOf(r)) } : {}),
+    ...(r.reviewed ? { reviewed: true } : {}),
+  })
+  const fc = v.food_cost
+  return {
+    venue: venue.name, period: periodText(v.period), closed: v.period?.status === 'closed',
+    ...(fc ? {
+      food_cost: {
+        // Actual (and the gap) only over the same items as theoretical: not while an item sales used is uncounted.
+        ...(fc.complete === false
+          ? { actual: 'not known yet: ' + plural(fc.uncounted_used, 'item') + ' sales used ' + (fc.uncounted_used === 1 ? 'hasn\'t' : 'haven\'t') + ' been counted at both ends' }
+          : { actual: pctText(fc.actual_pct), gap: ptsText(fc.gap_pts) }),
+        theoretical: pctText(fc.theoretical_pct),
+        net_food_sales: fc.net_food_pence == null ? null : pounds(fc.net_food_pence / 100),
+      },
+      ...(v.band?.unexplained_pct != null ? { unexplained_of_food_sales: ptsText(v.band.unexplained_pct), over_the_band: !!v.band.over } : {}),
+    } : { food_cost: 'Food cost % needs Costing view and Till reports view.' }),
+    ...(v.totals?.unexplained_value != null ? { unexplained_total: pounds(v.totals.unexplained_value), waste_total: pounds(v.totals.waste_value) } : {}),
+    flagged: v.rows.filter(r => r.flagged).slice(0, 15).map(one),
+    biggest_losses: v.rows.filter(r => (r.unexplained ?? 0) > 0).slice(0, 10).map(one),
+    items: v.rows.length, not_counted: v.totals?.not_counted ?? 0,
+    ...(v.period?.current ? { note: 'Running since the last full count: actual usage shows only for items counted since.' } : {}),
+    ...(!v.rows.length ? { message: 'No stock moved at ' + venue.name + ' in that period.' } : {}),
+  }
+}
+
 // This file's place, its area and what Pepper is told about it (tools/index.js gathers them).
 export const order = 82
 export const sections = {
@@ -85,7 +144,8 @@ export const promptLines = [
     'an item by day and channel, a dish sold with what couldn\'t be costed), count_stock (a count of the ' +
     'items the person names, in their units, by storage area), log_waste (an item, a prep batch or a dish thrown away, ' +
     'with a reason; Undo on its card for 10 minutes), waste_summary (what was wasted by reason, kind, item or person), send_transfer and ' +
-    'receive_transfer (stock moved between venues in two steps).',
+    'receive_transfer (stock moved between venues in two steps), variance_summary (a period\'s food cost actual against ' +
+    'theoretical and the items flagged) and explain_variance (why one item\'s stock is out, with the evidence and where to put it right).',
 ]
 export const promptNotes = [
   'Stock: on hand is the last approved count plus the deliveries, adjustments, waste and transfers since, less what sales took off ' +
@@ -102,6 +162,11 @@ export const promptNotes = [
     'recipe can\'t (no recipe, a draft nobody checked). Transfers: send_transfer from one venue, receive_transfer at the ' +
     'other with what arrived (only the person\'s figures; items not mentioned arrived as sent). open_form stock_waste and ' +
     'stock_transfer open the forms.',
+  'Variance: a period runs between two approved full counts at a venue. Actual usage is opening + received + transfers in - ' +
+    'transfers out - closing; theoretical is what sales took by their recipes; waste and adjustments explain their part and ' +
+    'the rest is unexplained (a loss above zero). Give pounds and food cost % only as the tools give them (they need Costing ' +
+    'view, and food cost Till reports view too), never work them out. Closing or reopening a period is done on the Stock ' +
+    'page\'s Variance tab by a manager: Pepper doesn\'t close or reopen periods.',
 ]
 
 export const tools = [
@@ -255,6 +320,86 @@ export const tools = [
         used_most: u.items.slice(0, 15).map(i => ({ item: i.name, used: formatBase(i.qty_base, i.base_unit), ...(i.value != null ? { value: pounds(i.value) } : {}) })),
         sold_without_a_full_recipe: u.uncosted.slice(0, 15).map(x => ({ dish: x.name, not_costed: x.uncosted_qty, of: x.qty, why: x.gaps.map(g => g.text) })),
         ...(!u.items.length && !u.dishes.length ? { message: 'No sales were worked out at ' + venue.name + ' in the last ' + plural(days, 'day') + ' yet.' } : {}),
+      }
+    },
+  },
+
+  // Phase 6a (migration 312): variance by period, read through the Variance tab's routes.
+  {
+    name: 'variance_summary',
+    title: 'Variance',
+    activity: 'Looked at stock variance',
+    description:
+      'A venue\'s stock variance for a period (the Stock page\'s Variance tab): actual food cost % against theoretical ' +
+      '(what the counts say was used against what sales took by their recipes, over net food sales), the items ' +
+      'flagged by the group\'s band with their unexplained loss, and the biggest losses. A period runs between two ' +
+      'approved full counts; period: latest (the newest one, open or closed; the default), last_closed, or current ' +
+      '(running since the last full count: actual usage only for items counted since, so no actual food cost until every ' +
+      'item sales used is counted). For "what was our food cost ' +
+      'last week against theoretical?" or "where are we losing stock?". To ask why one item lost, use explain_variance.',
+    input: z.object({
+      venue: VenueText,
+      period: z.enum(['latest', 'last_closed', 'current']).optional(),
+    }),
+    readOnly: true,
+    async run(ctx, input) {
+      await requireView(ctx)
+      const venue = await venueFor(ctx, input.venue)
+      const v = await callApi(ctx, 'GET', `/api/stock/venues/${venue.id}/variance${await periodQuery(ctx, venue, input.period)}`)
+      return varianceWords(venue, v)
+    },
+  },
+
+  {
+    name: 'explain_variance',
+    title: 'Why an item\'s stock is out',
+    activity: 'Looked at why an item\'s stock is out',
+    description:
+      'Why an inventory item\'s stock is out in a period at a venue (explain_variance): its actual usage, what sales took, ' +
+      'its waste and what is left unexplained, then the evidence from the documents, each with where it is put right: ' +
+      'dishes sold without a recipe that use it, deliveries changed after the count, on hand going below zero, a unit ' +
+      'that changed, waste logged, transfers not received, late sales from a closed period, remakes (not taken off as ' +
+      'usage yet). period as variance_summary\'s. For "why are we short on chicken?" or "explain the cheese variance".',
+    input: z.object({
+      venue: VenueText,
+      item:  z.string().trim().min(1).max(200).describe('An inventory item: name, code or barcode'),
+      period: z.enum(['latest', 'last_closed', 'current']).optional(),
+    }),
+    readOnly: true,
+    async run(ctx, input) {
+      await requireView(ctx)
+      const venue = await venueFor(ctx, input.venue)
+      const q = await periodQuery(ctx, venue, input.period)
+      const v = await callApi(ctx, 'GET', `/api/stock/venues/${venue.id}/variance${q}`)
+      const inPeriod = v.rows.map(r => ({ ...r, id: r.item_id }))
+      let item = null
+      try {
+        item = pickByName(inPeriod, input.item, r => r.name, 'item in the period', 'No stock moved at ' + venue.name + ' in that period.')
+      } catch (err) {
+        const st = await stockList(ctx, venue)
+        item = pickItem(st.items, input.item)
+        if (!item) throw err
+      }
+      const one = await callApi(ctx, 'GET', `/api/stock/venues/${venue.id}/variance/items/${item.item_id || item.id}${q}`)
+      const r = one.row
+      const unit = one.item.base_unit
+      const f = n => (n == null ? null : formatBase(n, unit))
+      return {
+        venue: venue.name, period: periodText(v.period), item: one.item.name,
+        ...(r ? {
+          figures: {
+            opening: f(r.opening), received: f(r.received), transfers_in: f(r.transfers_in), transfers_out: f(r.transfers_out),
+            closing: r.closing == null ? 'not counted' : f(r.closing), actual_usage: f(r.actual),
+            theoretical_usage: f(r.theoretical), ...(r.late ? { of_it_late_sales: f(r.late) } : {}),
+            waste: f(r.waste), ...(r.adjusted ? { adjusted: signedBase(r.adjusted, unit) } : {}),
+            variance: r.variance == null ? null : signedBase(r.variance, unit),
+            unexplained: r.unexplained == null ? null : signedBase(r.unexplained, unit),
+            ...(r.unexplained_value != null ? { unexplained_value: pounds(r.unexplained_value) } : {}),
+          },
+          flagged: !!r.flagged, ...(r.reviewed ? { reviewed_by: r.reviewed.by } : {}),
+        } : { message: one.item.name + ' had no stock moves at ' + venue.name + ' in that period.' }),
+        evidence: one.evidence.map(e => ({ what: e.label, says: e.text, fix: e.fix, ...(e.page ? { page: e.page } : {}) })),
+        ...(one.evidence.length ? {} : { note: 'Nothing in the documents points at a cause: count it again, or look at how its dishes are made.' }),
       }
     },
   },
