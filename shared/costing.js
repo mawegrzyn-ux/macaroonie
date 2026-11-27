@@ -1074,7 +1074,7 @@ export const DISH_KINDS = { dish: 'Dish', deal: 'Meal deal', goods: 'Goods', ser
  * (taxFor()), its cost (dishCost()) and margin(); a meal deal with the range
  * of its cost; each priced option with its own margin.
  */
-export function dishMargin(item, section, menu, scope, ctx, { rates = [], settings = null, rules = null, mctx = null } = {}) {
+export function dishMargin(item, section, menu, scope, ctx, { rates = [], settings = null, rules = null, mctx = null, withOptions = true } = {}) {
   const m = mctx || menuCtx(menu)
   const choices = itemChoices(item, rules || variantRules(menu))
   const price = fromPrice(item, choices, m)
@@ -1107,7 +1107,7 @@ export function dishMargin(item, section, menu, scope, ctx, { rates = [], settin
   })
   // Priced options: an extra's own margin (its price against what it adds); a
   // base option's price is the dish's price with it.
-  if (dc.kind !== 'service') {
+  if (dc.kind !== 'service' && withOptions) {
     for (const c of choices) {
       for (const o of c.options) {
         const p = c.mode === 'extra' ? num(o.price_pence) : (basePrice(o) ?? null)
@@ -1134,13 +1134,13 @@ export function dishMargin(item, section, menu, scope, ctx, { rates = [], settin
  * page, the dish margins report and Pepper read. The menu's dishes join
  * ctx.dishes, and are what its meal deals choose from.
  */
-export function menuMargins(menu, scope, ctx, { rates = [], settings = null } = {}) {
+export function menuMargins(menu, scope, ctx, { rates = [], settings = null, withOptions = true } = {}) {
   const mctx = menuCtx(menu)
   const here = { ...ctx, dishes: dishMap([menu], ctx.dishes), combo: mctx }
   const rules = variantRules(menu)
   const rows = []
   for (const s of menu?.sections || []) {
-    for (const i of s.items || []) rows.push(dishMargin(i, s, menu, scope, here, { rates, settings, rules, mctx }))
+    for (const i of s.items || []) rows.push(dishMargin(i, s, menu, scope, here, { rates, settings, rules, mctx, withOptions }))
   }
   return rows
 }
