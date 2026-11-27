@@ -123,5 +123,12 @@ export async function fillLate(ctx) {
   await step('cost scenario preview', () => post('/api/cost-scenarios/preview', scenarioBody))
   await step('cost scenario copy', () => post(`/api/cost-scenarios/${scenario.id}/copy`, {}))
   const plan = await step('push prices preview', () => post(`/api/cost-scenarios/${scenario.id}/push/preview`, {}))
-  if (plan?.prices?.length) await step('push prices', () => post(`/api/cost-scenarios/${scenario.id}/push`, { stamp: plan.stamp }))
+  if (plan?.prices?.length) {
+    const pushed = await step('push prices', () => post(`/api/cost-scenarios/${scenario.id}/push`, { stamp: plan.stamp }))
+    // Discard the pushed prices again (the publish panel's Discard changes: the live release copied
+    // back into the draft), so the fixtures' menu stays as published and the menu tests that expect
+    // nothing unpublished still hold.
+    const live = pushed && (await step('menu publish status', () => ctx.get(`/api/menus/${menu.id}/publish`)))?.live
+    if (live?.release_id) await step('discard pushed prices', () => post(`/api/menus/${menu.id}/releases/${live.release_id}/restore`, {}))
+  }
 }
