@@ -19,12 +19,12 @@ import { z } from 'zod'
 import { callApi, requireStaffPermission } from '../context.js'
 import { VenueText, venueFor, pickByName, plural } from './util.js'
 import { fmtNum, UNITS } from '../../../../shared/procurement.js'
-import { pounds, BASIS_KEYS, COVERAGE } from '../../../../shared/costing.js'
+import { pounds, perWord, BASIS_KEYS, COVERAGE } from '../../../../shared/costing.js'
 
 const MAX_LIST = 40
 const METHOD_MAX = 2000
 const unitWord = u => (u === 'portion' ? 'portion' : UNITS[u]?.label ?? u)
-const perText = r => (r.per_unit != null ? pounds(r.per_unit) + (r.unit === 'each' ? ' each' : ' a ' + unitWord(r.unit)) : null)
+const perText = r => (r.per_unit != null ? pounds(r.per_unit) + ' ' + perWord(r.unit) : null)
 const makesText = r => (r.kind === 'prep'
   ? (r.yield_qty ? fmtNum(r.yield_qty) + ' ' + unitWord(r.yield_unit) + (r.loss_pct ? ' before ' + fmtNum(r.loss_pct) + '% lost in cooking' : '') : 'not set')
   : plural(Number(r.portions || 1), 'portion'))

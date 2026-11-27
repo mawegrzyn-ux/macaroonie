@@ -503,6 +503,17 @@ export function Section() {
         at Ware?</em> for the same figures, or tell it a count (<em>we&apos;ve got 3 kg of rice and 12 tins of
         tomatoes</em>): the card shows each item in its unit and the count is saved only when you confirm.
       </P>
+      <H3>17. Units and yield for recipes</H3>
+      <P>
+        Each item&apos;s drawer has a <strong>Units and yield</strong> card, which recipes cost the item by (see
+        Recipes). <strong>Yield</strong> is the share left after trimming (an onion about 88%): a recipe using 100
+        g needs 100 ÷ 0.88 = about 114 g bought. <strong>Used in recipes in</strong> and <strong>Counted in</strong>{' '}
+        are the units it is usually used and counted in. <strong>Its own units</strong> are sizes beyond g, kg, ml
+        and the rest: 1 slice = 20 g, 1 each = 150 g for an item kept in grams. Each part saves with its own
+        button. A unit a recipe uses can&apos;t be deleted until the recipe changes (the page names it), and an
+        item in a recipe, or with units of its own, keeps how it is counted. Deleting an item a recipe uses
+        switches it off instead.
+      </P>
       <InfoBox type="info">
         All of this can also be done by chat with Pepper (Ask Pepper): ordering, booking deliveries
         in, changing prices and importing a supplier's price list from a PDF or photo. Pepper understands

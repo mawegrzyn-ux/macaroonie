@@ -77,6 +77,11 @@ export function pounds(n) {
 /** "30 g", "1.5 slice" */
 const qtyText = (qty, unit) => fmtNum(qty) + ' ' + (UNITS[unit]?.label ?? unit)
 
+/** A unit as a cost is read per: "litre" for l, else its label ("kg", "portion", "slice"). */
+export const unitWord = u => (u === 'l' ? 'litre' : UNITS[u]?.label ?? u ?? '')
+/** "a portion", "a litre", "each". */
+export const perWord = u => (u === 'each' ? 'each' : 'a ' + unitWord(u))
+
 // ── Units ─────────────────────────────────────────────────────
 
 /** The units a recipe line can give this item in: the standard ones of its kind, then its own. */
@@ -342,9 +347,8 @@ export function recipeCost(recipe, ctx = {}, state = null) {
 /** A cost per base unit in the unit prices are read in: "£8.50 a kg", "£0.30 each". */
 function perText(perBase, baseUnit) {
   if (perBase == null) return ''
-  if (baseUnit === 'g' || baseUnit === 'ml') return pounds(perBase * 1000) + ' a ' + perUnitLabel(baseUnit)
-  if (baseUnit === 'each') return pounds(perBase) + ' each'
-  return pounds(perBase) + ' a ' + (UNITS[baseUnit]?.label ?? baseUnit)
+  if (baseUnit === 'g' || baseUnit === 'ml') return pounds(perBase * 1000) + ' ' + perWord(perUnitLabel(baseUnit))
+  return pounds(perBase) + ' ' + perWord(baseUnit)
 }
 
 const HOW = {
@@ -382,7 +386,7 @@ export function explain(recipe, ctx = {}, { prices = true, result = null } = {})
       const u = UNITS[l.base_unit]?.label ?? l.base_unit
       if (lower(l.unit) !== lower(l.base_unit)) steps.push(qtyText(l.qty, l.unit) + ' is ' + fmtNum(l.base_qty) + ' ' + u)
       if (l.yield_pct < 100) steps.push('usable ' + fmtNum(l.yield_pct, 2) + '%: ' + fmtNum(l.bought_qty) + ' ' + u + ' made')
-      steps.push(fmtNum(l.bought_qty) + ' ' + u + ' at ' + pounds(l.per_base) + ' a ' + u + ' (its own recipe' + (l.partial ? ', partly costed' : '') + ') = ' + pounds(l.cost))
+      steps.push(fmtNum(l.bought_qty) + ' ' + u + ' at ' + pounds(l.per_base) + ' ' + perWord(l.base_unit) + ' (its own recipe' + (l.partial ? ', partly costed' : '') + ') = ' + pounds(l.cost))
     }
     rows.push({ kind: 'line', label, steps, amount: l.cost })
   }
@@ -395,7 +399,7 @@ export function explain(recipe, ctx = {}, { prices = true, result = null } = {})
       ? [pounds(r.cost) + ' ÷ ' + fmtNum(r.makes) + ' ' + (UNITS[r.unit]?.label ?? r.unit)
         + (num(recipe.loss_pct) > 0 ? ' (' + fmtNum(recipe.yield_qty) + ' less ' + fmtNum(recipe.loss_pct, 2) + '% lost in cooking)' : '')]
       : [pounds(r.cost) + ' ÷ ' + fmtNum(r.makes) + (num(r.makes) === 1 ? ' portion' : ' portions')]
-    rows.push({ kind: 'per_unit', label: recipe?.kind === 'prep' ? 'Per ' + (UNITS[r.unit]?.label ?? r.unit) : 'Per portion', steps, amount: r.per_unit })
+    rows.push({ kind: 'per_unit', label: recipe?.kind === 'prep' ? 'Per ' + unitWord(r.unit) : 'Per portion', steps, amount: r.per_unit })
   }
   const text = rows.map(x => x.label + ': ' + x.steps.join('; ') + (x.amount != null && x.kind !== 'line' ? ' = ' + pounds(x.amount) : '')).join('\n')
   return { rows, text, coverage: r.coverage }

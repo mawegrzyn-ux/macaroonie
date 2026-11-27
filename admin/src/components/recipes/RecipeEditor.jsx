@@ -111,13 +111,13 @@ export function RecipeEditor({ id, venueId, basis, onVenue, onBasis, onOpen, onC
       )}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] items-start">
         <div className="space-y-4 min-w-0">
-          <DetailsCard value={details} onChange={setDetails} recipe={server} edit={edit} dirty={detailsDirty} pickers={pickers}
-            saving={saving('details')} onSave={() => save.mutate({ part: 'details', parts: { details } })}
-            error={save.variables?.part === 'details' ? save.error : null} />
           <LinesCard value={lines} onChange={setLines} recipe={server} live={live} costs={costs} edit={edit} dirty={linesDirty}
             pickers={pickers} saving={saving('lines')} previewing={preview.isFetching}
             onSave={() => save.mutate({ part: 'lines', parts: { lines } })}
             error={save.variables?.part === 'lines' ? save.error : null} />
+          <DetailsCard value={details} onChange={setDetails} recipe={server} edit={edit} dirty={detailsDirty} pickers={pickers}
+            saving={saving('details')} onSave={() => save.mutate({ part: 'details', parts: { details } })}
+            error={save.variables?.part === 'details' ? save.error : null} />
           <MethodCard value={method} onChange={setMethod} edit={edit} dirty={methodDirty} saving={saving('method')}
             onSave={() => save.mutate({ part: 'method', parts: { method } })}
             error={save.variables?.part === 'method' ? save.error : null} />

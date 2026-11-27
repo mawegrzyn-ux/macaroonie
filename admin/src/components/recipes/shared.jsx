@@ -11,7 +11,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Field, inputCls, Segmented, useVenues } from '@/components/staff/shared'
 import { UNITS, fmtNum } from '@shared/procurement.js'
-import { COVERAGE, BASES } from '@shared/costing.js'
+import { COVERAGE, BASES, perWord } from '@shared/costing.js'
 
 export { COVERAGE, BASES }
 
@@ -24,12 +24,8 @@ export function pounds(n) {
 
 export const unitLabel = u => (u === 'portion' ? 'portion' : UNITS[u]?.label ?? u ?? '')
 
-/** "a portion", "a l", "each" */
-export function perLabel(unit) {
-  if (!unit) return ''
-  if (unit === 'each') return 'each'
-  return 'a ' + unitLabel(unit)
-}
+/** "a portion", "a litre", "each" (perWord() in shared/costing.js). */
+export const perLabel = unit => (unit ? perWord(unit) : '')
 
 /** What a recipe makes, in words: "2 portions", "1.5 l". */
 export function makesText(r) {

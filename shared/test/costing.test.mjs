@@ -207,7 +207,7 @@ test('explain: each line\'s steps, the yield shown, the total and the per portio
   const ex = explain(burger, ctx)
   const [slices, sauceRow, , onionRow] = ex.rows
   assert.deepEqual(slices.steps, ['2 slice is 40 g', '40 g at £8.50 a kg (Brakes, Case · 6 × 2 kg, £102.00 a pack, the cheapest supplier) = £0.34'])
-  assert.match(sauceRow.steps.at(-1), /at £3.33 a l \(its own recipe\)/)
+  assert.match(sauceRow.steps.at(-1), /at £3\.33 a litre \(its own recipe\)/)
   assert.deepEqual(onionRow.steps, ['usable 80%: 60 g ÷ 0.8 = 75 g bought', '75 g at £1.20 a kg (Veg Co, Sack · 25 kg, £30.00 a pack, the cheapest supplier) = £0.09'])
   assert.equal(ex.rows.at(-2).kind, 'total')
   assert.equal(ex.rows.at(-1).label, 'Per portion')

@@ -108,7 +108,7 @@ function OwnUnits({ item, canEdit, onSaved }) {
       {canEdit && (
         <div className="flex flex-wrap items-end gap-2">
           <Field label="New unit">
-            <input className={cn(inputCls, 'w-36', problem && 'border-destructive')} value={name} placeholder="slice" maxLength={30}
+            <input className={cn(inputCls, 'w-36', problem && 'border-destructive')} value={name} placeholder="portion" maxLength={30}
               onChange={e => setName(e.target.value)} data-testid="inv-unit-name" />
           </Field>
           <Field label={'One is (' + baseLabel(item.base_unit) + ')'}>

@@ -620,6 +620,26 @@ export function Section() {
         tool to book one in. Tests: <Mono>api/test/purchasing-no-order.test.mjs</Mono>; the fixtures switch it
         on and book one in for the tenant sweep.
       </P>
+      <H3>Units and yield (migration 298, inventory phase 1)</H3>
+      <P>
+        <Mono>inv_items.yield_pct</Mono> (numeric(5,2), 1 to 100, default 100: the usable share after trimming),{' '}
+        <Mono>recipe_unit</Mono> and <Mono>count_unit</Mono> (nullable text: a standard unit of the item&apos;s kind
+        or one of its own units, checked by <Mono>checkUsualUnits()</Mono> against <Mono>unitChoices()</Mono>, 422{' '}
+        <Mono>unit_unknown</Mono>), and <Mono>inv_item_units</Mono> (item, <Mono>name</Mono> unique per item by{' '}
+        <Mono>lower(btrim(name))</Mono>, <Mono>base_qty</Mono> &gt; 0 in the item&apos;s base unit; forced RLS).
+        Routes in <Mono>routes/inventory.js</Mono>, Purchasing setup manage: <Mono>POST /items/:id/units</Mono>{' '}
+        <Mono>{'{ name, base_qty }'}</Mono> (a standard unit of the same kind or a name it has is refused by{' '}
+        <Mono>unitNameProblem()</Mono>, 422 <Mono>unit_name</Mono>), <Mono>PATCH /units/:unitId</Mono> (a new name
+        is written into the item&apos;s <Mono>recipe_lines.unit</Mono> and its usual units in the same transaction),{' '}
+        <Mono>DELETE /units/:unitId</Mono> (409 <Mono>unit_in_use</Mono> with <Mono>recipes</Mono> while a recipe
+        line gives the item in it). <Mono>loadItems()</Mono> returns <Mono>units</Mono>, <Mono>yield_pct</Mono>,{' '}
+        <Mono>recipe_unit</Mono>, <Mono>count_unit</Mono> and <Mono>recipe_count</Mono>. An item in a recipe is
+        switched off instead of deleted (<Mono>recipe_lines.item_id</Mono> has a plain foreign key), and its base
+        unit can&apos;t change while it has own units or recipe lines. The rules are <Mono>toBase()</Mono>,{' '}
+        <Mono>unitChoices()</Mono> and <Mono>unitNameProblem()</Mono> in <Mono>shared/costing.js</Mono> (see
+        Recipes and costing). Admin: <Mono>components/purchasing/units.jsx</Mono> (<Mono>UnitsCard</Mono> in the
+        item drawer). The report subject Inventory items offers the yield.
+      </P>
       <H3>Barcodes and stock on hand (migration 287, Pepper-first 8B3)</H3>
       <P>
         <Mono>inv_items.barcode</Mono> and <Mono>inv_quotes.barcode</Mono>: a GTIN-8, 12, 13 or 14, its check digit

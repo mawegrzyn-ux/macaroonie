@@ -214,7 +214,7 @@ test('costs are kept from people without Costing view; supplier prices only for 
   assert.equal(c.explanation, undefined)
   assert.ok(c.lines.every(l => l.cost === undefined && l.per_base === undefined))
   assert.equal(c.coverage, 'full', 'what is costed is no money')
-  assert.doesNotMatch(JSON.stringify(c), /8\.5|102/)
+  assert.doesNotMatch(JSON.stringify(c), /"(cost|per_unit|per_base|price|pack_price|explanation|bases)":/, 'no money anywhere in it')
   const cl = await ok(cook.get(`/api/recipes?venue_id=${V1}`))
   assert.ok(cl.recipes.every(r => r.cost === undefined && r.per_unit === undefined))
   assert.equal(cl.can.costs, false)
