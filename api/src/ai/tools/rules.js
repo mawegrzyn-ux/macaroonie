@@ -34,6 +34,7 @@ import { parseRule, checkRule, saveRule, listRules, ranCount, RuleSchema } from 
 import { ruleLines, editableRule, TRIGGERS, RULE_ACTIONS, MAX_PER_DAY, NEVER_WORDS } from '../../../../shared/rules.js'
 import { PRICES_MODULE, seesPurchasingPrices } from '../../../../shared/procurement.js'
 import { levelsForUser } from '../../middleware/auth.js'
+import { permissionAtLeast } from '../../config/modules.js'
 import { sendToDevices } from '../../services/notices.js'
 
 const ROLES = ['owner', 'admin', 'operator', 'viewer']
@@ -372,13 +373,17 @@ export const ruleTools = [
           url: '/', tag: 'notice:' + Date.now(),
         }
         // A rule's notice that carries an order's total (ruleRunner.js sets ctx.withoutPrices) goes
-        // without it to people who can't see purchasing prices (the purchasing routes' one rule).
+        // without it to people who can't see purchasing prices (the purchasing routes' one rule);
+        // one carrying a cost or a share of sales (phase 6b) to people without view on ctx.moneyNeeds.
         const plain = ctx.withoutPrices
           ? { ...payload, title: ctx.withoutPrices.title ?? payload.title, body: [venue?.name, ctx.withoutPrices.text].filter(Boolean).join(' · ') }
           : null
         let reached = 0
         for (const p of people) {
-          const sees = !plain || seesPurchasingPrices((await levelsForUser(ctx.tenantId, p.id, [PRICES_MODULE]))[PRICES_MODULE])
+          // A cost or a share of sales (inventory phase 6b's triggers: ctx.moneyNeeds) needs view on each module.
+          const sees = !plain || (ctx.moneyNeeds
+            ? Object.values(await levelsForUser(ctx.tenantId, p.id, ctx.moneyNeeds)).every(l => permissionAtLeast(l, 'view'))
+            : seesPurchasingPrices((await levelsForUser(ctx.tenantId, p.id, [PRICES_MODULE]))[PRICES_MODULE]))
           reached += await sendToDevices(ctx.tenantId, p.devices, sees ? payload : plain).catch(() => 0)
         }
         const on = people.filter(p => p.devices.length).length

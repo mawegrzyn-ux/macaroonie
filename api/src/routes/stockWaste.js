@@ -39,6 +39,7 @@
 //                                             waste added up (wasteTotals()) by reason | kind | item |
 //                                             dish | person | day | what, voids included; the last
 //                                             `days` trading days (7) up to `to` (today there) by default
+//                                             (phase 6b: then offered to the group's rules, waste_logged)
 //   POST   /waste/:wasteId/undo               on its trading day: whoever logged it, or Manage
 //   POST   /waste/:wasteId/reverse            after its trading day: a reversing entry      Manage
 //   POST   /waste/:wasteId/photo              multipart: a photo of it (whoever logged it, or Manage)
@@ -59,6 +60,7 @@ import {
   loadCountItems, loadWasteReasons, ensureWasteReasons, venueDay, wasteCtx, loadWastedVoids, itemCostsAt,
 } from '../services/stockSvc.js'
 import { stockAccess, stockPerson, venueProblem } from './stock.js'
+import { fireRulesLater } from '../ai/ruleRunner.js'
 
 const canView = requirePermission('stock', 'view')
 const canUse = requirePermission('stock', 'use')
@@ -425,6 +427,7 @@ export default async function stockWasteRoutes(app) {
     const { by, ids } = await stockPerson(req)
     const at = checkAt(b.wasted_at)
     mustBeAt(req, req.params.venueId)
+    let event = null
     const row = await withTenant(req.tenantId, async tx => {
       const venueId = req.params.venueId
       const reason = await activeReason(tx, req.tenantId, b.reason_id)
@@ -445,8 +448,16 @@ export default async function stockWasteRoutes(app) {
         })), 'tenant_id', 'waste_id', 'item_id', 'qty_base', 'cost_per_base')}`
       }
       const today = await venueDay(tx, req.tenantId, venueId)
+      const [v] = await tx`SELECT name FROM venues WHERE id = ${venueId} AND tenant_id = ${req.tenantId}`
+      // Phase 6b: the group's rules on waste logged (waste_logged), once the entry is saved; never waited for.
+      event = {
+        trigger: 'waste_logged', key: w.id, day: dayText(w.day), venue_id: venueId, venue: v?.name || '',
+        what: w.name, quantity: entriesText([{ qty: Number(w.qty), unit: w.unit }]) || (w.qty + ' ' + w.unit), reason: w.reason,
+        value: w.value == null ? '' : Number(w.value).toFixed(2), value_num: w.value == null ? null : Number(w.value), by,
+      }
       return entryView({ ...w, items: priced.items, reversed: false }, { access, ids, today })
     })
+    if (event) fireRulesLater(app, req.tenantId, event, req.log)
     return reply.code(201).send(row)
   })
 
