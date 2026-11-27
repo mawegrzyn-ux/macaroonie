@@ -6,6 +6,17 @@
 // price history and spreadsheet import. Reading needs purchasing_setup view
 // (catalogue prices are setup data); restaurant staff see items through
 // /api/purchasing. Every query filters tenant_id itself.
+//
+// Units and yield (inventory phase 1, migration 298): an item's yield_pct
+// (the usable share after trimming), its usual recipe and count units, and
+// its own units (inv_item_units: "1 slice = 20 g"), which recipes cost it by
+// (toBase() in shared/costing.js):
+//   POST   /items/:id/units      { name, base_qty }
+//   PATCH  /units/:unitId        { name?, base_qty? }  a new name follows into
+//                                its recipe lines and the item's usual units
+//   DELETE /units/:unitId        refused (409 unit_in_use) while a recipe line uses it
+// An item in a recipe is switched off instead of deleted, and its base unit
+// stays as it is while it has units or is in a recipe.
 
 import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
@@ -19,6 +30,7 @@ import {
 } from '../services/purchasingSvc.js'
 import { CustomInput, customValues, writeCustom, loadDefinitions } from '../services/customFields.js'
 import { barcodeProblem, cleanBarcode } from '../../../shared/catalogue.js'
+import { unitChoices, unitNameProblem } from '../../../shared/costing.js'
 import { importColumns, importValues } from '../../../shared/customFields.js'
 
 const uuid = z.string().uuid()
@@ -44,8 +56,18 @@ const ItemBody = z.object({
   notes:       optText(2000),
   barcode:     Barcode,
   is_active:   z.boolean().optional(),
+  // Units and yield (migration 298): the usable share after trimming, and the
+  // units it is usually used in recipes and counted in (one it knows).
+  yield_pct:   z.number().min(1).max(100).optional(),
+  recipe_unit: optText(30),
+  count_unit:  optText(30),
   // The group's own fields (migration 285), checked against their definitions.
   custom:      CustomInput.optional(),
+})
+
+const UnitBody = z.object({
+  name:     text(30).min(1),
+  base_qty: z.number().positive().max(100000000),
 })
 
 const QuoteBody = z.object({
@@ -93,6 +115,51 @@ const QUOTE_COLS = (tx, tenantId) => tx`
               FROM inv_quote_venue_prices vp
              WHERE vp.quote_id = q.id AND vp.tenant_id = ${tenantId}), '{}'::jsonb) AS venue_prices`
 
+/** An item's own units: Map item_id -> [{ id, name, base_qty }]. */
+async function loadUnits(tx, tenantId, itemIds) {
+  const map = new Map()
+  if (!itemIds.length) return map
+  const rows = await tx`
+    SELECT id, item_id, name, base_qty::float8 AS base_qty FROM inv_item_units
+     WHERE tenant_id = ${tenantId} AND item_id = ANY(${itemIds}::uuid[])
+     ORDER BY lower(name)`
+  for (const r of rows) {
+    if (!map.has(r.item_id)) map.set(r.item_id, [])
+    map.get(r.item_id).push({ id: r.id, name: r.name, base_qty: r.base_qty })
+  }
+  return map
+}
+
+/** A recipe or count unit the item doesn't know is refused (422 unit_unknown). */
+function checkUsualUnits(item, fields) {
+  for (const k of ['recipe_unit', 'count_unit']) {
+    const u = fields[k]
+    if (u == null) continue
+    const known = unitChoices(item).find(x => x.toLowerCase() === u.trim().toLowerCase())
+    if (!known) throw httpError(422, `${item.name} has no size for ${u}: add it to its units first, or pick ${unitChoices(item).join(', ')}`, { code: 'unit_unknown' })
+    fields[k] = known
+  }
+}
+
+/** The recipes whose lines give this item in this unit (names, for a refusal). */
+async function recipesUsingUnit(tx, tenantId, itemId, name) {
+  return (await tx`
+    SELECT DISTINCT r.name FROM recipe_lines l JOIN recipes r ON r.id = l.recipe_id AND r.tenant_id = l.tenant_id
+     WHERE l.tenant_id = ${tenantId} AND l.item_id = ${itemId} AND lower(btrim(l.unit)) = lower(btrim(${name}))
+     ORDER BY r.name`).map(r => r.name)
+}
+
+// The item changed with its units (the drawer redraws its usual units by it).
+const touchItem = (tx, tenantId, id) => tx`UPDATE inv_items SET updated_at = now() WHERE id = ${id} AND tenant_id = ${tenantId}`
+
+async function ownUnit(tx, tenantId, id) {
+  const [u] = await tx`
+    SELECT u.id, u.item_id, u.name, u.base_qty::float8 AS base_qty FROM inv_item_units u
+     WHERE u.id = ${id} AND u.tenant_id = ${tenantId}`
+  if (!u) throw httpError(404, 'Unit not found')
+  return u
+}
+
 async function ownItem(tx, tenantId, id) {
   const [i] = await tx`SELECT * FROM inv_items WHERE id = ${id} AND tenant_id = ${tenantId}`
   if (!i) throw httpError(404, 'Item not found')
@@ -137,7 +204,8 @@ function recordPrice(tx, tenantId, quoteId, venueId, price, by, source = 'manual
 async function loadItems(tx, tenantId, itemIds = null) {
   const items = await tx`
     SELECT i.id, i.name, i.category_id, c.name AS category_name, i.base_unit, i.storage, i.code, i.barcode, i.notes,
-           i.is_active, i.updated_at, i.custom,
+           i.is_active, i.updated_at, i.custom, i.yield_pct::float8 AS yield_pct, i.recipe_unit, i.count_unit,
+           (SELECT count(DISTINCT rl.recipe_id)::int FROM recipe_lines rl WHERE rl.item_id = i.id AND rl.tenant_id = ${tenantId}) AS recipe_count,
            (SELECT count(*)::int FROM order_list_items li WHERE li.item_id = i.id AND li.tenant_id = ${tenantId}) AS list_count
       FROM inv_items i
       LEFT JOIN inv_categories c ON c.id = i.category_id AND c.tenant_id = ${tenantId}
@@ -157,7 +225,8 @@ async function loadItems(tx, tenantId, itemIds = null) {
     SELECT item_id, venue_id, quote_id FROM inv_preferred
      WHERE tenant_id = ${tenantId} AND item_id = ANY(${ids}::uuid[])
   `
-  const byItem = new Map(items.map(i => [i.id, { ...i, quotes: [], preferred: { default: null, venues: {} } }]))
+  const units = await loadUnits(tx, tenantId, ids)
+  const byItem = new Map(items.map(i => [i.id, { ...i, units: units.get(i.id) || [], quotes: [], preferred: { default: null, venues: {} } }]))
   for (const q of quotes) byItem.get(q.item_id)?.quotes.push(q)
   for (const p of prefs) {
     const it = byItem.get(p.item_id)
@@ -716,10 +785,14 @@ export default async function inventoryRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       await checkCategory(tx, req.tenantId, b.category_id)
       const values = await customValues(tx, req.tenantId, 'purchasing.items', b.custom, { create: true })
+      // A new item has no units of its own yet: its usual units are standard ones.
+      const usual = { recipe_unit: b.recipe_unit ?? null, count_unit: b.count_unit ?? null }
+      checkUsualUnits({ name: b.name, base_unit: b.base_unit || 'each', units: [] }, usual)
       const [i] = await tx`
-        INSERT INTO inv_items (tenant_id, name, category_id, base_unit, storage, code, barcode, notes, is_active)
+        INSERT INTO inv_items (tenant_id, name, category_id, base_unit, storage, code, barcode, notes, is_active, yield_pct, recipe_unit, count_unit)
         VALUES (${req.tenantId}, ${b.name}, ${b.category_id ?? null}, ${b.base_unit || 'each'}, ${b.storage || 'ambient'},
-                ${b.code ?? null}, ${b.barcode ?? null}, ${b.notes ?? null}, ${b.is_active ?? true})
+                ${b.code ?? null}, ${b.barcode ?? null}, ${b.notes ?? null}, ${b.is_active ?? true}, ${b.yield_pct ?? 100},
+                ${usual.recipe_unit}, ${usual.count_unit})
         RETURNING id
       `
       await writeCustom(tx, req.tenantId, 'purchasing.items', i.id, values)
@@ -736,9 +809,13 @@ export default async function inventoryRoutes(app) {
         const [used] = await tx`
           SELECT (SELECT count(*) FROM inv_quotes WHERE item_id = ${item.id} AND tenant_id = ${req.tenantId})
                + (SELECT count(*) FROM order_list_pars p JOIN order_list_items li ON li.id = p.list_item_id
-                   WHERE li.item_id = ${item.id} AND li.tenant_id = ${req.tenantId}) AS n
+                   WHERE li.item_id = ${item.id} AND li.tenant_id = ${req.tenantId}) AS n,
+                 (SELECT count(*) FROM inv_item_units WHERE item_id = ${item.id} AND tenant_id = ${req.tenantId})
+               + (SELECT count(*) FROM recipe_lines WHERE item_id = ${item.id} AND tenant_id = ${req.tenantId}) AS r
         `
         if (Number(used.n) > 0) throw httpError(422, 'Remove its supplier quotes and pars before changing how it is counted')
+        // Its own units are so many of its base unit, and recipes give it in units of that kind.
+        if (Number(used.r) > 0) throw httpError(422, 'Take it out of its recipes and remove its own units before changing how it is counted')
       }
       // Switching it on: its prices' codes mustn't be other live prices'.
       if (b.is_active === true && !item.is_active) {
@@ -747,6 +824,10 @@ export default async function inventoryRoutes(app) {
       }
       const { custom, ...rest } = b
       const fields = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined))
+      if (fields.recipe_unit !== undefined || fields.count_unit !== undefined) {
+        const units = (await loadUnits(tx, req.tenantId, [item.id])).get(item.id) || []
+        checkUsualUnits({ ...item, base_unit: fields.base_unit || item.base_unit, units }, fields)
+      }
       if (Object.keys(fields).length) {
         await tx`UPDATE inv_items SET ${tx(fields)}, updated_at = now() WHERE id = ${item.id} AND tenant_id = ${req.tenantId}`
       }
@@ -760,9 +841,12 @@ export default async function inventoryRoutes(app) {
   app.delete('/items/:id', { preHandler: canManage }, async req => withTenant(req.tenantId, async tx => {
     const item = await ownItem(tx, req.tenantId, req.params.id)
     // Kept (switched off) when an order has it: a purchase order, or an
-    // open order with a quantity (which then says it's switched off).
+    // open order with a quantity (which then says it's switched off); or a
+    // recipe uses it (migration 300: its lines keep their item).
     const [used] = await tx`
       SELECT 1 FROM purchase_order_lines WHERE item_id = ${item.id} AND tenant_id = ${req.tenantId}
+      UNION ALL
+      SELECT 1 FROM recipe_lines WHERE item_id = ${item.id} AND tenant_id = ${req.tenantId}
       UNION ALL
       SELECT 1 FROM supply_order_lines sl
         JOIN supply_orders o ON o.id = sl.order_id AND o.tenant_id = ${req.tenantId} AND o.status IN ('draft', 'requested')
@@ -818,6 +902,68 @@ export default async function inventoryRoutes(app) {
   })
 
   // ── Quotes ──
+  // ── An item's own units (migration 298) ──
+  app.post('/items/:id/units', { preHandler: canManage }, async req => {
+    const b = UnitBody.parse(req.body || {})
+    return withTenant(req.tenantId, async tx => {
+      const item = await ownItem(tx, req.tenantId, req.params.id)
+      const units = (await loadUnits(tx, req.tenantId, [item.id])).get(item.id) || []
+      const problem = unitNameProblem(b.name, { ...item, units })
+      if (problem) throw httpError(422, problem, { code: 'unit_name' })
+      await tx`
+        INSERT INTO inv_item_units (tenant_id, item_id, name, base_qty)
+        VALUES (${req.tenantId}, ${item.id}, ${b.name}, ${b.base_qty})`
+      await touchItem(tx, req.tenantId, item.id)
+      return (await loadItems(tx, req.tenantId, [item.id]))[0]
+    })
+  })
+
+  app.patch('/units/:unitId', { preHandler: canManage }, async req => {
+    const b = UnitBody.partial().parse(req.body || {})
+    return withTenant(req.tenantId, async tx => {
+      const unit = await ownUnit(tx, req.tenantId, req.params.unitId)
+      const item = await ownItem(tx, req.tenantId, unit.item_id)
+      if (b.name !== undefined && b.name.toLowerCase() !== unit.name.toLowerCase()) {
+        const units = (await loadUnits(tx, req.tenantId, [item.id])).get(item.id) || []
+        const problem = unitNameProblem(b.name, { ...item, units }, { except: unit.id })
+        if (problem) throw httpError(422, problem, { code: 'unit_name' })
+      }
+      await tx`
+        UPDATE inv_item_units SET name = ${b.name ?? unit.name}, base_qty = ${b.base_qty ?? unit.base_qty}, updated_at = now()
+         WHERE id = ${unit.id} AND tenant_id = ${req.tenantId}`
+      // A new name follows into the recipe lines that give the item in it, and its usual units.
+      if (b.name !== undefined && b.name !== unit.name) {
+        await tx`
+          UPDATE recipe_lines SET unit = ${b.name}
+           WHERE tenant_id = ${req.tenantId} AND item_id = ${item.id} AND lower(btrim(unit)) = lower(btrim(${unit.name}))`
+        await tx`
+          UPDATE inv_items SET
+                 recipe_unit = CASE WHEN lower(recipe_unit) = lower(${unit.name}) THEN ${b.name} ELSE recipe_unit END,
+                 count_unit  = CASE WHEN lower(count_unit)  = lower(${unit.name}) THEN ${b.name} ELSE count_unit END
+           WHERE id = ${item.id} AND tenant_id = ${req.tenantId}`
+      }
+      await touchItem(tx, req.tenantId, item.id)
+      return (await loadItems(tx, req.tenantId, [item.id]))[0]
+    })
+  })
+
+  app.delete('/units/:unitId', { preHandler: canManage }, async req => withTenant(req.tenantId, async tx => {
+    const unit = await ownUnit(tx, req.tenantId, req.params.unitId)
+    const used = await recipesUsingUnit(tx, req.tenantId, unit.item_id, unit.name)
+    if (used.length) {
+      throw httpError(409, `${used.slice(0, 5).join(', ')}${used.length > 5 ? ' and ' + (used.length - 5) + ' more' : ''} ${used.length === 1 ? 'uses' : 'use'} ${unit.name}: change ${used.length === 1 ? 'that recipe' : 'those recipes'} first`,
+        { code: 'unit_in_use', recipes: used })
+    }
+    await tx`DELETE FROM inv_item_units WHERE id = ${unit.id} AND tenant_id = ${req.tenantId}`
+    await tx`
+      UPDATE inv_items SET
+             recipe_unit = CASE WHEN lower(recipe_unit) = lower(${unit.name}) THEN NULL ELSE recipe_unit END,
+             count_unit  = CASE WHEN lower(count_unit)  = lower(${unit.name}) THEN NULL ELSE count_unit END
+       WHERE id = ${unit.item_id} AND tenant_id = ${req.tenantId}`
+    await touchItem(tx, req.tenantId, unit.item_id)
+    return (await loadItems(tx, req.tenantId, [unit.item_id]))[0]
+  }))
+
   app.post('/items/:id/quotes', { preHandler: canManage }, async req => {
     const b = QuoteBody.parse(req.body || {})
     return withTenant(req.tenantId, async tx => {
