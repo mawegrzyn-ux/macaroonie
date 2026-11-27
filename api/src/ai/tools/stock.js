@@ -296,7 +296,7 @@ export const tools = [
           ...(e.value != null ? { value: pounds(e.value) } : {}),
           ...(e.gaps.length ? { gaps: e.gaps } : {}),
           message: 'Logged as waste' + (e.items.length ? ': taken off stock.' : ', but nothing was taken off stock (see gaps).'),
-          page: '/stock?tab=waste&venue=' + p.venue.id,
+          page: '/stock?tab=waste',
           _undo: { waste_id: e.id },
         }
       })
@@ -385,7 +385,7 @@ export const tools = [
           sent: t.label, from: t.from_name, to: t.to_name, items: t.lines.map(l => l.name + ' ' + formatBase(l.qty_base, l.base_unit)),
           ...(t.value != null ? { value: pounds(t.value) } : {}),
           message: 'Sent: on its way to ' + t.to_name + ' until someone there receives it.',
-          page: '/stock?tab=transfers&venue=' + p.from.id,
+          page: '/stock?tab=transfers',
         }
       })
     },
@@ -434,7 +434,7 @@ export const tools = [
           items: t.lines.map(l => l.name + ' ' + formatBase(l.received_base, l.base_unit) + (l.lost_base ? ' (' + formatBase(l.lost_base, l.base_unit) + ' lost in transit)' : '')),
           ...(t.lost_value != null && t.lost ? { lost_value: pounds(t.lost_value) } : {}),
           message: 'Received at ' + t.to_name + '.' + (t.lost ? ' What didn\'t arrive is kept as lost in transit.' : ''),
-          page: '/stock?tab=transfers&venue=' + p.venue.id,
+          page: '/stock?tab=transfers',
         }
       })
     },

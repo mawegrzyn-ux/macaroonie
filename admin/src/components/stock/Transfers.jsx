@@ -140,7 +140,7 @@ function Receive({ transfer, onDone }) {
           <div key={l.id} className="flex flex-wrap items-center gap-2" data-testid="transfer-receive-line" data-item={l.name}>
             <span className="flex-1 min-w-[10rem] text-sm">
               <span className="font-medium">{l.name}</span>
-              <span className="block text-xs text-muted-foreground">sent {l.qty} {l.unit} = {qty(l.qty_base, l.base_unit)}</span>
+              <span className="block text-xs text-muted-foreground">sent {l.qty} {l.unit}{l.unit === l.base_unit ? '' : ' = ' + qty(l.qty_base, l.base_unit)}</span>
               {short && <span className="block text-xs text-amber-800" data-testid="transfer-short">{qty(l.qty_base - base, l.base_unit)} short: kept as lost in transit</span>}
             </span>
             <NumInput value={g.qty ?? null} onChange={v => setGot(x => ({ ...x, [l.id]: { ...g, qty: v } }))} className="w-24 h-12 text-base" aria-label={'Arrived of ' + l.name} data-testid="transfer-receive-qty" />
@@ -188,10 +188,11 @@ function TransferCard({ t, values, open, onOpen, venueId }) {
           {t.lines.map(l => l.name + ' ' + qty(l.qty_base, l.base_unit) + (l.lost_base ? ' (' + qty(l.lost_base, l.base_unit) + ' lost' + (values && l.lost_value != null ? ', ' + pounds(l.lost_value) : '') + ')' : '')).join(', ')}
         </p>
       )}
-      {t.can_receive && (open ? <Receive transfer={t} onDone={() => onOpen(null)} /> : (
+      {/* Received at the venue it is going to, cancelled at the one it left: each on its own venue's page. */}
+      {t.can_receive && incoming && (open ? <Receive transfer={t} onDone={() => onOpen(null)} /> : (
         <button type="button" className={btn.primary} onClick={() => onOpen(t.id)} data-testid="transfer-open-receive">Receive</button>
       ))}
-      {t.can_cancel && (asking ? (
+      {t.can_cancel && !incoming && (asking ? (
         <span className="inline-flex gap-1">
           <button type="button" className="h-11 px-3 rounded-lg bg-destructive text-destructive-foreground text-xs touch-manipulation" onClick={() => { setAsking(false); cancel.mutate() }} data-testid="transfer-cancel-yes">Yes, cancel it: the stock comes back here</button>
           <button type="button" className={btn.outline} onClick={() => setAsking(false)}>Keep it</button>

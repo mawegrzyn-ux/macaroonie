@@ -2,7 +2,9 @@
 // The Help page's "Stock" section (inventory phase 4a: the Stock page, stock
 // on hand and each item's history, counting by storage area on the office
 // and the phone, key-item counts, approval, blind counts, adjustments, the
-// count day on Today, Pepper). Help.jsx gathers every file in this folder
+// count day on Today, Pepper; phase 4b: waste, its reasons and WRAP's kinds,
+// till voids marked wasted, transfers between venues, the phone's waste page).
+// Help.jsx gathers every file in this folder
 // (except parts.jsx) and shows them by order, then id.
 import { H2, H3, P, InfoBox, DataTable } from './parts.jsx'
 
@@ -17,8 +19,8 @@ export function Section() {
       <P>
         <strong>Stock</strong> (main menu, under Stock) shows what you have at each venue and is where you count it.
         Nothing on it is typed in as a stock level: what is on hand is worked out from what happened, the last
-        approved count plus every delivery booked in and every adjustment since. Pick the venue at the top; the
-        page has four tabs: On hand, Counts, Adjustments and Settings.
+        approved count plus every delivery booked in, adjustment, waste and transfer since. Pick the venue at the
+        top; the page has six tabs: On hand, Counts, Waste, Transfers, Adjustments and Settings.
       </P>
       <InfoBox type="warn">
         Sales aren&apos;t taken off yet. Until dishes sold take their ingredients off (a later step), on hand goes
@@ -28,14 +30,14 @@ export function Section() {
       <H3>On hand and an item&apos;s history</H3>
       <P>
         <strong>On hand</strong> lists every item in use at the venue: what is on hand, what came in since the last
-        count, when it was last counted, which storage areas it is kept in, and <strong>Below par</strong> when it is
+        count (deliveries, adjustments, waste and transfers), when it was last counted, which storage areas it is kept in, and <strong>Below par</strong> when it is
         under the venue&apos;s par from its order lists. An item never counted here says <em>Not counted</em>. With
         Costing view you also see what the stock is worth, at what the venue paid for it lately (the average over
         the last 90 days, else the last price paid). Search by name, code or barcode; in the Macaroonie Office app
         the scan button reads a barcode.
       </P>
       <P>
-        Tap an item for its <strong>history</strong>: every delivery, approved count and adjustment, newest first,
+        Tap an item for its <strong>history</strong>: every delivery, approved count, adjustment, waste and transfer, newest first,
         each with what it changed and the balance after it. A count shows what it found against what was expected
         then (for example <em>-2.1 kg on expected</em>). The balance starts at the item&apos;s first count.
       </P>
@@ -134,8 +136,74 @@ export function Section() {
         <strong> Add</strong>, the quantity in one of its units and a reason (needed), then Save. An adjustment is
         never edited or deleted: <strong>Reverse</strong> adds the same quantity the other way, dated at the
         adjustment it reverses (the list says when it was reversed), so the two cancel out as if neither had been
-        made. A count since the adjustment keeps its figure: it counted what was really there. Wasted stock gets its
-        own page in the next step.
+        made. A count since the adjustment keeps its figure: it counted what was really there. Wasted stock goes on the
+        Waste tab, and stock sent to another venue on the Transfers tab, not here.
+      </P>
+      <H3>Waste</H3>
+      <P>
+        The <strong>Waste</strong> tab is where you log what was thrown away, and see each day&apos;s waste. Under
+        <strong> Log waste</strong> choose what it was: <strong>An item</strong> (a tray of chicken thighs, 6 limes),
+        <strong> A prep batch</strong> (half a kilo of curry paste) or <strong>A dish</strong> (2 burgers). Find it by
+        name (an item also by code or barcode), say how much in any of its units, tap the reason, and add a note or a
+        photo if it helps. Before you save, the form shows what it takes off stock and, with Costing view, what it was
+        worth: a batch or a dish is broken into its ingredients by its recipe, so 2 burgers take off 2 patties, 2 buns
+        and the sauce in them. A dish taken away or delivered can have a recipe of its own: pick the order type and the
+        right recipe is used. Tap <strong>Log waste</strong>. Logging waste needs Stock use.
+      </P>
+      <InfoBox type="warn">
+        When the recipe can&apos;t say what is in something, the line says so: a dish with no recipe linked takes
+        nothing off stock, a unit the item has no size for is left out, and a recipe Pepper read in that nobody has
+        checked yet is used as it is (<em>not checked yet</em>), so check it on the Recipes page.
+      </InfoBox>
+      <P>
+        The day&apos;s list (pick another day with the date button or the arrows) shows every entry with its reason,
+        its kind, who logged it and when, what it took off and its value, and the day&apos;s total by kind. Made a
+        mistake? <strong>Undo</strong> takes an entry back on the same trading day (asked twice), for whoever logged
+        it or someone with Stock manage; it stays on the list marked <em>Undone</em>. Once the trading day is over,
+        someone with Stock manage can <strong>Reverse</strong> it instead: a second entry the other way, dated with the
+        first, so a count since keeps its figure. Under the list, <strong>The last seven days</strong> adds waste up by
+        reason, kind, item or person.
+      </P>
+      <H3>Waste reasons and WRAP&apos;s kinds</H3>
+      <P>
+        Every reason is one of the three kinds WRAP uses for food waste in hospitality: <strong>spoilage</strong> (gone
+        off or out of date before it was used), <strong>preparation</strong> (lost in the kitchen: trim, made too much,
+        dropped, burnt, a dish made and not served) and <strong>plate</strong> (what guests leave or send back). The
+        group starts with nine reasons. On the <strong>Settings</strong> tab (Stock manage) add your own with their
+        kind, change one, switch one off, or drag them into the order the waste form shows them. A reason already used
+        is switched off rather than deleted, so past waste keeps its reason.
+      </P>
+      <H3>Dishes voided on the till as wasted</H3>
+      <P>
+        When a dish is voided on the till after it was made and marked as wasted, it is waste already: it shows on the
+        Waste tab by itself, marked <em>Till void</em> with its check number and the void&apos;s reason, broken into its
+        ingredients by its recipe and taken off stock. Don&apos;t log it again, and it can&apos;t be undone here: the
+        till keeps its record. A void&apos;s reason counts under your waste reason of the same name (so
+        <em> Sent back by a guest</em> is plate waste); any other reason counts as preparation. Test sales made on the
+        Test data page are left out.
+      </P>
+      <H3>Transfers between venues</H3>
+      <P>
+        The <strong>Transfers</strong> tab moves stock from one of your venues to another in two steps. Under
+        <strong> Send stock</strong> pick the venue it goes to, add the items with how much of each in any of their
+        units, and tap <strong>Send</strong>: it leaves this venue&apos;s stock at once and shows under
+        <em> Sent from here, on its way</em>. At the other venue it shows under <em>On its way here</em>, and on
+        Home and the phone&apos;s Today as <em>Transfer to receive</em>. Tap <strong>Receive</strong>, say what
+        actually arrived of each item (it starts as what was sent) and tap <strong>Receive it</strong>. If less
+        arrived, the difference is kept on the transfer as <em>lost in transit</em>: the sending venue lost it, and
+        the receiving venue gets only what came. A transfer still on its way can be cancelled at the venue that sent
+        it (asked twice): the stock comes back there. Sending, receiving and cancelling need Stock use.
+      </P>
+      <P>
+        A transfer is valued at what the sending venue paid for the stock lately (its average over the last 90 days),
+        so both venues see the same pounds (with Costing view). On a shared tablet a person can only send from, and
+        receive at, the tablet&apos;s own venue.
+      </P>
+      <H3>Waste on the phone</H3>
+      <P>
+        In the Macaroonie Office app or on the phone, the <strong>Waste</strong> tile opens the same form in one
+        column, with <strong>Add a photo</strong> taking a picture with the camera, and today&apos;s waste at the
+        venue under it with Undo for what you logged.
       </P>
       <H3>Pepper and reports</H3>
       <P>
@@ -148,6 +216,16 @@ export function Section() {
         its value) and Stock adjustments, and the starter <strong>Last count&apos;s differences</strong>. In Stock
         moves a delivery&apos;s value is <strong>Paid</strong>, at its supplier&apos;s price, for people who see
         purchasing prices. A count&apos;s row opens it on the Stock page at its venue.
+      </P>
+      <P>
+        Tell Pepper <em>we dropped a tray of 12 chicken thighs</em> and it logs the waste with the right item and
+        reason after you confirm its card (which shows what it takes off); <strong>Undo</strong> on the card takes it
+        back the same day. Ask <em>what did we waste this week?</em> for waste by reason, kind, item or person. Pepper
+        can send stock to another venue (<em>send 2 trays of chicken to Leeds</em>) and receive a transfer (<em>the
+        rice from Soho came, but 2 limes short</em>), each confirmed first. Reports have <strong>Waste</strong> (each
+        item of each entry, till voids marked wasted included) and <strong>Stock transfers</strong> (sent, received,
+        lost in transit), with the starters <strong>Waste by reason this week</strong> and <strong>Transfers in
+        transit</strong>.
       </P>
     </section>
   )

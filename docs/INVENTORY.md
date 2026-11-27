@@ -3,9 +3,10 @@
 **Status: phases 1 to 3 built on 27 Nov 2026 (recipes and the cost engine, migrations 298 to 301; links to
 dishes with the variation matrix, option rules and menu margins, migrations 302 and 303; recipes read in by
 Pepper, drafts, recipes from dishes and coverage by sales, migration 304; see "Phase 1 as built", "Phase 2 as
-built" and "Phase 3 as built" under section 11). Phase 4a built on 27 Nov 2026 (stocktake, the ledger, adjustments:
-the stock module, storage areas, counts by area with approval, migrations 305 to 307; see "Phase 4a as built"); phase 4b
-(waste, transfers) is next. Phases 5 to 10 are a plan. The decisions in section 12 are taken as
+built" and "Phase 3 as built" under section 11). Phase 4 built on 27 Nov 2026: 4a (stocktake, the ledger, adjustments:
+the stock module, storage areas, counts by area with approval, migrations 305 to 307; see "Phase 4a as built") and 4b
+(waste with its reasons and the till's voids marked wasted, transfers between venues, migrations 308 and 309; see "Phase
+4b as built"). Phases 5 to 10 are a plan. The decisions in section 12 are taken as
 recommended, D1 to D12.** The owner's ask when building started: "recipes variations, per revenue stream/order type
 matrix, and per location (or ability to link a different recipe to menu items in different locations)",
 "stock take module" and "reports". The variation matrix is part of phase 2's links (5.4).
@@ -549,7 +550,7 @@ scale; steps that follow the same day run nearer half.
 | 1 | **Built 27 Nov 2026.** Units and yield on items; recipes and prep recipes; `shared/costing.js`; the Recipes page with live cost, coverage and the explanation; the `recipes` and `costing` modules | A recipe costed at each venue's prices | 80 to 100 |
 | 2 | **Built 27 Nov 2026.** Links to dishes with the variation matrix, option rules, meal deals, goods; the Menu margins page with the order type switch and thresholds; report subjects; Pepper's read tools | Every costed dish shows its margin | 80 to 100 |
 | 3 | **Built 27 Nov 2026.** Pepper reads recipes (sheet, PDF, photo, text) into drafts; match dishes to recipes; coverage by sales value | Most of a menu costed in a sitting | 50 to 65 |
-| 4 | **4a built 27 Nov 2026**: the `stock` module; storage areas; stocktake (drafts, units, approval, key items, phone and scanner); adjustments; `loadStockMoves()`. **4b next**: waste; transfers | Stock run from documents | 90 to 110 |
+| 4 | **Built 27 Nov 2026.** 4a: the `stock` module; storage areas; stocktake (drafts, units, approval, key items, phone and scanner); adjustments; `loadStockMoves()`. 4b: waste (reasons in WRAP's kinds, till voids marked wasted, the phone's waste page); transfers in two steps | Stock run from documents | 90 to 110 |
 | 5 | Usage from sales (till, kiosk, online, imported); on hand with sales taken off; order to par minus stock | Stock on hand that follows trading | 70 to 90 |
 | 6 | Periods and variance; actual and theoretical food cost; the Cash Recon line; widgets; Today tasks; `explain_variance` | A pound figure on the gap, per item and venue | 70 to 90 |
 | 7 | Engineering from real sales; scenarios; what-if; push prices; price creep and its rule trigger | Pricing decisions made in the app | 60 to 80 |
@@ -668,6 +669,41 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
   weighted average carried through the ledger (the appendix formula waits for a levels table, if one is ever needed);
   approving is on the Stock page, the phone counts and submits; deleting an area keeps its lines in finished counts
   (outside an area) and is refused while a count being taken uses it.
+
+### Phase 4b as built (27 Nov 2026)
+
+- **Migrations** 308 (`waste_reasons` in WRAP's kinds, seeded once a group, `stock_settings.waste_reasons_seeded`;
+  `stock_waste` and `stock_waste_items`) and 309 (`stock_transfers` with a running number per group,
+  `stock_transfer_lines`). Both RLS forced.
+- **Waste** (6.3): an item, a prep batch (a prep recipe) or a menu dish with its matrix scope (venue, revenue stream,
+  order type), how much in its units, the group's reason, a note and a photo. A batch or a dish is broken into its items
+  **when it is logged** by `itemsOf()` in `shared/stockItems.js`, over `dishCost()`'s lines (one walk: the recipe
+  `recipeFor()` picks, the options' rules, a deal's picks, each line's yield), and each item is valued at the average paid
+  at the venue then; what the recipe can't say (no recipe, a unit with no size, a draft Pepper read in and nobody
+  checked) is kept on the entry in words and shown on the line. Logging is Use; undo on the venue's trading day by whoever
+  logged it or Manage; after that day a reversing entry (Manage) dated at the original's moment.
+- **Till voids marked wasted** count by themselves: read from `pos_check_lines` (`void_waste`) each time, broken into
+  items through the recipe their dish uses there with their own options and picks, listed read only in the waste list,
+  the ledger and the report, test till sales left out (D10). A void counts under the group's reason of the same name,
+  else as preparation.
+- **Transfers** (6.4): sent (Use at the sender; it leaves then), received (Use at the receiver, each line's quantity as
+  it arrived), cancelled while sent (the stock comes back then). Each line keeps the sender's average cost when sent.
+  What didn't arrive is lost in transit **at the sender, at the moment it was sent** (so a count there in between keeps
+  its figure); more arriving than sent is the receiver's gain.
+- **Moves**: `waste`, `transfer_out`, `transfer_in`, `lost_in_transit` in `MOVE_KINDS`; logged waste, till voids and
+  transfers as sources in `MOVE_SOURCES`; on hand, the ledger, count reviews and the report works take them in.
+- **Pages**: the Stock page's Waste tab (log with a preview of what it takes off, the day's list with the voids, undo and
+  reverse, the week by reason, kind, item or person) and Transfers tab (send, receive, cancel, history); waste reasons on
+  Settings (drag, switch off); `/mobile/stock-waste` on the hub's tiles. Today: a transfer to receive. Pepper:
+  `log_waste` (reversible), `waste_summary`, `send_transfer`, `receive_transfer`; forms Log waste and Send stock (one
+  item). Reports: Waste and Stock transfers; starters Waste by reason this week, Transfers in transit.
+- **What the build changed in the plan**: the item walk is `itemsOf()` in `shared/stockItems.js` over `dishCost()`'s
+  lines rather than a `usageOf()` in `shared/costing.js` (`shared/stock.js` can't import the cost engine, and the walk
+  is stock's; phase 5's usage calls it); logged waste keeps the items it was broken into then, while a till void is broken
+  in each time by the recipe now (as usage will be); "venues per person" is the group's venues and, on a shared device,
+  the device's venue: the app has no list of venues per person (`docs/claude/outstanding/stock.md` item 73); a
+  cancelled transfer comes back when it is cancelled, not as if never sent; the receiver's average paid doesn't take
+  in what arrived by transfer (deliveries only).
 
 ## 12. Decisions for the owner
 

@@ -206,14 +206,14 @@ async function loadEntry(tx, tenantId, id, lock = false) {
   return { ...rows[0], reversed: !!rev }
 }
 
-/** Logged entries of a venue's days with their items. */
-async function loggedEntries(tx, tenantId, venueId, { from, to }) {
+/** Logged entries of a venue's days with their items (the newest MAX_ROWS for a list; all of them for a summary). */
+async function loggedEntries(tx, tenantId, venueId, { from, to }, limit = MAX_ROWS) {
   const rows = await tx`
     SELECT ${tx.unsafe(colsOf('w.'))},
            EXISTS (SELECT 1 FROM stock_waste r WHERE r.reverses_id = w.id AND r.tenant_id = w.tenant_id) AS reversed
       FROM stock_waste w
      WHERE w.tenant_id = ${tenantId} AND w.venue_id = ${venueId} AND w.day BETWEEN ${from}::date AND ${to}::date
-     ORDER BY w.wasted_at DESC, w.created_at DESC LIMIT ${MAX_ROWS}`
+     ORDER BY w.wasted_at DESC, w.created_at DESC ${limit ? tx`LIMIT ${limit}` : tx``}`
   const items = rows.length ? await tx`
     SELECT wi.waste_id, wi.item_id, i.name, i.base_unit, wi.qty_base::float8 AS qty_base, wi.cost_per_base::float8 AS cost_per_base
       FROM stock_waste_items wi JOIN inv_items i ON i.id = wi.item_id AND i.tenant_id = wi.tenant_id
@@ -262,9 +262,9 @@ function voidView(v, { access, costOf, names }) {
 }
 
 /** The logged entries (not undone) and the till's voids of some days, as rows wasteTotals() and the page read. */
-async function wasteRows(tx, tenantId, venueId, days, access) {
+async function wasteRows(tx, tenantId, venueId, days, access, limit = MAX_ROWS) {
   const [logged, voids] = await Promise.all([
-    loggedEntries(tx, tenantId, venueId, days),
+    loggedEntries(tx, tenantId, venueId, days, limit),
     loadWastedVoids(tx, tenantId, { venueIds: [venueId], days }),
   ])
   const ids = [...new Set(voids.flatMap(v => v.items.map(i => i.item_id)))]
@@ -450,7 +450,7 @@ export default async function stockWasteRoutes(app) {
       const venueId = req.params.venueId
       const today = await venueDay(tx, req.tenantId, venueId)
       const days = await daysOf(tx, req.tenantId, venueId, { from: q.from || addDays(q.to || today, -6), to: q.to || today })
-      const { logged, voids, costOf, names } = await wasteRows(tx, req.tenantId, venueId, days, access)
+      const { logged, voids, costOf, names } = await wasteRows(tx, req.tenantId, venueId, days, access, null)
       const rows = [
         ...logged.filter(e => !e.undone_at).map(e => ({ ...e, by: e.wasted_by, day: dayText(e.day), value: e.value == null ? null : Number(e.value), qty: Number(e.qty) })),
         ...voids.map(v => ({ ...voidView(v, { access: { ...access, sees_values: true }, costOf: access.sees_values ? costOf : () => null, names }), by: v.by })),

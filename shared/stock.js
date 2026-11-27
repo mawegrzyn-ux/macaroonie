@@ -9,8 +9,8 @@
 //
 //   MOVE_KINDS             the kinds of move and how each acts: a count sets
 //                          the quantity, the others add to it (signed). Phase
-//                          4b adds waste and transfers here and as sources in
-//                          services/stockSvc.js; nothing else changes
+//                          4b added waste and transfers here and as sources in
+//                          services/stockSvc.js
 //   stockOnHand({ moves, at })   one item at one venue: the last count (at or
 //                          before `at`, else any) plus the moves after it ->
 //                          { on_hand, counted, counted_at, received_since,
