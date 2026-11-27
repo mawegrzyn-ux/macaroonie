@@ -72,12 +72,13 @@ export function CoverageCard({ onOpenDish, onOpenRecipe, onOpenOption }) {
               </p>
               <div className="flex flex-wrap gap-2" data-testid="recipe-coverage-channels">
                 {Object.entries(data.channels).map(([k, c]) => (
-                  <span key={k} className="inline-flex items-center gap-1.5 rounded-full border px-3 h-9 text-sm">
+                  <span key={k} className="inline-flex items-center gap-1.5 rounded-full border px-3 h-11 text-sm">
                     {SALE_CHANNELS[k] || k} <span className={cn('font-semibold tabular-nums', pctLook(c.percent))}>{c.percent == null ? '-' : c.percent + '%'}</span>
                   </span>
                 ))}
                 {!venueId && data.venues.length > 1 && data.venues.map(v => (
-                  <button key={v.id} type="button" onClick={() => setVenueId(v.id)} className="inline-flex items-center gap-1.5 rounded-full border px-3 h-9 text-sm bg-muted/40 hover:bg-muted touch-manipulation">
+                  <button key={v.id} type="button" onClick={() => setVenueId(v.id)} data-testid="recipe-coverage-venue-chip"
+                    className="inline-flex items-center gap-1.5 rounded-full border px-3 h-11 text-sm bg-muted/40 hover:bg-muted touch-manipulation">
                     {v.name} <span className={cn('font-semibold tabular-nums', pctLook(v.percent))}>{v.percent == null ? '-' : v.percent + '%'}</span>
                   </button>
                 ))}

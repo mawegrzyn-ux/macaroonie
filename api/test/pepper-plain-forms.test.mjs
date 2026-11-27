@@ -21,6 +21,7 @@ const { SupplierBody } = await import('../src/routes/suppliers.js')
 const { StaffBody } = await import('../src/routes/rota.js')
 const { ExpenseBody } = await import('../src/routes/cashRecon.js')
 const { ExceptionBody } = await import('../src/routes/schedules.js')
+const { RecipeNewBody } = await import('../src/routes/recipes.js')
 const { FORMS, PLAIN_FORM_KEYS } = await import('../../shared/forms.js')
 
 let ids, owner, V, today, venue
@@ -47,13 +48,14 @@ test.before(async () => {
 })
 test.after(async () => { await closeApp() })
 
-test('four plain forms, each in its area\'s file and in shared/forms.js, each the route\'s own schema', () => {
-  assert.deepEqual(Object.keys(PLAIN_FORMS).sort(), ['closure', 'expense', 'staff_member', 'supplier'])
+test('five plain forms, each in its area\'s file and in shared/forms.js, each the route\'s own schema', () => {
+  assert.deepEqual(Object.keys(PLAIN_FORMS).sort(), ['closure', 'expense', 'recipe', 'staff_member', 'supplier'])
   assert.deepEqual(PLAIN_FORM_KEYS.sort(), Object.keys(PLAIN_FORMS).sort())
   assert.equal(PLAIN_FORMS.supplier.schema, SupplierBody, 'the route\'s schema itself, never a copy')
   assert.equal(PLAIN_FORMS.staff_member.schema, StaffBody)
   assert.equal(PLAIN_FORMS.expense.schema, ExpenseBody)
   assert.equal(PLAIN_FORMS.closure.schema, ExceptionBody)
+  assert.equal(PLAIN_FORMS.recipe.schema, RecipeNewBody, 'a new recipe\'s details (inventory phase 3)')
   // The folder's files are all listed (no folder read, no top-level await).
   const dir = new URL('../src/forms/', import.meta.url)
   const areaFiles = fs.readdirSync(dir).filter(f => !['index.js', 'files.js', 'plain.js'].includes(f)).map(f => f.slice(0, -3))

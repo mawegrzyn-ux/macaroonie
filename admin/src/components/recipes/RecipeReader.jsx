@@ -339,7 +339,7 @@ export default function RecipeReader({ onClose, onOpen }) {
         ))}
       </div>
       {error && <p className="text-sm text-destructive" role="alert" data-testid="reader-error">{error}</p>}
-      <div className="sticky bottom-0 bg-page/95 py-3 flex flex-wrap items-center justify-end gap-2 border-t">
+      <div className="sticky bottom-0 bg-page py-3 flex flex-wrap items-center justify-end gap-2 border-t">
         <span className="text-sm text-muted-foreground flex-1 min-w-[12rem]" data-testid="reader-summary">
           {summary.recipes} {summary.recipes === 1 ? 'recipe' : 'recipes'}, {summary.ready} lines
           {summary.out > 0 && <> · <span className="text-amber-800">{summary.out} not matched go into the notes</span></>}
@@ -472,7 +472,7 @@ function ReadLine({ l, own, pickers, canAddItem, onChange, onNewItem }) {
           </Field>
           <Field label="Unit">
             {units.length ? (
-              <select className={cn(inputCls, 'h-12 w-32')} value={l.unit} onChange={e => onChange({ unit: e.target.value, unit_problem: null })} data-testid="reader-unit">
+              <select className={cn(inputCls, 'h-12 w-44')} value={l.unit} onChange={e => onChange({ unit: e.target.value, unit_problem: null })} data-testid="reader-unit">
                 {units.map(u => <option key={u} value={u}>{unitLabel(u)}{u === l.unit && !choices.includes(u) && choices.length ? ' (as read)' : ''}</option>)}
               </select>
             ) : (

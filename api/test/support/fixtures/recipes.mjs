@@ -6,6 +6,9 @@
 // option group and a dish's own exception, the cost targets with the menu
 // section's own; later (fillLate, after the till's order types) links for an
 // order type, a revenue stream and both.
+// Phase 3 (migration 304): drafts Pepper read in (a prep recipe of the same
+// request inside a dish, a group's prep recipe, a line kept in the notes), a
+// recipe made for the menu's dish, and coverage by sales at the venue.
 export const order = 85
 // After the till (140): its order type.
 export const lateOrder = 150
@@ -19,7 +22,7 @@ export const kinds = {
 const blankRule = { option_id: null, dish_id: null, option_label: null, item_id: null, sub_recipe_id: null, swap_item_id: null, qty: null, unit: null, factor: null, recipe_id: null, note: null }
 
 export async function fill(ctx) {
-  const { V, mark, ids, step, post, put, patch } = ctx
+  const { V, mark, ids, step, post, put, patch, get } = ctx
   const supplier = await step('recipe supplier', () => post('/api/suppliers', { name: mark + ' Dairy Co', send_method: 'print' }))
   const item = await step('recipe item', () => post('/api/inventory/items', { name: mark + ' Cheddar', base_unit: 'g', yield_pct: 95 }))
   if (!item) return
@@ -68,6 +71,14 @@ export async function fill(ctx) {
       await step('option rule for a dish', () => put('/api/recipe-options/rules', { ...blankRule, option_id: option.id, dish_id: menuDish.id, action: 'add', item_id: item.id, qty: 30, unit: 'g' }))
     }
   }
+  // Phase 3: drafts read in (refs mapped back to the group's item and prep recipe; the other group's refused).
+  const drafts = await step('recipe drafts', () => post('/api/recipes/drafts', { source: 'reader', recipes: [
+    { key: 'd', name: mark + ' Read toastie', kind: 'dish', portions: 1, lines: [{ new_key: 'p', qty: 20, unit: 'ml' }, { sub_recipe_id: prep.id, qty: 10, unit: 'ml' }], left_out: [mark + ' 1 pinch salt'] },
+    { key: 'p', name: mark + ' Read sauce', kind: 'prep', yield_qty: 1, yield_unit: 'l', lines: [{ item_id: item.id, qty: 100, unit: 'g' }] },
+  ] }))
+  if (drafts?.made?.[0]) ctx.made.readRecipe = drafts.made[0]
+  if (menuDish) await step('recipe for a dish', () => post(`/api/recipe-links/dishes/${menuDish.id}/recipe`, { name: mark + ' Pad Thai recipe', code: null, category: null }))
+  await step('recipe coverage', () => get('/api/recipes/coverage?venue_id=' + V))
   // The cost targets, with the menu section's own (migration 302).
   const section = ctx.made.menuSection
   await step('costing settings', () => put('/api/menu-margins/settings', {
