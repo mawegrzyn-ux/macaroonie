@@ -80,13 +80,22 @@ export function Section() {
         rename, <Mono>PUT /venues/:venueId/areas/order</Mono>, <Mono>PUT /areas/:id/items</Mono>, delete: 409{' '}
         <Mono>area_in_count</Mono> while a draft or submitted count has lines there; lines of finished counts join
         the line outside an area), key lists, <Mono>GET|PUT /settings</Mono>, <Mono>PUT
-        /venues/:venueId/settings</Mono>, adjustments and <Mono>POST /adjustments/:id/reverse</Mono>.
+        /venues/:venueId/settings</Mono>, adjustments and <Mono>POST /adjustments/:id/reverse</Mono> (the same
+        quantity the other way, dated at the original&apos;s <Mono>adjusted_at</Mono>; when it was done is{' '}
+        <Mono>created_at</Mono>): on hand starts from the last approved count, so a reversal dated after a count would
+        be added on top of what the count found, which already held the mistake.
       </P>
       <P>
         Permissions: View reads, Use counts (start, lines, areas, submit, cancel a draft), Manage approves, reopens,
         cancels a submitted count, adjusts and sets up; checked with <Mono>requirePermission()</Mono> and{' '}
         <Mono>permissionAtLeast()</Mono> (<Mono>stockAccess()</Mono>). Values (stock value, a move&apos;s or a
-        difference&apos;s value) only with Costing view. Every id is the group&apos;s: venues by{' '}
+        difference&apos;s value) only with Costing view; a delivery&apos;s <Mono>cost_per_base</Mono> and value (its
+        supplier&apos;s price and line total) also need purchasing prices (<Mono>sees_prices</Mono>:{' '}
+        <Mono>seesPurchasingPrices()</Mono> on <Mono>purchasing_setup</Mono>, as recipes&apos; explanation does).
+        Who did it (every <Mono>_by</Mono> column, the second person rule) is <Mono>stockPerson(req)</Mono>: on a
+        shared device the office PIN person switched in (<Mono>req.acting</Mono>), by their own sign-in email, else
+        the account; <Mono>approvalProblem()</Mono> compares every form of the approver&apos;s name (email and sub).
+        Every id is the group&apos;s: venues by{' '}
         <Mono>requireOwnVenue()</Mono>, items, areas (also the count&apos;s venue&apos;s), key lists, counts and
         adjustments filtered by <Mono>tenant_id</Mono>.
       </P>
@@ -100,12 +109,19 @@ export function Section() {
         expected = <Mono>stockOnHand()</Mono> at <Mono>counted_at</Mono> without the count itself, the difference and
         its value at <Mono>itemCostsAt()</Mono> then; <Mono>expected</Mono> gives every sheet item&apos;s figure (null for one
         never counted), shown beside each line while counting. Blind counting (<Mono>blind_count</Mono>) leaves{' '}
-        <Mono>review</Mono> and <Mono>expected</Mono> out while the count is a draft, for everyone.
+        <Mono>review</Mono> and <Mono>expected</Mono> out while the count is a draft, for everyone, and Pepper&apos;s{' '}
+        <Mono>count_stock</Mono> card leaves out each line&apos;s &quot;was&quot; figure (<Mono>countPlan()</Mono>{' '}
+        reads <Mono>blind_count</Mono> from <Mono>/meta</Mono>); on hand itself (the On hand tab,{' '}
+        <Mono>stock_on_hand</Mono>, the ledger) stays readable with Stock View. <Mono>later_count</Mono> names an
+        approved count at the venue dated after a draft or submitted one: the items it counted keep its figures.
       </P>
       <InfoBox>
         The count sheet saves each line as it is typed (debounced, about a second) instead of a Save button: the one
         place Standard Design Rule 5 gives way, so two people can count two areas at once and a sleeping phone loses
-        nothing. The sheet fetches the count every few seconds while it is a draft.
+        nothing. The sheet fetches the count every few seconds while it is a draft. Submit (and Confirm all as zero)
+        awaits <Mono>useLineSaver().flush()</Mono>, which sends what is waiting and resolves once every line sent or
+        saving has its answer; a failed line stops the submit. The sheet is read only (ReadOnlyNotice) when the
+        count&apos;s <Mono>can_count</Mono> is false.
       </InfoBox>
       <H3>Admin</H3>
       <P>
@@ -124,15 +140,22 @@ export function Section() {
       <H3>Today, Pepper, reports</H3>
       <P>
         Today: source <Mono>stock</Mono> in <Mono>services/opsToday.js</Mono> (module <Mono>stock</Mono>):{' '}
-        <Mono>stock_count_due</Mono> on the venue&apos;s count day until a count of that day is submitted (Use) and{' '}
-        <Mono>stock_count_to_approve</Mono> for whoever may approve (<Mono>approvalProblem()</Mono>). Pepper{' '}
+        <Mono>stock_count_due</Mono> on the venue&apos;s count day until a count of the kind it counts, dated that
+        day, is submitted (a full count, or one of its <Mono>key_list_id</Mono>; a quick count, a key count with no
+        list, never is) (Use) and <Mono>stock_count_to_approve</Mono> for whoever may approve{' '}
+        (<Mono>approvalProblem()</Mono>). Their action is <Mono>/stock?tab=counts&amp;venue=&amp;count=</Mono>, which
+        the phone maps to <Mono>/mobile/stock-count</Mono> (<Mono>PHONE_PAGES</Mono> in{' '}
+        <Mono>admin/src/mobile/today.js</Mono>; the page reads <Mono>?venue=</Mono> and <Mono>?count=</Mono>). Pepper{' '}
         (<Mono>ai/tools/stock.js</Mono>): <Mono>stock_on_hand</Mono>, <Mono>stock_moves</Mono> (read) and{' '}
         <Mono>count_stock</Mono> (consequential, <Mono>needs: &apos;use&apos;</Mono>; entries in several units, an
         area; the quick count route); the plain form <Mono>stock_key_count</Mono> (<Mono>api/src/forms/stock.js</Mono>);
         registry <Mono>shared/registry/stock.js</Mono>. Reports (<Mono>reports/catalogue/stock.js</Mono>, works in{' '}
         <Mono>reports/work/stock.js</Mono>): <Mono>stock.on_hand</Mono> (was <Mono>purchasing.stock</Mono>),{' '}
         <Mono>stock.moves</Mono>, <Mono>stock.counts</Mono>, <Mono>stock.count_lines</Mono> (expected, counted,
-        difference, value, <Mono>latest</Mono>), <Mono>stock.adjustments</Mono>; values need Costing; the starter{' '}
+        difference, value, <Mono>latest</Mono>), <Mono>stock.adjustments</Mono>; values need Costing, and a
+        delivery&apos;s on <Mono>stock.moves</Mono> is its own field <Mono>paid</Mono> (measure Value received),
+        which needs <Mono>purchasing_setup</Mono> as the purchasing subjects&apos; money does; counts and count lines
+        open at their venue (<Mono>?venue=</Mono>); the starter{' '}
         <Mono>stock_last_count_differences</Mono>. Tests: <Mono>api/test/stock-counts.test.mjs</Mono>,{' '}
         <Mono>api/test/stock-on-hand.test.mjs</Mono>, <Mono>shared/test/stock.test.mjs</Mono>; fixtures{' '}
         <Mono>api/test/support/fixtures/stock.mjs</Mono> (kind <Mono>areaId</Mono>).

@@ -98,8 +98,8 @@ export function Section() {
         skipped.
       </InfoBox>
       <P>
-        Deleting an item that has been ordered, or is on an order being filled in, switches it off instead, so
-        those orders keep it. A supplier price or a supplier that an open order uses (a draft with a quantity,
+        Deleting an item that has been ordered, is on an order being filled in, or has been counted or adjusted
+        on the Stock page, switches it off instead, so those orders and stock records keep it. A supplier price or a supplier that an open order uses (a draft with a quantity,
         or one waiting for approval) can't be deleted: switch it off instead, and the order shows the line as
         needing another price (see Placing an order).
         <strong> Categories</strong> group items on lists and orders; drag them into the order you want.

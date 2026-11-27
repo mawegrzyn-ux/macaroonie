@@ -111,6 +111,7 @@ export function Section() {
           ['Self-order kiosks (pos_reports; designs pos_setup)', 'kiosks.visits (every guest visit, kiosk_sessions), kiosks.designs, till.receipts (receipts by QR code or email: opened, emailed, waiting for payment; addresses never read)'],
           ['Loyalty (loyalty_members; rewards and stamp cards loyalty)', 'loyalty.members, loyalty.ledger (every points or stamps change), loyalty.redemptions, loyalty.member_rewards, loyalty.rewards, loyalty.stamp_cards'],
           ['Purchasing (purchasing; the catalogue purchasing_setup)', 'purchasing.orders (purchase orders, with when each first went, its order deadline and whether it went after it), purchasing.order_lines, purchasing.invoices, purchasing.restaurant_orders, and purchasing.suppliers, purchasing.items, purchasing.categories, purchasing.prices, purchasing.price_changes. Money (prices, goods, spend, VAT, the average order, lines invoiced above their price) needs purchasing_setup on every subject'],
+          ['Stock (stock; values costing, a delivery\'s Paid purchasing_setup)', 'stock.on_hand, stock.moves (the ledger), stock.count_lines (expected against counted; all three worked out for each run by the Stock page\'s own rules, reports/work/stock.js), stock.counts, stock.adjustments; inventory phase 4a moved them here from purchasing (purchasing.stock was stock.on_hand). See Docs, Stock'],
           ['Food safety and H&S (food_safety, checklists, hs_action_log)', 'safety.days (each venue\'s H&S day as the Overview judges it, worked out for each run), safety.fridges, safety.fridge_checks, safety.hold_stations, safety.hold_checks, safety.cooking_sessions, safety.cooking_items, safety.cooking_checks, safety.delivery_checks; safety.checklist_templates, safety.checklist_tasks, safety.checklists, safety.checklist_ticks; safety.action_categories, safety.actions'],
           ['Cash reconciliation (cash_recon)', 'cash.days and cash.weeks (worked out for each run by Cash Recon\'s own rule), cash.income, cash.takings, cash.service_charges, cash.expenses, cash.wages, cash.reports, cash.wage_lists, and to group by: cash.income_sources, cash.payment_channels, cash.sc_sources, cash.expense_categories'],
           ['Staff and rota (rota; pay rota_pay, points and tips rota_tips, the wage list beside the rota cash_recon, people, roles, time off and tip pots staff)', 'rota.staff_weeks, rota.weeks, rota.days, rota.pot_weeks, rota.tip_shares (worked out for each run by the Rota page\'s own rules), rota.entries, rota.pay_adjustments, rota.tip_moves, rota.shifts, and staff.people, staff.roles, staff.time_off, rota.tip_pots'],
@@ -1555,7 +1556,8 @@ row.open  = { id: '01J...', venue: '8f0c...' }      // only when every value is 
         <Mono>p.catalogue</Mono> and <Mono>ctx.catalogue</Mono>; <Mono>catalogueView(levels, catalogue)</Mono>{' '}
         shows it to the builder and Pepper; <Mono>compileReport()</Mono> reads <Mono>env.catalogue</Mono> for the
         call; <Mono>runReport()</Mono> / <Mono>streamList()</Mono> read it when a run comes without one. Stock on
-        hand is the subject <Mono>purchasing.stock</Mono> (work <Mono>stock_on_hand</Mono>, migration 287).
+        hand is the subject <Mono>stock.on_hand</Mono> (work <Mono>stock_on_hand</Mono>, migration 287; it was{' '}
+        <Mono>purchasing.stock</Mono> until inventory phase 4a: see Docs, Stock).
       </P>
     </section>
   )

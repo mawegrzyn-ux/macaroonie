@@ -68,7 +68,9 @@ export function Section() {
         <Mono>missing_items</Mono>. The order is never placed on another price by itself. Deleting a
         quote, or a supplier with quotes, that an open order has a quantity on is a 409 code{' '}
         <Mono>on_open_order</Mono> naming the venues (<Mono>openOrderVenues()</Mono>); an item on any
-        order (a PO line, or an open line with a quantity) is switched off instead (<Mono>{'{ archived: true }'}</Mono>).
+        order (a PO line, or an open line with a quantity), in a recipe, or in stock (a{' '}
+        <Mono>stock_count_lines</Mono> or <Mono>stock_adjustments</Mono> row, which cascade with the item) is switched
+        off instead (<Mono>{'{ archived: true }'}</Mono>).
       </P>
       <P>
         Changing a quote's pack size (<Mono>PATCH /inventory/quotes/:id</Mono>, or the import matching a
