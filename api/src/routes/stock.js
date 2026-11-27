@@ -104,10 +104,11 @@ export function venueProblem(req, venueId) {
 /**
  * The person's stock levels: count (Use), approve and set up (Manage),
  * values (Costing view) and, on top, a delivery's price from its supplier
- * (purchasing prices too: `sees_prices`).
+ * (purchasing prices too: `sees_prices`), and sales in pounds beside costs
+ * (till reports view too: `sees_sales`, phase 6a's food cost).
  */
 export async function stockAccess(req) {
-  const lv = await permissionLevels(req, ['stock', 'costing', PRICES_MODULE])
+  const lv = await permissionLevels(req, ['stock', 'costing', PRICES_MODULE, 'pos_reports'])
   const values = permissionAtLeast(lv.costing, 'view')
   return {
     level: lv.stock || 'none',
@@ -115,6 +116,8 @@ export async function stockAccess(req) {
     can_manage: permissionAtLeast(lv.stock, 'manage'),
     sees_values: values,
     sees_prices: values && seesPurchasingPrices(lv[PRICES_MODULE]),
+    // Phase 6a: sales in pounds (net food sales, food cost %) need till reports view as well (the Sold tab's rule).
+    sees_sales: values && permissionAtLeast(lv.pos_reports, 'view'),
   }
 }
 
