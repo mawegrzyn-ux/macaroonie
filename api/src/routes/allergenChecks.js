@@ -13,8 +13,9 @@
 //   GET  /                         every dish's check, open first      Recipes view
 //        ?venue_id=                 dishes sold at that venue
 //   GET  /dishes/:dishId           one dish's check, with its evidence Recipes view
-//   POST /dishes/:dishId/accept    { fingerprint, allergens? }: the differences
-//                                  (or those allergens) into the declaration
+//   POST /dishes/:dishId/accept    { fingerprint, allergens }: those of the
+//                                  differences into the declaration (named,
+//                                  always: never "whatever differs now")
 //                                                  Recipes manage + Menus manage
 //   POST /dishes/:dishId/dismiss   { fingerprint, note }: kept as declared, with
 //                                  why; holds until the differences change
@@ -34,13 +35,14 @@ import { permissionAtLeast } from '../config/modules.js'
 import { httpError } from '../middleware/error.js'
 import { makeContext, callApi, staffAuthOf, staffPrincipalOf, ToolError } from '../ai/context.js'
 import { checkRows, loadAllergenCtx, loadRecipeSuggestion } from '../services/allergenCheckSvc.js'
-import { acceptedLevels, checkCounts, fingerprint, ALLERGEN_KEYS, NOTE_MAX, ALLERGEN_LABELS } from '../../../shared/allergenCheck.js'
+import { acceptedLevels, checkCounts, checkState, fingerprint, ALLERGEN_KEYS, NOTE_MAX, ALLERGEN_LABELS } from '../../../shared/allergenCheck.js'
 
 const uuid = z.string().uuid()
 const ListQuery = z.object({ venue_id: uuid.optional() })
 const AcceptBody = z.object({
   fingerprint: z.string().max(2000),
-  allergens: z.array(z.enum(ALLERGEN_KEYS)).min(1).max(14).optional(),
+  // The allergens the person ticked, always named: a list that names none of the differences there now is refused.
+  allergens: z.array(z.enum(ALLERGEN_KEYS)).min(1, 'Tick the differences to accept').max(14),
 }).strict()
 const DismissBody = z.object({
   fingerprint: z.string().max(2000),
@@ -49,13 +51,14 @@ const DismissBody = z.object({
 
 const who = req => req.user?.email ?? req.user?.sub ?? null
 const asHttp = err => (err instanceof ToolError ? httpError(err.status || 422, err.message) : err)
-const ORDER = { open: 0, dismissed: 2, accepted: 3 }
-const rank = r => (!r.check.checkable ? 5 : r.status in ORDER ? ORDER[r.status] : 4)
+// The list's order: open first, then what isn't all known, decided, agreeing, and what can't be checked.
+const ORDER = { open: 0, incomplete: 1, dismissed: 2, accepted: 3, agree: 4, not_checkable: 5 }
+const rank = v => ORDER[checkState(v)]
 
 /** One dish's check as the page and Pepper read it. */
 export function checkView(r, venueNames = {}) {
   const c = r.check
-  return {
+  const view = {
     id: r.id ?? null, dish_id: r.dish_id, dish: r.dish, menu_id: r.menu_id, menu: r.menu, section: r.section,
     venues: (r.venue_ids || []).map(v => venueNames[v]).filter(Boolean),
     status: c.checkable && (r.status || c.differences.length) ? (r.status || 'open') : null,
@@ -68,6 +71,8 @@ export function checkView(r, venueNames = {}) {
     accepted: r.status === 'accepted' ? r.accepted || [] : [],
     reopened: !!r.reopened,
   }
+  // What the list says of it (checkState(): never "agrees" while anything is unknown).
+  return { ...view, state: checkState(view) }
 }
 
 const venueNamesOf = bundle => Object.fromEntries(bundle.venues.map(v => [v.id, v.name]))
@@ -110,9 +115,9 @@ export default async function allergenCheckRoutes(app) {
       const names = venueNamesOf(bundle)
       const list = rows
         .filter(r => !q.venue_id || r.venue_ids.includes(q.venue_id))
-        .sort((a, b) => rank(a) - rank(b) || b.check.differences.length - a.check.differences.length
-          || String(a.menu).localeCompare(String(b.menu)) || String(a.dish).localeCompare(String(b.dish)))
         .map(r => checkView(r, names))
+        .sort((a, b) => rank(a) - rank(b) || b.differences.length - a.differences.length || b.gaps.length - a.gaps.length
+          || String(a.menu).localeCompare(String(b.menu)) || String(a.dish).localeCompare(String(b.dish)))
       return { rows: list, venues: bundle.venues.map(v => ({ id: v.id, name: v.name })) }
     })
     return {
@@ -141,7 +146,7 @@ export default async function allergenCheckRoutes(app) {
     sameAsSeen(row, body.fingerprint)
     const diffs = row.check.checkable ? row.check.differences : []
     if (!diffs.length) throw httpError(409, 'Nothing differs: there is nothing to accept', { code: 'nothing' })
-    const change = acceptedLevels(row.check.declared, diffs, body.allergens || null)
+    const change = acceptedLevels(row.check.declared, diffs, body.allergens)
     if (!Object.keys(change).length) throw httpError(422, 'None of those allergens differs on this dish', { code: 'nothing' })
     // The dish's whole allergens and diet tags from the menu's draft, as the Allergen matrix saves them (rule 13).
     let matrix

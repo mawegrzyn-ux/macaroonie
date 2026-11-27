@@ -48,6 +48,9 @@ export function Section() {
           ['fingerprint(differences) / nextCheck(stored, check)', 'what a decision holds for, and insert / update / delete: no differences delete a row unless accepted; dismissed holds while the fingerprint is the same; accepted with differences again reopens, the decision into history'],
           ['acceptedLevels(declared, differences, keys)', 'the declaration\'s new levels: DIFFERENCE_KINDS[kind].suggest (null takes it off)'],
           ['checksDish(dish)', 'food dishes only: meal deals (their allergens are their dishes\') and goods and services are not checked'],
+          ['checkState(row) / CHECK_STATES / checkCounts(rows)', 'what the list says of a check: its stored status, else agree only when complete, incomplete ("Not all known") while anything is unknown (never a pass), not_checkable with no recipe. The tab, its counts, the list order and Pepper all read it (rule 12)'],
+          ['pickedDifferences(differences, keys)', 'the ticked allergens of the differences there are now: what the tab counts, confirms and sends'],
+          ['gapAt(gap, venueNames)', 'an unknown ingredient\'s gap named at every venue it is unknown at (a scope group, the check\'s merged gaps, the recipe editor\'s venue groups), never the first venue alone'],
         ]}
       />
       <P>
@@ -70,9 +73,9 @@ export function Section() {
         rows={[
           ['PUT /api/inventory/quotes/:id/allergens', 'Purchasing setup manage', '{ known, contains, may_contain, source }, whole (strict); known false clears to unknown'],
           ['POST /api/ai/allergens/read', 'Purchasing setup manage + Pepper', '{ quote_id, files } (photos, PDFs; up to 4, 20 MB): services/allergenReadAi.js readSpec(), askForJson() use allergen_reader, the names as data, no ids; { allergens: { key: { level, words } }, product_name, notes, said }. Nothing saved, the file not kept'],
-          ['GET /api/allergen-checks?venue_id=', 'Recipes view', 'every food dish\'s check, worked out and kept; open first; counts, venues, can_decide'],
+          ['GET /api/allergen-checks?venue_id=', 'Recipes view', 'every food dish\'s check, worked out and kept; each row\'s state (checkState()); open first, then incomplete; counts (open, incomplete, dismissed, accepted, agree, not_checkable), venues, can_decide'],
           ['GET /api/allergen-checks/dishes/:dishId', 'Recipes view', 'one dish\'s check (404 for a dish on none of the group\'s menus)'],
-          ['POST /api/allergen-checks/dishes/:dishId/accept', 'Recipes manage + Menus manage', '{ fingerprint, allergens? }: GET then PUT /api/menus/:id/allergens as the person (callApi()), the dish\'s whole levels (every tag, rule 13); the draft only, no publish; 409 changed when the fingerprint differs'],
+          ['POST /api/allergen-checks/dishes/:dishId/accept', 'Recipes manage + Menus manage', '{ fingerprint, allergens }: the allergens always named (400 without; 422 nothing when none of them differs now, so ticks left from before accept nothing). GET then PUT /api/menus/:id/allergens as the person (callApi()), the dish\'s whole levels (every tag, rule 13); the draft only, no publish; 409 changed when the fingerprint differs'],
           ['POST /api/allergen-checks/dishes/:dishId/dismiss', 'Recipes manage + Menus manage', '{ fingerprint, note } (note required)'],
           ['POST /api/allergen-checks/dishes/:dishId/reopen', 'Recipes manage + Menus manage', 'a dismissal taken back, into history'],
           ['GET /api/allergen-checks/recipes/:recipeId', 'Recipes view', 'a recipe\'s own suggestion at each active venue, venues with the same answer together'],
@@ -90,7 +93,11 @@ export function Section() {
         <Mono>pages/Inventory.jsx</Mono>), <Mono>components/recipes/Allergens.jsx</Mono> (the tab, lazy at{' '}
         <Mono>?tab=allergens&amp;check=</Mono>; <Mono>RecipeSuggestion</Mono>, lazy in the recipe editor). Pepper (
         <Mono>api/src/ai/tools/recipes.js</Mono>): <Mono>allergen_check</Mono> (read, Recipes view) and{' '}
-        <Mono>read_product_allergens</Mono> (consequential, the card pins the reading). Reports: subject{' '}
+        <Mono>read_product_allergens</Mono> (consequential, the card pins the reading; <Mono>modules: [&apos;purchasing_setup&apos;]</Mono>, so
+        the connector, the supplier price record and <Mono>what_can_i_do</Mono> offer it on Purchasing setup manage, what its run
+        checks; its link is <Mono>/inventory?q=</Mono> the item&apos;s name, which the Inventory page searches). In the tab,{' '}
+        <Mono>CheckDetail</Mono> is keyed by the check&apos;s fingerprint, so what is ticked starts again when the check changes.
+        Reports: subject{' '}
         <Mono>recipes.allergen_checks</Mono>, the allergen fields on <Mono>purchasing.prices</Mono>, starters{' '}
         <Mono>dishes_with_allergen_differences</Mono> and <Mono>items_with_unknown_allergens</Mono>. Registry:{' '}
         <Mono>recipes.allergen_checks</Mono>; <Mono>read_product_allergens</Mono> on <Mono>purchasing.prices</Mono>. Tests:{' '}

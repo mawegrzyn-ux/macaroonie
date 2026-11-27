@@ -119,7 +119,7 @@ export async function fill(ctx) {
     if (check?.differences?.length) {
       const dismissed = await step('allergen check dismissed', () => post(`/api/allergen-checks/dishes/${menuDish.id}/dismiss`, { fingerprint: check.fingerprint, note: mark + ' checked by hand' }))
       if (dismissed) await step('allergen check opened again', () => post(`/api/allergen-checks/dishes/${menuDish.id}/reopen`, {}))
-      const accepted = await step('allergen check accepted', () => post(`/api/allergen-checks/dishes/${menuDish.id}/accept`, { fingerprint: check.fingerprint }))
+      const accepted = await step('allergen check accepted', () => post(`/api/allergen-checks/dishes/${menuDish.id}/accept`, { fingerprint: check.fingerprint, allergens: check.differences.map(d => d.allergen) }))
       const live = accepted && (await step('menu publish status after allergens', () => get(`/api/menus/${menu.id}/publish`)))?.live
       if (live?.release_id) await step('discard accepted allergens', () => post(`/api/menus/${menu.id}/releases/${live.release_id}/restore`, {}))
     }

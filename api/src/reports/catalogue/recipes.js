@@ -469,7 +469,8 @@ export const subjects = [
     from: 'allergen_checks',
     name: 'dish',
     open: { page: '/recipes?tab=allergens&check=:id', module: 'recipes', id: 'dish_id' },
-    skip: ['menu_id', 'fingerprint', 'suggested', 'declared', 'scopes', 'history'],
+    // updated_at: any save of the row (worked out again, decided); Last worked out and Decided at say when.
+    skip: ['menu_id', 'fingerprint', 'suggested', 'declared', 'scopes', 'history', 'updated_at'],
     fields: {
       dish: text('dish', { label: 'Dish', synonyms: ['menu item'] }),
       menu: text('menu', { label: 'Menu' }),

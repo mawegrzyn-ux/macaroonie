@@ -10,7 +10,9 @@
 // supplier's product), the ingredients whose allergens are unknown, and
 // Accept (the dish's allergens changed in the menu's draft through the
 // Allergen matrix's own save; publishing stays on the Menus page) or Dismiss
-// with a note (it holds until the differences change). Filter by venue.
+// with a note (it holds until the differences change). Filter by venue. A
+// dish whose known ingredients agree while some aren't known is "Not all
+// known", never "Agrees" (checkState() in shared/allergenCheck.js).
 // The rule is shared/allergenCheck.js; API: routes/allergenChecks.js.
 // RecipeSuggestion is the recipe editor's card (its own suggestion per venue).
 
@@ -21,24 +23,30 @@ import { Loader2, Search, ShieldAlert, ChevronRight, ArrowLeft, Check, X, Undo2,
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { inputCls, ErrorNote, Field } from '@/components/staff/shared'
+import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { Card, btn } from '@/components/purchasing/shared'
 import { STANDARD_ALLERGENS } from '@shared/menuTags.js'
-import { evidenceWords, CHECK_STATUSES, DIFFERENCE_KINDS, NOTE_MAX } from '@shared/allergenCheck.js'
+import { evidenceWords, checkState, pickedDifferences, CHECK_STATES, DIFFERENCE_KINDS, NOTE_MAX } from '@shared/allergenCheck.js'
 
 const LABEL = Object.fromEntries(STANDARD_ALLERGENS.map(a => [a.key, a.label]))
 const STATUS_LOOK = {
   open: 'bg-amber-50 text-amber-900 border-amber-200',
+  incomplete: 'bg-background text-amber-900 border-amber-300 border-dashed',
   dismissed: 'bg-muted text-muted-foreground border-border',
   accepted: 'bg-emerald-50 text-emerald-900 border-emerald-200',
   agree: 'bg-emerald-50 text-emerald-900 border-emerald-200',
   not_checkable: 'bg-muted text-muted-foreground border-border',
 }
-const STATUS_WORDS = { ...CHECK_STATUSES, agree: 'Agrees', not_checkable: 'Can\'t check yet' }
+const STATUS_WORDS = CHECK_STATES
 const FILTERS = [
-  { value: 'open', label: 'Open' }, { value: 'dismissed', label: 'Dismissed' }, { value: 'accepted', label: 'Accepted' },
-  { value: 'agree', label: 'Agrees' }, { value: 'not_checkable', label: 'Can\'t check yet' }, { value: 'all', label: 'All' },
+  ...['open', 'incomplete', 'dismissed', 'accepted', 'agree', 'not_checkable'].map(value => ({ value, label: CHECK_STATES[value] })),
+  { value: 'all', label: 'All' },
 ]
-const stateOf = r => (!r.checkable ? 'not_checkable' : r.status || 'agree')
+const stateOf = checkState
+// A scope group's suggestion with no allergens: none only when everything is known.
+const groupEmpty = g => (!g.recipe ? 'No recipe linked here' : g.complete ? 'None of the 14' : 'Not known yet')
+const thingsWords = n => (n === 1 ? '1 thing' : n + ' things')
+const linkCls = 'inline-flex items-center min-h-[48px] underline touch-manipulation'
 const when = at => (at ? new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '')
 
 export const LIABILITY = 'Your business is responsible for what each dish declares. This check is only as good as the supplier data under it: it suggests, and a person decides. Nothing here changes a dish by itself.'
@@ -48,7 +56,7 @@ function StatusBadge({ state }) {
 }
 
 /** Allergens as chips: contains filled, may contain outlined, can be removed with its asterisk. */
-export function AllergenChips({ levels, empty = 'None of the 14', testid }) {
+export function AllergenChips({ levels, empty, testid }) {
   const keys = STANDARD_ALLERGENS.map(a => a.key).filter(k => levels?.[k])
   if (!keys.length) return <span className="text-xs text-muted-foreground" data-testid={testid}>{empty}</span>
   return (
@@ -81,9 +89,10 @@ export default function AllergenChecks({ canManage, openId, onOpen, onClose, sta
   if (error) return <ErrorNote error={error} />
   const open = openId ? data.rows.find(r => r.dish_id === openId) : null
   if (openId) {
+    // Keyed by what differs: when the check changes (a partial accept, a refetch), what was ticked starts again from it.
     return open
-      ? <CheckDetail row={open} venueId={venueId} canDecide={canManage && data.can_decide} onClose={onClose} />
-      : <Card><p className="text-sm">That dish isn&apos;t on one of your menus as food any more. <button type="button" className="underline" onClick={onClose}>Back to the list</button></p></Card>
+      ? <CheckDetail key={open.dish_id + '|' + open.fingerprint} row={open} venueId={venueId} canManage={canManage} canDecide={canManage && data.can_decide} onClose={onClose} />
+      : <Card><p className="text-sm">That dish isn&apos;t on one of your menus as food any more. <button type="button" className={linkCls} onClick={onClose}>Back to the list</button></p></Card>
   }
   const counts = data.counts
   return (
@@ -119,7 +128,10 @@ export default function AllergenChecks({ canManage, openId, onOpen, onClose, sta
       <Card bodyClass="p-0">
         {!rows.length ? (
           <p className="p-4 text-sm text-muted-foreground" data-testid="allergen-none">
-            {filter === 'open' ? 'Nothing open: every dish that can be checked agrees with its recipes, or has been decided.' : 'No dishes here.'}
+            {filter !== 'open' ? 'No dishes here.'
+              : counts.incomplete ? 'Nothing open: no dish\'s known ingredients differ from what it declares. ' + (counts.incomplete === 1 ? '1 dish has' : counts.incomplete + ' dishes have')
+                + ' ingredients whose allergens aren\'t known yet, so it can\'t be confirmed: see Not all known.'
+                : 'Nothing open: every dish that can be checked agrees with its recipes, or has been decided.'}
           </p>
         ) : (
           <ul className="divide-y">
@@ -140,7 +152,7 @@ export default function AllergenChecks({ canManage, openId, onOpen, onClose, sta
                       </span>
                     )}
                     {!r.checkable && <span className="block text-xs text-muted-foreground">{r.gaps[0]?.text || 'No recipe linked'}</span>}
-                    {r.checkable && r.gaps.length > 0 && <span className="block text-xs text-amber-800">{r.gaps.length === 1 ? '1 thing' : r.gaps.length + ' things'} not known yet</span>}
+                    {r.checkable && r.gaps.length > 0 && <span className="block text-xs text-amber-800">{thingsWords(r.gaps.length)} not known yet</span>}
                   </span>
                   <ChevronRight className="w-4 h-4 mt-1 text-muted-foreground shrink-0" />
                 </button>
@@ -153,10 +165,12 @@ export default function AllergenChecks({ canManage, openId, onOpen, onClose, sta
   )
 }
 
-function CheckDetail({ row, venueId, canDecide, onClose }) {
+function CheckDetail({ row, venueId, canManage, canDecide, onClose }) {
   const api = useApi()
   const qc = useQueryClient()
   const [picked, setPicked] = useState(() => new Set(row.differences.map(d => d.allergen)))
+  // What is ticked, of the differences there are now: the count, the confirm and what is sent all read this.
+  const chosen = pickedDifferences(row.differences, picked)
   const [confirming, setConfirming] = useState(false)
   const [dismissing, setDismissing] = useState(false)
   const [note, setNote] = useState('')
@@ -167,8 +181,9 @@ function CheckDetail({ row, venueId, canDecide, onClose }) {
     setConfirming(false); setDismissing(false); setNote('')
   }
   const accept = useMutation({
+    // Always the ticked allergens by name, never "whatever differs now".
     mutationFn: () => api.post(`/allergen-checks/dishes/${row.dish_id}/accept`, {
-      fingerprint: row.fingerprint, ...(picked.size < row.differences.length ? { allergens: [...picked] } : {}),
+      fingerprint: row.fingerprint, allergens: chosen.map(d => d.allergen),
     }),
     onSuccess: done,
   })
@@ -200,7 +215,7 @@ function CheckDetail({ row, venueId, canDecide, onClose }) {
             : !row.published && (
               <p className="text-xs text-amber-800" data-testid="allergen-not-live">
                 This is the menu&apos;s draft. Guests are still told: <AllergenChips levels={row.live_declared} empty="none" />. Publish the menu&apos;s
-                allergens on the <Link className="underline" to="/menus/allergens">Allergen matrix</Link> to put it live.
+                allergens on the <Link className={linkCls} to="/menus/allergens">Allergen matrix</Link> to put it live.
               </p>
             )}
         </div>
@@ -210,14 +225,25 @@ function CheckDetail({ row, venueId, canDecide, onClose }) {
         {!row.checkable ? (
           <p className="text-sm text-muted-foreground">{row.gaps[0]?.text || 'No recipe linked'}. {row.gaps[0]?.fix}</p>
         ) : (
-          <ul className="space-y-3" data-testid="allergen-groups">
-            {groups.map((g, i) => (
-              <li key={i} className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">{g.where.join(', ')}{g.recipe ? ': ' + g.recipe.name : ''}</p>
-                <AllergenChips levels={g.levels} />
-              </li>
-            ))}
-          </ul>
+          <div className="space-y-3">
+            <ul className="space-y-3" data-testid="allergen-groups">
+              {groups.map((g, i) => (
+                <li key={i} className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">{g.where.join(', ')}{g.recipe ? ': ' + g.recipe.name : ''}</p>
+                  <AllergenChips levels={g.levels} empty={groupEmpty(g)} />
+                  {g.recipe && !g.complete && Object.keys(g.levels || {}).length > 0 && (
+                    <p className="text-xs text-amber-800">So far: {thingsWords(g.gaps.length)} not known yet.</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+            {state === 'incomplete' && (
+              <p className="text-sm text-amber-900" data-testid="allergen-incomplete">
+                Nothing differs among the ingredients whose allergens are known, but {thingsWords(row.gaps.length)} aren&apos;t known yet,
+                so the declaration can&apos;t be confirmed. Put them in (below), and the check is worked out again.
+              </p>
+            )}
+          </div>
         )}
       </Card>
 
@@ -257,7 +283,7 @@ function CheckDetail({ row, venueId, canDecide, onClose }) {
               <li key={i}>
                 <p className="flex gap-1.5"><ShieldAlert className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />{g.text}</p>
                 <p className="text-xs text-muted-foreground pl-6">
-                  {g.fix}{g.item_id && ['unknown', 'no_product'].includes(g.reason) ? <> <Link className="underline" to={'/inventory?item=' + g.item_id}>Open {g.item}</Link></> : null}
+                  {g.fix}{g.item_id && ['unknown', 'no_product'].includes(g.reason) ? <> <Link className={linkCls} to={'/inventory?item=' + g.item_id}>Open {g.item}</Link></> : null}
                 </p>
               </li>
             ))}
@@ -268,12 +294,20 @@ function CheckDetail({ row, venueId, canDecide, onClose }) {
         </Card>
       )}
 
+      {/* Why there is no Decide card: View only, or Recipes manage without Menus manage. */}
+      {!canDecide && (state === 'open' || state === 'dismissed') && (canManage ? (
+        <p className="rounded-xl border border-sky-200 bg-sky-50 text-sky-900 px-4 py-3 text-sm" data-testid="allergen-cant-decide">
+          Accepting or dismissing changes what the dish declares on its menu, so it needs Menus manage as well as Recipes
+          manage. Ask someone who has both.
+        </p>
+      ) : <ReadOnlyNotice what="this check" />)}
+
       {canDecide && state === 'open' && (
         <Card title="Decide">
           {!confirming && !dismissing && (
             <div className="flex flex-wrap gap-2">
-              <button type="button" className={cn(btn.primary, 'h-12')} disabled={!picked.size} onClick={() => setConfirming(true)} data-testid="allergen-accept">
-                <Check className="w-4 h-4" />Accept {picked.size === row.differences.length ? 'all' : picked.size}
+              <button type="button" className={cn(btn.primary, 'h-12')} disabled={!chosen.length} onClick={() => setConfirming(true)} data-testid="allergen-accept">
+                <Check className="w-4 h-4" />Accept {chosen.length === row.differences.length ? 'all' : chosen.length}
               </button>
               <button type="button" className={cn(btn.outline, 'h-12')} onClick={() => setDismissing(true)} data-testid="allergen-dismiss">
                 <X className="w-4 h-4" />Dismiss
@@ -283,11 +317,11 @@ function CheckDetail({ row, venueId, canDecide, onClose }) {
           {confirming && (
             <div className="space-y-3" data-testid="allergen-accept-confirm">
               <p className="text-sm">
-                Change what {row.dish} declares on {row.menu}&apos;s draft: {row.differences.filter(d => picked.has(d.allergen)).map(d => d.label).join(', ')}?
+                Change what {row.dish} declares on {row.menu}&apos;s draft: {chosen.map(d => d.label).join(', ')}?
                 Guests see it once the menu&apos;s allergens are published.
               </p>
               <div className="flex flex-wrap gap-2">
-                <button type="button" className={cn(btn.primary, 'h-12')} disabled={accept.isPending} onClick={() => accept.mutate()} data-testid="allergen-accept-yes">
+                <button type="button" className={cn(btn.primary, 'h-12')} disabled={accept.isPending || !chosen.length} onClick={() => accept.mutate()} data-testid="allergen-accept-yes">
                   {accept.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Yes, change the draft
                 </button>
                 <button type="button" className={cn(btn.outline, 'h-12')} onClick={() => setConfirming(false)}>Cancel</button>
@@ -352,7 +386,7 @@ export function RecipeSuggestion({ recipeId, stamp = null }) {
           {data.groups.map((g, i) => (
             <div key={i} className="space-y-1">
               {data.groups.length > 1 && <p className="text-xs font-medium text-muted-foreground">{g.venues.join(', ')}</p>}
-              {g.items ? <AllergenChips levels={g.levels} /> : <span className="text-xs text-muted-foreground">Nothing in it yet.</span>}
+              {g.items ? <AllergenChips levels={g.levels} empty={g.complete ? 'None of the 14' : 'Not known yet'} /> : <span className="text-xs text-muted-foreground">Nothing in it yet.</span>}
               {g.gaps.length > 0 && (
                 <ul className="text-xs text-amber-800 space-y-0.5">
                   {g.gaps.slice(0, 5).map((x, j) => <li key={j}>{x.text}</li>)}
@@ -363,7 +397,7 @@ export function RecipeSuggestion({ recipeId, stamp = null }) {
           ))}
           <p className="text-xs text-muted-foreground">
             From each ingredient&apos;s supplier product as each venue orders it. A suggestion only: what a dish declares is set on its menu,
-            and the <Link className="underline" to="/recipes?tab=allergens">Allergens tab</Link> shows where they differ.
+            and the <Link className={linkCls} to="/recipes?tab=allergens">Allergens tab</Link> shows where they differ.
           </p>
         </div>
       )}

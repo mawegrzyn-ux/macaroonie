@@ -75,7 +75,7 @@ import { pounds, perWord, perBaseText, BASIS_KEYS, COVERAGE, BANDS, sameScope, t
 import { moveWords, dayWords } from '../../../../shared/priceCreep.js'
 import { matchIndex, matchThing, normName } from '../../../../shared/itemMatch.js'
 import { averageText } from '../../../../shared/engineering.js'
-import { ALLERGEN_KEYS, ALLERGEN_LABELS, evidenceWords } from '../../../../shared/allergenCheck.js'
+import { ALLERGEN_KEYS, ALLERGEN_LABELS, evidenceWords, checkState } from '../../../../shared/allergenCheck.js'
 import { ASSISTANT_NAME } from '../../../../shared/assistant.js'
 
 const MAX_LIST = 40
@@ -1091,7 +1091,23 @@ function levelsText(levels = {}) {
   if (!has.length && !may.length) return 'none of the 14 allergens'
   return [has.length ? 'contains ' + has.join(', ') : null, may.length ? 'may contain ' + may.join(', ') : null].filter(Boolean).join('; ')
 }
-const STATUS_WORDS = { open: 'open: nobody has decided yet', accepted: 'accepted into the declaration', dismissed: 'dismissed: kept as declared' }
+/**
+ * A scope group's suggestion in words. Unknown is never "none": a group with
+ * no recipe, or with nothing known, is "not known"; one with gaps says what
+ * is known so far.
+ */
+function suggestionText(g) {
+  if (!g.recipe) return 'not known: no recipe linked there'
+  if (g.complete) return levelsText(g.levels)
+  const n = (g.gaps || []).length + (g.more_gaps || 0)
+  const unknown = n === 1 ? '1 thing not known yet' : n + ' things not known yet'
+  return Object.keys(g.levels || {}).length ? levelsText(g.levels) + ' so far (' + unknown + ')' : 'not known yet (' + unknown + ')'
+}
+const STATUS_WORDS = {
+  open: 'open: nobody has decided yet', accepted: 'accepted into the declaration', dismissed: 'dismissed: kept as declared',
+  incomplete: 'not all known: nothing differs among the ingredients whose allergens are known, but some aren\'t known yet, so the declaration can\'t be confirmed',
+  agree: 'agrees: every ingredient\'s allergens are known and match the declaration',
+}
 const LIABILITY = 'The declaration on the menu is what guests are told, and the food business is responsible for it: this is a check, only as good as the supplier data under it. Accepting or dismissing is the person\'s step on the Recipes page, Allergens tab.'
 
 /** A supplier product of an item by name (and its supplier's), through the Inventory page's routes. */
@@ -1174,13 +1190,17 @@ export const allergenTools = [
         declared: levelsText(r.declared) + (r.live_declared == null ? ' (the menu isn\'t live yet)' : r.published ? '' : ' in the menu\'s draft; what guests are served is ' + levelsText(r.live_declared) + ' until it is published'),
         ...(r.checkable ? {
           suggested: groups.length > 1
-            ? groups.map(g => g.where.join(', ') + ': ' + levelsText(g.levels))
-            : levelsText(groups[0]?.levels || r.suggested),
+            ? groups.map(g => g.where.join(', ') + ': ' + suggestionText(g))
+            : suggestionText(groups[0] || { recipe: true, levels: r.suggested, complete: r.complete, gaps: r.gaps }),
         } : { suggested: 'not known: ' + (r.gaps[0]?.text || 'no recipe linked') }),
-        differences: r.differences.length ? r.differences.map(d => d.text + (d.where?.length && d.kind !== 'not_found' ? ' (' + d.where.join(', ') + ')' : '')) : [r.checkable ? 'None: the recipe and the declaration agree.' : 'Can\'t be checked yet.'],
+        differences: r.differences.length
+          ? r.differences.map(d => d.text + (d.where?.length && d.kind !== 'not_found' ? ' (' + d.where.join(', ') + ')' : ''))
+          : [!r.checkable ? 'Can\'t be checked yet.'
+            : r.complete ? 'None: the recipe and the declaration agree.'
+              : 'None found so far, but not everything is known: the declaration can\'t be confirmed until the unknown ingredients\' allergens are put in.'],
         ...(evidence.length ? { evidence } : {}),
         ...(r.gaps.length ? { unknown: r.gaps.slice(0, 10).map(g => g.text + '. ' + g.fix), complete: false } : { complete: r.checkable }),
-        ...(r.status ? { status: STATUS_WORDS[r.status] + (r.decided_by ? ' (' + r.decided_by + (r.note ? ': "' + r.note + '"' : '') + ')' : '') } : {}),
+        ...(STATUS_WORDS[checkState(r)] ? { status: STATUS_WORDS[checkState(r)] + (r.status && r.decided_by ? ' (' + r.decided_by + (r.note ? ': "' + r.note + '"' : '') + ')' : '') } : {}),
         note: LIABILITY,
         page: '/recipes?tab=allergens&q=' + encodeURIComponent(r.dish),
       }
@@ -1195,6 +1215,8 @@ export const allergenChangeTools = [
     title: 'Read a product\'s allergens',
     activity: 'Read a product\'s allergens off its spec sheet',
     section: 'recipes',
+    // It saves on a supplier price: Purchasing setup manage, which its run checks (never its area's Recipes).
+    modules: ['purchasing_setup'],
     description:
       'Reads a supplier product\'s allergens off its spec sheet or label attached in this chat (a PDF or photos): which ' +
       'of the 14 allergens it contains and may contain, with the words read. The card shows the reading; confirming saves ' +
@@ -1239,7 +1261,8 @@ export const allergenChangeTools = [
           message: 'Saved the allergens of ' + quote.supplier_name + '\'s ' + (quote.product_name || item.name) + ': ' + levelsText(Object.fromEntries([
             ...input.reading.may_contain.map(k => [k, 'may_contain']), ...input.reading.contains.map(k => [k, 'contains']),
           ])) + '. The Recipes page\'s Allergens tab shows any dish whose declaration differs.',
-          page: '/inventory?item=' + encodeURIComponent(item.name),
+          // The Inventory page searched by the item's name (?q=): never an id (rule 19).
+          page: '/inventory?q=' + encodeURIComponent(item.name),
         }
       })
     },

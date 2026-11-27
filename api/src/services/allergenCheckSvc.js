@@ -25,7 +25,7 @@
 import { loadDishCosting, menusFor } from './dishCostSvc.js'
 import { dishMap } from '../../../shared/costing.js'
 import {
-  dishScopes, scopeSuggestion, declaredOf, dishCheck, fingerprint, nextCheck, recipeSuggestion, checksDish, ALLERGEN_KEYS,
+  dishScopes, scopeSuggestion, declaredOf, dishCheck, fingerprint, nextCheck, recipeSuggestion, checksDish, gapAt, ALLERGEN_KEYS,
 } from '../../../shared/allergenCheck.js'
 
 const GAPS_KEPT = 30
@@ -176,5 +176,6 @@ export async function loadRecipeSuggestion(tx, tenantId, recipeId, bundle = null
     if (!groups.has(sig)) groups.set(sig, { ...s, venues: [] })
     groups.get(sig).venues.push(v.name)
   }
-  return { recipe_id: recipe.id, name: recipe.name, groups: [...groups.values()].map(({ venue_id, ...g }) => g) }
+  // A group's gaps are its first venue's: an unknown ingredient is named at every venue of the group.
+  return { recipe_id: recipe.id, name: recipe.name, groups: [...groups.values()].map(({ venue_id, ...g }) => ({ ...g, gaps: g.gaps.map(x => gapAt(x, g.venues)) })) }
 }

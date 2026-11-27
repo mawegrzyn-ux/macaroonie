@@ -16,7 +16,8 @@
 // Since migration 316 (inventory phase 8a): each supplier price's allergens
 // (contains, may contain, checked when, from where), shown on its row and
 // edited in QuoteAllergensModal (allergens.jsx, lazy), which Pepper can fill
-// from the product's spec sheet.
+// from the product's spec sheet. ?q= starts the search with those words
+// (Pepper's link to an item: by its name, never its id).
 // API: routes/inventory.js.
 
 import { lazy, Suspense, useMemo, useState } from 'react'
@@ -42,29 +43,22 @@ import { CustomFieldsCard, CustomFieldInputs, newRowCustom, useCustomFields } fr
 import { UnitsCard } from '@/components/purchasing/units'
 import { canScan, scanBarcode } from '@/lib/officeApp'
 import { barcodeProblem } from '@shared/catalogue.js'
-import { STANDARD_ALLERGENS } from '@shared/menuTags.js'
+import { quoteAllergens, productWords } from '@shared/allergenCheck.js'
 
 const QuoteAllergensModal = lazy(() => import('@/components/purchasing/allergens').then(m => ({ default: m.QuoteAllergensModal })))
-const ALLERGEN_LABEL = Object.fromEntries(STANDARD_ALLERGENS.map(a => [a.key, a.label]))
-
-/** A supplier price's allergens in a line: "Contains gluten, soya · may contain sesame", "None of the 14", or not known. */
+/** A supplier price's allergens in a line, in the allergen check's own words (productWords()): unknown until checked. */
 function QuoteAllergenLine({ q }) {
-  if (!q.allergens_checked_at) return <p className="text-xs text-amber-800" data-testid="quote-allergens-unknown">Allergens not known yet</p>
-  const words = list => list.map(k => (ALLERGEN_LABEL[k] || k).toLowerCase()).join(', ')
-  const has = q.allergens_contains || [], may = (q.allergens_may_contain || []).filter(k => !has.includes(k))
-  return (
-    <p className="text-xs" data-testid="quote-allergens-line">
-      {!has.length && !may.length ? 'None of the 14 allergens' : [has.length && 'Contains ' + words(has), may.length && 'may contain ' + words(may)].filter(Boolean).join(' · ')}
-    </p>
-  )
+  const a = quoteAllergens(q)
+  if (!a.known) return <p className="text-xs text-amber-800" data-testid="quote-allergens-unknown">Allergens not known yet</p>
+  return <p className="text-xs" data-testid="quote-allergens-line">{productWords(a)}</p>
 }
 
-const PACK_NAMES =['Case', 'Box', 'Bag', 'Tray', 'Tub', 'Bottle', 'Tin', 'Jar', 'Pack', 'Crate', 'Sack', 'Each']
+const PACK_NAMES = ['Case', 'Box', 'Bag', 'Tray', 'Tub', 'Bottle', 'Tin', 'Jar', 'Pack', 'Crate', 'Sack', 'Each']
 
 export default function Inventory() {
   const api = useApi()
   const [params, setParams] = useSearchParams()
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(() => params.get('q') || '')
   const [categoryId, setCategoryId] = useState('')
   const [supplierId, setSupplierId] = useState('')
   const [status, setStatus] = useState('active')

@@ -39,7 +39,7 @@ export function Section() {
         Pepper answers each of the 14 with contains, may contain, free from or not said, with the words it read. Tap{' '}
         <strong>Use this reading</strong> to put it in the form, check it against the sheet (anything the sheet
         didn&apos;t mention is set to No: look at those), then Save. Nothing is saved until you do, and the file isn&apos;t
-        kept. Putting allergens in needs Purchasing setup manage.
+        kept. Putting allergens in needs Purchasing setup manage, and Pepper offers to read a sheet only to people who have it.
       </P>
       <H3>The Allergens tab</H3>
       <P>
@@ -48,6 +48,22 @@ export function Section() {
         venue with the supplier product that venue orders (its own choice, else the group&apos;s, else the cheapest), with
         the recipe the dish uses there, so a venue on another supplier, or a takeaway version, can suggest something else;
         the check shows each where they differ.
+      </P>
+      <DataTable
+        head={['A dish shows', 'When']}
+        rows={[
+          ['Open', 'Its recipes and its declaration differ, and nobody has decided yet'],
+          ['Not all known', 'Nothing differs among the ingredients whose allergens are known, but some aren\'t known yet. This is never a pass: put the missing allergens in and it is worked out again'],
+          ['Dismissed', 'Someone kept the declaration as it is, with a note'],
+          ['Accepted', 'Someone changed the declaration to match'],
+          ['Agrees', 'Every ingredient\'s allergens are known, and they match what the dish declares'],
+          ['Can\'t check yet', 'The dish has no recipe linked'],
+        ]}
+      />
+      <P>
+        Until your supplier products have their allergens put in, most dishes show <strong>Not all known</strong>: a dish
+        with nothing known is never shown as agreeing, and its suggestion reads &quot;Not known yet&quot;, not &quot;none of
+        the 14&quot;.
       </P>
       <DataTable
         head={['It says', 'Which means', 'Accepting']}
@@ -73,7 +89,9 @@ export function Section() {
         <strong>Yes, change the draft</strong>. The dish&apos;s allergens change in the menu&apos;s <strong>draft</strong>,
         exactly as the Allergen matrix would save them; guests still see the old declaration until you publish the
         menu&apos;s allergens (Menus, Allergen matrix, Publish). The check shows &quot;draft not live yet&quot; until then.
-        Differences you didn&apos;t tick stay open.
+        Differences you didn&apos;t tick stay open: the check shows them again on their own, and accepting them is a new
+        Accept with its own Yes. Only what you ticked, of what differs when you tap Yes, is accepted. Without Menus manage
+        the check says so in place of Accept and Dismiss.
       </P>
       <P>
         If the declaration is right as it is, tap <strong>Dismiss</strong> and say why (&quot;celery salt is in the
@@ -93,13 +111,16 @@ export function Section() {
         Ask Pepper &quot;does the pad thai&apos;s declaration match its recipe?&quot;: it gives the declaration, the
         suggestion, what differs with the evidence, and what is unknown. It never answers a guest&apos;s allergy question
         from this: &quot;which dishes are free from sesame?&quot; is still answered from what the live menu declares.
-        Attach a product&apos;s spec sheet in the chat and ask Pepper to read its allergens: it shows a card with what it
-        read, and saves it on the supplier price when you confirm.
+        While any ingredient is unknown it says so (&quot;not all known&quot;), never that the dish agrees. Attach a
+        product&apos;s spec sheet in the chat and ask Pepper to read its allergens (Purchasing setup manage): it shows a card
+        with what it read, saves it on the supplier price when you confirm, and links to the Inventory page searched for
+        the item.
       </P>
       <P>
         In Reports, the starters <strong>Dishes with allergen differences</strong> (open checks, as last worked out on the
-        tab) and <strong>Items with unknown allergens</strong> (supplier products of items in recipes nobody has put
-        allergens in for), and the subject <strong>Allergen checks</strong>. Supplier prices also carry each product&apos;s
+        tab) and <strong>Items with unknown allergens</strong> (supplier products in use, of items in recipes, nobody has
+        put allergens in for; an item with no supplier price at all shows on the Allergens tab, not here), and the subject{' '}
+        <strong>Allergen checks</strong>. Supplier prices also carry each product&apos;s
         allergens.
       </P>
     </section>

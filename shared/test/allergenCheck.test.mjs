@@ -11,7 +11,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   quoteAllergens, allergenListProblem, productWords, dishScopes, dishItems, scopeSuggestion, recipeSuggestion,
-  declaredOf, dishCheck, fingerprint, nextCheck, acceptedLevels, evidenceWords, checksDish, checkCounts, ALLERGEN_KEYS,
+  declaredOf, dishCheck, fingerprint, nextCheck, acceptedLevels, evidenceWords, checksDish, checkCounts, checkState, pickedDifferences,
+  ALLERGEN_KEYS,
 } from '../allergenCheck.js'
 import { usageOf, dishMap } from '../costing.js'
 import { STANDARD_ALLERGENS } from '../menuTags.js'
@@ -253,8 +254,73 @@ test('a decision holds while the differences are the same; accepting gives the n
   assert.deepEqual(acceptedLevels({}, diffs, ['soya']), { soya: 'contains' }, 'only the allergens named')
   assert.deepEqual(acceptedLevels({ sesame: 'contains' }, [{ allergen: 'sesame', kind: 'stronger' }, { allergen: 'milk', kind: 'missing_may' }, { allergen: 'gluten', kind: 'weaker' }]),
     { sesame: 'may_contain', milk: 'may_contain', gluten: 'contains' })
-  assert.deepEqual(checkCounts([{ checkable: true, status: 'open' }, { checkable: true, status: null }, { checkable: false }, { checkable: true, status: 'dismissed' }]),
-    { open: 1, accepted: 0, dismissed: 1, agree: 1, not_checkable: 1 })
+  assert.deepEqual(checkCounts([
+    { checkable: true, status: 'open' }, { checkable: true, complete: true, status: null }, { checkable: true, complete: false, status: null },
+    { checkable: false }, { checkable: true, status: 'dismissed' },
+  ]), { open: 1, incomplete: 1, accepted: 0, dismissed: 1, agree: 1, not_checkable: 1 })
+})
+
+test('unknown is never a pass: a dish whose products are all unknown is "not all known", never "agrees"', () => {
+  // The starting state of every group: no product has allergens put in yet.
+  const unknown = new Map([...baseQuotes()].map(([k, list]) => [k, list.map(q => ({ ...q, allergens_checked_at: null, allergens_contains: [], allergens_may_contain: [] }))]))
+  const c = ctx({ quotes: unknown })
+  for (const [dishId, declared] of [['d-plain', {}], ['d-padthai', { gluten: 'contains' }]]) {
+    const dish = c.dishes.get(dishId)
+    const results = dishScopes(dish, c, [SOHO, LEEDS]).map(s => scopeSuggestion(dish.id, s, c))
+    const check = dishCheck(dish, results, declared, names)
+    assert.equal(check.checkable, true, dishId)
+    assert.equal(check.complete, false)
+    assert.deepEqual(check.differences, [], 'nothing known differs (a declared allergen isn\'t "not found" while products are unknown)')
+    assert.ok(check.gaps.length > 0)
+    assert.ok(check.groups.every(g => !g.complete && !Object.keys(g.levels).length))
+    // No row is stored (nothing differs), and the list says "not all known", never "agrees".
+    assert.equal(nextCheck(null, check).op, 'none')
+    const row = { checkable: check.checkable, complete: check.complete, status: null }
+    assert.equal(checkState(row), 'incomplete')
+    assert.deepEqual(checkCounts([row]), { open: 0, incomplete: 1, accepted: 0, dismissed: 0, agree: 0, not_checkable: 0 })
+  }
+  // Every product known and nothing differs: agrees.
+  const q = baseQuotes()
+  q.set('tamarind', [quote('q-tamarind', 'tamarind', 'Brakes', {})])
+  const known = ctx({ quotes: q, links: [link('l3', 'd-plain', 'padthai')] })
+  const dish = known.dishes.get('d-plain')
+  const full = dishCheck(dish, dishScopes(dish, known, [SOHO]).map(s => scopeSuggestion(dish.id, s, known)),
+    { gluten: 'contains', eggs: 'contains', fish: 'contains', molluscs: 'contains', soya: 'contains' }, names)
+  assert.deepEqual([full.complete, full.differences.length], [true, 0])
+  assert.equal(checkState({ checkable: true, complete: full.complete, status: null }), 'agree')
+  assert.equal(checkState({ checkable: false }), 'not_checkable')
+  assert.equal(checkState({ checkable: true, complete: false, status: 'dismissed' }), 'dismissed', 'a decision is kept')
+})
+
+test('what is accepted is only what is ticked, of the differences there are now', () => {
+  const diffs = ['soya', 'fish', 'celery'].map(allergen => ({ allergen, kind: 'missing', suggested: 'contains', declared: null }))
+  assert.deepEqual(pickedDifferences(diffs, new Set(['soya', 'fish'])).map(d => d.allergen), ['soya', 'fish'])
+  // After soya and fish were accepted, celery (left unticked) is all that differs: the old ticks pick nothing.
+  const after = diffs.slice(2)
+  assert.deepEqual(pickedDifferences(after, new Set(['soya', 'fish'])), [])
+  assert.deepEqual(acceptedLevels({}, after, pickedDifferences(after, ['soya', 'fish']).map(d => d.allergen)), {}, 'nothing accepted')
+  // A difference swapped in by a refetch isn't ticked by a tick on the one it replaced.
+  assert.deepEqual(pickedDifferences([diffs[0], { ...diffs[2], allergen: 'mustard' }], ['soya', 'celery']).map(d => d.allergen), ['soya'])
+})
+
+test('a gap shared by several venues is named at each; a prep recipe linked as the dish is one gap, not two', () => {
+  const c = ctx()
+  const dish = c.dishes.get('d-plain')
+  // Soho and Leeds differ (their oyster sauces), and the tamarind is unknown at both: one gap, at both.
+  const check = dishCheck(dish, dishScopes(dish, c, [SOHO, LEEDS]).map(s => scopeSuggestion(dish.id, s, c)), {}, names)
+  const tam = check.gaps.filter(g => g.item_id === 'tamarind')
+  assert.equal(tam.length, 1)
+  assert.equal(tam[0].text, 'Allergens unknown for Tamarind at Soho, Leeds (Brakes: Tamarind)')
+  assert.deepEqual(tam[0].where.sort(), ['Leeds', 'Soho'])
+  // Soho and Leeds order the same products: one scope group, its gap named at both, not the first venue alone.
+  const same = ctx({ preferred: new Map([['oyster', { default: 'q-oyster-brakes', venues: {} }]]) })
+  const one = dishCheck(dish, dishScopes(dish, same, [SOHO, LEEDS]).map(s => scopeSuggestion(dish.id, s, same)), {}, names)
+  assert.equal(one.groups.length, 1)
+  assert.equal(one.groups[0].gaps[0].text, 'Allergens unknown for Tamarind at Soho, Leeds (Brakes: Tamarind)')
+  assert.equal(one.gaps[0].text, 'Allergens unknown for Tamarind at Soho, Leeds (Brakes: Tamarind)')
+  // A dish linked to a prep recipe: the not_dish gap only, never "has no ingredients yet" as well.
+  const prep = dishItems('d-norecipe', { venue_id: SOHO }, ctx({ links: [...c.links, link('l9', 'd-norecipe', 'sauce')] }))
+  assert.deepEqual(prep.gaps.map(g => g.reason), ['not_dish'])
 })
 
 test('a recipe\'s own suggestion (the recipe editor), a draft Pepper read in marked as not checked', () => {

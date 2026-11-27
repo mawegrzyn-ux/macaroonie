@@ -34,6 +34,9 @@
 //   fingerprint(differences)       what a decision holds for
 //   nextCheck(stored, check)       what to do with a stored check: insert, update, delete, keep
 //   acceptedLevels(declared, differences, keys)   the declaration after accepting
+//   pickedDifferences(differences, keys)   the differences ticked, of those there now
+//   checkState(row)                what a dish's check says in a list (CHECK_STATES)
+//   checkCounts(rows)              how many of each
 
 import { STANDARD_ALLERGENS, LEVEL_LABELS } from './menuTags.js'
 import { usageOf, recipeUsage, offeredOptions, scopeText, needsCheck } from './costing.js'
@@ -169,7 +172,8 @@ export function dishItems(dishId, scope = {}, ctx = {}) {
   out.recipe = base.recipe ? { id: base.recipe.id, name: base.recipe.name } : null
   if (!out.recipe) return out
   // A recipe with nothing in it says nothing about allergens: unknown, never free.
-  if (!out.entries.length) out.gaps.push({ reason: 'empty', recipe_id: out.recipe.id, text: out.recipe.name + ' has no ingredients yet', fix: 'Add what goes into ' + out.recipe.name + ' on the Recipes page.' })
+  // (A prep recipe linked as the dish is a not_dish gap already: its lines aren't walked.)
+  if (!out.entries.length && !out.gaps.some(g => g.reason === 'not_dish')) out.gaps.push({ reason: 'empty', recipe_id: out.recipe.id, text: out.recipe.name + ' has no ingredients yet', fix: 'Add what goes into ' + out.recipe.name + ' on the Recipes page.' })
   for (const o of offeredOptions(dish, ctx)) {
     if (o.state === 'gap') {
       out.gaps.push({ reason: 'option', option: o.label, text: o.label + ': ' + (o.default_text || 'adds to the dish with no rule saying what'), fix: 'Give ' + o.label + ' a rule on the Recipes page, Options tab.' })
@@ -190,12 +194,33 @@ function productAt(itemId, venueId, ctx) {
 
 const productName = (q, item) => (q?.product_name || item?.name || 'a product')
 
+// Where an ingredient's allergens are unknown, in words: " at Soho, Leeds", up to three names.
+const placesText = names => (!names?.length ? '' : ' at ' + (names.length <= 3 ? names.join(', ') : names.slice(0, 3).join(', ') + ' and ' + (names.length - 3) + ' more'))
+const ITEM_GAPS = new Set(['no_product', 'unknown'])
+
+/** An unknown ingredient's gap in words, at its venues: "Allergens unknown for Tamarind at Soho, Leeds (Brakes: Tamarind)". */
+function itemGapText(g) {
+  if (g.reason === 'no_product') return 'Allergens unknown for ' + g.item + placesText(g.venues) + ': no supplier product'
+  return 'Allergens unknown for ' + g.item + placesText(g.venues) + ' (' + [g.supplier, g.product].filter(Boolean).join(': ') + ')'
+}
+
+/**
+ * A gap named at these venues (an unknown ingredient's names them; other
+ * gaps are as they were): when scopes at several venues share a gap, it is
+ * said at every one of them, not the first's alone.
+ */
+export function gapAt(gap, venueNames = []) {
+  if (!ITEM_GAPS.has(gap.reason)) return gap
+  const venues = [...new Set(venueNames.filter(Boolean))]
+  return { ...gap, venues, text: itemGapText({ ...gap, venues }) }
+}
+
 /** The entries' allergens at a venue: { levels, evidence: { key: [line] }, gaps }. */
 function rollUp(entries, venueId, ctx, venueName) {
   const levels = {}
   const evidence = {}
   const gaps = []
-  const at = venueName ? ' at ' + venueName : ''
+  const venues = venueName ? [venueName] : []
   for (const e of entries) {
     const item = get(ctx.items, e.item_id)
     const line = { item_id: e.item_id, item: item?.name || 'An item that is gone', via: e.via, option: e.option }
@@ -205,12 +230,12 @@ function rollUp(entries, venueId, ctx, venueName) {
     }
     const p = productAt(e.item_id, venueId, ctx)
     if (!p.quote) {
-      gaps.push({ ...line, reason: 'no_product', text: 'Allergens unknown for ' + item.name + at + ': no supplier product', fix: 'Add a supplier price for ' + item.name + ' with its allergens on the Inventory page.' })
+      gaps.push(gapAt({ ...line, reason: 'no_product', fix: 'Add a supplier price for ' + item.name + ' with its allergens on the Inventory page.' }, venues))
       continue
     }
     const product = { quote_id: p.quote.id, supplier: p.quote.supplier_name ?? null, product: productName(p.quote, item), code: p.quote.supplier_code ?? null }
     if (!p.allergens.known) {
-      gaps.push({ ...line, ...product, reason: 'unknown', text: 'Allergens unknown for ' + item.name + at + ' (' + [product.supplier, product.product].filter(Boolean).join(': ') + ')', fix: 'Add the allergens of ' + (product.supplier ? product.supplier + '\'s ' : '') + product.product + ' on the Inventory page (from its spec sheet).' })
+      gaps.push(gapAt({ ...line, ...product, reason: 'unknown', fix: 'Add the allergens of ' + (product.supplier ? product.supplier + '\'s ' : '') + product.product + ' on the Inventory page (from its spec sheet).' }, venues))
       continue
     }
     for (const [key, lvl] of Object.entries(p.allergens.levels)) {
@@ -300,15 +325,19 @@ function groupScopes(results, names) {
     if (!groups.has(sig)) groups.set(sig, { ...r, scopes: [] })
     groups.get(sig).scopes.push(r.scope)
   }
-  return [...groups.values()].map(g => ({
-    where: g.scopes.map(s => scopeText(s, names)),
-    scopes: g.scopes,
-    recipe: g.recipe,
-    levels: g.levels,
-    evidence: Object.fromEntries(Object.entries(g.evidence).map(([k, list]) => [k, list.slice(0, EVIDENCE_MAX)])),
-    gaps: g.gaps,
-    complete: g.complete,
-  }))
+  return [...groups.values()].map(g => {
+    // The group's gaps are its first scope's: an unknown ingredient is named at every venue of the group.
+    const venues = g.scopes.map(s => names?.venues?.[s.venue_id]).filter(Boolean)
+    return {
+      where: g.scopes.map(s => scopeText(s, names)),
+      scopes: g.scopes,
+      recipe: g.recipe,
+      levels: g.levels,
+      evidence: Object.fromEntries(Object.entries(g.evidence).map(([k, list]) => [k, list.slice(0, EVIDENCE_MAX)])),
+      gaps: g.gaps.map(x => gapAt(x, venues)),
+      complete: g.complete,
+    }
+  })
 }
 
 /** One line of evidence in words: "Oyster sauce in Tamarind sauce (Brakes: Lee Kum Kee oyster sauce)". */
@@ -334,14 +363,23 @@ export function dishCheck(dish, results = [], declared = {}, names = {}) {
   for (const r of withRecipe) for (const [k, lvl] of Object.entries(r.levels)) if (rank(lvl) > rank(suggested[k])) suggested[k] = lvl
   const complete = results.length > 0 && results.every(r => r.complete)
   const groups = groupScopes(results, names)
-  const gapSeen = new Set()
+  // Each gap once, at every place it is: an unknown ingredient (the same product) named at all its venues.
+  const gapSeen = new Map()
   const gaps = []
   for (const g of groups) {
     for (const x of g.gaps) {
-      const k = x.reason + '|' + (x.item_id || x.recipe_id || x.option || '') + '|' + x.text
-      if (gapSeen.has(k)) continue
-      gapSeen.add(k)
-      gaps.push({ ...x, where: g.where })
+      const k = ITEM_GAPS.has(x.reason)
+        ? x.reason + '|' + x.item_id + '|' + (x.quote_id || '')
+        : x.reason + '|' + (x.item_id || x.recipe_id || x.option || '') + '|' + x.text
+      const hit = gapSeen.get(k)
+      if (hit) {
+        for (const w of g.where) if (!hit.where.includes(w)) hit.where.push(w)
+        if (ITEM_GAPS.has(x.reason)) Object.assign(hit, gapAt(hit, [...(hit.venues || []), ...(x.venues || [])]))
+        continue
+      }
+      const line = { ...x, where: [...g.where] }
+      gapSeen.set(k, line)
+      gaps.push(line)
     }
   }
   const differences = []
@@ -435,14 +473,37 @@ export function acceptedLevels(declared = {}, differences = [], keys = null) {
   return out
 }
 
-/** A check's counts for a list: { open, accepted, dismissed, agree, not_checkable }. */
+/**
+ * The differences ticked (keys: a Set or a list of allergen keys), of those
+ * there are now: a key ticked on a check that has since changed is dropped,
+ * so a person accepts only what is in front of them.
+ */
+export function pickedDifferences(differences = [], keys = []) {
+  const want = keys instanceof Set ? keys : new Set(keys || [])
+  return differences.filter(d => want.has(d.allergen))
+}
+
+/**
+ * What a dish's check says in a list (rule 12: the tab, its counts and
+ * Pepper): a stored decision (open, accepted, dismissed); else, with a
+ * recipe, 'agree' only when every product is known, and 'incomplete' while
+ * anything is unknown (nothing differs among what is known, but an unknown
+ * product may hold an allergen: never a pass); 'not_checkable' with no
+ * recipe anywhere. row: { checkable, complete, status } (checkView()'s).
+ */
+export function checkState(row) {
+  if (!row?.checkable) return 'not_checkable'
+  if (row.status) return row.status
+  return row.complete ? 'agree' : 'incomplete'
+}
+export const CHECK_STATES = {
+  open: 'Open', incomplete: 'Not all known', dismissed: 'Dismissed', accepted: 'Accepted', agree: 'Agrees', not_checkable: 'Can\'t check yet',
+}
+
+/** A check's counts for a list: { open, incomplete, accepted, dismissed, agree, not_checkable }. */
 export function checkCounts(rows = []) {
-  const c = { open: 0, accepted: 0, dismissed: 0, agree: 0, not_checkable: 0 }
-  for (const r of rows) {
-    if (!r.checkable) c.not_checkable++
-    else if (r.status) c[r.status]++
-    else c.agree++
-  }
+  const c = { open: 0, incomplete: 0, accepted: 0, dismissed: 0, agree: 0, not_checkable: 0 }
+  for (const r of rows) c[checkState(r)]++
   return c
 }
 

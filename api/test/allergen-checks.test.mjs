@@ -10,7 +10,13 @@
 // taken back), Pepper's spec sheet reader (a stand-in Claude: names as data,
 // no ids, nothing saved until the person saves) and its tools, find_dishes
 // answering as before, the recipe editor's suggestion, the reports, another
-// group's ids refused, and who may do what.
+// group's ids refused, and who may do what. Since the review fixes: a dish
+// whose ingredients' allergens are unknown is "not all known", never
+// "agrees" (the tab, its counts and Pepper); an accept always names the
+// allergens ticked, and ticks left from before accept nothing; a gap shared
+// by two venues is named at both; read_product_allergens is offered on
+// Purchasing setup manage, not Recipes; its link searches the Inventory page
+// by the item's name.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
@@ -27,7 +33,7 @@ const answer = obj => ({ stop_reason: 'end_turn', content: [{ type: 'text', text
 const blankRule = { option_id: null, dish_id: null, option_label: null, item_id: null, sub_recipe_id: null, swap_item_id: null, qty: null, unit: null, factor: null, recipe_id: null, note: null }
 
 let ids, owner, operator, viewer, bOwner, soho, leeds, bVenue, brakes, bidfood
-let noodles, oyster, fish, tamarind, prawns, egg, sauce, padthaiR, menu, padthai, plain, bQuote, bDish
+let noodles, oyster, fish, tamarind, prawns, egg, sauce, padthaiR, menu, padthai, plain, dip, bQuote, bDish
 const q = (item, supplierId) => item.quotes.find(x => x.supplier_id === supplierId)
 
 async function setAllergens(quote, contains = [], may = [], who = owner) {
@@ -118,12 +124,16 @@ test.before(async () => {
       variant_groups: [{ group_id: vg.id, overrides: [] }], variants: [] },
     { name: 'Plain noodles', price_pence: 600, is_orderable: true, dietary: [], variant_groups: [], variants: [] },
     { name: 'Soup of the day', price_pence: 500, is_orderable: true, dietary: ['celery'], variant_groups: [], variants: [] },
+    // Its one ingredient's allergens are unknown (the tamarind paste, until the roll-up test puts them in).
+    { name: 'Tamarind dip', price_pence: 300, is_orderable: true, dietary: [], variant_groups: [], variants: [] },
   ] }] }))
   menu = await ok(owner.get('/api/menus/' + m.id))
   padthai = menu.sections[0].items.find(i => i.name === 'Pad thai').id
   plain = menu.sections[0].items.find(i => i.name === 'Plain noodles').id
+  dip = menu.sections[0].items.find(i => i.name === 'Tamarind dip').id
   await ok(owner.put(`/api/recipe-links/dishes/${padthai}/cell`, { recipe_id: padthaiR.id, portions: 1 }))
   await ok(owner.put(`/api/recipe-links/dishes/${plain}/cell`, { recipe_id: (await ok(owner.post('/api/recipes', { name: 'Plain noodles', kind: 'dish', status: 'live', lines: [{ item_id: noodles.id, qty: 200, unit: 'g' }] }))).id }))
+  await ok(owner.put(`/api/recipe-links/dishes/${dip}/cell`, { recipe_id: (await ok(owner.post('/api/recipes', { name: 'Tamarind dip', kind: 'dish', status: 'live', lines: [{ item_id: tamarind.id, qty: 50, unit: 'g' }] }))).id }))
   await ok(owner.post(`/api/menus/${m.id}/publish`, {}))
   // The other group's product and dish.
   const bSup = await ok(bOwner.post('/api/suppliers', { name: 'Theirs', send_method: 'print' }))
@@ -185,28 +195,49 @@ test('the roll-up through the prep recipe and the option\'s rule, each venue at 
   assert.equal(at('Leeds').levels.gluten, undefined)
   assert.equal(at('Leeds').levels.sesame, 'may_contain')
   assert.notEqual(at('Soho'), at('Leeds'), 'the two venues are told apart')
-  // Unknown allergens are gaps, by name and venue.
-  assert.ok(row.gaps.some(g => g.reason === 'unknown' && /Allergens unknown for Tamarind paste at (Soho|Leeds)/.test(g.text)))
+  // Unknown allergens are gaps, by name and venue: unknown at both venues, one gap named at both.
+  const tam = row.gaps.filter(g => g.reason === 'unknown' && g.item === 'Tamarind paste')
+  assert.equal(tam.length, 1)
+  assert.equal(tam[0].text, 'Allergens unknown for Tamarind paste at Soho, Leeds (Brakes: Tamarind paste)')
   // A dish whose recipe agrees with what it declares has nothing open; one with no recipe can't be checked.
   assert.equal(rowOf(list, plain).status, null)
   const soup = list.rows.find(r => r.dish === 'Soup of the day')
   assert.equal(soup.checkable, false)
   assert.ok(soup.gaps.some(g => g.reason === 'no_recipe'))
+  assert.equal(soup.state, 'not_checkable')
+  assert.equal(rowOf(list, plain).state, 'agree', 'every product of the plain noodles is known')
+  // Every ingredient unknown: nothing differs, and that is "not all known", never "agrees" (the tab, its counts, Pepper).
+  const dipRow = rowOf(list, dip)
+  assert.deepEqual([dipRow.checkable, dipRow.complete, dipRow.status, dipRow.state, dipRow.differences.length], [true, false, null, 'incomplete', 0])
+  assert.equal(dipRow.groups.length, 1)
+  assert.deepEqual(dipRow.groups[0].levels, {})
+  assert.equal(dipRow.groups[0].complete, false)
+  assert.deepEqual([list.counts.incomplete, list.counts.agree, list.counts.not_checkable], [1, 1, 1])
+  assert.deepEqual(list.rows.map(r => r.state).slice(0, 2), ['open', 'incomplete'], 'open first, then what isn\'t all known')
+  const dipSays = await pepper(A.owner, 'allergen_check', { dish: 'Tamarind dip' })
+  assert.match(dipSays.suggested, /^not known yet/)
+  assert.match(dipSays.differences[0], /None found so far, but not everything is known/)
+  assert.match(dipSays.status, /^not all known/)
+  assert.doesNotMatch(JSON.stringify([dipSays.suggested, dipSays.differences, dipSays.status]), /agree|none of the 14/i)
+  assert.equal(dipSays.complete, false)
   assert.equal(list.rows[0].dish_id, padthai, 'open first')
   assert.equal(list.counts.open, 1)
   assert.equal(list.can_decide, true)
   // Stored: one open check.
   const [stored] = await sql`SELECT status, dish, menu, gaps, complete FROM allergen_checks WHERE tenant_id = ${ids.a} AND dish_id = ${padthai}`
-  assert.deepEqual({ ...stored }, { status: 'open', dish: 'Pad thai', menu: 'Dinner', gaps: 2, complete: false })
+  assert.deepEqual({ ...stored }, { status: 'open', dish: 'Pad thai', menu: 'Dinner', gaps: 1, complete: false })
   // The venue filter.
   const atLeeds = await checks('?venue_id=' + leeds)
   assert.ok(rowOf(atLeeds, padthai))
   assert.equal((await owner.get('/api/allergen-checks?venue_id=' + bVenue)).status, 404, 'another group\'s venue')
   // Once the tamarind is known (free of all 14), the celery nothing has is said too.
   await setAllergens(q(tamarind, brakes.id), [])
-  const known = rowOf(await checks(), padthai)
+  const knownList = await checks()
+  const known = rowOf(knownList, padthai)
   assert.equal(known.complete, true)
   assert.equal(known.differences.find(d => d.allergen === 'celery').text, 'The dish declares celery; nothing in the recipe has it')
+  assert.equal(rowOf(knownList, dip).state, 'agree', 'the dip, once its tamarind is known')
+  assert.equal((await pepper(A.owner, 'allergen_check', { dish: 'Tamarind dip' })).differences[0], 'None: the recipe and the declaration agree.')
 })
 
 test('the recipe editor\'s suggestion: a recipe\'s own allergens at each venue', async () => {
@@ -223,7 +254,7 @@ test('accepting writes the declaration into the menu\'s draft through the menus 
   const pepperBefore = await pepper(A.owner, 'find_dishes', { free_from: ['soya'] })
   const before = rowOf(await checks(), padthai)
   // A stale fingerprint is refused: nobody accepts what they didn't see.
-  const stale = await owner.post(`/api/allergen-checks/dishes/${padthai}/accept`, { fingerprint: 'soya:missing::' })
+  const stale = await owner.post(`/api/allergen-checks/dishes/${padthai}/accept`, { fingerprint: 'soya:missing::', allergens: ['soya'] })
   assert.equal(stale.status, 409)
   assert.equal(stale.json.code, 'changed')
   // Accept the soya only: the rest stays open.
@@ -236,8 +267,15 @@ test('accepting writes the declaration into the menu\'s draft through the menus 
   let dish = await draftDeclared(menu.id, padthai)
   assert.ok(dish.dietary.includes('soya'), 'the draft declares soya')
   assert.ok(dish.dietary.includes('celery'), 'nothing else changed yet')
-  // Then everything.
-  const all = await ok(owner.post(`/api/allergen-checks/dishes/${padthai}/accept`, { fingerprint: one.fingerprint }))
+  // The allergens are always named: an accept that names none is refused.
+  assert.equal((await owner.post(`/api/allergen-checks/dishes/${padthai}/accept`, { fingerprint: one.fingerprint })).status, 400)
+  // Ticks left from before (the soya, accepted already) name none of what differs now: refused, nothing accepted.
+  const leftOver = await owner.post(`/api/allergen-checks/dishes/${padthai}/accept`, { fingerprint: one.fingerprint, allergens: ['soya'] })
+  assert.equal(leftOver.status, 422)
+  assert.equal(leftOver.json.code, 'nothing')
+  assert.deepEqual(rowOf(await checks(), padthai).differences.map(d => d.allergen), one.differences.map(d => d.allergen), 'nothing more accepted')
+  // Then everything that differs now, by name.
+  const all = await ok(owner.post(`/api/allergen-checks/dishes/${padthai}/accept`, { fingerprint: one.fingerprint, allergens: one.differences.map(d => d.allergen) }))
   assert.equal(all.status, 'accepted')
   assert.deepEqual(all.differences, [])
   assert.deepEqual(all.accepted.map(d => d.allergen).sort(), ['celery', 'crustaceans', 'fish', 'molluscs', 'sesame'])
@@ -371,6 +409,8 @@ test('Pepper: allergen_check reads a dish\'s suggestion against its declaration;
   assert.doesNotMatch(JSON.stringify(card.lines), UUID)
   const done = await tool.run(ctx, parseInput(tool, { ...input, ...card.pin }))
   assert.match(done.message, /Saved/)
+  // Its link opens the Inventory page searched by the item's name, never an id the page would read as one.
+  assert.equal(done.page, '/inventory?q=' + encodeURIComponent('King prawns'))
   const saved = q(await ok(owner.get('/api/inventory/items/' + prawns.id)), brakes.id)
   assert.deepEqual(saved.allergens_contains, ['crustaceans'])
   assert.deepEqual(saved.allergens_may_contain, ['sulphites'])
@@ -401,7 +441,7 @@ test('reports: allergen checks, dishes with differences, items with unknown alle
 test('another group\'s ids are refused, and who may do what', async () => {
   // Another group's dish, check and recipe.
   assert.equal((await bOwner.get(`/api/allergen-checks/dishes/${padthai}`)).status, 404)
-  assert.equal((await bOwner.post(`/api/allergen-checks/dishes/${padthai}/accept`, { fingerprint: '' })).status, 404)
+  assert.equal((await bOwner.post(`/api/allergen-checks/dishes/${padthai}/accept`, { fingerprint: '', allergens: ['soya'] })).status, 404)
   assert.equal((await bOwner.post(`/api/allergen-checks/dishes/${padthai}/dismiss`, { fingerprint: '', note: 'x' })).status, 404)
   assert.equal((await bOwner.get(`/api/allergen-checks/recipes/${sauce.id}`)).status, 404)
   assert.equal((await owner.get(`/api/allergen-checks/dishes/${bDish}`)).status, 404)
@@ -413,7 +453,7 @@ test('another group\'s ids are refused, and who may do what', async () => {
   const row = rowOf(opList, padthai)
   assert.equal((await operator.post(`/api/allergen-checks/dishes/${padthai}/dismiss`, { fingerprint: row.fingerprint, note: 'x' })).status, 403)
   await asRole({ recipes: 'manage', menus: 'view' }, async () => {
-    const r = await viewer.post(`/api/allergen-checks/dishes/${padthai}/accept`, { fingerprint: row.fingerprint })
+    const r = await viewer.post(`/api/allergen-checks/dishes/${padthai}/accept`, { fingerprint: row.fingerprint, allergens: ['soya'] })
     assert.equal(r.status, 403)
     assert.match(r.json.error, /Menus manage/)
   })
@@ -421,4 +461,36 @@ test('another group\'s ids are refused, and who may do what', async () => {
     assert.equal((await viewer.get('/api/allergen-checks')).status, 200)
     assert.equal((await viewer.get('/api/allergen-checks/recipes/' + sauce.id)).status, 200)
   })
+})
+
+test('read_product_allergens is offered to whoever may save a product\'s allergens: Purchasing setup manage, not Recipes', async () => {
+  const { toolAllowed, audienceTools } = await import('../src/ai/tools/index.js')
+  const { objectActions } = await import('../src/ai/registry.js')
+  const { OBJECTS } = await import('../../shared/registry/index.js')
+  const tool = audienceTools('staff').find(t => t.name === 'read_product_allergens')
+  assert.ok(toolAllowed(tool, { purchasing_setup: 'manage' }), 'a buyer with Purchasing setup manage')
+  assert.ok(!toolAllowed(tool, { recipes: 'manage' }), 'not a chef with Recipes manage alone: its run would refuse them')
+  assert.ok(!toolAllowed(tool, { purchasing_setup: 'view' }))
+  // What the supplier price record says (what_can_i_do): the module and level the tool's run checks.
+  const action = objectActions(OBJECTS['purchasing.prices']).find(a => a.name === 'read_product_allergens')
+  assert.deepEqual([action.modules, action.needs], [['purchasing_setup'], 'manage'])
+  // The staff connector lists it by the same rule.
+  async function listed(permissions) {
+    return asRole(permissions, async () => {
+      const { token } = await ok(viewer.post('/api/ai/tokens', { name: 'Allergens' }))
+      const { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } = await import('../src/middleware/auth.js')
+      const app = await getApp()
+      const res = await app.inject({
+        method: 'POST', url: '/mcp/staff/thai-house',
+        headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: 'Bearer ' + token, [INTERNAL_CALL_HEADER]: INTERNAL_CALL_SECRET },
+        payload: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+      })
+      assert.equal(res.statusCode, 200, res.body.slice(0, 300))
+      return res.json().result.tools.map(t => t.name)
+    })
+  }
+  assert.ok((await listed({ ai_assistant: 'use', purchasing_setup: 'manage' })).includes('read_product_allergens'), 'Purchasing setup manage, no Recipes')
+  const chef = await listed({ ai_assistant: 'use', recipes: 'manage' })
+  assert.ok(!chef.includes('read_product_allergens'), 'Recipes manage alone')
+  assert.ok(chef.includes('allergen_check'), 'the check itself is theirs')
 })

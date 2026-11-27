@@ -141,7 +141,7 @@ export const starters = [
   starter({
     key: 'items_with_unknown_allergens',
     name: 'Items with unknown allergens',
-    about: 'Supplier products of items used in recipes whose allergens nobody has put in yet: each is a gap in the Recipes page\'s allergen check ("allergens unknown for oyster sauce at Soho"). Put them in on the Inventory page from the product\'s spec sheet, or have Pepper read the sheet.',
+    about: 'Supplier products in use, of items in a recipe, whose allergens nobody has put in yet. The Recipes page\'s allergen check reads the product each venue orders, so one of these that a venue orders is a gap there ("allergens unknown for oyster sauce at Soho"); another supplier\'s product nobody orders is listed too, and an item with no supplier product at all is a gap the Allergens tab shows but this list can\'t. Put them in on the Inventory page from the product\'s spec sheet, or have Pepper read the sheet.',
     period: false,
     venues: false,
     spec: {
