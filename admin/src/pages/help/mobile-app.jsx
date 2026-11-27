@@ -47,6 +47,8 @@ export function Section() {
           were on opens again there. The phone app keeps it until you switch again; the office and the phone
           app each remember their own choice.</li>
         <li><strong>Notices</strong>: notices for tasks due and late (below).</li>
+        <li><strong>Privacy policy</strong>: what Macaroonie keeps about you and why, on macaroonie.com (in the Macaroonie
+          Office app it opens in the phone&apos;s browser).</li>
         <li><strong>Sign out</strong>.</li>
       </ul>
       <H3>Notices for tasks due and late</H3>

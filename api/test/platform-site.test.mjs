@@ -4,8 +4,11 @@
 // GETs still go to office, the register-interest form still works, and tenant
 // and office addresses are left alone. The legal pages (Terms and
 // conditions, Privacy policy) are dated, their contents lists and clause
-// numbers hold together, and every page's footer carries them and the
-// company's details.
+// numbers hold together, every page's footer carries them and the
+// company's details, and what they say about the code holds: the browser
+// storage the demo and the till keep, the venue hub's plain connection, the
+// shared feature request board, the providers that work for us, the
+// regulator's name.
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { getApp, closeApp, sql } from './support/app.mjs'
@@ -286,6 +289,81 @@ test('the legal pages: dated, a contents list that matches their headings, claus
       assert.ok(idsOf[m[1]].has(m[2]), path + ' links ' + m[1] + '#' + m[2])
     }
   }
+})
+
+test('the legal pages say what the code does', async () => {
+  const terms = unescape((await get('/terms')).body)
+  const privacy = unescape((await get('/privacy')).body)
+  const section = (html, id) => {
+    const at = html.indexOf('<h2 id="' + id + '">')
+    assert.ok(at > 0, id)
+    const end = html.indexOf('<h2 ', at + 1)
+    return html.slice(at, end > 0 ? end : undefined)
+  }
+  const repo = new URL('../../', import.meta.url)
+  const read = rel => fs.readFileSync(new URL(rel, repo), 'utf8')
+
+  // Website use: death and personal injury by negligence, and fraud, stay with
+  // every user (UCTA s.2(1)), not only consumers.
+  const carve = section(terms, 'website').split(/(?<=\.)\s+/).filter(t => t.includes('death or personal injury'))
+  assert.equal(carve.length, 1, 'clause 3.7 has one sentence on death and personal injury')
+  assert.ok(carve[0].startsWith('Nothing in these terms limits or excludes our liability for death or personal injury') && carve[0].includes('fraud') && !carve[0].includes('consumer'),
+    'clause 3.7 keeps it for every user: ' + carve[0])
+
+  // The regulator has been the Information Commission (still "the ICO")
+  // since 30 September 2026; the office of the Information Commissioner is gone.
+  for (const [path, html] of [['/terms', terms], ['/privacy', privacy]]) {
+    assert.ok(!html.includes('Information Commissioner'), path + ' names the Information Commission')
+  }
+  assert.ok(privacy.includes('the Information Commission') && !privacy.includes('Wycliffe House'), 'the privacy policy: the Information Commission, its address from its own site')
+
+  // The venue hub serves the venue's devices over plain http (hub/src/lan.js):
+  // neither page may promise HTTPS everywhere.
+  if (/\bhttp\.createServer\(/.test(read('hub/src/lan.js'))) {
+    for (const [path, html, where] of [['/terms', terms, 'dps'], ['/privacy', privacy, 'security']]) {
+      const part = section(html, where)
+      assert.ok(part.includes('on the internet') && part.includes('without encryption'), path + ' says the hub talks to the venue\'s devices without encryption')
+    }
+  }
+
+  // Browser storage: every key the kiosk designer demo (its own files, the
+  // designer, the theme maker) and the till's tap counter keep is in the
+  // cookies part. A new key in one of these files is a new row there.
+  const cookies = section(privacy, 'cookies')
+  const stores = ['admin/src/pages/KioskDesigner.jsx', 'admin/src/components/themes/ThemeMaker.jsx', 'pos/src/lib/taps.js',
+    ...fs.readdirSync(new URL('admin/src/demo/kiosk/', repo)).filter(f => /\.jsx?$/.test(f)).map(f => 'admin/src/demo/kiosk/' + f)]
+  let keys = 0
+  for (const file of stores) {
+    for (const m of read(file).matchAll(/['"`](maca_[a-z0-9_]+|kiosk-demo-[a-z-]+)['"`]/g)) {
+      keys++
+      assert.ok(cookies.includes('<code>' + m[1] + '</code>'), file + ' keeps ' + m[1] + ': the cookies part lists it')
+    }
+  }
+  assert.ok(keys >= 7, 'the keys were found')
+  assert.ok(!cookies.includes('Until you sign out or clear them'), 'signing out of the office leaves the choices in the browser')
+
+  // The tables every customer can read (a SELECT policy USING (true)): the
+  // feature request board, which both pages say is shared. A new one needs
+  // the same words in both pages, then its name here.
+  const open = new Set()
+  for (const f of fs.readdirSync(new URL('migrations/', repo)).filter(f => f.endsWith('.sql'))) {
+    for (const m of read('migrations/' + f).matchAll(/CREATE POLICY \w+ ON (\w+) FOR SELECT USING \(true\)/g)) open.add(m[1])
+  }
+  assert.deepEqual([...open].sort(), ['feature_request_upvotes', 'feature_requests'], 'the tables every customer can read')
+  assert.ok(section(privacy, 'sharing').includes('feature request board') && section(terms, 'feedback').includes('feature request board'), 'both pages say the board is shared')
+  assert.ok(section(terms, 'dps').includes('feature request board'), 'and the security measures make it the exception')
+
+  // A provider that works for us (Privacy section 7, not under its own terms
+  // or agreement) is not a third-party service under its own terms (Terms 10).
+  const clause10 = section(terms, 'third-party')
+  let ours = 0
+  for (const m of section(privacy, 'sharing').matchAll(/<td data-label="Provider">([^<]+)<\/td><td data-label="What they receive">([\s\S]*?)<\/td>/g)) {
+    if (/own (terms|agreement)/.test(m[2])) continue
+    const name = m[1].split(/,| \(| and /)[0].trim()
+    ours++
+    assert.ok(!clause10.includes(name), name + ' works for us, so Terms clause 10 does not name it')
+  }
+  assert.ok(ours >= 5, 'the providers that work for us were found')
 })
 
 test('every page: the footer links the legal pages and gives the company details; the form links the privacy policy', async () => {

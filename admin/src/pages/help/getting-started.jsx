@@ -74,6 +74,12 @@ export function Section() {
         (ops.macaroonie.com) the restaurant&apos;s name is in the top bar next to the page&apos;s
         title, with a switch button (two arrows) next to sign out to change it.
       </P>
+      <P>
+        Under your name at the foot of the menu, <strong>Privacy policy</strong> opens macaroonie.com&apos;s Privacy
+        policy in a new tab: what Macaroonie keeps about you as a member of staff, why, for how long, and your rights.
+        Signing out doesn&apos;t clear your choices on that browser (the restaurant and venue you picked, your view
+        settings); clear the browser&apos;s data for the site to remove them.
+      </P>
 
       <H3>Menu on tablets</H3>
       <P>

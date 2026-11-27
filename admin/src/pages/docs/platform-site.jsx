@@ -70,11 +70,32 @@ export function Section() {
         contents. Styles are the legal block of <Mono>site.css</Mono>. The test checks the numbering, the contents, every
         link into either page and the footer on every page.
       </P>
+      <P>
+        The office links the Privacy policy (<Mono>/privacy#customers</Mono>, in a new tab) under the person at the foot
+        of the sidebar, and the phone app from its three-dot menu (<Mono>shell-privacy-link</Mono>,{' '}
+        <Mono>mobile-menu-privacy</Mono>). The address comes from <Mono>privacyHref()</Mono> in{' '}
+        <Mono>admin/src/lib/hosts.js</Mono>: <Mono>siteHref(path)</Mono> is the apex of the host the office is on
+        (office., ops. or installer. taken off), else macaroonie.com. The Macaroonie Office app opens it in the
+        phone&apos;s browser, like any address that isn&apos;t office. or ops.
+      </P>
+      <P>
+        A second test, &quot;the legal pages say what the code does&quot;, reads the code the pages describe: every
+        storage key in the kiosk designer demo&apos;s own files, <Mono>KioskDesigner.jsx</Mono>,{' '}
+        <Mono>ThemeMaker.jsx</Mono> and the till&apos;s <Mono>pos/src/lib/taps.js</Mono> must have a{' '}
+        <Mono>{'<code>'}</Mono> row in the cookies part; while the venue hub serves the venue&apos;s devices with{' '}
+        <Mono>http.createServer</Mono> (<Mono>hub/src/lan.js</Mono>), both pages must say so instead of promising
+        HTTPS everywhere; the tables every customer can read (a <Mono>SELECT</Mono> policy <Mono>USING (true)</Mono> in
+        any migration) must be only the feature request board, which both pages call shared; a provider that works
+        for us in Privacy section 7 (its row says nothing of its own terms or agreement) must not appear in Terms
+        clause 10; the website clause keeps death, personal injury and fraud for every user; and neither page names
+        the Information Commissioner (the Information Commission since 30 September 2026).
+      </P>
       <InfoBox type="warn">
         The Privacy policy names the outside services that receive personal data (its section 7, the sub-processor
-        list the Terms&apos; data processing schedule points to) and how long data is kept (section 9). When a service is
-        added or dropped, or a retention period changes in code, change the policy in the same pull request and move
-        the updated date on both page records. The policy says what is true of the code; the statements only the
+        list the Terms&apos; data processing schedule points to), how long data is kept (section 9) and what each part
+        keeps in the browser (section 15). When a service is added or dropped, a retention period or a clean-up
+        changes in code, or a page keeps something new in the browser, change the policy in the same pull request and
+        move the updated date on both page records. The policy says what is true of the code; the statements only the
         owner can confirm (hosting region, backups, transfer safeguards and others) are listed in{' '}
         <Mono>docs/claude/outstanding/shell.md</Mono>.
       </InfoBox>

@@ -5,3 +5,4 @@
 - Both pages have a contents list to jump to any section, show the date they were last updated, and print cleanly.
 - Every page's footer now links the Terms and conditions, the Privacy policy and Cookies, and says that Macaroonie is a trading name of GOMONO LONDON LIMITED, registered in England and Wales, company number 10382640, with the registered office and info@macaroonie.com. The copyright line names the company.
 - The register-interest form now says what we do with your details (reply and talk to you about Macaroonie, no marketing) and links the Privacy policy.
+- The office (at the foot of the menu, under your name) and the phone app (the three-dot menu) link the Privacy policy.

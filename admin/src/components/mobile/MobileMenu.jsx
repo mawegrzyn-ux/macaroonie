@@ -12,6 +12,8 @@
 //   Switch location      2+ groups: TenantSwitcherModal, then the same page
 //                        opened fresh in the other one.
 //   Notices              /mobile/notices.
+//   Privacy policy       macaroonie.com/privacy#customers in a new tab (the
+//                        Office app opens it in the phone's browser).
 //   Sign out
 //
 // Every row is 48 px; the menu closes on a pick, a tap outside or Escape.
@@ -20,9 +22,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import { useQuery } from '@tanstack/react-query'
-import { MoreVertical, Lock, UserRound, Tablet, ArrowLeftRight, Bell, LogOut, ChevronRight } from 'lucide-react'
+import { MoreVertical, Lock, UserRound, Tablet, ArrowLeftRight, Bell, LogOut, ChevronRight, ShieldCheck, ExternalLink } from 'lucide-react'
 import { useApi, setSelectedTenant } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { privacyHref } from '@/lib/hosts'
 import TenantSwitcherModal from '@/components/TenantSwitcherModal'
 import { MOBILE_MODULES } from '@/mobile/registry'
 import { useSharedDevice } from '@/lib/sharedDevice'
@@ -153,6 +156,11 @@ export default function MobileMenu({ className }) {
               <span className="flex-1 font-medium">Notices</span>
               <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
             </button>
+            <a role="menuitem" className={ROW} href={privacyHref()} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)} data-testid="mobile-menu-privacy">
+              <ShieldCheck className="w-5 h-5 text-muted-foreground shrink-0" />
+              <span className="flex-1 font-medium">Privacy policy</span>
+              <ExternalLink className="w-4 h-4 text-muted-foreground shrink-0" />
+            </a>
             <div className="border-t my-1" />
             <button type="button" role="menuitem" className={cn(ROW, 'text-destructive')} onClick={pick(() => signOut(logout))} data-testid="mobile-menu-signout">
               <LogOut className="w-5 h-5 shrink-0" />
