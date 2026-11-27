@@ -9,10 +9,11 @@
 // marked out of stock until a date (StockControl, migration 234). Since
 // migration 287 (Pepper-first 8B3): a barcode (GTIN) on items and supplier
 // prices, found by the search and the Office app's scanner, and the Stock tab
-// (?tab=stock: stock on hand per venue and stock counts, stockOnHand.jsx).
+// (?tab=stock), which since inventory phase 4a only links to the Stock page
+// (/stock, the stock area: on hand, counts, adjustments).
 // Since migration 298 (inventory phase 1): an item's yield, usual units and
 // own units, which recipes cost it by (UnitsCard, units.jsx).
-// API: routes/inventory.js, routes/stock.js.
+// API: routes/inventory.js.
 
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -34,7 +35,6 @@ import {
 import { CatalogueCheckModal, SwitchItemsModal, PriceUpdateModal } from '@/components/purchasing/catalogue'
 import { StockBadge, StockControl } from '@/components/purchasing/stock'
 import { CustomFieldsCard, CustomFieldInputs, newRowCustom, useCustomFields } from '@/components/forms/CustomFields'
-import { StockOnHand } from '@/components/purchasing/stockOnHand'
 import { UnitsCard } from '@/components/purchasing/units'
 import { canScan, scanBarcode } from '@/lib/officeApp'
 import { barcodeProblem } from '@shared/catalogue.js'
@@ -123,7 +123,13 @@ export default function Inventory() {
         <div className="p-4 space-y-3 max-w-6xl mx-auto">
           <Segmented value={tab} onChange={setTab}
             options={[{ value: 'items', label: 'Items' }, { value: 'stock', label: 'Stock on hand' }]} />
-          {tab === 'stock' ? <StockOnHand onOpenItem={setOpenId} /> : (<>
+          {tab === 'stock' ? (
+            <div className="rounded-xl border bg-background p-4 space-y-2" data-testid="stock-moved">
+              <p className="text-sm font-medium">Stock on hand has a page of its own</p>
+              <p className="text-sm text-muted-foreground">On hand, counts by storage area, approvals, adjustments and each item&apos;s history are on the Stock page.</p>
+              <Link to="/stock" className={btn.primary + ' h-12 w-fit'} data-testid="stock-moved-open">Open Stock</Link>
+            </div>
+          ) : (<>
           <div className="flex flex-wrap gap-2">
             <div className="relative flex-1 min-w-[200px]">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />

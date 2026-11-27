@@ -26,6 +26,7 @@ import * as reports from './reports.js'
 import * as rota from './rota.js'
 import * as screens from './screens.js'
 import * as shell from './shell.js'
+import * as stock from './stock.js'
 import * as till from './till.js'
 import * as website from './website.js'
 
@@ -48,6 +49,7 @@ export const FILES = [
   ['rota', rota],
   ['screens', screens],
   ['shell', shell],
+  ['stock', stock],
   ['till', till],
   ['website', website],
 ]

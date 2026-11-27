@@ -166,6 +166,12 @@ export const FORMS = {
     title: 'New recipe', module: 'recipes', edit: 'manage', path: '/recipes', by: null,
     fields: {}, plain: true, drafts: true, group: true,
   },
+  // A key-item count from one of the group's lists (inventory phase 4a): the
+  // form starts it; the counting is on the Stock page or the phone's count page.
+  stock_key_count: {
+    title: 'New key-item count', module: 'stock', edit: 'use', path: '/stock', phone: '/mobile/stock-count', by: null,
+    fields: {}, plain: true,
+  },
 }
 
 /** The flat set-up forms drawn from their route's schema (plain: true). */

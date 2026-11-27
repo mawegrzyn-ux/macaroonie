@@ -27,6 +27,8 @@ const PHONE_PAGES = {
   '/food-safety': '/mobile/hs-dashboard',
   '/checklists': '/mobile/hs-dashboard',
   '/hs-dashboard': '/mobile/hs-dashboard',
+  // Stock counts happen in the walk-in: the phone's count page reads ?venue= and ?count= (Today's stock cards).
+  '/stock': '/mobile/stock-count',
 }
 
 /** Where a task's page opens on the phone: { to } in this app, or { href } on the office site. */

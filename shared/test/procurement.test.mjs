@@ -390,17 +390,20 @@ test('outOfStock: the date is the first day it can be delivered again', () => {
   assert.equal(outOfStockText(q, '2026-11-10', 'Brakes'), null)
 })
 
-// Stock on hand (migration 287, Pepper-first 8B3): the last count plus what came after it.
-test('stockOnHand: count plus received after it; no count, no figure; usage only with recipes', async () => {
+// Stock on hand (migration 287; since inventory phase 4a the moves of
+// shared/stock.js, re-exported here): the last count plus what came after it.
+test('stockOnHand: count plus received after it; no count, no figure (re-exported from shared/stock.js)', async () => {
   const { stockOnHand, countToBase } = await import('../procurement.js')
-  const count = { qty_base: 1000, at: '2026-11-20T20:00:00Z' }
-  const receipts = [{ qty_base: 500, at: '2026-11-20T19:59:00Z' }, { qty_base: 12000, at: '2026-11-21T08:00:00Z' }]
-  const r = stockOnHand({ count, receipts })
+  const moves = [
+    { kind: 'count', qty_base: 1000, at: '2026-11-20T20:00:00Z' },
+    { kind: 'delivery', qty_base: 500, at: '2026-11-20T19:59:00Z' },
+    { kind: 'delivery', qty_base: 12000, at: '2026-11-21T08:00:00Z' },
+  ]
+  const r = stockOnHand({ moves })
   assert.equal(r.on_hand, 13000)
   assert.equal(r.received_since, 12000, 'what came before the count is in the count')
   assert.equal(r.sales_counted, false)
-  assert.equal(stockOnHand({ receipts }).on_hand, null)
-  assert.equal(stockOnHand({ count, receipts, usage: [{ qty_base: 300, at: '2026-11-21T12:00:00Z' }] }).on_hand, 12700)
+  assert.equal(stockOnHand({ moves: moves.filter(m => m.kind !== 'count') }).on_hand, null)
   assert.equal(countToBase(1.5, 'l', 'ml'), 1500)
   assert.equal(countToBase(3, 'each', 'g'), null)
 })

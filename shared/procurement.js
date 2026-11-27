@@ -786,39 +786,18 @@ export function poNumberLabel(n) {
   return 'PO-' + String(n ?? 0).padStart(5, '0')
 }
 
-// ── Stock on hand (migration 287, Pepper-first step 8B3) ─────────────────
-// One item at one venue: the last stock count, plus what was received after
-// it, less what sales used after it where a dish is linked to the items it
-// uses. No such link (a recipe) exists yet, so `usage` is null and nothing is
-// taken off: the answer says so (`sales_counted: false`). Quantities are in
-// the item's base unit (g, ml or each). Never counted: nothing to start from,
-// so on_hand is null (what was received is still given).
+// ── Stock on hand (migration 287; inventory phase 4a, migrations 305 to 307)
+// The rule is stockOnHand() in shared/stock.js (the stock area), re-exported
+// here: an item's last approved count at the venue plus every move after it
+// (deliveries, adjustments). Two helpers stay purchasing's:
 //
-//   stockOnHand({ count, receipts, usage })
-//     count     { qty_base, at } | null       the item's last count at the venue
-//     receipts  [{ qty_base, at }]            received at the venue (any time)
-//     usage     [{ qty_base, at }] | null     used by sales (null: no recipes)
-//     -> { on_hand, counted, counted_at, received_since, used_since, sales_counted }
-//   countToBase(qty, unit, baseUnit)  a counted quantity in its unit (kg, l, each...)
-//                                     as the item's base unit, or null when they don't fit
+//   countToBase(qty, unit, baseUnit)  a quantity in a standard unit (kg, l,
+//                                     each...) as the item's base unit, or
+//                                     null when they don't fit
 //   stockLow(onHand, par)             below the venue's par (step 9b): false when either
 //                                     is unknown (never counted, no par)
 
-export function stockOnHand({ count = null, receipts = [], usage = null } = {}) {
-  const since = count?.at ? new Date(count.at).getTime() : null
-  const after = list => (list || []).filter(r => since == null || new Date(r.at).getTime() > since)
-    .reduce((s, r) => s + num(r.qty_base), 0)
-  const received = round4(after(receipts))
-  const used = usage == null ? null : round4(after(usage))
-  return {
-    on_hand: count ? round4(num(count.qty_base) + received - (used || 0)) : null,
-    counted: count ? round4(num(count.qty_base)) : null,
-    counted_at: count?.at ?? null,
-    received_since: received,
-    used_since: used,
-    sales_counted: usage != null,
-  }
-}
+export { stockOnHand } from './stock.js'
 
 export function countToBase(qty, unit, baseUnit) {
   const u = UNITS[unit], b = UNITS[baseUnit]

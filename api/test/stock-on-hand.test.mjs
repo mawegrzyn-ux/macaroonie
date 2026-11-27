@@ -4,13 +4,17 @@
 // scan; stock on hand per item per venue = the last count plus what was
 // received since (no recipes, so sales aren't taken off, and the answer says
 // so), on the Stock tab and in the report subject purchasing.stock, by one
-// rule (stockOnHand() in shared/procurement.js).
+// rule (stockOnHand() in shared/procurement.js). Moved to the stock area in
+// inventory phase 4a (27 Nov 2026): the rule is stockOnHand() in
+// shared/stock.js over the moves, and a count is a document that moves stock
+// once it is approved (stock-counts.test.mjs has the rest).
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
 const { as, ok, sql, closeApp } = await import('./support/app.mjs')
 const { resetAndSeed, A, B } = await import('./support/seed.mjs')
-const { stockOnHand, countToBase } = await import('../../shared/procurement.js')
+const { countToBase } = await import('../../shared/procurement.js')
+const { stockOnHand } = await import('../../shared/stock.js')
 
 let ids, owner, operator, viewer, bOwner, V, VB, sup, rice, riceQuote, flour
 
@@ -35,13 +39,12 @@ test.before(async () => {
 test.after(async () => { await closeApp() })
 
 test('the shared rule: last count plus received since; never counted is no figure; units fit or not', () => {
-  const count = { qty_base: 2500, at: '2026-11-20T18:00:00Z' }
-  const receipts = [{ qty_base: 20000, at: '2026-11-21T09:00:00Z' }, { qty_base: 5000, at: '2026-11-19T09:00:00Z' }]
-  assert.deepEqual(stockOnHand({ count, receipts }), {
-    on_hand: 22500, counted: 2500, counted_at: count.at, received_since: 20000, used_since: null, sales_counted: false,
-  })
-  assert.equal(stockOnHand({ count, receipts, usage: [{ qty_base: 1500, at: '2026-11-22T12:00:00Z' }] }).on_hand, 21000, 'usage, when recipes exist')
-  const never = stockOnHand({ receipts })
+  const count = { kind: 'count', qty_base: 2500, at: '2026-11-20T18:00:00Z' }
+  const receipts = [{ kind: 'delivery', qty_base: 20000, at: '2026-11-21T09:00:00Z' }, { kind: 'delivery', qty_base: 5000, at: '2026-11-19T09:00:00Z' }]
+  const r = stockOnHand({ moves: [count, ...receipts] })
+  assert.deepEqual([r.on_hand, r.counted, r.counted_at, r.received_since, r.used_since, r.sales_counted], [22500, 2500, count.at, 20000, null, false])
+  assert.equal(stockOnHand({ moves: [count, ...receipts, { kind: 'adjustment', qty_base: -1500, at: '2026-11-22T12:00:00Z' }] }).on_hand, 21000, 'an adjustment after the count')
+  const never = stockOnHand({ moves: receipts })
   assert.equal(never.on_hand, null)
   assert.equal(never.received_since, 25000)
   assert.equal(countToBase(2.5, 'kg', 'g'), 2500)
@@ -78,7 +81,7 @@ test('the order form\'s search finds a scanned barcode: the item\'s own, or the 
 test('stock on hand: a count in kilograms, a delivery after it, nothing for sales (no recipes), and the report agrees', async () => {
   const before = await ok(owner.get('/api/stock/venues/' + V))
   assert.equal(before.sales_counted, false)
-  assert.match(before.note, /no recipes/)
+  assert.match(before.note, /aren't taken off/)
   const r0 = before.items.find(i => i.item_id === rice.id)
   assert.deepEqual([r0.on_hand, r0.counted, r0.received_since], [null, null, 0], 'never counted, nothing received')
   // A count: 2.5 kg of rice (kept as 2500 g), 0 flour.
@@ -97,20 +100,21 @@ test('stock on hand: a count in kilograms, a delivery after it, nothing for sale
   await ok(owner.post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: rice.id, qty: 18000 }] }))
   assert.equal((await ok(owner.get('/api/stock/venues/' + V))).items.find(i => i.item_id === rice.id).on_hand, 18000)
   // The report subject reads the same rule.
-  const rep = await ok(owner.post('/api/reports/preview', { spec: { subject: 'purchasing.stock', kind: 'list', rows: ['item.name', 'on_hand', 'received_since', 'never_counted'] } }))
+  const rep = await ok(owner.post('/api/reports/preview', { spec: { subject: 'stock.on_hand', kind: 'list', rows: ['item_name', 'on_hand', 'received_since', 'never_counted'] } }))
   const byName = Object.fromEntries(rep.rows.map(x => [x.cells[0], x.cells.slice(1)]))
   assert.deepEqual(byName['Basmati rice'], [18000, 0, false])
   assert.deepEqual(byName['Plain flour'], [0, 0, false])
   const counts = await ok(owner.get(`/api/stock/venues/${V}/counts`))
   assert.equal(counts.length, 2)
   const one = await ok(owner.get('/api/stock/counts/' + counts[1].id))
-  assert.deepEqual(one.lines.map(l => [l.name, l.qty_base]), [['Basmati rice', 2500], ['Plain flour', 0]])
+  assert.deepEqual(one.lines.map(l => [one.items[l.item_id].name, l.qty_base]).sort(), [['Basmati rice', 2500], ['Plain flour', 0]])
+  assert.deepEqual([one.kind, one.status], ['key', 'approved'], 'a quick count is a key count of its items, approved at once by someone who may')
 })
 
 test('counts are checked: units that fit, the group\'s own items and venue, no item twice, not in the future; who may count', async () => {
   const bad = await owner.post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: rice.id, qty: 2, unit: 'l' }] })
   assert.equal(bad.status, 422)
-  assert.match(bad.json.error, /counted in g/)
+  assert.match(bad.json.error, /has no size for a l/)
   assert.equal((await owner.post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: rice.id, qty: 1 }, { item_id: rice.id, qty: 2 }] })).status, 422)
   const future = new Date(Date.now() + 3600_000).toISOString()
   assert.equal((await owner.post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: rice.id, qty: 1 }], counted_at: future })).status, 422)
@@ -121,8 +125,11 @@ test('counts are checked: units that fit, the group\'s own items and venue, no i
   assert.equal((await bOwner.get('/api/stock/venues/' + V)).status, 404)
   const counts = await ok(owner.get(`/api/stock/venues/${V}/counts`))
   assert.equal((await bOwner.get('/api/stock/counts/' + counts[0].id)).status, 404)
-  // An operator orders and receives (Purchasing Manage): they may count; a viewer reads stock (no prices in it) but can't count.
-  await ok(operator.post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: flour.id, qty: 500 }] }))
+  // An operator counts (Stock use): the count waits for someone who approves (Stock manage); a viewer reads stock but can't count.
+  const byOperator = await ok(operator.post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: flour.id, qty: 500 }] }))
+  assert.equal(byOperator.status, 'submitted')
+  assert.equal((await ok(owner.get('/api/stock/venues/' + V))).items.find(i => i.item_id === flour.id).on_hand, 0, 'not approved yet: on hand stands')
+  await ok(owner.post('/api/stock/counts/' + byOperator.id + '/approve', {}))
   await ok(viewer.get('/api/stock/venues/' + V))
   assert.equal((await viewer.post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: flour.id, qty: 1 }] })).status, 403)
   const [row] = await sql`SELECT count(*)::int AS n FROM stock_counts WHERE tenant_id = ${ids.b}`

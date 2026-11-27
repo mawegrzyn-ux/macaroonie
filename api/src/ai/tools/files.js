@@ -25,6 +25,7 @@ import * as rota_ from './rota.js'
 import * as rules_ from './rules.js'
 import * as site_ from './site.js'
 import * as staff_ from './staff.js'
+import * as stock_ from './stock.js'
 import * as today_ from './today.js'
 import * as venue_ from './venue.js'
 
@@ -46,6 +47,7 @@ export const FILES = [
   ['rules.js', rules_],
   ['site.js', site_],
   ['staff.js', staff_],
+  ['stock.js', stock_],
   ['today.js', today_],
   ['venue.js', venue_],
 ]

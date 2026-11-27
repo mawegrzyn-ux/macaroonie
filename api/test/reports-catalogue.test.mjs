@@ -139,7 +139,7 @@ test('a table nobody has decided on, one decided twice and a stale name are each
 
 test('every id column of a table a subject reads is linked, offered or left out on purpose', t => {
   const cover = tableCoverage(CATALOGUE, columns)
-  assert.deepEqual(cover.derived, ['till.takers', 'sales.checks', 'sales.dishes', 'sales.tenders', 'online.sales', 'cash.days', 'cash.weeks', 'rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.tip_moves', 'purchasing.stock', 'recipes.costs', 'recipes.coverage', 'recipes.margins', 'safety.days', 'local.weather', 'local.weather_hours'])
+  assert.deepEqual(cover.derived, ['till.takers', 'sales.checks', 'sales.dishes', 'sales.tenders', 'online.sales', 'cash.days', 'cash.weeks', 'rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.tip_moves', 'stock.on_hand', 'stock.moves', 'stock.count_lines', 'recipes.costs', 'recipes.coverage', 'recipes.margins', 'safety.days', 'local.weather', 'local.weather_hours'])
   // Every table a subject reads as it is, is a table of the database.
   assert.deepEqual(cover.tables.map(x => x.table).filter(x => !tables.includes(x)), [])
 
@@ -216,7 +216,7 @@ test('nothing secret is read, every module asked for exists, and no SQL leaves t
   assert.deepEqual([...CATALOGUE_MODULES].sort(), [
     'ai_assistant', 'bookings', 'cash_recon', 'checklists', 'costing', 'customers', 'email_templates', 'feature_requests', 'food_safety', 'hs_action_log',
     'issue_log', 'local_info', 'loyalty', 'loyalty_members', 'menus', 'nav_designer', 'pos_reports', 'pos_setup', 'promotions', 'purchasing', 'purchasing_setup',
-    'recipes', 'reports', 'rota', 'rota_pay', 'rota_tips', 'screens', 'staff', 'team', 'venues', 'web_orders', 'website',
+    'recipes', 'reports', 'rota', 'rota_pay', 'rota_tips', 'screens', 'staff', 'stock', 'team', 'venues', 'web_orders', 'website',
   ])
   for (const s of Object.values(CATALOGUE.subjects)) {
     assert.ok(AREAS.some(a => a.key === s.area), s.key + ' area')

@@ -8,12 +8,10 @@
 import inventoryRoutes from '../routes/inventory.js'
 import supplierRoutes from '../routes/suppliers.js'
 import purchasingRoutes from '../routes/purchasing.js'
-import stockRoutes from '../routes/stock.js'
 
 export const routes = [
   [inventoryRoutes, { prefix: '/api/inventory' }],
   [supplierRoutes, { prefix: '/api/suppliers' }],
   [purchasingRoutes, { prefix: '/api/purchasing' }],
-  // Stock on hand and stock counts (migration 287, Pepper-first step 8B3)
-  [stockRoutes, { prefix: '/api/stock' }],
+  // Stock on hand and counts are the stock area's since inventory phase 4a (src/areas/stock.js).
 ]

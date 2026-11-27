@@ -56,7 +56,7 @@ async function storedTree(tenantId) {
 
 // Migration 196's tree with 202's change applied: Till setup (and its Floor
 // plan) and Menu screens out, the Store tech section in after Venues.
-test('migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230 + 231 + 235 + 240 + 241 + 243 + 258 + 263 + 273 + 277 + 279 + 291 + 301 + 303 hold the same tree as DEFAULT_NAV_TREE', () => {
+test('migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230 + 231 + 235 + 240 + 241 + 243 + 258 + 263 + 273 + 277 + 279 + 291 + 301 + 303 + 307 hold the same tree as DEFAULT_NAV_TREE', () => {
   const read = f => fs.readFileSync(new URL('../../migrations/' + f, import.meta.url), 'utf8').match(/\$nav\$([\s\S]*?)\$nav\$/)[1]
   const drop = nodes => nodes.filter(n => !['/pos', '/pos/floor', '/screens'].includes(n.route))
     .map(n => (n.children ? { ...n, children: drop(n.children) } : n))
@@ -147,6 +147,9 @@ test('migrations 196 + 202 + 208 + 211 + 216 + 219 + 221 + 225 + 227 + 228 + 230
   // 303: Menu margins straight after Recipes.
   stock.children.splice(stock.children.findIndex(n => n.route === '/recipes') + 1, 0,
     { label: 'Menu margins', icon: 'BadgePercent', route: '/menu-margins', module: 'costing' })
+  // 307: Stock straight after Recipes (inventory phase 4a).
+  stock.children.splice(stock.children.findIndex(n => n.route === '/recipes') + 1, 0,
+    { label: 'Stock', icon: 'Boxes', route: '/stock', module: 'stock' })
   assert.deepEqual(strip(tree), strip(DEFAULT_NAV_TREE))
 })
 
