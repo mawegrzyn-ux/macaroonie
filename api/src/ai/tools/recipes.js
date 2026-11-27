@@ -13,7 +13,8 @@
 //                  with how to fix each, and (Costing view) its cost
 //                  on each basis with the step by step explanation   recipes, view
 //
-// The model is given names, never ids: a recipe is picked by its name.
+// The model is given names, never ids (rule 19): a recipe is picked by its
+// name, and its page link searches the Recipes page for that name.
 
 import { z } from 'zod'
 import { callApi, requireStaffPermission } from '../context.js'
@@ -153,7 +154,7 @@ export const recipeTools = [
         ...(r.variant_of_name ? { variation_of: r.variant_of_name } : {}),
         ...(r.variations?.length ? { variations: r.variations.map(x => x.name) } : {}),
         ...(r.shelf_life_hours ? { keeps_for: plural(r.shelf_life_hours, 'hour') } : {}),
-        page: '/recipes?recipe=' + r.id,
+        page: '/recipes?q=' + encodeURIComponent(r.name),
       }
     },
   },

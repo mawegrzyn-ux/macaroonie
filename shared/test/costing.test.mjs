@@ -230,3 +230,53 @@ test('margin: net of VAT included, gross profit and cost %, at 20% and 0%; pence
   assert.equal(margin({ gross_pence: 1000, vat_rate: 20, cost: null }).gp_pence, null, 'an unknown cost is no margin')
   assert.equal(margin({ gross_pence: 0, vat_rate: 20, cost: 1 }).cost_pct, null)
 })
+
+test('margin: cost and gross profit make net to the penny, and the two percentages make 100', () => {
+  // £1.045 is 104.5p: rounded once to 105p, GP is what is left (312p), never 313p beside it.
+  const m = margin({ gross_pence: 500, vat_rate: 20, cost: 1.045 })
+  assert.equal(m.net_pence, 417)
+  assert.equal(m.cost_pence + m.gp_pence, m.net_pence)
+  assert.equal(m.gp_pence, 312)
+  // 23.75% cost is 23.8%: GP is 76.2%, not 76.3% (100.1 together).
+  const p = margin({ gross_pence: 528, vat_rate: 20, cost: 1.045 })
+  assert.equal(p.cost_pct, 23.8)
+  assert.equal(p.gp_pct, 76.2)
+  for (const [g, c] of [[999, 3.333], [1234, 5.555], [350, 0.015], [1200, 12.5]]) {
+    const x = margin({ gross_pence: g, vat_rate: 20, cost: c })
+    assert.equal(x.cost_pence + x.gp_pence, x.net_pence, g + ' at ' + c)
+    assert.equal(Math.round((x.cost_pct + x.gp_pct) * 10) / 10, 100, g + ' at ' + c)
+  }
+})
+
+test('last and average paid: receipts in another base unit are no price; only old receipts are said to be old', () => {
+  // Bought as trays of 24 each at £7.20 while it was kept in each, now kept in grams.
+  const eggs = { id: 'eg', name: 'Eggs', base_unit: 'g', yield_pct: 100, units: [] }
+  const receipts = { eg: [{ venue_id: V1, at: '2026-11-20T10:00:00Z', packs: 2, pack_base_qty: 24, price: 7.2, base_unit: 'each' }] }
+  const data = { receipts, since: '2026-08-29T00:00:00Z' }
+  assert.equal(itemCost(eggs, V1, data, 'last').per_base, null, 'never £0.30 a gram')
+  assert.equal(itemCost(eggs, V1, data, 'last').problem, 'no_receipts')
+  assert.equal(itemCost(eggs, V1, data, 'average').problem, 'no_receipts')
+  // Booked in in grams too: that one is the price.
+  receipts.eg.push({ venue_id: V1, at: '2026-11-01T10:00:00Z', packs: 1, pack_base_qty: 6000, price: 18, base_unit: 'g' })
+  close(itemCost(eggs, V1, data, 'last').per_base, 18 / 6000, 'the latest in grams')
+  // Only booked in before the 90 days: last paid has it, average says it is old, not that nothing came.
+  const old = { ...data, receipts: { ch: [{ venue_id: V1, at: '2026-05-01T10:00:00Z', packs: 1, pack_base_qty: 12000, price: 96 }] } }
+  close(itemCost(cheddar, V1, old, 'last').per_base * 1000, 8)
+  assert.equal(itemCost(cheddar, V1, old, 'average').problem, 'no_recent')
+  const r = recipeCost({ id: 'r', name: 'Toast', kind: 'dish', lines: [{ id: 'r1', item_id: 'ch', qty: 10, unit: 'g' }] },
+    { items, quotes, ...old, venueId: V1, basis: 'average' })
+  assert.equal(r.gaps[0].reason, 'no_recent')
+  assert.equal(r.gaps[0].text, 'Nothing of Cheddar has been booked in here in the last 90 days')
+  assert.match(r.gaps[0].fix, /last paid or the standard price/)
+})
+
+test('recipeCost remembers the ctx\'s own recipe only: an edited copy with the same id is costed afresh', () => {
+  const ctx = { items, recipes: { ...recipes }, quotes, venueId: V1 }
+  const before = recipeCost(burger, ctx)
+  assert.equal(recipeCost(burger, ctx), before, 'the same recipe again is remembered')
+  // The draft drops the bun: its cost is the draft's, not the stored recipe's.
+  const draft = { ...burger, lines: burger.lines.filter(l => l.item_id !== 'bu') }
+  const after = recipeCost(draft, ctx)
+  close(after.cost, before.cost - 0.6, 'the bun came out')
+  assert.equal(recipeCost(burger, ctx), before, 'and the stored one is still its own')
+})

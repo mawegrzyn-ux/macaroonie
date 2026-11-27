@@ -635,7 +635,10 @@ export function Section() {
         line gives the item in it). <Mono>loadItems()</Mono> returns <Mono>units</Mono>, <Mono>yield_pct</Mono>,{' '}
         <Mono>recipe_unit</Mono>, <Mono>count_unit</Mono> and <Mono>recipe_count</Mono>. An item in a recipe is
         switched off instead of deleted (<Mono>recipe_lines.item_id</Mono> has a plain foreign key), and its base
-        unit can&apos;t change while it has own units or recipe lines. The rules are <Mono>toBase()</Mono>,{' '}
+        unit can&apos;t change while it has own units or recipe lines. When it does change, a stored{' '}
+        <Mono>recipe_unit</Mono> or <Mono>count_unit</Mono> of the old kind is cleared (one sent in the same PATCH is
+        checked against the new kind), and received order lines in the old unit stop counting for Last paid and
+        Average paid (<Mono>loadReceipts()</Mono>). The rules are <Mono>toBase()</Mono>,{' '}
         <Mono>unitChoices()</Mono> and <Mono>unitNameProblem()</Mono> in <Mono>shared/costing.js</Mono> (see
         Recipes and costing). Admin: <Mono>components/purchasing/units.jsx</Mono> (<Mono>UnitsCard</Mono> in the
         item drawer). The report subject Inventory items offers the yield.

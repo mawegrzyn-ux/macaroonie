@@ -21,9 +21,9 @@ import { cn } from '@/lib/utils'
 import { Field, inputCls, ErrorNote, ConfirmDelete, Segmented, SortableRows } from '@/components/staff/shared'
 import { Card, NumInput, Toggle, btn } from '@/components/purchasing/shared'
 import { PicturePick } from '@/components/media/PicturePick'
-import { KINDS, YIELD_UNITS } from '@shared/costing.js'
+import { KINDS, YIELD_UNITS, AVERAGE_DAYS } from '@shared/costing.js'
 import {
-  CoverageBadge, KindBadge, CostAt, pounds, perLabel, unitLabel, makesText, usePickers, detailsOf, linesOf, methodOf, lineKey,
+  CoverageBadge, KindBadge, CostAt, pounds, perLabel, unitLabel, madeText, usePickers, detailsOf, linesOf, methodOf, lineKey,
   saveBody, sameLines, sameObj, BASES,
 } from './shared'
 
@@ -291,6 +291,11 @@ function LinesCard({ value, onChange, recipe, live, costs, edit, dirty, pickers,
         </div>
       )}
       {nesting && <p className="mx-4 mb-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-sm px-3 py-2" data-testid="recipe-nesting">{nesting.message}</p>}
+      {edit && value.some(l => l.item_id) && (
+        <p className="px-4 pb-2 text-xs text-muted-foreground">
+          % usable: a line&apos;s own yield, for when this recipe trims harder than usual. Leave it empty to use the item&apos;s own (shown greyed).
+        </p>
+      )}
       {edit && <AddLine pickers={pickers} recipeId={recipe.id} onAdd={add} />}
       {dirty && <p className="px-4 pb-3 text-xs text-muted-foreground">Not saved yet: the cost beside shows the lines as changed.</p>}
       <div className="px-4 pb-3"><ErrorNote error={error} /></div>
@@ -318,8 +323,11 @@ function LineRow({ line, live, item, prep, costs, edit, onChange, onRemove }) {
           {units.map(u => <option key={u} value={u}>{unitLabel(u)}{choices.includes(u) ? '' : ' (no size)'}</option>)}
         </select>
         {line.item_id && (
-          <NumInput value={line.yield_pct} onChange={v => onChange({ yield_pct: v })} disabled={!edit} className="h-12 w-20"
-            placeholder={(item?.yield_pct ?? 100) + '%'} aria-label={'Yield for ' + name + ', usable %'} title="Usable %: leave empty for the item's own" />
+          <label className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            <NumInput value={line.yield_pct} onChange={v => onChange({ yield_pct: v })} disabled={!edit} className="h-12 w-16"
+              placeholder={String(item?.yield_pct ?? 100)} aria-label={'Yield for ' + name + ', usable %'} data-testid="recipe-line-yield" />
+            <span>% usable</span>
+          </label>
         )}
         {costs && (
           <span className="w-20 text-right text-sm tabular-nums" data-testid="recipe-line-cost">
@@ -329,7 +337,7 @@ function LineRow({ line, live, item, prep, costs, edit, onChange, onRemove }) {
         {edit && <ConfirmDelete label={'Take ' + name + ' out'} confirmLabel="Take out" onConfirm={onRemove} />}
       </div>
       {(edit || line.note) && (
-        <input className={cn(inputCls, 'h-10 text-xs')} value={line.note} disabled={!edit} maxLength={500} placeholder="Note (optional): diced, to garnish"
+        <input className={cn(inputCls, 'h-12 text-xs')} value={line.note} disabled={!edit} maxLength={500} placeholder="Note (optional): diced, to garnish"
           onChange={e => onChange({ note: e.target.value })} aria-label={'Note for ' + name} />
       )}
       {live?.problem && !costs && <p className="text-xs text-amber-800">Not costed: {problemWords(live.problem)}</p>}
@@ -338,7 +346,8 @@ function LineRow({ line, live, item, prep, costs, edit, onChange, onRemove }) {
 }
 
 const problemWords = p => ({
-  no_price: 'no supplier price', no_receipts: 'nothing booked in here yet', no_unit: 'no size for that unit',
+  no_price: 'no supplier price', no_receipts: 'nothing booked in here yet', no_recent: 'nothing booked in here in the last ' + AVERAGE_DAYS + ' days',
+  no_unit: 'no size for that unit',
   missing: 'it is gone', empty: 'it has nothing in it', no_yield: 'it doesn\'t say what it makes', sub_partial: 'only partly costed',
   cycle: 'it is inside itself', too_deep: 'nested too deep',
 }[p] || p)
@@ -416,8 +425,9 @@ function CostCard({ recipe, live, costs, changed, venueId, basis }) {
                 {live.per_unit != null ? pounds(live.per_unit) : 'No cost yet'}
                 {live.per_unit != null && <span className="text-sm font-normal text-muted-foreground"> {perLabel(live.unit)}</span>}
               </p>
-              <p className="text-xs text-muted-foreground">
-                {live.cost != null ? pounds(live.cost) + ' for all of it, ' : ''}{makesText(recipe)} at {where}
+              {/* What the cost is divided by, from the same answer as the cost (the draft's while it is changed). */}
+              <p className="text-xs text-muted-foreground" data-testid="recipe-cost-makes">
+                {live.cost != null ? pounds(live.cost) + ' for all of it' : 'No cost'}{live.makes != null ? ', making ' + madeText(live.makes, live.unit) : ''}, at {where}
                 {', ' + (BASES.find(b => b.key === basis)?.label || 'Standard').toLowerCase()}
               </p>
             </div>
@@ -443,7 +453,7 @@ function CostCard({ recipe, live, costs, changed, venueId, basis }) {
                 <p className="font-medium text-amber-900">{g.text}</p>
                 <p className="text-amber-900/80 text-xs mt-0.5">{g.fix}</p>
                 {FIX_LINK[g.reason] && itemOf(g) && (
-                  <Link to={'/inventory?item=' + itemOf(g)} className="inline-flex items-center h-10 text-xs font-medium underline">Open it on the Inventory page</Link>
+                  <Link to={'/inventory?item=' + itemOf(g)} className="inline-flex items-center min-h-[48px] text-xs font-medium underline touch-manipulation">Open it on the Inventory page</Link>
                 )}
               </li>
             ))}
@@ -451,7 +461,7 @@ function CostCard({ recipe, live, costs, changed, venueId, basis }) {
         )}
         {costs && live.explanation?.rows?.length > 0 && (
           <details className="group" open data-testid="recipe-explain">
-            <summary className="cursor-pointer text-sm font-medium min-h-[44px] flex items-center">How it is worked out</summary>
+            <summary className="cursor-pointer text-sm font-medium min-h-[48px] flex items-center touch-manipulation">How it is worked out</summary>
             <ol className="space-y-2 text-sm">
               {live.explanation.rows.map((r, i) => (
                 <li key={i} className={cn('rounded-lg border px-3 py-2', r.kind === 'gap' && 'border-amber-200 bg-amber-50', (r.kind === 'total' || r.kind === 'per_unit') && 'bg-muted/40')}>
@@ -473,7 +483,7 @@ function CostCard({ recipe, live, costs, changed, venueId, basis }) {
 function UsedCard({ recipe, onOpen }) {
   if (!recipe.used_in?.length && !recipe.variations?.length && !recipe.variant_of_name) return null
   const link = r => (
-    <button key={r.id} type="button" onClick={() => onOpen(r.id)} className="text-sm px-3 h-11 rounded-full border hover:bg-muted touch-manipulation">{r.name}</button>
+    <button key={r.id} type="button" onClick={() => onOpen(r.id)} className="text-sm px-3 h-12 rounded-full border hover:bg-muted touch-manipulation">{r.name}</button>
   )
   return (
     <Card title="Where it is used">

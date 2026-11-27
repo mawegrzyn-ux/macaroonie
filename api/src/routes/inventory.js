@@ -824,6 +824,15 @@ export default async function inventoryRoutes(app) {
       }
       const { custom, ...rest } = b
       const fields = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined))
+      // A new base unit: a usual unit of the old kind (kg for an item now kept in ml)
+      // no longer fits, so it is cleared unless the body sets it (checked below).
+      // It has no own units here (refused above), so only standard units fit.
+      if (fields.base_unit && fields.base_unit !== item.base_unit) {
+        const next = unitChoices({ base_unit: fields.base_unit, units: [] })
+        for (const k of ['recipe_unit', 'count_unit']) {
+          if (fields[k] === undefined && item[k] && !next.includes(String(item[k]).trim().toLowerCase())) fields[k] = null
+        }
+      }
       if (fields.recipe_unit !== undefined || fields.count_unit !== undefined) {
         const units = (await loadUnits(tx, req.tenantId, [item.id])).get(item.id) || []
         checkUsualUnits({ ...item, base_unit: fields.base_unit || item.base_unit, units }, fields)

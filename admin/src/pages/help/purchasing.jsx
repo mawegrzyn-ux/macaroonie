@@ -511,7 +511,8 @@ export function Section() {
         are the units it is usually used and counted in. <strong>Its own units</strong> are sizes beyond g, kg, ml
         and the rest: 1 slice = 20 g, 1 each = 150 g for an item kept in grams. Each part saves with its own
         button. A unit a recipe uses can&apos;t be deleted until the recipe changes (the page names it), and an
-        item in a recipe, or with units of its own, keeps how it is counted. Deleting an item a recipe uses
+        item in a recipe, or with units of its own, keeps how it is counted. Changing how an item is counted
+        clears a usual unit that no longer fits (kg for an item now counted in ml). Deleting an item a recipe uses
         switches it off instead.
       </P>
       <InfoBox type="info">

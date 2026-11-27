@@ -331,7 +331,8 @@ function ItemDrawer({ itemId, canEdit, onCreated, onClose, onOpenItem }) {
         <>
           <CustomFieldsCard objectKey="purchasing.items" values={item.custom} canEdit={canEdit}
             onSave={async custom => refresh(await api.patch('/inventory/items/' + item.id, { custom }))} />
-          <UnitsCard key={item.id + ':' + item.updated_at} item={item} canEdit={canEdit} onSaved={refresh} />
+          {/* Kept across the drawer's other saves: its parts follow the stored item themselves. */}
+          <UnitsCard key={item.id} item={item} canEdit={canEdit} onSaved={refresh} />
           <Card title="Supplier prices"
             actions={canEdit && <button type="button" className={btn.outline} onClick={() => setQuoteEdit({})}><Plus className="w-4 h-4" />Add price</button>}
             bodyClass="p-0">

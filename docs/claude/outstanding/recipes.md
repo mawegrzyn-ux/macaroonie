@@ -14,3 +14,6 @@ What is not built, known limits and follow-ups in this area (`docs/claude/areas/
 - Recipe photos come from the media library through `PicturePick`, which needs the person to be able to upload to Media: a cook with Recipes manage but no media access sees the upload refused.
 - No allergens, calories or labels from recipes (phase 8), and `shelf_life_hours` is kept but nothing prints a label with it.
 - Recipes are per group: nothing passes recipes from a franchisor to its franchisees (phase 10).
+- Pepper's link to a recipe searches the Recipes page by its name (`?q=`) instead of opening the recipe: two recipes whose names contain the same words both show. Opening one straight from a name needs a link the page resolves by name.
+- After an item's base unit changes, deliveries booked in under the old unit are left out of Last paid and Average paid; the gap then says nothing was booked in. It doesn't say the old deliveries were in another unit.
+- This phase made the pepper area's `api/src/ai/tools/util.js` public in `areas.json` (every area's Pepper tool file uses it; four baseline crossings went with it). It is another area's public surface: name it in the pull request's title.

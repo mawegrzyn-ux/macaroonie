@@ -9,7 +9,9 @@
 //   - Its own units: "1 slice = 20 g", "1 each = 150 g" for an item kept in
 //     grams. Recipes cost it through them (toBase() in shared/costing.js);
 //     a unit a recipe uses can't be deleted (the API says which recipes).
-// Each part saves with its own button. API: routes/inventory.js.
+// Each part saves with its own button. The card stays put while the drawer's
+// other cards save: a part not changed here follows the item as stored, a
+// changed one keeps its changes until its own Save. API: routes/inventory.js.
 
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
@@ -19,7 +21,7 @@ import { cn } from '@/lib/utils'
 import { Field, inputCls, ErrorNote, ConfirmDelete } from '@/components/staff/shared'
 import { NumInput, Card, btn } from '@/components/purchasing/shared'
 import { UNITS, fmtNum } from '@shared/procurement.js'
-import { unitChoices, unitNameProblem } from '@shared/costing.js'
+import { unitChoices, unitNameProblem, asBought } from '@shared/costing.js'
 
 const baseLabel = u => UNITS[u]?.label ?? u
 
@@ -32,18 +34,27 @@ export function UnitsCard({ item, canEdit, onSaved }) {
   )
 }
 
+const yieldOfItem = i => ({ yield_pct: i.yield_pct ?? 100, recipe_unit: i.recipe_unit || '', count_unit: i.count_unit || '' })
+const yieldDiffers = (a, b) => Number(a.yield_pct) !== Number(b.yield_pct) || a.recipe_unit !== b.recipe_unit || a.count_unit !== b.count_unit
+
 function YieldForm({ item, canEdit, onSaved }) {
   const api = useApi()
-  const initial = { yield_pct: item.yield_pct ?? 100, recipe_unit: item.recipe_unit || '', count_unit: item.count_unit || '' }
+  const initial = yieldOfItem(item)
   const [f, setF] = useState(initial)
+  // The item as stored changed (another card saved, a unit renamed): follow it unless changed here.
+  const [was, setWas] = useState(initial)
+  if (yieldDiffers(was, initial)) {
+    setWas(initial)
+    if (!yieldDiffers(f, was)) setF(initial)
+  }
   const choices = unitChoices(item)
-  const dirty = Number(f.yield_pct) !== Number(initial.yield_pct) || f.recipe_unit !== initial.recipe_unit || f.count_unit !== initial.count_unit
+  const dirty = yieldDiffers(f, initial)
   const wrong = f.yield_pct == null || f.yield_pct < 1 || f.yield_pct > 100
   const save = useMutation({
     mutationFn: () => api.patch('/inventory/items/' + item.id, {
       yield_pct: Number(f.yield_pct), recipe_unit: f.recipe_unit || null, count_unit: f.count_unit || null,
     }),
-    onSuccess: onSaved,
+    onSuccess: saved => { setF(yieldOfItem(saved)); setWas(yieldOfItem(saved)); onSaved(saved) },
   })
   return (
     <div className="p-4 space-y-3 border-b" data-testid="inv-yield">
@@ -68,7 +79,7 @@ function YieldForm({ item, canEdit, onSaved }) {
       </div>
       {Number(f.yield_pct) < 100 && !wrong && (
         <p className="text-xs text-muted-foreground">
-          A recipe using {fmtNum(100)} {baseLabel(item.base_unit)} needs {fmtNum(100 / (Number(f.yield_pct) / 100))} {baseLabel(item.base_unit)} bought.
+          A recipe using {fmtNum(100)} {baseLabel(item.base_unit)} needs {fmtNum(asBought(100, Number(f.yield_pct)))} {baseLabel(item.base_unit)} bought.
         </p>
       )}
       {canEdit && (

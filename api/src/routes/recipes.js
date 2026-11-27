@@ -121,6 +121,13 @@ async function access(req) {
 
 const who = req => req.user?.email ?? req.user?.sub ?? null
 
+/**
+ * One recipe save at a time in a group: the nesting check reads every other
+ * recipe's lines, so two saves at once (A into B, B into A) could each pass
+ * against the other's old lines and write a loop. Held to the transaction's end.
+ */
+const lockRecipes = (tx, tenantId) => tx`SELECT pg_advisory_xact_lock(hashtext(${'recipes:' + tenantId}))`
+
 async function ownRecipe(tx, tenantId, id) {
   const [r] = await tx`SELECT id, name, kind, variant_of FROM recipes WHERE id = ${id} AND tenant_id = ${tenantId}`
   if (!r) throw httpError(404, 'Recipe not found')
@@ -326,6 +333,7 @@ export default async function recipeRoutes(app) {
   app.post('/', { preHandler: canManage }, async (req, reply) => {
     const b = RecipeNew.parse(req.body || {})
     const out = await withTenant(req.tenantId, async tx => {
+      await lockRecipes(tx, req.tenantId)
       const all = await loadRecipes(tx, req.tenantId)
       await checkRecipe(tx, req.tenantId, null, b, all)
       const [r] = await tx`
@@ -342,6 +350,7 @@ export default async function recipeRoutes(app) {
     const q = OneQuery.parse(req.query || {})
     return withTenant(req.tenantId, async tx => {
       const r = await ownRecipe(tx, req.tenantId, req.params.recipeId)
+      await lockRecipes(tx, req.tenantId)
       const all = await loadRecipes(tx, req.tenantId)
       await checkRecipe(tx, req.tenantId, r.id, b, all)
       await tx`UPDATE recipes SET ${tx(recipeValues(b))}, updated_at = now() WHERE id = ${r.id} AND tenant_id = ${req.tenantId}`
@@ -354,6 +363,7 @@ export default async function recipeRoutes(app) {
     const b = CopyBody.parse(req.body || {})
     const out = await withTenant(req.tenantId, async tx => {
       await ownRecipe(tx, req.tenantId, req.params.recipeId)
+      await lockRecipes(tx, req.tenantId)
       const all = await loadRecipes(tx, req.tenantId)
       const from = all.get(req.params.recipeId)
       const body = {

@@ -63,7 +63,10 @@ export async function loadCostItems(tx, tenantId, ids = null) {
  * What was received of these items (at one venue, or every venue): the
  * receipts of the last AVERAGE_DAYS days and, older than that, each venue's
  * latest of each item (the last price paid). price = what was paid per pack
- * (invoice_price, else the price ordered at), ex VAT, pounds.
+ * (invoice_price, else the price ordered at), ex VAT, pounds. Only lines in
+ * the item's base unit as it is now: a line booked in before its base unit
+ * changed has its pack size in the old unit (24 each is no 24 g), so it is
+ * no price per base unit and is left out, never costed in the wrong unit.
  */
 export async function loadReceipts(tx, tenantId, itemIds, venueId = null) {
   const out = {}
@@ -74,12 +77,13 @@ export async function loadReceipts(tx, tenantId, itemIds, venueId = null) {
     WITH got AS (
       SELECT pl.id, po.venue_id, pl.item_id, po.received_at AS at, pl.received_qty::float8 AS packs,
              pl.pack_base_qty::float8 AS pack_base_qty, COALESCE(pl.invoice_price, pl.price)::float8 AS price,
-             pl.pack_label, s.name AS supplier_name
+             pl.pack_label, pl.base_unit, s.name AS supplier_name
         FROM purchase_order_lines pl
         JOIN purchase_orders po ON po.id = pl.po_id AND po.tenant_id = pl.tenant_id
+        JOIN inv_items i ON i.id = pl.item_id AND i.tenant_id = pl.tenant_id
         LEFT JOIN suppliers s ON s.id = po.supplier_id AND s.tenant_id = po.tenant_id
        WHERE pl.tenant_id = ${tenantId} AND pl.item_id = ANY(${itemIds}::uuid[])
-         AND pl.received_qty > 0 AND pl.pack_base_qty > 0
+         AND pl.received_qty > 0 AND pl.pack_base_qty > 0 AND pl.base_unit = i.base_unit
          AND po.received_at IS NOT NULL AND po.status <> 'cancelled' ${venueCut}
     ), latest AS (
       SELECT DISTINCT ON (venue_id, item_id) id FROM got ORDER BY venue_id, item_id, at DESC, id

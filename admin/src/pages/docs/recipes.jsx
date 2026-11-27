@@ -52,26 +52,29 @@ export function Section() {
         <Mono>chooseQuote()</Mono>&apos;s quote at <Mono>quotePrice()</Mono> for the venue over its{' '}
         <Mono>pack_base_qty</Mono>; <Mono>last</Mono> the latest received line at the venue (<Mono>invoice_price</Mono>,
         else <Mono>price</Mono>, per pack); <Mono>average</Mono> the received lines of the last{' '}
-        <Mono>AVERAGE_DAYS</Mono> (90) weighted by quantity; usable cost = cost / (yield / 100), never cost x (1 +
-        waste). <Mono>recipeCost(recipe, ctx)</Mono> returns <Mono>{'{ cost, per_unit, unit, makes, lines, gaps, coverage, complete }'}</Mono>:
+        <Mono>AVERAGE_DAYS</Mono> (90) weighted by quantity (only older ones: <Mono>no_recent</Mono>, not{' '}
+        <Mono>no_receipts</Mono>); a received line whose <Mono>base_unit</Mono> isn&apos;t the item&apos;s is left out
+        (its pack size is in the old unit); usable cost = cost / (yield / 100), never cost x (1 + waste). <Mono>recipeCost(recipe, ctx)</Mono> returns <Mono>{'{ cost, per_unit, unit, makes, lines, gaps, coverage, complete }'}</Mono>:
         a line&apos;s cost is <Mono>toBase()</Mono> / yield x cost per base unit; a prep recipe inside is costed by its
         own <Mono>per_unit</Mono> (total / (yield_qty x (1 - loss))) with the line converted by{' '}
         <Mono>inRecipeUnit()</Mono>; a dish is total / portions. Lines that can&apos;t be costed are left out and
-        listed as gaps with a reason (<Mono>no_price</Mono>, <Mono>no_receipts</Mono>, <Mono>no_unit</Mono>,{' '}
+        listed as gaps with a reason (<Mono>no_price</Mono>, <Mono>no_receipts</Mono>, <Mono>no_recent</Mono>, <Mono>no_unit</Mono>,{' '}
         <Mono>missing</Mono>, <Mono>empty</Mono>, <Mono>no_yield</Mono>, <Mono>sub_partial</Mono>, <Mono>cycle</Mono>,{' '}
         <Mono>too_deep</Mono>), the words and how to fix it; coverage is full, partial or none. Results are
-        remembered per request by recipe, venue and basis (<Mono>ctx._memo</Mono>). <Mono>explain()</Mono> gives
+        remembered per request by recipe, venue and basis (<Mono>ctx._memo</Mono>), and only for the ctx&apos;s own
+        recipe object: an edited copy with the same id (a draft) is costed afresh. <Mono>explain()</Mono> gives
         rows <Mono>{'{ kind, label, steps, amount }'}</Mono> and the same as text; <Mono>nestingProblem()</Mono>{' '}
         refuses a recipe inside itself (with the path) or a chain deeper than <Mono>MAX_DEPTH</Mono> (5);{' '}
         <Mono>margin({'{ gross_pence, vat_rate, cost }'})</Mono> is where pence meet pounds: net = gross -{' '}
-        <Mono>vatIncluded()</Mono>, GP = net - cost, cost % = cost / net (phase 2 uses it). Tests:{' '}
+        <Mono>vatIncluded()</Mono>, GP = net - cost, cost % = cost / net; the cost is rounded to the penny once and
+        GP is net less it, GP % is 100 less cost %, so the parts always add up (phase 2 uses it). Tests:{' '}
         <Mono>shared/test/costing.test.mjs</Mono>.
       </P>
       <H3>Loading: services/costingSvc.js</H3>
       <P>
         <Mono>loadRecipes()</Mono> (every recipe with its lines), <Mono>loadCostItems()</Mono> (items with their own
         units, no prices), <Mono>loadReceipts()</Mono> (received lines of the window plus each venue&apos;s latest
-        per item) and <Mono>loadCosting(tx, tenantId, venueId, {'{ basis, recipes }'})</Mono>, which reads them once
+        per item, only lines whose <Mono>base_unit</Mono> is the item&apos;s as it is now) and <Mono>loadCosting(tx, tenantId, venueId, {'{ basis, recipes }'})</Mono>, which reads them once
         with <Mono>loadItemQuotes()</Mono> and <Mono>loadPreferred()</Mono> into the ctx the engine takes.{' '}
         <Mono>recipeView()</Mono> puts the engine&apos;s answer on a recipe, money only with costs.
       </P>
@@ -91,12 +94,14 @@ export function Section() {
         another recipe). Saves check every item, prep recipe and variation is the group&apos;s (404), only prep recipes
         go inside others (422 <Mono>not_prep</Mono>), a dish used inside another stays prep, and{' '}
         <Mono>nestingProblem()</Mono> (422 <Mono>recipe_cycle</Mono> / <Mono>recipe_depth</Mono> with{' '}
-        <Mono>path</Mono>). A venue in the query must be the group&apos;s (<Mono>loadVenue()</Mono>, 404).
+        <Mono>path</Mono>). Create, save and copy take <Mono>lockRecipes()</Mono> first (a transaction advisory lock
+        per group), so two saves at once can&apos;t each pass the check against the other&apos;s old lines and write a
+        loop. A venue in the query must be the group&apos;s (<Mono>loadVenue()</Mono>, 404).
       </P>
       <H3>Admin</H3>
       <P>
         <Mono>pages/Recipes.jsx</Mono> (lazy, <Mono>admin/src/routes/recipes.jsx</Mono>; address{' '}
-        <Mono>?recipe= &amp;venue= &amp;basis=</Mono>), <Mono>components/recipes/RecipeEditor.jsx</Mono> (the lines,
+        <Mono>?recipe= &amp;venue= &amp;basis=</Mono>, and <Mono>?q=</Mono> to start the list&apos;s search), <Mono>components/recipes/RecipeEditor.jsx</Mono> (the lines,
         details and method cards, each with its own Save sending the whole recipe through <Mono>saveBody()</Mono>;
         the live cost from <Mono>POST /preview</Mono> 350 ms after a change; <Mono>CostCard</Mono>,{' '}
         <Mono>UsedCard</Mono>), <Mono>components/recipes/shared.jsx</Mono> (<Mono>CostAt</Mono>, badges,{' '}
@@ -108,10 +113,12 @@ export function Section() {
         <Mono>api/src/reports/catalogue/recipes.js</Mono> (heading Recipes and costing): <Mono>recipes.recipes</Mono>,{' '}
         <Mono>recipes.lines</Mono> (module recipes) and <Mono>recipes.costs</Mono> (module costing, the work{' '}
         <Mono>recipe_costs</Mono> in <Mono>reports/work/recipes.js</Mono>: every recipe at each venue of the report
-        by <Mono>loadCosting()</Mono> and <Mono>recipeCost()</Mono> at standard prices). Starters in{' '}
+        by <Mono>loadCosting()</Mono> and <Mono>recipeCost()</Mono> at standard prices; the measure{' '}
+        <Mono>average_portion_cost</Mono> averages dishes only, as a prep&apos;s cost is per litre, kg or each;{' '}
+        <Mono>recipes.lines.what</Mono> answers to ingredient). Starters in{' '}
         <Mono>starters/recipes.js</Mono>: Recipes not fully costed, Recipe cost by venue. Pepper:{' '}
         <Mono>api/src/ai/tools/recipes.js</Mono>, <Mono>find_recipes</Mono> and <Mono>recipe</Mono> (read only,
-        through the routes, by name); registry <Mono>shared/registry/recipes.js</Mono> (<Mono>recipes.recipes</Mono>).
+        through the routes, by name; a recipe&apos;s link is <Mono>/recipes?q=</Mono> its name, no id, rule 19); registry <Mono>shared/registry/recipes.js</Mono> (<Mono>recipes.recipes</Mono>).
       </P>
       <InfoBox type="info">
         Not yet: links from recipes to menu dishes and options, the variation matrix per venue, revenue stream and

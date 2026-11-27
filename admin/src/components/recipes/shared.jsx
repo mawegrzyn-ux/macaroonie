@@ -11,16 +11,10 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Field, inputCls, Segmented, useVenues } from '@/components/staff/shared'
 import { UNITS, fmtNum } from '@shared/procurement.js'
-import { COVERAGE, BASES, perWord } from '@shared/costing.js'
+import { COVERAGE, BASES, perWord, pounds } from '@shared/costing.js'
 
-export { COVERAGE, BASES }
-
-/** Pounds: £0.26, £12.50; below a penny to four places. */
-export function pounds(n) {
-  if (n == null || n === '' || !Number.isFinite(Number(n))) return ''
-  const v = Number(n)
-  return (v < 0 ? '-£' : '£') + (Math.abs(v) > 0 && Math.abs(v) < 0.01 ? Math.abs(v).toFixed(4) : Math.abs(v).toFixed(2))
-}
+// pounds(): £0.26, £12.50; below a penny to four places (shared/costing.js, rule 12).
+export { COVERAGE, BASES, pounds }
 
 export const unitLabel = u => (u === 'portion' ? 'portion' : UNITS[u]?.label ?? u ?? '')
 
@@ -33,6 +27,13 @@ export function makesText(r) {
   if (r.kind === 'prep') return r.yield_qty ? fmtNum(r.yield_qty) + ' ' + unitLabel(r.yield_unit) : 'Not set'
   const p = Number(r.portions || 1)
   return fmtNum(p) + (p === 1 ? ' portion' : ' portions')
+}
+
+/** What a cost is divided by, as the cost came back (after cooking's loss): "2 portions", "1.5 l". */
+export function madeText(makes, unit) {
+  if (makes == null || !unit) return ''
+  const m = Number(makes)
+  return unit === 'portion' ? fmtNum(m) + (m === 1 ? ' portion' : ' portions') : fmtNum(m) + ' ' + unitLabel(unit)
 }
 
 const COVERAGE_LOOK = {

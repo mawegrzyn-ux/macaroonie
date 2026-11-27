@@ -88,7 +88,7 @@ export const subjects = [
     from: 'recipe_lines',
     open: 'recipe',
     fields: {
-      what: text({ sql: "COALESCE((SELECT i.name FROM inv_items i WHERE i.id = {t}.item_id AND i.tenant_id = {t}.tenant_id), (SELECT r.name FROM recipes r WHERE r.id = {t}.sub_recipe_id AND r.tenant_id = {t}.tenant_id))" }, { label: 'What it uses' }),
+      what: text({ sql: "COALESCE((SELECT i.name FROM inv_items i WHERE i.id = {t}.item_id AND i.tenant_id = {t}.tenant_id), (SELECT r.name FROM recipes r WHERE r.id = {t}.sub_recipe_id AND r.tenant_id = {t}.tenant_id))" }, { label: 'What it uses', synonyms: ['ingredient', 'ingredients', 'what goes into it'] }),
       line_kind: choice({ sql: "(CASE WHEN {t}.sub_recipe_id IS NOT NULL THEN 'prep' ELSE 'item' END)" }, { item: 'Inventory item', prep: 'Prep recipe' }, { label: 'Item or prep' }),
       qty: number('qty', { label: 'Quantity' }),
       unit: text('unit'),
@@ -97,7 +97,7 @@ export const subjects = [
       position: number({ sql: '({t}.sort_order + 1)' }, { label: 'Line number', decimals: 0 }),
     },
     measures: {
-      lines: count({ label: 'Lines' }),
+      lines: count({ label: 'Lines', synonyms: ['ingredients'] }),
     },
     links: {
       recipe: one('recipes.recipes', 'recipe_id', { label: 'Recipe' }),
@@ -141,7 +141,12 @@ export const subjects = [
       recipes: count({ label: 'Recipes costed', about: 'Recipes at venues (one row for each recipe at each venue).' }),
       fully_costed: count({ label: 'Fully costed', where: "{t}.coverage = 'full'" }),
       not_fully_costed: count({ label: 'Not fully costed', where: "{t}.coverage <> 'full'" }),
-      average_unit_cost: avg('per_unit', { type: 'money', unit: 'pounds', needs: COSTING, label: 'Average cost per portion or unit' }),
+      // Dishes only: a prep recipe is costed per litre, kg or each it makes, which can't be averaged with a portion.
+      average_portion_cost: avg('per_unit', {
+        type: 'money', unit: 'pounds', needs: COSTING, label: 'Average cost per portion', where: "{t}.kind = 'dish'",
+        synonyms: ['average plate cost', 'average food cost'],
+        about: 'Dishes\' cost per portion, on average. Prep recipes are left out: each is costed per unit it makes (a litre, a kg), which can\'t be averaged with a portion.',
+      }),
       total_gaps: sum('gaps', { label: 'Gaps' }),
     },
     links: {

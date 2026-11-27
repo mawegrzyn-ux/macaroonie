@@ -35,7 +35,9 @@
 // yield_pct, recipe_unit, units: [{ name, base_qty }] }; recipes[id] = a
 // recipe with its lines; quotes[itemId] = the item's active quotes (with
 // venue_prices); preferred[itemId] = { default, venues }; receipts[itemId] =
-// [{ venue_id, at, packs, pack_base_qty, price }] (price paid per pack).
+// [{ venue_id, at, packs, pack_base_qty, price, base_unit }] (price paid per
+// pack; a receipt whose base_unit isn't the item's is left out: its pack size
+// is in another unit).
 
 import { UNITS, chooseQuote, quotePrice, packLabel, fmtNum, perUnitLabel } from './procurement.js'
 import { vatIncluded } from './orderPricing.js'
@@ -69,7 +71,7 @@ const values = coll => (coll == null ? [] : coll instanceof Map ? [...coll.value
 
 /** Money in pounds for the explanation: £0.26, £12.50; below a penny to 4 places. */
 export function pounds(n) {
-  if (n == null || !Number.isFinite(Number(n))) return ''
+  if (n == null || n === '' || !Number.isFinite(Number(n))) return ''
   const v = Number(n)
   return (v < 0 ? '-£' : '£') + (Math.abs(v) > 0 && Math.abs(v) < 0.01 ? Math.abs(v).toFixed(4) : Math.abs(v).toFixed(2))
 }
@@ -139,8 +141,10 @@ export const asBought = (usable, yieldPct) => round6(num(usable) / (num(yieldPct
  * What an item costs per base unit at a venue (null venue = the group's
  * price), on a basis: { basis, per_base, usable_per_base, yield_pct, how,
  * quote_id, supplier_name, pack_label, pack_price, pack_base_qty, at,
- * received, problem }. problem: 'no_price' (standard: no supplier price) or
- * 'no_receipts' (last, average: nothing received there).
+ * received, problem }. problem: 'no_price' (standard: no supplier price),
+ * 'no_receipts' (last, average: nothing received there in the item's base
+ * unit) or 'no_recent' (average: nothing received there in the last
+ * AVERAGE_DAYS days, only before).
  */
 export function itemCost(item, venueId, data = {}, basis = 'standard') {
   const y = yieldOf(item)
@@ -151,7 +155,9 @@ export function itemCost(item, venueId, data = {}, basis = 'standard') {
   })
   if (!item) return out(null)
   if (basis === 'last' || basis === 'average') {
-    const all = (get(data.receipts, item.id) || []).filter(r => num(r.packs) > 0 && num(r.pack_base_qty) > 0)
+    // A pack size in another unit (booked in before the item's base unit changed) is no price per base unit.
+    const all = (get(data.receipts, item.id) || []).filter(r => num(r.packs) > 0 && num(r.pack_base_qty) > 0
+      && (r.base_unit == null || r.base_unit === item.base_unit))
     const here = venueId != null ? all.filter(r => r.venue_id === venueId) : all
     if (!here.length) return out(null)
     const time = r => new Date(r.at).getTime()
@@ -164,7 +170,7 @@ export function itemCost(item, venueId, data = {}, basis = 'standard') {
     }
     const since = data.since ? new Date(data.since).getTime() : null
     const recent = since == null ? here : here.filter(r => time(r) >= since)
-    if (!recent.length) return out(null)
+    if (!recent.length) return out(null, { problem: 'no_recent' })
     const paid = recent.reduce((s, r) => s + num(r.price) * num(r.packs), 0)
     const qty = recent.reduce((s, r) => s + num(r.packs) * num(r.pack_base_qty), 0)
     return out(qty > 0 ? paid / qty : null, { how: 'average', received: recent.length })
@@ -219,6 +225,7 @@ export function recipeUnitChoices(sub) {
 const FIX = {
   no_price: n => 'Add a supplier price for ' + n + ' on the Inventory page.',
   no_receipts: n => 'Nothing of ' + n + ' has been booked in here yet: cost it at the standard price, or book a delivery in.',
+  no_recent: n => 'Nothing of ' + n + ' has been booked in here in the last ' + AVERAGE_DAYS + ' days: cost it on last paid or the standard price, or book a delivery in.',
   no_unit: (n, unit, item) => 'Give ' + n + ' a size for ' + unit + ' (its units on the Inventory page), or use ' + (unitChoices(item).join(', ') || 'its own unit') + '.',
   sub_unit: (n, unit, sub) => 'Use ' + n + ' in ' + (recipeUnitChoices(sub).join(', ') || 'what it is made in') + '.',
   missing: () => 'Take the line out, or pick what it should be.',
@@ -227,6 +234,13 @@ const FIX = {
   sub_partial: n => 'Open ' + n + ' and fix its gaps.',
   cycle: n => 'Take ' + n + ' out: a recipe can\'t be inside itself.',
   too_deep: () => 'Recipes nest up to ' + MAX_DEPTH + ' levels: use fewer prep recipes inside each other.',
+}
+
+// Why an item has no cost on the basis asked, in words.
+const NO_COST = {
+  no_price: (n, venueId) => n + ' has no supplier price' + (venueId ? ' here' : ''),
+  no_receipts: n => 'Nothing of ' + n + ' has been booked in here yet',
+  no_recent: n => 'Nothing of ' + n + ' has been booked in here in the last ' + AVERAGE_DAYS + ' days',
 }
 
 function gap(line, index, reason, text, fix) {
@@ -247,9 +261,12 @@ export function recipeCost(recipe, ctx = {}, state = null) {
   const basis = ctx.basis || 'standard'
   const venueId = ctx.venueId ?? null
   // Remembered for the request's other recipes (a prep inside many dishes),
-  // by venue and basis: a ctx may be asked about another venue later.
-  const memoKey = recipe?.id ? recipe.id + '|' + (venueId ?? '') + '|' + basis : null
-  if (memoKey && !st.stack.length && st.memo.has(memoKey)) return st.memo.get(memoKey)
+  // by venue and basis: a ctx may be asked about another venue later. Only
+  // the ctx's own recipe is remembered, and only for that same object: an
+  // edited copy with the same id (a draft) is costed afresh.
+  const memoKey = recipe?.id && get(ctx.recipes, recipe.id) === recipe ? recipe.id + '|' + (venueId ?? '') + '|' + basis : null
+  const hit = memoKey && !st.stack.length ? st.memo.get(memoKey) : null
+  if (hit && hit.recipe === recipe) return hit.out
   const gaps = []
   const lines = (recipe?.lines || []).slice().sort((a, b) => num(a.sort_order) - num(b.sort_order)).map((l, i) => {
     const row = {
@@ -278,9 +295,7 @@ export function recipeCost(recipe, ctx = {}, state = null) {
       row.source = c
       if (c.per_base == null) {
         row.problem = c.problem
-        gaps.push(gap(l, i, c.problem, c.problem === 'no_price'
-          ? item.name + ' has no supplier price' + (venueId ? ' here' : '')
-          : 'Nothing of ' + item.name + ' has been booked in here yet', FIX[c.problem](item.name)))
+        gaps.push(gap(l, i, c.problem, NO_COST[c.problem](item.name, venueId), FIX[c.problem](item.name)))
         return row
       }
       row.per_base = c.per_base
@@ -340,7 +355,7 @@ export function recipeCost(recipe, ctx = {}, state = null) {
   const per = costed.length && makes ? round6(cost / makes) : null
   const coverage = !costed.length || per == null ? 'none' : gaps.length ? 'partial' : 'full'
   const out = { recipe_id: recipe?.id ?? null, basis, venue_id: venueId, cost: costed.length ? cost : null, per_unit: per, unit, makes, lines, gaps, coverage, complete: coverage === 'full' }
-  if (memoKey && !st.stack.length) st.memo.set(memoKey, out)
+  if (memoKey && !st.stack.length) st.memo.set(memoKey, { recipe, out })
   return out
 }
 
@@ -477,7 +492,10 @@ export function nestingProblem(recipeId, lines, recipes, name = null) {
  * till keeps it), vat_rate (%), cost (pounds, as purchasing keeps it).
  * { gross_pence, vat_pence, net_pence, cost_pence, gp_pence, cost_pct, gp_pct }:
  * net = gross - vatIncluded(gross, rate); GP = net - cost; cost % = cost / net.
- * Percentages are null for a price of nothing; the cost is null when unknown.
+ * The cost is rounded to the penny once and GP is what is left of net, so
+ * cost + GP = net to the penny; GP % is 100 less cost % (to one place), so
+ * the two make 100. Percentages are null for a price of nothing; the cost
+ * is null when unknown.
  */
 export function margin({ gross_pence, vat_rate = 0, cost = null } = {}) {
   const gross = Math.round(num(gross_pence))
@@ -487,10 +505,11 @@ export function margin({ gross_pence, vat_rate = 0, cost = null } = {}) {
     return { gross_pence: gross, vat_pence: vat, net_pence: net, cost_pence: null, gp_pence: null, cost_pct: null, gp_pct: null }
   }
   const costPence = Number(cost) * 100
-  const pct = v => (net > 0 ? Math.round(v / net * 1000) / 10 : null)
+  const cost_pct = net > 0 ? Math.round(costPence / net * 1000) / 10 : null
+  const costRounded = Math.round(costPence)
   return {
     gross_pence: gross, vat_pence: vat, net_pence: net,
-    cost_pence: Math.round(costPence), gp_pence: Math.round(net - costPence),
-    cost_pct: pct(costPence), gp_pct: pct(net - costPence),
+    cost_pence: costRounded, gp_pence: net - costRounded,
+    cost_pct, gp_pct: cost_pct == null ? null : Math.round((100 - cost_pct) * 10) / 10,
   }
 }

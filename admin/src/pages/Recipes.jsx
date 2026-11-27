@@ -6,7 +6,8 @@
 // fully, partly (some lines have no price or no size for their unit) or not
 // at all. Tapping one opens the editor (components/recipes/RecipeEditor.jsx).
 // The venue, basis and open recipe are in the address (?venue= &basis=
-// &recipe=), so a link opens the same view. API: routes/recipes.js.
+// &recipe=), so a link opens the same view; ?q= starts the list's search
+// (Pepper's link to a recipe, by name). API: routes/recipes.js.
 
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -50,16 +51,16 @@ export default function Recipes() {
           ? <RecipeEditor key={openId} id={openId === 'new' ? null : openId} venueId={venueId} basis={basis}
               onVenue={v => set({ venue: v })} onBasis={b => set({ basis: b === 'standard' ? '' : b })}
               onOpen={id => set({ recipe: id })} onClose={() => set({ recipe: '' })} canManage={canManage} />
-          : <RecipeList venueId={venueId} basis={basis} onVenue={v => set({ venue: v })}
+          : <RecipeList venueId={venueId} basis={basis} startQ={params.get('q') || ''} onVenue={v => set({ venue: v })}
               onBasis={b => set({ basis: b === 'standard' ? '' : b })} onOpen={id => set({ recipe: id })} />}
       </div>
     </div>
   )
 }
 
-function RecipeList({ venueId, basis, onVenue, onBasis, onOpen }) {
+function RecipeList({ venueId, basis, startQ, onVenue, onBasis, onOpen }) {
   const api = useApi()
-  const [q, setQ] = useState('')
+  const [q, setQ] = useState(startQ)
   const [kind, setKind] = useState('')
   const [coverage, setCoverage] = useState('')
   const [active, setActive] = useState('on')

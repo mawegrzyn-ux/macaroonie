@@ -79,7 +79,9 @@ export function Section() {
         price</strong> (add one on the Inventory page), an item with <strong>no size for a unit</strong>{' '}
         (&ldquo;Cheddar has no size for a tbsp&rdquo;: give Cheddar a tbsp among its units, or use grams), a prep
         recipe with nothing in it or that doesn&apos;t say what it makes, or, on Last paid and Average paid,
-        something never booked in at that venue. The list marks every recipe <strong>Fully costed</strong>,{' '}
+        something never booked in at that venue (on Average paid, nothing booked in there in the last 90 days).
+        Deliveries booked in before an item&apos;s <strong>Counted in</strong> changed (from each to grams, say)
+        don&apos;t count: their pack sizes are in the old unit. The list marks every recipe <strong>Fully costed</strong>,{' '}
         <strong>Partly costed</strong> or <strong>Not costed</strong>; tap a chip at the top to see only those.
       </P>
       <H3>Units and yield on inventory items</H3>

@@ -143,6 +143,28 @@ test('a recipe inside itself, directly or through others, is refused with the pa
   await ok(owner.put('/api/recipes/' + sauce.id, saveBody(s)))
 })
 
+test('two saves at once that would each put the other inside it: one is refused, no loop is written', async () => {
+  const mk = name => ok(owner.post('/api/recipes', { name, kind: 'prep', yield_qty: 1, yield_unit: 'l', lines: [{ item_id: milk.id, qty: 100, unit: 'ml' }] }))
+  const [a, b] = [await mk('Stock A'), await mk('Stock B')]
+  for (let round = 0; round < 3; round++) {
+    const [ra, rb] = await Promise.all([
+      owner.put('/api/recipes/' + a.id, saveBody(a, { lines: [...saveBody(a).lines, { sub_recipe_id: b.id, qty: 1, unit: 'l' }] })),
+      owner.put('/api/recipes/' + b.id, saveBody(b, { lines: [...saveBody(b).lines, { sub_recipe_id: a.id, qty: 1, unit: 'l' }] })),
+    ])
+    assert.deepEqual([ra.status, rb.status].sort(), [200, 422], 'round ' + round)
+    assert.equal([ra, rb].find(r => r.status === 422).json.code, 'recipe_cycle')
+    const [loop] = await sql`
+      SELECT count(*)::int AS n FROM recipe_lines x JOIN recipe_lines y ON y.recipe_id = x.sub_recipe_id AND y.sub_recipe_id = x.recipe_id
+       WHERE x.tenant_id = ${ids.a}`
+    assert.equal(loop.n, 0, 'no recipe inside itself')
+    // Both back to milk only for the next round.
+    await ok(owner.put('/api/recipes/' + a.id, saveBody(a)))
+    await ok(owner.put('/api/recipes/' + b.id, saveBody(b)))
+  }
+  await ok(owner.delete('/api/recipes/' + a.id))
+  await ok(owner.delete('/api/recipes/' + b.id))
+})
+
 test('the cost at two venues paying different prices, per portion, with the explanation', async () => {
   // Sauce: 2 l milk £1.60 + 400 g cheddar £3.40 = £5.00, making 1.5 l after the loss.
   const s1 = await ok(owner.get(`/api/recipes/${sauce.id}?venue_id=${V1}`))
@@ -204,6 +226,37 @@ test('last paid and average paid follow what was received at the venue', async (
   assert.equal(last.lines[0].problem, 'no_receipts')
   assert.equal(last.coverage, 'partial')
   assert.equal((await ok(owner.get(`/api/recipes/${sauce.id}?venue_id=${V2}&basis=average`))).coverage, 'none', 'Leeds received nothing')
+})
+
+test('an item whose base unit changed after deliveries: the old deliveries are no price, and its usual units of the old kind are cleared', async () => {
+  await ok(owner.put('/api/purchasing/settings', { receive_without_order: 'anyone' }))
+  // Kept in each: a tray of 24 at £7.20 booked in at Kingsway.
+  const eggs = await ok(owner.post('/api/inventory/items', { name: 'Eggs', base_unit: 'each', recipe_unit: 'each', count_unit: 'each' }))
+  const tray = (await ok(owner.post(`/api/inventory/items/${eggs.id}/quotes`, { supplier_id: sup.id, pack_name: 'Tray', pack_qty: 24, pack_unit: 'each', price: 7.2 }))).quotes[0]
+  await ok(owner.post(`/api/purchasing/venues/${V1}/deliveries`, {
+    supplier_id: sup.id, lines: [{ item_id: eggs.id, quote_id: tray.id, received_qty: 1 }],
+    check: { packaging_ok: true, damage_ok: true, quality_ok: true, accepted: true },
+  }))
+  // Its price taken off, it is kept in grams from now on: each fits grams no more.
+  await ok(owner.delete('/api/inventory/quotes/' + tray.id))
+  const inGrams = await ok(owner.patch('/api/inventory/items/' + eggs.id, { base_unit: 'g' }))
+  assert.equal(inGrams.base_unit, 'g')
+  assert.equal(inGrams.recipe_unit, null, 'each is no unit of grams')
+  assert.equal(inGrams.count_unit, null)
+  await ok(owner.post(`/api/inventory/items/${eggs.id}/quotes`, { supplier_id: sup.id, pack_name: 'Box', pack_qty: 6, pack_unit: 'kg', price: 18 }))
+  const omelette = await ok(owner.post('/api/recipes', { name: 'Omelette', lines: [{ item_id: eggs.id, qty: 100, unit: 'g' }] }))
+  // The tray was 24 each, not 24 g: on last paid it is a gap, never £0.30 a gram.
+  const last = await ok(owner.get(`/api/recipes/${omelette.id}?venue_id=${V1}&basis=last`))
+  assert.equal(last.lines[0].problem, 'no_receipts')
+  assert.equal(last.cost, null)
+  assert.equal(last.coverage, 'none')
+  assert.equal((await ok(owner.get(`/api/recipes/${omelette.id}?venue_id=${V1}&basis=average`))).coverage, 'none')
+  close((await ok(owner.get(`/api/recipes/${omelette.id}?venue_id=${V1}`))).cost, 0.3, 'the standard price is £3 a kg')
+  // A usual unit set in the same change is checked against the new kind; one left out is cleared.
+  const salt = await ok(owner.post('/api/inventory/items', { name: 'Salt', base_unit: 'each', recipe_unit: 'each', count_unit: 'each' }))
+  assert.equal((await owner.patch('/api/inventory/items/' + salt.id, { base_unit: 'g', recipe_unit: 'each' })).json.code, 'unit_unknown')
+  const g = await ok(owner.patch('/api/inventory/items/' + salt.id, { base_unit: 'g', recipe_unit: 'kg' }))
+  assert.deepEqual([g.recipe_unit, g.count_unit], ['kg', null])
 })
 
 test('costs are kept from people without Costing view; supplier prices only for those who see them', async () => {
@@ -270,6 +323,14 @@ test('the report\'s recipe costs are the page\'s, and need Costing view', async 
     assert.equal(row('Cheeseburger', venueName)[3], 'full')
   }
   assert.equal(row('Paella', 'Kingsway')[4], 2, 'its two gaps')
+  // The average cost per portion is of dishes only: a prep's cost per litre is no portion.
+  const all = await ok(owner.post('/api/reports/preview', { spec: { subject: 'recipes.costs', kind: 'list', rows: ['name', 'venue.name', 'kind', 'unit_cost'] } }))
+  const dishes = all.rows.filter(x => x.cells[1] === 'Kingsway' && x.cells[2] === 'dish' && x.cells[3] != null).map(x => Number(x.cells[3]))
+  assert.ok(all.rows.some(x => x.cells[1] === 'Kingsway' && x.cells[2] === 'prep' && x.cells[3] != null), 'a prep is costed there too')
+  const avg = await ok(owner.post('/api/reports/preview', { spec: { subject: 'recipes.costs', kind: 'summary', rows: ['venue.name'], values: [{ measure: 'average_portion_cost' }] } }))
+  close(avg.rows.find(x => x.cells[0] === 'Kingsway').cells[1], dishes.reduce((s, v) => s + v, 0) / dishes.length, 'the dishes\' average')
+  const { CATALOGUE } = await import('../src/reports/catalogue/index.js')
+  assert.ok(CATALOGUE.subjects['recipes.lines'].fields.what.synonyms.includes('ingredient'), 'what goes into it is asked for as an ingredient')
   // A cook (Recipes, no Costing) can report on recipes and their lines, not on their costs.
   const lines = await ok(cook.post('/api/reports/preview', { spec: { subject: 'recipes.lines', kind: 'list', rows: ['recipe.name', 'what', 'qty', 'unit'] } }))
   assert.ok(lines.rows.some(x => x.cells[0] === 'Cheeseburger' && x.cells[1] === 'Cheese sauce'))
@@ -300,6 +361,9 @@ test('Pepper\'s recipe tools read through the page\'s routes: costs only with Co
   assert.match(one.explanation, /Brakes/)
   assert.equal(one.costed, 'Fully costed')
   assert.deepEqual(one.lines.map(l => l.what), ['Cheddar', 'Cheese sauce', 'Brioche bun'])
+  // The model is given names, never ids (rule 19): the link searches the page by name.
+  assert.equal(one.page, '/recipes?q=Cheeseburger')
+  assert.doesNotMatch(JSON.stringify(one) + JSON.stringify(found), /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/, 'no uuid in what the model reads')
   // A cook reads the recipe, not its money; the gaps still say what to fix.
   const cooks = await call(COOK, 'recipe', { recipe: 'Paella' })
   assert.equal(cooks.explanation, undefined)
