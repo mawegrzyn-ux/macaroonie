@@ -343,6 +343,49 @@ function WasteReasonsCard({ canManage }) {
   )
 }
 
+/** The variance band (phase 6a): when a venue's period, and an item in it, is flagged. Saved on its own. */
+function VarianceBandCard({ canManage }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { data } = useQuery({ queryKey: ['stock', 'settings'], queryFn: () => api.get('/stock/settings') })
+  const [draft, setDraft] = useState(null)
+  useEffect(() => { if (data?.variance) setDraft({ ...data.variance }) }, [data])
+  const save = useMutation({
+    mutationFn: () => api.put('/stock/variance-settings', { band_pct: Number(draft.band_pct), item_pct: Number(draft.item_pct), item_pounds: Number(draft.item_pounds) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['stock'] }),
+  })
+  const v = data?.variance
+  const keys = ['band_pct', 'item_pct', 'item_pounds']
+  const dirty = v && draft && keys.some(k => Number(draft[k]) !== Number(v[k]))
+  const bad = draft && keys.some(k => draft[k] === '' || !Number.isFinite(Number(draft[k])) || Number(draft[k]) < 0)
+  const num = (key, label, hint, step) => (
+    <Field label={label} hint={hint}>
+      <input type="number" inputMode="decimal" min="0" step={step} className={inputCls} value={draft[key]}
+        onChange={e => setDraft({ ...draft, [key]: e.target.value })} data-testid={'variance-band-' + key} />
+    </Field>
+  )
+  return (
+    <Card title="Variance band">
+      {!draft ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+        <ReadOnlyFieldset disabled={!canManage} className="space-y-3" data-testid="stock-variance-band">
+          {num('band_pct', 'A venue is over the band at (points of food sales)', 'Unexplained loss in a period over this share of its net food sales: 1 means 1% of food sales.', '0.1')}
+          <div className="grid gap-3 sm:grid-cols-2">
+            {num('item_pct', 'An item is flagged over (% of what sales took)', null, '0.5')}
+            {num('item_pounds', 'and over (pounds)', null, '1')}
+          </div>
+          <p className="text-xs text-muted-foreground">An item is flagged when its unexplained loss, or gain, is over both: by default over 3% and over £50.</p>
+          {canManage && (
+            <button type="button" className={btn.primary + ' h-12'} disabled={!dirty || bad || save.isPending} onClick={() => save.mutate()} data-testid="variance-band-save">
+              {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Save
+            </button>
+          )}
+          <ErrorNote error={save.error} />
+        </ReadOnlyFieldset>
+      )}
+    </Card>
+  )
+}
+
 export default function StockSettings({ venueId, canManage }) {
   return (
     <div className="space-y-4" data-testid="stock-settings">
@@ -354,6 +397,7 @@ export default function StockSettings({ venueId, canManage }) {
         <CountDayCard venueId={venueId} canManage={canManage} />
       </div>
       <WasteReasonsCard canManage={canManage} />
+      <VarianceBandCard canManage={canManage} />
     </div>
   )
 }
