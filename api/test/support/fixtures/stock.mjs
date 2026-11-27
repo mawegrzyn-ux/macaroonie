@@ -44,8 +44,8 @@ export async function fill(ctx) {
     ids.stockKeyList = list.id
     await step('stock key list save', () => put('/api/stock/key-lists/' + list.id, { name: mark + ' Proteins', item_ids: [item.id] }))
   }
-  await step('stock settings', () => put('/api/stock/settings', { second_person_approves: false, blind_count: false }))
-  await step('stock venue settings', () => put(`/api/stock/venues/${V}/settings`, { count_weekday: 1, count_kind: list ? 'key' : 'full', key_list_id: list?.id ?? null }))
+  await step('stock settings', () => put('/api/stock/settings', { second_person_approves: false, blind_count: false, refunds_return_stock: false }))
+  await step('stock venue settings', () => put(`/api/stock/venues/${V}/settings`, { count_weekday: 1, count_kind: list ? 'key' : 'full', key_list_id: list?.id ?? null, par_mode: null }))
 
   // A full count: drafted, a line in two units in an area, the area done, submitted (zeros confirmed), approved.
   const count = await step('stock count start', () => post(`/api/stock/venues/${V}/counts`, { kind: 'full', note: mark + ' Monday count' }))

@@ -57,6 +57,7 @@
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
+import { marksUsageOnChange } from '../services/stockUsageSvc.js'
 import { requireAuth, requirePermission, requireAnyPermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { access, lockRecipes } from './recipes.js'
@@ -203,6 +204,8 @@ function soldAt(menu, scope, streams) {
 
 export default async function recipeLinkRoutes(app) {
   app.addHook('preHandler', requireAuth)
+  // A link set, cleared or made: usage from sales works the open days out again (phase 5).
+  marksUsageOnChange(app)
 
   // ── The Dishes tab ──────────────────────────────────────────
   app.get('/dishes', { preHandler: canView }, async req => {

@@ -56,6 +56,7 @@
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
+import { marksUsageOnChange } from '../services/stockUsageSvc.js'
 import { permissionAtLeast } from '../config/modules.js'
 import { requireAuth, requirePermission, permissionLevels } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
@@ -396,6 +397,8 @@ export async function makeDrafts(tx, tenantId, b, by = null) {
 
 export default async function recipeRoutes(app) {
   app.addHook('preHandler', requireAuth)
+  // A recipe saved, copied, switched off or deleted: usage from sales works the open days out again (phase 5).
+  marksUsageOnChange(app, { skip: ['/preview'] })
 
   app.get('/', { preHandler: canView }, async req => {
     const q = ListQuery.parse(req.query || {})

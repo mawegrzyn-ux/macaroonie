@@ -26,6 +26,7 @@
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
+import { marksUsageOnChange } from '../services/stockUsageSvc.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { loadRecipes, loadCostItems } from '../services/costingSvc.js'
@@ -81,6 +82,8 @@ function ruleValues(b) {
 
 export default async function recipeOptionRoutes(app) {
   app.addHook('preHandler', requireAuth)
+  // An option rule saved or deleted: usage from sales works the open days out again (phase 5).
+  marksUsageOnChange(app)
 
   app.get('/', { preHandler: canView }, async req => withTenant(req.tenantId, async tx => {
     const [options, rules, recipes, menus] = await Promise.all([
