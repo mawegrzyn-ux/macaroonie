@@ -126,7 +126,7 @@ function ItemList({ data, onOpen }) {
     <div className="bg-background border rounded-xl overflow-hidden" data-testid="variance-items">
       <div className="flex flex-wrap items-center gap-2 px-4 py-2 section-head text-xs font-semibold">
         <span className="flex-1">Item</span>
-        <button type="button" className="h-9 px-2 rounded-md border bg-background text-xs touch-manipulation" onClick={() => setOnly(!only)} data-testid="variance-only-flagged">
+        <button type="button" className="h-11 px-3 rounded-lg border bg-background text-xs touch-manipulation" onClick={() => setOnly(!only)} data-testid="variance-only-flagged">
           {only ? 'Show every item' : 'Only flagged (' + data.flagged + ')'}
         </button>
       </div>
