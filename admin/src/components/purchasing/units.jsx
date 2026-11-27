@@ -111,7 +111,7 @@ function YieldSuggestion({ item, onUse }) {
   return (
     <div className="space-y-2" data-testid="inv-yield-suggest">
       {!s && (
-        <button type="button" className={btn.outline} disabled={ask.isPending} onClick={() => ask.mutate()} data-testid="inv-yield-ask">
+        <button type="button" className={cn(btn.outline, 'h-12')} disabled={ask.isPending} onClick={() => ask.mutate()} data-testid="inv-yield-ask">
           {ask.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}Suggest a typical yield
         </button>
       )}
@@ -124,8 +124,8 @@ function YieldSuggestion({ item, onUse }) {
             {!s.sure && <span className="block text-xs">Only a guess: the name doesn&apos;t say enough.</span>}
             <span className="block text-xs text-sky-800">A suggestion: weigh one before and after trimming to know yours.</span>
           </span>
-          <button type="button" className={btn.outline} onClick={() => onUse(s.yield_pct)} data-testid="inv-yield-use">Use {fmtNum(s.yield_pct)}%</button>
-          <button type="button" className={btn.ghost} onClick={() => ask.reset()}>Dismiss</button>
+          <button type="button" className={cn(btn.outline, 'h-12')} onClick={() => onUse(s.yield_pct)} data-testid="inv-yield-use">Use {fmtNum(s.yield_pct)}%</button>
+          <button type="button" className={cn(btn.ghost, 'h-12')} onClick={() => ask.reset()}>Dismiss</button>
         </div>
       )}
       <ErrorNote error={ask.error} />

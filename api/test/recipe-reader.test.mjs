@@ -174,6 +174,59 @@ test('who may read: Recipes manage with Pepper on; nothing for a viewer or with 
   assert.equal((await owner.post('/api/ai/recipes/read', { text: 'hello' })).status, 422)
 })
 
+test('quantities: a decimal comma is a decimal, a thousands comma is not; a line past the listed items is still matched', async () => {
+  const { qtyOf, toRecipes, readRecipes, MAX_ITEMS, MAX_PREPS } = await import('../src/services/recipeReadAi.js')
+  // "1,000 g of flour" is a thousand grams, never one; "1,5" and "0,25" are European decimals.
+  const cases = [['1,000', 1000], ['2,500', 2500], ['1,250.5', 1250.5], ['10,000', 10000], ['1,5', 1.5], ['0,5', 0.5], ['12,50', 12.5], ['0,125', 0.125],
+    ['2', 2], ['0.5', 0.5], ['1/2', 0.5], ['1 1/2', 1.5], ['½', 0.5], ['', null], ['a pinch', null], ['0', null]]
+  for (const [v, want] of cases) assert.equal(qtyOf(v), want, JSON.stringify(v))
+
+  // A group with more items and prep recipes than are listed: refs only for the first ones, matching against all.
+  const filler = n => Array.from({ length: n }, (_, i) => ({ id: 'f' + i, name: 'Filler ' + String(i).padStart(4, '0'), code: null, base_unit: 'g', units: [] }))
+  const items = [...filler(MAX_ITEMS + 2), { id: 'saffron', name: 'Saffron threads', code: 'SAF-9', base_unit: 'g', units: [] }, { id: 'flour', name: 'Flour, plain', code: null, base_unit: 'g', units: [] }]
+  const preps = [...Array.from({ length: MAX_PREPS }, (_, i) => ({ id: 'p' + i, name: 'Batch ' + String(i).padStart(4, '0'), kind: 'prep', yield_unit: 'kg' })), { id: 'stock', name: 'Chicken stock', kind: 'prep', yield_unit: 'l' }]
+  const got = toRecipes({ recipes: [R({ name: 'Paella', lines: [
+    L({ words: '1 g saffron', what: 'saffron', code: 'SAF-9', qty: '1', unit: 'g' }),
+    L({ words: '1,000 g flour, plain', what: 'flour, plain', qty: '1,000', unit: 'g' }),
+    L({ words: '2,500 ml chicken stock', what: 'chicken stock', qty: '2,500', unit: 'ml' }),
+    // A ref past the listed ones was never sent: not trusted, matched by its name.
+    L({ words: '5 g flour', ref: 'i' + (MAX_ITEMS + 4), what: 'flour, plain', qty: '5', unit: 'g' }),
+    L({ words: '1 g filler', ref: 'i1', what: 'filler', qty: '1', unit: 'g' }),
+  ] })] }, { items, preps })
+  const [saffron, flour, stock, byName, first] = got.recipes[0].lines
+  assert.deepEqual([saffron.match.state, saffron.match.item_id, saffron.match.how], ['matched', 'saffron', 'code'], 'item 803 by its code')
+  assert.deepEqual([flour.match.state, flour.match.item_id, flour.qty, flour.unit_problem], ['matched', 'flour', 1000, null], 'by its name, a thousand grams')
+  assert.deepEqual([stock.match.state, stock.match.kind, stock.match.sub_recipe_id, stock.qty, stock.unit_problem], ['matched', 'recipe', 'stock', 2500, null], 'a prep recipe past the listed ones')
+  assert.deepEqual([byName.match.item_id, byName.match.how], ['flour', 'name'])
+  assert.deepEqual([first.match.item_id, first.match.how], ['f0', 'pepper'], 'a listed ref is still taken')
+  // Through the reader: the model is sent the first ones only, the answer is matched against all of them.
+  claude.script.push(() => answer({ recipes: [R({ name: 'Paella', lines: [L({ words: '1 g saffron threads', what: 'Saffron threads', qty: '1', unit: 'g' })] })], notes: '' }))
+  const viaRead = await readRecipes({ tenantId: ids.a, person: { sub: A.owner }, texts: [{ kind: 'text', name: 'pasted', text: 'Paella' }], items, preps })
+  const sent = sentLists(claude.requests.at(-1).body)
+  assert.deepEqual([sent.inventory_items.length, sent.prep_recipes.length], [MAX_ITEMS, MAX_PREPS])
+  assert.ok(!sent.inventory_items.some(x => x.name === 'Saffron threads'), 'not listed')
+  assert.ok(sent.note && sent.prep_note, 'the model is told the lists are cut')
+  assert.deepEqual([viaRead.recipes[0].lines[0].match.state, viaRead.recipes[0].lines[0].match.item_id], ['matched', 'saffron'])
+})
+
+test('a draft\'s notes keep whole unmatched lines and say how many more didn\'t fit, never cut silently', async () => {
+  const { draftNotes } = await import('../src/routes/recipes.js')
+  assert.equal(draftNotes(null, []), null)
+  assert.equal(draftNotes('Keeps 3 days.', ['1 tbsp mirin', 'salt to taste']), 'Keeps 3 days.\n\nRead but not matched (add them): 1 tbsp mirin; salt to taste')
+  const lines = Array.from({ length: 40 }, (_, i) => 'line ' + String(i + 1).padStart(2, '0') + ' ' + 'x'.repeat(100))
+  const notes = draftNotes('Allergens: sesame.', lines)
+  assert.ok(notes.length <= 2000, String(notes.length))
+  assert.match(notes, /^Allergens: sesame\.\n\nRead but not matched \(add them\): line 01 /)
+  const kept = (notes.match(/line \d\d x+/g) || []).length
+  assert.ok(kept > 10 && kept < 40, String(kept))
+  assert.ok(notes.endsWith('; and ' + (40 - kept) + ' more that didn\'t fit here: add them from the recipe card.'), notes.slice(-120))
+  assert.ok(notes.match(/line \d\d x+/g).every(m => m.length === 108), 'no line is cut in half')
+  // Notes that fill the field still leave room to say the lines are missing.
+  const full = draftNotes('n'.repeat(2000), ['1 tbsp mirin'])
+  assert.ok(full.length <= 2000)
+  assert.match(full, /1 tbsp mirin$|1 line that didn't fit here: add it from the recipe card\.$/)
+})
+
 /** The drafts body as the review makes it (admin RecipeReader draftsBody()): the burger first, naming the sauce by key. */
 function draftsOf(r) {
   const key = i => 'k' + i

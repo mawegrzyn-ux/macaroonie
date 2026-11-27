@@ -41,7 +41,7 @@ import { withTenant } from '../../config/db.js'
 import { callApi, requireStaffPermission, ToolError } from '../context.js'
 import { VenueText, venueFor, tenantVenueList, pickByName, plural, audited } from './util.js'
 import { fmtNum, UNITS } from '../../../../shared/procurement.js'
-import { pounds, perWord, BASIS_KEYS, COVERAGE, BANDS, sameScope, toBase, inRecipeUnit, YIELD_UNITS } from '../../../../shared/costing.js'
+import { pounds, perWord, BASIS_KEYS, COVERAGE, BANDS, sameScope, toBase, inRecipeUnit, YIELD_UNITS, readLineKept } from '../../../../shared/costing.js'
 import { matchIndex, matchThing, normName } from '../../../../shared/itemMatch.js'
 
 const MAX_LIST = 40
@@ -377,11 +377,11 @@ async function chatFiles(ctx, names) {
 /** The reading as POST /api/recipes/drafts takes it: matched lines with a quantity are lines, the rest kept in the notes. */
 export function draftsFromReading(read) {
   const key = i => 'r' + (i + 1)
-  const prepAt = i => read.recipes[i]?.kind === 'prep'
   return {
     source: 'reader',
     recipes: read.recipes.map((r, i) => {
-      const ok = l => l.match.state === 'matched' && l.qty > 0 && (l.match.kind !== 'new' || prepAt(l.match.new_idx))
+      // The review's own rule (readLineKept() in shared/costing.js): matched, with a quantity, a recipe of this reading only if it is a prep.
+      const ok = l => readLineKept(l, l.match.kind === 'new' ? read.recipes[l.match.new_idx] ?? null : null)
       return {
         key: key(i), name: r.name, kind: r.kind, category: r.category, code: r.code,
         portions: r.kind === 'dish' ? r.portions || 1 : null,
@@ -682,7 +682,7 @@ export const changeTools = [
       'How much of what was sold in the last days (30 unless asked) can be costed, at a venue or every venue: the share ' +
       'of sales costed, by till, kiosk, online and other tills (test till sales left out), and the dishes that can\'t be ' +
       'costed yet, most sold first, each with how to fix it (link a recipe, finish the recipe, add an option rule, map ' +
-      'another till\'s item). Sales in pounds only for people who see costs or till reports.',
+      'another till\'s item). Sales in pounds only for people who see till reports.',
     input: z.object({
       venue: VenueText.describe('A venue; leave out for every venue'),
       days: z.number().int().min(1).max(365).optional(),

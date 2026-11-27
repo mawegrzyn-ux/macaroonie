@@ -37,9 +37,14 @@ import { sectionItemsOf } from '../../../shared/combos.js'
 
 const COUNTED = [...OWN_COUNTED]
 
-/** Days as YYYY-MM-DD: the last `days` trading days up to today (the database's date). */
+/**
+ * Days as YYYY-MM-DD: the last `days` trading days up to yesterday (the
+ * database's date), the same days as a report's "Last 30 days"
+ * (last_n_days in shared/reports/period.js), so the page and the report
+ * starter agree. Today is still trading.
+ */
 export async function lastDays(tx, days = COVERAGE_DAYS) {
-  const [r] = await tx`SELECT (current_date - ${days}::int)::text AS from, current_date::text AS to`
+  const [r] = await tx`SELECT (current_date - ${days}::int)::text AS from, (current_date - 1)::text AS to`
   return r
 }
 

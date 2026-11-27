@@ -3,8 +3,10 @@
 // not voided, test till sales left out), kiosk checks, online orders and
 // another till's mapped and unmapped lines, judged by salesCoverage() in
 // shared/costing.js; the uncosted dishes by sales value with how to fix each;
-// pounds only with Costing or till reports view; another group's sales and
-// venue never; and the report subject Recipe coverage with its starter.
+// pounds only with till reports view (as the report subject gives them);
+// our own open items (no dish) left out, never sent to the Item mapping;
+// another group's sales and venue never; and the report subject Recipe
+// coverage with its starter.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
@@ -162,13 +164,27 @@ test('fixing a gap moves the share: linking the soup costs it', async () => {
   await ok(owner.delete('/api/recipe-links/links/' + id))
 })
 
-test('pounds only with Costing or till reports view; another group\'s venue is not found', async () => {
+test('pounds only with till reports view, as in the report; another group\'s venue is not found', async () => {
   const c = await ok(cook.get('/api/recipes/coverage'))
   assert.equal(c.can.money, false)
   assert.equal(c.total_pence, undefined)
   assert.ok(c.percent > 0)
   assert.ok(c.dishes.every(d => d.sales_pence === undefined && d.share_pct > 0), 'the share of sales instead')
   assert.doesNotMatch(JSON.stringify(c), /"(total_pence|costed_pence|sales_pence)":/)
+  // Costing view sees costs, not the till's sales: no pounds, as the report subject Recipe coverage gives none.
+  const person = async (key, permissions) => {
+    const role = await ok(owner.post('/api/access/roles', { key, label: key, permissions: { recipes: 'view', ...permissions } }))
+    await sql`INSERT INTO users (tenant_id, email, role, auth0_user_id, custom_role_id) VALUES (${ids.a}, ${'a-' + key + '@test.local'}, 'operator', ${'a-' + key}, ${role.id})`
+    return as('a-' + key, ids.a)
+  }
+  const coster = await person('covcost', { costing: 'view', pos_reports: 'none' })
+  const costs = await ok(coster.get('/api/recipes/coverage'))
+  assert.equal(costs.can.money, false)
+  assert.doesNotMatch(JSON.stringify(costs), /"(total_pence|costed_pence|sales_pence)":/)
+  const tillReader = await person('covtill', { costing: 'none', pos_reports: 'view' })
+  const till = await ok(tillReader.get('/api/recipes/coverage'))
+  assert.equal(till.can.money, true)
+  assert.equal(till.total_pence, (await ok(owner.get('/api/recipes/coverage'))).total_pence)
   assert.equal((await owner.get('/api/recipes/coverage?venue_id=' + bVenue)).status, 404)
 })
 
@@ -193,6 +209,23 @@ test('another till\'s sales: mapped lines as our dish, unmapped ones by name; ig
   assert.equal(latte.fixes[0].kind, 'map')
 })
 
+test('our own open items and online lines with no dish are left out, never sent to the Item mapping', async () => {
+  const before = await ok(owner.get('/api/recipes/coverage?venue_id=' + soho))
+  // An open item rung up on Soho's till yesterday (addOpenItem(): item_id null), and an online line with no dish.
+  await check(ids.a, soho, await day(ids.a, soho, 1), [{ item_id: null, name: 'Item not on menu', qty: 1, net: 450 }])
+  await order(ids.a, soho, 1, [{ menu_item_id: null, name: 'Gift wrap', qty: 1, total: 150 }])
+  const c = await ok(owner.get('/api/recipes/coverage?venue_id=' + soho))
+  assert.equal(c.total_pence, before.total_pence + 600)
+  assert.equal(c.left_out_pence, before.left_out_pence + 600, 'left out of both sides')
+  assert.equal(c.percent, before.percent, 'the share doesn\'t move')
+  assert.ok(!c.dishes.some(d => d.name === 'Item not on menu' || d.name === 'Gift wrap'), 'nothing to fix')
+  assert.ok(!c.dishes.some(d => d.fixes.some(f => f.kind === 'map')), 'no Item mapping fix for our own till')
+  const open = c.left_out.find(l => l.name === 'Item not on menu')
+  assert.deepEqual([open.reason, open.sales_pence], ['open', 450])
+  assert.match(open.why, /open item/)
+  assert.equal(c.left_out.find(l => l.name === 'Gift wrap').reason, 'open')
+})
+
 test('the report subject Recipe coverage and the starter Uncosted dishes by sales', async () => {
   const rep = await ok(owner.post('/api/reports/preview', { spec: { subject: 'recipes.coverage', kind: 'list', rows: ['dish', 'venue.name', 'channel', 'sales', 'qty', 'costed', 'why'] }, period: { relative: 'last_n_days', n: 30 } }))
   const row = (dish, venue) => rep.rows.find(r => r.cells[0] === dish && r.cells[1] === venue)?.cells
@@ -200,6 +233,8 @@ test('the report subject Recipe coverage and the starter Uncosted dishes by sale
   assert.equal(row('Salad', 'Soho')[5], false)
   assert.match(String(row('Salad', 'Soho')[6]), /Lettuce has no supplier price/)
   assert.ok(!rep.rows.some(r => r.cells[0] === 'Soup' && Number(r.cells[4]) === 50), 'test till sales left out')
+  assert.match(String(row('Item not on menu', 'Soho')[6]), /open item/, 'an open item is left out, with why')
+  assert.equal(row('Item not on menu', 'Soho')[5], false)
   const starter = await ok(owner.post('/api/reports/starter:uncosted_dishes_by_sales/run', {}))
   assert.ok(starter.rows.length >= 2)
   assert.ok(starter.rows.every(r => !/Burger/.test(r.cells[0]) || /Fries/.test(r.cells[0])), 'costed dishes are not in it')

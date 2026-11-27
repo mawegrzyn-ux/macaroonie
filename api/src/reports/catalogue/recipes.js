@@ -24,8 +24,8 @@ export const RECIPE_COST_TABLES = ['recipes', 'recipe_lines', 'inv_item_units']
 // And a dish's margin (phase 2): the links, the option rules and the targets
 // too. Read by the dish margins work, so they are decided as read.
 export const DISH_MARGIN_TABLES = [...RECIPE_COST_TABLES, 'recipe_links', 'recipe_option_rules', 'costing_settings']
-// And coverage by sales (phase 3): what was sold on each channel too.
-export const COVERAGE_TABLES = [...DISH_MARGIN_TABLES, 'pos_check_lines', 'pos_checks', 'pos_days', 'order_items', 'orders', 'ext_check_lines', 'ext_checks', 'ext_line_parts']
+// And coverage by sales (phase 3): what was sold on each channel too (pos_devices tells a kiosk's checks from the till's).
+export const COVERAGE_TABLES = [...DISH_MARGIN_TABLES, 'pos_check_lines', 'pos_checks', 'pos_days', 'pos_devices', 'order_items', 'orders', 'ext_check_lines', 'ext_checks', 'ext_line_parts']
 const CHANNELS = { till: 'Till', kiosk: 'Kiosk', online: 'Online orders', imported: 'Other tills' }
 const SOLD_STATES = { costed: 'Costed', uncosted: 'Not costed', left_out: 'Left out (a service, or no longer on a menu)' }
 const FIX_KINDS = { link: 'Link a recipe', recipe: 'Finish the recipe', option: 'Add an option rule', deal: 'Cost the meal deal\'s dishes', map: 'Map it to a menu dish' }

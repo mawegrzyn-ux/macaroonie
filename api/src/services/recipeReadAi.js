@@ -101,14 +101,20 @@ export function unitWord(v) {
   return UNIT_WORDS[u] || u.slice(0, 30)
 }
 
-/** "2", "0.5", "1/2", "1 1/2", "½" -> a number; anything else -> null. */
+/**
+ * "2", "0.5", "1/2", "1 1/2", "½", "1,5" -> a number; anything else -> null.
+ * A comma is a decimal point only as one: one or two figures after it
+ * ("1,5", "12,50") or after a lone 0 ("0,125"). Any other comma is a
+ * thousands separator, which readAmount() drops ("1,000" g is 1000 g,
+ * never 1 g).
+ */
 export function qtyOf(v) {
   let t = String(v ?? '').trim().replace(/½/g, ' 1/2').replace(/¼/g, ' 1/4').replace(/¾/g, ' 3/4').replace(/⅓/g, ' 1/3').trim()
   const mixed = /^(\d+)\s+(\d+)\/(\d+)$/.exec(t)
   if (mixed) return +mixed[3] ? Math.round((+mixed[1] + +mixed[2] / +mixed[3]) * 10000) / 10000 : null
   const frac = /^(\d+)\/(\d+)$/.exec(t)
   if (frac) return +frac[2] ? Math.round((+frac[1] / +frac[2]) * 10000) / 10000 : null
-  t = t.replace(',', '.')
+  if (/^\d+,\d{1,2}$/.test(t) || /^0,\d+$/.test(t)) t = t.replace(',', '.')
   const n = readAmount(t, { max: 10_000_000 })
   return n != null && n > 0 ? n : null
 }
@@ -127,11 +133,15 @@ const unitList = item => [UNITS[item.base_unit]?.label || item.base_unit, ...(it
  * The model's answer as drafts to review: refs turned into ids (an unknown
  * ref is dropped, never trusted), lines without one matched by code then
  * name, units checked against what each line is, what is left unmatched
- * listed. items / preps: the lists the refs were made from, in order.
+ * listed. items / preps: the group's whole lists, in the order the model
+ * was sent them; the refs are the first ones only (refLists(), what the
+ * model saw), but a line is matched by code and name against every item
+ * and prep recipe, so one past the listed ones is still found.
  */
 export function toRecipes(raw, { items = [], preps = [], existing = [] } = {}) {
-  const itemRef = new Map(items.map((x, i) => ['I' + (i + 1), x]))
-  const prepRef = new Map(preps.map((x, i) => ['R' + (i + 1), x]))
+  const refs = refLists(items, preps)
+  const itemRef = new Map(refs.items.map((x, i) => ['I' + (i + 1), x]))
+  const prepRef = new Map(refs.preps.map((x, i) => ['R' + (i + 1), x]))
   const idx = matchIndex({
     dishes: [
       ...items.map(x => ({ id: 'i:' + x.id, name: x.name, sku: x.code || null, kind: 'item' })),
@@ -255,6 +265,7 @@ export async function readRecipes({ tenantId, person, files = [], texts = [], hi
       })),
       prep_recipes: lists.preps.map((x, i) => ({ ref: 'r' + (i + 1), name: x.name, ...(x.yield_unit ? { made_in: x.yield_unit } : {}) })),
       ...(items.length > MAX_ITEMS ? { note: 'Only the first ' + MAX_ITEMS + ' inventory items are listed.' } : {}),
+      ...(preps.length > MAX_PREPS ? { prep_note: 'Only the first ' + MAX_PREPS + ' prep recipes are listed.' } : {}),
     }),
   })
   const raw = await askForJson({
@@ -262,7 +273,8 @@ export async function readRecipes({ tenantId, person, files = [], texts = [], hi
     words: { tooLong: 'Those recipes are too long to read in one go. Send a few at a time.' },
   })
   if (!Array.isArray(raw.recipes)) throw httpError(502, ASSISTANT_NAME + '\'s answer couldn\'t be read. Try again.')
-  const read = toRecipes(raw, { items: lists.items, preps: lists.preps, existing })
+  // Every item and prep recipe, not only the listed ones: a line the model had no ref for is matched by code and name in code.
+  const read = toRecipes(raw, { items, preps, existing })
   if (!read.recipes.length) throw httpError(422, ASSISTANT_NAME + ' couldn\'t find a recipe in that. Try a clearer photo, a PDF or the recipe as text.')
   return read
 }

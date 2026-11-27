@@ -7,10 +7,13 @@
 //   POST /read    { files: [{ name?, data (base64) }], text?, hint? }
 //                 photos of recipe cards (JPEG, PNG, WebP, GIF), PDFs, a
 //                 spreadsheet (Excel or CSV, read to rows) and / or pasted
-//                 text -> { recipes, notes, counts, items_listed }: each
-//                 recipe with its lines, every line matched (an inventory
-//                 item or a prep recipe, by Pepper's ref, its code or its
-//                 name), suggested, or not found with the words read.
+//                 text -> { recipes, notes, counts, items_listed,
+//                 items_total, preps_listed, preps_total }: each recipe with
+//                 its lines, every line matched (an inventory item or a prep
+//                 recipe, by Pepper's ref, its code or its name), suggested,
+//                 or not found with the words read. Pepper is sent the first
+//                 800 items and 300 prep recipes as refs; a line is matched
+//                 by code and name against all of them.
 //                 Nothing is saved: POST /api/recipes/drafts makes the drafts
 //                 the person keeps.                       Recipes manage + Pepper
 //   POST /yield   { item_id } or { name }   a typical usable yield for an
@@ -30,7 +33,7 @@ import { httpError } from '../middleware/error.js'
 import { pepperOn } from '../services/aiJson.js'
 import { readSheet, fileText } from '../services/sheetRead.js'
 import { loadCostItems } from '../services/costingSvc.js'
-import { readRecipes, suggestYield, MAX_ITEMS } from '../services/recipeReadAi.js'
+import { readRecipes, suggestYield, MAX_ITEMS, MAX_PREPS } from '../services/recipeReadAi.js'
 
 const MAX_FILES = 10
 const MAX_IMAGE = 5 * 1024 * 1024
@@ -133,7 +136,11 @@ export default async function recipeReadRoutes(app) {
       tenantId: req.tenantId, person: { sub: req.user?.sub, email: req.user?.email },
       files, texts, hint: body.hint, ...lists,
     })
-    return { ...read, items_listed: Math.min(lists.items.length, MAX_ITEMS), items_total: lists.items.length }
+    return {
+      ...read,
+      items_listed: Math.min(lists.items.length, MAX_ITEMS), items_total: lists.items.length,
+      preps_listed: Math.min(lists.preps.length, MAX_PREPS), preps_total: lists.preps.length,
+    }
   })
 
   app.post('/yield', {

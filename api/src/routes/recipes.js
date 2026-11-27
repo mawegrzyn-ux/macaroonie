@@ -18,9 +18,10 @@
 //                            shared/costing.js, the sales from
 //                            services/recipeCoverageSvc.js), by channel and
 //                            venue, and the dishes not costed by sales value
-//                            with how to fix each; pounds only with Costing
-//                            view or till reports view (the percent and the
-//                            order for every Recipes view)
+//                            with how to fix each; pounds only with till
+//                            reports view, as the report subject Recipe
+//                            coverage gives them (sales are till figures; the
+//                            percent and the order for every Recipes view)
 //   GET    /:recipeId        ?venue_id &basis   one recipe: its lines, gaps,
 //                            where it is used, its variations; for costing View
 //                            its cost on each basis and the step by step
@@ -311,10 +312,29 @@ async function oneView(tx, req, id, { venueId = null, basis = 'standard' } = {},
   return view
 }
 
-/** A draft's notes: its own, then the lines read but not matched, in words. */
+const NOTES_MAX = 2000
+/**
+ * A draft's notes: its own, then the lines read but not matched, in words,
+ * within the notes' 2,000 characters. Whole lines only: when they don't all
+ * fit, the notes end by saying how many more there are, never cut silently.
+ */
 export function draftNotes(notes, leftOut = []) {
-  const kept = leftOut.length ? 'Read but not matched (add them): ' + leftOut.join('; ') : ''
-  return ([notes, kept].filter(Boolean).join('\n\n').slice(0, 2000)) || null
+  const own = String(notes || '').trim()
+  if (!leftOut.length) return own.slice(0, NOTES_MAX) || null
+  // The words saying how many didn't fit take at most this much.
+  const RESERVE = 80
+  const start = (own ? own.slice(0, NOTES_MAX - 200) + '\n\n' : '') + 'Read but not matched (add them): '
+  let text = start
+  let kept = 0
+  for (const w of leftOut) {
+    const next = text + (kept ? '; ' : '') + w
+    if (next.length + RESERVE > NOTES_MAX) break
+    text = next
+    kept++
+  }
+  if (kept === leftOut.length) return text
+  const n = leftOut.length - kept
+  return text + (kept ? '; and ' + n + ' more' : n + (n === 1 ? ' line' : ' lines')) + ' that didn\'t fit here: add ' + (n === 1 ? 'it' : 'them') + ' from the recipe card.'
 }
 
 /**
@@ -469,9 +489,10 @@ export default async function recipeRoutes(app) {
 
   app.get('/coverage', { preHandler: canView }, async req => {
     const q = CoverageQuery.parse(req.query || {})
-    const lv = await permissionLevels(req, ['recipes', 'costing', 'pos_reports'])
-    // Sales in pounds for people who see costs or the till's figures; the share and the order for every Recipes view.
-    const money = permissionAtLeast(lv.costing, 'view') || permissionAtLeast(lv.pos_reports, 'view')
+    const lv = await permissionLevels(req, ['pos_reports'])
+    // Sales in pounds for people who see the till's figures, as in the report subject Recipe coverage
+    // (its sales need pos_reports); the share and the order for every Recipes view. Costing view sees costs, not sales.
+    const money = permissionAtLeast(lv.pos_reports, 'view')
     return withTenant(req.tenantId, async tx => {
       const venue = q.venue_id ? await loadVenue(tx, req.tenantId, q.venue_id) : null
       const c = await salesCoverageFor(tx, req.tenantId, { venueId: venue?.id ?? null, days: q.days })

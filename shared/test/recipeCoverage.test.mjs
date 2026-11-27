@@ -8,7 +8,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  recipeCost, dishCost, dishMap, needsCheck, soldState, salesCoverage, costedShare, optionGaps, explain, COVERAGE_DAYS,
+  recipeCost, dishCost, dishMap, needsCheck, soldState, salesCoverage, costedShare, optionGaps, offeredOptions, readLineKept, explain, COVERAGE_DAYS,
 } from '../costing.js'
 import { coverageShare } from '../itemMapping.js'
 
@@ -52,6 +52,15 @@ const menu = {
     dish('d-salad', 'Salad'),
     dish('d-none', 'Soup of the day'),
     dish('d-service', 'Corkage', { item_type: 'service' }),
+    // A meal deal with a typed-in choice (no dish, so no recipe).
+    dish('d-deal', 'Burger and a drink', { kind: 'combo', combo: { mode: 'manual', steps: [
+      { id: 'st-main', name: 'Main', min: 1, max: 1, options: [{ id: 'c1', type: 'item', item_id: 'd-burger' }] },
+      { id: 'st-drink', name: 'Drink', min: 1, max: 1, options: [{ id: 'c2', type: 'custom', label: 'Tap water' }] },
+    ] } }),
+    // An extra whose library option is gone: judged by what the menu offers (a priced extra needs a rule).
+    dish('d-gone-opt', 'Burger with a lost extra', { variant_groups: [
+      { group_id: 'g-old', name: 'Old extras', price_mode: 'extra', min_select: 0, max_select: 1, options: [{ option_id: 'o-lost', label: 'Bacon', price_pence: 120 }] },
+    ] }),
   ] }],
 }
 const link = (dish_id, recipe_id, extra = {}) => ({ id: 'l-' + dish_id + (extra.order_type_id || ''), dish_id, recipe_id, portions: 1, venue_id: null, revenue_stream_id: null, order_type_id: null, ...extra })
@@ -98,7 +107,7 @@ test('a draft Pepper wrote is costed, with the gap "not checked yet"; a person\'
   assert.ok(ws.gaps.some(x => x.reason === 'sub_partial' && /Burger sauce/.test(x.text)))
 })
 
-test('soldState: costed, or how to fix it (link, recipe, option rule, map); services and gone dishes left out', () => {
+test('soldState: costed, or how to fix it (link, recipe, option rule, map); services, gone dishes and open items left out', () => {
   const s = (dish_id, extra = {}) => soldState({ dish_id, venue_id: V, revenue_stream_id: null, order_type_id: null, ...extra }, ctx())
   assert.equal(s('d-burger').state, 'costed')
   assert.equal(s('d-burger').why, 'every venue')
@@ -124,11 +133,27 @@ test('soldState: costed, or how to fix it (link, recipe, option rule, map); serv
   assert.equal(s('d-copy').state, 'costed', 'a person\'s draft counts')
   assert.equal(s('d-burger', { order_type_id: TAKE }).state, 'uncosted', 'takeaway uses the draft')
   assert.deepEqual([s('d-service').state, s('d-service').reason], ['left_out', 'service'])
+  // A meal deal's typed-in choice is fixed on the deal, never as "Finish the recipe" with no recipe.
+  const deal = s('d-deal')
+  assert.equal(deal.state, 'uncosted')
+  assert.deepEqual(deal.fixes.map(f => [f.kind, f.recipe_id ?? null]), [['deal', null]])
+  assert.match(deal.fixes[0].text, /Drink: Tap water is no dish/)
+  // One rule for the options a dish offers: coverage (optionGaps) and the matrix (offeredOptions) agree.
+  const offered = dish => offeredOptions(ctx().dishes.get(dish), ctx()).map(o => [o.option_id, o.state])
+  assert.deepEqual(offered('d-cheesy'), [['o-cheese', 'gap'], ['o-well', 'default']])
+  assert.deepEqual(offered('d-gone-opt'), [['o-lost', 'gap']])
+  assert.deepEqual(optionGaps(ctx().dishes.get('d-gone-opt'), ctx()).map(o => o.option_id), ['o-lost'])
+  assert.ok(s('d-gone-opt').fixes.some(f => f.kind === 'option' && f.option_id === 'o-lost'))
   assert.deepEqual([s('gone').state, s('gone').reason], ['left_out', 'gone'])
-  const unmapped = soldState({ dish_id: null, name: 'Loyverse burger', mapping: 'unmapped' }, ctx())
+  const unmapped = soldState({ channel: 'imported', dish_id: null, name: 'Loyverse burger', mapping: 'unmapped' }, ctx())
   assert.deepEqual([unmapped.state, unmapped.reason], ['uncosted', 'map'])
   assert.match(unmapped.fixes[0].text, /Item mapping page/)
-  assert.match(soldState({ dish_id: null, mapping: 'kept' }, ctx()).fixes[0].text, /kept as sold/)
+  assert.match(soldState({ channel: 'imported', dish_id: null, mapping: 'kept' }, ctx()).fixes[0].text, /kept as sold/)
+  // Our own till's open item (no dish) and an online line with no dish: nothing to map or cost, left out.
+  for (const channel of ['till', 'kiosk', 'online']) {
+    const open = soldState({ channel, dish_id: null, name: 'Item not on menu', mapping: null }, ctx())
+    assert.deepEqual([open.state, open.reason, open.fixes], ['left_out', 'open', []], channel)
+  }
 })
 
 test('salesCoverage: the share of what sold, by channel and venue, the uncosted dishes most sold first', () => {
@@ -142,16 +167,19 @@ test('salesCoverage: the share of what sold, by channel and venue, the uncosted 
     row('till', 'd-service', 500, 1),
     row('till', 'gone', 700, 1, { name: 'Old special' }),
     row('imported', null, 400, 2, { name: 'Loyverse latte', mapping: 'unmapped', venue_id: V2 }),
+    // Open items on our own till (and a latte typed in by the same name): left out, never "another till".
+    row('till', null, 250, 1, { name: 'Item not on menu' }),
+    row('till', null, 300, 1, { name: 'Loyverse latte' }),
   ]
   const asked = []
   const c = salesCoverage(rows, v => { asked.push(v); return { ...ctx(), venueId: v } })
-  assert.equal(c.total_pence, 14500)
+  assert.equal(c.total_pence, 15050)
   assert.equal(c.costed_pence, 8000)
-  assert.equal(c.left_out_pence, 1200, 'the service and the dish on no menu')
+  assert.equal(c.left_out_pence, 1750, 'the service, the dish on no menu and the open items')
   assert.equal(c.uncosted_pence, 5300)
   // 8000 of 13300 not left out: the item mapping's rule, to one place.
   assert.equal(c.percent, 60.2)
-  assert.equal(c.percent, coverageShare({ total: 14500, mapped: 8000, ignored: 1200 }))
+  assert.equal(c.percent, coverageShare({ total: 15050, mapped: 8000, ignored: 1750 }))
   assert.equal(costedShare({ total_pence: 0 }), null, 'nothing sold: no share')
   assert.equal(c.channels.till.percent, Math.round(6000 / (6000 + 900 + 3000) * 1000) / 10)
   assert.equal(c.channels.online.percent, 0, 'the takeaway burger uses the draft')
@@ -163,8 +191,11 @@ test('salesCoverage: the share of what sold, by channel and venue, the uncosted 
   assert.equal(burger.sales_pence, 1000)
   assert.deepEqual(burger.where, ['Take out at Soho'])
   assert.deepEqual(burger.channels, ['online'])
-  assert.equal(c.dishes.find(d => d.name === 'Loyverse latte').mapping, 'unmapped')
-  assert.deepEqual(c.left_out.map(l => [l.name, l.reason]), [['Old special', 'gone'], ['Corkage', 'service']])
+  const latte = c.dishes.find(d => d.name === 'Loyverse latte')
+  assert.deepEqual([latte.mapping, latte.sales_pence, latte.channels, latte.fixes.map(f => f.kind)], ['unmapped', 400, ['imported'], ['map']], 'only another till\'s line is to map')
+  assert.ok(c.dishes.every(d => d.dish_id || d.mapping), 'no open item among the dishes to fix')
+  assert.deepEqual(c.left_out.map(l => [l.name, l.reason]), [['Old special', 'gone'], ['Corkage', 'service'], ['Loyverse latte', 'open'], ['Item not on menu', 'open']])
+  assert.match(c.left_out.find(l => l.name === 'Item not on menu').why, /open item/)
   // Each dish and scope judged once, the ctx asked per venue.
   assert.ok(asked.every(v => v === V || v === V2))
   const judged = []
@@ -175,4 +206,18 @@ test('salesCoverage: the share of what sold, by channel and venue, the uncosted 
   // Nothing sold.
   const empty = salesCoverage([], () => ctx())
   assert.deepEqual([empty.total_pence, empty.percent, empty.dishes.length], [0, null, 0])
+})
+
+test('readLineKept: which lines Pepper read become recipe lines (the review and Pepper\'s card share it)', () => {
+  const l = (match, qty = 2, extra = {}) => ({ qty, match, ...extra })
+  assert.equal(readLineKept(l({ state: 'matched', kind: 'item', item_id: 'beef' })), true)
+  assert.equal(readLineKept(l({ state: 'matched', kind: 'recipe', sub_recipe_id: 'sauce' }, '30')), true, 'a quantity typed in the review')
+  assert.equal(readLineKept(l({ state: 'matched', kind: 'item' }, null)), false, 'no quantity: into the notes')
+  assert.equal(readLineKept(l({ state: 'matched', kind: 'item' }, 0)), false)
+  assert.equal(readLineKept(l({ state: 'suggested', kind: 'item' })), false, 'a suggestion needs a tap')
+  assert.equal(readLineKept(l({ state: 'not_found', kind: null })), false)
+  assert.equal(readLineKept(l({ state: 'matched', kind: 'item' }, 2, { out: true })), false, 'left out by the person')
+  assert.equal(readLineKept(l({ state: 'matched', kind: 'new', new_idx: 1 }), { kind: 'prep' }), true)
+  assert.equal(readLineKept(l({ state: 'matched', kind: 'new', new_idx: 1 }), { kind: 'dish' }), false, 'only a prep recipe goes inside')
+  assert.equal(readLineKept(l({ state: 'matched', kind: 'new', new_idx: 1 }), null), false, 'not being made')
 })

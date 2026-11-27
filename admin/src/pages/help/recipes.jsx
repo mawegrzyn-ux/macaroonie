@@ -208,17 +208,21 @@ export function Section() {
       <P>
         The Recipes page opens on <strong>Costed: 62% of the last 30 days&apos; sales</strong> (your own figure):
         of everything sold on the till, the self-order kiosks, online and any other till linked on the
-        Integrations page, the share whose cost Macaroonie can work out. Pick a venue, or every venue. A dish
-        sold counts as costed when the recipe it uses where it was sold (that venue, revenue stream and order
-        type) has no gaps and the options it offers that add something have a rule. Test till sales are left
-        out, and so are services and dishes no longer on a menu. Tap a channel or venue to see its own share.
+        Integrations page in the 30 days up to yesterday (the same days as a report&apos;s Last 30 days), the
+        share whose cost Macaroonie can work out. Pick a venue, or every venue. A dish sold counts as costed
+        when the recipe it uses where it was sold (that venue, revenue stream and order type) has no gaps and
+        the options it offers that add something have a rule. Test till sales are left out, and so are services,
+        dishes no longer on a menu and open items (an item typed in on the till with its own price: it isn&apos;t
+        a menu dish, so there is no recipe to give it). Each channel&apos;s share is shown under the figure; with
+        every venue picked, tap a venue to see its own.
       </P>
       <P>
         Below it are the dishes not costed yet, the best sellers first, each with what to do: <strong>Link a
         recipe</strong> (opens the dish), <strong>Open</strong> the recipe to finish its gaps, give an option a
-        rule, or map another till&apos;s item on the Item mapping page. Costing the top few first costs most of
-        what you sell. People without Costing or till reports access see each dish&apos;s share of sales
-        instead of pounds.
+        rule, or, for an item sold on another till linked on the Integrations page, map it to a menu dish on the
+        Item mapping page. Costing the top few first costs most of what you sell. Sales show in pounds for
+        people with till reports access, as in the Recipe coverage report; everyone else sees each dish&apos;s
+        share of sales instead.
       </P>
       <H3>Reading recipes in</H3>
       <P>
@@ -235,7 +239,9 @@ export function Section() {
         and prep recipes, or <strong>Add to the inventory</strong> (people with Purchasing setup access; others
         are told to ask). Fix a quantity or unit, <strong>Leave out</strong> a line, or untick a recipe you don&apos;t
         want. A recipe that uses another one read from the same file (a burger and its sauce) is linked to it.
-        <strong> Make the drafts</strong> saves them all at once.
+        <strong> Make 3 draft recipes</strong> (the button counts the ticked ones) saves them all at once. Going
+        back to Recipes or tapping <strong>Read something else</strong> asks first, since what Pepper read and
+        your picks would be lost.
       </P>
       <InfoBox type="info">
         Recipes Pepper read in are <strong>drafts</strong>, marked <strong>Draft, not checked</strong>. They are

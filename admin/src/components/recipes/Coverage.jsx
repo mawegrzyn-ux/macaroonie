@@ -8,8 +8,8 @@
 // a recipe (the dish's matrix), finish the recipe's gaps (the recipe), add an
 // option rule (the Options tab), map another till's item (Item mapping).
 // The rule is the API's (salesCoverage() in shared/costing.js, GET
-// /api/recipes/coverage); pounds only for people with Costing view or till
-// reports view, the share of sales for everyone else.
+// /api/recipes/coverage); pounds only for people with till reports view (as
+// in the report subject Recipe coverage), the share of sales for everyone else.
 
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -68,17 +68,17 @@ export function CoverageCard({ onOpenDish, onOpenRecipe, onOpenOption }) {
             <>
               <p className="text-sm text-muted-foreground">
                 A dish sold counts as costed when its recipe where it was sold (the venue, revenue stream and order type) has no gaps and its options have rules.
-                {money && <> {penceText(data.costed_pence)} of {penceText(data.total_pence - data.left_out_pence)} sold{data.left_out_pence > 0 ? ' (services and dishes no longer on a menu left out)' : ''}.</>}
+                {money && <> {penceText(data.costed_pence)} of {penceText(data.total_pence - data.left_out_pence)} sold{data.left_out_pence > 0 ? ' (services, open items and dishes no longer on a menu left out)' : ''}.</>}
               </p>
               <div className="flex flex-wrap gap-2" data-testid="recipe-coverage-channels">
                 {Object.entries(data.channels).map(([k, c]) => (
-                  <span key={k} className="inline-flex items-center gap-1.5 rounded-full border px-3 h-11 text-sm">
+                  <span key={k} className="inline-flex items-center gap-1.5 rounded-full border px-3 h-12 text-sm">
                     {SALE_CHANNELS[k] || k} <span className={cn('font-semibold tabular-nums', pctLook(c.percent))}>{c.percent == null ? '-' : c.percent + '%'}</span>
                   </span>
                 ))}
                 {!venueId && data.venues.length > 1 && data.venues.map(v => (
                   <button key={v.id} type="button" onClick={() => setVenueId(v.id)} data-testid="recipe-coverage-venue-chip"
-                    className="inline-flex items-center gap-1.5 rounded-full border px-3 h-11 text-sm bg-muted/40 hover:bg-muted touch-manipulation">
+                    className="inline-flex items-center gap-1.5 rounded-full border px-3 h-12 text-sm bg-muted/40 hover:bg-muted touch-manipulation">
                     {v.name} <span className={cn('font-semibold tabular-nums', pctLook(v.percent))}>{v.percent == null ? '-' : v.percent + '%'}</span>
                   </button>
                 ))}

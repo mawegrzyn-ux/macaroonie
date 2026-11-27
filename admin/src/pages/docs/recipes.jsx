@@ -233,12 +233,19 @@ export function Section() {
       <P>
         The reader: <Mono>services/recipeReadAi.js</Mono> (<Mono>readRecipes()</Mono>, <Mono>toRecipes()</Mono>,{' '}
         <Mono>RECIPE_SCHEMA</Mono>, one <Mono>askForJson()</Mono> call, use <Mono>recipe_reader</Mono>): items go to the
-        model as <Mono>i1</Mono>... (name, code, kept in and own units; up to 800), prep recipes as <Mono>r1</Mono>..., a
-        prep recipe of the same reading is <Mono>n1</Mono>... (its place in the answer). In code: a ref is checked against
-        the list (anything else is dropped), lines without one go through <Mono>matchThing()</Mono> (code, then name: auto
-        is matched, 0.6 and up suggested, else not found), units through <Mono>toBase()</Mono> /{' '}
+        model as <Mono>i1</Mono>... (name, code, kept in and own units; up to 800), prep recipes as <Mono>r1</Mono>... (up
+        to 300), a prep recipe of the same reading is <Mono>n1</Mono>... (its place in the answer). In code: a ref is
+        checked against the list sent (anything else is dropped), lines without one go through{' '}
+        <Mono>matchThing()</Mono> against every active item and prep recipe, listed or not (code, then name: auto is
+        matched, 0.6 and up suggested, else not found), units through <Mono>toBase()</Mono> /{' '}
         <Mono>inRecipeUnit()</Mono> (<Mono>unit_problem</Mono>), quantities through <Mono>qtyOf()</Mono> (fractions,
-        &frac12;). <Mono>suggestYield()</Mono>: the fast model, use <Mono>yield_suggestion</Mono>.
+        &frac12;; a comma is a decimal point only before one or two figures or after a lone 0, else a thousands
+        separator). The answer carries <Mono>items_listed</Mono> / <Mono>items_total</Mono> and{' '}
+        <Mono>preps_listed</Mono> / <Mono>preps_total</Mono>. Which read lines become draft lines is{' '}
+        <Mono>readLineKept()</Mono> in <Mono>shared/costing.js</Mono> (the review&apos;s <Mono>draftsBody()</Mono> and
+        Pepper&apos;s <Mono>draftsFromReading()</Mono>); <Mono>draftNotes()</Mono> keeps whole unmatched lines in the
+        2,000 characters and counts the ones that didn&apos;t fit. <Mono>suggestYield()</Mono>: the fast model, use{' '}
+        <Mono>yield_suggestion</Mono>.
       </P>
       <P>
         Routes: <Mono>routes/recipeRead.js</Mono> at <Mono>/api/ai/recipes</Mono> (registered in{' '}
@@ -254,16 +261,21 @@ export function Section() {
         for the dish, linked for every venue when it has none; 422 for a deal or a service).
       </P>
       <P>
-        Coverage by sales: <Mono>salesCoverage(rows, ctxFor)</Mono>, <Mono>soldState()</Mono>, <Mono>optionGaps()</Mono>,{' '}
+        Coverage by sales: <Mono>salesCoverage(rows, ctxFor)</Mono>, <Mono>soldState()</Mono>, <Mono>optionGaps()</Mono>{' '}
+        (from <Mono>offeredOptions()</Mono>, the matrix&apos;s rule too; a meal deal&apos;s typed-in choice is a{' '}
+        <Mono>deal</Mono> fix),{' '}
         <Mono>costedShare()</Mono> in <Mono>shared/costing.js</Mono>: a dish sold at its venue, stream and order type is
         costed when <Mono>dishCost()</Mono> there has no gaps and no option it offers needs a rule; the share is{' '}
-        <Mono>coverageShare()</Mono> (<Mono>shared/itemMapping.js</Mono>), services and dishes on no menu left out. Sales:{' '}
+        <Mono>coverageShare()</Mono> (<Mono>shared/itemMapping.js</Mono>), services, dishes on no menu and our own
+        till, kiosk or online lines with no dish (open items, <Mono>reason: 'open'</Mono>) left out; only another
+        till&apos;s line with no dish is not costed, with the <Mono>map</Mono> fix. Sales:{' '}
         <Mono>services/recipeCoverageSvc.js</Mono> <Mono>loadSold()</Mono> (closed till checks, lines not voided,{' '}
         <Mono>NOT is_generated</Mono>; a kiosk device as server is the kiosk channel; online orders in{' '}
         <Mono>OWN_COUNTED</Mono>, line total less discount; another till&apos;s item lines not ignored, by the main
         part&apos;s dish or by name), <Mono>coverageCtx()</Mono> (every menu, draft over live, deals&apos; choices).{' '}
-        <Mono>GET /api/recipes/coverage</Mono> <Mono>?venue_id &amp;days</Mono> (Recipes view; pence only with Costing or
-        till reports view, else each dish&apos;s <Mono>share_pct</Mono>).
+        <Mono>GET /api/recipes/coverage</Mono> <Mono>?venue_id &amp;days</Mono> (Recipes view; pence only with till reports
+        view, as the report subject&apos;s sales fields, else each dish&apos;s <Mono>share_pct</Mono>; the last{' '}
+        <Mono>days</Mono> up to yesterday, as a report&apos;s Last 30 days).
       </P>
       <P>
         Admin: <Mono>components/recipes/Coverage.jsx</Mono> (<Mono>CoverageCard</Mono> on the Recipes tab),{' '}

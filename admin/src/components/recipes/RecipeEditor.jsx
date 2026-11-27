@@ -21,7 +21,7 @@ import { cn } from '@/lib/utils'
 import { Field, inputCls, ErrorNote, ConfirmDelete, Segmented, SortableRows, Modal } from '@/components/staff/shared'
 import { Card, NumInput, Toggle, btn } from '@/components/purchasing/shared'
 import { PicturePick } from '@/components/media/PicturePick'
-import { KINDS, YIELD_UNITS, AVERAGE_DAYS, SOURCES } from '@shared/costing.js'
+import { KINDS, YIELD_UNITS, AVERAGE_DAYS, SOURCES, needsCheck } from '@shared/costing.js'
 import {
   CoverageBadge, KindBadge, CostAt, pounds, perLabel, unitLabel, madeText, usePickers, detailsOf, linesOf, methodOf, lineKey,
   saveBody, sameLines, sameObj, BASES,
@@ -107,7 +107,7 @@ export function RecipeEditor({ id, venueId, basis, onVenue, onBasis, onOpen, onC
         <CoverageBadge coverage={live.coverage} />
         {edit && <CopyButtons recipe={server} onOpen={onOpen} />}
       </div>
-      {server.status === 'draft' && server.source && (
+      {needsCheck(server) && (
         <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-testid="recipe-needs-check">
           {SOURCES[server.source]}: check each line, the method and what it makes against the recipe card, then set it to Live under Recipe and save.
           Until then it, and every dish linked to it, shows as partly costed.

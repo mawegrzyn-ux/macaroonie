@@ -66,8 +66,8 @@ import {
 } from '../services/dishCostSvc.js'
 import { loadTaxRates } from '../services/taxSvc.js'
 import {
-  recipeFor, recipeCost, dishCost, dishMargin, marginSteps, explain, scopeText, sameScope, ruleFor, ruleText,
-  optionDefault, dishMap,
+  recipeFor, recipeCost, dishCost, dishMargin, marginSteps, explain, scopeText, sameScope, ruleText,
+  offeredOptions, dishMap,
 } from '../../../shared/costing.js'
 import { matchIndex, matchThing } from '../../../shared/itemMatch.js'
 import { isCombo, menuCtx } from '../../../shared/combos.js'
@@ -179,25 +179,16 @@ async function loadDish(tx, tenantId, dishId, version = 'draft') {
 /**
  * A dish's options (the library's on its groups, and its own) with the rule
  * each follows; with none, what optionDefault() says it does (state: rule,
- * gap or default), as dishCost() costs it.
+ * gap or default), by offeredOptions() in shared/costing.js, the rule
+ * coverage judges a dish's options by too.
  */
 function dishOptions(item, ctx) {
-  const out = []
-  for (const c of itemChoices(item, {})) {
-    for (const o of c.options) {
-      const own = c.key === 'variants'
-      const lib = own ? null : ctx.options.get(o.id)
-      const hit = ruleFor(item.id, { id: o.id }, ctx.rules)
-      const d = optionDefault(own ? { own: true } : lib || {})
-      out.push({
-        option_id: own ? null : o.id, label: o.label, own, group: own ? 'Its own options' : c.name, group_id: own ? null : c.key,
-        variation_type: lib?.variation_type ?? null, price_pence: o.price_pence ?? null, mode: c.mode,
-        rule: hit ? { ...hit.rule, text: ruleText(hit.rule, ctx) } : null, rule_from: hit?.from ?? null,
-        state: hit ? 'rule' : d.state, default_text: hit ? null : d.text,
-      })
-    }
-  }
-  return out
+  return offeredOptions(item, ctx).map(o => ({
+    option_id: o.own ? null : o.option_id, label: o.label, own: o.own, group: o.own ? 'Its own options' : o.group, group_id: o.group_id,
+    variation_type: o.option?.variation_type ?? null, price_pence: o.price_pence, mode: o.mode,
+    rule: o.hit ? { ...o.hit.rule, text: ruleText(o.hit.rule, ctx) } : null, rule_from: o.hit?.from ?? null,
+    state: o.state, default_text: o.default_text,
+  }))
 }
 
 /** Was this menu sold at the venue, and on this stream? (A menu for one venue; a stream naming its menus.) */

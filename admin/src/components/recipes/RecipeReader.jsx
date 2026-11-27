@@ -29,7 +29,7 @@ import { Field, inputCls, ErrorNote, Segmented } from '@/components/staff/shared
 import { Card, NumInput, btn } from '@/components/purchasing/shared'
 import { KindBadge, unitLabel, usePickers } from './shared'
 import { UNITS } from '@shared/procurement.js'
-import { YIELD_UNITS, unitChoices, recipeUnitChoices } from '@shared/costing.js'
+import { YIELD_UNITS, unitChoices, recipeUnitChoices, readLineKept } from '@shared/costing.js'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 import { photoCapture } from '../../lib/officeApp'
 
@@ -79,14 +79,8 @@ function toDraft(read) {
   }))
 }
 
-/** A line is saved as a line only when it is matched (or picked) and has a quantity. */
-function lineReady(l, draft) {
-  if (l.out || !(Number(l.qty) > 0)) return false
-  const m = l.match
-  if (m.state !== 'matched') return false
-  if (m.kind === 'new') return !!draft.find(r => r.key === m.new_key && r.keep && r.kind === 'prep')
-  return m.kind === 'item' || m.kind === 'recipe'
-}
+/** A line is saved as a line only when it is matched (or picked) and has a quantity: readLineKept(), as Pepper's card. */
+const lineReady = (l, draft) => readLineKept(l, l.match.kind === 'new' ? draft.find(r => r.key === l.match.new_key && r.keep) ?? null : null)
 
 /** POST /recipes/drafts's body from the review. */
 export function draftsBody(draft) {
@@ -119,11 +113,13 @@ export default function RecipeReader({ onClose, onOpen }) {
   const [hint, setHint] = useState('')
   const [reading, setReading] = useState(false)
   const [error, setError] = useState(null)
-  const [read, setRead] = useState(null)       // { notes, counts, items_listed, items_total }
+  const [read, setRead] = useState(null)       // { notes, counts, items_listed, items_total, preps_listed, preps_total }
   const [draft, setDraft] = useState(null)
   const [saving, setSaving] = useState(false)
   const [made, setMade] = useState(null)
   const [over, setOver] = useState(false)
+  // Leaving the review asks first ('close': back to Recipes, 'again': read something else): a reading is paid for and takes minutes.
+  const [leaving, setLeaving] = useState(null)
   const fileRef = useRef(null)
   const camRef = useRef(null)
   const elapsed = useElapsed(reading)
@@ -152,8 +148,9 @@ export default function RecipeReader({ onClose, onOpen }) {
       for (const f of files) payload.push({ name: f.file.name, data: await readBase64(f.file) })
       const res = await api.post('/ai/recipes/read', { files: payload, text: text.trim(), hint: hint.trim() })
       if (!Array.isArray(res?.recipes)) throw new Error(ASSISTANT_NAME + '\'s answer didn\'t arrive. Try again.')
-      setRead({ notes: res.notes, counts: res.counts, items_listed: res.items_listed, items_total: res.items_total })
+      setRead({ notes: res.notes, counts: res.counts, items_listed: res.items_listed, items_total: res.items_total, preps_listed: res.preps_listed, preps_total: res.preps_total })
       setDraft(toDraft(res))
+      setLeaving(null)
     } catch (e) {
       setError(errText(e))
     } finally {
@@ -202,6 +199,17 @@ export default function RecipeReader({ onClose, onOpen }) {
   const back = (
     <button type="button" className={cn(btn.outline, 'h-12')} onClick={onClose} data-testid="reader-back"><ArrowLeft className="w-4 h-4" />Recipes</button>
   )
+  // In the review, leaving throws the reading away: asked inline first (design rule 6).
+  const leaveAsk = (kind, yes) => (
+    <span className="inline-flex flex-wrap items-center gap-2" role="alert" data-testid="reader-leave-ask">
+      <span className="text-sm">Leave this review? What {ASSISTANT_NAME} read and every pick you made here are lost.</span>
+      <button type="button" className={cn(btn.primary, 'h-12 bg-destructive text-destructive-foreground')} onClick={yes} data-testid="reader-leave-yes">
+        {kind === 'close' ? 'Yes, leave' : 'Yes, read something else'}
+      </button>
+      <button type="button" className={cn(btn.outline, 'h-12')} onClick={() => setLeaving(null)} data-testid="reader-leave-no">Stay</button>
+    </span>
+  )
+  const readAgain = () => { setDraft(null); setRead(null); setError(null); setLeaving(null) }
 
   if (ai && !canAi) {
     return (
@@ -271,7 +279,7 @@ export default function RecipeReader({ onClose, onOpen }) {
                         : <span className="text-xs text-center px-1 break-all"><FileText className="w-5 h-5 mx-auto mb-1" />{f.file.name}</span>}
                       <span className="absolute left-1 bottom-1 text-[10px] bg-background/90 rounded px-1">{i + 1} · {sizeText(f.file.size)}</span>
                       <button type="button" onClick={() => setFiles(fs => fs.filter(x => x.key !== f.key))} aria-label={'Remove ' + f.file.name} disabled={reading}
-                        className="absolute top-1 right-1 w-11 h-11 rounded-full bg-background/90 border flex items-center justify-center touch-manipulation">
+                        className="absolute top-1 right-1 w-12 h-12 rounded-full bg-background/90 border flex items-center justify-center touch-manipulation">
                         <X className="w-4 h-4" />
                       </button>
                     </li>
@@ -317,7 +325,11 @@ export default function RecipeReader({ onClose, onOpen }) {
   return (
     <div className="space-y-4" data-testid="reader-review">
       <div className="flex flex-wrap items-center gap-2">
-        {back}
+        {leaving === 'close' ? leaveAsk('close', onClose) : (
+          <button type="button" className={cn(btn.outline, 'h-12')} onClick={() => setLeaving('close')} disabled={saving} data-testid="reader-back">
+            <ArrowLeft className="w-4 h-4" />Recipes
+          </button>
+        )}
         <h2 className="text-lg font-semibold flex-1 min-w-[10rem]">Check what {ASSISTANT_NAME} read</h2>
       </div>
       <p className="text-sm">
@@ -329,8 +341,13 @@ export default function RecipeReader({ onClose, onOpen }) {
           <TriangleAlert className="w-4 h-4 shrink-0" />{read.notes}
         </p>
       )}
-      {read.items_total > read.items_listed && (
-        <p className="text-xs text-muted-foreground">{ASSISTANT_NAME} was shown the first {read.items_listed} of your {read.items_total} inventory items; lines for the others were matched by name here.</p>
+      {(read.items_total > read.items_listed || read.preps_total > read.preps_listed) && (
+        <p className="text-xs text-muted-foreground" data-testid="reader-listed">
+          {ASSISTANT_NAME} was shown the first {[
+            read.items_total > read.items_listed ? read.items_listed + ' of your ' + read.items_total + ' inventory items' : null,
+            read.preps_total > read.preps_listed ? read.preps_listed + ' of your ' + read.preps_total + ' prep recipes' : null,
+          ].filter(Boolean).join(' and ')}; lines for the others were matched by their code or name here.
+        </p>
       )}
       <div className="space-y-3">
         {draft.map(r => (
@@ -344,7 +361,9 @@ export default function RecipeReader({ onClose, onOpen }) {
           {summary.recipes} {summary.recipes === 1 ? 'recipe' : 'recipes'}, {summary.ready} lines
           {summary.out > 0 && <> · <span className="text-amber-800">{summary.out} not matched go into the notes</span></>}
         </span>
-        <button type="button" className={cn(btn.outline, 'h-12')} onClick={() => { setDraft(null); setRead(null); setError(null) }} disabled={saving}>Read something else</button>
+        {leaving === 'again' ? leaveAsk('again', readAgain) : (
+          <button type="button" className={cn(btn.outline, 'h-12')} onClick={() => setLeaving('again')} disabled={saving} data-testid="reader-again">Read something else</button>
+        )}
         <button type="button" className={cn(btn.primary, 'h-12')} onClick={save} disabled={saving || !summary.recipes || summary.unnamed} data-testid="reader-save">
           {saving && <Loader2 className="w-4 h-4 animate-spin" />}
           Make {summary.recipes} draft {summary.recipes === 1 ? 'recipe' : 'recipes'}
@@ -410,7 +429,7 @@ function ReadRecipe({ r, draft, pickers, canAddItem, onChange, onLine, onNewItem
           </ul>
           {r.method && (
             <details className="text-sm">
-              <summary className="cursor-pointer min-h-[44px] flex items-center text-muted-foreground touch-manipulation">Method</summary>
+              <summary className="cursor-pointer min-h-[48px] flex items-center text-muted-foreground touch-manipulation">Method</summary>
               <p className="whitespace-pre-wrap text-sm mt-1">{r.method}</p>
             </details>
           )}

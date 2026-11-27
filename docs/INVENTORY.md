@@ -308,7 +308,10 @@ The rate is `taxFor()`'s for the chosen order type, so the page has an order typ
 - **Coverage by sales** (phase 3, principle 7): the share of the last 30 days' sales that can be costed, from
   the till (test sales left out, D10), kiosks, online orders and other tills; a dish sold counts at its venue,
   revenue stream and order type when its recipe there has no gaps and its options have rules. One rule,
-  `salesCoverage()` in `shared/costing.js`, for the Recipes page, the report subject and Pepper.
+  `salesCoverage()` in `shared/costing.js`, for the Recipes page, the report subject and Pepper. *As built:
+  the 30 days up to yesterday, as a report's Last 30 days; services, dishes on no menu and our own open
+  items (no dish) are left out, only another till's line with no dish is sent to the Item mapping; sales in
+  pounds need till reports view everywhere.*
 - **Order of work**: the Recipes page opens on "Costed: 62% of last 30 days' sales" with the
   uncosted dishes sorted by sales value, the same idea as the item mapping coverage.
 
