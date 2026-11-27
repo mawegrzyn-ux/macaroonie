@@ -1078,28 +1078,42 @@ function qtyGapsOf(rc, recipe, note) {
  * one walk: each line as bought after its yield, a prep recipe inside by its
  * yield less its loss). qty in what the recipe makes (its yield unit, or
  * portions). add(itemId, qty), note(gap).
+ * tr (the allergen roll-up, inventory phase 8a, shared/allergenCheck.js):
+ * { trace: { item(entry), recipe(recipe, via) }, via, from } also hears of
+ * every item line and recipe on the way, its quantity known or not (an
+ * ingredient is in the dish even with no size for its unit); qty null walks
+ * for the trace only, adding and noting nothing. Without tr the walk is
+ * exactly as it was.
  */
-function batchItems(recipe, qty, ctx, add, note, stack = []) {
+function batchItems(recipe, qty, ctx, add, note, stack = [], tr = null) {
   const rc = recipeCost(recipe, ctx)
-  qtyGapsOf(rc, recipe, note)
-  if (!(rc.makes > 0)) return
-  const f = num(qty) / rc.makes
+  const counting = qty != null
+  if (counting) qtyGapsOf(rc, recipe, note)
+  if (tr?.trace.recipe) tr.trace.recipe(recipe, tr.via)
+  const f = counting && rc.makes > 0 ? num(qty) / rc.makes : null
+  if (f == null && !tr) return
   for (const l of rc.lines) {
-    if (l.bought_qty == null) continue
-    if (l.kind === 'item') { add(l.item_id, l.bought_qty * f); continue }
+    if (l.kind === 'item') {
+      if (tr && l.item_id) tr.trace.item({ item_id: l.item_id, via: tr.via, from: tr.from || 'recipe' })
+      if (l.bought_qty != null && f != null) add(l.item_id, l.bought_qty * f)
+      continue
+    }
     const sub = get(ctx.recipes, l.sub_recipe_id)
     if (!sub) continue
+    const subQty = l.bought_qty != null && f != null ? l.bought_qty * f : null
+    if (subQty == null && !tr) continue
     if (sub.id === recipe.id || stack.includes(sub.id)) {
-      note({ reason: 'cycle', text: sub.name + ' is inside itself', fix: FIX.cycle(sub.name), recipe_id: recipe.id })
+      if (subQty != null) note({ reason: 'cycle', text: sub.name + ' is inside itself', fix: FIX.cycle(sub.name), recipe_id: recipe.id })
       continue
     }
     if (stack.length + 1 >= MAX_DEPTH) {
-      note({ reason: 'too_deep', text: sub.name + ' is nested more than ' + MAX_DEPTH + ' levels down', fix: FIX.too_deep(), recipe_id: recipe.id })
+      if (subQty != null) note({ reason: 'too_deep', text: sub.name + ' is nested more than ' + MAX_DEPTH + ' levels down', fix: FIX.too_deep(), recipe_id: recipe.id })
       continue
     }
-    batchItems(sub, l.bought_qty * f, ctx, add, note, [...stack, recipe.id])
+    batchItems(sub, subQty, ctx, add, note, [...stack, recipe.id], tr && { ...tr, via: [...tr.via, sub.name] })
   }
 }
+const NOOP = () => {}
 
 const round4 = n => Math.round(Number(n) * 10000) / 10000
 function usageAcc() {
@@ -1117,10 +1131,12 @@ function usageAcc() {
  * A batch of a prep recipe (2 l of sauce) as items bought: { items:
  * [{ item_id, qty_base }], uncosted: [{ reason, text, fix }] }. qty in what
  * the recipe makes. The waste of a batch (itemsOf() in shared/stockItems.js).
+ * trace (phase 8a): as batchItems()'s, for a recipe's own allergens (qty
+ * null: the walk only).
  */
-export function recipeUsage(recipe, qty, ctx = {}) {
+export function recipeUsage(recipe, qty, ctx = {}, { trace = null } = {}) {
   const a = usageAcc()
-  if (recipe) batchItems(recipe, qty, ctx, a.add, a.note)
+  if (recipe) batchItems(recipe, qty, ctx, a.add, a.note, [], trace ? { trace, via: [recipe.name] } : null)
   return { items: a.items(), uncosted: a.uncosted }
 }
 
@@ -1161,8 +1177,13 @@ function idOptions(dish, options, note) {
  * of each item's qty x its cost per base unit), coverage, typical (true when
  * a deal's picks were its typical ones), picks }. A dish with no recipe
  * takes nothing off; a service needs none.
+ * trace (the allergen roll-up, inventory phase 8a, shared/allergenCheck.js):
+ * { item({ item_id, via, from }), recipe(recipe, via) } hears of every item
+ * line on the same walk (via: the recipes above it, the dish's first; from:
+ * 'option' for what an option's rule adds) and every recipe walked, whether
+ * the line's quantity is known or not. Without it nothing changes.
  */
-export function usageOf(sold = {}, scope = {}, ctx = {}) {
+export function usageOf(sold = {}, scope = {}, ctx = {}, { trace = null } = {}) {
   const a = usageAcc()
   const n = sold.qty == null || sold.qty === '' ? 1 : num(sold.qty)
   const top = {
@@ -1206,11 +1227,20 @@ export function usageOf(sold = {}, scope = {}, ctx = {}) {
     if (!dc.recipe || dc.recipe.kind !== 'dish') return
     const recipe = get(ctx.recipes, dc.recipe.id)
     if (recipe) qtyGapsOf(recipeCost(recipe, ctx), recipe, a.note)
+    if (recipe && trace?.recipe) trace.recipe(recipe, [recipe.name])
     for (const l of dc.lines) {
-      if (l.bought == null) continue
-      if (l.item_id) { a.add(l.item_id, l.bought * times); continue }
+      // The trace hears of every line, its quantity known or not; an option's own line has no recipe above it.
+      const via = l.from === 'option' ? [] : [dc.recipe.name]
+      if (l.item_id) {
+        if (trace) trace.item({ item_id: l.item_id, via, from: l.from })
+        if (l.bought != null) a.add(l.item_id, l.bought * times)
+        continue
+      }
       const sub = get(ctx.recipes, l.sub_recipe_id || l.recipe_id)
-      if (sub) batchItems(sub, l.bought * times, ctx, a.add, a.note, [dc.recipe.id])
+      if (!sub) continue
+      const tr = trace ? { trace, via: [...via, sub.name], from: l.from } : null
+      if (l.bought != null) batchItems(sub, l.bought * times, ctx, a.add, a.note, [dc.recipe.id], tr)
+      else if (tr) batchItems(sub, null, ctx, NOOP, NOOP, [dc.recipe.id], tr)
     }
   }
   one(sold.dish_id, n, sold.options, sold.picks ?? null, 0)
