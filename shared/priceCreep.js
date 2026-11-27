@@ -268,9 +268,10 @@ export function dayWords(day) {
  * The words over some cost alerts (the Menu margins banner, Today): how many
  * dishes crossed what since when, and the move behind most of them.
  * alerts: cost_alerts rows ({ dish_id, venue_id, threshold_pct, new_band,
- * day, causes }). -> { count, dishes, venues, threshold_pct (when every alert
- * crossed the same %, else null), since (the first day), top (the move named
- * by most alerts, biggest first), words }
+ * day, at, causes }). -> { count, dishes, venues, threshold_pct (when every
+ * alert crossed the same %, else null), since (the first day), top (the item
+ * most alerts name first, its move from before the first of them to after
+ * the last), words }
  */
 export function alertSummary(alerts = []) {
   const list = (alerts || []).filter(Boolean)
@@ -280,16 +281,24 @@ export function alertSummary(alerts = []) {
   const pcts = new Set(list.map(a => (a.threshold_pct == null ? null : Number(a.threshold_pct))))
   const threshold = pcts.size === 1 ? [...pcts][0] : null
   const since = list.map(a => String(a.day).slice(0, 10)).sort()[0]
+  // The item behind most alerts (each alert's biggest move), and how far it moved over them all: from its cost
+  // before the first of them to its cost after the last, so "since 1 Dec" reads as the whole rise since then.
+  const when = a => (a.at ? time(a.at) : time(String(a.day).slice(0, 10) + 'T12:00:00Z'))
   const tally = new Map()
-  for (const a of list) {
+  for (const a of [...list].sort((x, y) => when(x) - when(y))) {
     for (const m of (Array.isArray(a.causes) ? a.causes : []).slice(0, 1)) {
       const k = m.item_id || m.name
-      const t = tally.get(k) || { n: 0, move: m }
+      const t = tally.get(k) || { n: 0, first: m, last: m }
       t.n++
+      t.last = m
       tally.set(k, t)
     }
   }
-  const top = [...tally.values()].sort((a, b) => b.n - a.n || Math.abs(b.move.pct ?? 0) - Math.abs(a.move.pct ?? 0))[0]?.move ?? null
+  const best = [...tally.values()].sort((a, b) => b.n - a.n || Math.abs(b.last.pct ?? 0) - Math.abs(a.last.pct ?? 0))[0] ?? null
+  const top = best ? {
+    ...best.last, before: best.first.before ?? null, after: best.last.after ?? null,
+    pct: best.first.before > 0 && best.last.after != null ? round1((best.last.after - best.first.before) / best.first.before * 100) : best.last.pct ?? null,
+  } : null
   const crossed = threshold != null ? 'crossed ' + String(round2(threshold)) + '%'
     : list.every(a => a.new_band === 'over') ? 'crossed their cost limit' : list.every(a => a.new_band === 'watch') ? 'crossed their cost target' : 'crossed their cost target or limit'
   const words = plural(dishes, 'dish', 'dishes') + ' ' + crossed + (venues > 1 ? ' at ' + venues + ' venues' : '') +

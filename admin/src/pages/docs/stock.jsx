@@ -491,7 +491,10 @@ export function Section() {
         <Mono>trackCostTargets()</Mono> (events of kind <Mono>crossed</Mono>, keyed by venue, dish, band and{' '}
         <Mono>since</Mono>, and <Mono>rose</Mono>, keyed by the new cost % too),{' '}
         <Mono>sweepCostTargets(app, log, {'{ tenantIds }'})</Mono> (the job <Mono>jobs/cost-targets.js</Mono>, hourly; a
-        group per transaction under an advisory lock). Table <Mono>cost_target_states</Mono> (tenant, venue, plain{' '}
+        group per transaction under an advisory lock). Since inventory phase 7b <Mono>keepCrossings(tx, tenantId, venue,
+        dishes, {'{ only }'})</Mono> is the one writer of the states, under <Mono>lockCostTargets()</Mono>: the sweep calls
+        it for every dish, and recipes&apos; price creep hook (<Mono>priceChanged()</Mono>) for the dishes a supplier price
+        change reached, so a crossing fires once whichever is first. Table <Mono>cost_target_states</Mono> (tenant, venue, plain{' '}
         <Mono>dish_id</Mono>, band, cost %, <Mono>since</Mono>; RLS forced): the dishes the sweep last found over target,
         so the rule trigger fires once per crossing. A rule without its own % takes crossings only; one with{' '}
         <Mono>over</Mono> fires when its conditions hold now and didn&apos;t at the last look (<Mono>matches()</Mono>),

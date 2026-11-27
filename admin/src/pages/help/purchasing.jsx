@@ -87,8 +87,10 @@ export function Section() {
       </P>
       <P>
         <strong>Venue prices</strong> on a supplier price set what one venue pays when it differs from
-        the company price. Every price change (by hand, by import or from an invoice) is kept: tap{' '}
-        <strong>History</strong> to see them.
+        the company price. Every price change (by hand, by import or from an invoice) is kept, with the pack size it
+        was for (a new pack size is a change too): tap <strong>History</strong> to see them. Each change also checks
+        the dishes made with the item: any it takes over their cost target show on Menu margins (Price creep and cost
+        alerts).
       </P>
       <InfoBox type="tip">
         <strong>Import</strong> loads a whole price list from a CSV or Excel file (download the template

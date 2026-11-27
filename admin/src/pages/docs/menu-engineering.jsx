@@ -18,7 +18,7 @@ export function Section() {
         <Mono>&amp;scenario=</Mono> opens one), Push prices into a menu&apos;s draft, Pepper&apos;s{' '}
         <Mono>menu_engineering</Mono> and <Mono>save_scenario</Mono>, the report subjects. Area: recipes
         (<Mono>docs/claude/areas/recipes.md</Mono>). Price creep, cost alerts and <Mono>why_cost_changed</Mono> are
-        phase 7b.
+        phase 7b (Price creep and cost alerts, the next section).
       </P>
       <H3>The rules (shared, rule 12)</H3>
       <DataTable

@@ -12,8 +12,9 @@ period, food cost actual and theoretical, the Variance tab, explain_variance, To
 see "Phase 6a as built") and 6b (the Cash Recon week line, the stock and costing dashboard widgets and the Overview tile,
 Today's dishes over their cost target and Home's set-up gaps, the rule triggers; migration 313; see "Phase 6b as built").
 Phase 7a built on 27 Nov 2026 (menu engineering from real sales, cost scenarios at the real mix, Push prices into a
-menu's draft; migration 314; see "Phase 7a as built"); 7b (price creep, cost alerts, `why_cost_changed`) is next.
-Phases 8 to 10 are a plan. The decisions in section 12 are taken as
+menu's draft; migration 314; see "Phase 7a as built") and 7b (price creep and cost alerts on every supplier price change,
+the rule trigger from the same place, Pepper's `why_cost_changed`; migration 315; see "Phase 7b as built"), so phase 7 is
+built. Phases 8 to 10 are a plan. The decisions in section 12 are taken as
 recommended, D1 to D12.** The owner's ask when building started: "recipes variations, per revenue stream/order type
 matrix, and per location (or ability to link a different recipe to menu items in different locations)",
 "stock take module" and "reports". The variation matrix is part of phase 2's links (5.4).
@@ -480,7 +481,14 @@ unexplained       = variance - logged waste
   it goes through the menus routes as the person (Costing and Menus manage), after a preview, and never publishes.*
 - **Price creep**: when a price changes (a price list, an invoice applied), the dishes whose cost %
   crosses a threshold are listed, on the page and as a Today item; a rule trigger lets a group ask
-  to be told ("when a dish goes over 35%, tell the owner").
+  to be told ("when a dish goes over 35%, tell the owner"). *As built (phase 7b): one hook, `priceChanged()`, after every
+  supplier price write in purchasing's routes (a price added or edited, a venue's own price, the inventory import, a
+  supplier's price list by code, an invoice's prices applied), in the same transaction; only the dishes whose recipes use
+  the changed items (and the meal deals holding them) are costed, before (the price history as it was) and after; a
+  crossing is the hourly sweep's (`targetCrossings()`), recorded in `cost_alerts` with what moved, and the sweep's
+  `cost_target_states` is kept by the same function, so the rule fires once whichever notices first. The Today item
+  extends the dishes over target card rather than adding one. A change of usual supplier, a price switched off, a recipe or a
+  menu price is no price change: the sweep sees those, with no alert.*
 
 ### 8.3 Allergens, calories, labels
 
@@ -563,7 +571,8 @@ cost, GP, plate cost, shrinkage, wastage, stocktake) and re-run the smart builde
   `send_transfer` / `receive_transfer`, `read_recipes` (drafts only), `link_recipes`,
   `save_scenario`. Every change tool gets its Activity words and its place in the registry. *As built (phase 7a):
   `menu_engineering` (read) and `save_scenario` (consequential, confirms with the figures at the mix; pushing
-  prices and publishing stay on the pages).*
+  prices and publishing stay on the pages). Phase 7b: `why_cost_changed` (read), a dish's cost now against a day's
+  supplier prices on today's recipe, from the price history.*
 - Forms through `open_form`: waste, a key-item count, a transfer.
 - Rule triggers: a dish over its cost target, a period's variance over the band, waste logged over
   a value. Actions stay the two a rule may run (a notice, an H&S action). *As built (phase 6b):
@@ -591,7 +600,7 @@ scale; steps that follow the same day run nearer half.
 | 4 | **Built 27 Nov 2026.** 4a: the `stock` module; storage areas; stocktake (drafts, units, approval, key items, phone and scanner); adjustments; `loadStockMoves()`. 4b: waste (reasons in WRAP's kinds, till voids marked wasted, the phone's waste page); transfers in two steps | Stock run from documents | 90 to 110 |
 | 5 | **Built 27 Nov 2026.** Usage from sales (till, kiosk, online, imported); on hand with sales taken off; order to par minus stock | Stock on hand that follows trading | 70 to 90 |
 | 6 | **Built 27 Nov 2026.** 6a: periods and variance; actual and theoretical food cost; `explain_variance`; variance to review on Today. 6b: the Cash Recon line; widgets and the Overview tile; dishes over target on Today, Home's set-up gaps; rule triggers | A pound figure on the gap, per item and venue | 70 to 90 |
-| 7 | 7a **built 27 Nov 2026**: engineering from real sales; scenarios; what-if; push prices. 7b: price creep and its rule trigger, cost alerts, `why_cost_changed` | Pricing decisions made in the app | 60 to 80 |
+| 7 | **Built 27 Nov 2026.** 7a: engineering from real sales; scenarios; what-if; push prices. 7b: price creep and its rule trigger, cost alerts, `why_cost_changed` | Pricing decisions made in the app | 60 to 80 |
 | 8 | Allergens on supplier products; the roll-up check and its Today item; suggested calories | Declared allergens checked against recipes | 50 to 65 |
 | 9 | Suggested orders from usage and bookings; returns and credit notes | Orders proposed, not just listed | 60 to 80 |
 | 10 | Later, not estimated: production of prep batches held as stock, labels, a central kitchen, recipe packs passed from a franchisor to its franchisees, GloriaFood through the mapping tool, remakes with dish ids | | |
@@ -862,6 +871,33 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
   dish (its own sizes as its own prices), never a venue, stream or order type price, which don't exist; a meal deal counts in its own
   section when rung up as a deal (an automatic deal found among separate dishes is a discount over them); a scenario's "before" is the menu's draft (what a push changes); the report subject has no venue (a section is judged
   across the venues together). Limits: `docs/claude/outstanding/recipes.md` item 78.
+
+### Phase 7b as built (27 Nov 2026)
+
+- **Migration** 315: `cost_alerts` (a dish at a venue a supplier price change took over its cost target or limit: its worst
+  order type, cost % before and after, the % crossed, the cause in words and the moves as jsonb, the source, the order for an
+  invoice, who changed it, the venue's day, who marked it seen; plain dish ids; RLS forced) and `inv_price_history.pack_base_qty`
+  (the history kept the pack price only, so a cost per base unit couldn't be read back after a pack change: each row now keeps
+  its pack, a pack change is a row of its own, the latest company row of each price was backfilled).
+- **The rule** `shared/priceCreep.js` (rule 12): `pricesAt()` (prices and packs at a moment from the history), `dishesUsing()`
+  (the index from items to recipes, through prep recipes, to the dishes linked), `dealsHolding()`, `itemMoves()`, `dishMoves()`
+  (on `usageOf()`, so the change in a dish's cost is the sum of its items' moves), `priceCrossings()` (`overTarget()` and
+  `targetCrossings()` of `shared/foodCost.js`, the sweep's own rule), `causeWords()`, `alertSummary()`.
+- **The hook** `priceChanged()` in `services/priceCreepSvc.js`, in the price change's transaction (a savepoint: a failure never
+  stops the price), from purchasing's `routes/inventory.js` and `routes/purchasing.js`; "before" is the history strictly before
+  the transaction's `now()`. Stock's `keepCrossings()` (under `lockCostTargets()`) is now the one writer of
+  `cost_target_states`, called by the sweep and the hook; the hook's rule events go out once the change is answered
+  (`firesCostAlerts()`).
+- **Pages**: Menu margins' banner across every tab ("4 dishes crossed 35% since 1 Dec: Chicken thighs up 12%") and the list of
+  the last 90 days (`components/recipes/CostAlerts.jsx`), Mark as seen (Costing manage). Today's dishes over target card adds
+  the unseen alerts' words, opens them, and comes back for a new one (its key). `/api/cost-alerts` (list, summary, seen, why).
+- **Pepper** `why_cost_changed` (read); **reports** Cost alerts (`recipes.cost_alerts`), starter Dishes that crossed the cost
+  limit (month to date), synonyms price rise, cost creep, price creep, cost alert; the Supplier price changes subject shows the
+  pack size.
+- **What the build changed in the plan**: price creep had no price history with packs to read "before" from, so migration 315
+  added the pack; a cost alert is a crossing caused by a price change, while the sweep (which can't say why) makes none; a meal
+  deal holding a dish crosses on its own; the Today item is the existing card extended; the starter is month to date (a
+  report's last days end yesterday, and alerts are today's). Limits: `docs/claude/outstanding/recipes.md` item 79.
 
 ## 12. Decisions for the owner
 

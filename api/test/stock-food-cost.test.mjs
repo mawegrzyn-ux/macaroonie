@@ -448,23 +448,28 @@ test('a rule with a cost % of its own tells as a dish passes it, a rise in the s
     assert.deepEqual(await platterNow(), { band: 'watch', cost_pct: p0 })
     assert.equal((await firings(pct.id)).length, 0, 'over the target at ' + p0 + '%, not over ' + over + '% yet')
     // Chicken dearer: the platter rises in its band past the rule's %, which tells (the finding: it never did).
+    // Since inventory phase 7b the price change itself notices it first: price creep's hook keeps
+    // cost_target_states by the sweep's own function (keepCrossings()) and fires the rule once the change
+    // is answered, so the sweep after it finds nothing new and the rule is told once.
     await chickenAt(6.6)
-    const rose = await sweep()
-    assert.ok(rose.rose >= 1, JSON.stringify(rose))
+    const runs = await waitFor(async () => { const r = await firings(pct.id); return r.length && r.every(x => x.status !== 'running') ? r : null }, 'the rise')
     const p1 = await platterNow()
     assert.equal(p1.band, 'watch')
     assert.ok(p1.cost_pct > over, p1.cost_pct + ' over ' + over)
-    const runs = await firings(pct.id)
     assert.deepEqual(runs.map(r => r.status), ['done'], JSON.stringify(runs))
     assert.match(runs[0].event_key, /:rose:/)
+    const rose = await sweep()
+    assert.equal(rose.rose, 0, 'the hook told first: nothing new for the sweep ' + JSON.stringify(rose))
     // The same look again, then dearer still in the same band: past its % already, so not again.
     await sweep()
     await chickenAt(7.2)
     await sweep()
+    await new Promise(r => setTimeout(r, 200))
     assert.equal((await firings(pct.id)).length, 1)
     assert.equal((await firings(atLimit.id)).length, 0, 'not over the limit yet')
     // Over the limit: a crossing. The limit rule holds now and didn't at the last look; the % rule passed its % before.
     await chickenAt(8.4)
+    await waitFor(async () => (await firings(atLimit.id)).some(r => r.status === 'done'), 'the limit')
     await sweep()
     assert.equal((await platterNow()).band, 'over')
     assert.equal((await firings(pct.id)).length, 1)
