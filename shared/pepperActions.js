@@ -29,6 +29,8 @@ export const USE_LABELS = {
   new_location: 'New location',
   rule_parser: 'Reading a rule',
   item_mapping: 'Mapping another till\'s items',
+  recipe_reader: 'Reading recipes',
+  yield_suggestion: 'Suggesting a typical yield',
   other: 'Something else',
 }
 

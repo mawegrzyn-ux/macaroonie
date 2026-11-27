@@ -26,6 +26,12 @@
 //                            replaced), as the page holds it (rule 13)
 //   POST   /:recipeId/copy   { name?, variant? } a copy with its lines, a draft;
 //                            variant: a variation of the original's group
+//   POST   /drafts           { source: reader | pepper, recipes: [...] } drafts
+//                            Pepper wrote (read in, or made in the chat; phase
+//                            3): each a draft with its source, its lines an
+//                            item, a prep recipe, or a prep recipe of the same
+//                            request (new_key); lines not matched are kept in
+//                            its notes. Made in one go, prep recipes first.
 //   PATCH  /:recipeId/active { is_active } switch off or on
 //   DELETE /:recipeId        refused (409 in_use) while another recipe uses it
 //
@@ -45,7 +51,7 @@ import { requireAuth, requirePermission, permissionLevels } from '../middleware/
 import { httpError } from '../middleware/error.js'
 import { loadVenue } from '../services/purchasingSvc.js'
 import { loadRecipes, loadCosting, loadCostItems, recipeView } from '../services/costingSvc.js'
-import { recipeCost, nestingProblem, BASIS_KEYS, YIELD_UNITS, unitChoices, recipeUnitChoices } from '../../../shared/costing.js'
+import { recipeCost, nestingProblem, needsCheck, BASIS_KEYS, YIELD_UNITS, unitChoices, recipeUnitChoices } from '../../../shared/costing.js'
 import { PRICES_MODULE, seesPurchasingPrices, UNITS } from '../../../shared/procurement.js'
 import { webLink } from '../../../shared/links.js'
 
@@ -98,6 +104,38 @@ export const RecipeNew = z.object({
 // The editor's draft: the recipe's fields as far as the page has them.
 const PreviewBody = z.object({ id: uuid.nullable().optional(), ...Object.fromEntries(Object.entries(FIELDS).map(([k, v]) => [k, v.optional()])) })
   .transform(b => ({ ...DEFAULTS, name: 'This recipe', ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)) }))
+
+// Drafts Pepper wrote (phase 3): a line is an item, a prep recipe, or a prep
+// recipe made in the same request (new_key: that recipe's key).
+const DraftLine = z.object({
+  item_id:       uuid.nullable().optional(),
+  sub_recipe_id: uuid.nullable().optional(),
+  new_key:       z.string().trim().min(1).max(20).nullable().optional(),
+  qty:           z.number().positive().max(10000000),
+  unit:          z.string().trim().min(1).max(30),
+  yield_pct:     z.number().min(1).max(100).nullable().optional(),
+  note:          z.string().trim().max(500).nullable().optional(),
+}).refine(l => [l.item_id, l.sub_recipe_id, l.new_key].filter(Boolean).length === 1, 'Each line is an inventory item or a prep recipe')
+const DraftRecipe = z.object({
+  key:        z.string().trim().min(1).max(20),
+  name:       FIELDS.name,
+  kind:       FIELDS.kind,
+  category:   FIELDS.category.optional().default(null),
+  code:       FIELDS.code.optional().default(null),
+  yield_qty:  FIELDS.yield_qty.optional().default(null),
+  yield_unit: FIELDS.yield_unit.optional().default(null),
+  portions:   FIELDS.portions.optional().default(null),
+  loss_pct:   FIELDS.loss_pct.optional().default(0),
+  method:     FIELDS.method.optional().default(null),
+  notes:      z.string().trim().max(2000).nullable().optional().default(null),
+  lines:      z.array(DraftLine).max(MAX_LINES).default([]),
+  // What was read but not matched to anything: kept in the notes, in words.
+  left_out:   z.array(z.string().trim().min(1).max(300)).max(MAX_LINES).default([]),
+}).strict()
+export const DraftsBody = z.object({
+  source:  z.enum(['reader', 'pepper']),
+  recipes: z.array(DraftRecipe).min(1).max(50),
+}).strict()
 
 const CopyBody = z.object({ name: z.string().trim().min(1).max(200).optional(), variant: z.boolean().optional() })
 const ActiveBody = z.object({ is_active: z.boolean() })
@@ -259,6 +297,69 @@ async function oneView(tx, req, id, { venueId = null, basis = 'standard' } = {},
   return view
 }
 
+/** A draft's notes: its own, then the lines read but not matched, in words. */
+export function draftNotes(notes, leftOut = []) {
+  const kept = leftOut.length ? 'Read but not matched (add them): ' + leftOut.join('; ') : ''
+  return ([notes, kept].filter(Boolean).join('\n\n').slice(0, 2000)) || null
+}
+
+/**
+ * Makes drafts Pepper wrote (POST /drafts, Pepper's read_recipes and
+ * make_recipe): each a draft with its source, checked as any recipe save is
+ * (ids the group's, prep only inside, nesting across every recipe, under the
+ * group's recipe lock). A line may name a prep recipe of the same request by
+ * its key: those are made first. Returns { made: [{ key, id, name, kind }] }.
+ */
+export async function makeDrafts(tx, tenantId, b, by = null) {
+  await lockRecipes(tx, tenantId)
+  const all = await loadRecipes(tx, tenantId)
+  const byKey = new Map(b.recipes.map(r => [r.key, r]))
+  if (byKey.size !== b.recipes.length) throw httpError(422, 'Two recipes have the same key', { code: 'key' })
+  for (const r of b.recipes) {
+    for (const l of r.lines.filter(x => x.new_key)) {
+      const sub = byKey.get(l.new_key)
+      if (!sub) throw httpError(422, r.name + ' names a recipe that isn\'t in the list', { code: 'new_key' })
+      if (sub.kind !== 'prep') throw httpError(422, sub.name + ' is a dish: only prep recipes go inside other recipes', { code: 'not_prep' })
+    }
+  }
+  // The ones others name first; a loop among them is refused.
+  const order = []
+  const state = new Map()
+  const visit = (r, path) => {
+    if (state.get(r.key) === 'done') return
+    if (state.get(r.key) === 'on') throw httpError(422, r.name + ' can\'t go inside itself: ' + [...path, r.name].join(' > ') + '.', { code: 'recipe_cycle' })
+    state.set(r.key, 'on')
+    for (const l of r.lines.filter(x => x.new_key)) visit(byKey.get(l.new_key), [...path, r.name])
+    state.set(r.key, 'done')
+    order.push(r)
+  }
+  for (const r of b.recipes) visit(r, [])
+  const ids = new Map()
+  const made = []
+  for (const r of order) {
+    const lines = r.lines.map(l => ({
+      item_id: l.item_id || null, sub_recipe_id: l.sub_recipe_id || (l.new_key ? ids.get(l.new_key) : null),
+      qty: l.qty, unit: l.unit, yield_pct: l.yield_pct ?? null, note: l.note || null,
+    }))
+    const body = {
+      ...DEFAULTS, name: r.name, kind: r.kind, category: r.category, code: r.code, status: 'draft',
+      yield_qty: r.yield_qty, yield_unit: r.yield_unit, portions: r.kind === 'dish' ? (r.portions ?? 1) : null, loss_pct: r.loss_pct ?? 0,
+      method: r.method, notes: draftNotes(r.notes, r.left_out), lines,
+    }
+    await checkRecipe(tx, tenantId, null, body, all)
+    const [row] = await tx`
+      INSERT INTO recipes ${tx({ ...recipeValues(body), source: b.source, tenant_id: tenantId, created_by: by })}
+      RETURNING id`
+    await writeLines(tx, tenantId, row.id, lines)
+    // What the next ones are checked against (nesting, prep only inside).
+    all.set(row.id, { ...recipeValues(body), id: row.id, variant_of: null, lines: lines.map((l, i) => ({ ...l, id: 'new-' + i, sort_order: i })) })
+    ids.set(r.key, row.id)
+    made.push({ key: r.key, id: row.id, name: r.name, kind: r.kind })
+  }
+  // In the order they were asked for.
+  return { made: b.recipes.map(r => made.find(m => m.key === r.key)) }
+}
+
 export default async function recipeRoutes(app) {
   app.addHook('preHandler', requireAuth)
 
@@ -281,7 +382,8 @@ export default async function recipeRoutes(app) {
           const c = recipeCost(r, ctx)
           return {
             id: r.id, name: r.name, kind: r.kind, category: r.category, code: r.code, status: r.status,
-            is_active: r.is_active, variant_of: r.variant_of, variant_of_name: r.variant_of ? all.get(r.variant_of)?.name ?? null : null,
+            is_active: r.is_active, source: r.source ?? null, needs_check: needsCheck(r),
+            variant_of: r.variant_of, variant_of_name: r.variant_of ? all.get(r.variant_of)?.name ?? null : null,
             yield_qty: r.yield_qty, yield_unit: r.yield_unit, portions: r.portions, photo_url: r.photo_url,
             line_count: r.lines.length, used_in: usedIn.get(r.id) || 0, updated_at: r.updated_at,
             unit: c.unit, coverage: c.coverage, gaps: c.gaps.length,
@@ -398,12 +500,19 @@ export default async function recipeRoutes(app) {
         lines: from.lines.map(l => ({ item_id: l.item_id, sub_recipe_id: l.sub_recipe_id, qty: l.qty, unit: l.unit, yield_pct: l.yield_pct, note: l.note })),
       }
       await checkRecipe(tx, req.tenantId, null, body, all)
+      // A copy of a draft nobody has checked yet is no more checked than it (phase 3).
       const [r] = await tx`
-        INSERT INTO recipes ${tx({ ...recipeValues(body), tenant_id: req.tenantId, created_by: who(req) })}
+        INSERT INTO recipes ${tx({ ...recipeValues(body), source: needsCheck(from) ? from.source : null, tenant_id: req.tenantId, created_by: who(req) })}
         RETURNING id`
       await writeLines(tx, req.tenantId, r.id, body.lines)
       return oneView(tx, req, r.id)
     })
+    return reply.code(201).send(out)
+  })
+
+  app.post('/drafts', { preHandler: canManage }, async (req, reply) => {
+    const b = DraftsBody.parse(req.body || {})
+    const out = await withTenant(req.tenantId, tx => makeDrafts(tx, req.tenantId, b, who(req)))
     return reply.code(201).send(out)
   })
 

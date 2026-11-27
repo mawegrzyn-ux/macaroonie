@@ -251,7 +251,7 @@ export function usageCost(tokens, model = null) {
 
 // What a model call was for (ai_requests.use, migration 271): the words are
 // USE_LABELS in shared/pepperActions.js.
-export const USES = ['chat', 'smart_builder', 'menu_reader', 'invoice_reader', 'receipt_reader', 'local_info', 'theme_maker', 'translation', 'new_location', 'rule_parser', 'item_mapping', 'other']
+export const USES = ['chat', 'smart_builder', 'menu_reader', 'invoice_reader', 'receipt_reader', 'local_info', 'theme_maker', 'translation', 'new_location', 'rule_parser', 'item_mapping', 'recipe_reader', 'yield_suggestion', 'other']
 
 /** The web searches a model response made (usage.server_tool_use). */
 export const searchesIn = usage => Math.max(0, Number(usage?.server_tool_use?.web_search_requests) || 0)

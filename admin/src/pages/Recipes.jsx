@@ -14,10 +14,10 @@
 // Options (what each option does to a recipe; ?option= opens one).
 // API: routes/recipeLinks.js, routes/recipeOptions.js.
 
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChefHat, Plus, Search, Loader2, Layers } from 'lucide-react'
+import { ChefHat, Plus, Search, Loader2, Layers, Sparkles } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
@@ -30,6 +30,9 @@ import { DishList } from '@/components/recipes/DishList'
 import { DishMatrix } from '@/components/recipes/DishMatrix'
 import { OptionList, OptionEditor } from '@/components/recipes/OptionRules'
 
+// The reader's review is big and opened now and then: its own chunk (the main bundle's precache limit).
+const RecipeReader = lazy(() => import('@/components/recipes/RecipeReader'))
+
 const TABS = [{ value: 'recipes', label: 'Recipes' }, { value: 'dishes', label: 'Dishes' }, { value: 'options', label: 'Options' }]
 
 export default function Recipes() {
@@ -38,6 +41,7 @@ export default function Recipes() {
   const openId = params.get('recipe')
   const dishId = params.get('dish')
   const optionId = params.get('option')
+  const reading = params.get('read') === '1'
   const tab = TABS.some(t => t.value === params.get('tab')) ? params.get('tab') : 'recipes'
   const venueId = params.get('venue') || ''
   const basis = BASES.some(b => b.key === params.get('basis')) ? params.get('basis') : 'standard'
@@ -46,7 +50,7 @@ export default function Recipes() {
     for (const [k, v] of Object.entries(changes)) { if (v) next.set(k, v); else next.delete(k) }
     setParams(next, { replace: !('recipe' in changes || 'dish' in changes || 'option' in changes) })
   }
-  const toRecipe = id => set({ tab: '', dish: '', option: '', recipe: id })
+  const toRecipe = id => set({ tab: '', dish: '', option: '', read: '', recipe: id })
   const toDish = id => set({ tab: 'dishes', recipe: '', option: '', dish: id })
   if (loaded && !canView) {
     return <div className="h-full overflow-y-auto bg-page p-6 text-sm text-muted-foreground">Your role can't see recipes.</div>
@@ -54,18 +58,29 @@ export default function Recipes() {
   return (
     <div className="h-full overflow-y-auto bg-page" data-testid="recipes-page">
       <PageHeader icon={ChefHat} title="Recipes">
-        {!openId && !dishId && !optionId && (
+        {!openId && !dishId && !optionId && !reading && (
           <Segmented value={tab} onChange={v => set({ tab: v === 'recipes' ? '' : v })} options={TABS} className="[&>button]:h-12" testid="recipes-tabs" />
         )}
-        {canManage && !openId && !dishId && !optionId && tab === 'recipes' && (
-          <button type="button" className={cn(btn.primary, 'h-12')} onClick={() => set({ recipe: 'new' })} data-testid="recipe-new">
-            <Plus className="w-4 h-4" />New recipe
-          </button>
+        {canManage && !openId && !dishId && !optionId && !reading && tab === 'recipes' && (
+          <>
+            <button type="button" className={cn(btn.outline, 'h-12')} onClick={() => set({ read: '1' })} data-testid="recipe-read">
+              <Sparkles className="w-4 h-4" />Read recipes
+            </button>
+            <button type="button" className={cn(btn.primary, 'h-12')} onClick={() => set({ recipe: 'new' })} data-testid="recipe-new">
+              <Plus className="w-4 h-4" />New recipe
+            </button>
+          </>
         )}
       </PageHeader>
       <div className="max-w-6xl mx-auto p-4 space-y-4">
         {loaded && !canManage && <ReadOnlyNotice what="recipes" />}
-        {openId
+        {reading && canManage
+          ? (
+            <Suspense fallback={<div className="py-16 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" /></div>}>
+              <RecipeReader onClose={() => set({ read: '' })} onOpen={toRecipe} />
+            </Suspense>
+          )
+          : openId
           ? <RecipeEditor key={openId} id={openId === 'new' ? null : openId} venueId={venueId} basis={basis}
               onVenue={v => set({ venue: v })} onBasis={b => set({ basis: b === 'standard' ? '' : b })}
               onOpen={id => set({ recipe: id })} onClose={() => set({ recipe: '' })} onOpenDish={toDish} canManage={canManage} />
@@ -156,7 +171,9 @@ function RecipeList({ venueId, basis, startQ, onVenue, onBasis, onOpen }) {
                       {r.variant_of && <Layers className="w-3.5 h-3.5 text-muted-foreground" aria-label="A variation" />}
                       <span className="font-medium">{r.name}</span>
                       <KindBadge kind={r.kind} />
-                      {r.status === 'draft' && <span className="text-xs rounded-full bg-muted px-2 py-0.5">Draft</span>}
+                      {r.status === 'draft' && (r.needs_check
+                        ? <span className="text-xs rounded-full bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5" data-testid="recipe-row-check">Draft, not checked</span>
+                        : <span className="text-xs rounded-full bg-muted px-2 py-0.5">Draft</span>)}
                     </span>
                     <span className="block text-xs text-muted-foreground mt-0.5">
                       {[r.category, makesText(r), r.line_count + (r.line_count === 1 ? ' line' : ' lines'),

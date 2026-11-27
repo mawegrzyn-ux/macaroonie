@@ -69,6 +69,7 @@ import { RULE_WEIGHTS, taxFor } from './tax.js'
 import { isCombo, comboOf, stepChoices, menuCtx, comboFromPrice } from './combos.js'
 import { nameScore, normName, AUTO_MATCH } from './itemMatch.js'
 import { itemType } from './catalogue.js'
+import { ASSISTANT_NAME } from './assistant.js'
 
 export const MAX_DEPTH = 5
 export const AVERAGE_DAYS = 90
@@ -262,6 +263,7 @@ const FIX = {
   sub_partial: n => 'Open ' + n + ' and fix its gaps.',
   cycle: n => 'Take ' + n + ' out: a recipe can\'t be inside itself.',
   too_deep: () => 'Recipes nest up to ' + MAX_DEPTH + ' levels: use fewer prep recipes inside each other.',
+  draft: n => 'Open ' + n + ', check what ' + DRAFT_BY + ' wrote, and make it live.',
 }
 
 // Why an item has no cost on the basis asked, in words.
@@ -270,6 +272,19 @@ const NO_COST = {
   no_receipts: n => 'Nothing of ' + n + ' has been booked in here yet',
   no_recent: n => 'Nothing of ' + n + ' has been booked in here in the last ' + AVERAGE_DAYS + ' days',
 }
+
+// Who writes the drafts that wait for a person's check (recipes.source, migration 304).
+const DRAFT_BY = ASSISTANT_NAME
+export const SOURCES = { reader: 'Read in by Pepper', pepper: 'Made by Pepper' }
+
+/**
+ * A recipe Pepper wrote that nobody has made live yet (phase 3, migration
+ * 304): read in from a file or text (source 'reader') or made in the chat
+ * ('pepper'), still a draft. Costed, with the gap "not checked yet", so it
+ * and every dish linked to it show as partly costed until a person checks
+ * it. A draft a person made (a variation, a copy) is costed as it is.
+ */
+export const needsCheck = r => !!r && r.status === 'draft' && !!r.source
 
 function gap(line, index, reason, text, fix) {
   return { line: index, line_id: line?.id ?? null, reason, text, fix }
@@ -380,6 +395,8 @@ export function recipeCost(recipe, ctx = {}, state = null) {
   const unit = recipeUnit(recipe)
   if (!lines.length) gaps.push(gap(null, null, 'empty', (recipe?.name || 'This recipe') + ' has nothing in it', FIX.empty(recipe?.name || 'it')))
   if (recipe?.kind === 'prep' && makes == null) gaps.push(gap(null, null, 'no_yield', (recipe?.name || 'This recipe') + ' doesn\'t say how much it makes', FIX.no_yield(recipe?.name || 'it')))
+  // A draft Pepper wrote (read in, or made in the chat; phase 3) is costed, but never as if it were finished.
+  if (needsCheck(recipe)) gaps.push(gap(null, null, 'draft', (recipe?.name || 'This recipe') + ' is a draft ' + DRAFT_BY + ' ' + (recipe.source === 'reader' ? 'read in' : 'wrote') + ', not checked yet', FIX.draft(recipe?.name || 'it')))
   const per = costed.length && makes ? round6(cost / makes) : null
   const coverage = !costed.length || per == null ? 'none' : gaps.length ? 'partial' : 'full'
   const out = { recipe_id: recipe?.id ?? null, basis, venue_id: venueId, cost: costed.length ? cost : null, per_unit: per, unit, makes, lines, gaps, coverage, complete: coverage === 'full' }
@@ -1321,3 +1338,4 @@ export function marginSteps(row) {
   }
   return out
 }
+
