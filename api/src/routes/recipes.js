@@ -16,6 +16,10 @@
 //                            its cost on each basis and the step by step
 //                            explanation (supplier prices named only for people
 //                            who see purchasing prices)
+//   POST   /preview          ?venue_id &basis  { ...recipe, id? } what a recipe
+//                            being edited would cost, before it is saved (the
+//                            editor's live cost): nothing is written; a recipe
+//                            inside itself comes back as `nesting`, not refused
 //   POST   /                 a new recipe with its lines
 //   PUT    /:recipeId        the whole recipe: every field and its lines (all
 //                            replaced), as the page holds it (rule 13)
@@ -86,6 +90,10 @@ const DEFAULTS = {
 export const RecipeNew = z.object({
   ...Object.fromEntries(Object.entries(FIELDS).map(([k, v]) => [k, k === 'name' ? v : v.optional()])),
 }).strict().transform(b => ({ ...DEFAULTS, ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)) }))
+
+// The editor's draft: the recipe's fields as far as the page has them.
+const PreviewBody = z.object({ id: uuid.nullable().optional(), ...Object.fromEntries(Object.entries(FIELDS).map(([k, v]) => [k, v.optional()])) })
+  .transform(b => ({ ...DEFAULTS, name: 'This recipe', ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)) }))
 
 const CopyBody = z.object({ name: z.string().trim().min(1).max(200).optional(), variant: z.boolean().optional() })
 const ActiveBody = z.object({ is_active: z.boolean() })
@@ -264,14 +272,51 @@ export default async function recipeRoutes(app) {
   app.get('/pickers', { preHandler: canView }, async req => withTenant(req.tenantId, async tx => {
     const items = await loadCostItems(tx, req.tenantId)
     const recipes = await tx`
-      SELECT id, name, kind, yield_unit, is_active, variant_of FROM recipes
-       WHERE tenant_id = ${req.tenantId} AND kind = 'prep' ORDER BY lower(name)`
+      SELECT id, name, kind, yield_unit, is_active, variant_of, category FROM recipes
+       WHERE tenant_id = ${req.tenantId} ORDER BY lower(name)`
     return {
       items: [...items.values()].map(i => ({ ...i, unit_choices: unitChoices(i) })),
-      recipes: recipes.map(r => ({ ...r, unit_choices: recipeUnitChoices({ kind: 'prep', yield_unit: r.yield_unit }) })),
+      // Prep recipes go inside others; a variation varies a recipe that is no variation itself.
+      recipes: recipes.filter(r => r.kind === 'prep').map(r => ({
+        id: r.id, name: r.name, yield_unit: r.yield_unit, is_active: r.is_active,
+        unit_choices: recipeUnitChoices({ kind: 'prep', yield_unit: r.yield_unit }),
+      })),
+      heads: recipes.filter(r => !r.variant_of).map(r => ({ id: r.id, name: r.name, kind: r.kind })),
+      categories: [...new Set(recipes.map(r => r.category).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
       yield_units: YIELD_UNITS,
     }
   }))
+
+  app.post('/preview', { preHandler: canView }, async req => {
+    const b = PreviewBody.parse(req.body || {})
+    const q = OneQuery.parse(req.query || {})
+    const a = await access(req)
+    return withTenant(req.tenantId, async tx => {
+      const all = await loadRecipes(tx, req.tenantId)
+      if (b.id && !all.has(b.id)) throw httpError(404, 'Recipe not found')
+      const itemIds = [...new Set(b.lines.map(l => l.item_id).filter(Boolean))]
+      const found = itemIds.length ? await tx`SELECT id FROM inv_items WHERE tenant_id = ${req.tenantId} AND id = ANY(${itemIds}::uuid[])` : []
+      if (found.length !== itemIds.length) throw httpError(404, 'Inventory item not found')
+      if (b.lines.some(l => l.sub_recipe_id && !all.has(l.sub_recipe_id))) throw httpError(404, 'Recipe not found')
+      const nesting = nestingProblem(b.id || null, b.lines, all, b.name)
+      const id = b.id || '00000000-0000-0000-0000-000000000000'
+      const draft = {
+        ...(all.get(id) || {}), ...recipeValues(b), id,
+        lines: b.lines.map((l, i) => ({ id: 'draft-' + i, sort_order: i, item_id: l.item_id || null, sub_recipe_id: l.sub_recipe_id || null, qty: l.qty, unit: l.unit, yield_pct: l.yield_pct ?? null, note: l.note ?? null })),
+      }
+      const recipes = new Map(all)
+      recipes.set(id, draft)
+      const venue = await venueOf(tx, req.tenantId, q.venue_id)
+      const ctx = await loadCosting(tx, req.tenantId, venue?.id ?? null, { basis: q.basis, recipes })
+      const view = recipeView(draft, ctx, { costs: a.costs, prices: a.prices, withExplain: true })
+      return {
+        unit: view.unit, makes: view.makes, coverage: view.coverage, complete: view.complete, gaps: view.gaps,
+        lines: view.lines, costs_shown: view.costs_shown, nesting: nesting ? { code: nesting.code, message: nesting.message } : null,
+        ...(a.costs ? { cost: view.cost, per_unit: view.per_unit, basis: view.basis, explanation: view.explanation } : {}),
+        unit_choices: view.lines.map(l => (l.item ? unitChoices(l.item) : recipeUnitChoices(recipes.get(l.sub_recipe_id)))),
+      }
+    })
+  })
 
   app.get('/:recipeId', { preHandler: canView }, async req => {
     const q = OneQuery.parse(req.query || {})
