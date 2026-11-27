@@ -2,13 +2,15 @@
 //
 // Recipes in the report catalogue (inventory phase 1, migrations 298 to 300):
 // the recipes and prep recipes, their lines, and what each recipe costs at
-// each venue. Recipes are for people with Recipes view; what a recipe costs
+// each venue. Phase 2 (migration 302): which recipe each menu dish uses
+// where (recipe links), and each live dish's margin at each venue and order
+// type (dish margins, a work). Recipes are for people with Recipes view; what a recipe costs
 // is worked out in code for each run by the Recipes page's own rule
 // (work/recipes.js, recipeCost() in shared/costing.js) at each venue's
 // standard supplier prices, and needs Costing view: a cost tells what
 // suppliers charge. Costs are in pounds, before VAT, as purchasing keeps them.
 
-import { subject, text, number, money, percent, yesno, choice, moment, sum, avg, count, one, many } from './define.js'
+import { subject, text, number, money, percent, yesno, choice, moment, sum, avg, count, countDistinct, one, many } from './define.js'
 
 const COSTING = 'costing'
 const pounds = (src, opts = {}) => money(src, { unit: 'pounds', needs: COSTING, ...opts })
@@ -19,6 +21,26 @@ const COVERAGE = { full: 'Fully costed', partial: 'Partly costed', none: 'Not co
 
 // The tables a recipe's cost is worked out from (the work subject's from.tables).
 export const RECIPE_COST_TABLES = ['recipes', 'recipe_lines', 'inv_item_units']
+// And a dish's margin (phase 2): the links, the option rules and the targets
+// too. Read by the dish margins work, so they are decided as read.
+export const DISH_MARGIN_TABLES = [...RECIPE_COST_TABLES, 'recipe_links', 'recipe_option_rules', 'costing_settings']
+
+const BANDS = { good: 'On target', watch: 'Over target', over: 'Over the limit' }
+const DISH_KINDS = { dish: 'Dish', deal: 'Meal deal', goods: 'Goods', service: 'Service' }
+const DISH_COVERAGE = { full: 'Fully costed', partial: 'Partly costed', none: 'Not costed', not_needed: 'No recipe needed (a service)' }
+// A link's dish, its menu and section, from the menu as it is being edited (plain ids: a dish gone is empty).
+const DISH_NAME = '(SELECT d.name FROM menu_items d WHERE d.id = {t}.dish_id AND d.tenant_id = {t}.tenant_id)'
+const DISH_MENU = '(SELECT m.name FROM menu_items d JOIN menu_sections s ON s.id = d.section_id AND s.tenant_id = d.tenant_id'
+  + ' JOIN menus m ON m.id = s.menu_id AND m.tenant_id = s.tenant_id WHERE d.id = {t}.dish_id AND d.tenant_id = {t}.tenant_id)'
+const DISH_SECTION = '(SELECT s.title FROM menu_items d JOIN menu_sections s ON s.id = d.section_id AND s.tenant_id = d.tenant_id'
+  + ' WHERE d.id = {t}.dish_id AND d.tenant_id = {t}.tenant_id)'
+const VENUE_NAME = '(SELECT v.name FROM venues v WHERE v.id = {t}.venue_id AND v.tenant_id = {t}.tenant_id)'
+const STREAM_NAME = '(SELECT r.name FROM pos_revenue_streams r WHERE r.id = {t}.revenue_stream_id AND r.tenant_id = {t}.tenant_id)'
+const TYPE_NAME = '(SELECT o.name FROM order_types o WHERE o.id = {t}.order_type_id AND o.tenant_id = {t}.tenant_id)'
+// Where a link applies, in the words of scopeText() in shared/costing.js.
+const WHERE = "(CASE WHEN {t}.order_type_id IS NOT NULL THEN COALESCE(" + TYPE_NAME + ", 'an order type') || ' at ' ELSE '' END"
+  + " || CASE WHEN {t}.revenue_stream_id IS NOT NULL THEN COALESCE(" + STREAM_NAME + ", 'a revenue stream') || ' (' || COALESCE(" + VENUE_NAME + ", 'a venue') || ')'"
+  + " WHEN {t}.venue_id IS NOT NULL THEN COALESCE(" + VENUE_NAME + ", 'a venue') ELSE 'every venue' END)"
 
 /** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
 export const order = 105
@@ -26,8 +48,9 @@ export const order = 105
 /**
  * This area's tables that no subject reads, and why (decisions.js gathers
  * them): settings (how something is set up) and out ({ reason: [tables] }).
- * Recipes and their lines are subjects, and an item's own units are read by
- * the cost subject's work.
+ * Recipes, their lines and the links are subjects; an item's own units, the
+ * option rules and the cost % targets are read by the works (recipe costs,
+ * dish margins), so none is left to decide.
  */
 export const decisions = {
   settings: [],
@@ -154,5 +177,92 @@ export const subjects = [
     },
     list: ['name', 'venue.name', 'kind', 'unit_cost', 'unit', 'coverage', 'gaps'],
     sort: [{ by: 'name', dir: 'asc' }],
+  }),
+
+  // Which recipe each menu dish uses, and where (inventory phase 2, migration 302).
+  subject({
+    key: 'recipes.links',
+    label: 'Recipe links',
+    one: 'recipe link',
+    area: 'recipes',
+    module: 'recipes',
+    about: 'Which recipe each menu dish uses, and where: for every venue, or for a venue, a revenue stream, an order type (takeaway, delivery) or a mix of them, with how many portions of it. The closest link to a sale wins. A link whose dish is on no menu any more is marked missing and goes 30 days later.',
+    from: 'recipe_links',
+    name: 'dish',
+    open: { page: '/recipes?tab=dishes&dish=:id', module: 'recipes', id: 'dish_id' },
+    fields: {
+      dish: text({ sql: DISH_NAME }, { label: 'Dish' }),
+      menu: text({ sql: DISH_MENU }, { label: 'Menu' }),
+      section: text({ sql: DISH_SECTION }, { label: 'Section' }),
+      applies_to: text({ sql: WHERE }, { label: 'Where', synonyms: ['variation', 'takeaway version', 'matrix'], about: 'Where the link applies: every venue, a venue, a revenue stream, an order type, or an order type at one of them.' }),
+      venue_name: text({ sql: "(CASE WHEN {t}.venue_id IS NULL THEN 'Every venue' ELSE " + VENUE_NAME + ' END)' }, { label: 'Venue' }),
+      stream: text({ sql: STREAM_NAME }, { label: 'Revenue stream' }),
+      order_type: text({ sql: "(CASE WHEN {t}.order_type_id IS NULL THEN 'Any' ELSE " + TYPE_NAME + ' END)' }, { label: 'Order type' }),
+      default_link: yesno({ sql: '({t}.venue_id IS NULL AND {t}.revenue_stream_id IS NULL AND {t}.order_type_id IS NULL)' }, { label: 'For every venue', about: 'The dish\'s own recipe everywhere, unless a closer link says otherwise.' }),
+      portions: number('portions', { label: 'Portions' }),
+      missing: yesno({ sql: '({t}.missing_since IS NOT NULL)' }, { label: 'No longer on a menu' }),
+      missing_since: moment('missing_since', { label: 'Gone from the menus since' }),
+      added_by: text('created_by', { label: 'Added by' }),
+      added_at: moment('created_at', { label: 'Added at' }),
+      changed_at: moment('updated_at', { label: 'Last changed' }),
+    },
+    measures: {
+      links: count({ label: 'Links' }),
+      dishes: countDistinct('dish_id', { label: 'Dishes linked' }),
+      some_places: count({ label: 'Links for some places only', where: '({t}.venue_id IS NOT NULL OR {t}.order_type_id IS NOT NULL)' }),
+    },
+    links: {
+      recipe: one('recipes.recipes', 'recipe_id', { label: 'Recipe' }),
+    },
+    list: ['dish', 'menu', 'recipe.name', 'applies_to', 'portions', 'missing'],
+    sort: [{ by: 'dish', dir: 'asc' }],
+  }),
+
+  // Each live menu dish's margin at each venue and order type, worked out
+  // for each run by the Menu margins page's rule (work/recipes.js,
+  // menuMargins() in shared/costing.js).
+  subject({
+    key: 'recipes.margins',
+    label: 'Dish margins',
+    one: 'dish at a venue and order type',
+    area: 'recipes',
+    module: COSTING,
+    about: 'Every dish on your live menus at each venue and order type: its menu price (VAT included), the price net of VAT for that order type, what it costs at the venue\'s standard supplier prices (the recipe its links pick there, times the portions), the gross profit and the cost %, banded against your targets. A meal deal shows the least and the most its picks can cost. Not by period: it is today\'s prices.',
+    from: { work: 'dish_margins', tables: DISH_MARGIN_TABLES },
+    idType: 'text',
+    venue: 'venue_id',
+    name: 'dish',
+    // A row is one dish at a venue and order type: the page opens at that order type (its VAT, its recipe).
+    open: { page: '/menu-margins?menu=:menu&venue=:venue&type=:type&dish=:id', module: COSTING, id: 'dish_id', with: { menu: 'menu_id', venue: 'venue_id', type: 'order_type_id' } },
+    fields: {
+      dish: text('dish', { label: 'Dish' }),
+      menu: text('menu', { label: 'Menu' }),
+      section: text('section', { label: 'Section' }),
+      kind: choice('kind', DISH_KINDS, { label: 'Kind' }),
+      order_type: text('order_type', { label: 'Order type' }),
+      recipe: text('recipe', { label: 'Recipe used' }),
+      why: text('why', { label: 'Recipe used for', about: 'The link that picked the recipe: every venue, the venue, an order type there.' }),
+      has_recipe: yesno('has_recipe', { label: 'Has a recipe', about: 'A recipe is linked for this venue and order type (a meal deal and a service need none).' }),
+      price: money('price_pence', { label: 'Menu price', adds: false, about: 'The price on the menu, VAT included (the cheapest when its options set the price).' }),
+      net: money('net_pence', { label: 'Price net of VAT', adds: false, synonyms: ['net price', 'ex vat price'] }),
+      vat_rate: percent('vat_rate', { label: 'VAT rate' }),
+      cost: pounds('cost', { label: 'Dish cost', adds: false, synonyms: ['plate cost', 'dish cost'], about: 'What one serving costs at the venue\'s standard prices, before VAT. Empty for a meal deal (see its lowest and highest) or a dish with no recipe.' }),
+      cost_low: pounds('cost_low', { label: 'Meal deal cost from', adds: false }),
+      cost_high: pounds('cost_high', { label: 'Meal deal cost up to', adds: false }),
+      gp: money('gp_pence', { label: 'Gross profit', adds: false, needs: COSTING, synonyms: ['gp', 'gross profit', 'margin'], about: 'The price net of VAT less the dish cost.' }),
+      cost_pct: percent('cost_pct', { label: 'Cost %', needs: COSTING, synonyms: ['food cost percent', 'cost percentage'], about: 'The dish cost as a share of the price net of VAT (for a meal deal, its highest: the picks that cost most for what they sell for, extra charges included).' }),
+      band: choice('band', BANDS, { label: 'Against the target', needs: COSTING, about: 'On target (at or below the target cost %), over target (up to the limit) or over the limit.' }),
+      target_pct: percent('target_pct', { label: 'Target cost %' }),
+      coverage: choice('coverage', DISH_COVERAGE, { label: 'Costed' }),
+      gaps: number('gaps', { label: 'Gaps', decimals: 0 }),
+    },
+    measures: {
+      dishes: count({ label: 'Dishes at venues and order types' }),
+      over_target: count({ label: 'Over the target', where: "{t}.band IN ('watch', 'over')" }),
+      no_recipe: count({ label: 'With no recipe', where: 'NOT {t}.has_recipe' }),
+      average_cost_pct: avg('cost_pct', { type: 'percent', label: 'Average cost %', about: 'Dishes\' cost %, each counted once, on average (not weighted by what sold).' }),
+    },
+    list: ['dish', 'venue.name', 'order_type', 'price', 'net', 'cost', 'gp', 'cost_pct', 'band'],
+    sort: [{ by: 'cost_pct', dir: 'desc' }],
   }),
 ]

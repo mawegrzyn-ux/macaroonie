@@ -4,6 +4,8 @@
 // costed in full yet, and what each recipe costs at each venue. Both read
 // Recipe costs (Costing view), worked out at today's standard supplier
 // prices: they have no period, and the venues choice narrows the venues.
+// Phase 2: dishes over the target cost % and dishes with no recipe, from
+// Dish margins (Costing view), today's prices too.
 
 import { starter } from './define.js'
 
@@ -22,6 +24,35 @@ export const starters = [
       rows: ['name', 'kind', 'venue.name', 'coverage', 'gaps', 'costed_lines', 'lines'],
       filters: [{ field: 'coverage', op: 'is_not', value: 'full' }, { field: 'active', op: 'is', value: true }],
       sort: [{ by: 'gaps', dir: 'desc' }, { by: 'name', dir: 'asc' }],
+    },
+  }),
+
+  // Phase 2: dish margins (Costing view), today's prices.
+  starter({
+    key: 'dishes_over_target',
+    name: 'Dishes over the target cost %',
+    about: 'Dishes on your live menus whose cost % is above the target at a venue and order type (over target, or over the limit), dearest first: the menu price, the price net of VAT, what the dish costs there, its gross profit and cost %. A meal deal is judged at its highest cost %: the picks that cost most for what they sell for, extra charges included.',
+    period: false,
+    spec: {
+      subject: 'recipes.margins',
+      kind: 'list',
+      rows: ['dish', 'menu', 'venue.name', 'order_type', 'price', 'net', 'cost', 'gp', 'cost_pct', 'target_pct', 'band'],
+      filters: [{ field: 'band', op: 'in', value: ['watch', 'over'] }],
+      sort: [{ by: 'cost_pct', dir: 'desc' }, { by: 'dish', dir: 'asc' }],
+    },
+  }),
+
+  starter({
+    key: 'dishes_no_recipe',
+    name: 'Dishes with no recipe',
+    about: 'Dishes on your live menus with no recipe linked at a venue and order type, so they have no cost and no margin there. Link each on the Recipes page, Dishes tab (it offers matches by product code and name). Meal deals and services need no recipe and are left out.',
+    period: false,
+    spec: {
+      subject: 'recipes.margins',
+      kind: 'list',
+      rows: ['dish', 'menu', 'section', 'venue.name', 'order_type', 'price'],
+      filters: [{ field: 'has_recipe', op: 'is', value: false }, { field: 'kind', op: 'in', value: ['dish', 'goods'] }],
+      sort: [{ by: 'dish', dir: 'asc' }],
     },
   }),
 

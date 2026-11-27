@@ -5,6 +5,7 @@
 // costs themselves come from the API (shared/costing.js on the server); the
 // page never works a cost out (rule 12).
 
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { CheckCircle2, CircleDashed, AlertTriangle } from 'lucide-react'
 import { useApi } from '@/lib/api'
@@ -108,6 +109,71 @@ export function saveBody(server, parts = {}) {
 
 export const sameLines = (a, b) => JSON.stringify(a.map(lineOut)) === JSON.stringify(b.map(lineOut))
 export const sameObj = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+
+// ── Phase 2: links, options, margins ───────────────────────────
+
+/** Pence as pounds: £12.50 (sales are in pence; costs come back in pounds). */
+export const penceText = p => (p == null ? '' : (p < 0 ? '-£' : '£') + (Math.abs(p) / 100).toFixed(2))
+export const pctText = p => (p == null ? '' : Number(p).toFixed(1) + '%')
+
+const BAND_LOOK = {
+  good: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+  watch: 'bg-amber-50 text-amber-900 border-amber-200',
+  over: 'bg-red-50 text-red-800 border-red-200',
+}
+export const bandCls = band => BAND_LOOK[band] || 'bg-muted text-muted-foreground border-border'
+const BAND_WORDS = { good: 'On target', watch: 'Over target', over: 'Over the limit' }
+export const bandWord = band => BAND_WORDS[band] || ''
+
+/** A cost % coloured against the targets: on target, over target, over the limit (BANDS in shared/costing.js). */
+export function BandBadge({ band, pct, className }) {
+  return (
+    <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold tabular-nums whitespace-nowrap', bandCls(band), className)}
+      data-band={band || 'none'}>
+      {pct == null ? '-' : pctText(pct)}<span className="sr-only"> {bandWord(band)}</span>
+    </span>
+  )
+}
+
+/**
+ * A search box over a list, each match a 48 px row to tap (design rule 1):
+ * items, recipes, dishes. options: [{ id, name, hint }]; value: the id picked.
+ */
+export function SearchPick({ options, value, onChange, placeholder = 'Search', testid, max = 8, disabled }) {
+  const [q, setQ] = useState('')
+  const picked = options.find(o => o.id === value)
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const hits = words.length ? options.filter(o => words.every(w => (o.name + ' ' + (o.hint || '')).toLowerCase().includes(w))).slice(0, max) : []
+  return (
+    <div className="space-y-1" data-testid={testid}>
+      {picked && (
+        <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 min-h-[48px]">
+          <span className="flex-1 text-sm font-medium">{picked.name}</span>
+          {!disabled && <button type="button" onClick={() => onChange(null)} className="h-12 px-3 text-xs rounded-lg hover:bg-muted touch-manipulation">Change</button>}
+        </div>
+      )}
+      {!picked && !disabled && (
+        <>
+          <input className={cn(inputCls, 'h-12')} value={q} onChange={e => setQ(e.target.value)} placeholder={placeholder} aria-label={placeholder} />
+          {hits.length > 0 && (
+            <div className="rounded-lg border divide-y overflow-hidden">
+              {hits.map(o => (
+                <button key={o.id} type="button" onClick={() => { onChange(o.id); setQ('') }}
+                  className="w-full text-left px-3 min-h-[48px] flex items-center gap-2 hover:bg-muted touch-manipulation">
+                  <span className="flex-1 text-sm">{o.name}</span>
+                  {o.hint && <span className="text-xs text-muted-foreground">{o.hint}</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+/** "Soho, take out": a matrix cell's row and column in words. */
+export const cellWords = (row, col) => (row?.kind === 'stream' ? row.name + ' (' + row.venue_name + ')' : row?.name || '') + ', ' + String(col?.name || '').toLowerCase()
 
 /** The venue whose prices costs are at, and on which basis (Costing view only). */
 export function CostAt({ venueId, basis, onVenue, onBasis, testid = 'recipe-cost-at' }) {

@@ -8,8 +8,11 @@ import { lazy, Suspense } from 'react'
 
 // Recipes (inventory phase 1): loaded on demand, kept out of the main bundle.
 const Recipes = lazy(() => import('@/pages/Recipes'))
+// Menu margins (inventory phase 2), on demand too.
+const MenuMargins = lazy(() => import('@/pages/MenuMargins'))
 const Loading = () => <div className="p-6 text-sm text-muted-foreground">Loading...</div>
 
 export const routes = [
   { path: 'recipes', shell: 'office', element: <Suspense fallback={<Loading />}><Recipes /></Suspense> },
+  { path: 'menu-margins', shell: 'office', element: <Suspense fallback={<Loading />}><MenuMargins /></Suspense> },
 ]

@@ -9,8 +9,9 @@
 //                            with its coverage (fully, partly, not costed) and,
 //                            for costing View, its cost at the venue (null venue
 //                            = the group's own prices)
-//   GET    /pickers          inventory items (names and units, no prices) and
-//                            prep recipes, for the editor's line pickers
+//   GET    /pickers          inventory items (names and units, no prices), prep
+//                            recipes (the editor's line pickers) and dish recipes
+//                            (linking dishes and options, phase 2)
 //   GET    /:recipeId        ?venue_id &basis   one recipe: its lines, gaps,
 //                            where it is used, its variations; for costing View
 //                            its cost on each basis and the step by step
@@ -32,7 +33,10 @@
 // (a cost tells what suppliers charge). Every id in a body is checked to be
 // this group's (rule 4): items, prep recipes, the recipe a variation varies.
 // A recipe inside itself, or nested deeper than five levels, is refused (422
-// recipe_cycle / recipe_depth, nestingProblem() in shared/costing.js).
+// recipe_cycle / recipe_depth, nestingProblem() in shared/costing.js). A
+// recipe menu dishes or "is a recipe" options use stays a dish recipe (422
+// linked); one inside another recipe or added by an option stays prep (422
+// in_use).
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
@@ -110,7 +114,7 @@ const canView = requirePermission('recipes', 'view')
 const canManage = requirePermission('recipes', 'manage')
 
 /** Who sees what: costs (Costing View), supplier prices in the explanation, changes. */
-async function access(req) {
+export async function access(req) {
   const lv = await permissionLevels(req, ['recipes', 'costing', PRICES_MODULE])
   return {
     manage: permissionAtLeast(lv.recipes, 'manage'),
@@ -126,7 +130,7 @@ const who = req => req.user?.email ?? req.user?.sub ?? null
  * recipe's lines, so two saves at once (A into B, B into A) could each pass
  * against the other's old lines and write a loop. Held to the transaction's end.
  */
-const lockRecipes = (tx, tenantId) => tx`SELECT pg_advisory_xact_lock(hashtext(${'recipes:' + tenantId}))`
+export const lockRecipes = (tx, tenantId) => tx`SELECT pg_advisory_xact_lock(hashtext(${'recipes:' + tenantId}))`
 
 async function ownRecipe(tx, tenantId, id) {
   const [r] = await tx`SELECT id, name, kind, variant_of FROM recipes WHERE id = ${id} AND tenant_id = ${tenantId}`
@@ -156,6 +160,24 @@ async function checkRecipe(tx, tenantId, id, b, all) {
   }
   if (b.kind === 'dish' && all && id && [...all.values()].some(r => r.id !== id && r.lines.some(l => l.sub_recipe_id === id))) {
     throw httpError(422, 'Other recipes use this one inside them: it stays a prep recipe', { code: 'in_use' })
+  }
+  // What is sold names a recipe by its kind (phase 2): menu dishes and "is a
+  // recipe" options are portions of a dish recipe; an option adds a prep one.
+  if (id && b.kind === 'dish') {
+    const [added] = await tx`SELECT 1 FROM recipe_option_rules WHERE tenant_id = ${tenantId} AND sub_recipe_id = ${id} LIMIT 1`
+    if (added) throw httpError(422, 'An option adds this recipe to dishes: it stays a prep recipe', { code: 'in_use' })
+  }
+  if (id && b.kind === 'prep') {
+    const [linked] = await tx`
+      SELECT (SELECT count(DISTINCT dish_id) FROM recipe_links WHERE tenant_id = ${tenantId} AND recipe_id = ${id})::int AS dishes,
+             (SELECT count(*) FROM recipe_option_rules WHERE tenant_id = ${tenantId} AND recipe_id = ${id})::int AS rules`
+    if (linked.dishes || linked.rules) {
+      const what = [linked.dishes ? linked.dishes + (linked.dishes === 1 ? ' menu dish' : ' menu dishes') : null,
+        linked.rules ? linked.rules + (linked.rules === 1 ? ' option' : ' options') : null].filter(Boolean).join(' and ')
+      const one = linked.dishes + linked.rules === 1
+      throw httpError(422, what + (one ? ' uses' : ' use') + ' this recipe as a dish: it stays a dish recipe (link ' + (one ? 'it' : 'them') + ' to another recipe first)',
+        { code: 'linked', dishes: linked.dishes, rules: linked.rules })
+    }
   }
   if (b.variant_of) {
     const head = all.get(b.variant_of)
@@ -279,7 +301,7 @@ export default async function recipeRoutes(app) {
   app.get('/pickers', { preHandler: canView }, async req => withTenant(req.tenantId, async tx => {
     const items = await loadCostItems(tx, req.tenantId)
     const recipes = await tx`
-      SELECT id, name, kind, yield_unit, is_active, variant_of, category FROM recipes
+      SELECT id, name, kind, yield_unit, is_active, variant_of, category, status, code FROM recipes
        WHERE tenant_id = ${req.tenantId} ORDER BY lower(name)`
     return {
       items: [...items.values()].map(i => ({ ...i, unit_choices: unitChoices(i) })),
@@ -289,6 +311,10 @@ export default async function recipeRoutes(app) {
         unit_choices: recipeUnitChoices({ kind: 'prep', yield_unit: r.yield_unit }),
       })),
       heads: recipes.filter(r => !r.variant_of).map(r => ({ id: r.id, name: r.name, kind: r.kind })),
+      // Dish recipes, for linking menu dishes and options to (phase 2): a variation names the recipe it varies.
+      dishes: recipes.filter(r => r.kind === 'dish').map(r => ({
+        id: r.id, name: r.name, variant_of: r.variant_of, status: r.status, is_active: r.is_active, category: r.category, code: r.code,
+      })),
       categories: [...new Set(recipes.map(r => r.category).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
       yield_units: YIELD_UNITS,
     }

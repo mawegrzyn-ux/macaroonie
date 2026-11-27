@@ -1,8 +1,9 @@
 # Inventory: recipes, costing, stock and variance
 
-**Status: phase 1 built on 27 Nov 2026 (recipes and the cost engine, migrations 298 to 301; see "Phase 1 as
-built" under section 11). Phases 2 to 10 are a plan. The decisions in section 12 are taken as recommended,
-D1 to D12.** The owner's ask when building started: "recipes variations, per revenue stream/order type
+**Status: phases 1 and 2 built on 27 Nov 2026 (recipes and the cost engine, migrations 298 to 301; links to
+dishes with the variation matrix, option rules and menu margins, migrations 302 and 303; see "Phase 1 as built"
+and "Phase 2 as built" under section 11). Phases 3 to 10 are a plan. The decisions in section 12 are taken as
+recommended, D1 to D12.** The owner's ask when building started: "recipes variations, per revenue stream/order type
 matrix, and per location (or ability to link a different recipe to menu items in different locations)",
 "stock take module" and "reports". The variation matrix is part of phase 2's links (5.4).
 
@@ -261,7 +262,9 @@ dish only, and what it does:
 The group's `variation_type` sets the default: addition adds, side is a recipe, modification
 scales or swaps. Prefixes follow from the option's own lines: No removes them, Light halves them,
 Extra doubles them, On the side changes nothing. A dish's own one-off options are keyed by dish
-and label, as sales name them.
+and label, as sales name them. *As built (phase 2): with no rule an addition adds nothing and a side has
+no recipe, so both are gaps until a rule says what; a modification changes nothing. The option's own lines
+are the recipe's lines of its item when the recipe has them (No onion), else what its rule adds.*
 
 **Meal deals.** A deal has no recipe. Its cost is the sum of the dishes picked, each with its own
 options. Where the picks are not known (a margin page, an imported sale), the cost is shown as a
@@ -420,6 +423,8 @@ unexplained       = variance - logged waste
 - **Menu margins page**: a menu, a venue and an order type; every dish with its price, net, cost,
   GP in pounds and cost %, coloured against the thresholds; options with a price show their own
   margin (extra cheese sells at 80p and costs 21p). Uncosted dishes are listed, not hidden.
+  *Built in phase 2, with a revenue stream and live or draft too. A dish has one price on a menu; only the
+  VAT changes with the venue, stream and order type.*
 - **Why this number**: the step by step explanation from `explain()`.
 - **Engineering from real sales**, per section, over a period, by Kasavana and Smith:
   - popular = a dish's share of units is at least 70% of an equal share (0.7 / number of dishes);
@@ -526,7 +531,7 @@ scale; steps that follow the same day run nearer half.
 | Phase | What | Ends with | Estimate |
 |---|---|---|---|
 | 1 | **Built 27 Nov 2026.** Units and yield on items; recipes and prep recipes; `shared/costing.js`; the Recipes page with live cost, coverage and the explanation; the `recipes` and `costing` modules | A recipe costed at each venue's prices | 80 to 100 |
-| 2 | Links to dishes, option rules, meal deals, goods; the Menu margins page with the order type switch and thresholds; report subjects; Pepper's read tools | Every costed dish shows its margin | 80 to 100 |
+| 2 | **Built 27 Nov 2026.** Links to dishes with the variation matrix, option rules, meal deals, goods; the Menu margins page with the order type switch and thresholds; report subjects; Pepper's read tools | Every costed dish shows its margin | 80 to 100 |
 | 3 | Pepper reads recipes (sheet, PDF, photo, text) into drafts; match dishes to recipes; coverage by sales value | Most of a menu costed in a sitting | 50 to 65 |
 | 4 | The `stock` module; storage areas; stocktake (drafts, units, approval, key items, phone and scanner); waste; transfers; adjustments; `loadStockMoves()` | Stock run from documents | 90 to 110 |
 | 5 | Usage from sales (till, kiosk, online, imported); on hand with sales taken off; order to par minus stock | Stock on hand that follows trading | 70 to 90 |
@@ -558,6 +563,39 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
 - **What the build changed in the plan**: no `venue_id` on recipes (variations instead, 5.3); line units are
   free text with gaps (5.3); the item's `shelf_life_days` waits; the cost subject is by venue at standard
   prices only.
+
+### Phase 2 as built (27 Nov 2026)
+
+- **Migrations** 302 (`recipe_links`, `recipe_option_rules`, `costing_settings`, RLS forced; dish, option and
+  section ids plain) and 303 (the Menu margins menu link, after Recipes).
+- **The matrix** (the owner's ask): a link is a dish, a recipe, portions and a scope of venue, revenue stream and
+  order type, each optional; one per dish and scope; a stream stores its venue. `recipeFor()` picks the closest,
+  scored as `taxFor()` scores a tax rule (stream 4, order type 2, venue 1), so the recipe and the VAT of a sale
+  agree on precedence. The Recipes page has a Dishes tab and a matrix per dish (rows every venue, each venue and
+  its streams; columns any order type, then each; set, inherited or none), a list per venue on a phone.
+- **Options** (D3): `recipe_option_rules` for a library option, one dish's exception, or a dish's own option by
+  label; add, remove, swap, scale, a recipe of its own, nothing. With no rule: addition and side are gaps,
+  modification changes nothing, a group with no type changes nothing unless the option is a priced extra. The
+  till's prefixes act on the recipe's lines of the option's item when it has them (No onion), else on what the
+  option adds; an option with no rule finds its lines by the words of its name.
+- **Engine** `dishCost()`, `dishMargin()`, `menuMargins()`, `costBand()`, `thresholdsFor()` in `shared/costing.js`;
+  loaders in `api/src/services/dishCostSvc.js`. A meal deal is its picks' sum, or a range where picks aren't known
+  (`typical` waits for phase 5); each end of its cost % range is over what its own picks sell for, extra charges
+  included (`dealRange()`), and it is banded at the highest. Goods with a barcode matching a stock item are offered a one-line recipe; services
+  need none.
+- **Menu margins** (`/menu-margins`, costing View): a menu, venue, stream, order type, live or draft; targets 30 and
+  35 by default with a section's own (costing Manage).
+- **Linking help**: matches by product code then name (`matchThing()`), goods by barcode, reviewed then saved; a
+  duplicated menu copies its links; a daily sweep marks links whose dish is on no menu (draft or live) and deletes
+  them after 30 days.
+- **Reports** Recipe links and Dish margins (a work), starters Dishes over the target cost % and Dishes with no
+  recipe. **Pepper** `dish_cost`, `menu_margins` (read only).
+- **What the build changed in the plan**: a dish has one price on a menu at every venue, stream and order type;
+  only its VAT changes (`fromPrice()` and `taxFor()`), so the margins page has no price level of its own (5.5, 8.2).
+  Links name dish recipes only (a prep recipe goes inside one), and a linked recipe stays a dish recipe. A rule adds one line. "On a menu" counts the draft
+  and what is live, so a dish leaving the draft keeps its link until it is published away. Costs on the matrix and
+  margins are at standard prices only. The cost targets are a `costing_settings` row per group with section
+  overrides in it (no table per section).
 
 ## 12. Decisions for the owner
 

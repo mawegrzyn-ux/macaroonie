@@ -8,6 +8,11 @@
 // The venue, basis and open recipe are in the address (?venue= &basis=
 // &recipe=), so a link opens the same view; ?q= starts the list's search
 // (Pepper's link to a recipe, by name). API: routes/recipes.js.
+//
+// Phase 2 tabs (?tab=): Dishes (every menu dish with its recipe; ?dish=
+// opens its variation matrix, components/recipes/DishMatrix.jsx) and
+// Options (what each option does to a recipe; ?option= opens one).
+// API: routes/recipeLinks.js, routes/recipeOptions.js.
 
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -21,25 +26,38 @@ import { PageHeader, Segmented, inputCls, ErrorNote } from '@/components/staff/s
 import { Card, btn } from '@/components/purchasing/shared'
 import { CoverageBadge, KindBadge, CostAt, pounds, perLabel, makesText, COVERAGE, BASES } from '@/components/recipes/shared'
 import { RecipeEditor } from '@/components/recipes/RecipeEditor'
+import { DishList } from '@/components/recipes/DishList'
+import { DishMatrix } from '@/components/recipes/DishMatrix'
+import { OptionList, OptionEditor } from '@/components/recipes/OptionRules'
+
+const TABS = [{ value: 'recipes', label: 'Recipes' }, { value: 'dishes', label: 'Dishes' }, { value: 'options', label: 'Options' }]
 
 export default function Recipes() {
   const { canView, canManage, loaded } = usePermission('recipes')
   const [params, setParams] = useSearchParams()
   const openId = params.get('recipe')
+  const dishId = params.get('dish')
+  const optionId = params.get('option')
+  const tab = TABS.some(t => t.value === params.get('tab')) ? params.get('tab') : 'recipes'
   const venueId = params.get('venue') || ''
   const basis = BASES.some(b => b.key === params.get('basis')) ? params.get('basis') : 'standard'
   const set = (changes) => {
     const next = new URLSearchParams(params)
     for (const [k, v] of Object.entries(changes)) { if (v) next.set(k, v); else next.delete(k) }
-    setParams(next, { replace: !('recipe' in changes) })
+    setParams(next, { replace: !('recipe' in changes || 'dish' in changes || 'option' in changes) })
   }
+  const toRecipe = id => set({ tab: '', dish: '', option: '', recipe: id })
+  const toDish = id => set({ tab: 'dishes', recipe: '', option: '', dish: id })
   if (loaded && !canView) {
     return <div className="h-full overflow-y-auto bg-page p-6 text-sm text-muted-foreground">Your role can't see recipes.</div>
   }
   return (
     <div className="h-full overflow-y-auto bg-page" data-testid="recipes-page">
       <PageHeader icon={ChefHat} title="Recipes">
-        {canManage && !openId && (
+        {!openId && !dishId && !optionId && (
+          <Segmented value={tab} onChange={v => set({ tab: v === 'recipes' ? '' : v })} options={TABS} className="[&>button]:h-12" testid="recipes-tabs" />
+        )}
+        {canManage && !openId && !dishId && !optionId && tab === 'recipes' && (
           <button type="button" className={cn(btn.primary, 'h-12')} onClick={() => set({ recipe: 'new' })} data-testid="recipe-new">
             <Plus className="w-4 h-4" />New recipe
           </button>
@@ -50,9 +68,17 @@ export default function Recipes() {
         {openId
           ? <RecipeEditor key={openId} id={openId === 'new' ? null : openId} venueId={venueId} basis={basis}
               onVenue={v => set({ venue: v })} onBasis={b => set({ basis: b === 'standard' ? '' : b })}
-              onOpen={id => set({ recipe: id })} onClose={() => set({ recipe: '' })} canManage={canManage} />
-          : <RecipeList venueId={venueId} basis={basis} startQ={params.get('q') || ''} onVenue={v => set({ venue: v })}
-              onBasis={b => set({ basis: b === 'standard' ? '' : b })} onOpen={id => set({ recipe: id })} />}
+              onOpen={id => set({ recipe: id })} onClose={() => set({ recipe: '' })} onOpenDish={toDish} canManage={canManage} />
+          : dishId
+            ? <DishMatrix key={dishId} dishId={dishId} onClose={() => set({ dish: '' })} onOpenRecipe={toRecipe} canManage={canManage} />
+            : optionId
+              ? <OptionEditor key={optionId} optionId={optionId} onClose={() => set({ option: '' })} onOpenDish={toDish} canManage={canManage} />
+              : tab === 'dishes'
+                ? <DishList onOpen={id => set({ dish: id })} canManage={canManage} startQ={params.get('q') || ''} />
+                : tab === 'options'
+                  ? <OptionList onOpen={id => set({ option: id })} />
+                  : <RecipeList venueId={venueId} basis={basis} startQ={params.get('q') || ''} onVenue={v => set({ venue: v })}
+                      onBasis={b => set({ basis: b === 'standard' ? '' : b })} onOpen={id => set({ recipe: id })} />}
       </div>
     </div>
   )

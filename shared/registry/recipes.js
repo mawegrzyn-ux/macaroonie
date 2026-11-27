@@ -7,6 +7,23 @@ export const objects = [
     table: 'recipes', subjects: ['recipes.recipes', 'recipes.lines'],
     page: '/recipes',
   },
+  // Phase 2: which recipe a menu dish uses where (the variation matrix).
+  {
+    key: 'recipes.links', label: 'Recipe link', plural: 'Recipe links', words: ['link', 'matrix', 'variation', 'takeaway version'],
+    table: 'recipe_links', subjects: ['recipes.links'],
+    page: '/recipes',
+  },
+  {
+    key: 'recipes.option_rules', label: 'Option rule', plural: 'Option rules', words: ['option recipe', 'modifier rule', 'extra cheese'],
+    table: 'recipe_option_rules',
+    page: '/recipes',
+  },
+  // A dish's margin is worked out each time; the targets it is judged by are kept.
+  {
+    key: 'recipes.margins', label: 'Menu margin', plural: 'Menu margins', words: ['margin', 'GP', 'food cost', 'cost target'],
+    table: 'costing_settings', subjects: ['recipes.margins'],
+    page: '/menu-margins',
+  },
 ]
 
 export const notObjects = {
