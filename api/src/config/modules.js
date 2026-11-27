@@ -312,6 +312,23 @@ export const MODULES = [
     description: 'Manage: change and place orders, and change, split or cancel purchase orders. People who can order but not approve send their orders for approval.',
     default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'none' },
   },
+  // Recipes and costing (inventory phase 1, migration 299): recipes are a
+  // kitchen's recipe book, readable without costs; a cost reveals what
+  // suppliers charge, so costs need costing (docs/INVENTORY.md 10.1, D7).
+  {
+    key:    'recipes',
+    label:  'Recipes',
+    group:  'recipes',
+    description: 'Recipes and prep recipes: what goes into each dish and batch, the method and the photo. View reads them (the kitchen\'s recipe book) without costs; Manage changes them.',
+    default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'none' },
+  },
+  {
+    key:    'costing',
+    label:  'Costing',
+    group:  'recipes',
+    description: 'What recipes cost at each venue\'s supplier prices, with the gaps and how each cost is worked out. View shows costs; Manage will set cost targets and scenarios.',
+    default: { owner: 'manage', admin: 'manage', operator: 'none', viewer: 'none' },
+  },
   {
     key:    'pos_setup',
     label:  'Store tech',
@@ -482,6 +499,12 @@ export const MODULE_GROUPS = [
     label:  'Purchasing',
     description: 'Inventory, suppliers, order lists and purchase orders.',
     moduleKeys: ['purchasing', 'purchasing_setup', 'purchasing_approve'],
+  },
+  {
+    key:    'recipes',
+    label:  'Recipes and costing',
+    description: 'Recipes and prep recipes, costed at each venue\'s supplier prices.',
+    moduleKeys: ['recipes', 'costing'],
   },
   {
     key:    'pos',
