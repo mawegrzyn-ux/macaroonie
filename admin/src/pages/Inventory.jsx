@@ -712,6 +712,8 @@ function HistoryModal({ item, quote, onClose }) {
             <div key={h.id} className="flex items-center gap-3 px-3 py-2 text-sm">
               <span className="w-32 shrink-0 text-muted-foreground tabular-nums">{new Date(h.changed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
               <span className="flex-1 min-w-0 truncate">{h.venue_name || 'Company price'}{h.source === 'import' && <span className="ml-1 text-xs text-muted-foreground">(import)</span>}</span>
+              {/* The pack the price was for (kept since 27 Nov 2026, migration 315; a pack change is a row of its own). */}
+              {h.pack_base_qty != null && <span className="text-xs text-muted-foreground tabular-nums">{formatBase(h.pack_base_qty, item.base_unit)} pack</span>}
               <span className="font-medium tabular-nums">{h.price == null ? 'Removed' : money(h.price)}</span>
             </div>
           ))}

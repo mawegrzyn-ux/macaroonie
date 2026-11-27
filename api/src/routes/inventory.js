@@ -17,6 +17,16 @@
 //   DELETE /units/:unitId        refused (409 unit_in_use) while a recipe line uses it
 // An item in a recipe is switched off instead of deleted, and its base unit
 // stays as it is while it has units or is in a recipe.
+//
+// Price creep (inventory phase 7b, migration 315): every change of a supplier
+// price here (a price added or edited, a venue's own price, the import, the
+// price update by code) calls priceChanged() (services/priceCreepSvc.js, the
+// recipes area's) in the same transaction, after the change: the dishes whose
+// recipes use the item that crossed their cost target are recorded as cost
+// alerts and the rule trigger dish_over_target fires (firesCostAlerts(), once
+// the answer went out). The price history keeps each row's pack size
+// (pack_base_qty), and a pack change is a row too, so a cost per base unit
+// can be read back at any moment (pricesAt() in shared/priceCreep.js).
 
 import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
@@ -32,6 +42,7 @@ import { CustomInput, customValues, writeCustom, loadDefinitions } from '../serv
 import { barcodeProblem, cleanBarcode } from '../../../shared/catalogue.js'
 import { unitChoices, unitNameProblem } from '../../../shared/costing.js'
 import { importColumns, importValues } from '../../../shared/customFields.js'
+import { priceChanged, firesCostAlerts } from '../services/priceCreepSvc.js'
 
 const uuid = z.string().uuid()
 const text = (max = 200) => z.string().trim().max(max)
@@ -193,10 +204,11 @@ async function checkVenues(tx, tenantId, ids) {
   if (rows.length !== new Set(ids).size) throw httpError(404, 'Venue not found')
 }
 
-function recordPrice(tx, tenantId, quoteId, venueId, price, by, source = 'manual') {
+/** A row of price history: the pack price (null: a venue's own price removed) and the pack's size in base units (migration 315). */
+function recordPrice(tx, tenantId, quoteId, venueId, price, by, source = 'manual', packBaseQty = null) {
   return tx`
-    INSERT INTO inv_price_history (tenant_id, quote_id, venue_id, price, changed_by, source)
-    VALUES (${tenantId}, ${quoteId}, ${venueId}, ${price}, ${by}, ${source})
+    INSERT INTO inv_price_history (tenant_id, quote_id, venue_id, price, changed_by, source, pack_base_qty)
+    VALUES (${tenantId}, ${quoteId}, ${venueId}, ${price}, ${by}, ${source}, ${packBaseQty})
   `
 }
 
@@ -326,7 +338,7 @@ const toNum = v => {
   return Number.isFinite(n) ? n : NaN
 }
 
-async function runImport(tx, tenantId, rows, by) {
+async function runImport(tx, tenantId, rows, by, changed = null) {
   const out = { rows: rows.length, items_created: 0, items_matched: 0, categories_created: 0, suppliers_created: 0,
                 quotes_created: 0, quotes_updated: 0, prices_changed: 0, barcodes_set: 0, custom_set: 0,
                 errors: [], notes: [], required_missing: [] }
@@ -482,12 +494,18 @@ async function runImport(tx, tenantId, rows, by) {
       out.order_lines_converted = (out.order_lines_converted || 0) + await keepOpenAmounts(tx, tenantId, match.id,
         { pack_base_qty: match.pack_base_qty },
         { pack_base_qty: pbq, min_qty: minQty ?? match.min_qty, order_multiple: mult ?? match.order_multiple })
+      const packMoved = Math.abs(match.pack_base_qty - pbq) > 1e-6
       match.pack_base_qty = pbq
       if (minQty != null) match.min_qty = minQty
       if (mult != null) match.order_multiple = mult
       if (productName) match.product_name = productName
-      if (Math.abs(match.price - price) > 1e-9) {
-        await recordPrice(tx, tenantId, match.id, null, price, by, 'import')
+      const priceMoved = Math.abs(match.price - price) > 1e-9
+      // A new price or a new pack size is a row of price history (what a cost per base unit was).
+      if (priceMoved || packMoved) {
+        await recordPrice(tx, tenantId, match.id, null, price, by, 'import', pbq)
+        changed?.push(match.id)
+      }
+      if (priceMoved) {
         out.prices_changed++
         match.price = price
       }
@@ -502,7 +520,8 @@ async function runImport(tx, tenantId, rows, by) {
         RETURNING id
       `
       if (quoteCode.code) out.barcodes_set++
-      await recordPrice(tx, tenantId, q.id, null, price, by, 'import')
+      await recordPrice(tx, tenantId, q.id, null, price, by, 'import', pbq)
+      changed?.push(q.id)
       quotes.push({ id: q.id, item_id: item.id, supplier_id: sup.id, supplier_code: code, barcode: quoteCode.code, product_name: productName, pack_name: packName.toLowerCase(), pack_base_qty: pbq, price, min_qty: minQty, order_multiple: mult })
       out.quotes_created++
     }
@@ -701,8 +720,8 @@ async function runPriceUpdate(tx, tenantId, supplier, rows, by, { apply }) {
   }
   if (apply) {
     for (const c of out.changes) {
-      await tx`UPDATE inv_quotes SET price = ${c.new_price}, updated_at = now() WHERE id = ${c.quote_id} AND tenant_id = ${tenantId}`
-      await recordPrice(tx, tenantId, c.quote_id, null, c.new_price, by, 'import')
+      const [q] = await tx`UPDATE inv_quotes SET price = ${c.new_price}, updated_at = now() WHERE id = ${c.quote_id} AND tenant_id = ${tenantId} RETURNING pack_base_qty::float8 AS pack_base_qty`
+      await recordPrice(tx, tenantId, c.quote_id, null, c.new_price, by, 'import', q?.pack_base_qty ?? null)
     }
     for (const b of out.barcodes) {
       await tx`UPDATE inv_quotes SET barcode = ${b.new}, updated_at = now() WHERE id = ${b.quote_id} AND tenant_id = ${tenantId}`
@@ -725,6 +744,8 @@ const priceText = p => (Math.abs(p * 100 - Math.round(p * 100)) < 1e-6 ? p.toFix
 
 export default async function inventoryRoutes(app) {
   app.addHook('preHandler', requireAuth)
+  // Price creep's rule events (dish_over_target) go out once a price change was answered.
+  firesCostAlerts(app)
 
   // ── Categories ──
   app.get('/categories', { preHandler: canView }, async req => withTenant(req.tenantId, tx => tx`
@@ -1001,7 +1022,9 @@ export default async function inventoryRoutes(app) {
         INSERT INTO inv_quotes ${tx({ ...v, tenant_id: req.tenantId, item_id: item.id, supplier_id: b.supplier_id })}
         RETURNING id
       `
-      await recordPrice(tx, req.tenantId, q.id, null, v.price, req.user?.email ?? null)
+      await recordPrice(tx, req.tenantId, q.id, null, v.price, req.user?.email ?? null, 'manual', v.pack_base_qty)
+      // A new price can be the one a venue costs by (the cheapest, the usual): price creep.
+      await priceChanged(tx, req, { quoteIds: [q.id], source: 'manual' })
       return (await loadItems(tx, req.tenantId, [item.id]))[0]
     })
   })
@@ -1036,7 +1059,13 @@ export default async function inventoryRoutes(app) {
       `
       // A new pack size: open orders on this price keep the amount they asked for.
       await keepOpenAmounts(tx, req.tenantId, q.id, { pack_base_qty: Number(q.pack_base_qty) }, v)
-      if (Math.abs(v.price - q.price) > 1e-9) await recordPrice(tx, req.tenantId, q.id, null, v.price, req.user?.email ?? null)
+      // A new price or pack size is a row of price history (migration 315: with the pack), then price creep.
+      const priceMoved = Math.abs(v.price - q.price) > 1e-9
+      const packMoved = Math.abs(Number(v.pack_base_qty) - Number(q.pack_base_qty)) > 1e-6
+      if (priceMoved || packMoved) {
+        await recordPrice(tx, req.tenantId, q.id, null, v.price, req.user?.email ?? null, 'manual', v.pack_base_qty)
+        await priceChanged(tx, req, { quoteIds: [q.id], source: 'manual' })
+      }
       return (await loadItems(tx, req.tenantId, [q.item_id]))[0]
     })
   })
@@ -1067,21 +1096,26 @@ export default async function inventoryRoutes(app) {
       `
       const was = new Map(current.map(r => [r.venue_id, r.price]))
       const by = req.user?.email ?? null
+      const moved = []
       for (const p of prices) {
         const before = was.get(p.venue_id)
         if (p.price == null) {
           if (before == null) continue
           await tx`DELETE FROM inv_quote_venue_prices WHERE quote_id = ${q.id} AND venue_id = ${p.venue_id} AND tenant_id = ${req.tenantId}`
-          await recordPrice(tx, req.tenantId, q.id, p.venue_id, null, by)
+          await recordPrice(tx, req.tenantId, q.id, p.venue_id, null, by, 'manual', Number(q.pack_base_qty))
+          moved.push(p.venue_id)
         } else if (before == null || Math.abs(before - p.price) > 1e-9) {
           await tx`
             INSERT INTO inv_quote_venue_prices (quote_id, venue_id, tenant_id, price)
             VALUES (${q.id}, ${p.venue_id}, ${req.tenantId}, ${p.price})
             ON CONFLICT (quote_id, venue_id) DO UPDATE SET price = EXCLUDED.price
           `
-          await recordPrice(tx, req.tenantId, q.id, p.venue_id, p.price, by)
+          await recordPrice(tx, req.tenantId, q.id, p.venue_id, p.price, by, 'manual', Number(q.pack_base_qty))
+          moved.push(p.venue_id)
         }
       }
+      // Price creep at the venues whose own price changed.
+      if (moved.length) await priceChanged(tx, req, { quoteIds: [q.id], venueIds: moved, source: 'manual' })
       return (await loadItems(tx, req.tenantId, [q.item_id]))[0]
     })
   })
@@ -1089,7 +1123,8 @@ export default async function inventoryRoutes(app) {
   app.get('/quotes/:id/history', { preHandler: canView }, async req => withTenant(req.tenantId, async tx => {
     const q = await ownQuote(tx, req.tenantId, req.params.id)
     return tx`
-      SELECT h.id, h.venue_id, v.name AS venue_name, h.price::float8 AS price, h.changed_at, h.changed_by, h.source
+      SELECT h.id, h.venue_id, v.name AS venue_name, h.price::float8 AS price, h.pack_base_qty::float8 AS pack_base_qty,
+             h.changed_at, h.changed_by, h.source
         FROM inv_price_history h
         LEFT JOIN venues v ON v.id = h.venue_id AND v.tenant_id = ${req.tenantId}
        WHERE h.quote_id = ${q.id} AND h.tenant_id = ${req.tenantId}
@@ -1165,6 +1200,8 @@ export default async function inventoryRoutes(app) {
       const [supplier] = await tx`SELECT id, name FROM suppliers WHERE id = ${b.supplier_id} AND tenant_id = ${req.tenantId}`
       if (!supplier) throw httpError(404, 'Supplier not found')
       const out = await runPriceUpdate(tx, req.tenantId, supplier, rows, req.user?.email ?? null, { apply: !b.dry_run })
+      // A supplier's price list: price creep over what changed.
+      if (!b.dry_run && out.changes.length) await priceChanged(tx, req, { quoteIds: out.changes.map(c => c.quote_id), source: 'price_update' })
       return { ...out, collection_ignored: collection, dry_run: !!b.dry_run }
     })
   })
@@ -1185,8 +1222,11 @@ export default async function inventoryRoutes(app) {
     let result
     try {
       await withTenant(req.tenantId, async tx => {
-        result = await runImport(tx, req.tenantId, rows, req.user?.email ?? null)
+        const changed = []
+        result = await runImport(tx, req.tenantId, rows, req.user?.email ?? null, changed)
         if (b.dry_run) throw new DryRun()
+        // The prices and packs the import set: price creep (never for a dry run, which is rolled back).
+        if (changed.length) await priceChanged(tx, req, { quoteIds: changed, source: 'import' })
       })
     } catch (err) {
       if (!(err instanceof DryRun)) throw err

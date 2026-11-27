@@ -13,8 +13,8 @@ export const pages = [
   {
     path: '/menu-margins', label: 'Menu margins', icon: 'BadgePercent', module: 'costing',
     section: 'Stock', order: 30, catalogOrder: 167,
-    keywords: 'menu margins margin gp gross profit cost percent cost percentage food cost plate cost dish cost target threshold vat net price meal deal options sold dishes sold theoretical cost theoretical food cost menu engineering stars dogs plough horse puzzle scenario what if price change push prices',
-    description: 'Each dish\'s price net of VAT, cost, GP and cost % against your targets, at a venue and order type; what really sold; menu engineering (stars, plough-horses, puzzles, dogs); and what-if scenarios that push new prices into a menu\'s draft.',
+    keywords: 'menu margins margin gp gross profit cost percent cost percentage food cost plate cost dish cost target threshold vat net price meal deal options sold dishes sold theoretical cost theoretical food cost menu engineering stars dogs plough horse puzzle scenario what if price change push prices price creep cost creep price rise cost alert',
+    description: 'Each dish\'s price net of VAT, cost, GP and cost % against your targets; what really sold; menu engineering; what-if scenarios that push new prices into a menu\'s draft; and the dishes a supplier price rise took over target.',
     accepts: ['tab'], tabs: ['margins', 'sold', 'engineering', 'scenarios'],
   },
 ]

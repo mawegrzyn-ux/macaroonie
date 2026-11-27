@@ -431,8 +431,8 @@ export function Section() {
       <P>
         Rules (Settings, Rules, or say it to Pepper) can start from three more things: <em>When a dish goes over 35%,
         tell the owner</em>; <em>When a stock period closes over the band, add an H&amp;S action for the manager</em>;
-        <em> When waste over £50 is logged, tell the owner</em>. A dish going over its target is looked for every hour
-        and tells once: it tells again only after the dish has come back under and gone over again (or from over the
+        <em> When waste over £50 is logged, tell the owner</em>. A dish going over its target is looked for every hour,
+        and at once when a supplier price changes in the app (Price creep and cost alerts), and tells once: it tells again only after the dish has come back under and gone over again (or from over the
         target to over the limit). A rule with a percentage of its own (<em>over 35%</em>) tells once as the dish passes
         that figure, whether that is the step that takes it over the target or a price rise after it, and not again
         while it stays above. A period tells when it is closed with its unexplained loss over the venue&apos;s band

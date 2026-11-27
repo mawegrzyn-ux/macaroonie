@@ -50,6 +50,7 @@ import {
   PRICES_MODULE, seesPurchasingPrices, parModeOf, parStock,
 } from '../../../shared/procurement.js'
 import { loadStockOnHand } from '../services/stockSvc.js'
+import { priceChanged, firesCostAlerts } from '../services/priceCreepSvc.js'
 import {
   resolveQuotes, loadItemQuotes, loadQuotesById, quoteView, loadVenue, venueNow, loadSuppliersForVenue, createPurchaseOrder,
   loadPo, loadPoLines, poFile, emailPo, nextPoNumber, judgeFirstSend,
@@ -1052,6 +1053,8 @@ function noOrderDayCheck(day, today) {
 
 export default async function purchasingRoutes(app) {
   app.addHook('preHandler', requireAuth)
+  // Price creep's rule events (dish_over_target) go out once an invoice's prices were applied.
+  firesCostAlerts(app)
 
   // ── Order lists ──
   app.get('/lists', { preHandler: canRead }, async req => {
@@ -2101,10 +2104,13 @@ export default async function purchasingRoutes(app) {
       const lines = await loadPoLines(tx, req.tenantId, po.id)
       const lineBy = new Map(lines.map(l => [l.id, l]))
       const who = by(req)
-      const history = (quoteId, venueId, price) => tx`
-        INSERT INTO inv_price_history (tenant_id, quote_id, venue_id, price, changed_by, source, po_id)
-        VALUES (${req.tenantId}, ${quoteId}, ${venueId}, ${price}, ${who}, 'invoice', ${po.id})
+      // Each change a row of price history with its pack (migration 315), then price creep over them all.
+      const history = (quoteId, venueId, price, pack) => tx`
+        INSERT INTO inv_price_history (tenant_id, quote_id, venue_id, price, changed_by, source, po_id, pack_base_qty)
+        VALUES (${req.tenantId}, ${quoteId}, ${venueId}, ${price}, ${who}, 'invoice', ${po.id}, ${pack})
       `
+      const moved = []
+      let everyVenue = false
       for (const ch of b.changes) {
         const l = lineBy.get(ch.line_id)
         if (!l) throw httpError(404, 'Line not found')
@@ -2112,19 +2118,21 @@ export default async function purchasingRoutes(app) {
         const price = Number(l.invoice_price)
         if (ch.action === 'company' || ch.action === 'venue') {
           if (!l.quote_id) throw httpError(422, `${l.item_name} has no supplier price to update: add it instead`)
-          const [q] = await tx`SELECT id FROM inv_quotes WHERE id = ${l.quote_id} AND tenant_id = ${req.tenantId}`
+          const [q] = await tx`SELECT id, pack_base_qty::float8 AS pack_base_qty FROM inv_quotes WHERE id = ${l.quote_id} AND tenant_id = ${req.tenantId}`
           if (!q) throw httpError(404, 'Supplier price not found')
           if (ch.action === 'company') {
             await tx`UPDATE inv_quotes SET price = ${price}, updated_at = now() WHERE id = ${q.id} AND tenant_id = ${req.tenantId}`
-            await history(q.id, null, price)
+            await history(q.id, null, price, q.pack_base_qty)
+            everyVenue = true
           } else {
             await tx`
               INSERT INTO inv_quote_venue_prices (quote_id, venue_id, tenant_id, price)
               VALUES (${q.id}, ${po.venue_id}, ${req.tenantId}, ${price})
               ON CONFLICT (quote_id, venue_id) DO UPDATE SET price = EXCLUDED.price
             `
-            await history(q.id, po.venue_id, price)
+            await history(q.id, po.venue_id, price, q.pack_base_qty)
           }
+          moved.push(q.id)
           continue
         }
         // add
@@ -2163,7 +2171,9 @@ export default async function purchasingRoutes(app) {
           })}
           RETURNING id
         `
-        await history(q.id, null, price)
+        await history(q.id, null, price, pbq)
+        moved.push(q.id)
+        everyVenue = true
         // The line now points at what actually came (a substitute's own price).
         await tx`UPDATE purchase_order_lines SET quote_id = ${q.id} WHERE id = ${l.id} AND tenant_id = ${req.tenantId}`
         if (ch.usual) {
@@ -2172,6 +2182,8 @@ export default async function purchasingRoutes(app) {
           await tx`INSERT INTO inv_preferred (tenant_id, item_id, venue_id, quote_id) VALUES (${req.tenantId}, ${item.id}, ${venueId}, ${q.id})`
         }
       }
+      // An invoice's prices applied: the dishes they took over their cost target (inventory phase 7b).
+      if (moved.length) await priceChanged(tx, req, { quoteIds: moved, venueIds: everyVenue ? null : [po.venue_id], source: 'invoice', poId: po.id })
       return poDetail(tx, req.tenantId, po.id, true)
     })
   })

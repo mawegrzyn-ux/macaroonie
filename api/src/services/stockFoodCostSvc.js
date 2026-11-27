@@ -19,6 +19,11 @@
 //                                                 over target kept in cost_target_states, and the rule
 //                                                 trigger dish_over_target fired once per crossing (and
 //                                                 per rise in a band, for rules with a % of their own)
+//   keepCrossings(tx, tenantId, venue, dishes, { only })   the one writer of cost_target_states, shared
+//                                                 with the price creep hook (inventory phase 7b,
+//                                                 services/priceCreepSvc.js: only the dishes a price
+//                                                 change reached), so a crossing fires once whichever
+//                                                 notices it first; lockCostTargets() before it
 
 import { systemSql, withTenant } from '../config/db.js'
 import { daysFoodCost, weekFoodCost, overTarget, targetCrossings, marginsByMenu, overviewWords } from '../../../shared/foodCost.js'
@@ -273,15 +278,65 @@ export async function stockOverview(tx, tenantId, access) {
 
 // ── The cost targets sweep (the rule trigger dish_over_target) ──────────────
 
+/** The lock the sweep and the price creep hook take before reading or writing a group's cost_target_states. */
+export const lockCostTargets = (tx, tenantId) => tx`SELECT pg_advisory_xact_lock(hashtext(${'cost_targets:' + tenantId}))`
+
 /**
- * One group: each active venue's dishes over target now against the ones kept
- * (cost_target_states). Crossings are written with `since` now and returned as
+ * The one place cost_target_states changes (rule 12), shared by the hourly
+ * sweep (trackCostTargets(), every dish of every live menu) and the price
+ * creep hook (services/priceCreepSvc.js, inventory phase 7b: only the dishes
+ * whose recipes use the changed items, `only`), so the rule trigger fires once
+ * for a crossing whichever of them notices it first: the dishes over target
+ * at a venue now (overTarget()'s, of `only` when given) against the ones kept
+ * there (of `only`). Crossings are written with `since` now and returned as
  * rule events (kind 'crossed'); dishes back under are deleted; the rest keep
  * their `since`, and those whose cost % went up are events too (kind 'rose',
  * keyed by their new cost %), which only a rule with a percentage of its own
  * takes, when the rise passes it (matches() in shared/rules.js). Each event
- * carries the last look's prev_band and prev_cost_pct (null when new).
- * In the caller's transaction (withTenant). -> [event]
+ * carries the last look's prev_band and prev_cost_pct (null when new). In the
+ * caller's transaction, under lockCostTargets(). -> [event]
+ */
+export async function keepCrossings(tx, tenantId, venue, dishes, { only = null } = {}) {
+  const ids = only ? [...only] : null
+  if (ids && !ids.length) return []
+  const states = await tx`
+    SELECT dish_id, band, since, cost_pct::float8 AS cost_pct FROM cost_target_states
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venue.id} ${ids ? tx`AND dish_id = ANY(${ids}::uuid[])` : tx``}`
+  const now = only ? (dishes || []).filter(d => only.has(d.dish_id)) : (dishes || [])
+  const { crossed, cleared, kept, rose } = targetCrossings(states, now)
+  if (cleared.length) await tx`DELETE FROM cost_target_states WHERE tenant_id = ${tenantId} AND venue_id = ${venue.id} AND dish_id = ANY(${cleared}::uuid[])`
+  const events = []
+  for (const d of [...crossed, ...kept]) {
+    const isNew = crossed.includes(d)
+    const risen = !isNew && rose.includes(d)
+    const [row] = await tx`
+      INSERT INTO cost_target_states (tenant_id, venue_id, dish_id, name, menu_id, menu, order_type_id, band, cost_pct, target_pct, limit_pct, since, seen_at)
+      VALUES (${tenantId}, ${venue.id}, ${d.dish_id}, ${String(d.name).slice(0, 200)}, ${d.menu_id}, ${d.menu}, ${d.order_type_id}, ${d.band},
+              ${d.cost_pct}, ${d.target_pct}, ${d.limit_pct}, ${isNew ? new Date() : d.since}, now())
+      ON CONFLICT (tenant_id, venue_id, dish_id) DO UPDATE SET name = EXCLUDED.name, menu_id = EXCLUDED.menu_id, menu = EXCLUDED.menu,
+        order_type_id = EXCLUDED.order_type_id, band = EXCLUDED.band, cost_pct = EXCLUDED.cost_pct, target_pct = EXCLUDED.target_pct,
+        limit_pct = EXCLUDED.limit_pct, since = EXCLUDED.since, seen_at = now()
+      RETURNING since`
+    if (isNew || risen) {
+      const day = new Date().toISOString().slice(0, 10)
+      // A crossing by venue, dish, band and `since`; a rise by its new cost % too (within one time over).
+      const key = venue.id + ':' + d.dish_id + ':' + d.band + ':' + new Date(row.since).getTime() + (risen ? ':rose:' + d.cost_pct : '')
+      events.push({
+        trigger: 'dish_over_target', kind: isNew ? 'crossed' : 'rose', key, day,
+        venue_id: venue.id, venue: venue.name, dish: d.name, menu: d.menu || '', section: d.section || '', order_type: d.order_type || '',
+        cost_pct: d.cost_pct, target_pct: d.target_pct, limit_pct: d.limit_pct, band: d.band,
+        prev_band: d.prev_band ?? null, prev_cost_pct: d.prev_cost_pct ?? null,
+        band_words: d.band === 'over' ? 'over the limit' : 'over the target',
+      })
+    }
+  }
+  return events
+}
+
+/**
+ * One group: each active venue's dishes over target now (venueOverTarget(),
+ * every live menu), kept by keepCrossings(). In the caller's transaction
+ * (withTenant), under lockCostTargets(). -> [event]
  */
 export async function trackCostTargets(tx, tenantId) {
   const venues = await tx`SELECT id, name FROM venues WHERE tenant_id = ${tenantId} AND is_active ORDER BY created_at`
@@ -298,33 +353,7 @@ export async function trackCostTargets(tx, tenantId) {
   const events = []
   for (const v of venues) {
     const { dishes } = await venueOverTarget(tx, tenantId, v.id, pre)
-    const states = await tx`SELECT dish_id, band, since, cost_pct::float8 AS cost_pct FROM cost_target_states WHERE tenant_id = ${tenantId} AND venue_id = ${v.id}`
-    const { crossed, cleared, kept, rose } = targetCrossings(states, dishes)
-    if (cleared.length) await tx`DELETE FROM cost_target_states WHERE tenant_id = ${tenantId} AND venue_id = ${v.id} AND dish_id = ANY(${cleared}::uuid[])`
-    for (const d of [...crossed, ...kept]) {
-      const isNew = crossed.includes(d)
-      const risen = !isNew && rose.includes(d)
-      const [row] = await tx`
-        INSERT INTO cost_target_states (tenant_id, venue_id, dish_id, name, menu_id, menu, order_type_id, band, cost_pct, target_pct, limit_pct, since, seen_at)
-        VALUES (${tenantId}, ${v.id}, ${d.dish_id}, ${String(d.name).slice(0, 200)}, ${d.menu_id}, ${d.menu}, ${d.order_type_id}, ${d.band},
-                ${d.cost_pct}, ${d.target_pct}, ${d.limit_pct}, ${isNew ? new Date() : d.since}, now())
-        ON CONFLICT (tenant_id, venue_id, dish_id) DO UPDATE SET name = EXCLUDED.name, menu_id = EXCLUDED.menu_id, menu = EXCLUDED.menu,
-          order_type_id = EXCLUDED.order_type_id, band = EXCLUDED.band, cost_pct = EXCLUDED.cost_pct, target_pct = EXCLUDED.target_pct,
-          limit_pct = EXCLUDED.limit_pct, since = EXCLUDED.since, seen_at = now()
-        RETURNING since`
-      if (isNew || risen) {
-        const day = new Date().toISOString().slice(0, 10)
-        // A crossing by venue, dish, band and `since`; a rise by its new cost % too (within one time over).
-        const key = v.id + ':' + d.dish_id + ':' + d.band + ':' + new Date(row.since).getTime() + (risen ? ':rose:' + d.cost_pct : '')
-        events.push({
-          trigger: 'dish_over_target', kind: isNew ? 'crossed' : 'rose', key, day,
-          venue_id: v.id, venue: v.name, dish: d.name, menu: d.menu || '', section: d.section || '', order_type: d.order_type || '',
-          cost_pct: d.cost_pct, target_pct: d.target_pct, limit_pct: d.limit_pct, band: d.band,
-          prev_band: d.prev_band ?? null, prev_cost_pct: d.prev_cost_pct ?? null,
-          band_words: d.band === 'over' ? 'over the limit' : 'over the target',
-        })
-      }
-    }
+    events.push(...await keepCrossings(tx, tenantId, v, dishes))
   }
   return events
 }
@@ -343,7 +372,7 @@ export async function sweepCostTargets(app, log = null, { tenantIds = null } = {
   for (const { tenant_id: tenantId } of tenants) {
     try {
       const events = await withTenant(tenantId, async tx => {
-        await tx`SELECT pg_advisory_xact_lock(hashtext(${'cost_targets:' + tenantId}))`
+        await lockCostTargets(tx, tenantId)
         return trackCostTargets(tx, tenantId)
       })
       out.tenants++

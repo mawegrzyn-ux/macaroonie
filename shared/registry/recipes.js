@@ -34,6 +34,13 @@ export const objects = [
     page: '/menu-margins',
     actions: ['save_scenario'],
   },
+  // Phase 7b (migration 315): a dish a supplier price change took over its cost target or limit (price creep),
+  // recorded by the price change hook; marked seen on the Menu margins page.
+  {
+    key: 'recipes.cost_alerts', label: 'Cost alert', plural: 'Cost alerts', words: ['price creep', 'cost creep', 'price rise', 'cost alert'],
+    table: 'cost_alerts', subjects: ['recipes.cost_alerts'],
+    page: '/menu-margins',
+  },
 ]
 
 export const notObjects = {

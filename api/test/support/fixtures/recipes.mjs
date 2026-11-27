@@ -12,6 +12,10 @@
 // Phase 7a (migration 314, in fillLate): menu engineering read, a cost
 // scenario at the stream and order type saved whole, previewed and copied,
 // and its prices previewed and pushed into the menu's draft.
+// Phase 7b (migration 315): the cheese's supplier price raised tenfold, so
+// the menu's dish crosses its cost limit (a cost alert, through the price
+// change hook), the alerts read, one marked seen, why its cost changed read,
+// and the price put back (the dish back under: its state cleared).
 export const order = 85
 // After the till (140): its order type.
 export const lateOrder = 150
@@ -29,7 +33,7 @@ export async function fill(ctx) {
   const supplier = await step('recipe supplier', () => post('/api/suppliers', { name: mark + ' Dairy Co', send_method: 'print' }))
   const item = await step('recipe item', () => post('/api/inventory/items', { name: mark + ' Cheddar', base_unit: 'g', yield_pct: 95 }))
   if (!item) return
-  if (supplier) await step('recipe item price', () => post(`/api/inventory/items/${item.id}/quotes`, { supplier_id: supplier.id, pack_name: 'Block', pack_qty: 5, pack_unit: 'kg', price: 40 }))
+  const priced = supplier ? await step('recipe item price', () => post(`/api/inventory/items/${item.id}/quotes`, { supplier_id: supplier.id, pack_name: 'Block', pack_qty: 5, pack_unit: 'kg', price: 40 })) : null
   // An item's own unit (migration 298), changed once so the sweep sends that again as the other group.
   const withUnit = await step('item unit', () => post(`/api/inventory/items/${item.id}/units`, { name: 'slice', base_qty: 20 }))
   const unit = withUnit?.units?.[0]
@@ -87,6 +91,17 @@ export async function fill(ctx) {
   await step('costing settings', () => put('/api/menu-margins/settings', {
     target_pct: 28, limit_pct: 33, sections: section ? [{ section_id: section.id, target_pct: 25, limit_pct: 30 }] : [],
   }))
+  // Phase 7b: price creep. The cheese ten times dearer takes the menu's dish over its limit (a cost alert);
+  // then the price is put back, so later files see the costs as they were.
+  const quote = priced?.quotes?.[0]
+  if (quote && menuDish) {
+    await step('price creep', () => patch('/api/inventory/quotes/' + quote.id, { price: 400 }))
+    const alerts = await step('cost alerts', () => get('/api/cost-alerts?venue_id=' + V))
+    await step('cost alerts summary', () => get('/api/cost-alerts/summary?venue_id=' + V))
+    if (alerts?.alerts?.[0]) await step('cost alert seen', () => post('/api/cost-alerts/seen', { ids: [alerts.alerts[0].id] }))
+    await step('why cost changed', () => get('/api/cost-alerts/why?dish_id=' + menuDish.id + '&venue_id=' + V))
+    await step('price creep put back', () => patch('/api/inventory/quotes/' + quote.id, { price: 40 }))
+  }
 }
 
 /** Links that need the till's order type and a revenue stream of the venue. */

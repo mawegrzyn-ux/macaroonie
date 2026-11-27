@@ -10,6 +10,8 @@
 //   task_late        the task notices sweep                 (services/notices.js)
 //   review_low       POST /api/reviews and /reviews/record  (routes/reviews.js)
 //   dish_over_target the cost targets sweep                 (services/stockFoodCostSvc.js, phase 6b)
+//                    and a supplier price change            (services/priceCreepSvc.js, phase 7b:
+//                    the purchasing routes' price creep hook, the same keepCrossings(), so once)
 //   variance_over_band POST /api/stock/periods/:id/close     (routes/stockVariance.js, phase 6b)
 //   waste_logged     POST /api/stock/venues/:id/waste       (routes/stockWaste.js, phase 6b)
 //

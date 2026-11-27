@@ -235,17 +235,21 @@ export default async function costScenarioRoutes(app) {
     })
   })
 
+  // The reply is sent after withTenant() has committed: a reply sent inside
+  // the transaction reaches the client before COMMIT, and its next request
+  // (open or save the new scenario) can miss the row and answer 404.
   app.post('/', { preHandler: canManage }, async (req, reply) => {
     const b = ScenarioBody.parse(req.body || {})
-    return withTenant(req.tenantId, async tx => {
+    const s = await withTenant(req.tenantId, async tx => {
       const { changes } = await checkBody(tx, req.tenantId, b)
-      const [s] = await tx`
+      const [row] = await tx`
         INSERT INTO cost_scenarios (tenant_id, name, menu_id, venue_id, revenue_stream_id, order_type_id, mix_days, changes, notes, created_by, updated_by)
         VALUES (${req.tenantId}, ${b.name}, ${b.menu_id}, ${b.venue_id}, ${b.revenue_stream_id}, ${b.order_type_id}, ${b.mix_days},
                 ${tx.json(changes)}, ${b.notes}, ${who(req)}, ${who(req)})
         RETURNING ${tx.unsafe(COLS)}`
-      return reply.code(201).send(s)
+      return row
     })
+    return reply.code(201).send(s)
   })
 
   app.put('/:id', { preHandler: canManage }, async req => {
@@ -266,15 +270,16 @@ export default async function costScenarioRoutes(app) {
 
   app.post('/:id/copy', { preHandler: canManage }, async (req, reply) => {
     const id = uuid.parse(req.params.id)
-    return withTenant(req.tenantId, async tx => {
+    const copy = await withTenant(req.tenantId, async tx => {
       const s = await oneScenario(tx, req.tenantId, id)
-      const [copy] = await tx`
+      const [row] = await tx`
         INSERT INTO cost_scenarios (tenant_id, name, menu_id, venue_id, revenue_stream_id, order_type_id, mix_days, changes, notes, created_by, updated_by)
         VALUES (${req.tenantId}, ${(s.name + ' (copy)').slice(0, 120)}, ${s.menu_id}, ${s.venue_id}, ${s.revenue_stream_id}, ${s.order_type_id},
                 ${s.mix_days}, ${tx.json(s.changes)}, ${s.notes}, ${who(req)}, ${who(req)})
         RETURNING ${tx.unsafe(COLS)}`
-      return reply.code(201).send(copy)
+      return row
     })
+    return reply.code(201).send(copy)
   })
 
   app.delete('/:id', { preHandler: canManage }, async req => {

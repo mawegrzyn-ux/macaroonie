@@ -454,7 +454,7 @@ export const subjects = [
     one: 'price change',
     area: 'purchasing',
     module: 'purchasing_setup',
-    about: 'Every time a supplier price was set: typed in, imported, or taken from an invoice, with the price before it for the same venue (or for every venue).',
+    about: 'Every time a supplier price was set, or its pack size changed: typed in, imported, or taken from an invoice, with the price before it for the same venue (or for every venue).',
     from: 'inv_price_history',
     venue: 'venue_id',
     date: { sql: '({t}.changed_at AT TIME ZONE {tz})::date', bound: '{t}.changed_at', label: 'Day changed' },
@@ -465,6 +465,8 @@ export const subjects = [
       change_rate: percent({ sql: '(({t}.price - ' + BEFORE + ') / NULLIF(' + BEFORE + ', 0))' }, { unit: 'fraction', label: 'Change' }),
       every_venue: yesno({ sql: '({t}.venue_id IS NULL)' }, { label: 'For every venue' }),
       source: choice('source', { manual: 'Typed in', import: 'Imported', invoice: 'From an invoice' }, { label: 'Set by' }),
+      // Migration 315 (inventory phase 7b): the pack's size with the price; a pack change is a row of its own.
+      pack_size: number('pack_base_qty', { label: 'Pack size', decimals: 3, adds: false, about: 'The pack\'s size in the item\'s unit (grams, millilitres or each) when the price was set; empty for rows from before 27 Nov 2026. A row whose price is the same as the one before is a pack size change.' }),
       changed_at: moment('changed_at', { label: 'Changed at' }),
       changed_by: text('changed_by', { label: 'Changed by' }),
     },
