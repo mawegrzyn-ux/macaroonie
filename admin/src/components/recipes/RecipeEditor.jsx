@@ -26,13 +26,14 @@ import {
   CoverageBadge, KindBadge, CostAt, pounds, perLabel, unitLabel, madeText, usePickers, detailsOf, linesOf, methodOf, lineKey,
   saveBody, sameLines, sameObj, BASES,
 } from './shared'
+import { StateBadge } from './OptionRules'
 
 const NEW_DETAILS = {
   name: '', kind: 'dish', category: '', code: '', status: 'draft', yield_qty: null, yield_unit: '', portions: 1, loss_pct: 0,
   shelf_life_hours: null, variant_of: '', notes: '', is_active: true,
 }
 
-export function RecipeEditor({ id, venueId, basis, onVenue, onBasis, onOpen, onClose, onOpenDish, canManage }) {
+export function RecipeEditor({ id, venueId, basis, onVenue, onBasis, onOpen, onClose, onOpenDish, onOpenOption, forDish = null, canManage }) {
   const api = useApi()
   const qc = useQueryClient()
   const query = new URLSearchParams({ ...(venueId ? { venue_id: venueId } : {}), ...(basis !== 'standard' ? { basis } : {}) }).toString()
@@ -86,7 +87,9 @@ export function RecipeEditor({ id, venueId, basis, onVenue, onBasis, onOpen, onC
   })
   const live = draftBody && preview.data ? preview.data : server
 
-  if (!id) return <NewRecipe onClose={onClose} onCreated={onOpen} />
+  if (!id) return forDish
+    ? <NewForDish dishId={forDish} onClose={onClose} onCreated={onOpen} onOpenDish={onOpenDish} onOpenOption={onOpenOption} />
+    : <NewRecipe onClose={onClose} onCreated={onOpen} />
   if (isLoading || !server || !details || !lines || !method) {
     return error ? <ErrorNote error={error} /> : <div className="py-16 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" /></div>
   }
@@ -157,6 +160,73 @@ function NewRecipe({ onClose, onCreated }) {
       <button type="button" className={cn(btn.outline, 'h-12')} onClick={onClose}><ArrowLeft className="w-4 h-4" />Recipes</button>
       <DetailsCard value={d} onChange={setD} recipe={null} edit dirty saving={create.isPending} onSave={() => create.mutate()}
         saveLabel="Create" error={create.error} />
+      <p className="text-sm text-muted-foreground">Once it is made, add what goes into it, the method and a photo.</p>
+    </div>
+  )
+}
+
+// ── A recipe made for a menu dish (phase 3) ───────────────────
+//
+// "Make a recipe for this dish" (the Dishes tab and the dish's matrix): the
+// details start from the dish (its name, its product code as the recipe's
+// code), Create makes a draft dish recipe linked to the dish for every venue
+// (when the dish has no recipe there yet), and the dish's options are listed
+// with what each does, each a tap from its rule on the Options tab.
+
+function NewForDish({ dishId, onClose, onCreated, onOpenDish, onOpenOption }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { data, isLoading, error } = useQuery({ queryKey: ['recipe-dish', dishId], queryFn: () => api.get('/recipe-links/dishes/' + dishId) })
+  const [d, setD] = useState(null)
+  useEffect(() => {
+    if (data && !d) setD({ ...NEW_DETAILS, name: data.dish.name, code: data.dish.sku || '', category: data.dish.section || '' })
+  }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
+  const create = useMutation({
+    mutationFn: () => api.post('/recipe-links/dishes/' + dishId + '/recipe', {
+      name: d.name.trim(), code: d.code.trim() || null, category: d.category.trim() || null, portions: Number(d.portions) > 0 ? Number(d.portions) : 1,
+    }),
+    onSuccess: r => {
+      for (const k of [['recipes'], ['recipe-pickers'], ['recipe-dishes'], ['recipe-dish', dishId], ['recipe-coverage']]) qc.invalidateQueries({ queryKey: k })
+      onCreated(r.recipe_id)
+    },
+  })
+  if (isLoading || (data && !d)) return error ? <ErrorNote error={error} /> : <div className="py-16 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" /></div>
+  if (error) return <ErrorNote error={error} />
+  const dish = data.dish
+  const def = data.cells?.['all|any']?.set ? data.cells['all|any'].recipe : null
+  const needRule = data.options.filter(o => o.state === 'gap').length
+  return (
+    <div className="space-y-4 max-w-3xl" data-testid="recipe-for-dish">
+      <button type="button" className={cn(btn.outline, 'h-12')} onClick={onClose}><ArrowLeft className="w-4 h-4" />Back</button>
+      <Card title={'A recipe for ' + dish.name}>
+        <p className="text-sm">
+          {[dish.menu, dish.section].filter(Boolean).join(' · ')}.{' '}
+          {def ? <>It keeps its recipe for every venue ({def.name}); link the new one where it is used from the dish&apos;s matrix.</>
+            : <>The new recipe is linked to it for every venue; a venue, revenue stream or order type can use another later.</>}
+        </p>
+      </Card>
+      <DetailsCard value={d} onChange={v => setD({ ...v, kind: 'dish' })} recipe={null} edit dirty saving={create.isPending} onSave={() => create.mutate()}
+        saveLabel="Create" error={create.error} />
+      {data.options.length > 0 && (
+        <Card title={'Its options' + (needRule ? ': ' + needRule + ' need a rule' : '')} bodyClass="p-0">
+          <p className="px-4 pt-3 text-xs text-muted-foreground">What each option does to the recipe. An option that adds something needs a rule before a sale with it can be costed.</p>
+          <ul className="divide-y" data-testid="recipe-for-dish-options">
+            {data.options.map(o => (
+              <li key={(o.option_id || 'own') + ':' + o.label} className="px-4 py-2 min-h-[56px] flex flex-wrap items-center gap-2">
+                <span className="flex-1 min-w-[10rem]">
+                  <span className="font-medium">{o.label}</span> <span className="text-xs text-muted-foreground">{o.group}</span>
+                  <span className="block text-xs text-muted-foreground">{o.rule ? o.rule.text : o.default_text}</span>
+                </span>
+                <StateBadge state={o.state} />
+                <button type="button" className={cn(btn.outline, 'h-12')} data-testid="recipe-for-dish-rule"
+                  onClick={() => (o.own || !o.option_id ? onOpenDish(dishId) : onOpenOption(o.option_id))}>
+                  {o.own || !o.option_id ? 'On the dish' : 'Its rule'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
       <p className="text-sm text-muted-foreground">Once it is made, add what goes into it, the method and a photo.</p>
     </div>
   )

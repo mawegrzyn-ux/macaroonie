@@ -51,7 +51,7 @@ export default function Recipes() {
     setParams(next, { replace: !('recipe' in changes || 'dish' in changes || 'option' in changes) })
   }
   const toRecipe = id => set({ tab: '', dish: '', option: '', read: '', recipe: id })
-  const toDish = id => set({ tab: 'dishes', recipe: '', option: '', dish: id })
+  const toDish = id => set({ tab: 'dishes', recipe: '', option: '', for_dish: '', dish: id })
   if (loaded && !canView) {
     return <div className="h-full overflow-y-auto bg-page p-6 text-sm text-muted-foreground">Your role can't see recipes.</div>
   }
@@ -83,13 +83,16 @@ export default function Recipes() {
           : openId
           ? <RecipeEditor key={openId} id={openId === 'new' ? null : openId} venueId={venueId} basis={basis}
               onVenue={v => set({ venue: v })} onBasis={b => set({ basis: b === 'standard' ? '' : b })}
-              onOpen={id => set({ recipe: id })} onClose={() => set({ recipe: '' })} onOpenDish={toDish} canManage={canManage} />
+              onOpen={id => set({ recipe: id, for_dish: '' })} onClose={() => set({ recipe: '', for_dish: '' })} onOpenDish={toDish}
+              onOpenOption={id => set({ tab: 'options', recipe: '', for_dish: '', option: id })} forDish={openId === 'new' ? params.get('for_dish') : null} canManage={canManage} />
           : dishId
-            ? <DishMatrix key={dishId} dishId={dishId} onClose={() => set({ dish: '' })} onOpenRecipe={toRecipe} canManage={canManage} />
+            ? <DishMatrix key={dishId} dishId={dishId} onClose={() => set({ dish: '' })} onOpenRecipe={toRecipe} canManage={canManage}
+                onMake={id => set({ dish: '', recipe: 'new', for_dish: id })} />
             : optionId
               ? <OptionEditor key={optionId} optionId={optionId} onClose={() => set({ option: '' })} onOpenDish={toDish} canManage={canManage} />
               : tab === 'dishes'
-                ? <DishList onOpen={id => set({ dish: id })} canManage={canManage} startQ={params.get('q') || ''} />
+                ? <DishList onOpen={id => set({ dish: id })} canManage={canManage} startQ={params.get('q') || ''}
+                    onMake={id => set({ tab: '', recipe: 'new', for_dish: id })} />
                 : tab === 'options'
                   ? <OptionList onOpen={id => set({ option: id })} />
                   : <RecipeList venueId={venueId} basis={basis} startQ={params.get('q') || ''} onVenue={v => set({ venue: v })}
