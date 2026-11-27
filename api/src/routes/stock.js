@@ -4,7 +4,9 @@
 // migrations 305 to 307), mounted at /api/stock by src/areas/stock.js. On
 // hand is the last approved count plus every delivery and adjustment since
 // (loadStockOnHand() in services/stockSvc.js, the rule stockOnHand() in
-// shared/stock.js); sales aren't taken off until usage from sales (phase 5).
+// shared/stock.js), less what sales took off (usage from sales, phase 5:
+// each trading day's use per item, worked out every few minutes; today's up
+// to the last run, which every answer says: salesTakenOff(), salesNote()).
 // Counts are routes/stockCounts.js; areas, key lists, settings and
 // adjustments routes/stockSetup.js.
 //
@@ -40,7 +42,7 @@ import { permissionAtLeast } from '../config/modules.js'
 import { stockLow, PRICES_MODULE, seesPurchasingPrices } from '../../../shared/procurement.js'
 import { runningBalance, stockOnHand, MOVE_KINDS } from '../../../shared/stock.js'
 import {
-  loadStockOnHand, loadStockMoves, loadCountItems, loadStockSettings, itemCostsAt, SALES_COUNTED, NO_SALES_NOTE,
+  loadStockOnHand, loadStockMoves, loadCountItems, loadStockSettings, itemCostsAt, SALES_COUNTED, salesTakenOff, salesNote,
 } from '../services/stockSvc.js'
 
 const canView = requirePermission('stock', 'view')
@@ -131,7 +133,7 @@ export default async function stockRoutes(app) {
   app.get('/meta', { preHandler: canView }, async req => {
     const access = await stockAccess(req)
     const settings = await withTenant(req.tenantId, tx => loadStockSettings(tx, req.tenantId))
-    return { ...access, can_approve: access.can_manage, settings, me: await who(req), sales_counted: SALES_COUNTED, note: NO_SALES_NOTE }
+    return { ...access, can_approve: access.can_manage, settings, me: await who(req), sales_counted: SALES_COUNTED }
   })
 
   app.get('/venues/:venueId', { preHandler: canView }, async req => {
@@ -140,7 +142,7 @@ export default async function stockRoutes(app) {
       const venueId = req.params.venueId
       const rows = await loadStockOnHand(tx, req.tenantId, { venueIds: [venueId], allItems: true })
       const ids = rows.map(r => r.item_id)
-      const [items, cats, pars, areas, values] = await Promise.all([
+      const [items, cats, pars, areas, values, taken, [venue]] = await Promise.all([
         loadCountItems(tx, req.tenantId, ids),
         tx`SELECT i.id, c.name AS category_name FROM inv_items i JOIN inv_categories c ON c.id = i.category_id AND c.tenant_id = i.tenant_id
             WHERE i.tenant_id = ${req.tenantId} AND i.id = ANY(${ids}::uuid[])`,
@@ -155,7 +157,10 @@ export default async function stockRoutes(app) {
             WHERE ai.tenant_id = ${req.tenantId} AND a.venue_id = ${venueId}
             GROUP BY ai.item_id`,
         access.sees_values ? itemCostsAt(tx, req.tenantId, venueId, ids) : null,
+        salesTakenOff(tx, req.tenantId, [venueId]),
+        tx`SELECT timezone FROM venues WHERE id = ${venueId} AND tenant_id = ${req.tenantId}`,
       ])
+      const sales = taken[venueId] || null
       const catOf = new Map(cats.map(c => [c.id, c.category_name]))
       const parOf = new Map(pars.map(p => [p.item_id, p.par]))
       const areasOf = new Map(areas.map(a => [a.item_id, a.names]))
@@ -175,7 +180,8 @@ export default async function stockRoutes(app) {
         }
       }).sort((a, b) => (a.category_name || '~').localeCompare(b.category_name || '~') || a.name.localeCompare(b.name))
       return {
-        sales_counted: SALES_COUNTED, note: NO_SALES_NOTE, sees_values: access.sees_values,
+        sales_counted: SALES_COUNTED, sales_up_to: sales?.up_to ?? null, note: salesNote(sales, venue?.timezone || undefined),
+        sees_values: access.sees_values,
         ...(access.sees_values ? { total_value: Math.round(list.reduce((s, i) => s + (i.value || 0), 0) * 100) / 100 } : {}),
         items: list,
       }
@@ -194,13 +200,17 @@ export default async function stockRoutes(app) {
       // The balance runs from the first move, so every move up to `to` is read; the rows shown start at `from`.
       const moves = await loadStockMoves(tx, req.tenantId, { venueIds: [venueId], itemIds: [itemId], to, costs: access.sees_values })
       const ledger = runningBalance(moves)
+      const [taken, [venue]] = await Promise.all([
+        salesTakenOff(tx, req.tenantId, [venueId]),
+        tx`SELECT timezone FROM venues WHERE id = ${venueId} AND tenant_id = ${req.tenantId}`,
+      ])
       const shown = (from ? ledger.filter(m => new Date(m.at) >= new Date(from)) : ledger)
       // A delivery is valued at what its supplier charged: shown only with purchasing prices as well.
       const priced = m => m.kind !== 'delivery' || access.sees_prices
       const rows = shown.slice(-MAX_MOVES).reverse().map(m => ({
         at: m.at, kind: m.kind, kind_label: MOVE_KINDS[m.kind]?.label ?? m.kind,
         qty_base: m.qty_base, change: m.change, balance: m.balance, sets: !!MOVE_KINDS[m.kind]?.sets,
-        source: m.source, by: m.by,
+        source: m.source, by: m.by, ...(m.kind === 'usage' ? { channels: m.channels } : {}),
         ...(access.sees_values ? {
           cost_per_base: priced(m) ? m.cost_per_base : null,
           value: !priced(m) || m.change == null || m.cost_per_base == null ? null : Math.round(m.change * m.cost_per_base * 100) / 100,
@@ -209,7 +219,8 @@ export default async function stockRoutes(app) {
       return {
         item: { id: item.id, name: item.name, base_unit: item.base_unit, code: item.code },
         on_hand: stockOnHand({ moves }),
-        sees_values: access.sees_values, sees_prices: access.sees_prices, note: NO_SALES_NOTE,
+        sees_values: access.sees_values, sees_prices: access.sees_prices,
+        sales_up_to: taken[venueId]?.up_to ?? null, note: salesNote(taken[venueId], venue?.timezone || undefined),
         moves: rows, ...(shown.length > MAX_MOVES ? { showing: MAX_MOVES, of: shown.length } : {}),
       }
     })

@@ -57,7 +57,9 @@ export default function CountReview({ count: c, onClose, onChanged }) {
         </div>
       )}
       <p className="text-xs text-muted-foreground">
-        {off.length} of {rows.length} item{rows.length === 1 ? '' : 's'} differ from what was expected. Sales aren&apos;t taken off yet, so items used in dishes show as short.
+        {off.length} of {rows.length} item{rows.length === 1 ? '' : 's'} differ from what was expected. Expected takes off what sales used by their recipes (each day&apos;s sales at its
+        last sale, as far as usage from sales has worked them out), so a shortage left is most often waste nobody logged, a recipe
+        that uses more than it says, a dish sold with no recipe or a delivery booked in wrong.
       </p>
 
       <div className="rounded-xl border bg-background overflow-hidden">

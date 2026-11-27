@@ -23,6 +23,7 @@ import { Card, Drawer, Toggle, btn } from '@/components/purchasing/shared'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { useStockList, matchItem, KindBadge } from '@/components/stock/shared'
 import { WEEKDAYS, WASTE_KINDS, WASTE_KIND_KEYS } from '@shared/stock.js'
+import { PAR_MODES } from '@shared/procurement.js'
 
 /** Items in order, with a search to add more and a cross to take one off; Save sends the whole list. */
 function ItemsEditor({ title, subtitle, venueId, initial, name, onSave, saving, error, onClose, canManage, onDelete }) {
@@ -177,12 +178,13 @@ function ApprovalCard({ canManage }) {
   const qc = useQueryClient()
   const { data } = useQuery({ queryKey: ['stock', 'settings'], queryFn: () => api.get('/stock/settings') })
   const [draft, setDraft] = useState(null)
-  useEffect(() => { if (data) setDraft({ second_person_approves: data.second_person_approves, blind_count: data.blind_count }) }, [data])
+  useEffect(() => { if (data) setDraft({ second_person_approves: data.second_person_approves, blind_count: data.blind_count, refunds_return_stock: data.refunds_return_stock }) }, [data])
   const save = useMutation({
     mutationFn: () => api.put('/stock/settings', draft),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['stock'] }),
   })
-  const dirty = data && draft && (draft.second_person_approves !== data.second_person_approves || draft.blind_count !== data.blind_count)
+  const dirty = data && draft && (draft.second_person_approves !== data.second_person_approves || draft.blind_count !== data.blind_count
+    || draft.refunds_return_stock !== data.refunds_return_stock)
   return (
     <Card title="Approving and counting">
       {!draft ? <Loader2 className="w-5 h-5 animate-spin" /> : (
@@ -194,6 +196,10 @@ function ApprovalCard({ canManage }) {
           <div>
             <Toggle checked={draft.blind_count} onChange={v => setDraft({ ...draft, blind_count: v })} label="Blind counts" />
             <p className="text-xs text-muted-foreground">What is expected stays hidden while counting, so people count what is there. It shows once the count is submitted.</p>
+          </div>
+          <div>
+            <Toggle checked={draft.refunds_return_stock} onChange={v => setDraft({ ...draft, refunds_return_stock: v })} label="Refunds on other tills give stock back" />
+            <p className="text-xs text-muted-foreground">Off: a refund from Loyverse or Square gives nothing back to stock (the food was usually made and eaten). On: what the refunded dishes used goes back on.</p>
           </div>
           {canManage && (
             <button type="button" className={btn.primary + ' h-12'} disabled={!dirty || save.isPending} onClick={() => save.mutate()} data-testid="stock-approval-save">
@@ -214,7 +220,7 @@ function CountDayCard({ venueId, canManage }) {
   const lists = useQuery({ queryKey: ['stock', 'key-lists'], queryFn: () => api.get('/stock/key-lists') })
   const mine = data?.venues?.find(v => v.venue_id === venueId)
   const [draft, setDraft] = useState(null)
-  useEffect(() => { if (mine) setDraft({ count_weekday: mine.count_weekday, count_kind: mine.count_kind, key_list_id: mine.key_list_id }) }, [mine?.venue_id, data])
+  useEffect(() => { if (mine) setDraft({ count_weekday: mine.count_weekday, count_kind: mine.count_kind, key_list_id: mine.key_list_id, par_mode: mine.par_mode ?? null }) }, [mine?.venue_id, data])
   const save = useMutation({
     mutationFn: () => api.put(`/stock/venues/${venueId}/settings`, {
       ...draft, key_list_id: draft.count_kind === 'key' ? (draft.key_list_id || lists.data?.[0]?.id || null) : null,
@@ -222,7 +228,7 @@ function CountDayCard({ venueId, canManage }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['stock', 'settings'] }),
   })
   return (
-    <Card title={'Count day' + (mine ? ' at ' + mine.name : '')}>
+    <Card title={'Count day and pars' + (mine ? ' at ' + mine.name : '')}>
       {!draft ? <Loader2 className="w-5 h-5 animate-spin" /> : (
         <ReadOnlyFieldset disabled={!canManage} className="space-y-3" data-testid="stock-count-day">
           <p className="text-xs text-muted-foreground">On this day Today shows a count due until one is submitted.</p>
@@ -246,6 +252,14 @@ function CountDayCard({ venueId, canManage }) {
               </Field>
             )}
           </div>
+          <Field label="Pars on order lists">
+            <select className={cn(inputCls, 'h-12 w-full sm:w-80')} value={draft.par_mode ?? ''} data-testid="stock-par-mode"
+              onChange={e => setDraft({ ...draft, par_mode: e.target.value || null })}>
+              <option value="">Up to par once there is an approved count (now: {mine?.counted ? 'up to par' : 'order the par'})</option>
+              {Object.entries(PAR_MODES).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
+            </select>
+          </Field>
+          <p className="text-xs text-muted-foreground">Up to par: Fill to par on an order orders the par less what is on hand and already on order. Order the par: the par is ordered as it is.</p>
           {canManage && (
             <button type="button" className={btn.primary + ' h-12'} disabled={save.isPending || (draft.count_kind === 'key' && !lists.data?.length)} onClick={() => save.mutate()} data-testid="stock-count-day-save">
               {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Save

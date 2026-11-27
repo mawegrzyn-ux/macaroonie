@@ -4,7 +4,7 @@
 // 4a, migrations 305 to 307), merged into WORKS in work/index.js. Every
 // figure comes from the Stock page's own rules (services/stockSvc.js,
 // shared/stock.js): on hand is the last approved count plus what moved
-// since; sales aren't taken off yet (phase 5), which the subjects' words say.
+// since, sales taken off as usage from sales (phase 5, stock_usage_days).
 //
 //   stock_on_hand     one row per item per venue with a move there: now (not
 //                     by period); value at what the item cost there lately
@@ -39,7 +39,7 @@ import { runningBalance, stockOnHand, countReview, lostInTransit } from '../../.
 // (the till's voids marked wasted too) and transfers since phase 4b.
 export const WASTE_TABLES = ['stock_waste', 'stock_waste_items', 'waste_reasons', 'pos_check_lines', 'pos_checks', 'stock_void_waste', 'stock_void_waste_items']
 export const TRANSFER_TABLES = ['stock_transfers', 'stock_transfer_lines']
-export const STOCK_TABLES = ['stock_counts', 'stock_count_lines', 'stock_adjustments', ...WASTE_TABLES, ...TRANSFER_TABLES]
+export const STOCK_TABLES = ['stock_counts', 'stock_count_lines', 'stock_adjustments', ...WASTE_TABLES, ...TRANSFER_TABLES, 'stock_usage_days']
 export const MOVE_TABLES = [...STOCK_TABLES, 'purchase_order_lines', 'purchase_orders']
 export const COUNT_LINE_TABLES = [...STOCK_TABLES, 'stock_areas']
 
@@ -70,6 +70,7 @@ export const STOCK_WORKS = {
       ['item_name', 'text'], ['base_unit', 'text'], ['category', 'text'],
       ['on_hand', 'numeric'], ['counted', 'numeric'], ['counted_at', 'timestamptz'],
       ['received_since', 'numeric'], ['adjusted_since', 'numeric'], ['never_counted', 'boolean'], ['value', 'numeric'],
+      ['sold_since', 'numeric'],
     ],
     async fill(tx, { tenantId, venueIds }) {
       const rows = await loadStockOnHand(tx, tenantId, { venueIds })
@@ -84,7 +85,7 @@ export const STOCK_WORKS = {
           tenant_id: tenantId, id: r.venue_id + '|' + r.item_id, venue_id: r.venue_id, item_id: r.item_id,
           item_name: i.name, base_unit: i.base_unit, category: i.category,
           on_hand: r.on_hand, counted: r.counted, counted_at: r.counted_at, received_since: r.received_since,
-          adjusted_since: r.adjusted_since, never_counted: r.counted == null,
+          adjusted_since: r.adjusted_since, never_counted: r.counted == null, sold_since: r.used_since || 0,
           value: per == null ? null : r2(r.on_hand * per),
         }
       })

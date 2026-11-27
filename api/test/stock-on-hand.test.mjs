@@ -2,8 +2,8 @@
 // barcode (GTIN, check digit checked by the rule dishes use) on inventory
 // items and supplier products, found by the order form's search and by a
 // scan; stock on hand per item per venue = the last count plus what was
-// received since (no recipes, so sales aren't taken off, and the answer says
-// so), on the Stock tab and in the report subject purchasing.stock, by one
+// received since less what sales took off (here no recipes, so nothing, and
+// the answer says up to when sales are taken off), on the Stock tab and in the report subject purchasing.stock, by one
 // rule (stockOnHand() in shared/procurement.js). Moved to the stock area in
 // inventory phase 4a (27 Nov 2026): the rule is stockOnHand() in
 // shared/stock.js over the moves, and a count is a document that moves stock
@@ -42,7 +42,7 @@ test('the shared rule: last count plus received since; never counted is no figur
   const count = { kind: 'count', qty_base: 2500, at: '2026-11-20T18:00:00Z' }
   const receipts = [{ kind: 'delivery', qty_base: 20000, at: '2026-11-21T09:00:00Z' }, { kind: 'delivery', qty_base: 5000, at: '2026-11-19T09:00:00Z' }]
   const r = stockOnHand({ moves: [count, ...receipts] })
-  assert.deepEqual([r.on_hand, r.counted, r.counted_at, r.received_since, r.used_since, r.sales_counted], [22500, 2500, count.at, 20000, null, false])
+  assert.deepEqual([r.on_hand, r.counted, r.counted_at, r.received_since, r.used_since, r.sales_counted], [22500, 2500, count.at, 20000, 0, true])
   assert.equal(stockOnHand({ moves: [count, ...receipts, { kind: 'adjustment', qty_base: -1500, at: '2026-11-22T12:00:00Z' }] }).on_hand, 21000, 'an adjustment after the count')
   const never = stockOnHand({ moves: receipts })
   assert.equal(never.on_hand, null)
@@ -78,10 +78,10 @@ test('the order form\'s search finds a scanned barcode: the item\'s own, or the 
   assert.deepEqual(await ok(bOwner.get(`/api/purchasing/venues/${VB}/catalog?search=${GOOD}`)), [])
 })
 
-test('stock on hand: a count in kilograms, a delivery after it, nothing for sales (no recipes), and the report agrees', async () => {
+test('stock on hand: a count in kilograms, a delivery after it, nothing taken off for sales (no recipes), and the report agrees', async () => {
   const before = await ok(owner.get('/api/stock/venues/' + V))
-  assert.equal(before.sales_counted, false)
-  assert.match(before.note, /aren't taken off/)
+  assert.equal(before.sales_counted, true)
+  assert.match(before.note, /nothing has been worked out here yet/, 'sales are taken off once usage is worked out')
   const r0 = before.items.find(i => i.item_id === rice.id)
   assert.deepEqual([r0.on_hand, r0.counted, r0.received_since], [null, null, 0], 'never counted, nothing received')
   // A count: 2.5 kg of rice (kept as 2500 g), 0 flour.
@@ -170,7 +170,7 @@ test('stock_on_hand: by name, code or barcode, or the low ones against the venue
   assert.equal(out.items[0].name, 'Basmati rice')
   assert.equal(out.items[0].on_hand, (tr.on_hand / 1000) + ' kg', 'in the item\'s units, from the route\'s figure')
   assert.equal(out.items[0].par, '25 kg')
-  assert.match(out.note, /Sales aren't taken off/)
+  assert.match(out.note, /Sales are taken off/)
   const byScan = await pepper(A.owner, 'stock_on_hand', { venue: 'Stockton', items: ['4006381333931'] })
   assert.equal(byScan.out.items[0].name, 'Basmati rice', 'a supplier product\'s barcode finds its item')
   const low = await pepper(A.owner, 'stock_on_hand', { venue: 'Stockton', low: true })

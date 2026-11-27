@@ -264,11 +264,34 @@ export function parPacks(parBase, quote) {
   return pb > 0 && parBase != null ? round4(num(parBase) / pb) : null
 }
 
-/** Packs to order to reach a par from nothing: whole packs, then min/multiple. */
-export function packsToPar(parBase, quote) {
-  const p = parPacks(parBase, quote)
+/**
+ * Packs to order to reach a par: whole packs, then min/multiple. stock
+ * (inventory phase 5, docs/INVENTORY.md 9: order up to par): { on_hand,
+ * on_order } in the item's base unit, both taken off the par first (on hand
+ * below zero or never counted is none; on order is what placed orders not
+ * yet received bring); null orders the par as it is (from nothing).
+ */
+export function packsToPar(parBase, quote, stock = null) {
+  if (parBase == null) return 0
+  const need = stock
+    ? num(parBase) - Math.max(0, num(stock.on_hand)) - Math.max(0, num(stock.on_order))
+    : num(parBase)
+  if (!(need > 0)) return 0
+  const p = parPacks(need, quote)
   return p ? fitQty(Math.ceil(p - 1e-9), quote) : 0
 }
+
+// How a venue's order lists read their pars (stock_venue_settings.par_mode, migration 311).
+export const PAR_MODES = {
+  up_to: { label: 'Order up to par', hint: 'What is on hand and already on order is taken off the par.' },
+  order: { label: 'Order the par', hint: 'The par is what to order, whatever is on the shelf.' },
+}
+
+/** A venue's par mode: its setting, else up to par once it has an approved stock count, else the par as it is. */
+export const parModeOf = (setting, counted) => (PAR_MODES[setting] ? setting : counted ? 'up_to' : 'order')
+
+/** The stock a line's par is filled against in a par mode: { on_hand, on_order } for up to par, else null. */
+export const parStock = (mode, stock) => (mode === 'up_to' && stock ? { on_hand: stock.on_hand ?? null, on_order: stock.on_order ?? 0 } : null)
 
 /** Net and VAT per line ({ price, qty, vat_rate }), rounded to pennies. */
 export function lineAmounts(line) {

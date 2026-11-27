@@ -61,14 +61,16 @@ export const starters = [
   starter({
     key: 'uncosted_dishes_by_sales',
     name: 'Uncosted dishes by sales',
-    about: 'The dishes sold in the last 30 days that can\'t be costed yet, most sold first: what they sold for, how many, and why not (no recipe linked, a recipe with gaps, an option with no rule). Costing these first costs most of what you sell.',
-    period: { relative: 'last_n_days', n: 30 },
+    about: 'The dishes sold in the last 14 days that couldn\'t be costed as they were sold (with the options and meal deal picks each sale had), most units first: how many sold and how many weren\'t costed, what they sold for net, and why not (no recipe linked, a recipe with gaps, an option with no rule or not matched, an item with no price) with how to fix it. From usage from sales (inventory phase 5). Costing these first costs most of what you sell.',
+    period: { relative: 'last_n_days', n: 14 },
     spec: {
-      subject: 'recipes.coverage',
-      rows: ['dish', 'venue.name', 'fix_kind'],
-      values: [{ measure: 'sales_uncosted' }, { measure: 'units' }],
-      filters: [{ field: 'state', op: 'is', value: 'uncosted' }],
-      sort: [{ by: 'sales_uncosted', dir: 'desc' }],
+      subject: 'stock.dish_sales',
+      rows: ['dish', 'venue.name', 'why', 'fix'],
+      values: [{ measure: 'uncosted' }, { measure: 'units_sold' }, { measure: 'net_sales' }],
+      // Units not costed, not "not fully costed": open items, services and dishes gone from every menu are left
+      // out (left_out, with no units uncosted), never listed as dishes to cost.
+      filters: [{ field: 'uncosted_units', op: 'gt', value: 0 }],
+      sort: [{ by: 'uncosted', dir: 'desc' }],
     },
   }),
 

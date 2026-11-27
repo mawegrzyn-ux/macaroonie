@@ -16,7 +16,7 @@ import assert from 'node:assert/strict'
 import {
   qtyProblem, fitQty, splitProblem, convertQty, nextDeliveryDate, orderDeadline, deadlineText, deliveryDayProblem,
   dayText, nowAt, addDays, supplierForVenue, slotText, checkoutText, deadlinePassed, quickOrder, quickOrderCsv,
-  basketFromText, basketFromSheet, mergeBasket, basketDiff, outOfStock, outOfStockText,
+  basketFromText, basketFromSheet, mergeBasket, basketDiff, outOfStock, outOfStockText, packsToPar, parModeOf, parStock,
 } from '../procurement.js'
 
 test('qtyProblem keeps its words', () => {
@@ -402,8 +402,27 @@ test('stockOnHand: count plus received after it; no count, no figure (re-exporte
   const r = stockOnHand({ moves })
   assert.equal(r.on_hand, 13000)
   assert.equal(r.received_since, 12000, 'what came before the count is in the count')
-  assert.equal(r.sales_counted, false)
+  assert.equal(r.sales_counted, true)
   assert.equal(stockOnHand({ moves: moves.filter(m => m.kind !== 'count') }).on_hand, null)
   assert.equal(countToBase(1.5, 'l', 'ml'), 1500)
   assert.equal(countToBase(3, 'each', 'g'), null)
+})
+
+test('order up to par (inventory phase 5): on hand and on order come off the par, in whole packs', () => {
+  // A case of 6 x 2 kg (12 kg), ordered in whole cases, at least 1.
+  const q = { pack_base_qty: 12000, min_qty: 1, order_multiple: 1 }
+  assert.equal(packsToPar(30000, q), 3, 'the par as it is: 30 kg is 2.5 cases, so 3')
+  assert.equal(packsToPar(30000, q, { on_hand: 9000, on_order: 0 }), 2, '21 kg short: 2 cases')
+  assert.equal(packsToPar(30000, q, { on_hand: 9000, on_order: 12000 }), 1, 'a case already on order: 1 more')
+  assert.equal(packsToPar(30000, q, { on_hand: 31000, on_order: 0 }), 0, 'over par: nothing')
+  assert.equal(packsToPar(30000, q, { on_hand: -2000, on_order: 0 }), 3, 'below zero on hand counts as none')
+  assert.equal(packsToPar(30000, q, { on_hand: null, on_order: 12000 }), 2, 'never counted: only what is on order comes off')
+  assert.equal(packsToPar(null, q, { on_hand: 0 }), 0)
+  assert.equal(parModeOf(null, true), 'up_to', 'counted: up to par by default')
+  assert.equal(parModeOf(null, false), 'order', 'never counted: the par as it is')
+  assert.equal(parModeOf('order', true), 'order', 'the venue\'s own setting wins')
+  assert.equal(parModeOf('up_to', false), 'up_to')
+  assert.deepEqual(parStock('up_to', { on_hand: 5, on_order: 2, used_7d: 9 }), { on_hand: 5, on_order: 2 })
+  assert.equal(parStock('order', { on_hand: 5 }), null)
+  assert.equal(parStock('up_to', undefined), null, 'no stock figures (no Stock view): the par as it is')
 })

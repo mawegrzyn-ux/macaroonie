@@ -14,22 +14,28 @@
 //                     &version (live, the default: what is sold; draft: the
 //                     menu as it is being edited)   the choices, and with a
 //                     menu its rows, uncosted dishes first in `uncosted`
+//   GET  /sold        ?venue_id &from &to (days, up to SOLD_MAX_DAYS; the last 7 up to
+//                     yesterday when left out)   what sold, by dish and section: units,
+//                     sales, net, theoretical cost, GP and cost % (soldMargins() over
+//                     dish_cost_days, inventory phase 5: usage from sales)
 //   GET  /settings    the target and limit cost %, with sections' own
 //   PUT  /settings    { target_pct, limit_pct, sections: [{ section_id,
 //                     target_pct, limit_pct }] } the whole of it (rule 13)
 //
 // Reading needs Costing view (a cost tells what suppliers charge); the
-// targets need Costing manage. Ids are the group's (rule 4): the menu, the
+// targets need Costing manage. The Sold tab's sales, net, GP, cost % and band
+// need till reports view as well (pos_reports: sales are the till's figures). Ids are the group's (rule 4): the menu, the
 // venue, the stream (its venue's), the order type, the sections.
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
-import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { requireAuth, requirePermission, permissionLevels } from '../middleware/auth.js'
+import { permissionAtLeast } from '../config/modules.js'
 import { httpError } from '../middleware/error.js'
 import { loadMenuVersion } from '../services/menuReleases.js'
 import { loadDishCosting, loadScopes, loadCostingSettings } from '../services/dishCostSvc.js'
 import { loadTaxRates } from '../services/taxSvc.js'
-import { menuMargins, thresholdProblem, scopeText } from '../../../shared/costing.js'
+import { menuMargins, thresholdProblem, scopeText, soldMargins } from '../../../shared/costing.js'
 import { resolveItemTypes } from '../../../shared/catalogue.js'
 
 const uuid = z.string().uuid()
@@ -37,6 +43,12 @@ const Query = z.object({
   menu_id: uuid.optional(), venue_id: uuid.optional(), revenue_stream_id: uuid.optional(), order_type_id: uuid.optional(),
   version: z.enum(['live', 'draft']).optional(),
 })
+// The Sold tab (inventory phase 5): what sold at a venue (or every venue) on some days, from usage from sales.
+const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+const SoldQuery = z.object({ venue_id: uuid.optional(), from: Day.optional(), to: Day.optional() })
+export const SOLD_MAX_DAYS = 93
+// What the Sold tab leaves out without till reports view: the sales and what is worked out from them.
+export const SALES_FIELDS = ['sales_pence', 'net_pence', 'gp_pence', 'cost_pct', 'gp_pct', 'band']
 const Pct = z.number().gt(0).lt(100)
 export const SettingsBody = z.object({
   target_pct: Pct,
@@ -101,6 +113,44 @@ export default async function menuMarginRoutes(app) {
           dishes: rows.length, costed: rows.filter(r => r.coverage === 'full').length, partial: rows.filter(r => r.coverage === 'partial').length,
           uncosted: uncosted.length, over: rows.filter(r => r.band === 'over').length, watch: rows.filter(r => r.band === 'watch').length,
         },
+      }
+    })
+  })
+
+  // What sold, with its theoretical cost (inventory phase 5): dish_cost_days summed by soldMargins().
+  app.get('/sold', { preHandler: canView }, async req => {
+    const q = SoldQuery.parse(req.query || {})
+    // Sales are the till's figures: in pounds (and so GP, cost % and the band against the targets) only with till
+    // reports view, as Recipes' coverage and the report subject Dish sales; Costing view alone sees units and costs.
+    const lv = await permissionLevels(req, ['pos_reports'])
+    const sales = permissionAtLeast(lv.pos_reports, 'view')
+    return withTenant(req.tenantId, async tx => {
+      if (q.venue_id) {
+        const [v] = await tx`SELECT id FROM venues WHERE id = ${q.venue_id} AND tenant_id = ${req.tenantId}`
+        if (!v) throw httpError(404, 'Venue not found')
+      }
+      const [range] = await tx`SELECT (current_date - 7)::text AS from, (current_date - 1)::text AS to`
+      const from = q.from || range.from
+      const to = q.to || range.to
+      if (from > to) throw httpError(422, 'The first day is after the last', { code: 'range' })
+      if ((Date.parse(to) - Date.parse(from)) / 86400000 + 1 > SOLD_MAX_DAYS) throw httpError(422, 'Show up to ' + SOLD_MAX_DAYS + ' days at a time', { code: 'range' })
+      const [rows, settings, [run]] = await Promise.all([
+        tx`
+          SELECT d.dish_id, d.name, d.section_id, d.section, d.left_out, sum(d.qty)::float8 AS qty, sum(d.sales_pence)::bigint AS sales_pence,
+                 sum(d.net_pence)::bigint AS net_pence, sum(d.cost)::float8 AS cost, sum(d.uncosted_qty)::float8 AS uncosted_qty,
+                 sum(d.typical_qty)::float8 AS typical_qty
+            FROM dish_cost_days d
+           WHERE d.tenant_id = ${req.tenantId} AND d.day BETWEEN ${from}::date AND ${to}::date
+             ${q.venue_id ? tx`AND d.venue_id = ${q.venue_id}` : tx``}
+           GROUP BY d.dish_id, d.name, d.section_id, d.section, d.left_out`,
+        loadCostingSettings(tx, req.tenantId),
+        tx`SELECT max(computed_at) AS at FROM stock_usage_marks WHERE tenant_id = ${req.tenantId} ${q.venue_id ? tx`AND venue_id = ${q.venue_id}` : tx``}`,
+      ])
+      const sold = soldMargins(rows.map(r => ({ ...r, sales_pence: Number(r.sales_pence), net_pence: Number(r.net_pence) })), settings)
+      const shown = row => (sales ? row : Object.fromEntries(Object.entries(row).filter(([k]) => !SALES_FIELDS.includes(k))))
+      return {
+        venue_id: q.venue_id || null, from, to, max_days: SOLD_MAX_DAYS, worked_out_at: run?.at ?? null, sees_sales: sales,
+        dishes: sold.dishes.map(shown), sections: sold.sections.map(shown), total: shown(sold.total),
       }
     })
   })

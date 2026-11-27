@@ -17,8 +17,9 @@
 //   PUT    /key-lists/:id                 { name, item_ids } (whole)
 //   DELETE /key-lists/:id                 its counts keep the list's name
 //   GET    /settings                      the group's settings and each venue's count day
-//   PUT    /settings                      { second_person_approves, blind_count } (whole)
-//   PUT    /venues/:venueId/settings      { count_weekday, count_kind, key_list_id } (whole)
+//   PUT    /settings                      { second_person_approves, blind_count, refunds_return_stock } (whole;
+//                                         refunds changed: every venue's open days of usage worked out again)
+//   PUT    /venues/:venueId/settings      { count_weekday, count_kind, key_list_id, par_mode } (whole)
 //   GET    /venues/:venueId/adjustments   the venue's adjustments (last 200); values with Costing view
 //   POST   /venues/:venueId/adjustments   { item_id, qty, unit, reason, note?, adjusted_at? }:
 //                                         qty signed (minus takes stock off), in a unit the
@@ -36,6 +37,7 @@ import { requireOwnVenue } from '../middleware/venue.js'
 import { entriesToBase, entriesText, COUNT_KINDS, COUNT_BACK_DAYS } from '../../../shared/stock.js'
 import { loadCountItems, loadStockSettings, itemCostsAt } from '../services/stockSvc.js'
 import { stockAccess, who } from './stock.js'
+import { markUsageDirty } from '../services/stockUsageSvc.js'
 
 const canView = requirePermission('stock', 'view')
 const canManage = requirePermission('stock', 'manage')
@@ -46,11 +48,13 @@ const MAX_ITEMS = 1000
 export const AreaBody = z.object({ name: Name }).strict()
 export const ItemsBody = z.object({ item_ids: z.array(Id).max(MAX_ITEMS) }).strict()
 export const KeyListBody = z.object({ name: Name, item_ids: z.array(Id).max(MAX_ITEMS) }).strict()
-export const SettingsBody = z.object({ second_person_approves: z.boolean(), blind_count: z.boolean() }).strict()
+export const SettingsBody = z.object({ second_person_approves: z.boolean(), blind_count: z.boolean(), refunds_return_stock: z.boolean() }).strict()
 export const VenueSettingsBody = z.object({
   count_weekday: z.number().int().min(0).max(6).nullable(),
   count_kind: z.enum(Object.keys(COUNT_KINDS)),
   key_list_id: Id.nullable(),
+  // How the venue's order lists read pars (phase 5): up to par, the par as it is, or null (up to par once counted).
+  par_mode: z.enum(['up_to', 'order']).nullable(),
 }).strict()
 export const AdjustmentBody = z.object({
   item_id: Id,
@@ -234,7 +238,8 @@ export default async function stockSetupRoutes(app) {
   app.get('/settings', { preHandler: canView }, async req => withTenant(req.tenantId, async tx => {
     const settings = await loadStockSettings(tx, req.tenantId)
     const venues = await tx`
-      SELECT v.id AS venue_id, v.name, s.count_weekday, COALESCE(s.count_kind, 'full') AS count_kind, s.key_list_id
+      SELECT v.id AS venue_id, v.name, s.count_weekday, COALESCE(s.count_kind, 'full') AS count_kind, s.key_list_id, s.par_mode,
+             EXISTS (SELECT 1 FROM stock_counts c WHERE c.tenant_id = v.tenant_id AND c.venue_id = v.id AND c.status = 'approved') AS counted
         FROM venues v LEFT JOIN stock_venue_settings s ON s.venue_id = v.id AND s.tenant_id = v.tenant_id
        WHERE v.tenant_id = ${req.tenantId} ORDER BY lower(v.name)`
     return { ...settings, venues }
@@ -244,11 +249,15 @@ export default async function stockSetupRoutes(app) {
     const b = SettingsBody.parse(req.body || {})
     const me = await who(req)
     return withTenant(req.tenantId, async tx => {
+      const before = await loadStockSettings(tx, req.tenantId)
       await tx`
-        INSERT INTO stock_settings (tenant_id, second_person_approves, blind_count, updated_at, updated_by)
-        VALUES (${req.tenantId}, ${b.second_person_approves}, ${b.blind_count}, now(), ${me})
+        INSERT INTO stock_settings (tenant_id, second_person_approves, blind_count, refunds_return_stock, updated_at, updated_by)
+        VALUES (${req.tenantId}, ${b.second_person_approves}, ${b.blind_count}, ${b.refunds_return_stock}, now(), ${me})
         ON CONFLICT (tenant_id) DO UPDATE SET second_person_approves = EXCLUDED.second_person_approves,
-          blind_count = EXCLUDED.blind_count, updated_at = now(), updated_by = EXCLUDED.updated_by`
+          blind_count = EXCLUDED.blind_count, refunds_return_stock = EXCLUDED.refunds_return_stock,
+          updated_at = now(), updated_by = EXCLUDED.updated_by`
+      // Refunds giving stock back or not changes every venue's open days of usage.
+      if (before.refunds_return_stock !== b.refunds_return_stock) await markUsageDirty(tx, req.tenantId)
       return loadStockSettings(tx, req.tenantId)
     })
   })
@@ -262,11 +271,11 @@ export default async function stockSetupRoutes(app) {
       }
       if (b.count_kind === 'key' && !b.key_list_id) throw httpError(422, 'A key-item count day needs its list', { code: 'key_list' })
       const [row] = await tx`
-        INSERT INTO stock_venue_settings (tenant_id, venue_id, count_weekday, count_kind, key_list_id, updated_at)
-        VALUES (${req.tenantId}, ${req.params.venueId}, ${b.count_weekday}, ${b.count_kind}, ${b.key_list_id}, now())
+        INSERT INTO stock_venue_settings (tenant_id, venue_id, count_weekday, count_kind, key_list_id, par_mode, updated_at)
+        VALUES (${req.tenantId}, ${req.params.venueId}, ${b.count_weekday}, ${b.count_kind}, ${b.key_list_id}, ${b.par_mode}, now())
         ON CONFLICT (venue_id) DO UPDATE SET count_weekday = EXCLUDED.count_weekday, count_kind = EXCLUDED.count_kind,
-          key_list_id = EXCLUDED.key_list_id, updated_at = now()
-        RETURNING venue_id, count_weekday, count_kind, key_list_id`
+          key_list_id = EXCLUDED.key_list_id, par_mode = EXCLUDED.par_mode, updated_at = now()
+        RETURNING venue_id, count_weekday, count_kind, key_list_id, par_mode`
       return row
     })
   })

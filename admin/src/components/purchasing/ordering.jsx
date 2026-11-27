@@ -51,7 +51,7 @@ import {
   fitQty, qtyProblem, packsToPar, orderTotals, lineAmounts, fmtNum, poNumberLabel, receiveStatusFor,
   deliveryTempOk, RECEIVE_STATUSES, DELIVERY_TEMP_MAX, deliveryDateChoices, addDays,
   convertQty, splitProblem, deliveryDayProblem, deadlineText, nowAt, formatBase, slotText, checkoutText,
-  deadlinePassed, quickOrder, quickOrderCsv, outOfStock,
+  deadlinePassed, quickOrder, quickOrderCsv, outOfStock, parStock, PAR_MODES,
 } from '@shared/procurement.js'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 import {
@@ -429,7 +429,7 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
     for (const it of order.items) {
       const q = quoteOf(it)
       if (!q || it.par_base == null || qtyOf(it) > 0) continue
-      const p = packsToPar(it.par_base, q)
+      const p = packsToPar(it.par_base, q, parStock(order.par_mode, it.stock))
       if (p > 0) setQty(it, p)
     }
   }
@@ -535,6 +535,15 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
             </button>
           )}
         </div>
+        {hasPars && order.par_mode && (
+          <p className="text-xs text-muted-foreground mt-2" data-testid="order-par-mode">
+            {PAR_MODES[order.par_mode]?.label}: {PAR_MODES[order.par_mode]?.hint}
+            {order.par_mode === 'order' && order.par_mode_venue === 'up_to'
+              ? ' This venue orders up to par, but what is on hand needs Stock view, so Fill to par and Par order the par as it is here.'
+              : order.par_mode === 'order' && !order.stock_counted ? ' (this venue has no approved stock count yet)' : ''}
+            {order.sees_stock ? ' Change it on the Stock page, Settings.' : ''}
+          </p>
+        )}
         <ErrorNote error={save.error} />
       </div>
 
@@ -581,7 +590,7 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
               {g.items.map(it => (
                 <OrderRow key={it.item_id} it={it} quote={quoteOf(it)} gone={goneOf(it)} qty={qtyOf(it)} view={view}
                   hasPars={hasPars} hasExtras={hasExtras} readOnly={!editable} asked={requested ? it.requested_qty : undefined}
-                  stockDay={stockDayOf(quoteOf(it))} canMark={canMark}
+                  stockDay={stockDayOf(quoteOf(it))} canMark={canMark} parMode={order.par_mode}
                   onQty={v => setQty(it, v)} onSwitch={() => setSwitching(it)}
                   onRemove={editable && !it.on_list ? () => removeExtra.mutate(it.item_id) : null}
                   pepper={waiting.includes(it.item_id)} onPepperOk={() => okPepper(it)} />
@@ -760,7 +769,17 @@ function goneWords(gone) {
     : `${q.supplier_name}'s price for ${q.pack_label} has been switched off. Pick another price, or take it off.`
 }
 
-function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, asked, stockDay, canMark, onQty, onSwitch, onRemove, pepper = false, onPepperOk }) {
+// On hand, on order and what sales used last week beside a line (inventory phase 5), in the item's units.
+function StockLine({ stock, unit }) {
+  const parts = [
+    stock.on_hand == null ? 'Never counted here' : 'On hand ' + formatBase(stock.on_hand, unit),
+    stock.on_order > 0 && 'on order ' + formatBase(stock.on_order, unit),
+    stock.used_7d > 0 && 'sales used ' + formatBase(stock.used_7d, unit) + ' in 7 days',
+  ].filter(Boolean)
+  return <p className="text-xs text-muted-foreground" data-testid="order-line-stock-figures">{parts.join(' · ')}</p>
+}
+
+function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, asked, stockDay, canMark, parMode = 'order', onQty, onSwitch, onRemove, pepper = false, onPepperOk }) {
   const problem = quote && !gone ? qtyProblem(qty, quote) : null
   // A switched-off price still shows its pack (struck through) as the
   // button that picks another.
@@ -770,7 +789,8 @@ function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, as
   const canOpen = canSwitch || (canMark && !!quote && !gone)
   // Out of stock at the supplier for its next delivery (migration 234).
   const stock = quote && !gone ? outOfStock(quote, stockDay) : null
-  const par = quote && it.par_base != null ? packsToPar(it.par_base, quote) : null
+  // Up to par (inventory phase 5): what is on hand and already on order comes off the par.
+  const par = quote && it.par_base != null ? packsToPar(it.par_base, quote, parStock(parMode, it.stock)) : null
   const details = quote ? [
     view.supplier && quote.supplier_name,
     view.price && quote.price != null && `${money(quote.price)} per ${(quote.pack_name || 'pack').toLowerCase()}`,
@@ -818,6 +838,7 @@ function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, as
             </div>
           )}
           {details && <p className="text-xs text-muted-foreground">{details}</p>}
+          {it.stock && <StockLine stock={it.stock} unit={it.base_unit} />}
           {view.last && last && (
             <p className="text-xs text-muted-foreground">
               Last {fmtNum(last.qty)}{lastOtherPack ? ` (${last.pack_label})` : ''} on {fmtDate(last.delivery_date)}

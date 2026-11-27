@@ -194,7 +194,21 @@ export function Section() {
         to the cost. A deal is coloured and sorted by its highest cost %, and tapping it names the picks that give
         the lowest and the highest. Sort by cost %, GP, name or section. Tap a dish
         to see why: which recipe and why, each step of its cost, the price and VAT, and a link to its matrix.{' '}
-        <strong>Export CSV</strong> downloads the list.
+        <strong>Export CSV</strong> downloads the list. A meal deal also has a <strong>typical</strong> cost: at the
+        dishes guests pick most in each of its steps (before there are sales, each step&apos;s first choice).
+      </P>
+      <H3>What really sold: the Sold tab</H3>
+      <P>
+        Menu margins&apos; <strong>Sold</strong> tab shows what really sold at a venue (or every venue) over the days
+        you pick: each dish by section with the units sold, net sales (after discounts, VAT out), the theoretical
+        cost (what its recipe took off stock, with the options and meal deal picks each sale had, at what you paid for
+        the items then), GP and cost %, and totals at the top. It comes from usage from sales, worked out every few
+        minutes (the Stock page&apos;s Usage tab). A dish with units that couldn&apos;t be costed says how many and
+        isn&apos;t coloured until every unit is; the total&apos;s cost % reads low while some dishes have no recipe.
+        Tap a dish to open it on the Recipes page. <strong>By section</strong> sums each section. Net sales, GP and
+        cost % are the till&apos;s figures, so they need till reports view as well as Costing view: without it the tab
+        shows the units and the theoretical cost only. A dish none of whose items has a price shows no cost (a dash),
+        never £0.00.
       </P>
       <H3>Cost targets</H3>
       <P>
@@ -223,6 +237,11 @@ export function Section() {
         Item mapping page. Costing the top few first costs most of what you sell. Sales show in pounds for
         people with till reports access, as in the Recipe coverage report; everyone else sees each dish&apos;s
         share of sales instead.
+      </P>
+      <P>
+        Recipes also take what is sold off stock (usage from sales, on the Stock page). Saving a recipe, a dish&apos;s
+        link or an option rule works the last two weeks of sales out again with it within minutes, so on hand and
+        the Sold tab follow the fix.
       </P>
       <H3>Reading recipes in</H3>
       <P>

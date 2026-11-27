@@ -8,10 +8,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   recipeFor, linkScore, linkMatches, scopeText, sameScope, ruleFor, ruleText, ruleProblem, dishCost, dishMap,
-  menuMargins, marginSteps, costBand, thresholdsFor, thresholdProblem, PREFIX_FACTORS, recipeCost, optionDefault,
+  menuMargins, marginSteps, costBand, thresholdsFor, thresholdProblem, PREFIX_FACTORS, recipeCost, optionDefault, pickMix,
 } from '../costing.js'
 import { RULE_WEIGHTS, taxFor } from '../tax.js'
 import { PREFIXES } from '../pos/pricing.js'
+import { menuCtx } from '../combos.js'
 
 const close = (a, b, msg) => assert.ok(a != null && Math.abs(a - b) < 1e-6, (msg || '') + ': ' + a + ' is not ' + b)
 
@@ -294,8 +295,16 @@ test('a meal deal is the sum of its picks, or the range over its choices', () =>
   close(range.cost_pct_min, Math.round(276 / 1250 * 1000) / 10, 'cost % at the cheapest picks: £2.76 of £12.50 net')
   close(range.cost_pct_max, Math.round(502 / 1250 * 1000) / 10)
   assert.equal(range.band, 'over', 'banded at the highest cost %')
-  const deal = dishCost('deal', {}, EATING, ctx())
-  assert.equal(deal.typical, null, 'typical waits for sales (phase 5)')
+  // Typical (phase 5): each step's first choice before there are sales,
+  // then the dishes guests pick most.
+  const deal = dishCost('deal', {}, EATING, ctx({ combo: menuCtx(menu) }))
+  close(deal.typical, 2.26 + 0.5, 'the burger and a coke: the first choice of each step')
+  assert.deepEqual(deal.typical_picks.map(p => p.dish_id), ['burger-dish', 'coke-dish'])
+  const mix = pickMix([
+    { deal_id: 'deal', step_id: 'st-main', dish_id: 'double', qty: 5 }, { deal_id: 'deal', step_id: 'st-main', dish_id: 'burger-dish', qty: 2 },
+    { deal_id: 'deal', step_id: 'st-drink', dish_id: 'coke-dish', qty: 3 },
+  ])
+  close(dishCost('deal', {}, EATING, ctx({ combo: menuCtx(menu), pickMix: mix })).typical, 4.52 + 0.5, 'the double and a coke, picked most')
 })
 
 test('menu margins: the menu\'s price net of VAT by order type, cost, GP and cost % with bands and option margins', () => {
@@ -459,7 +468,7 @@ test('steps carry their words without money for people without Costing view', ()
   const step = double.steps.find(s => s.kind === 'recipe')
   assert.match(step.text, /£/)
   assert.equal(step.plain, '2 portions, for every venue')
-  const deal = dishCost('deal', {}, EATING, ctx())
+  const deal = dishCost('deal', {}, EATING, ctx({ combo: menuCtx(menu) }))
   const parts = deal.steps.filter(s => s.kind === 'part')
   assert.ok(parts.some(s => /£/.test(s.text)), 'the mains step has its range in pounds')
   assert.ok(parts.every(s => typeof s.plain === 'string' && !/£/.test(s.plain)))

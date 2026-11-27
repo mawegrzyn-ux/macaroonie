@@ -28,9 +28,13 @@
 // transferLineMoves() in shared/stock.js (out of the sender when sent, what
 // didn't arrive lost in transit, in at the receiver when received, back at
 // the sender when cancelled), valued at the sender's average when sent.
-// Usage from sales is phase 5 (SALES_COUNTED).
+// Phase 5 (migration 311) added usage from sales: each item's use on each of
+// the venue's trading days (stock_usage_days, worked out by the job
+// jobs/stock-usage.js through services/stockUsageSvc.js), one move per item
+// per day at the day's last sale, with how much came from each channel.
 //
-//   MOVE_SOURCES, SALES_COUNTED, NO_SALES_NOTE
+//   MOVE_SOURCES, SALES_COUNTED, salesTakenOff(tx, tenantId, venueIds) (up to when
+//   sales are taken off at each venue: the last run), salesNote(state, timezone)
 //   loadStockMoves(tx, tenantId, { venueIds, itemIds, from, to, kinds, costs, exceptCountId })
 //   loadStockOnHand(tx, tenantId, { venueIds, itemIds, allItems, at, exceptCountId })
 //     -> [{ venue_id, item_id, ...stockOnHand() }]: every active item at each
@@ -60,8 +64,7 @@ import { businessDate } from '../../../shared/pos/reports.js'
 import { loadCostItems } from './costingSvc.js'
 import { coverageCtx } from './recipeCoverageSvc.js'
 
-export const SALES_COUNTED = false
-export const NO_SALES_NOTE = 'Sales aren\'t taken off yet: usage from sales comes with inventory phase 5, so on hand is the last approved count plus deliveries, adjustments, waste and transfers since.'
+export const SALES_COUNTED = true
 // A venue's trading day starts at its till's day start, else at 04:00 (the till's own default).
 export const DAY_STARTS_AT = '04:00'
 
@@ -199,6 +202,68 @@ async function transferMoves(tx, tenantId, cut) {
   }).map(m => ({ ...m, cost_fixed: true }))
 }
 
+const dayWords = d => {
+  try {
+    return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(d + 'T12:00:00Z'))
+  } catch {
+    return d
+  }
+}
+
+/**
+ * Usage from sales (phase 5, migration 311): what each trading day's sales
+ * took off, one move per item per day at the day's last sale (so a count
+ * after closing has the day inside it, one before opening has it after),
+ * with how much came from each channel and its cost then (kept with it: the
+ * average paid, else the last paid, else the standard price). A refund given
+ * back (a setting) is a day's total below zero.
+ */
+async function usageMoves(tx, tenantId, cut) {
+  const rows = await tx`
+    SELECT u.venue_id, u.item_id, u.at, (-u.qty_base)::float8 AS qty_base, u.cost_per_base::float8 AS cost_per_base,
+           u.day::text AS day, u.channels
+      FROM stock_usage_days u
+     WHERE u.tenant_id = ${tenantId} ${cutOf(tx, cut, 'u.venue_id', 'u.item_id', 'u.at')}
+     ORDER BY u.at`
+  return rows.map(r => ({
+    venue_id: r.venue_id, item_id: r.item_id, at: r.at, kind: 'usage', qty_base: r.qty_base, cost_per_base: r.cost_per_base,
+    cost_fixed: r.cost_per_base != null, day: r.day, channels: r.channels || {},
+    source: { type: 'usage', id: r.day, label: 'Sales on ' + dayWords(r.day) }, by: null,
+  }))
+}
+
+/**
+ * Up to when sales are taken off at these venues: { venueId: { up_to (the
+ * last run's moment: today's part day counts up to then), last_sale_at,
+ * days, uncosted_lines } } from the job's marks of the last two weeks.
+ */
+export async function salesTakenOff(tx, tenantId, venueIds) {
+  if (!venueIds?.length) return {}
+  // Up to the last run: a run that found no sales changed works nothing out again but has still read them
+  // (stock_usage_venues.last_run_at, when it didn't fail), so it is the later of that and the last day worked out.
+  const rows = await tx`
+    SELECT m.venue_id,
+           GREATEST(max(m.computed_at), max(CASE WHEN u.last_error IS NULL THEN u.last_run_at END)) AS up_to,
+           max(m.last_sale_at) AS last_sale_at, count(*)::int AS days, sum(m.uncosted_lines)::int AS uncosted_lines
+      FROM stock_usage_marks m
+      LEFT JOIN stock_usage_venues u ON u.venue_id = m.venue_id AND u.tenant_id = m.tenant_id
+     WHERE m.tenant_id = ${tenantId} AND m.venue_id = ANY(${venueIds}::uuid[]) AND m.day >= current_date - 15
+     GROUP BY m.venue_id`
+  return Object.fromEntries(rows.map(r => [r.venue_id, { up_to: r.up_to, last_sale_at: r.last_sale_at, days: r.days, uncosted_lines: r.uncosted_lines }]))
+}
+
+/** The words on hand carries about sales: up to the last run, or not worked out yet. */
+export function salesNote(state, timezone = 'Europe/London') {
+  if (!state?.up_to) return 'Sales are taken off as usage from sales is worked out, every few minutes: nothing has been worked out here yet, so on hand doesn\'t take sales off yet.'
+  let when
+  try {
+    when = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false, day: 'numeric', month: 'short' }).format(new Date(state.up_to))
+  } catch {
+    when = new Date(state.up_to).toISOString().slice(0, 16).replace('T', ' ')
+  }
+  return 'Sales are taken off up to the last run at ' + when + ' (usage from sales is worked out every few minutes; a dish with no recipe takes nothing off).'
+}
+
 // Where moves come from. Phase 4b added waste (logged, and the till's voids marked wasted) and transfers.
 export const MOVE_SOURCES = [
   { kind: 'delivery', load: deliveryMoves },
@@ -207,6 +272,8 @@ export const MOVE_SOURCES = [
   { kind: 'waste', load: wasteMoves },
   { kind: 'waste', load: voidWasteMoves },
   { kind: 'transfer', load: transferMoves },
+  // Phase 5: usage from sales, one move per item per trading day.
+  { kind: 'usage', load: usageMoves },
 ]
 
 /**
@@ -252,24 +319,27 @@ async function fillCosts(tx, tenantId, moves) {
   }
 }
 
-/** The average paid at a venue over the AVERAGE_DAYS before `at`, else the last price paid before it, else null. */
-function costAt(item, venueId, receipts, at) {
+/** The average paid at a venue over the AVERAGE_DAYS before `at`, else the last price paid before it: { per_base, how } or null. */
+function paidAt(item, venueId, receipts, at) {
   if (!item) return null
   const t = new Date(at).getTime()
   const before = receipts.filter(r => new Date(r.at).getTime() <= t)
   if (!before.length) return null
   const data = { receipts: { [item.id]: before }, since: new Date(t - AVERAGE_DAYS * DAY).toISOString() }
   const avg = itemCost(item, venueId, data, 'average')
-  if (avg.per_base != null) return avg.per_base
-  return itemCost(item, venueId, data, 'last').per_base
+  if (avg.per_base != null) return { per_base: avg.per_base, how: 'average' }
+  const last = itemCost(item, venueId, data, 'last').per_base
+  return last == null ? null : { per_base: last, how: 'last' }
 }
+const costAt = (item, venueId, receipts, at) => paidAt(item, venueId, receipts, at)?.per_base ?? null
 
 /**
  * A way to ask what an item cost at a venue at a moment, with what was
  * received read once: (venueId, itemId, at) -> pounds per base unit or null
- * (costAt()). For many moments at once (a report's count lines).
+ * (costAt()). For many moments at once (a report's count lines). how: true
+ * answers { per_base, how: 'average' | 'last' } or null instead.
  */
-export async function costLookup(tx, tenantId, venueIds, itemIds, to = null) {
+export async function costLookup(tx, tenantId, venueIds, itemIds, to = null, { how = false } = {}) {
   if (!itemIds.length || !venueIds.length) return () => null
   const [items, receipts] = await Promise.all([
     loadCostItems(tx, tenantId, itemIds),
@@ -281,7 +351,8 @@ export async function costLookup(tx, tenantId, venueIds, itemIds, to = null) {
     if (!byKey.has(k)) byKey.set(k, [])
     byKey.get(k).push(r)
   }
-  return (venueId, itemId, at) => costAt(items.get(itemId), venueId, byKey.get(venueId + '|' + itemId) || [], at ?? new Date())
+  const paid = (venueId, itemId, at) => paidAt(items.get(itemId), venueId, byKey.get(venueId + '|' + itemId) || [], at ?? new Date())
+  return how ? paid : (venueId, itemId, at) => paid(venueId, itemId, at)?.per_base ?? null
 }
 
 /** What each item cost at the venue at a moment (now: the stock value), pounds per base unit, by costAt(). */
@@ -342,13 +413,13 @@ export async function loadCountItems(tx, tenantId, itemIds) {
 }
 
 export async function loadStockSettings(tx, tenantId) {
-  const [s] = await tx`SELECT second_person_approves, blind_count FROM stock_settings WHERE tenant_id = ${tenantId}`
-  return { second_person_approves: !!s?.second_person_approves, blind_count: !!s?.blind_count }
+  const [s] = await tx`SELECT second_person_approves, blind_count, refunds_return_stock FROM stock_settings WHERE tenant_id = ${tenantId}`
+  return { second_person_approves: !!s?.second_person_approves, blind_count: !!s?.blind_count, refunds_return_stock: !!s?.refunds_return_stock }
 }
 
 export async function loadVenueSettings(tx, tenantId, venueId) {
-  const [s] = await tx`SELECT count_weekday, count_kind, key_list_id FROM stock_venue_settings WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
-  return { venue_id: venueId, count_weekday: s?.count_weekday ?? null, count_kind: s?.count_kind ?? 'full', key_list_id: s?.key_list_id ?? null }
+  const [s] = await tx`SELECT count_weekday, count_kind, key_list_id, par_mode FROM stock_venue_settings WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
+  return { venue_id: venueId, count_weekday: s?.count_weekday ?? null, count_kind: s?.count_kind ?? 'full', key_list_id: s?.key_list_id ?? null, par_mode: s?.par_mode ?? null }
 }
 
 /**
@@ -387,6 +458,8 @@ export async function countScope(tx, tenantId, count) {
         UNION
         SELECT l.item_id FROM stock_transfer_lines l JOIN stock_transfers t ON t.id = l.transfer_id AND t.tenant_id = l.tenant_id
          WHERE l.tenant_id = ${tenantId} AND t.to_venue_id = ${count.venue_id} AND t.status = 'received' AND l.received_base > 0
+        UNION
+        SELECT u.item_id FROM stock_usage_days u WHERE u.tenant_id = ${tenantId} AND u.venue_id = ${count.venue_id}
       ) x JOIN inv_items i ON i.id = x.item_id AND i.tenant_id = ${tenantId} AND i.is_active`
     covered = [...new Set([...areas.flatMap(a => a.item_ids), ...seen.map(r => r.item_id)])]
   }

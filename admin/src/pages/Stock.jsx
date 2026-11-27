@@ -4,7 +4,10 @@
 // 10.1), loaded on demand from src/routes/stock.jsx. A venue's stock in
 // tabs, each loaded on demand too:
 //   On hand       every item with what is on hand, tap for its history
-//                 (moved from the Inventory page's Stock tab)
+//                 (moved from the Inventory page's Stock tab); sales taken
+//                 off up to the last run of usage from sales (phase 5)
+//   Usage         what sales took off, by item or day with each channel's
+//                 part, dishes sold without a full recipe, Recompute (phase 5)
 //   Counts        the counts, starting one, counting by area, review, approve
 //   Adjustments   stock put right with a reason (Stock manage)
 //   Waste         logging waste (Stock use), a day's waste with the till's
@@ -13,12 +16,12 @@
 //                 way here, cancelling, the history (phase 4b)
 //   Settings      storage areas, key-item lists, approval and blind counts,
 //                 the count day, waste reasons (Stock manage; read only below it)
-// The address says where it opens: ?venue= &tab= (on-hand | counts |
+// The address says where it opens: ?venue= &tab= (on-hand | usage | counts |
 // adjustments | waste | transfers | settings) &count= (a count) &item= (an
 // item's history) &transfer= (a transfer to receive) &date= (the Waste tab's
 // trading day) &waste= (an entry on it: a Waste report's row).
 // API: routes/stock.js, routes/stockCounts.js, routes/stockSetup.js,
-// routes/stockWaste.js, routes/stockTransfers.js.
+// routes/stockWaste.js, routes/stockTransfers.js, routes/stockUsage.js.
 
 import { lazy, Suspense, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -32,10 +35,12 @@ const Adjustments = lazy(() => import('@/components/stock/Adjustments'))
 const StockSettings = lazy(() => import('@/components/stock/StockSettings'))
 const Waste = lazy(() => import('@/components/stock/Waste'))
 const Transfers = lazy(() => import('@/components/stock/Transfers'))
+const Usage = lazy(() => import('@/components/stock/Usage'))
 
 // The tabs, in order.
 const TABS = [
   { value: 'on-hand', label: 'On hand' },
+  { value: 'usage', label: 'Usage' },
   { value: 'counts', label: 'Counts' },
   { value: 'waste', label: 'Waste' },
   { value: 'transfers', label: 'Transfers' },
@@ -75,6 +80,7 @@ export default function Stock() {
         {!venueId ? wait : (
           <Suspense fallback={wait}>
             {tab === 'on-hand' && <OnHand venueId={venueId} openItem={params.get('item')} onOpenItem={id => set({ item: id })} />}
+            {tab === 'usage' && <Usage venueId={venueId} canManage={canManage} />}
             {tab === 'counts' && <Counts venueId={venueId} countId={params.get('count')} onOpenCount={id => set({ count: id })} />}
             {tab === 'waste' && <Waste venueId={venueId} askedDay={params.get('date')} picked={params.get('waste')} />}
             {tab === 'transfers' && <Transfers venueId={venueId} transferId={params.get('transfer')} onOpenTransfer={id => set({ transfer: id })} />}

@@ -89,7 +89,7 @@ test('storage areas and key-item lists: set up by Manage, an item in two areas, 
   // Use and View can't set up.
   assert.equal((await operator.post(`/api/stock/venues/${V}/areas`, { name: 'Bar' })).status, 403)
   assert.equal((await operator.post('/api/stock/key-lists', { name: 'X', item_ids: [] })).status, 403)
-  assert.equal((await viewer.put('/api/stock/settings', { second_person_approves: true, blind_count: true })).status, 403)
+  assert.equal((await viewer.put('/api/stock/settings', { second_person_approves: true, blind_count: true, refunds_return_stock: false })).status, 403)
 })
 
 test('the ledger and on hand: a delivery, an approved count, an adjustment; a count waiting moves nothing', async () => {
@@ -218,7 +218,7 @@ test('two people count two areas of one count at once; neither line is lost', as
 })
 
 test('the second person setting and blind counts', async () => {
-  await ok(owner.put('/api/stock/settings', { second_person_approves: true, blind_count: true }))
+  await ok(owner.put('/api/stock/settings', { second_person_approves: true, blind_count: true, refunds_return_stock: false }))
   const c = await ok(owner.post(`/api/stock/venues/${V}/counts`, { kind: 'key', key_list_id: list.id }))
   await ok(owner.put(`/api/stock/counts/${c.id}/lines`, { item_id: chicken.id, area_id: null, entries: [{ qty: 6, unit: 'kg' }] }))
   const blind = await ok(owner.get('/api/stock/counts/' + c.id))
@@ -235,7 +235,7 @@ test('the second person setting and blind counts', async () => {
   const quick = await ok(owner.post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: rice.id, qty: 1, unit: 'kg' }] }))
   assert.equal(quick.status, 'submitted')
   await ok(admin.post(`/api/stock/counts/${quick.id}/approve`, {}))
-  await ok(owner.put('/api/stock/settings', { second_person_approves: false, blind_count: false }))
+  await ok(owner.put('/api/stock/settings', { second_person_approves: false, blind_count: false, refunds_return_stock: false }))
 })
 
 test('counts from before phase 4a become approved full counts (migration 306)', async () => {
@@ -269,8 +269,8 @@ test('counts from before phase 4a become approved full counts (migration 306)', 
 
 test('Today: a count due on the count day, and a count to approve for whoever may approve it', async () => {
   // 23 Nov 2026 is a Monday; the venue counts on Mondays.
-  await ok(owner.put(`/api/stock/venues/${V}/settings`, { count_weekday: 1, count_kind: 'full', key_list_id: null }))
-  assert.equal((await owner.put(`/api/stock/venues/${V}/settings`, { count_weekday: 1, count_kind: 'key', key_list_id: null })).status, 422)
+  await ok(owner.put(`/api/stock/venues/${V}/settings`, { count_weekday: 1, count_kind: 'full', key_list_id: null, par_mode: null }))
+  assert.equal((await owner.put(`/api/stock/venues/${V}/settings`, { count_weekday: 1, count_kind: 'key', key_list_id: null, par_mode: null })).status, 422)
   const feed = await ok(operator.get(`/api/ops/today?venue_id=${V}&date=2026-11-23&time=10:00`))
   const due = feed.tasks.find(t => t.kind === 'stock_count_due')
   assert.ok(due, feed.tasks.map(t => t.kind).join(', '))
@@ -283,7 +283,7 @@ test('Today: a count due on the count day, and a count to approve for whoever ma
   assert.ok(mine.tasks.some(t => t.kind === 'stock_count_to_approve' && t.action.path.endsWith('count=' + c.id)))
   assert.ok(!(await ok(operator.get(`/api/ops/today?venue_id=${V}&date=2026-11-23&time=10:00`))).tasks.some(t => t.kind === 'stock_count_to_approve'))
   await ok(owner.post(`/api/stock/counts/${c.id}/approve`, {}))
-  await ok(owner.put(`/api/stock/venues/${V}/settings`, { count_weekday: null, count_kind: 'full', key_list_id: null }))
+  await ok(owner.put(`/api/stock/venues/${V}/settings`, { count_weekday: null, count_kind: 'full', key_list_id: null, par_mode: null }))
 })
 
 test('Today: only the venue\'s own kind of count clears its count day, never a quick count of a few items', async () => {
@@ -292,13 +292,13 @@ test('Today: only the venue\'s own kind of count clears its count day, never a q
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(at))
   const weekday = new Date(today + 'T12:00:00Z').getUTCDay()
   const due = async () => (await ok(operator.get(`/api/stock/venues/${V}/today?date=${today}`))).count_due
-  await ok(owner.put(`/api/stock/venues/${V}/settings`, { count_weekday: weekday, count_kind: 'full', key_list_id: null }))
+  await ok(owner.put(`/api/stock/venues/${V}/settings`, { count_weekday: weekday, count_kind: 'full', key_list_id: null, par_mode: null }))
   assert.equal(await due(), true)
   // Pepper's count_stock and a quick count are a key count with no list: never the day's count.
   const quick = await ok(operator.post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: rice.id, qty: 1, unit: 'kg' }], counted_at: at }))
   assert.equal(quick.status, 'submitted')
   assert.equal(await due(), true, 'one item counted isn\'t the weekly full count')
-  await ok(owner.put(`/api/stock/venues/${V}/settings`, { count_weekday: weekday, count_kind: 'key', key_list_id: list.id }))
+  await ok(owner.put(`/api/stock/venues/${V}/settings`, { count_weekday: weekday, count_kind: 'key', key_list_id: list.id, par_mode: null }))
   assert.equal(await due(), true, 'nor the key-item list\'s count')
   const k = await ok(operator.post(`/api/stock/venues/${V}/counts`, { kind: 'key', key_list_id: list.id, counted_at: at }))
   await ok(operator.put(`/api/stock/counts/${k.id}/lines`, { item_id: chicken.id, area_id: null, entries: [{ qty: 1, unit: 'kg' }] }))
@@ -306,7 +306,7 @@ test('Today: only the venue\'s own kind of count clears its count day, never a q
   assert.equal(await due(), false, 'the list\'s own count, submitted, is the day\'s count')
   for (const id of [quick.id, k.id]) await ok(owner.post(`/api/stock/counts/${id}/cancel`, {}))
   assert.equal(await due(), true, 'a cancelled count isn\'t')
-  await ok(owner.put(`/api/stock/venues/${V}/settings`, { count_weekday: null, count_kind: 'full', key_list_id: null }))
+  await ok(owner.put(`/api/stock/venues/${V}/settings`, { count_weekday: null, count_kind: 'full', key_list_id: null, par_mode: null }))
 })
 
 test('the report subjects: on hand, moves, counts, count lines with their value, adjustments; the starter', async () => {
@@ -359,7 +359,7 @@ test('cross-tenant: venue, item, area, key list, count, line and adjustment ids 
     await bOwner.post(`/api/stock/adjustments/${adj.id}/reverse`, {}),
     await bOwner.post(`/api/stock/venues/${VB}/adjustments`, { item_id: chicken.id, qty: 1, unit: 'g', reason: 'x' }),
     await bOwner.put(`/api/stock/areas/${bArea.id}/items`, { item_ids: [chicken.id] }),
-    await bOwner.put(`/api/stock/venues/${VB}/settings`, { count_weekday: 1, count_kind: 'key', key_list_id: list.id }),
+    await bOwner.put(`/api/stock/venues/${VB}/settings`, { count_weekday: 1, count_kind: 'key', key_list_id: list.id, par_mode: null }),
   ]
   assert.deepEqual(refusals.map(r => r.status), refusals.map(() => 404), refusals.map(r => r.status + ' ' + r.body.slice(0, 80)).join(' | '))
   // B's own count can't take A's item or A's area.
@@ -434,11 +434,11 @@ test('Pepper: count_stock in several units by area, waiting for approval from Us
 })
 
 test('Pepper: with blind counts on, the count card shows no expected figure beside the counter\'s', async () => {
-  await ok(owner.put('/api/stock/settings', { second_person_approves: false, blind_count: true }))
+  await ok(owner.put('/api/stock/settings', { second_person_approves: false, blind_count: true, refunds_return_stock: false }))
   const blind = await pepper(A.operator, 'count_stock', { venue: 'Larder', counts: [{ item: 'chicken', qty: 2, unit: 'kg' }] }, { run: false })
   assert.equal(blind.card.lines.length, 1)
   assert.doesNotMatch(blind.card.lines[0], /\(was /, blind.card.lines[0])
-  await ok(owner.put('/api/stock/settings', { second_person_approves: false, blind_count: false }))
+  await ok(owner.put('/api/stock/settings', { second_person_approves: false, blind_count: false, refunds_return_stock: false }))
   const open = await pepper(A.operator, 'count_stock', { venue: 'Larder', counts: [{ item: 'chicken', qty: 2, unit: 'kg' }] }, { run: false })
   assert.match(open.card.lines[0], /\(was /, 'shown when counts aren\'t blind')
 })
@@ -520,7 +520,7 @@ test('a delivery\'s value is its supplier\'s price: Costing view without purchas
 
 test('on a shared tablet the person who switched in is who counted: the second person rule follows them, not the account', async () => {
   const { DEVICE_HEADER, ACT_HEADER } = await import('../src/middleware/sharedDevice.js')
-  await ok(owner.put('/api/stock/settings', { second_person_approves: true, blind_count: false }))
+  await ok(owner.put('/api/stock/settings', { second_person_approves: true, blind_count: false, refunds_return_stock: false }))
   await ok(admin.put('/api/shared-devices/my-pin', { pin: '5928' }))
   await ok(owner.put('/api/shared-devices/my-pin', { pin: '6274' }))
   // The venue's tablet is signed in as the owner.
@@ -550,7 +550,7 @@ test('on a shared tablet the person who switched in is who counted: the second p
     const adj = await ok(owner.post(`/api/stock/venues/${V}/adjustments`, { item_id: rice.id, qty: 100, unit: 'g', reason: 'Found a bag' }, await switchIn(adminRow, '5928')))
     assert.equal(adj.adjusted_by, adminRow.email)
   } finally {
-    await ok(owner.put('/api/stock/settings', { second_person_approves: false, blind_count: false }))
+    await ok(owner.put('/api/stock/settings', { second_person_approves: false, blind_count: false, refunds_return_stock: false }))
     await ok(owner.delete('/api/shared-devices/' + device.device.id))
   }
 })

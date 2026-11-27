@@ -3,11 +3,12 @@
 // The Stock page's On hand tab (inventory phase 4a; moved from the Inventory
 // page's Stock tab, purchasing/stockOnHand.jsx, migration 287): each active
 // item at the venue with what is on hand (the last approved count plus the
-// deliveries, adjustments, waste and transfers since: stockOnHand() in shared/stock.js, worked
-// out by the API), its last count, what came in since, its storage areas,
-// below par, and with Costing view its value. Tapping an item opens its
-// history (ItemHistory: the ledger with the running balance). Sales aren't
-// taken off until usage from sales (phase 5): the tab says so.
+// deliveries, adjustments, waste, transfers and sales since: stockOnHand() in
+// shared/stock.js, worked out by the API), its last count, what came in and
+// went since, its storage areas, below par, and with Costing view its value.
+// Tapping an item opens its history (ItemHistory: the ledger with the running
+// balance). Sales are taken off by usage from sales (phase 5) up to its last
+// run: the tab says up to when.
 //
 //   OnHand({ venueId, openItem, onOpenItem })   API GET /api/stock/venues/:id
 
@@ -47,7 +48,7 @@ export default function OnHand({ venueId, openItem, onOpenItem }) {
           <span className="text-sm text-muted-foreground" data-testid="stock-total-value">Stock value <strong className="text-foreground">{pounds(data.total_value)}</strong></span>
         )}
       </div>
-      {data && !data.sales_counted && (
+      {data?.note && (
         <p className="flex items-start gap-2 text-sm rounded-lg border bg-background px-3 py-2" data-testid="stock-note">
           <Info className="w-4 h-4 mt-0.5 shrink-0" />{data.note}
         </p>
@@ -80,6 +81,7 @@ export default function OnHand({ venueId, openItem, onOpenItem }) {
                     i.adjusted_since ? (i.adjusted_since > 0 ? '+' : '-') + qty(Math.abs(i.adjusted_since), i.base_unit) + ' adj.' : null,
                     i.wasted_since ? '-' + qty(Math.abs(i.wasted_since), i.base_unit) + ' waste' : null,
                     i.transferred_since ? (i.transferred_since > 0 ? '+' : '-') + qty(Math.abs(i.transferred_since), i.base_unit) + ' moved' : null,
+                    i.used_since ? (i.used_since > 0 ? '+' : '-') + qty(Math.abs(i.used_since), i.base_unit) + ' sold' : null,
                   ].filter(Boolean).join(' ') || '–'}
                 </span>
                 <span className="text-right text-xs text-muted-foreground hidden sm:block">{i.counted_at ? qty(i.counted, i.base_unit) + ', ' + when(i.counted_at) : 'Never'}</span>

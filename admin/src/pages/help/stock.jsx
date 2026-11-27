@@ -3,7 +3,8 @@
 // on hand and each item's history, counting by storage area on the office
 // and the phone, key-item counts, approval, blind counts, adjustments, the
 // count day on Today, Pepper; phase 4b: waste, its reasons and WRAP's kinds,
-// till voids marked wasted, transfers between venues, the phone's waste page).
+// till voids marked wasted, transfers between venues, the phone's waste page;
+// phase 5: usage from sales, the Usage tab, Recompute, ordering up to par).
 // Help.jsx gathers every file in this folder
 // (except parts.jsx) and shows them by order, then id.
 import { H2, H3, P, InfoBox, DataTable } from './parts.jsx'
@@ -19,27 +20,60 @@ export function Section() {
       <P>
         <strong>Stock</strong> (main menu, under Stock) shows what you have at each venue and is where you count it.
         Nothing on it is typed in as a stock level: what is on hand is worked out from what happened, the last
-        approved count plus every delivery booked in, adjustment, waste and transfer since. Pick the venue at the
-        top; the page has six tabs: On hand, Counts, Waste, Transfers, Adjustments and Settings.
+        approved count plus every delivery booked in, adjustment, waste and transfer since, less what sales took
+        off. Pick the venue at the top; the page has seven tabs: On hand, Usage, Counts, Waste, Transfers,
+        Adjustments and Settings.
       </P>
-      <InfoBox type="warn">
-        Sales aren&apos;t taken off yet. Until dishes sold take their ingredients off (a later step), on hand goes
-        up with deliveries and only comes down when you count, so an item used in dishes looks higher than it is
-        between counts, and shows as short when you count it.
+      <InfoBox type="info">
+        Sales are taken off by their recipes. Every few minutes Macaroonie works out what each dish sold on the
+        till, the kiosks, online and on another till (Loyverse, Square) used, by the recipe it uses there (the
+        takeaway version for a takeaway, the venue&apos;s own where it has one), with its options and a meal
+        deal&apos;s picks. So today&apos;s sales are taken off <strong>up to the last run</strong>: the On hand and
+        Usage tabs say when that was (<em>up to the last run at 14:05</em>). A dish with no recipe takes nothing off,
+        and the Usage tab lists it.
       </InfoBox>
       <H3>On hand and an item&apos;s history</H3>
       <P>
         <strong>On hand</strong> lists every item in use at the venue: what is on hand, what came in since the last
-        count (deliveries, adjustments, waste and transfers), when it was last counted, which storage areas it is kept in, and <strong>Below par</strong> when it is
+        count (deliveries, adjustments, waste, transfers and what was sold), when it was last counted, which storage areas it is kept in, and <strong>Below par</strong> when it is
         under the venue&apos;s par from its order lists. An item never counted here says <em>Not counted</em>. With
         Costing view you also see what the stock is worth, at what the venue paid for it lately (the average over
         the last 90 days, else the last price paid). Search by name, code or barcode; in the Macaroonie Office app
         the scan button reads a barcode.
       </P>
       <P>
-        Tap an item for its <strong>history</strong>: every delivery, approved count, adjustment, waste and transfer, newest first,
-        each with what it changed and the balance after it. A count shows what it found against what was expected
+        Tap an item for its <strong>history</strong>: every delivery, approved count, adjustment, waste, transfer and
+        day of sales, newest first, each with what it changed and the balance after it. A day&apos;s sales are one line
+        (<em>Sales on Fri 27 Nov</em>) with how much went through the till, online and other tills. A count shows what it found against what was expected
         then (for example <em>-2.1 kg on expected</em>). The balance starts at the item&apos;s first count.
+      </P>
+      <H3>Usage from sales</H3>
+      <P>
+        The <strong>Usage</strong> tab shows what sales took off at the venue over the days you pick (up to 31; the
+        last 7 to start with): each item with how much was used, how much of it went through the till, the kiosks,
+        online orders and other tills, and with Costing view what it was worth at what you paid for it. <strong>By
+        day</strong> shows each day on its own. Under them, <strong>Sold without a full recipe</strong> lists the
+        dishes that took nothing off (or not all they should), with why and how to fix each: no recipe linked, an
+        option with no rule, an online order&apos;s option renamed since, a unit with no size, a draft Pepper read
+        in that nobody has checked (its items are taken off, but marked), an item with no price (its items are taken
+        off, the cost isn&apos;t known). <strong>Left out</strong> lists open items typed in on the till, services,
+        which need no recipe, and dishes no longer on any menu whose recipe isn&apos;t known. A dish taken off the
+        menus since it sold still takes its recipe off when its day is worked out again (as the menu last had it).
+      </P>
+      <P>
+        What counts: closed till and kiosk checks on the till&apos;s trading day, online orders on their day,
+        receipts from another till as the Item mapping maps them (a meal deal from another till is taken off at the
+        dishes guests pick most in it), and GloriaFood orders by name only (listed, nothing taken off). Test till
+        sales are left out, and so is a void: one marked wasted is in Waste already. A refund on another till gives
+        nothing back unless <strong>Refunds on other tills give stock back</strong> is on in Settings.
+      </P>
+      <P>
+        A day is worked out again by itself when its sales change (a till that syncs late, an order cancelled,
+        another till&apos;s line mapped), and every open day of the last two weeks is worked out again when a recipe,
+        a dish&apos;s link or an option rule is saved. Someone with Stock manage can press <strong>Recompute these
+        days</strong> (asked first) to work the days picked out again now, for example after fixing a recipe for an
+        older day. A day&apos;s sales are taken off at its last sale, so count before opening or after closing: a
+        count in the middle of trading has that whole day&apos;s sales taken off after it.
       </P>
       <H3>Storage areas</H3>
       <P>
@@ -91,7 +125,8 @@ export function Section() {
       <H3>Expected against counted, and approval</H3>
       <P>
         A submitted count shows, for each item, what was <strong>expected</strong> at the moment of the count (the
-        last approved count plus what came in and was adjusted since), what was <strong>counted</strong> and the
+        last approved count, plus deliveries and transfers in since, less waste, transfers out and what sales used by
+        their recipes, with adjustments either way), what was <strong>counted</strong> and the
         <strong> difference</strong>, biggest first; with Costing view the value of each difference and the total
         missing, found and net. On hand doesn&apos;t change until the count is <strong>approved</strong>; then the
         counted figures are the new starting point. An approved count is never changed: if it was wrong, count
@@ -128,6 +163,17 @@ export function Section() {
         day&apos;s count is submitted: a full count, or for a key items day a count of its list (a full count does
         too). A few items counted on their own, or told to Pepper, don&apos;t count as the day&apos;s count. A
         submitted count shows <em>Stock count to approve</em> to whoever may approve it.
+      </P>
+      <H3>Ordering up to par</H3>
+      <P>
+        The same card (<strong>Count day and pars</strong>) says how the venue&apos;s order lists read their pars.
+        <strong> Order up to par</strong>: Fill to par and each line&apos;s Par button order the par less what is on hand
+        and what is already on order (orders placed and not yet received), in whole packs. <strong>Order the
+        par</strong>: the par is ordered as it is. Left on its own it is up to par once the venue has an approved count,
+        and the par as it is before. On the order form each line shows on hand, on order and what sales used in the
+        last 7 days, and the form says which way its pars read. Up to par needs <strong>Stock view</strong>, since it
+        uses what is on hand: for someone without it the order form, and Pepper, order the par as it is, and the form
+        says so.
       </P>
       <H3>Adjustments</H3>
       <P>
@@ -235,6 +281,14 @@ export function Section() {
         lost in transit), with the starters <strong>Waste by reason this week</strong> and <strong>Transfers in
         transit</strong>. A row of the Waste report opens the Waste tab on its trading day with that entry picked
         out.
+      </P>
+      <P>
+        Ask Pepper <em>how much chicken did we sell through yesterday?</em> or <em>why isn&apos;t the soup taking
+        anything off stock?</em>: it answers from usage from sales, by day and by till, online and other tills, and
+        for a dish with what couldn&apos;t be costed and why. Reports have <strong>Usage from sales</strong> (each item
+        each trading day, by channel, with its value with Costing view) and <strong>Dish sales and theoretical
+        cost</strong> (units, net sales, theoretical cost, GP and cost % of what really sold), with the starters
+        <strong> Theoretical food cost by week</strong> and <strong>Uncosted dishes by sales</strong>.
       </P>
     </section>
   )
