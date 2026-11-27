@@ -165,6 +165,7 @@ async function countView(tx, req, c, access) {
     blind, sees_values: access.sees_values,
     settings,
     can_count: access.can_count && c.status === 'draft',
+    can_manage: access.can_manage,
     can_approve: access.can_manage && c.status === 'submitted' && !approvalProblem(c, lines, who(req), settings),
     approve_problem: c.status === 'submitted' ? approvalProblem(c, lines, who(req), settings)?.message ?? null : null,
     areas: scope.areas.map(a => ({ ...a, done: c.areas_done?.[a.id] || null })),
