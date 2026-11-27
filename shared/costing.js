@@ -898,7 +898,7 @@ function applyOption(work, sel, dish, ctx, gaps) {
         const unit = stated ? rule.unit : w.unit
         const c = oneLine({ item_id: rule.swap_item_id, qty, unit }, ctx, label)
         for (const g of c.gaps) gaps.push(dishGap(g.reason, label + ': ' + g.text, g.fix, { option_id: opt.id }))
-        work.push({ from: 'recipe', item_id: rule.swap_item_id, sub_recipe_id: null, name: to?.name || null, qty, unit, cost: c.cost, mult: pf })
+        work.push({ from: 'recipe', item_id: rule.swap_item_id, sub_recipe_id: null, name: to?.name || null, qty, unit, cost: c.cost, mult: pf, yield_pct: c.lines[0]?.yield_pct ?? null })
         w.mult = 0
       }
       return done((own.lines[0].name || 'it') + ' for ' + (to?.name || 'another item') + (pf !== 1 ? ' x ' + fmtNum(pf) : ''), fromRule)
@@ -908,7 +908,7 @@ function applyOption(work, sel, dish, ctx, gaps) {
       const c = oneLine({ item_id: rule.item_id || null, sub_recipe_id: rule.sub_recipe_id || null, qty, unit: rule.unit }, ctx, label)
       for (const g of c.gaps) gaps.push(dishGap(g.reason, label + ': ' + g.text, g.fix, { option_id: opt.id }))
       const thing = rule.sub_recipe_id ? get(ctx.recipes, rule.sub_recipe_id) : get(ctx.items, rule.item_id)
-      work.push({ from: 'option', item_id: rule.item_id || null, sub_recipe_id: rule.sub_recipe_id || null, name: thing?.name || null, qty, unit: rule.unit, cost: c.cost, mult: 1 })
+      work.push({ from: 'option', item_id: rule.item_id || null, sub_recipe_id: rule.sub_recipe_id || null, name: thing?.name || null, qty, unit: rule.unit, cost: c.cost, mult: 1, yield_pct: c.lines[0]?.yield_pct ?? null })
       return done('adds ' + qtyText(qty, rule.unit) + ' ' + (thing?.name || 'of something that is gone'), fromRule)
     }
     case 'recipe': {
@@ -953,7 +953,7 @@ function pickOptions(p) {
  * modifiers }]), or a basket's / the till's selection { stepId: [{ item_id,
  * choices }] }. A typed-in choice (no dish) is left out.
  */
-function flatPicks(picks) {
+export function flatPicks(picks) {
   if (Array.isArray(picks)) return picks.filter(p => p && (p.dish_id || p.item_id)).map(p => ({ dish_id: p.dish_id || p.item_id, options: pickOptions(p) }))
   if (picks && typeof picks === 'object') return Object.values(picks).flat().filter(p => p && p.item_id).map(p => ({ dish_id: p.item_id, options: pickOptions(p) }))
   return []
@@ -1107,9 +1107,11 @@ export function dishCost(dishId, selection = {}, scope = {}, ctx = {}) {
   out.recipe_per_portion = rc.per_unit
   const f = portions / (recipeMakes(recipe) || 1)
   // The dish's lines as served: each recipe line's share of one serving.
+  // yield_pct: the yield the line is bought at (its own, else its item's; 100 for a prep recipe
+  // with none), for what a dish takes off stock (itemsOf() in shared/stock.js).
   const work = rc.lines.map(l => ({
     from: 'recipe', item_id: l.item_id || null, sub_recipe_id: l.sub_recipe_id || null, name: l.name,
-    qty: num(l.qty) * f, unit: l.unit, cost: l.cost == null ? null : l.cost * f, mult: 1,
+    qty: num(l.qty) * f, unit: l.unit, cost: l.cost == null ? null : l.cost * f, mult: 1, yield_pct: l.yield_pct ?? null,
   }))
   for (const g of rc.gaps) out.gaps.push(dishGap(g.reason, recipe.name + ': ' + g.text, g.fix, { recipe_id: recipe.id }))
   const partly = rc.coverage === 'partial' ? ' (partly costed)' : ''
@@ -1126,7 +1128,7 @@ export function dishCost(dishId, selection = {}, scope = {}, ctx = {}) {
   out.coverage = coverageOf(out.cost, out.gaps)
   out.lines = work.filter(w => w.mult > 0).map(w => ({
     from: w.from, item_id: w.item_id, sub_recipe_id: w.sub_recipe_id, recipe_id: w.recipe_id ?? null, name: w.name,
-    qty: round6(w.qty * w.mult), unit: w.unit, cost: w.cost == null ? null : round6(w.cost * w.mult),
+    qty: round6(w.qty * w.mult), unit: w.unit, cost: w.cost == null ? null : round6(w.cost * w.mult), yield_pct: w.yield_pct ?? null,
   }))
   if (out.cost != null) out.steps.push({ kind: 'total', label: 'Cost', text: out.coverage === 'full' ? 'fully costed' : 'partly costed: ' + out.gaps.length + (out.gaps.length === 1 ? ' gap' : ' gaps'), amount: out.cost })
   return out

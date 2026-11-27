@@ -20,7 +20,7 @@ const packs = [
 
 test('one rule: procurement re-exports the stock rule', () => {
   assert.equal(reExported, stockOnHand)
-  assert.deepEqual(Object.keys(MOVE_KINDS), ['count', 'delivery', 'adjustment'])
+  assert.deepEqual(Object.keys(MOVE_KINDS), ['count', 'delivery', 'adjustment', 'waste', 'transfer_out', 'transfer_in', 'lost_in_transit'], 'phase 4b added waste and transfers')
 })
 
 test('stockOnHand: the last count sets it, later moves add; a move at the count\'s moment is in the count; as at a moment', () => {

@@ -95,7 +95,7 @@ export const AREAS = {
   devices: 'pos_setup',
   sold_out: 'web_orders',
   rota: 'rota',
-  // Inventory phase 4a: a count due on the count day, counts to approve.
+  // Inventory phase 4a: a count due on the count day, counts to approve; 4b: transfers to receive.
   stock: 'stock',
 }
 
@@ -525,8 +525,10 @@ const SOURCES = {
   // stock setting) until that day's count, of the kind the venue counts, is
   // submitted (never a quick count of a few items), and counts waiting for
   // approval, for whoever may approve them (Stock manage, and not the counter
-  // when a second person must approve). From /api/stock as the person. The
-  // phone opens /stock links on its count page (admin/src/mobile/today.js).
+  // when a second person must approve). Phase 4b: each transfer sent to the
+  // venue and not received yet, for whoever may receive it (Stock use). From
+  // /api/stock as the person. The phone opens /stock links on its count page,
+  // a transfer on the office's Stock page (admin/src/mobile/today.js).
   async stock(ctx, v, s) {
     const t = await callApi(ctx, 'GET', `/api/stock/venues/${v.id}/today?date=${s.date}`)
     const tasks = []
@@ -547,6 +549,15 @@ const SOURCES = {
         detail: 'Submitted' + (c.submitted_by ? ' by ' + c.submitted_by : '') + (c.submitted_at ? ' on ' + shortDate(localParts(c.submitted_at, v.timezone).date) : ''),
         due: null, group: 'now',
         action: { path: '/stock?tab=counts&venue=' + v.id + '&count=' + c.id, label: 'Review it' },
+      })
+    }
+    for (const x of t.can_count ? t.incoming || [] : []) {
+      tasks.push({
+        key: 'stock_transfer:' + x.id, area: 'stock', kind: 'stock_transfer_to_receive', compliance: false,
+        title: 'Transfer to receive from ' + x.from_name,
+        detail: 'Transfer ' + x.number + ' · ' + x.lines + (x.lines === 1 ? ' item' : ' items') + ' · sent ' + shortDate(localParts(x.sent_at, v.timezone).date) + (x.sent_by ? ' by ' + x.sent_by : ''),
+        due: null, group: 'now',
+        action: { path: '/stock?tab=transfers&venue=' + v.id + '&transfer=' + x.id, label: 'Receive it' },
       })
     }
     return tasks

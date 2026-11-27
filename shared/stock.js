@@ -9,8 +9,8 @@
 //
 //   MOVE_KINDS             the kinds of move and how each acts: a count sets
 //                          the quantity, the others add to it (signed). Phase
-//                          4b adds waste and transfers here and as sources in
-//                          services/stockSvc.js; nothing else changes
+//                          4b added waste and transfers here and as sources in
+//                          services/stockSvc.js
 //   stockOnHand({ moves, at })   one item at one venue: the last count (at or
 //                          before `at`, else any) plus the moves after it ->
 //                          { on_hand, counted, counted_at, received_since,
@@ -40,9 +40,34 @@
 //                          (a submit awaits it)
 //   COUNT_KINDS, COUNT_STATUSES, MAX_ENTRIES, signedBase()
 //
+// Waste and transfers (inventory phase 4b, migrations 308 and 309; 6.3, 6.4):
+//   WASTE_KINDS, WASTE_KIND_KEYS, WASTE_REASON_SEEDS   WRAP's three kinds and
+//                          the reasons every group starts with
+//   (itemsOf(), what a wasted dish or batch is in items, is shared/stockItems.js:
+//   it needs the cost engine, which this file can't import)
+//   voidReason(text, reasons)   the reason a till void marked wasted counts
+//                          under: the group's reason of that name, else its
+//                          words with the kind preparation (made, not served)
+//   wasteUndo(entry, { today, me, canManage, canUse })   what may be done to a
+//                          logged entry: undo on its trading day (whoever
+//                          logged it, or Manage), reverse after it (Manage)
+//   wasteTotals(rows, by)  waste added up by reason, kind, item, dish, person
+//                          or day: quantity, value, entries (the summary and
+//                          Pepper's waste_summary; a reversal takes its entry back)
+//   TRANSFER_STATUSES, transferLineMoves(transfer, line)   a transfer line's
+//                          moves: out of the sender when sent (what arrived),
+//                          lost in transit (what didn't) at the same moment, in
+//                          at the receiver when received, back at the sender
+//                          when a sent transfer is cancelled
+//   lostInTransit(sent, received)   what didn't arrive (never below zero)
+//   asSentEntry(line, choices)   a line that arrived as sent, typed in: the unit
+//                          it was sent in while its size is the same, else base
+//
 // Never import from procurement.js at the top level here (it re-exports
 // stockOnHand(), so the two modules load each other): use its bindings only
-// inside functions.
+// inside functions. Nor from costing.js at all (it imports procurement.js
+// and uses its bindings as it loads): what needs the cost engine is
+// shared/stockItems.js.
 
 import { UNITS, formatBase, packLabel, fmtNum } from './procurement.js'
 
@@ -61,7 +86,11 @@ export const MOVE_KINDS = {
   count: { label: 'Count', sets: true },
   delivery: { label: 'Delivery' },
   adjustment: { label: 'Adjustment' },
-  // Phase 4b: waste, transfer_out, transfer_in.
+  // Phase 4b (migrations 308 and 309): each signed, minus takes stock off.
+  waste: { label: 'Waste' },
+  transfer_out: { label: 'Sent to another venue' },
+  transfer_in: { label: 'Received from another venue' },
+  lost_in_transit: { label: 'Lost in transit' },
 }
 // Units on one line of a count (2 cases + 3 each + 400 g).
 export const MAX_ENTRIES = 6
@@ -102,6 +131,9 @@ export function stockOnHand({ moves = [], at = null } = {}) {
     counted_at: count?.at ?? null,
     received_since: since.delivery || 0,
     adjusted_since: since.adjustment || 0,
+    // Phase 4b: what was wasted (taken off: below zero) and what moved between venues since the count.
+    wasted_since: since.waste || 0,
+    transferred_since: round4((since.transfer_out || 0) + (since.transfer_in || 0) + (since.lost_in_transit || 0)),
     since,
     // Usage from sales comes with phase 5 (recipes linked to what sold).
     used_since: null,
@@ -308,4 +340,173 @@ export function lineSaves(send, { delay = 900, setTimer = setTimeout, clearTimer
     /** Lines typed and not sent yet, and lines being sent. */
     pending: () => waiting.size + sending.size,
   }
+}
+
+// ── Waste (phase 4b, migration 308; docs/INVENTORY.md 6.3) ──────────────
+
+/** WRAP's three kinds of food waste in hospitality. */
+export const WASTE_KINDS = {
+  spoilage: { label: 'Spoilage', hint: 'Gone off or out of date before it was used: stored too long, a fridge that failed.' },
+  preparation: { label: 'Preparation', hint: 'Lost in the kitchen: trim and peelings, made too much, dropped, burnt, a dish made and not served.' },
+  plate: { label: 'Plate', hint: 'What guests leave or send back.' },
+}
+export const WASTE_KIND_KEYS = Object.keys(WASTE_KINDS)
+
+/** The reasons every group starts with (migration 308 seeds the same list). */
+export const WASTE_REASON_SEEDS = [
+  { name: 'Out of date', kind: 'spoilage' },
+  { name: 'Gone off', kind: 'spoilage' },
+  { name: 'Damaged in storage', kind: 'spoilage' },
+  { name: 'Trim and peelings', kind: 'preparation' },
+  { name: 'Made too much', kind: 'preparation' },
+  { name: 'Dropped or spilt', kind: 'preparation' },
+  { name: 'Burnt or cooked wrong', kind: 'preparation' },
+  { name: 'Sent back by a guest', kind: 'plate' },
+  { name: 'Left on the plate', kind: 'plate' },
+]
+
+/** What a waste entry names: an inventory item, a prep batch or a menu dish. */
+export const WASTE_WHAT = { item: 'Item', recipe: 'Prep batch', dish: 'Dish' }
+
+/**
+ * The reason a till void marked wasted counts under: the group's reason of
+ * the same name (any case), else the void's own words with the kind
+ * preparation (the dish was made and not served). reasons: [{ id, name, kind }].
+ */
+export function voidReason(text, reasons = []) {
+  const words = String(text ?? '').trim() || 'Voided on the till'
+  const hit = (reasons || []).find(r => lower(r.name) === lower(words))
+  return hit ? { reason_id: hit.id, reason: hit.name, kind: hit.kind } : { reason_id: null, reason: words, kind: 'preparation' }
+}
+
+/**
+ * What may be done to a logged waste entry ({ day, wasted_by, undone_at,
+ * reverses_id, reversed }) by this person: undo on the entry's trading day
+ * (today, YYYY-MM-DD at the venue) by whoever logged it or Stock manage, or
+ * after that a reversing entry (Stock manage). me: the person's names (a
+ * name or a list: email and sub). -> { undo, reverse, why }
+ */
+export function wasteUndo(entry, { today, me, canUse = false, canManage = false } = {}) {
+  const no = why => ({ undo: false, reverse: false, why })
+  if (!entry) return no('Waste entry not found')
+  if (entry.undone_at) return no('This entry was undone')
+  if (entry.reverses_id) return no('This entry reverses another: log the waste again instead')
+  if (entry.reversed) return no('This entry is reversed already')
+  const mine = [].concat(me ?? []).filter(Boolean).map(lower)
+  const own = !!entry.wasted_by && mine.includes(lower(entry.wasted_by))
+  if (String(entry.day).slice(0, 10) === String(today).slice(0, 10)) {
+    if (canManage || (canUse && own)) return { undo: true, reverse: false, why: null }
+    return no('Only whoever logged it, or someone with Stock manage, can undo it')
+  }
+  if (canManage) return { undo: false, reverse: true, why: null }
+  return no('Its trading day is over: someone with Stock manage can reverse it')
+}
+
+/**
+ * Waste added up by `by` (reason, kind, item, dish, person, day, what):
+ * rows [{ key, label, entries, qty, unit, value, unvalued }], biggest value
+ * first (then most entries). rows: [{ reason, reason_kind, name, what,
+ * dish_id, by, day, qty, unit, value, reverses_id }]; for `item` a row per
+ * item of an entry: { item_id, item_name, qty_base, base_unit, value,
+ * reverses }. qty is added only while every row of a group has the same
+ * unit (else null). A reversing entry (reverses_id, or reverses: true) takes
+ * its entry back: its quantity and value are below zero and it counts minus
+ * one, so a mistake and its reversal are no entries at all, and a group they
+ * leave at nothing is left out.
+ */
+export function wasteTotals(rows, by = 'reason') {
+  const keyOf = {
+    reason: r => [lower(r.reason), r.reason],
+    kind: r => [r.reason_kind, WASTE_KINDS[r.reason_kind]?.label || r.reason_kind],
+    item: r => [r.item_id, r.item_name],
+    dish: r => [r.what === 'dish' ? r.dish_id || lower(r.name) : null, r.name],
+    person: r => [lower(r.by || '') || '-', r.by || 'Not known'],
+    day: r => [String(r.day).slice(0, 10), String(r.day).slice(0, 10)],
+    what: r => [r.what, WASTE_WHAT[r.what] || r.what],
+  }[by] || (r => [lower(r.reason), r.reason])
+  const out = new Map()
+  for (const r of rows || []) {
+    const [key, label] = keyOf(r)
+    if (key == null) continue
+    const u = by === 'item' ? r.base_unit : r.unit
+    const t = out.get(key) || { key, label, entries: 0, qty: 0, unit: u, mixed: false, value: 0, valued: 0, unvalued: 0 }
+    const sign = r.reverses_id || r.reverses ? -1 : 1
+    t.entries += sign
+    if (u !== t.unit) t.mixed = true
+    t.qty += num(by === 'item' ? r.qty_base : r.qty)
+    if (r.value == null) t.unvalued += sign
+    else { t.value += num(r.value); t.valued++ }
+    out.set(key, t)
+  }
+  return [...out.values()].filter(t => t.entries > 0 || round4(t.qty) !== 0 || Math.round(t.value * 100) !== 0).map(t => ({
+    key: t.key, label: t.label, entries: t.entries, qty: t.mixed ? null : round4(t.qty), unit: t.mixed ? null : t.unit,
+    value: t.valued ? Math.round(t.value * 100) / 100 : null, unvalued: Math.max(0, t.unvalued),
+  })).sort((a, b) => (num(b.value) - num(a.value)) || (b.entries - a.entries) || String(a.label).localeCompare(String(b.label)))
+}
+
+// ── Transfers (phase 4b, migration 309; docs/INVENTORY.md 6.4) ──────────
+
+export const TRANSFER_STATUSES = {
+  sent: 'In transit',
+  received: 'Received',
+  cancelled: 'Cancelled',
+}
+
+/** What didn't arrive of a line: sent less received, never below zero (more arriving is the receiver's gain). */
+export function lostInTransit(sent, received) {
+  if (received == null) return 0
+  return round4(Math.max(0, num(sent) - num(received)))
+}
+
+/**
+ * How a transfer line that arrived as sent is typed in: its quantity in the
+ * unit it was sent in while that unit's size today gives the same base
+ * quantity, else what was sent in the item's base unit (a pack whose size
+ * changed since it was sent would otherwise make a shortfall, or a gain,
+ * nobody reported). line: { qty, unit, qty_base, base_unit } (unit: the
+ * label it was sent in); choices: countUnits(). -> { qty, unit: a choice's key }
+ */
+export function asSentEntry(line, choices) {
+  const c = unitChoice(choices, line.unit)
+  if (c && round4(num(line.qty) * c.base_qty) === round4(num(line.qty_base))) return { qty: round4(num(line.qty)), unit: c.key }
+  return { qty: round4(num(line.qty_base)), unit: unitChoice(choices, line.base_unit)?.key || line.base_unit }
+}
+
+/**
+ * A transfer line's moves. transfer: { id, number, from_venue_id,
+ * to_venue_id, status, sent_at, received_at, cancelled_at, sent_by,
+ * received_by, cancelled_by, from_name, to_name }; line: { item_id,
+ * qty_base (sent), received_base (null until received), cost_per_base (the
+ * sender's average when it was sent) }.
+ *   sent       the sender: transfer_out of what was sent, at sent_at
+ *   received   the sender: transfer_out of what arrived and lost_in_transit
+ *              of the rest, both at sent_at (it all left then, so a count at
+ *              the sender in between keeps its figure); the receiver:
+ *              transfer_in of what arrived, at received_at
+ *   cancelled  the sender: transfer_out at sent_at, and transfer_in of the
+ *              same back at cancelled_at (it came back then)
+ * Each move { venue_id, item_id, at, kind, qty_base (signed), cost_per_base,
+ * source: { type: 'transfer', id, label }, by }.
+ */
+export function transferLineMoves(t, line) {
+  const label = t.number ? 'Transfer ' + t.number : 'Transfer'
+  const sent = num(line.qty_base)
+  const per = line.cost_per_base == null ? null : num(line.cost_per_base)
+  const move = (venue_id, at, kind, qty, words, by) => ({
+    venue_id, item_id: line.item_id, at, kind, qty_base: round4(qty), cost_per_base: per,
+    source: { type: 'transfer', id: t.id, label: label + ' ' + words }, by: by ?? null,
+  })
+  const out = []
+  const to = t.to_name || 'another venue'
+  if (t.status === 'received') {
+    const got = num(line.received_base)
+    const lost = lostInTransit(sent, got)
+    if (sent - lost > 0) out.push(move(t.from_venue_id, t.sent_at, 'transfer_out', -(sent - lost), 'to ' + to, t.sent_by))
+    if (lost > 0) out.push(move(t.from_venue_id, t.sent_at, 'lost_in_transit', -lost, 'to ' + to + ': didn\'t arrive', t.received_by))
+    if (got > 0) out.push(move(t.to_venue_id, t.received_at, 'transfer_in', got, 'from ' + (t.from_name || 'another venue'), t.received_by))
+  } else {
+    out.push(move(t.from_venue_id, t.sent_at, 'transfer_out', -sent, 'to ' + to + (t.status === 'sent' ? ' (in transit)' : ''), t.sent_by))
+    if (t.status === 'cancelled') out.push(move(t.from_venue_id, t.cancelled_at || t.sent_at, 'transfer_in', sent, 'cancelled: back from transit', t.cancelled_by))
+  }
+  return out
 }

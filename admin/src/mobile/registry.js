@@ -12,7 +12,7 @@
 // `Badge`, a component, draws a tile's own count (today's bookings) when
 // the Today feed gives it none.
 
-import { ListTodo, LayoutGrid, Receipt, ShoppingCart, Wallet, Users, ShoppingBag, Wheat, Sparkles, BarChart3, Bell, Tablet, CalendarRange, GanttChart, ClipboardList, Boxes } from 'lucide-react'
+import { ListTodo, LayoutGrid, Receipt, ShoppingCart, Wallet, Users, ShoppingBag, Wheat, Sparkles, BarChart3, Bell, Tablet, CalendarRange, GanttChart, ClipboardList, Boxes, Trash2 } from 'lucide-react'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 import { TodayBookingsBadge } from '@/components/bookings/PhoneBadge'
 
@@ -55,6 +55,14 @@ export const MOBILE_MODULES = [
     icon: Boxes,
     path: '/mobile/stock-count',
     areas: ['stock'],
+    module: 'stock',
+  },
+  {
+    key: 'stock-waste',
+    label: 'Waste',
+    description: 'Log what was thrown away and why, with a photo; undo it the same day',
+    icon: Trash2,
+    path: '/mobile/stock-waste',
     module: 'stock',
   },
   {

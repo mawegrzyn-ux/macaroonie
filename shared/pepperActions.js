@@ -72,6 +72,7 @@ export const ACTION_LABELS = {
   moderate_review: 'Changed a review', record_reviews: 'Recorded reviews', reload_screen: 'Reloaded a menu screen', report_issue: 'Logged an issue', request_feature: 'Requested a feature',
   make_rule: 'Made a rule', change_rule: 'Changed a rule', switch_rule: 'Switched a rule on or off', delete_rule: 'Deleted a rule',
   send_notice: 'Sent a notice', count_stock: 'Recorded a stock count',
+  log_waste: 'Logged waste', send_transfer: 'Sent stock to another venue', receive_transfer: 'Received a stock transfer',
   create_location: 'Created a new location',
   add_local_event: 'Added a local event', run_local_capture: 'Ran a local info capture',
   delete_local_info: 'Deleted local info entries',

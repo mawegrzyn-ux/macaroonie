@@ -337,8 +337,8 @@ export const MODULES = [
     key:    'stock',
     label:  'Stock',
     group:  'stock',
-    description: 'Stock on hand at each venue, stock counts by storage area (full counts and key-item counts) with their approval, adjustments and each item\'s ledger. Values need Costing view as well.',
-    use: 'Count stock: start a count, count by area on the office or the phone, and submit it. Approving counts, adjusting stock, and setting up storage areas, key-item lists and the stock settings need Manage.',
+    description: 'Stock on hand at each venue, stock counts by storage area (full counts and key-item counts) with their approval, adjustments, waste (with the till\'s voids marked wasted), transfers between venues and each item\'s ledger. Values need Costing view as well.',
+    use: 'Count stock, log waste (and undo it the same day), send stock to another venue and receive what was sent. Approving counts, adjusting stock, reversing past waste, and setting up storage areas, key-item lists, waste reasons and the stock settings need Manage.',
     default: { owner: 'manage', admin: 'manage', operator: 'use', viewer: 'view' },
   },
   {
@@ -521,7 +521,7 @@ export const MODULE_GROUPS = [
   {
     key:    'stock',
     label:  'Stock',
-    description: 'Stock on hand, stock counts by storage area with their approval, adjustments and the ledger.',
+    description: 'Stock on hand, stock counts by storage area with their approval, adjustments, waste, transfers between venues and the ledger.',
     moduleKeys: ['stock'],
   },
   {

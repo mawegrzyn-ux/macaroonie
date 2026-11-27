@@ -43,7 +43,7 @@ export const TASK_AREAS = {
   purchasing: 'Supplier orders', cash: 'Cash-ups', wages: 'Wages', online_orders: 'Online orders',
   report_alerts: 'Report alerts', failed_emails: 'Failed booking emails', reviews: 'Reviews to check',
   screens: 'Menu screens offline', devices: 'Tills and devices offline', sold_out: 'Sold out dishes',
-  rota: 'Next week\'s rota', stock: 'Stock counts',
+  rota: 'Next week\'s rota', stock: 'Stock counts and transfers',
 }
 
 /** A skip's reason, tidied: null when it is empty or too long. */

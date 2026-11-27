@@ -5,11 +5,20 @@
 // area, the area done, submitted with zeros confirmed and approved; a quick
 // count (Pepper's count_stock) and a key-item count from the list
 // (cancelled); an adjustment and its reversal; the reads (on hand, an
-// item's ledger, Today's tasks).
+// item's ledger, Today's tasks). Phase 4b (migrations 308 and 309): a waste
+// reason (added, renamed, ordered) and an entry of the item, its preview,
+// the day's list and the summary, a second entry undone; a transfer from the
+// first venue to the second, received with a difference, and another sent
+// and cancelled; the transfers lists.
 export const order = 87
 
 // The tenant sweep's id kinds for this area's named id parameters.
-export const kinds = { areaId: ['stock_areas'] }
+export const kinds = {
+  areaId: ['stock_areas'],
+  reasonId: ['waste_reasons'],
+  wasteId: ['stock_waste'],
+  transferId: ['stock_transfers'],
+}
 
 export async function fill(ctx) {
   const { V, mark, ids, step, post, put, patch, get } = ctx
@@ -65,6 +74,40 @@ export async function fill(ctx) {
     ids.stockAdjustment = adj.id
     await step('stock adjustment reverse', () => post(`/api/stock/adjustments/${adj.id}/reverse`, {}))
   }
+  // Waste (phase 4b): a reason of the group's, an entry of the item and its preview, one undone.
+  const reason = await step('waste reason', () => post('/api/stock/waste-reasons', { name: mark + ' Fridge failed', kind: 'spoilage' }))
+  if (reason) {
+    ids.wasteReason = reason.id
+    await step('waste reason save', () => put('/api/stock/waste-reasons/' + reason.id, { name: mark + ' Fridge failed', kind: 'spoilage', is_active: true }))
+    const all = await step('waste reasons', () => get('/api/stock/waste-reasons'))
+    if (all) await step('waste reasons order', () => put('/api/stock/waste-reasons/order', { ids: all.map(r => r.id).reverse() }))
+    const body = { what: 'item', item_id: item.id, qty: 1, unit: 'tray', reason_id: reason.id, note: mark + ' fridge at 9C' }
+    await step('waste preview', () => post(`/api/stock/venues/${V}/waste/preview`, body))
+    const w = await step('waste entry', () => post(`/api/stock/venues/${V}/waste`, body))
+    if (w) {
+      ids.stockWaste = w.id
+      ids.stockWasteItem = w.items?.[0]?.item_id
+    }
+    const undone = await step('waste entry to undo', () => post(`/api/stock/venues/${V}/waste`, { ...body, qty: 200, unit: 'g' }))
+    if (undone) await step('waste undo', () => post(`/api/stock/waste/${undone.id}/undo`, {}))
+  }
+  await step('waste pickers', () => get(`/api/stock/venues/${V}/waste/pickers`))
+  await step('waste day', () => get(`/api/stock/venues/${V}/waste`))
+  await step('waste summary', () => get(`/api/stock/venues/${V}/waste/summary?by=item`))
+
+  // Transfers (phase 4b): to the second venue, received a little short; another sent and cancelled.
+  if (ids.venue2) {
+    const t = await step('stock transfer', () => post(`/api/stock/venues/${V}/transfers`, { to_venue_id: ids.venue2, lines: [{ item_id: item.id, qty: 2, unit: 'tray' }], note: mark + ' for the weekend' }))
+    if (t) {
+      ids.stockTransfer = t.id
+      await step('stock transfer read', () => get('/api/stock/transfers/' + t.id))
+      await step('stock transfer receive', () => post(`/api/stock/transfers/${t.id}/receive`, { lines: [{ line_id: t.lines[0].id, qty: 4.5, unit: 'kg' }], note: mark + ' half a kilo short' }))
+    }
+    const c = await step('stock transfer to cancel', () => post(`/api/stock/venues/${V}/transfers`, { to_venue_id: ids.venue2, item_id: item.id, qty: 1, unit: 'kg' }))
+    if (c) await step('stock transfer cancel', () => post(`/api/stock/transfers/${c.id}/cancel`, {}))
+    await step('stock transfers', () => get(`/api/stock/venues/${V}/transfers`))
+  }
+
   // The reads: on hand, the item's ledger, Today's tasks, the counts.
   await step('stock on hand', () => get('/api/stock/venues/' + V))
   await step('stock ledger', () => get(`/api/stock/venues/${V}/items/${item.id}/moves`))

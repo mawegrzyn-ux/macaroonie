@@ -13,10 +13,15 @@
 // paid), and need Costing view: a value tells what suppliers charge. A
 // delivery's own value (Paid: what was received at its supplier's price)
 // is that supplier's price and line total, so it needs purchasing prices
-// (Purchasing setup), as the purchasing subjects' money does.
+// (Purchasing setup), as the purchasing subjects' money does. Phase 4b
+// (migrations 308 and 309): waste (logged, and the till's voids marked
+// wasted, broken into items through the recipe; test till sales left out)
+// and transfers between venues (sent, received, lost in transit), both
+// worked out in code too; on hand and the ledger take them in.
 
 import { subject, text, number, money, yesno, choice, moment, sum, count, countDistinct, one } from './define.js'
-import { STOCK_TABLES, MOVE_TABLES, COUNT_LINE_TABLES } from '../work/stock.js'
+import { STOCK_TABLES, MOVE_TABLES, COUNT_LINE_TABLES, WASTE_TABLES, TRANSFER_TABLES } from '../work/stock.js'
+import { WASTE_KINDS, WASTE_WHAT, TRANSFER_STATUSES, MOVE_KINDS } from '../../../../shared/stock.js'
 
 const COSTING = 'costing'
 const PRICES = 'purchasing_setup'
@@ -26,7 +31,11 @@ const value = (src, opts = {}) => sum(src, { type: 'money', unit: 'pounds', need
 const UNITS = { g: 'Grams', ml: 'Millilitres', each: 'Each' }
 const KINDS = { full: 'Full count', key: 'Key items' }
 const STATUSES = { draft: 'Counting', submitted: 'Waiting for approval', approved: 'Approved', cancelled: 'Cancelled' }
-const MOVES = { delivery: 'Delivery', count: 'Count', adjustment: 'Adjustment' }
+const MOVES = Object.fromEntries(Object.entries(MOVE_KINDS).map(([k, v]) => [k, v.label]))
+const WASTE_KIND_LABELS = Object.fromEntries(Object.entries(WASTE_KINDS).map(([k, v]) => [k, v.label]))
+const WASTE_SOURCES = { logged: 'Logged', till_void: 'Till void marked wasted' }
+const TRANSFER_STATUS_LABELS = { ...TRANSFER_STATUSES }
+const TRANSFER_DIRECTIONS = { out: 'Sent from here', in: 'Received here' }
 const ITEM_NAME = '(SELECT i.name FROM inv_items i WHERE i.id = {t}.item_id AND i.tenant_id = {t}.tenant_id)'
 const ITEM_UNIT = '(SELECT i.base_unit FROM inv_items i WHERE i.id = {t}.item_id AND i.tenant_id = {t}.tenant_id)'
 
@@ -42,6 +51,7 @@ export const decisions = {
   settings: [
     // The items on each area's shelves, the key-item lists, the group's approval and blind settings, each venue's count day.
     'stock_area_items', 'stock_key_lists', 'stock_key_list_items', 'stock_settings', 'stock_venue_settings',
+    // (waste_reasons is read by Waste: a till void counts under the group's reason of its name.)
   ],
   out: {},
 }
@@ -95,7 +105,7 @@ export const subjects = [
     one: 'move of stock',
     area: 'stock',
     module: 'stock',
-    about: 'Every move of stock at a venue, the ledger: each delivery booked in, each approved count and each adjustment, with the change it made and the balance after it (the balance starts at the first count). A count\'s change is what it found over what was expected. Sales aren\'t taken off yet.',
+    about: 'Every move of stock at a venue, the ledger: each delivery booked in, each approved count, each adjustment, each item wasted (the till\'s voids marked wasted too) and each transfer out, in or lost in transit, with the change it made and the balance after it (the balance starts at the first count). A count\'s change is what it found over what was expected. Sales aren\'t taken off yet.',
     from: { work: 'stock_moves', tables: MOVE_TABLES },
     idType: 'text',
     venue: 'venue_id',
@@ -111,7 +121,7 @@ export const subjects = [
       balance: number('balance', { label: 'Balance after', about: 'What the ledger says was there after the move; empty before the item\'s first count.' }),
       source: text('source', { label: 'From', about: 'The supplier order, the count or the adjustment\'s reason.' }),
       by: text('by', { label: 'By' }),
-      value: pounds('value', { label: 'Value', about: 'A count\'s or an adjustment\'s change at what the item cost at the venue then (the average paid, else the last price paid). Empty for a delivery: its value is Paid.' }),
+      value: pounds('value', { label: 'Value', about: 'A count\'s, an adjustment\'s or waste\'s change at what the item cost at the venue then (the average paid, else the last price paid); a transfer\'s at the sender\'s average when it was sent. Empty for a delivery: its value is Paid.' }),
       paid: pounds('paid', { label: 'Paid', needs: PRICES, about: 'A delivery: what was received at the price its supplier charged (the invoice\'s, else the price ordered at). Needs purchasing prices, as supplier orders do.' }),
     },
     measures: {
@@ -122,6 +132,9 @@ export const subjects = [
       received_value: value('paid', { label: 'Value received', needs: PRICES, where: "{t}.kind = 'delivery'" }),
       count_value: value('value', { label: 'Value of count differences', where: "{t}.kind = 'count'", synonyms: ['shrinkage', 'stock loss'] }),
       adjusted_value: value('value', { label: 'Value adjusted', where: "{t}.kind = 'adjustment'" }),
+      wasted: sum('change', { label: 'Wasted', where: "{t}.kind = 'waste'", about: 'In each item\'s own unit: below zero.' }),
+      wasted_value: value('value', { label: 'Value wasted', where: "{t}.kind = 'waste'", synonyms: ['wastage'] }),
+      transferred: sum('change', { label: 'Moved between venues', where: "{t}.kind IN ('transfer_out', 'transfer_in', 'lost_in_transit')", about: 'In each item\'s own unit: out and lost below zero, in above.' }),
     },
     links: {
       item: one('purchasing.items', 'item_id', { label: 'Item' }),
@@ -244,5 +257,98 @@ export const subjects = [
     list: ['date', 'item_name', 'venue.name', 'change', 'base_unit', 'reason', 'adjusted_by'],
     sort: [{ by: 'adjusted_at', dir: 'desc' }],
     skip: ['created_at'],
+  }),
+
+  // Phase 4b: waste and transfers.
+  subject({
+    key: 'stock.waste',
+    label: 'Waste',
+    one: 'item wasted',
+    area: 'stock',
+    module: 'stock',
+    about: 'What was thrown away at a venue, a row for each item of each waste entry: an item logged as wasted, a prep batch or a dish broken into its items by its recipe, and each dish voided on the till and marked wasted (broken into items the same way; test till sales left out). With its reason, WRAP\'s kind (spoilage, preparation or plate), who logged it and, with Costing view, its value at what was paid then. An undone entry is left out; a reversing entry is below zero. An entry that couldn\'t be broken into items is a row with no item. Quantities are in each item\'s own unit.',
+    from: { work: 'stock_waste', tables: WASTE_TABLES },
+    idType: 'text',
+    venue: 'venue_id',
+    date: { sql: '{t}.date', label: 'Trading day' },
+    name: 'name',
+    // The Waste tab at the row's venue on its trading day (?date=), the entry picked out (?waste=: a logged
+    // entry's id, or a till void's line id).
+    open: { page: '/stock?tab=waste&venue=:venue&date=:date&waste=:id', module: 'stock', id: 'entry_id', with: { venue: 'venue_id', date: 'date' } },
+    fields: {
+      name: text('name', { label: 'Wasted', synonyms: ['dish', 'what was wasted'], about: 'What was logged: the item, the prep batch or the dish.' }),
+      what: choice('what', WASTE_WHAT, { label: 'Logged as' }),
+      source: choice('source', WASTE_SOURCES, { label: 'From', about: 'Logged on the Stock page, the phone or by Pepper; or a dish voided on the till and marked wasted.' }),
+      entry_qty: number('entry_qty', { label: 'Quantity logged' }),
+      entry_unit: text('entry_unit', { label: 'Unit logged' }),
+      ...itemFields(),
+      qty: number('qty', { label: 'Quantity of the item', about: 'In the item\'s own unit, as bought (after its yield): what it took off stock.' }),
+      reason: text('reason', { label: 'Reason', synonyms: ['why', 'waste reason'] }),
+      kind: choice('kind', WASTE_KIND_LABELS, { label: 'Kind of waste', synonyms: ['spoilage', 'plate waste', 'preparation waste', 'wrap'], about: 'WRAP\'s three kinds: spoilage (gone off or out of date), preparation (lost in the kitchen) and plate (what guests leave or send back).' }),
+      by: text('by', { label: 'Logged by', synonyms: ['who', 'person'] }),
+      at: moment('at', { label: 'When' }),
+      value: pounds('value', { label: 'Value', about: 'The item\'s quantity at what it cost at the venue then (the average paid, else the last price paid).' }),
+      gaps: text('gaps', { label: 'What the recipe couldn\'t say', about: 'Why a batch or a dish couldn\'t be broken into items in full: no recipe, a unit with no size, a draft nobody checked.' }),
+      reverses: yesno('reverses', { label: 'Reverses another' }),
+    },
+    measures: {
+      entries: countDistinct('entry_id', { label: 'Waste entries', synonyms: ['wastage', 'waste', 'things wasted', 'binned'], examples: ['waste by reason this week'] }),
+      wasted: sum('qty', { label: 'Quantity wasted', about: 'In each item\'s own unit: only add up items kept the same way.' }),
+      waste_value: value('value', { label: 'Value wasted', synonyms: ['wastage', 'waste value', 'spoilage', 'cost of waste'], examples: ['what did we waste this week'] }),
+      items_wasted: countDistinct('item_id', { label: 'Items wasted' }),
+    },
+    links: {
+      item: one('purchasing.items', 'item_id', { label: 'Item' }),
+    },
+    list: ['date', 'name', 'entry_qty', 'item_name', 'qty', 'base_unit', 'reason', 'kind', 'by', 'value'],
+    sort: [{ by: 'at', dir: 'desc' }],
+    skip: ['dish_id', 'check_id'],
+  }),
+
+  subject({
+    key: 'stock.transfers',
+    label: 'Stock transfers',
+    one: 'item transferred',
+    area: 'stock',
+    module: 'stock',
+    about: 'Stock moved between the group\'s venues, a row for each item of each transfer at each end: sent from a venue (out) and received at the other (in), with what was sent, what arrived and what was lost in transit (sent less received, never below zero), in transit until it is received, or cancelled (back at the sender). Valued at the sender\'s average cost when it was sent, with Costing view. A transfer counts on the day it was sent at the sender and on the day it was received at the receiver.',
+    from: { work: 'stock_transfer_lines', tables: TRANSFER_TABLES },
+    idType: 'text',
+    venue: 'venue_id',
+    date: { sql: '{t}.date', label: 'Day' },
+    name: 'item_name',
+    open: { page: '/stock?tab=transfers&venue=:venue&transfer=:id', module: 'stock', id: 'transfer_id', with: { venue: 'venue_id' } },
+    fields: {
+      ...itemFields(),
+      number: number('number', { label: 'Transfer number', decimals: 0 }),
+      direction: choice('direction', TRANSFER_DIRECTIONS, { label: 'Direction', synonyms: ['sent or received'] }),
+      status: choice('status', TRANSFER_STATUS_LABELS, { label: 'Status', synonyms: ['in transit'] }),
+      sent: number('sent', { label: 'Sent' }),
+      received: number('received', { label: 'Received', about: 'What arrived; empty until it is received.' }),
+      lost: number('lost', { label: 'Lost in transit', synonyms: ['lost', 'missing', 'short'], about: 'Sent less received, never below zero; empty until it is received.' }),
+      sent_at: moment('sent_at', { label: 'Sent at' }),
+      received_at: moment('received_at', { label: 'Received at' }),
+      sent_by: text('sent_by', { label: 'Sent by' }),
+      received_by: text('received_by', { label: 'Received by' }),
+      note: text('note', { label: 'Note' }),
+      value: pounds('value', { label: 'Value sent', about: 'What was sent at the sender\'s average cost when it was sent.' }),
+      received_value: pounds('received_value', { label: 'Value received' }),
+      lost_value: pounds('lost_value', { label: 'Value lost in transit' }),
+    },
+    measures: {
+      transfers: countDistinct('transfer_id', { label: 'Transfers', synonyms: ['transfer', 'transfers', 'moved stock', 'stock moved'] }),
+      sent_qty: sum('sent', { label: 'Quantity sent', where: "{t}.direction = 'out'", about: 'In each item\'s own unit.' }),
+      received_qty: sum('received', { label: 'Quantity received', where: "{t}.direction = 'in'", about: 'In each item\'s own unit.' }),
+      lost_qty: sum('lost', { label: 'Quantity lost in transit', where: "{t}.direction = 'out'", synonyms: ['lost in transit', 'lost'], about: 'In each item\'s own unit.' }),
+      sent_value: value('value', { label: 'Value sent', where: "{t}.direction = 'out'" }),
+      lost_value_total: value('lost_value', { label: 'Value lost in transit', where: "{t}.direction = 'out'", synonyms: ['lost in transit', 'transit loss'] }),
+      in_transit: countDistinct('transfer_id', { label: 'In transit', where: "{t}.status = 'sent' AND {t}.direction = 'out'", synonyms: ['in transit', 'on its way'] }),
+    },
+    links: {
+      item: one('purchasing.items', 'item_id', { label: 'Item' }),
+      other_venue: one('venue', 'other_venue_id', { label: 'The other venue' }),
+    },
+    list: ['date', 'number', 'direction', 'venue.name', 'other_venue.name', 'item_name', 'sent', 'received', 'lost', 'base_unit', 'status'],
+    sort: [{ by: 'sent_at', dir: 'desc' }],
   }),
 ]

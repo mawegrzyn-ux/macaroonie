@@ -10,9 +10,12 @@ import { lazy, Suspense } from 'react'
 const Stock = lazy(() => import('@/pages/Stock'))
 // Counting on the phone, on demand too.
 const MobileStockCount = lazy(() => import('@/pages/mobile/MobileStockCount'))
+// Logging waste on the phone (phase 4b), on demand too.
+const MobileStockWaste = lazy(() => import('@/pages/mobile/MobileStockWaste'))
 const Loading = () => <div className="p-6 text-sm text-muted-foreground">Loading...</div>
 
 export const routes = [
   { path: 'stock', shell: 'office', element: <Suspense fallback={<Loading />}><Stock /></Suspense> },
   { path: 'stock-count', shell: 'mobile', element: <Suspense fallback={<Loading />}><MobileStockCount /></Suspense> },
+  { path: 'stock-waste', shell: 'mobile', element: <Suspense fallback={<Loading />}><MobileStockWaste /></Suspense> },
 ]

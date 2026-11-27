@@ -4,11 +4,14 @@
 // only below it): the venue's storage areas (drag to order, each with its
 // items in shelf order: an item can be in two areas and the count adds
 // them), the group's key-item lists, how counts are approved (a second
-// person) and counted (blind), and the venue's count day for Today. Each
-// card saves on its own (the areas' order as it is dropped).
+// person) and counted (blind), and the venue's count day for Today; the
+// group's waste reasons in WRAP's kinds (phase 4b: drag to order, switched
+// off once used). Each card saves on its own (the areas' and reasons' order
+// as it is dropped).
 //
 //   StockSettings({ venueId, canManage })
-//   API routes/stockSetup.js: /api/stock/venues/:id/areas, /areas/:id, /key-lists, /settings
+//   API routes/stockSetup.js: /api/stock/venues/:id/areas, /areas/:id, /key-lists, /settings;
+//       routes/stockWaste.js: /api/stock/waste-reasons
 
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -18,8 +21,8 @@ import { cn } from '@/lib/utils'
 import { Field, inputCls, ErrorNote, SortableRows, ConfirmDelete, Segmented } from '@/components/staff/shared'
 import { Card, Drawer, Toggle, btn } from '@/components/purchasing/shared'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
-import { useStockList, matchItem } from '@/components/stock/shared'
-import { WEEKDAYS } from '@shared/stock.js'
+import { useStockList, matchItem, KindBadge } from '@/components/stock/shared'
+import { WEEKDAYS, WASTE_KINDS, WASTE_KIND_KEYS } from '@shared/stock.js'
 
 /** Items in order, with a search to add more and a cross to take one off; Save sends the whole list. */
 function ItemsEditor({ title, subtitle, venueId, initial, name, onSave, saving, error, onClose, canManage, onDelete }) {
@@ -255,6 +258,77 @@ function CountDayCard({ venueId, canManage }) {
   )
 }
 
+/**
+ * The group's waste reasons (phase 4b), each of WRAP's three kinds, dragged
+ * into the order the waste form lists them (saved as it is dropped). A reason
+ * already on logged waste is switched off, never deleted.
+ */
+function WasteReasonsCard({ canManage }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const key = ['stock', 'waste-reasons']
+  const { data: reasons = [], isLoading, error } = useQuery({ queryKey: key, queryFn: () => api.get('/stock/waste-reasons') })
+  const [name, setName] = useState('')
+  const [kind, setKind] = useState('preparation')
+  const [editing, setEditing] = useState(null)
+  const done = () => { qc.invalidateQueries({ queryKey: key }); qc.invalidateQueries({ queryKey: ['stock'] }) }
+  const add = useMutation({ mutationFn: () => api.post('/stock/waste-reasons', { name: name.trim(), kind }), onSuccess: () => { setName(''); done() } })
+  const save = useMutation({ mutationFn: r => api.put('/stock/waste-reasons/' + r.id, { name: r.name.trim(), kind: r.kind, is_active: r.is_active }), onSuccess: () => { setEditing(null); done() } })
+  const remove = useMutation({ mutationFn: id => api.delete('/stock/waste-reasons/' + id), onSuccess: done })
+  const order = useMutation({ mutationFn: ids => api.put('/stock/waste-reasons/order', { ids }), onSuccess: done })
+  const rows = useMemo(() => reasons, [reasons])
+  const kinds = WASTE_KIND_KEYS.map(k => ({ value: k, label: WASTE_KINDS[k].label }))
+  return (
+    <Card title="Waste reasons">
+      <div className="space-y-3" data-testid="waste-reasons-card">
+        <p className="text-xs text-muted-foreground">
+          Each reason is one of WRAP&apos;s three kinds: spoilage (gone off or out of date), preparation (lost in the kitchen) or plate (what guests leave or send back).
+          Drag them into the order the waste form shows them. A reason already on logged waste is switched off rather than deleted: change it (the pencil), switch it off and Save.
+        </p>
+        {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+          <SortableRows items={rows} locked={!canManage} onReorder={ids => order.mutate(ids)} renderItem={r => (
+            <div className="flex flex-wrap items-center gap-2 min-h-[44px]" data-testid="waste-reason-row" data-reason={r.name}>
+              {editing?.id === r.id ? (
+                <>
+                  <input value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })} maxLength={60} className={cn(inputCls, 'flex-1 min-w-[8rem]')} aria-label="Reason" />
+                  <Segmented value={editing.kind} onChange={v => setEditing({ ...editing, kind: v })} options={kinds} />
+                  {/* Switched on or off with the rest of the reason, saved by Save (design rule 5). */}
+                  <Toggle checked={editing.is_active} onChange={on => setEditing({ ...editing, is_active: on })} label={editing.is_active ? 'On' : 'Off'} />
+                  <button type="button" className={btn.primary} disabled={!editing.name.trim() || save.isPending} onClick={() => save.mutate(editing)} data-testid="waste-reason-save">Save</button>
+                  <button type="button" className={btn.ghost} onClick={() => setEditing(null)}>Cancel</button>
+                </>
+              ) : (
+                <>
+                  <span className={cn('flex-1 text-sm font-medium', !r.is_active && 'text-muted-foreground line-through')}>{r.name}</span>
+                  <KindBadge kind={r.kind} />
+                  {r.used > 0 && <span className="text-xs text-muted-foreground">{r.used} logged</span>}
+                  {!r.is_active && <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium" data-testid="waste-reason-off">Switched off</span>}
+                  {canManage && (
+                    <>
+                      <button type="button" className={btn.ghost} aria-label={'Change ' + r.name} onClick={() => setEditing({ ...r })}><Pencil className="w-4 h-4" /></button>
+                      {!r.used && <ConfirmDelete onConfirm={() => remove.mutate(r.id)} label={'Delete ' + r.name} />}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )} />
+        )}
+        {canManage && (
+          <div className="flex flex-wrap gap-2">
+            <input value={name} onChange={e => setName(e.target.value)} maxLength={60} placeholder="A new reason, e.g. Fridge failed" className={cn(inputCls, 'h-12 flex-1 min-w-[12rem]')} data-testid="waste-reason-name" />
+            <select value={kind} onChange={e => setKind(e.target.value)} aria-label="Kind" className={cn(inputCls, 'h-12 w-40')} data-testid="waste-reason-kind">
+              {kinds.map(k => <option key={k.value} value={k.value}>{k.label}</option>)}
+            </select>
+            <button type="button" className={btn.primary + ' h-12'} disabled={!name.trim() || add.isPending} onClick={() => add.mutate()} data-testid="waste-reason-add"><Plus className="w-4 h-4" />Add</button>
+          </div>
+        )}
+        <ErrorNote error={error || add.error || save.error || remove.error || order.error} />
+      </div>
+    </Card>
+  )
+}
+
 export default function StockSettings({ venueId, canManage }) {
   return (
     <div className="space-y-4" data-testid="stock-settings">
@@ -265,6 +339,7 @@ export default function StockSettings({ venueId, canManage }) {
         <ApprovalCard canManage={canManage} />
         <CountDayCard venueId={venueId} canManage={canManage} />
       </div>
+      <WasteReasonsCard canManage={canManage} />
     </div>
   )
 }

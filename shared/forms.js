@@ -172,6 +172,18 @@ export const FORMS = {
     title: 'New key-item count', module: 'stock', edit: 'use', path: '/stock', phone: '/mobile/stock-count', by: null,
     fields: {}, plain: true,
   },
+  // Waste (inventory phase 4b): an item, a prep batch or a dish, with a photo
+  // after it is saved; the full form (a preview of what it takes off) is the
+  // Stock page's Waste tab and the phone's waste page.
+  stock_waste: {
+    title: 'Log waste', module: 'stock', edit: 'use', path: '/stock', phone: '/mobile/stock-waste', by: null,
+    fields: {}, plain: true,
+  },
+  // One item sent to another venue (phase 4b); several at once on the Stock page's Transfers tab.
+  stock_transfer: {
+    title: 'Send stock to another venue', module: 'stock', edit: 'use', path: '/stock', by: null,
+    fields: {}, plain: true,
+  },
 }
 
 /** The flat set-up forms drawn from their route's schema (plain: true). */
