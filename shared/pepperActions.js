@@ -29,6 +29,8 @@ export const USE_LABELS = {
   new_location: 'New location',
   rule_parser: 'Reading a rule',
   item_mapping: 'Mapping another till\'s items',
+  recipe_reader: 'Reading recipes',
+  yield_suggestion: 'Suggesting a typical yield',
   other: 'Something else',
 }
 
@@ -78,4 +80,5 @@ export const ACTION_LABELS = {
   schedule_report: 'Scheduled a report', change_schedule: 'Changed a report schedule',
   pause_schedule: 'Paused or resumed a report schedule', send_report: 'Emailed a report',
   snooze_task: 'Snoozed a task', skip_task: 'Skipped a task', assign_task: 'Assigned a task',
+  read_recipes: 'Read recipes in as drafts', make_recipe: 'Wrote a draft recipe', link_recipes: 'Linked dishes to recipes',
 }

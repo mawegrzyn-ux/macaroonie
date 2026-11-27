@@ -10,11 +10,13 @@
 import * as bookings from './bookings.js'
 import * as cash from './cash.js'
 import * as purchasing from './purchasing.js'
+import * as recipes from './recipes.js'
 import * as rota from './rota.js'
 
 export const FILES = [
   ['bookings', bookings],
   ['cash', cash],
   ['purchasing', purchasing],
+  ['recipes', recipes],
   ['rota', rota],
 ]

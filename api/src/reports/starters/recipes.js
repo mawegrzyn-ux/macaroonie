@@ -5,7 +5,8 @@
 // Recipe costs (Costing view), worked out at today's standard supplier
 // prices: they have no period, and the venues choice narrows the venues.
 // Phase 2: dishes over the target cost % and dishes with no recipe, from
-// Dish margins (Costing view), today's prices too.
+// Dish margins (Costing view), today's prices too. Phase 3: uncosted dishes
+// by sales, from Recipe coverage (sales in pounds need till reports view).
 
 import { starter } from './define.js'
 
@@ -53,6 +54,21 @@ export const starters = [
       rows: ['dish', 'menu', 'section', 'venue.name', 'order_type', 'price'],
       filters: [{ field: 'has_recipe', op: 'is', value: false }, { field: 'kind', op: 'in', value: ['dish', 'goods'] }],
       sort: [{ by: 'dish', dir: 'asc' }],
+    },
+  }),
+
+  // Phase 3: what was sold and can't be costed, from Recipe coverage.
+  starter({
+    key: 'uncosted_dishes_by_sales',
+    name: 'Uncosted dishes by sales',
+    about: 'The dishes sold in the last 30 days that can\'t be costed yet, most sold first: what they sold for, how many, and why not (no recipe linked, a recipe with gaps, an option with no rule). Costing these first costs most of what you sell.',
+    period: { relative: 'last_n_days', n: 30 },
+    spec: {
+      subject: 'recipes.coverage',
+      rows: ['dish', 'venue.name', 'fix_kind'],
+      values: [{ measure: 'sales_uncosted' }, { measure: 'units' }],
+      filters: [{ field: 'state', op: 'is', value: 'uncosted' }],
+      sort: [{ by: 'sales_uncosted', dir: 'desc' }],
     },
   }),
 

@@ -12,10 +12,12 @@ evals for AI agents").
   to Pepper's real chat (`POST /api/ai/chat`), presses Confirm (or Cancel) on every card as a
   person would, then checks the end state. Tokens, cost and time per trial come from Pepper's
   record of model requests (`ai_requests`).
-- `tasks/<area>.mjs`: the tasks, 31 of them, 7 where the right end state is "nothing
-  changed" (Pepper must ask, refuse, or answer without changing anything), and 2 questions
-  about the figures (`tasks/reports.mjs`, step 8A2) graded by what Pepper's reading tools
-  returned (`expect: 'answer'`), still never by Pepper's words.
+- `tasks/<area>.mjs`: the tasks, 40 of them, 7 where the right end state is "nothing
+  changed" (Pepper must ask, refuse, or answer without changing anything), and 7 questions
+  graded by what Pepper's reading tools returned (`expect: 'answer'`), still never by Pepper's
+  words: 2 about the figures (`tasks/reports.mjs`, step 8A2) and 5 about recipes and costs
+  (`tasks/recipes.mjs`, inventory phase 3, with the reader's own model call scripted in
+  `readers`). `--only=recipes` runs one area's tasks.
 - `run.mjs`: the command line. Writes a JSON result to `eval/results/` (not committed).
 
 It lives in `api/eval/` rather than `api/test/`: `npm test` runs every `test/*.test.mjs` on
@@ -89,7 +91,7 @@ Estimates, before the first live run; the result file has the real figure. Every
 sends Pepper's system prompt and its core tools (some 15,000 to 25,000 tokens, read from the
 prompt cache after the first), and a task takes two to five requests. On the default routing
 (chats start on Haiku 5.5 at $0.10 / $0.50 a million tokens in / out) that is about
-$0.005 to $0.02 a task, so **about $0.15 to $0.70 for the 31 tasks**. A chat that moves up to
+$0.005 to $0.02 a task, so **about $0.15 to $0.70 for the 40 tasks**. A chat that moves up to
 Opus 5.5 ($4 / $20) costs about 40 times as much, so with `AI_MODEL_FAST` empty (every chat on
 Opus) reckon **$5 to $15 a run**, and multiply by `--trials`. A run takes some 5 to 15 minutes
 (each trial fills a clean tenant in about 4 seconds, then the model's own time).

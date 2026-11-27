@@ -17,7 +17,7 @@
 
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Loader2, Layers, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Loader2, Layers, AlertTriangle, Plus } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Field, inputCls, ErrorNote, ConfirmDelete, Modal } from '@/components/staff/shared'
@@ -28,7 +28,7 @@ import { fmtNum } from '@shared/procurement.js'
 
 const KIND_WORDS = { dish: 'Dish', deal: 'Meal deal', goods: 'Goods', service: 'Service' }
 
-export function DishMatrix({ dishId, onClose, onOpenRecipe, canManage }) {
+export function DishMatrix({ dishId, onClose, onOpenRecipe, onMake, canManage }) {
   const api = useApi()
   const { data, isLoading, error } = useQuery({ queryKey: ['recipe-dish', dishId], queryFn: () => api.get('/recipe-links/dishes/' + dishId) })
   const [picking, setPicking] = useState(null)
@@ -49,6 +49,11 @@ export function DishMatrix({ dishId, onClose, onOpenRecipe, canManage }) {
           <h2 className="text-lg font-semibold break-words" data-testid="dish-title">{d.name}</h2>
           <p className="text-xs text-muted-foreground">{[d.menu, d.section, KIND_WORDS[d.kind], d.price_pence != null ? penceText(d.price_pence) : null].filter(Boolean).join(' · ')}</p>
         </div>
+        {edit && onMake && (d.kind === 'dish' || d.kind === 'goods') && (
+          <button type="button" className={cn(btn.outline, 'h-12')} onClick={() => onMake(d.id)} data-testid="dish-make-recipe">
+            <Plus className="w-4 h-4" />Make a recipe for this dish
+          </button>
+        )}
       </div>
       {d.kind === 'deal' && (
         <Card title="A meal deal">

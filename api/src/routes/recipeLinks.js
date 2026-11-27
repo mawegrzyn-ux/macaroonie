@@ -27,6 +27,11 @@
 //                             default links for many dishes at once (Link 14
 //                             dishes to their recipes); a dish with one already
 //                             keeps it
+//   POST   /dishes/:dishId/recipe   { name, code?, category?, portions? }
+//                             a recipe made for the dish (phase 3: "Make a
+//                             recipe for this dish"), a draft dish recipe with
+//                             no lines yet, linked for every venue when the
+//                             dish has no recipe there yet
 //   POST   /goods             { dishes: [{ dish_id, item_id }] } a one-line
 //                             recipe of the stock item for each goods dish,
 //                             linked by default
@@ -61,8 +66,8 @@ import {
 } from '../services/dishCostSvc.js'
 import { loadTaxRates } from '../services/taxSvc.js'
 import {
-  recipeFor, recipeCost, dishCost, dishMargin, marginSteps, explain, scopeText, sameScope, ruleFor, ruleText,
-  optionDefault, dishMap,
+  recipeFor, recipeCost, dishCost, dishMargin, marginSteps, explain, scopeText, sameScope, ruleText,
+  offeredOptions, dishMap,
 } from '../../../shared/costing.js'
 import { matchIndex, matchThing } from '../../../shared/itemMatch.js'
 import { isCombo, menuCtx } from '../../../shared/combos.js'
@@ -80,6 +85,12 @@ const CellBody = z.object({
 const BulkBody = z.object({
   links: z.array(z.object({ dish_id: uuid, recipe_id: uuid, portions: Portions.optional() })).min(1).max(500),
 })
+const ForDishBody = z.object({
+  name:     z.string().trim().min(1).max(200),
+  code:     z.string().trim().max(60).nullable().optional(),
+  category: z.string().trim().max(100).nullable().optional(),
+  portions: z.number().positive().max(100000).nullable().optional(),
+}).strict()
 const GoodsBody = z.object({
   dishes: z.array(z.object({ dish_id: uuid, item_id: uuid })).min(1).max(500),
 })
@@ -168,25 +179,16 @@ async function loadDish(tx, tenantId, dishId, version = 'draft') {
 /**
  * A dish's options (the library's on its groups, and its own) with the rule
  * each follows; with none, what optionDefault() says it does (state: rule,
- * gap or default), as dishCost() costs it.
+ * gap or default), by offeredOptions() in shared/costing.js, the rule
+ * coverage judges a dish's options by too.
  */
 function dishOptions(item, ctx) {
-  const out = []
-  for (const c of itemChoices(item, {})) {
-    for (const o of c.options) {
-      const own = c.key === 'variants'
-      const lib = own ? null : ctx.options.get(o.id)
-      const hit = ruleFor(item.id, { id: o.id }, ctx.rules)
-      const d = optionDefault(own ? { own: true } : lib || {})
-      out.push({
-        option_id: own ? null : o.id, label: o.label, own, group: own ? 'Its own options' : c.name, group_id: own ? null : c.key,
-        variation_type: lib?.variation_type ?? null, price_pence: o.price_pence ?? null, mode: c.mode,
-        rule: hit ? { ...hit.rule, text: ruleText(hit.rule, ctx) } : null, rule_from: hit?.from ?? null,
-        state: hit ? 'rule' : d.state, default_text: hit ? null : d.text,
-      })
-    }
-  }
-  return out
+  return offeredOptions(item, ctx).map(o => ({
+    option_id: o.own ? null : o.option_id, label: o.label, own: o.own, group: o.own ? 'Its own options' : o.group, group_id: o.group_id,
+    variation_type: o.option?.variation_type ?? null, price_pence: o.price_pence, mode: o.mode,
+    rule: o.hit ? { ...o.hit.rule, text: ruleText(o.hit.rule, ctx) } : null, rule_from: o.hit?.from ?? null,
+    state: o.state, default_text: o.default_text,
+  }))
 }
 
 /** Was this menu sold at the venue, and on this stream? (A menu for one venue; a stream naming its menus.) */
@@ -407,6 +409,34 @@ export default async function recipeLinkRoutes(app) {
       }
       return { linked, kept: b.links.length - linked }
     })
+  })
+
+  // ── A recipe made for a dish (phase 3) ──────────────────────
+  app.post('/dishes/:dishId/recipe', { preHandler: canManage }, async (req, reply) => {
+    const b = ForDishBody.parse(req.body || {})
+    const out = await withTenant(req.tenantId, async tx => {
+      const dishId = uuid.safeParse(req.params.dishId).success ? req.params.dishId : null
+      if (!dishId) throw httpError(404, 'Dish not found')
+      const { item, menu } = await loadDish(tx, req.tenantId, dishId, 'draft')
+      const kind = kindOf(item, dishMap([menu]).get(item.id)?.item_type)
+      if (kind === 'deal') throw httpError(422, 'A meal deal has no recipe of its own: it costs the dishes picked in it', { code: 'deal' })
+      if (kind === 'service') throw httpError(422, 'A service has no recipe', { code: 'service' })
+      await lockRecipes(tx, req.tenantId)
+      const [r] = await tx`
+        INSERT INTO recipes ${tx({
+          tenant_id: req.tenantId, name: b.name, kind: 'dish', status: 'draft', portions: b.portions ?? 1,
+          code: b.code || null, category: b.category || null, created_by: who(req),
+        })} RETURNING id, name`
+      const [has] = await tx`
+        SELECT r.name FROM recipe_links l JOIN recipes r ON r.id = l.recipe_id AND r.tenant_id = l.tenant_id
+         WHERE l.tenant_id = ${req.tenantId} AND l.dish_id = ${dishId}
+           AND l.venue_id IS NULL AND l.revenue_stream_id IS NULL AND l.order_type_id IS NULL`
+      if (!has) {
+        await tx`INSERT INTO recipe_links ${tx({ tenant_id: req.tenantId, dish_id: dishId, recipe_id: r.id, portions: 1, created_by: who(req) })}`
+      }
+      return { recipe_id: r.id, name: r.name, linked: !has, kept: has ? has.name : null }
+    })
+    return reply.code(201).send(out)
   })
 
   app.post('/goods', { preHandler: canManage }, async req => {

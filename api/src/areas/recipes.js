@@ -9,6 +9,7 @@ import recipeRoutes from '../routes/recipes.js'
 import recipeLinkRoutes from '../routes/recipeLinks.js'
 import recipeOptionRoutes from '../routes/recipeOptions.js'
 import menuMarginRoutes from '../routes/menuMargins.js'
+import recipeReadRoutes from '../routes/recipeRead.js'
 
 export const routes = [
   // Recipes and prep recipes, costed by shared/costing.js (inventory phase 1, migration 300)
@@ -19,4 +20,6 @@ export const routes = [
   [recipeOptionRoutes, { prefix: '/api/recipe-options' }],
   // Menu margins and the cost % targets (phase 2, migration 302)
   [menuMarginRoutes, { prefix: '/api/menu-margins' }],
+  // Pepper reads recipes and suggests typical yields, under /api/ai for its proxy timeout (phase 3)
+  [recipeReadRoutes, { prefix: '/api/ai/recipes' }],
 ]

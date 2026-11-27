@@ -12,6 +12,16 @@
 //   GET    /pickers          inventory items (names and units, no prices), prep
 //                            recipes (the editor's line pickers) and dish recipes
 //                            (linking dishes and options, phase 2)
+//   GET    /coverage         ?venue_id &days (30)   coverage by sales (phase 3):
+//                            the share of what was sold in the last days that
+//                            can be costed (salesCoverage() in
+//                            shared/costing.js, the sales from
+//                            services/recipeCoverageSvc.js), by channel and
+//                            venue, and the dishes not costed by sales value
+//                            with how to fix each; pounds only with till
+//                            reports view, as the report subject Recipe
+//                            coverage gives them (sales are till figures; the
+//                            percent and the order for every Recipes view)
 //   GET    /:recipeId        ?venue_id &basis   one recipe: its lines, gaps,
 //                            where it is used, its variations; for costing View
 //                            its cost on each basis and the step by step
@@ -26,6 +36,12 @@
 //                            replaced), as the page holds it (rule 13)
 //   POST   /:recipeId/copy   { name?, variant? } a copy with its lines, a draft;
 //                            variant: a variation of the original's group
+//   POST   /drafts           { source: reader | pepper, recipes: [...] } drafts
+//                            Pepper wrote (read in, or made in the chat; phase
+//                            3): each a draft with its source, its lines an
+//                            item, a prep recipe, or a prep recipe of the same
+//                            request (new_key); lines not matched are kept in
+//                            its notes. Made in one go, prep recipes first.
 //   PATCH  /:recipeId/active { is_active } switch off or on
 //   DELETE /:recipeId        refused (409 in_use) while another recipe uses it
 //
@@ -45,7 +61,8 @@ import { requireAuth, requirePermission, permissionLevels } from '../middleware/
 import { httpError } from '../middleware/error.js'
 import { loadVenue } from '../services/purchasingSvc.js'
 import { loadRecipes, loadCosting, loadCostItems, recipeView } from '../services/costingSvc.js'
-import { recipeCost, nestingProblem, BASIS_KEYS, YIELD_UNITS, unitChoices, recipeUnitChoices } from '../../../shared/costing.js'
+import { salesCoverageFor } from '../services/recipeCoverageSvc.js'
+import { recipeCost, nestingProblem, needsCheck, BASIS_KEYS, YIELD_UNITS, unitChoices, recipeUnitChoices } from '../../../shared/costing.js'
 import { PRICES_MODULE, seesPurchasingPrices, UNITS } from '../../../shared/procurement.js'
 import { webLink } from '../../../shared/links.js'
 
@@ -91,13 +108,48 @@ const DEFAULTS = {
   kind: 'dish', category: null, code: null, status: 'draft', yield_qty: null, yield_unit: null, portions: null, loss_pct: 0,
   method: null, photo_url: null, shelf_life_hours: null, variant_of: null, notes: null, is_active: true, lines: [],
 }
-export const RecipeNew = z.object({
+// A new recipe's fields, every one but the name optional: the object the
+// route validates with, and the plain form "New recipe" draws (forms/recipes.js).
+export const RecipeNewBody = z.object({
   ...Object.fromEntries(Object.entries(FIELDS).map(([k, v]) => [k, k === 'name' ? v : v.optional()])),
-}).strict().transform(b => ({ ...DEFAULTS, ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)) }))
+}).strict()
+export const RecipeNew = RecipeNewBody.transform(b => ({ ...DEFAULTS, ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)) }))
 
 // The editor's draft: the recipe's fields as far as the page has them.
 const PreviewBody = z.object({ id: uuid.nullable().optional(), ...Object.fromEntries(Object.entries(FIELDS).map(([k, v]) => [k, v.optional()])) })
   .transform(b => ({ ...DEFAULTS, name: 'This recipe', ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)) }))
+
+// Drafts Pepper wrote (phase 3): a line is an item, a prep recipe, or a prep
+// recipe made in the same request (new_key: that recipe's key).
+const DraftLine = z.object({
+  item_id:       uuid.nullable().optional(),
+  sub_recipe_id: uuid.nullable().optional(),
+  new_key:       z.string().trim().min(1).max(20).nullable().optional(),
+  qty:           z.number().positive().max(10000000),
+  unit:          z.string().trim().min(1).max(30),
+  yield_pct:     z.number().min(1).max(100).nullable().optional(),
+  note:          z.string().trim().max(500).nullable().optional(),
+}).refine(l => [l.item_id, l.sub_recipe_id, l.new_key].filter(Boolean).length === 1, 'Each line is an inventory item or a prep recipe')
+const DraftRecipe = z.object({
+  key:        z.string().trim().min(1).max(20),
+  name:       FIELDS.name,
+  kind:       FIELDS.kind,
+  category:   FIELDS.category.optional().default(null),
+  code:       FIELDS.code.optional().default(null),
+  yield_qty:  FIELDS.yield_qty.optional().default(null),
+  yield_unit: FIELDS.yield_unit.optional().default(null),
+  portions:   FIELDS.portions.optional().default(null),
+  loss_pct:   FIELDS.loss_pct.optional().default(0),
+  method:     FIELDS.method.optional().default(null),
+  notes:      z.string().trim().max(2000).nullable().optional().default(null),
+  lines:      z.array(DraftLine).max(MAX_LINES).default([]),
+  // What was read but not matched to anything: kept in the notes, in words.
+  left_out:   z.array(z.string().trim().min(1).max(300)).max(MAX_LINES).default([]),
+}).strict()
+export const DraftsBody = z.object({
+  source:  z.enum(['reader', 'pepper']),
+  recipes: z.array(DraftRecipe).min(1).max(50),
+}).strict()
 
 const CopyBody = z.object({ name: z.string().trim().min(1).max(200).optional(), variant: z.boolean().optional() })
 const ActiveBody = z.object({ is_active: z.boolean() })
@@ -109,6 +161,7 @@ const ListQuery = z.object({
   active:   z.enum(['on', 'off', 'all']).optional(),
 })
 const OneQuery = z.object({ venue_id: uuid.optional(), basis: z.enum(BASIS_KEYS).optional() })
+const CoverageQuery = z.object({ venue_id: uuid.optional(), days: z.coerce.number().int().min(1).max(365).optional() })
 
 const canView = requirePermission('recipes', 'view')
 const canManage = requirePermission('recipes', 'manage')
@@ -259,6 +312,88 @@ async function oneView(tx, req, id, { venueId = null, basis = 'standard' } = {},
   return view
 }
 
+const NOTES_MAX = 2000
+/**
+ * A draft's notes: its own, then the lines read but not matched, in words,
+ * within the notes' 2,000 characters. Whole lines only: when they don't all
+ * fit, the notes end by saying how many more there are, never cut silently.
+ */
+export function draftNotes(notes, leftOut = []) {
+  const own = String(notes || '').trim()
+  if (!leftOut.length) return own.slice(0, NOTES_MAX) || null
+  // The words saying how many didn't fit take at most this much.
+  const RESERVE = 80
+  const start = (own ? own.slice(0, NOTES_MAX - 200) + '\n\n' : '') + 'Read but not matched (add them): '
+  let text = start
+  let kept = 0
+  for (const w of leftOut) {
+    const next = text + (kept ? '; ' : '') + w
+    if (next.length + RESERVE > NOTES_MAX) break
+    text = next
+    kept++
+  }
+  if (kept === leftOut.length) return text
+  const n = leftOut.length - kept
+  return text + (kept ? '; and ' + n + ' more' : n + (n === 1 ? ' line' : ' lines')) + ' that didn\'t fit here: add ' + (n === 1 ? 'it' : 'them') + ' from the recipe card.'
+}
+
+/**
+ * Makes drafts Pepper wrote (POST /drafts, Pepper's read_recipes and
+ * make_recipe): each a draft with its source, checked as any recipe save is
+ * (ids the group's, prep only inside, nesting across every recipe, under the
+ * group's recipe lock). A line may name a prep recipe of the same request by
+ * its key: those are made first. Returns { made: [{ key, id, name, kind }] }.
+ */
+export async function makeDrafts(tx, tenantId, b, by = null) {
+  await lockRecipes(tx, tenantId)
+  const all = await loadRecipes(tx, tenantId)
+  const byKey = new Map(b.recipes.map(r => [r.key, r]))
+  if (byKey.size !== b.recipes.length) throw httpError(422, 'Two recipes have the same key', { code: 'key' })
+  for (const r of b.recipes) {
+    for (const l of r.lines.filter(x => x.new_key)) {
+      const sub = byKey.get(l.new_key)
+      if (!sub) throw httpError(422, r.name + ' names a recipe that isn\'t in the list', { code: 'new_key' })
+      if (sub.kind !== 'prep') throw httpError(422, sub.name + ' is a dish: only prep recipes go inside other recipes', { code: 'not_prep' })
+    }
+  }
+  // The ones others name first; a loop among them is refused.
+  const order = []
+  const state = new Map()
+  const visit = (r, path) => {
+    if (state.get(r.key) === 'done') return
+    if (state.get(r.key) === 'on') throw httpError(422, r.name + ' can\'t go inside itself: ' + [...path, r.name].join(' > ') + '.', { code: 'recipe_cycle' })
+    state.set(r.key, 'on')
+    for (const l of r.lines.filter(x => x.new_key)) visit(byKey.get(l.new_key), [...path, r.name])
+    state.set(r.key, 'done')
+    order.push(r)
+  }
+  for (const r of b.recipes) visit(r, [])
+  const ids = new Map()
+  const made = []
+  for (const r of order) {
+    const lines = r.lines.map(l => ({
+      item_id: l.item_id || null, sub_recipe_id: l.sub_recipe_id || (l.new_key ? ids.get(l.new_key) : null),
+      qty: l.qty, unit: l.unit, yield_pct: l.yield_pct ?? null, note: l.note || null,
+    }))
+    const body = {
+      ...DEFAULTS, name: r.name, kind: r.kind, category: r.category, code: r.code, status: 'draft',
+      yield_qty: r.yield_qty, yield_unit: r.yield_unit, portions: r.kind === 'dish' ? (r.portions ?? 1) : null, loss_pct: r.loss_pct ?? 0,
+      method: r.method, notes: draftNotes(r.notes, r.left_out), lines,
+    }
+    await checkRecipe(tx, tenantId, null, body, all)
+    const [row] = await tx`
+      INSERT INTO recipes ${tx({ ...recipeValues(body), source: b.source, tenant_id: tenantId, created_by: by })}
+      RETURNING id`
+    await writeLines(tx, tenantId, row.id, lines)
+    // What the next ones are checked against (nesting, prep only inside).
+    all.set(row.id, { ...recipeValues(body), id: row.id, variant_of: null, lines: lines.map((l, i) => ({ ...l, id: 'new-' + i, sort_order: i })) })
+    ids.set(r.key, row.id)
+    made.push({ key: r.key, id: row.id, name: r.name, kind: r.kind })
+  }
+  // In the order they were asked for.
+  return { made: b.recipes.map(r => made.find(m => m.key === r.key)) }
+}
+
 export default async function recipeRoutes(app) {
   app.addHook('preHandler', requireAuth)
 
@@ -281,7 +416,8 @@ export default async function recipeRoutes(app) {
           const c = recipeCost(r, ctx)
           return {
             id: r.id, name: r.name, kind: r.kind, category: r.category, code: r.code, status: r.status,
-            is_active: r.is_active, variant_of: r.variant_of, variant_of_name: r.variant_of ? all.get(r.variant_of)?.name ?? null : null,
+            is_active: r.is_active, source: r.source ?? null, needs_check: needsCheck(r),
+            variant_of: r.variant_of, variant_of_name: r.variant_of ? all.get(r.variant_of)?.name ?? null : null,
             yield_qty: r.yield_qty, yield_unit: r.yield_unit, portions: r.portions, photo_url: r.photo_url,
             line_count: r.lines.length, used_in: usedIn.get(r.id) || 0, updated_at: r.updated_at,
             unit: c.unit, coverage: c.coverage, gaps: c.gaps.length,
@@ -351,6 +487,40 @@ export default async function recipeRoutes(app) {
     })
   })
 
+  app.get('/coverage', { preHandler: canView }, async req => {
+    const q = CoverageQuery.parse(req.query || {})
+    const lv = await permissionLevels(req, ['pos_reports'])
+    // Sales in pounds for people who see the till's figures, as in the report subject Recipe coverage
+    // (its sales need pos_reports); the share and the order for every Recipes view. Costing view sees costs, not sales.
+    const money = permissionAtLeast(lv.pos_reports, 'view')
+    return withTenant(req.tenantId, async tx => {
+      const venue = q.venue_id ? await loadVenue(tx, req.tenantId, q.venue_id) : null
+      const c = await salesCoverageFor(tx, req.tenantId, { venueId: venue?.id ?? null, days: q.days })
+      const venues = await tx`SELECT id, name FROM venues WHERE tenant_id = ${req.tenantId} ORDER BY created_at, name`
+      const name = Object.fromEntries(venues.map(v => [v.id, v.name]))
+      const sums = s => ({
+        percent: s.percent, qty: s.qty,
+        ...(money ? { total_pence: s.total_pence, costed_pence: s.costed_pence, uncosted_pence: s.uncosted_pence, left_out_pence: s.left_out_pence } : {}),
+      })
+      return {
+        from: c.from, to: c.to, days: c.days, venue: venue ? { id: venue.id, name: venue.name } : null,
+        ...sums(c), sold: c.total_pence > 0,
+        // The share of the uncosted value each dish holds, for people who don't see pounds.
+        channels: Object.fromEntries(Object.entries(c.channels).map(([k, v]) => [k, sums(v)])),
+        venues: Object.entries(c.venues).map(([id, v]) => ({ id, name: name[id] || 'A venue', ...sums(v) })).sort((a, b) => a.name.localeCompare(b.name)),
+        dishes: c.dishes.map(d => ({
+          dish_id: d.dish_id, name: d.name, menu: d.menu, qty: d.qty, mapping: d.mapping,
+          share_pct: c.total_pence - c.left_out_pence > 0 ? Math.round(d.sales_pence * 1000 / (c.total_pence - c.left_out_pence)) / 10 : null,
+          ...(money ? { sales_pence: d.sales_pence } : {}),
+          venues: d.venue_ids.map(id => name[id] || 'A venue'), channels: d.channels, where: d.where,
+          recipe: d.recipe, fixes: d.fixes,
+        })),
+        left_out: c.left_out.map(l => ({ dish_id: l.dish_id, name: l.name, reason: l.reason, why: l.why, ...(money ? { sales_pence: l.sales_pence } : {}) })),
+        can: { money },
+      }
+    })
+  })
+
   app.get('/:recipeId', { preHandler: canView }, async req => {
     const q = OneQuery.parse(req.query || {})
     return withTenant(req.tenantId, tx => oneView(tx, req, req.params.recipeId, { venueId: q.venue_id, basis: q.basis }))
@@ -398,12 +568,19 @@ export default async function recipeRoutes(app) {
         lines: from.lines.map(l => ({ item_id: l.item_id, sub_recipe_id: l.sub_recipe_id, qty: l.qty, unit: l.unit, yield_pct: l.yield_pct, note: l.note })),
       }
       await checkRecipe(tx, req.tenantId, null, body, all)
+      // A copy of a draft nobody has checked yet is no more checked than it (phase 3).
       const [r] = await tx`
-        INSERT INTO recipes ${tx({ ...recipeValues(body), tenant_id: req.tenantId, created_by: who(req) })}
+        INSERT INTO recipes ${tx({ ...recipeValues(body), source: needsCheck(from) ? from.source : null, tenant_id: req.tenantId, created_by: who(req) })}
         RETURNING id`
       await writeLines(tx, req.tenantId, r.id, body.lines)
       return oneView(tx, req, r.id)
     })
+    return reply.code(201).send(out)
+  })
+
+  app.post('/drafts', { preHandler: canManage }, async (req, reply) => {
+    const b = DraftsBody.parse(req.body || {})
+    const out = await withTenant(req.tenantId, tx => makeDrafts(tx, req.tenantId, b, who(req)))
     return reply.code(201).send(out)
   })
 

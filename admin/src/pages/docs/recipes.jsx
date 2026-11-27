@@ -1,5 +1,5 @@
 // src/pages/docs/recipes.jsx
-// The Docs page's "Recipes and costing" section (inventory phases 1 and 2). Docs.jsx
+// The Docs page's "Recipes and costing" section (inventory phases 1 to 3). Docs.jsx
 // gathers every file in this folder (except parts.jsx) and shows them by order, then id.
 import { H2, H3, P, Mono, InfoBox } from './parts.jsx'
 
@@ -220,10 +220,81 @@ export function Section() {
         through the routes, by names). Registry:{' '}
         <Mono>recipes.links</Mono>, <Mono>recipes.option_rules</Mono>, <Mono>recipes.margins</Mono>.
       </P>
+      <H3>Phase 3: recipes read in, drafts, coverage by sales (migration 304)</H3>
+      <P>
+        <Mono>recipes.source</Mono> (migration 304): <Mono>reader</Mono> (read in from a file or text) |{' '}
+        <Mono>pepper</Mono> (Pepper&apos;s <Mono>make_recipe</Mono>) | null (made on the page, copied, a goods recipe).
+        Kept when the recipe goes live. <Mono>needsCheck(r)</Mono> in <Mono>shared/costing.js</Mono> is{' '}
+        <Mono>status = draft</Mono> with a source: <Mono>recipeCost()</Mono> then adds the gap <Mono>draft</Mono>
+        (&ldquo;not checked yet&rdquo;, line null), so the recipe, every recipe it sits inside and every dish linked to it
+        are partly costed until it is made live. A draft with no source (a variation, a copy) is costed as before. A copy
+        of an unchecked draft keeps its source.
+      </P>
+      <P>
+        The reader: <Mono>services/recipeReadAi.js</Mono> (<Mono>readRecipes()</Mono>, <Mono>toRecipes()</Mono>,{' '}
+        <Mono>RECIPE_SCHEMA</Mono>, one <Mono>askForJson()</Mono> call, use <Mono>recipe_reader</Mono>): items go to the
+        model as <Mono>i1</Mono>... (name, code, kept in and own units; up to 800), prep recipes as <Mono>r1</Mono>... (up
+        to 300), a prep recipe of the same reading is <Mono>n1</Mono>... (its place in the answer). In code: a ref is
+        checked against the list sent (anything else is dropped), lines without one go through{' '}
+        <Mono>matchThing()</Mono> against every active item and prep recipe, listed or not (code, then name: auto is
+        matched, 0.6 and up suggested, else not found), units through <Mono>toBase()</Mono> /{' '}
+        <Mono>inRecipeUnit()</Mono> (<Mono>unit_problem</Mono>), quantities through <Mono>qtyOf()</Mono> (fractions,
+        &frac12;; a comma is a decimal point only before one or two figures or after a lone 0, else a thousands
+        separator). The answer carries <Mono>items_listed</Mono> / <Mono>items_total</Mono> and{' '}
+        <Mono>preps_listed</Mono> / <Mono>preps_total</Mono>. Which read lines become draft lines is{' '}
+        <Mono>readLineKept()</Mono> in <Mono>shared/costing.js</Mono> (the review&apos;s <Mono>draftsBody()</Mono> and
+        Pepper&apos;s <Mono>draftsFromReading()</Mono>); <Mono>draftNotes()</Mono> keeps whole unmatched lines in the
+        2,000 characters and counts the ones that didn&apos;t fit. <Mono>suggestYield()</Mono>: the fast model, use{' '}
+        <Mono>yield_suggestion</Mono>.
+      </P>
+      <P>
+        Routes: <Mono>routes/recipeRead.js</Mono> at <Mono>/api/ai/recipes</Mono> (registered in{' '}
+        <Mono>areas/recipes.js</Mono>): <Mono>POST /read</Mono> <Mono>{'{ files: [{ name, data }], text, hint }'}</Mono>{' '}
+        (Recipes manage + Pepper; photos and PDFs by their first bytes, Excel or CSV read to rows by{' '}
+        <Mono>sheetRead.js</Mono>, up to 10 files, 20 MB, 60,000 characters of text; nothing saved) and{' '}
+        <Mono>POST /yield</Mono> <Mono>{'{ item_id | name }'}</Mono> (Purchasing setup or Recipes manage + Pepper; nothing
+        saved). <Mono>POST /api/recipes/drafts</Mono> <Mono>{'{ source, recipes: [{ key, name, kind, ..., lines, left_out }] }'}</Mono>{' '}
+        (Recipes manage; <Mono>makeDrafts()</Mono>: one transaction under <Mono>lockRecipes()</Mono>, a line is an item, a
+        prep recipe or <Mono>new_key</Mono> (a prep recipe of the same request, made first; a loop is 422{' '}
+        <Mono>recipe_cycle</Mono>), each checked by <Mono>checkRecipe()</Mono>; <Mono>left_out</Mono> goes into the notes as
+        &ldquo;Read but not matched&rdquo;). <Mono>POST /api/recipe-links/dishes/:dishId/recipe</Mono> (a draft dish recipe
+        for the dish, linked for every venue when it has none; 422 for a deal or a service).
+      </P>
+      <P>
+        Coverage by sales: <Mono>salesCoverage(rows, ctxFor)</Mono>, <Mono>soldState()</Mono>, <Mono>optionGaps()</Mono>{' '}
+        (from <Mono>offeredOptions()</Mono>, the matrix&apos;s rule too; a meal deal&apos;s typed-in choice is a{' '}
+        <Mono>deal</Mono> fix),{' '}
+        <Mono>costedShare()</Mono> in <Mono>shared/costing.js</Mono>: a dish sold at its venue, stream and order type is
+        costed when <Mono>dishCost()</Mono> there has no gaps and no option it offers needs a rule; the share is{' '}
+        <Mono>coverageShare()</Mono> (<Mono>shared/itemMapping.js</Mono>), services, dishes on no menu and our own
+        till, kiosk or online lines with no dish (open items, <Mono>reason: 'open'</Mono>) left out; only another
+        till&apos;s line with no dish is not costed, with the <Mono>map</Mono> fix. Sales:{' '}
+        <Mono>services/recipeCoverageSvc.js</Mono> <Mono>loadSold()</Mono> (closed till checks, lines not voided,{' '}
+        <Mono>NOT is_generated</Mono>; a kiosk device as server is the kiosk channel; online orders in{' '}
+        <Mono>OWN_COUNTED</Mono>, line total less discount; another till&apos;s item lines not ignored, by the main
+        part&apos;s dish or by name), <Mono>coverageCtx()</Mono> (every menu, draft over live, deals&apos; choices).{' '}
+        <Mono>GET /api/recipes/coverage</Mono> <Mono>?venue_id &amp;days</Mono> (Recipes view; pence only with till reports
+        view, as the report subject&apos;s sales fields, else each dish&apos;s <Mono>share_pct</Mono>; the last{' '}
+        <Mono>days</Mono> up to yesterday, as a report&apos;s Last 30 days).
+      </P>
+      <P>
+        Admin: <Mono>components/recipes/Coverage.jsx</Mono> (<Mono>CoverageCard</Mono> on the Recipes tab),{' '}
+        <Mono>RecipeReader.jsx</Mono> (lazy, <Mono>?read=1</Mono>: files, <Mono>photoCapture()</Mono> on phones,
+        pasted text; the review with <Mono>draftsBody()</Mono>), <Mono>RecipeEditor.jsx</Mono> <Mono>NewForDish</Mono>{' '}
+        (<Mono>?recipe=new&amp;for_dish=</Mono>), Make a recipe for this dish on <Mono>DishList.jsx</Mono> and{' '}
+        <Mono>DishMatrix.jsx</Mono>, <Mono>YieldSuggestion</Mono> in <Mono>components/purchasing/units.jsx</Mono>.
+        Reports: <Mono>recipes.coverage</Mono> (the work <Mono>recipe_coverage</Mono>: a row per dish sold on a day at a
+        venue, stream, order type and channel in the period, last 30 days without one; the sales field needs till
+        reports view), starter Uncosted dishes by sales. Pepper: <Mono>read_recipes</Mono> (consequential; the card pins
+        the reading), <Mono>make_recipe</Mono> (consequential), <Mono>link_recipes</Mono> (reversible, Undo puts each
+        cell back), <Mono>recipe_coverage</Mono> (read); the plain form <Mono>recipe</Mono> (<Mono>forms/recipes.js</Mono>,
+        the route&apos;s <Mono>RecipeNewBody</Mono>). Evaluation: <Mono>api/eval/tasks/recipes.mjs</Mono> (9 tasks;{' '}
+        <Mono>--only=recipes</Mono>).
+      </P>
       <InfoBox type="info">
-        Not yet: recipes read by Pepper, coverage by sales value, stock, usage from sales, the typical cost of a meal
-        deal from what guests pick, engineering and scenarios. They are the later phases of{' '}
-        <Mono>docs/INVENTORY.md</Mono>; what is left is in <Mono>docs/claude/outstanding/recipes.md</Mono>.
+        Not yet: stock, usage from sales, the typical cost of a meal deal from what guests pick, engineering and
+        scenarios. They are the later phases of <Mono>docs/INVENTORY.md</Mono>; what is left is in{' '}
+        <Mono>docs/claude/outstanding/recipes.md</Mono>.
       </InfoBox>
     </section>
   )

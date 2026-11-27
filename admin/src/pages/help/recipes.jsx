@@ -1,7 +1,8 @@
 // src/pages/help/recipes.jsx
-// The Help page's "Recipes" section (inventory phases 1 and 2: recipes, links
+// The Help page's "Recipes" section (inventory phases 1 to 3: recipes, links
 // to menu dishes by venue, revenue stream and order type, option rules, Menu
-// margins and cost targets). Help.jsx gathers
+// margins and cost targets; reading recipes in, making a recipe from a dish,
+// coverage by sales, typical yields). Help.jsx gathers
 // every file in this folder (except parts.jsx) and shows them by order, then id.
 import { H2, H3, P, InfoBox, DataTable } from './parts.jsx'
 
@@ -203,12 +204,79 @@ export function Section() {
         bottom of Menu margins, and can give a menu section its own (drinks often run lower), then{' '}
         <strong>Save</strong>.
       </P>
+      <H3>How much of what you sell is costed</H3>
+      <P>
+        The Recipes page opens on <strong>Costed: 62% of the last 30 days&apos; sales</strong> (your own figure):
+        of everything sold on the till, the self-order kiosks, online and any other till linked on the
+        Integrations page in the 30 days up to yesterday (the same days as a report&apos;s Last 30 days), the
+        share whose cost Macaroonie can work out. Pick a venue, or every venue. A dish sold counts as costed
+        when the recipe it uses where it was sold (that venue, revenue stream and order type) has no gaps and
+        the options it offers that add something have a rule. Test till sales are left out, and so are services,
+        dishes no longer on a menu and open items (an item typed in on the till with its own price: it isn&apos;t
+        a menu dish, so there is no recipe to give it). Each channel&apos;s share is shown under the figure; with
+        every venue picked, tap a venue to see its own.
+      </P>
+      <P>
+        Below it are the dishes not costed yet, the best sellers first, each with what to do: <strong>Link a
+        recipe</strong> (opens the dish), <strong>Open</strong> the recipe to finish its gaps, give an option a
+        rule, or, for an item sold on another till linked on the Integrations page, map it to a menu dish on the
+        Item mapping page. Costing the top few first costs most of what you sell. Sales show in pounds for
+        people with till reports access, as in the Recipe coverage report; everyone else sees each dish&apos;s
+        share of sales instead.
+      </P>
+      <H3>Reading recipes in</H3>
+      <P>
+        <strong>Read recipes</strong> (at the top of the Recipes page, for people who can change recipes) lets
+        Pepper read the recipes you already have: photos of recipe cards (on a phone or tablet,{' '}
+        <strong>Take a photo</strong>), a PDF, a spreadsheet (Excel or CSV) or text pasted in. One file can hold
+        many recipes. Pepper writes out each recipe with its lines and matches each line to your inventory items
+        and prep recipes, then you check everything before anything is made.
+      </P>
+      <P>
+        In the review each line shows what was read and its match: <strong>Matched</strong> (green: Pepper, the
+        item&apos;s code or its name found it), <strong>Suggested</strong> (amber: tap <strong>Use</strong> if it is
+        right) or <strong>Not found</strong> (red). For a line not found, <strong>Pick one</strong> from your items
+        and prep recipes, or <strong>Add to the inventory</strong> (people with Purchasing setup access; others
+        are told to ask). Fix a quantity or unit, <strong>Leave out</strong> a line, or untick a recipe you don&apos;t
+        want. A recipe that uses another one read from the same file (a burger and its sauce) is linked to it.
+        <strong> Make 3 draft recipes</strong> (the button counts the ticked ones) saves them all at once. Going
+        back to Recipes or tapping <strong>Read something else</strong> asks first, since what Pepper read and
+        your picks would be lost.
+      </P>
+      <InfoBox type="info">
+        Recipes Pepper read in are <strong>drafts</strong>, marked <strong>Draft, not checked</strong>. They are
+        costed, but shown as partly costed, and so is every dish linked to them, until someone opens each one,
+        checks it against the card and sets it to <strong>Live</strong>. Lines nobody matched are kept in the
+        recipe&apos;s notes in the words read, so nothing is lost or guessed. A draft you make yourself (a copy, a
+        variation) is costed as it is.
+      </InfoBox>
+      <H3>A recipe for a dish</H3>
+      <P>
+        On the <strong>Dishes</strong> tab a dish with no recipe (and no match to link) has{' '}
+        <strong>Make a recipe for this dish</strong>; a dish&apos;s matrix has it too. The new recipe starts with the
+        dish&apos;s name, its product code as the recipe&apos;s code and its section as the category, and is linked to
+        the dish for every venue when the dish has no recipe yet. The dish&apos;s options are listed with what each
+        does, each a tap from its rule.
+      </P>
+      <H3>A typical yield</H3>
+      <P>
+        In an inventory item&apos;s <strong>Units and yield</strong> card, <strong>Suggest a typical yield</strong> asks
+        Pepper what is usually usable of it once trimmed (a whole salmon about 55 to 60%). It is only a
+        suggestion: tap <strong>Use</strong> to put it in the yield, then <strong>Save</strong>. Weighing one before
+        and after trimming gives your own figure.
+      </P>
+      <InfoBox type="tip">
+        Ask Pepper &ldquo;read these recipes in&rdquo; with photos or a CSV attached (or the recipe pasted),
+        &ldquo;make a recipe for garlic butter: 400 g butter, 30 g garlic&rdquo;, &ldquo;use the burger to go recipe for
+        take out&rdquo; or &ldquo;how much of what we sell is costed?&rdquo;. Each change is shown on a card first;
+        linking can be undone.
+      </InfoBox>
       <InfoBox type="tip">
         Ask Pepper &ldquo;what does the burger cost to take away at Soho?&rdquo;, &ldquo;which dishes on the lunch
         menu are over target?&rdquo;, &ldquo;which recipes aren&apos;t fully costed?&rdquo; or &ldquo;what goes into the
         cheese sauce?&rdquo;. Reports has <strong>Dishes over the target cost %</strong>, <strong>Dishes with no
-        recipe</strong>, <strong>Recipe cost by venue</strong> and <strong>Recipes not fully costed</strong> (under
-        Recipes and costing).
+        recipe</strong>, <strong>Recipe cost by venue</strong>, <strong>Recipes not fully costed</strong> and{' '}
+        <strong>Uncosted dishes by sales</strong> (under Recipes and costing).
       </InfoBox>
     </section>
   )

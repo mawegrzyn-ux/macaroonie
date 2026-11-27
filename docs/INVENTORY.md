@@ -1,8 +1,9 @@
 # Inventory: recipes, costing, stock and variance
 
-**Status: phases 1 and 2 built on 27 Nov 2026 (recipes and the cost engine, migrations 298 to 301; links to
-dishes with the variation matrix, option rules and menu margins, migrations 302 and 303; see "Phase 1 as built"
-and "Phase 2 as built" under section 11). Phases 3 to 10 are a plan. The decisions in section 12 are taken as
+**Status: phases 1 to 3 built on 27 Nov 2026 (recipes and the cost engine, migrations 298 to 301; links to
+dishes with the variation matrix, option rules and menu margins, migrations 302 and 303; recipes read in by
+Pepper, drafts, recipes from dishes and coverage by sales, migration 304; see "Phase 1 as built", "Phase 2 as
+built" and "Phase 3 as built" under section 11). Phases 4 to 10 are a plan. The decisions in section 12 are taken as
 recommended, D1 to D12.** The owner's ask when building started: "recipes variations, per revenue stream/order type
 matrix, and per location (or ability to link a different recipe to menu items in different locations)",
 "stock take module" and "reports". The variation matrix is part of phase 2's links (5.4).
@@ -293,11 +294,24 @@ The rate is `taxFor()`'s for the chosen order type, so the page has an order typ
   `recipeReadAi.js` follows the invoice reader: one `askForJson()` call under `/api/ai/`, items
   sent as refs, never ids; it answers lines with quantities and units, matched to inventory items
   by code then name, with what it could not match listed. The result is a **draft** recipe.
-  Nobody's dish is costed from a draft; a person opens it, fixes the gaps and makes it live.
+  Nobody's dish is costed from a draft as if it were finished; a person opens it, fixes the gaps and makes it
+  live. *As built (phase 3): a draft Pepper wrote (`recipes.source` reader or pepper) is costed with the gap
+  "not checked yet", so it and every dish linked to it show as partly costed and coverage counts them as not
+  costed; a draft a person made (a copy, a variation) is costed as before. The reader also takes a spreadsheet
+  (Excel or CSV, read to rows), and a prep recipe in the same file is named by its place in the answer. Lines
+  not matched go into the draft's notes in the words read.*
 - **From the dish**: "Make a recipe for this dish" opens the editor with the dish's name and its
   options listed for rules.
 - **Typical yields**: Pepper may suggest a yield for a common ingredient when asked; it is marked
-  as a suggestion until saved.
+  as a suggestion until saved. *As built: Suggest a typical yield in the item's Units and yield card, on the
+  fast model; nothing records that a saved yield came from Pepper.*
+- **Coverage by sales** (phase 3, principle 7): the share of the last 30 days' sales that can be costed, from
+  the till (test sales left out, D10), kiosks, online orders and other tills; a dish sold counts at its venue,
+  revenue stream and order type when its recipe there has no gaps and its options have rules. One rule,
+  `salesCoverage()` in `shared/costing.js`, for the Recipes page, the report subject and Pepper. *As built:
+  the 30 days up to yesterday, as a report's Last 30 days; services, dishes on no menu and our own open
+  items (no dish) are left out, only another till's line with no dish is sent to the Item mapping; sales in
+  pounds need till reports view everywhere.*
 - **Order of work**: the Recipes page opens on "Costed: 62% of last 30 days' sales" with the
   uncosted dishes sorted by sales value, the same idea as the item mapping coverage.
 
@@ -532,7 +546,7 @@ scale; steps that follow the same day run nearer half.
 |---|---|---|---|
 | 1 | **Built 27 Nov 2026.** Units and yield on items; recipes and prep recipes; `shared/costing.js`; the Recipes page with live cost, coverage and the explanation; the `recipes` and `costing` modules | A recipe costed at each venue's prices | 80 to 100 |
 | 2 | **Built 27 Nov 2026.** Links to dishes with the variation matrix, option rules, meal deals, goods; the Menu margins page with the order type switch and thresholds; report subjects; Pepper's read tools | Every costed dish shows its margin | 80 to 100 |
-| 3 | Pepper reads recipes (sheet, PDF, photo, text) into drafts; match dishes to recipes; coverage by sales value | Most of a menu costed in a sitting | 50 to 65 |
+| 3 | **Built 27 Nov 2026.** Pepper reads recipes (sheet, PDF, photo, text) into drafts; match dishes to recipes; coverage by sales value | Most of a menu costed in a sitting | 50 to 65 |
 | 4 | The `stock` module; storage areas; stocktake (drafts, units, approval, key items, phone and scanner); waste; transfers; adjustments; `loadStockMoves()` | Stock run from documents | 90 to 110 |
 | 5 | Usage from sales (till, kiosk, online, imported); on hand with sales taken off; order to par minus stock | Stock on hand that follows trading | 70 to 90 |
 | 6 | Periods and variance; actual and theoretical food cost; the Cash Recon line; widgets; Today tasks; `explain_variance` | A pound figure on the gap, per item and venue | 70 to 90 |
@@ -596,6 +610,30 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
   and what is live, so a dish leaving the draft keeps its link until it is published away. Costs on the matrix and
   margins are at standard prices only. The cost targets are a `costing_settings` row per group with section
   overrides in it (no table per section).
+
+### Phase 3 as built (27 Nov 2026)
+
+- **Migration** 304: `recipes.source` (reader, pepper; null for a person's). No new table: nothing is saved until
+  the person makes the drafts.
+- **The reader** `api/src/services/recipeReadAi.js`, `POST /api/ai/recipes/read` (`routes/recipeRead.js`, Recipes
+  manage and Pepper): photos and PDFs as files, Excel and CSV as rows, pasted text; items as `i` refs, prep recipes
+  as `r` refs, a prep recipe of the same reading as `n`; refs checked in code, then `matchThing()` by code and name
+  (sure, suggested, not found), units by `toBase()`. The review is the Recipes page's Read recipes (lazy), which
+  picks an item, adds one to the inventory in place (Purchasing setup manage) and makes the drafts in one go
+  (`POST /api/recipes/drafts`, prep recipes first).
+- **Drafts** (the decision phase 2 left): `needsCheck()`, a draft with a source, carries the gap "not checked yet"
+  until it is made live.
+- **From the dish**: Make a recipe for this dish (`POST /api/recipe-links/dishes/:id/recipe`) starts from the
+  dish's name, product code and section, links it for every venue, and lists its options for their rules.
+- **Typical yields**: `POST /api/ai/recipes/yield` behind the item drawer's Suggest.
+- **Coverage by sales**: `salesCoverage()`, `soldState()`, `optionGaps()` in `shared/costing.js`, the share by the
+  item mapping's `coverageShare()`; sales read by `services/recipeCoverageSvc.js`; `GET /api/recipes/coverage`; the
+  report subject Recipe coverage (a work) and the starter Uncosted dishes by sales.
+- **Pepper**: `read_recipes` (drafts only, the card pins the reading), `make_recipe`, `link_recipes` (reversible),
+  `recipe_coverage`; the plain form New recipe. Evaluation `api/eval/tasks/recipes.mjs`.
+- **What the build changed in the plan**: a draft is costed, marked, not left uncosted (5.6); coverage judges a dish's
+  options by what it offers, not by what each sale picked (the picks need phase 5's reading of sales); GloriaFood
+  orders stay out of coverage until the item mapping takes them (phase 10).
 
 ## 12. Decisions for the owner
 

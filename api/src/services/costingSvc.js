@@ -24,7 +24,7 @@ import { recipeCost, explain, AVERAGE_DAYS, BASIS_KEYS } from '../../../shared/c
 const RECIPE_COLS = tx => tx`
   r.id, r.name, r.kind, r.category, r.yield_qty::float8 AS yield_qty, r.yield_unit, r.portions::float8 AS portions,
   r.loss_pct::float8 AS loss_pct, r.method, r.photo_url, r.shelf_life_hours, r.code, r.status, r.variant_of,
-  r.notes, r.is_active, r.created_by, r.created_at, r.updated_at`
+  r.notes, r.is_active, r.source, r.created_by, r.created_at, r.updated_at`
 
 /** Every recipe of the group (or these), with its lines in order: Map id -> recipe. */
 export async function loadRecipes(tx, tenantId, ids = null) {

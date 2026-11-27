@@ -72,7 +72,7 @@ test('every table in the database has one decision, and every decision names a t
 
   // The tables report subjects read are the ones the catalogue says it reads.
   const read = catalogueTables(CATALOGUE)
-  assert.deepEqual(read.get('pos_check_lines'), ['till.lines', 'till.voids', 'sales.dishes'])
+  assert.deepEqual(read.get('pos_check_lines'), ['till.lines', 'till.voids', 'sales.dishes', 'recipes.coverage'])
   assert.deepEqual(read.get('cash_staff'), ['till.takers', 'rota.staff_weeks', 'rota.weeks', 'rota.pot_weeks', 'rota.tip_shares', 'staff.people'])
   assert.deepEqual(read.get('gloriafood_orders'), ['online.sales'])
   assert.deepEqual(read.get('kds_log'), ['kitchen.tickets', 'kitchen.remakes'])
@@ -139,7 +139,7 @@ test('a table nobody has decided on, one decided twice and a stale name are each
 
 test('every id column of a table a subject reads is linked, offered or left out on purpose', t => {
   const cover = tableCoverage(CATALOGUE, columns)
-  assert.deepEqual(cover.derived, ['till.takers', 'sales.checks', 'sales.dishes', 'sales.tenders', 'online.sales', 'cash.days', 'cash.weeks', 'rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.tip_moves', 'purchasing.stock', 'recipes.costs', 'recipes.margins', 'safety.days', 'local.weather', 'local.weather_hours'])
+  assert.deepEqual(cover.derived, ['till.takers', 'sales.checks', 'sales.dishes', 'sales.tenders', 'online.sales', 'cash.days', 'cash.weeks', 'rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.tip_moves', 'purchasing.stock', 'recipes.costs', 'recipes.coverage', 'recipes.margins', 'safety.days', 'local.weather', 'local.weather_hours'])
   // Every table a subject reads as it is, is a table of the database.
   assert.deepEqual(cover.tables.map(x => x.table).filter(x => !tables.includes(x)), [])
 

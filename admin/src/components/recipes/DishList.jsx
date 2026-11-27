@@ -13,7 +13,7 @@
 
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Search, Link2, Package, Check } from 'lucide-react'
+import { Loader2, Search, Link2, Package, Check, Plus } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { inputCls, ErrorNote, ConfirmDelete, Modal, Segmented } from '@/components/staff/shared'
@@ -33,7 +33,7 @@ function DishCoverage({ coverage }) {
   )
 }
 
-export function DishList({ onOpen, canManage, startQ = '' }) {
+export function DishList({ onOpen, onMake, canManage, startQ = '' }) {
   const api = useApi()
   const qc = useQueryClient()
   const { data, isLoading, error } = useQuery({ queryKey: ['recipe-dishes'], queryFn: () => api.get('/recipe-links/dishes') })
@@ -96,9 +96,9 @@ export function DishList({ onOpen, canManage, startQ = '' }) {
         ) : (
           <ul className="divide-y" data-testid="dish-rows">
             {rows.map(d => (
-              <li key={d.id}>
+              <li key={d.id} className="flex flex-wrap items-center">
                 <button type="button" onClick={() => onOpen(d.id)} data-testid="dish-row" data-name={d.name}
-                  className="w-full text-left px-4 py-3 min-h-[56px] flex flex-wrap items-center gap-x-3 gap-y-1 hover:bg-muted/50 touch-manipulation">
+                  className="flex-1 min-w-[16rem] text-left px-4 py-3 min-h-[56px] flex flex-wrap items-center gap-x-3 gap-y-1 hover:bg-muted/50 touch-manipulation">
                   <span className="flex-1 min-w-[12rem]">
                     <span className="font-medium">{d.name}</span>
                     {KIND_WORDS[d.kind] && <span className="ml-2 text-xs rounded-full bg-muted px-2 py-0.5">{KIND_WORDS[d.kind]}</span>}
@@ -114,6 +114,11 @@ export function DishList({ onOpen, canManage, startQ = '' }) {
                   </span>
                   <DishCoverage coverage={d.coverage} />
                 </button>
+                {edit && onMake && d.coverage === 'unlinked' && (d.kind === 'dish' || d.kind === 'goods') && !d.suggestion && !d.goods_item && (
+                  <button type="button" className={cn(btn.outline, 'h-12 mx-4 my-2')} onClick={() => onMake(d.id)} data-testid="dish-make-recipe">
+                    <Plus className="w-4 h-4" />Make a recipe for this dish
+                  </button>
+                )}
               </li>
             ))}
           </ul>

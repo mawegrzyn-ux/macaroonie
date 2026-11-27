@@ -14,14 +14,15 @@
 // changed one keeps its changes until its own Save. API: routes/inventory.js.
 
 import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
-import { Loader2, Plus } from 'lucide-react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { Loader2, Plus, Sparkles } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Field, inputCls, ErrorNote, ConfirmDelete } from '@/components/staff/shared'
 import { NumInput, Card, btn } from '@/components/purchasing/shared'
 import { UNITS, fmtNum } from '@shared/procurement.js'
 import { unitChoices, unitNameProblem, asBought } from '@shared/costing.js'
+import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 const baseLabel = u => UNITS[u]?.label ?? u
 
@@ -77,6 +78,7 @@ function YieldForm({ item, canEdit, onSaved }) {
           </select>
         </Field>
       </div>
+      {canEdit && <YieldSuggestion item={item} onUse={pct => setF(x => ({ ...x, yield_pct: pct }))} />}
       {Number(f.yield_pct) < 100 && !wrong && (
         <p className="text-xs text-muted-foreground">
           A recipe using {fmtNum(100)} {baseLabel(item.base_unit)} needs {fmtNum(asBought(100, Number(f.yield_pct)))} {baseLabel(item.base_unit)} bought.
@@ -90,6 +92,43 @@ function YieldForm({ item, canEdit, onSaved }) {
         </div>
       )}
       <ErrorNote error={save.error} />
+    </div>
+  )
+}
+
+/**
+ * A typical yield for the item, asked of Pepper (inventory phase 3; POST
+ * /api/ai/recipes/yield): shown as a suggestion with its words, put in the
+ * yield field only when the person taps Use it, and saved only with the
+ * card's own Save.
+ */
+function YieldSuggestion({ item, onUse }) {
+  const api = useApi()
+  const { data: ai } = useQuery({ queryKey: ['ai-status'], queryFn: () => api.get('/ai/status'), staleTime: 60_000 })
+  const ask = useMutation({ mutationFn: () => api.post('/ai/recipes/yield', { item_id: item.id }) })
+  if (!ai?.can_chat) return null
+  const s = ask.data
+  return (
+    <div className="space-y-2" data-testid="inv-yield-suggest">
+      {!s && (
+        <button type="button" className={cn(btn.outline, 'h-12')} disabled={ask.isPending} onClick={() => ask.mutate()} data-testid="inv-yield-ask">
+          {ask.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}Suggest a typical yield
+        </button>
+      )}
+      {s && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 text-sky-900 px-3 py-2 text-sm flex flex-wrap items-center gap-2" data-testid="inv-yield-suggestion">
+          <span className="flex-1 min-w-[12rem]">
+            <span className="font-medium">{ASSISTANT_NAME} suggests {fmtNum(s.yield_pct)}%</span>
+            {s.low != null && s.high != null && s.low !== s.high && <span> (usually {fmtNum(s.low)} to {fmtNum(s.high)}%)</span>}
+            {s.words && <span className="block text-xs">{s.words}</span>}
+            {!s.sure && <span className="block text-xs">Only a guess: the name doesn&apos;t say enough.</span>}
+            <span className="block text-xs text-sky-800">A suggestion: weigh one before and after trimming to know yours.</span>
+          </span>
+          <button type="button" className={cn(btn.outline, 'h-12')} onClick={() => onUse(s.yield_pct)} data-testid="inv-yield-use">Use {fmtNum(s.yield_pct)}%</button>
+          <button type="button" className={cn(btn.ghost, 'h-12')} onClick={() => ask.reset()}>Dismiss</button>
+        </div>
+      )}
+      <ErrorNote error={ask.error} />
     </div>
   )
 }
