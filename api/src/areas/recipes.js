@@ -11,6 +11,7 @@ import recipeOptionRoutes from '../routes/recipeOptions.js'
 import menuMarginRoutes from '../routes/menuMargins.js'
 import recipeReadRoutes from '../routes/recipeRead.js'
 import costScenarioRoutes from '../routes/costScenarios.js'
+import costAlertRoutes from '../routes/costAlerts.js'
 
 export const routes = [
   // Recipes and prep recipes, costed by shared/costing.js (inventory phase 1, migration 300)
@@ -25,4 +26,6 @@ export const routes = [
   [recipeReadRoutes, { prefix: '/api/ai/recipes' }],
   // Cost scenarios and Push prices into a menu's draft (inventory phase 7a, migration 314)
   [costScenarioRoutes, { prefix: '/api/cost-scenarios' }],
+  // Cost alerts: dishes a supplier price change took over their cost target (inventory phase 7b, migration 315)
+  [costAlertRoutes, { prefix: '/api/cost-alerts' }],
 ]

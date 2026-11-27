@@ -428,6 +428,8 @@ function perText(perBase, baseUnit) {
   if (baseUnit === 'g' || baseUnit === 'ml') return pounds(perBase * 1000) + ' ' + perWord(perUnitLabel(baseUnit))
   return pounds(perBase) + ' ' + perWord(baseUnit)
 }
+/** The same for others: price creep's moves (inventory phase 7b), Pepper's why_cost_changed and the alerts list. */
+export const perBaseText = perText
 
 const HOW = {
   venue: 'the venue\'s supplier choice', default: 'the group\'s supplier choice', cheapest: 'the cheapest supplier',
@@ -1590,15 +1592,20 @@ export function dishMargin(item, section, menu, scope, ctx, { rates = [], settin
 /**
  * Every dish of a menu with its margin at a scope: what the Menu margins
  * page, the dish margins report and Pepper read. The menu's dishes join
- * ctx.dishes, and are what its meal deals choose from.
+ * ctx.dishes, and are what its meal deals choose from. only: a Set of dish
+ * ids to work out, the rest skipped (price creep, inventory phase 7b: only
+ * the dishes whose recipes use a changed item).
  */
-export function menuMargins(menu, scope, ctx, { rates = [], settings = null, withOptions = true } = {}) {
+export function menuMargins(menu, scope, ctx, { rates = [], settings = null, withOptions = true, only = null } = {}) {
   const mctx = menuCtx(menu)
   const here = { ...ctx, dishes: dishMap([menu], ctx.dishes), combo: mctx }
   const rules = variantRules(menu)
   const rows = []
   for (const s of menu?.sections || []) {
-    for (const i of s.items || []) rows.push(dishMargin(i, s, menu, scope, here, { rates, settings, rules, mctx, withOptions }))
+    for (const i of s.items || []) {
+      if (only && !only.has(i.id)) continue
+      rows.push(dishMargin(i, s, menu, scope, here, { rates, settings, rules, mctx, withOptions }))
+    }
   }
   return rows
 }

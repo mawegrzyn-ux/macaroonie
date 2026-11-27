@@ -21,8 +21,11 @@
 // stars, plough-horses, puzzles and dogs from what sold; the Scenarios tab
 // (?tab=scenarios, components/recipes/Scenarios.jsx, lazy) tries price and
 // cost changes at the real mix, saves them and pushes prices into a menu's
-// draft.
-// API: routes/menuMargins.js, routes/recipeLinks.js (a dish's steps).
+// draft. Price creep (inventory phase 7b: components/recipes/CostAlerts.jsx,
+// lazy) is a small banner across every tab when supplier price changes took
+// dishes over their cost target and nobody has marked them seen; ?alerts=1
+// opens the list (Today's card links there).
+// API: routes/menuMargins.js, routes/recipeLinks.js (a dish's steps), routes/costAlerts.js.
 
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -41,6 +44,8 @@ const SoldMargins = lazy(() => import('@/components/recipes/SoldMargins'))
 // Engineering and scenarios (inventory phase 7a), each loaded on demand too.
 const Engineering = lazy(() => import('@/components/recipes/Engineering'))
 const Scenarios = lazy(() => import('@/components/recipes/Scenarios'))
+// Price creep's banner and list (inventory phase 7b).
+const CostAlerts = lazy(() => import('@/components/recipes/CostAlerts'))
 const TABS = [
   { value: 'margins', label: 'Margins' }, { value: 'sold', label: 'Sold' },
   { value: 'engineering', label: 'Engineering' }, { value: 'scenarios', label: 'Scenarios' },
@@ -112,6 +117,12 @@ export default function MenuMargins() {
       </PageHeader>
       <div className="max-w-6xl mx-auto p-4 space-y-4">
         <Segmented value={tab} onChange={v => set({ tab: v === 'margins' ? '' : v })} options={TABS} className="[&>button]:h-12" testid="margins-tabs" />
+        {canView && (
+          <Suspense fallback={null}>
+            <CostAlerts venueId={venueId} canManage={canManage} open={params.get('alerts') === '1'} alertId={params.get('alert') || ''}
+              onOpen={() => set({ alerts: '1' })} onClose={() => set({ alerts: '', alert: '' })} />
+          </Suspense>
+        )}
         {tab !== 'margins' ? (
           <Suspense fallback={<div className="py-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" /></div>}>
             {tab === 'sold' && <SoldMargins venues={c?.venues || []} />}
