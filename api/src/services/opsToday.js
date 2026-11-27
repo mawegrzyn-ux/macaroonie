@@ -95,6 +95,8 @@ export const AREAS = {
   devices: 'pos_setup',
   sold_out: 'web_orders',
   rota: 'rota',
+  // Inventory phase 4a: a count due on the count day, counts to approve.
+  stock: 'stock',
 }
 
 /** The module a task belongs to: its area's, or Purchasing approval for orders to approve. */
@@ -517,6 +519,35 @@ const SOURCES = {
       due: null, group: day === 6 || day === 0 ? 'late' : 'now',
       action: { path: pageLink('/rota', { venue: v.id, week: next }), label: 'Do the rota' },
     }]
+  },
+
+  // Stock (inventory phase 4a): the count due on the venue's count day (a
+  // stock setting) until a count of that day is submitted, and counts waiting
+  // for approval, for whoever may approve them (Stock manage, and not the
+  // counter when a second person must approve). From /api/stock as the person.
+  async stock(ctx, v, s) {
+    const t = await callApi(ctx, 'GET', `/api/stock/venues/${v.id}/today?date=${s.date}`)
+    const tasks = []
+    if (t.count_due && !s.closed && t.can_count) {
+      const key = t.settings.count_kind === 'key'
+      tasks.push({
+        key: 'stock_count:' + v.id + ':' + s.date, area: 'stock', kind: 'stock_count_due', compliance: false,
+        title: key ? 'Key items count due' : 'Stock count due',
+        detail: t.draft ? 'Started: carry on counting, then submit it' : weekday(s.date) + ' is the count day',
+        due: null, group: 'now',
+        action: { path: '/stock?tab=counts&venue=' + v.id + (t.draft ? '&count=' + t.draft.id : ''), label: t.draft ? 'Carry on' : 'Start the count' },
+      })
+    }
+    for (const c of t.waiting.filter(x => x.can_approve)) {
+      tasks.push({
+        key: 'stock_approve:' + c.id, area: 'stock', kind: 'stock_count_to_approve', compliance: false,
+        title: (c.kind === 'key' ? 'Key items count' : 'Stock count') + ' to approve',
+        detail: 'Submitted' + (c.submitted_by ? ' by ' + c.submitted_by : '') + (c.submitted_at ? ' on ' + shortDate(localParts(c.submitted_at, v.timezone).date) : ''),
+        due: null, group: 'now',
+        action: { path: '/stock?tab=counts&venue=' + v.id + '&count=' + c.id, label: 'Review it' },
+      })
+    }
+    return tasks
   },
 }
 
