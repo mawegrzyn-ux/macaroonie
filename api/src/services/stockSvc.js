@@ -18,9 +18,12 @@
 // itemCost() in shared/costing.js. Costs are only worked out when asked for
 // (`costs: true`); values need Costing view, which the routes check.
 //
-// MOVE_SOURCES is the list of where moves come from. Phase 4b adds waste and
-// transfers (out and in) as two more entries; loadStockMoves() and every
-// caller stay as they are. Usage from sales is phase 5 (SALES_COUNTED).
+// MOVE_SOURCES is the list of where moves come from. Phase 4b (migration
+// 308) added waste: each logged entry's items taken off at its moment, and
+// each till void marked wasted (pos_check_lines.void_waste, generated test
+// sales left out: D10) broken into items through the recipe its dish uses
+// there, read from the till each time (loadWastedVoids()), never copied.
+// Usage from sales is phase 5 (SALES_COUNTED).
 //
 //   MOVE_SOURCES, SALES_COUNTED, NO_SALES_NOTE
 //   loadStockMoves(tx, tenantId, { venueIds, itemIds, from, to, kinds, costs, exceptCountId })
@@ -34,14 +37,25 @@
 //        (countUnits(): standard, its own, its packs) and `default_unit`)
 //   loadStockSettings(tx, tenantId), loadVenueSettings(tx, tenantId, venueId)
 //   countScope(tx, tenantId, count) -> the items a count covers, by area
+//   Waste (phase 4b): ensureWasteReasons(tx, tenantId) (the starting list, once
+//   a group), loadWasteReasons(tx, tenantId), venueDay(tx, tenantId, venueId, at)
+//   (the venue's trading day at a moment: the till's day start, else 04:00),
+//   wasteCtx(tx, tenantId) (the cost engine's ctx for breaking dishes and
+//   batches into items), loadWastedVoids(tx, tenantId, { venueIds, from, to,
+//   days, ctx }) (the till's voids marked wasted, with their items)
 
-import { stockOnHand, countUnits, defaultCountUnit } from '../../../shared/stock.js'
+import { stockOnHand, countUnits, defaultCountUnit, voidReason, WASTE_REASON_SEEDS } from '../../../shared/stock.js'
+import { itemsOf } from '../../../shared/stockItems.js'
 import { poNumberLabel } from '../../../shared/procurement.js'
 import { itemCost, AVERAGE_DAYS } from '../../../shared/costing.js'
+import { businessDate } from '../../../shared/pos/reports.js'
 import { loadCostItems } from './costingSvc.js'
+import { coverageCtx } from './recipeCoverageSvc.js'
 
 export const SALES_COUNTED = false
-export const NO_SALES_NOTE = 'Sales aren\'t taken off yet: usage from sales comes with inventory phase 5, so on hand is the last approved count plus deliveries and adjustments since.'
+export const NO_SALES_NOTE = 'Sales aren\'t taken off yet: usage from sales comes with inventory phase 5, so on hand is the last approved count plus deliveries, adjustments, waste and transfers since.'
+// A venue's trading day starts at its till's day start, else at 04:00 (the till's own default).
+export const DAY_STARTS_AT = '04:00'
 
 const DAY = 86400000
 const ts = v => (v == null ? null : v instanceof Date ? v : new Date(v))
@@ -108,11 +122,51 @@ async function adjustmentMoves(tx, tenantId, cut) {
   }))
 }
 
-// Phase 4b adds { kind: 'waste', load } and { kind: 'transfer_out' | 'transfer_in', load } here.
+/**
+ * Logged waste (migration 308): each item of each entry not undone, taken off
+ * at the entry's moment, at the cost it was logged with (the average paid
+ * then; null leaves it to fillCosts()). A reversing entry's items are below
+ * zero, so it puts them back, dated with the entry it reverses.
+ */
+async function wasteMoves(tx, tenantId, cut) {
+  const rows = await tx`
+    SELECT w.venue_id, wi.item_id, w.wasted_at AS at, (-wi.qty_base)::float8 AS qty_base, wi.cost_per_base::float8 AS cost_per_base,
+           w.id AS source_id, w.name, w.reason, w.reverses_id, w.wasted_by AS by
+      FROM stock_waste_items wi
+      JOIN stock_waste w ON w.id = wi.waste_id AND w.tenant_id = wi.tenant_id
+     WHERE wi.tenant_id = ${tenantId} AND w.undone_at IS NULL
+       ${cutOf(tx, cut, 'w.venue_id', 'wi.item_id', 'w.wasted_at')}
+     ORDER BY w.wasted_at, w.created_at`
+  return rows.map(r => ({
+    venue_id: r.venue_id, item_id: r.item_id, at: r.at, kind: 'waste', qty_base: r.qty_base, cost_per_base: r.cost_per_base,
+    source: { type: 'waste', id: r.source_id, label: (r.reverses_id ? 'Reversed: ' : '') + r.name + ' (' + r.reason + ')' }, by: r.by,
+  }))
+}
+
+/** Till voids marked wasted: each broken into items by its dish's recipe there, read from the till each time. */
+async function voidWasteMoves(tx, tenantId, cut) {
+  const voids = await loadWastedVoids(tx, tenantId, { venueIds: cut.venueIds, from: cut.from, to: cut.to })
+  const want = cut.itemIds ? new Set(cut.itemIds) : null
+  const out = []
+  for (const v of voids) {
+    for (const i of v.items) {
+      if (want && !want.has(i.item_id)) continue
+      out.push({
+        venue_id: v.venue_id, item_id: i.item_id, at: v.at, kind: 'waste', qty_base: -i.qty_base, cost_per_base: null,
+        source: { type: 'till_void', id: v.id, label: 'Till void: ' + v.name + ' (' + v.reason + ')' }, by: v.by,
+      })
+    }
+  }
+  return out
+}
+
+// Where moves come from. Phase 4b added waste (logged, and the till's voids marked wasted).
 export const MOVE_SOURCES = [
   { kind: 'delivery', load: deliveryMoves },
   { kind: 'count', load: countMoves },
   { kind: 'adjustment', load: adjustmentMoves },
+  { kind: 'waste', load: wasteMoves },
+  { kind: 'waste', load: voidWasteMoves },
 ]
 
 /**
@@ -297,4 +351,108 @@ export async function countScope(tx, tenantId, count) {
     return { id: a.id, name: a.name, item_ids: ids }
   })
   return { areas: sheet, other: covered.filter(id => !inArea.has(id)), item_ids: covered }
+}
+
+// ── Waste (phase 4b, migration 308) ───────────────────────────────────
+
+/** The group's starting reasons, once (a flag on stock_settings, so deleting them all doesn't bring them back). */
+export async function ensureWasteReasons(tx, tenantId) {
+  const [s] = await tx`SELECT waste_reasons_seeded FROM stock_settings WHERE tenant_id = ${tenantId}`
+  if (s?.waste_reasons_seeded) return
+  const rows = WASTE_REASON_SEEDS.map((r, i) => ({ tenant_id: tenantId, name: r.name, kind: r.kind, sort_order: i }))
+  await tx`INSERT INTO waste_reasons ${tx(rows, 'tenant_id', 'name', 'kind', 'sort_order')} ON CONFLICT DO NOTHING`
+  await tx`
+    INSERT INTO stock_settings (tenant_id, waste_reasons_seeded) VALUES (${tenantId}, true)
+    ON CONFLICT (tenant_id) DO UPDATE SET waste_reasons_seeded = true`
+}
+
+/** The group's waste reasons in their order, each with how many entries use it. */
+export async function loadWasteReasons(tx, tenantId) {
+  await ensureWasteReasons(tx, tenantId)
+  return tx`
+    SELECT r.id, r.name, r.kind, r.sort_order, r.is_active,
+           (SELECT count(*)::int FROM stock_waste w WHERE w.reason_id = r.id AND w.tenant_id = r.tenant_id) AS used
+      FROM waste_reasons r WHERE r.tenant_id = ${tenantId}
+     ORDER BY r.sort_order, lower(r.name)`
+}
+
+/** The venue's trading day (YYYY-MM-DD) at a moment: its till's day start, else DAY_STARTS_AT, in its time zone. */
+export async function venueDay(tx, tenantId, venueId, at = new Date()) {
+  const [v] = await tx`
+    SELECT v.timezone, ps.day_starts_at FROM venues v
+      LEFT JOIN pos_settings ps ON ps.venue_id = v.id AND ps.tenant_id = v.tenant_id
+     WHERE v.id = ${venueId} AND v.tenant_id = ${tenantId}`
+  return businessDate(at, v?.timezone || 'Europe/London', v?.day_starts_at || DAY_STARTS_AT)
+}
+
+/**
+ * The cost engine's ctx for breaking dishes and batches into items: every
+ * recipe, link, option rule and option, and every dish on a menu (the
+ * draft's definition over what is live: a till sells from the live release,
+ * which keeps the draft's ids). Prices aren't needed: what an item cost is
+ * the average paid at the venue (costAt()), never the recipe's standard.
+ */
+export async function wasteCtx(tx, tenantId) {
+  const { ctx } = await coverageCtx(tx, tenantId)
+  return { ...ctx, _memo: new Map() }
+}
+
+/**
+ * The till's voids marked wasted (pos_check_lines.void_waste: the dish had
+ * been made), generated test sales left out (decision D10): each with its
+ * venue, moment (the void's, else the line's send), trading day, dish, qty,
+ * reason (voidReason(): the group's reason of that name, else the void's
+ * words as preparation), who voided it (the till's staff), its check, and
+ * its items through the recipe its dish uses at its venue, revenue stream
+ * and order type (itemsOf(): its options and a meal deal's picks from the
+ * check's own record), with what couldn't be broken in (gaps). Read only:
+ * the till is their record. from / to: moments; days: { from, to } trading
+ * days (YYYY-MM-DD).
+ */
+export async function loadWastedVoids(tx, tenantId, { venueIds = null, from = null, to = null, days = null, ctx = null, reasons = null } = {}) {
+  if (venueIds && !venueIds.length) return []
+  const rows = await tx`
+    SELECT x.* FROM (
+      SELECT l.id, l.check_id, c.venue_id, c.number, c.number_code, l.item_id AS dish_id, l.name, l.qty::float8 AS qty,
+             l.void_reason, COALESCE(l.voided_at, l.sent_at, c.opened_at) AS at, l.gross::int AS gross,
+             COALESCE(d.business_date, (COALESCE(l.voided_at, l.sent_at, c.opened_at) AT TIME ZONE COALESCE(v.timezone, 'Europe/London'))::date) AS day,
+             COALESCE(l.revenue_stream_id, c.revenue_stream_id) AS revenue_stream_id, c.order_type_id, s.name AS by,
+             (SELECT j FROM jsonb_array_elements(c.state->'lines') j WHERE j->>'id' = l.id LIMIT 1) AS line
+        FROM pos_check_lines l
+        JOIN pos_checks c ON c.id = l.check_id AND c.tenant_id = l.tenant_id
+        JOIN venues v ON v.id = c.venue_id AND v.tenant_id = c.tenant_id
+        LEFT JOIN pos_days d ON d.id = l.void_day_id AND d.tenant_id = l.tenant_id
+        LEFT JOIN cash_staff s ON s.id = l.voided_by AND s.tenant_id = l.tenant_id
+       WHERE l.tenant_id = ${tenantId} AND l.status = 'voided' AND l.void_waste AND NOT c.is_generated
+         ${venueIds ? tx`AND c.venue_id = ANY(${venueIds}::uuid[])` : tx``}
+    ) x
+     WHERE true
+       ${from ? tx`AND x.at >= ${ts(from)}` : tx``}
+       ${to ? tx`AND x.at <= ${ts(to)}` : tx``}
+       ${days?.from ? tx`AND x.day >= ${days.from}::date` : tx``}
+       ${days?.to ? tx`AND x.day <= ${days.to}::date` : tx``}
+     ORDER BY x.at, x.id`
+  if (!rows.length) return []
+  const [engine, why] = await Promise.all([
+    ctx || wasteCtx(tx, tenantId),
+    reasons || tx`SELECT id, name, kind FROM waste_reasons WHERE tenant_id = ${tenantId}`,
+  ])
+  return rows.map(r => {
+    const line = r.line || {}
+    const rr = voidReason(r.void_reason, why)
+    const parts = r.dish_id
+      ? itemsOf({
+        dish_id: r.dish_id, qty: r.qty, options: line.modifiers || [], picks: line.combo ?? null,
+        scope: { venue_id: r.venue_id, revenue_stream_id: r.revenue_stream_id, order_type_id: r.order_type_id },
+      }, engine)
+      : { items: [], gaps: [r.name + ' was typed in on the till (no dish), so it has no recipe'], recipe: null }
+    const day = r.day instanceof Date ? r.day.toISOString().slice(0, 10) : String(r.day).slice(0, 10)
+    return {
+      id: r.id, kind: 'till_void', check_id: r.check_id, check_number: r.number_code || (r.number != null ? String(r.number) : null),
+      venue_id: r.venue_id, at: r.at, day, dish_id: r.dish_id, name: r.name, qty: r.qty, unit: 'each',
+      reason_id: rr.reason_id, reason: rr.reason, reason_kind: rr.kind, by: r.by || null, gross_pence: r.gross,
+      revenue_stream_id: r.revenue_stream_id, order_type_id: r.order_type_id,
+      items: parts.items, gaps: parts.gaps, recipe: parts.recipe,
+    }
+  })
 }
