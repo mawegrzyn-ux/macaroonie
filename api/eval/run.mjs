@@ -5,7 +5,7 @@
 //                                   must pass: the checks aren't empty)
 //   npm run eval -- --live          every task through Pepper's chat on the
 //                                   real model (AI_MODEL / AI_MODEL_FAST): costs money
-//   --only=book_table,sold_out      some tasks
+//   --only=book_table,sold_out      some tasks (by id, or every task of an area: --only=recipes)
 //   --trials=3                      each task this many times (pass^k)
 //   --out=eval/results/x.json       where the JSON result goes
 //
@@ -47,9 +47,9 @@ assertTestDatabase()
 let tasks = await loadTasks()
 if (typeof args.only === 'string') {
   const want = new Set(args.only.split(',').map(s => s.trim()).filter(Boolean))
-  const unknown = [...want].filter(id => !tasks.some(t => t.id === id))
-  if (unknown.length) { console.error('No task called ' + unknown.join(', ')); process.exit(2) }
-  tasks = tasks.filter(t => want.has(t.id))
+  const unknown = [...want].filter(id => !tasks.some(t => t.id === id || t.area === id))
+  if (unknown.length) { console.error('No task or area called ' + unknown.join(', ')); process.exit(2) }
+  tasks = tasks.filter(t => want.has(t.id) || want.has(t.area))
 }
 const trials = Math.max(1, Math.min(10, Number(args.trials) || 1))
 const mode = live ? 'live' : 'baseline'
