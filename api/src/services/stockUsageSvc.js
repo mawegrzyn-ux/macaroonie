@@ -31,20 +31,26 @@
 //     or setting marked (dirty_from), or that has never been worked out.
 //     Today is worked out too, so on hand takes sales off "up to the last
 //     run" (the time shown beside it).
-//   - Closed periods never change (D9): isDayClosed() is the hook phase 6
-//     fills; until then no day is closed.
+//   - Closed periods never change (D9; phase 6a, migration 312): a day
+//     inside a closed period (isDayClosed(), from the venue's closed periods
+//     read once per run) is never worked out again. When its sales change
+//     after all (a late sale), what it would be now less what was kept is
+//     kept apart (keepLateUsage(): stock_usage_late) and lands in the next
+//     open period, marked.
 //   - Costs are pounds per base unit at the day's last sale: the average paid
 //     at the venue over the 90 days before, else the last paid (costLookup()),
 //     else the standard price (chooseQuote()); none is a gap, the dish is
 //     uncosted.
 //
-//   USAGE_DAYS, RECOMPUTE_MAX_DAYS, usageHooks, isDayClosed(venueId, day)
+//   USAGE_DAYS, RECOMPUTE_MAX_DAYS, usageHooks, isDayClosed(venueId, day, ranges)
 //   markUsageDirty(tx, tenantId, { venueIds, from })   a recipe, link, rule or
 //                         setting changed: work the open days out again
 //   venueToday(tx, tenantId, venueId, now)   the venue's trading day and zone
 //   goneDishes(tx, tenantId, ids, { lines, links })   sold dishes on no menu now, as last released
 //   dayFingerprints(tx, tenantId, venueId, from, to, { refunds })
+//   workDays(tx, tenantId, venueId, days, { settings, now })   the days worked out, nothing written
 //   computeDays(tx, tenantId, venueId, days, { fingerprints, now })
+//   keepLateUsage(tx, tenantId, venueId, days, { fingerprints })   closed days' late sales
 //   runVenueUsage(tx, tenantId, venueId, { days, force, now })
 //   claimVenue(tx, tenantId, venueId) / releaseVenue(...)   a manual Recompute's lease
 //   sweepStockUsage(log, { now })   the job
@@ -55,6 +61,8 @@ import { isCombo } from '../../../shared/combos.js'
 import { businessDate } from '../../../shared/pos/reports.js'
 import { loadSoldLines, loadPickMix, coverageCtx, SOLD_FROM, gloriaDayRows } from './recipeCoverageSvc.js'
 import { costLookup, DAY_STARTS_AT } from './stockSvc.js'
+import { closedRanges, dayInRanges, landingPeriod } from './stockVarianceSvc.js'
+import { isFoodSale } from '../../../shared/variance.js'
 
 export const USAGE_DAYS = 14
 export const RECOMPUTE_MAX_DAYS = 31
@@ -64,9 +72,14 @@ const CLAIM = 25
 const AGAIN_MINUTES = 4
 const MAX_GAPS = 5
 
-/** Phase 6 fills this: a day inside a closed period is never worked out again (D9). */
-export function isDayClosed(venueId, day) { // eslint-disable-line no-unused-vars
-  return false
+/**
+ * Whether a trading day is inside a closed period (D9: never worked out
+ * again; phase 6a, migration 312). ranges: the venue's closed periods'
+ * trading days, read once per run by closedRanges() (services/
+ * stockVarianceSvc.js), so the check per day costs nothing.
+ */
+export function isDayClosed(venueId, day, ranges = []) { // eslint-disable-line no-unused-vars
+  return dayInRanges(day, ranges)
 }
 // The hooks the run calls (a test can watch them).
 export const usageHooks = { isDayClosed }
@@ -233,13 +246,13 @@ const NO_DISH = {
 const NO_COST = name => ({ reason: 'no_cost', text: name + ' has no price here: nothing paid at this venue and no supplier price', fix: 'Add a supplier price for ' + name + ' on the Inventory page, or book a delivery in.' })
 
 /**
- * Work out these days at one venue and replace what was kept for them, in
- * the caller's transaction: stock_usage_days, dish_cost_days and each day's
- * mark (its fingerprint, the lines read, how many couldn't be costed).
- * fingerprints: Map day -> text (dayFingerprints()). Returns { days, lines, items, dishes }.
+ * Work these days out at one venue from their sales, writing nothing:
+ * { usageRows, dishRows, counts (day -> { lines, uncosted }), lastAt (day ->
+ * the day's last sale), lines (the sold lines read), settings }. computeDays()
+ * writes what it gives; a closed day's late sales are what it gives less what
+ * was kept (keepLateUsage()).
  */
-export async function computeDays(tx, tenantId, venueId, days, { fingerprints = null, settings = null, now = new Date() } = {}) {
-  if (!days.length) return { days: 0, lines: 0, items: 0, dishes: 0 }
+export async function workDays(tx, tenantId, venueId, days, { settings = null, now = new Date() } = {}) {
   const set = settings || await loadSettings(tx, tenantId)
   const want = new Set(days)
   const from = days.reduce((a, b) => (a < b ? a : b))
@@ -301,7 +314,7 @@ export async function computeDays(tx, tenantId, venueId, days, { fingerprints = 
     const key = [l.day, l.channel, l.dish_id || 'name:' + String(l.name).toLowerCase(), scope.revenue_stream_id, scope.order_type_id].join('|')
     const d = dishes.get(key) || dishes.set(key, {
       day: l.day, channel: l.channel, dish_id: l.dish_id ?? null, name: dish?.name || l.name || 'A dish',
-      section_id: dish?.section_id ?? null, section: dish?.section ?? null,
+      section_id: dish?.section_id ?? null, section: dish?.section ?? null, item_type: dish?.item_type ?? null,
       revenue_stream_id: scope.revenue_stream_id, order_type_id: scope.order_type_id,
       recipe_id: u?.recipe?.id ?? null, recipe_name: u?.recipe?.name ?? null,
       qty: 0, sales_pence: 0, net_pence: 0, items: new Map(), uncosted_qty: 0, typical_qty: 0, left_out: leftOut, gaps: [],
@@ -361,13 +374,27 @@ export async function computeDays(tx, tenantId, venueId, days, { fingerprints = 
     if (missing && !d.left_out) d.uncosted_qty = d.qty
     return {
       tenant_id: tenantId, venue_id: venueId, day: d.day, channel: d.channel, dish_id: d.dish_id, name: String(d.name).slice(0, 300),
-      section_id: d.section_id, section: d.section, revenue_stream_id: d.revenue_stream_id, order_type_id: d.order_type_id,
+      section_id: d.section_id, section: d.section, item_type: d.item_type, revenue_stream_id: d.revenue_stream_id, order_type_id: d.order_type_id,
       recipe_id: d.recipe_id, recipe_name: d.recipe_name, qty: round4(d.qty), sales_pence: Math.round(d.sales_pence),
       // The theoretical cost of the items that had a price; null when none had one (nothing could be costed), never 0.
       net_pence: Math.round(d.net_pence), cost: priced ? round6(cost) : null, uncosted_qty: round4(d.uncosted_qty),
       typical_qty: round4(d.typical_qty), left_out: d.left_out, gaps: d.gaps,
     }
   })
+  return { usageRows, dishRows, counts, lastAt, lines, settings: set }
+}
+
+/**
+ * Work out these days at one venue and replace what was kept for them, in
+ * the caller's transaction: stock_usage_days, dish_cost_days and each day's
+ * mark (its fingerprint, the lines read, how many couldn't be costed).
+ * fingerprints: Map day -> text (dayFingerprints()). Returns { days, lines, items, dishes }.
+ */
+export async function computeDays(tx, tenantId, venueId, days, { fingerprints = null, settings = null, now = new Date() } = {}) {
+  if (!days.length) return { days: 0, lines: 0, items: 0, dishes: 0 }
+  const from = days.reduce((a, b) => (a < b ? a : b))
+  const to = days.reduce((a, b) => (a > b ? a : b))
+  const { usageRows, dishRows, counts, lastAt, lines, settings: set } = await workDays(tx, tenantId, venueId, days, { settings, now })
 
   // Replaced whole: the days' rows go and come back in this one transaction.
   await tx`DELETE FROM stock_usage_days WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND day = ANY(${days}::date[])`
@@ -378,7 +405,7 @@ export async function computeDays(tx, tenantId, venueId, days, { fingerprints = 
   }
   for (let i = 0; i < dishRows.length; i += 500) {
     const chunk = dishRows.slice(i, i + 500).map(r => ({ ...r, gaps: tx.json(r.gaps) }))
-    await tx`INSERT INTO dish_cost_days ${tx(chunk, 'tenant_id', 'venue_id', 'day', 'channel', 'dish_id', 'name', 'section_id', 'section',
+    await tx`INSERT INTO dish_cost_days ${tx(chunk, 'tenant_id', 'venue_id', 'day', 'channel', 'dish_id', 'name', 'section_id', 'section', 'item_type',
       'revenue_stream_id', 'order_type_id', 'recipe_id', 'recipe_name', 'qty', 'sales_pence', 'net_pence', 'cost', 'uncosted_qty', 'typical_qty', 'left_out', 'gaps')}`
   }
   const fps = fingerprints || await dayFingerprints(tx, tenantId, venueId, from, to, { refunds: set.refunds })
@@ -398,15 +425,21 @@ export async function computeDays(tx, tenantId, venueId, days, { fingerprints = 
  * One venue's run: the days to work out (asked for, else the last
  * USAGE_DAYS trading days up to today), closed ones left alone, and of the
  * rest those whose sales changed, that were marked, or never worked out
- * (all of them with force). In the caller's transaction.
+ * (all of them with force). A closed day whose sales changed since it was
+ * kept (late sales) is never worked out again: what changed is kept apart
+ * and lands in the next open period (keepLateUsage(), phase 6a). In the
+ * caller's transaction.
  */
 export async function runVenueUsage(tx, tenantId, venueId, { days = null, force = false, now = new Date(), dirtyFrom = undefined } = {}) {
   const { today } = await venueToday(tx, tenantId, venueId, now)
   const window = (days || daysBetween(addDays(today, -(USAGE_DAYS - 1)), today)).filter(d => d <= today)
-  const open = window.filter(d => !usageHooks.isDayClosed(venueId, d))
-  if (!open.length) return { venue_id: venueId, today, days: 0, worked: [] }
+  if (!window.length) return { venue_id: venueId, today, days: 0, worked: [], late: { days: 0, batches: 0 } }
+  // The venue's closed periods, read once: the hook is asked for every day and must cost nothing.
+  const ranges = await closedRanges(tx, tenantId, venueId)
+  const open = window.filter(d => !usageHooks.isDayClosed(venueId, d, ranges))
+  const closed = window.filter(d => !open.includes(d))
   const settings = await loadSettings(tx, tenantId)
-  const from = open[0], to = open[open.length - 1]
+  const from = window[0], to = window[window.length - 1]
   const [fps, marks, state] = await Promise.all([
     dayFingerprints(tx, tenantId, venueId, from, to, { refunds: settings.refunds }),
     tx`SELECT day::text AS day, fingerprint FROM stock_usage_marks WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND day BETWEEN ${from}::date AND ${to}::date`,
@@ -416,7 +449,83 @@ export async function runVenueUsage(tx, tenantId, venueId, { days = null, force 
   const dirty = state[0]?.dirty_from || null
   const todo = force ? open : open.filter(d => !markOf.has(d) || markOf.get(d) !== fps.get(d) || (dirty && d >= dirty))
   const r = await computeDays(tx, tenantId, venueId, todo, { fingerprints: fps, settings, now })
-  return { venue_id: venueId, today, ...r, worked: todo }
+  // A closed day whose sales changed since it was kept (a recipe change marks nothing there: D9).
+  const none = JSON.stringify({ refunds: !!settings.refunds })
+  const lateDue = closed.filter(d => (markOf.has(d) ? markOf.get(d) !== fps.get(d) : fps.get(d) !== none))
+  const late = lateDue.length ? await keepLateUsage(tx, tenantId, venueId, lateDue, { fingerprints: fps, settings, now }) : { days: 0, batches: 0 }
+  return { venue_id: venueId, today, ...r, worked: todo, late }
+}
+
+/**
+ * Late sales on closed days (D9; phase 6a, migration 312): each day worked
+ * out now, less what was kept for it and what landed late before, kept
+ * apart in stock_usage_late (the items, and what it adds to net sales, net
+ * food sales and theoretical cost), landing in the first open period after
+ * the closed one (landingPeriod()), else the period running since the
+ * latest full count. The day's own rows never change; its mark takes the
+ * new fingerprint (so the same sales aren't kept twice) and keeps its last
+ * sale (the day's place on the ledger, inside the closed period).
+ * -> { days, batches }
+ */
+export async function keepLateUsage(tx, tenantId, venueId, days, { fingerprints = null, settings = null, now = new Date() } = {}) {
+  if (!days.length) return { days: 0, batches: 0 }
+  const work = await workDays(tx, tenantId, venueId, days, { settings, now })
+  const [kept, keptDishes, before, beforeSales, marks] = await Promise.all([
+    tx`SELECT day::text AS day, item_id, qty_base::float8 AS qty FROM stock_usage_days
+        WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND day = ANY(${days}::date[])`,
+    tx`SELECT day::text AS day, item_type, left_out, sum(net_pence)::float8 AS net, sum(cost)::float8 AS cost FROM dish_cost_days
+        WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND day = ANY(${days}::date[]) GROUP BY 1, 2, 3`,
+    tx`SELECT l.day::text AS day, li.item_id, sum(li.qty_base)::float8 AS qty FROM stock_usage_late l
+         JOIN stock_usage_late_items li ON li.late_id = l.id AND li.tenant_id = l.tenant_id
+        WHERE l.tenant_id = ${tenantId} AND l.venue_id = ${venueId} AND l.day = ANY(${days}::date[]) GROUP BY 1, 2`,
+    tx`SELECT day::text AS day, sum(net_pence)::float8 AS net, sum(net_food_pence)::float8 AS food, sum(lines)::int AS lines, sum(COALESCE(cost, 0))::float8 AS cost
+         FROM stock_usage_late WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND day = ANY(${days}::date[]) GROUP BY 1`,
+    tx`SELECT day::text AS day, lines, last_sale_at FROM stock_usage_marks WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND day = ANY(${days}::date[])`,
+  ])
+  const key = (d, i) => d + '|' + i
+  const had = new Map()
+  for (const r of [...kept, ...before]) had.set(key(r.day, r.item_id), (had.get(key(r.day, r.item_id)) || 0) + r.qty)
+  const markOf = new Map(marks.map(m => [m.day, m]))
+  const sumOf = (rows, f) => rows.reduce((t, r) => t + (Number(f(r)) || 0), 0)
+  let batches = 0
+  for (const day of days) {
+    const items = new Map()
+    for (const r of work.usageRows.filter(x => x.day === day)) items.set(r.item_id, { qty: r.qty_base, cost_per_base: r.cost_per_base })
+    for (const k of had.keys()) {
+      const [d, itemId] = k.split('|')
+      if (d === day && !items.has(itemId)) items.set(itemId, { qty: 0, cost_per_base: null })
+    }
+    const diffs = [...items.entries()]
+      .map(([itemId, v]) => ({ item_id: itemId, qty_base: round4(v.qty - (had.get(key(day, itemId)) || 0)), cost_per_base: v.cost_per_base }))
+      .filter(x => x.qty_base !== 0)
+    const dishNow = work.dishRows.filter(r => r.day === day)
+    const prev = beforeSales.find(r => r.day === day) || { net: 0, food: 0, lines: 0, cost: 0 }
+    const keptDay = keptDishes.filter(r => r.day === day)
+    const net = Math.round(sumOf(dishNow, r => r.net_pence) - sumOf(keptDay, r => r.net) - prev.net)
+    const food = Math.round(sumOf(dishNow.filter(isFoodSale), r => r.net_pence) - sumOf(keptDay.filter(isFoodSale), r => r.net) - prev.food)
+    const cost = round6(sumOf(dishNow, r => r.cost) - sumOf(keptDay, r => r.cost) - prev.cost)
+    const mark = markOf.get(day)
+    const linesNow = work.counts.get(day)?.lines || 0
+    const at = mark?.last_sale_at || work.lastAt.get(day) || now
+    if (diffs.length || net || food) {
+      const land = await landingPeriod(tx, tenantId, venueId, day)
+      const [batch] = await tx`
+        INSERT INTO stock_usage_late (tenant_id, venue_id, day, closed_period_id, period_id, at, lines, net_pence, net_food_pence, cost)
+        VALUES (${tenantId}, ${venueId}, ${day}, ${land.closed_period_id}, ${land.period_id}, ${at},
+                ${linesNow - (mark?.lines || 0) - (prev.lines || 0)}, ${net}, ${food}, ${cost})
+        RETURNING id`
+      if (diffs.length) {
+        await tx`INSERT INTO stock_usage_late_items ${tx(diffs.map(x => ({ ...x, tenant_id: tenantId, late_id: batch.id })), 'tenant_id', 'late_id', 'item_id', 'qty_base', 'cost_per_base')}`
+      }
+      batches++
+    }
+    const fp = (fingerprints || new Map()).get(day) || '{}'
+    await tx`
+      INSERT INTO stock_usage_marks (tenant_id, venue_id, day, fingerprint, lines, uncosted_lines, last_sale_at)
+      VALUES (${tenantId}, ${venueId}, ${day}, ${fp}, ${mark?.lines ?? 0}, 0, ${mark?.last_sale_at || work.lastAt.get(day) || null})
+      ON CONFLICT (tenant_id, venue_id, day) DO UPDATE SET fingerprint = EXCLUDED.fingerprint`
+  }
+  return { days: days.length, batches }
 }
 
 /**

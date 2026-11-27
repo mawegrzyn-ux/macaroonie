@@ -1354,24 +1354,30 @@
     "api/src/routes/stockSetup.js",
     "api/src/routes/stockTransfers.js",
     "api/src/routes/stockUsage.js",
+    "api/src/routes/stockVariance.js",
     "api/src/routes/stockWaste.js",
     "api/src/services/stockSvc.js",
     "api/src/services/stockUsageSvc.js",
+    "api/src/services/stockVarianceSvc.js",
     "api/test/stock-*.test.mjs",
     "shared/stock.js",
     "shared/stockItems.js",
     "shared/test/stock.test.mjs",
     "shared/test/stockUsage.test.mjs",
-    "shared/test/stockWaste.test.mjs"
+    "shared/test/stockWaste.test.mjs",
+    "shared/test/variance.test.mjs",
+    "shared/variance.js"
    ],
    "public": [
     "admin/src/components/stock/shared.jsx",
     "api/src/ai/tools/stock.js",
     "api/src/services/stockSvc.js",
     "api/src/services/stockUsageSvc.js",
+    "api/src/services/stockVarianceSvc.js",
     "shared/nav/stock.js",
     "shared/stock.js",
-    "shared/stockItems.js"
+    "shared/stockItems.js",
+    "shared/variance.js"
    ]
   },
   "till": {
