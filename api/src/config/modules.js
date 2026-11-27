@@ -329,6 +329,18 @@ export const MODULES = [
     description: 'What recipes cost at each venue\'s supplier prices, with the gaps and how each cost is worked out. View shows costs; Manage will set cost targets and scenarios.',
     default: { owner: 'manage', admin: 'manage', operator: 'none', viewer: 'none' },
   },
+  // Stock (inventory phase 4a, migration 305): counts, the ledger and
+  // adjustments, per venue (docs/INVENTORY.md 6, 10.1; D11: Use counts,
+  // Manage approves). Values need Costing view as well: a value tells what
+  // was paid for the stock.
+  {
+    key:    'stock',
+    label:  'Stock',
+    group:  'stock',
+    description: 'Stock on hand at each venue, stock counts by storage area (full counts and key-item counts) with their approval, adjustments and each item\'s ledger. Values need Costing view as well.',
+    use: 'Count stock: start a count, count by area on the office or the phone, and submit it. Approving counts, adjusting stock, and setting up storage areas, key-item lists and the stock settings need Manage.',
+    default: { owner: 'manage', admin: 'manage', operator: 'use', viewer: 'view' },
+  },
   {
     key:    'pos_setup',
     label:  'Store tech',
@@ -505,6 +517,12 @@ export const MODULE_GROUPS = [
     label:  'Recipes and costing',
     description: 'Recipes and prep recipes, costed at each venue\'s supplier prices.',
     moduleKeys: ['recipes', 'costing'],
+  },
+  {
+    key:    'stock',
+    label:  'Stock',
+    description: 'Stock on hand, stock counts by storage area with their approval, adjustments and the ledger.',
+    moduleKeys: ['stock'],
   },
   {
     key:    'pos',

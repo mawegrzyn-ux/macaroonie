@@ -943,14 +943,12 @@
     "admin/src/pages/mobile/MobilePurchasing.jsx",
     "api/src/routes/inventory.js",
     "api/src/routes/purchasing.js",
-    "api/src/routes/stock.js",
     "api/src/routes/suppliers.js",
     "api/src/services/invoiceReadAi.js",
     "api/src/services/pdfDoc.js",
     "api/src/services/purchasingSvc.js",
     "api/src/services/receiptReadAi.js",
     "api/src/services/sheetRead.js",
-    "api/src/services/stockSvc.js",
     "api/test/invoice-reading.test.mjs",
     "api/test/purchasing-approval.test.mjs",
     "api/test/purchasing-basket.test.mjs",
@@ -959,7 +957,6 @@
     "api/test/purchasing-delivery.test.mjs",
     "api/test/purchasing-guards.test.mjs",
     "api/test/purchasing-no-order.test.mjs",
-    "api/test/purchasing-stock-on-hand.test.mjs",
     "api/test/purchasing-stock.test.mjs",
     "shared/procurement.js",
     "shared/test/procurement.test.mjs"
@@ -972,7 +969,6 @@
     "api/src/services/purchasingSvc.js",
     "api/src/services/receiptReadAi.js",
     "api/src/services/sheetRead.js",
-    "api/src/services/stockSvc.js",
     "shared/nav/purchasing.js",
     "shared/procurement.js"
    ]
@@ -1340,6 +1336,30 @@
     "shared/nav/shell.js",
     "shared/navSearch.js",
     "shared/todayTasks.js"
+   ]
+  },
+  "stock": {
+   "paths": [
+    "admin/src/components/stock/**",
+    "admin/src/pages/Stock.jsx",
+    "admin/src/pages/docs/stock.jsx",
+    "admin/src/pages/help/stock.jsx",
+    "admin/src/pages/mobile/MobileStockCount.jsx",
+    "api/src/ai/tools/stock.js",
+    "api/src/routes/stock.js",
+    "api/src/routes/stockCounts.js",
+    "api/src/routes/stockSetup.js",
+    "api/src/services/stockSvc.js",
+    "api/test/stock-*.test.mjs",
+    "shared/stock.js",
+    "shared/test/stock.test.mjs"
+   ],
+   "public": [
+    "admin/src/components/stock/shared.jsx",
+    "api/src/ai/tools/stock.js",
+    "api/src/services/stockSvc.js",
+    "shared/nav/stock.js",
+    "shared/stock.js"
    ]
   },
   "till": {

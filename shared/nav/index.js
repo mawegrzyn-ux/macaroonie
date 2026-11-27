@@ -62,13 +62,14 @@ import { pages as reports } from './reports.js'
 import { pages as rota } from './rota.js'
 import { pages as screens } from './screens.js'
 import { pages as shell } from './shell.js'
+import { pages as stock } from './stock.js'
 import { pages as till } from './till.js'
 import { pages as website } from './website.js'
 
 /** Each area's pages, by the area's slug (its file's name). */
 export const AREA_PAGES = {
   bookings, cash, core, dashboards, hs, hub, kiosk, kitchen, 'local-info': localInfo, loyalty,
-  menus, ordering, pepper, purchasing, recipes, reports, rota, screens, shell, till, website,
+  menus, ordering, pepper, purchasing, recipes, reports, rota, screens, shell, stock, till, website,
 }
 
 export { SECTIONS }
