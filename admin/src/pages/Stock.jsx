@@ -15,7 +15,8 @@
 //                 the count day, waste reasons (Stock manage; read only below it)
 // The address says where it opens: ?venue= &tab= (on-hand | counts |
 // adjustments | waste | transfers | settings) &count= (a count) &item= (an
-// item's history) &transfer= (a transfer to receive).
+// item's history) &transfer= (a transfer to receive) &date= (the Waste tab's
+// trading day) &waste= (an entry on it: a Waste report's row).
 // API: routes/stock.js, routes/stockCounts.js, routes/stockSetup.js,
 // routes/stockWaste.js, routes/stockTransfers.js.
 
@@ -65,17 +66,17 @@ export default function Stock() {
   return (
     <div className="h-full overflow-y-auto bg-page" data-testid="stock-page">
       <PageHeader icon={Boxes} title="Stock">
-        <VenuePicker venues={venues} venueId={venueId} onChange={id => { setVenueId(id); set({ count: '', item: '', transfer: '' }) }} />
+        <VenuePicker venues={venues} venueId={venueId} onChange={id => { setVenueId(id); set({ count: '', item: '', transfer: '', date: '', waste: '' }) }} />
       </PageHeader>
       <div className="max-w-6xl mx-auto p-4 space-y-4">
         <div className="overflow-x-auto">
-          <Segmented value={tab} onChange={t => set({ tab: t === 'on-hand' ? '' : t, count: '', item: '', transfer: '' })} options={TABS} testid="stock-tabs" />
+          <Segmented value={tab} onChange={t => set({ tab: t === 'on-hand' ? '' : t, count: '', item: '', transfer: '', date: '', waste: '' })} options={TABS} testid="stock-tabs" />
         </div>
         {!venueId ? wait : (
           <Suspense fallback={wait}>
             {tab === 'on-hand' && <OnHand venueId={venueId} openItem={params.get('item')} onOpenItem={id => set({ item: id })} />}
             {tab === 'counts' && <Counts venueId={venueId} countId={params.get('count')} onOpenCount={id => set({ count: id })} />}
-            {tab === 'waste' && <Waste venueId={venueId} canManage={canManage} />}
+            {tab === 'waste' && <Waste venueId={venueId} askedDay={params.get('date')} picked={params.get('waste')} />}
             {tab === 'transfers' && <Transfers venueId={venueId} transferId={params.get('transfer')} onOpenTransfer={id => set({ transfer: id })} />}
             {tab === 'adjustments' && <Adjustments venueId={venueId} canManage={canManage} />}
             {tab === 'settings' && <StockSettings venueId={venueId} canManage={canManage} />}

@@ -239,3 +239,29 @@ test('the report subject Stock transfers: each end of each line, lost in transit
   assert.deepEqual(transit.rows.map(r => r.cells[0]), [open.number], 'only the one on its way, once')
   await ok(operator.post(`/api/stock/transfers/${open.id}/cancel`, {}))
 })
+
+test('a transfer from a venue that paid nothing for it has no value at either end, never the receiver\'s own average', async () => {
+  // Leeds never bought chicken (what it has came by transfer), Soho paid £0.004 a gram.
+  const t = await ok(operator.post(`/api/stock/venues/${leeds}/transfers`, { to_venue_id: soho, item_id: chicken.id, qty: 1, unit: 'kg' }))
+  await ok(operator.post(`/api/stock/transfers/${t.id}/receive`, { lines: [{ line_id: t.lines[0].id, qty: 1, unit: 'kg' }] }))
+  assert.equal(lineOf(await ok(owner.get('/api/stock/transfers/' + t.id)), 'Chicken thighs').value, null)
+  const at = async venue => (await ok(owner.get(`/api/stock/venues/${venue}/items/${chicken.id}/moves`))).moves.find(m => m.source.id === t.id)
+  const into = await at(soho)
+  assert.deepEqual([into.kind, into.change, into.value], ['transfer_in', 1000, null], 'Soho\'s own price is no part of it')
+  const out = await at(leeds)
+  assert.deepEqual([out.kind, out.change, out.value], ['transfer_out', -1000, null])
+})
+
+test('Pepper receives a line not mentioned as what left the sender, whatever its pack weighs now', async () => {
+  const t = await ok(operator.post(`/api/stock/venues/${soho}/transfers`, { to_venue_id: leeds, item_id: chicken.id, qty: 2, unit: 'tray' }))
+  const [tray] = await sql`SELECT id FROM inv_item_units WHERE tenant_id = ${ids.a} AND item_id = ${chicken.id} AND name = 'tray'`
+  await ok(owner.patch('/api/inventory/units/' + tray.id, { base_qty: 3000 }))
+  try {
+    const { card } = await pepper(A.operator, 'receive_transfer', { venue: 'Leeds', transfer: String(t.number) }, { run: false })
+    assert.deepEqual(card.lines, ['Chicken thighs: sent 5 kg, arrived 5 kg (as sent)'])
+    assert.equal(card.warnings, undefined, 'nothing short, nothing gained')
+  } finally {
+    await ok(owner.patch('/api/inventory/units/' + tray.id, { base_qty: 2500 }))
+    await ok(operator.post(`/api/stock/transfers/${t.id}/cancel`, {}))
+  }
+})

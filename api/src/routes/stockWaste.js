@@ -8,13 +8,17 @@
 // order type), each item valued at the average paid at the venue then. On
 // hand takes the items off (MOVE_SOURCES in services/stockSvc.js). A till void
 // marked wasted is waste by itself: listed here and in the report, read from
-// the till each time (loadWastedVoids()), never entered again. Generated test
+// the till (loadWastedVoids(), which keeps what it took off the first time it
+// is read: migration 310), never entered again. Generated test
 // till sales are left out (decision D10).
 //
 // Logging is Stock use; undoing on the entry's trading day is whoever logged
 // it or Stock manage; after that day a reversing entry (Stock manage), dated
-// at the entry it reverses so a count since keeps its figure. Reasons are the
-// group's (WRAP's kinds: spoilage, preparation, plate), set up with Stock manage.
+// at the entry it reverses so a count since keeps its figure. On a shared
+// device the person switched in logs, undoes, reverses and adds photos only
+// at the device's venue (venueProblem() in routes/stock.js), as transfers
+// do. Reasons are the group's (WRAP's kinds: spoilage, preparation, plate),
+// set up with Stock manage.
 // Values need Costing view, as everywhere in stock.
 //
 //   GET    /waste-reasons                     the group's reasons in order (with how many entries use each)
@@ -31,15 +35,15 @@
 //                                             the entries of those trading days (today when none) with the
 //                                             till's voids marked wasted (read only), newest first, each
 //                                             with its items, gaps and what the person may do
-//   GET    /venues/:venueId/waste/summary?from=&to=&by=
+//   GET    /venues/:venueId/waste/summary?from=&to=&days=&by=
 //                                             waste added up (wasteTotals()) by reason | kind | item |
-//                                             dish | person | day | what, voids included
+//                                             dish | person | day | what, voids included; the last
+//                                             `days` trading days (7) up to `to` (today there) by default
 //   POST   /waste/:wasteId/undo               on its trading day: whoever logged it, or Manage
 //   POST   /waste/:wasteId/reverse            after its trading day: a reversing entry      Manage
 //   POST   /waste/:wasteId/photo              multipart: a photo of it (whoever logged it, or Manage)
 
 import { z } from 'zod'
-import path from 'node:path'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
@@ -52,9 +56,9 @@ import { itemsOf } from '../../../shared/stockItems.js'
 import { recipeUnit, recipeUnitChoices, inRecipeUnit } from '../../../shared/costing.js'
 import { isCombo } from '../../../shared/combos.js'
 import {
-  loadCountItems, loadWasteReasons, ensureWasteReasons, venueDay, wasteCtx, loadWastedVoids, itemCostsAt, costLookup,
+  loadCountItems, loadWasteReasons, ensureWasteReasons, venueDay, wasteCtx, loadWastedVoids, itemCostsAt,
 } from '../services/stockSvc.js'
-import { stockAccess, stockPerson } from './stock.js'
+import { stockAccess, stockPerson, venueProblem } from './stock.js'
 
 const canView = requirePermission('stock', 'view')
 const canUse = requirePermission('stock', 'use')
@@ -63,7 +67,26 @@ const Id = z.string().uuid()
 const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const MAX_DAYS = 93
 const MAX_ROWS = 500
-const PHOTO_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'])
+// A waste photo's types and the file extension each is stored under. The extension comes from
+// this map only, never from the filename the client sends: /uploads/ is served on the admin's own
+// origin with a type picked by the extension, so `x.html` sent as image/jpeg would be stored as a
+// page that runs on the admin (stored XSS).
+const PHOTO_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif' }
+const PHOTO_MIME = new Set(Object.keys(PHOTO_EXT))
+const HEIF_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'hevm', 'hevs', 'mif1', 'msf1'])
+
+/** What a photo's first bytes say it is (a type of PHOTO_EXT), or null: the part's own Content-Type is the client's word only. */
+function photoType(buf) {
+  if (!buf || buf.length < 12) return null
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg'
+  if (buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png'
+  if (buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return 'image/webp'
+  if (buf.toString('latin1', 4, 8) === 'ftyp') {
+    const brand = buf.toString('latin1', 8, 12)
+    if (HEIF_BRANDS.has(brand)) return brand.startsWith('he') ? 'image/heic' : 'image/heif'
+  }
+  return null
+}
 
 export const ReasonBody = z.object({
   name: z.string().trim().min(1).max(60),
@@ -225,6 +248,18 @@ async function loggedEntries(tx, tenantId, venueId, { from, to }, limit = MAX_RO
   }))
 }
 
+/** This person's levels at a venue: Use and Manage only where they may act (a shared device's own venue). */
+function accessAt(access, req, venueId) {
+  const why = venueProblem(req, venueId)
+  return why ? { ...access, can_count: false, can_manage: false, venue_problem: why } : { ...access, venue_problem: null }
+}
+
+/** 403 when a shared device's person acts at another venue than the device's. */
+function mustBeAt(req, venueId) {
+  const why = venueProblem(req, venueId)
+  if (why) throw httpError(403, why, { code: 'venue' })
+}
+
 /** A logged entry as the page and Pepper read it: values only with Costing view, what this person may do. */
 function entryView(e, { access, ids, today }) {
   const may = wasteUndo(e, { today, me: ids, canUse: access.can_count, canManage: access.can_manage })
@@ -237,43 +272,40 @@ function entryView(e, { access, ids, today }) {
     gaps: e.gaps || [], note: e.note, photo_url: e.photo_url, by: e.wasted_by,
     undone_at: e.undone_at, undone_by: e.undone_by, reverses_id: e.reverses_id, reversed: !!e.reversed,
     items: (e.items || []).map(i => ({ item_id: i.item_id, name: i.name, base_unit: i.base_unit, qty_base: Number(i.qty_base), ...(values ? { value: i.value ?? null } : {}) })),
-    ...(values ? { value: e.value == null ? null : r2(Number(e.value)) } : {}),
+    // The value covers the items with a price paid; `unvalued` says how many had none yet (it is partial then).
+    ...(values ? { value: e.value == null ? null : r2(Number(e.value)), unvalued: (e.items || []).filter(i => i.cost_per_base == null).length } : {}),
     can_undo: may.undo, can_reverse: may.reverse, why_not: may.undo || may.reverse ? null : may.why,
   }
 }
 
-/** A till void marked wasted, read only, valued at the average paid then. */
-function voidView(v, { access, costOf, names }) {
+/** A till void marked wasted, read only, valued at the average paid then (kept with its items: loadWastedVoids()). */
+function voidView(v, { access, names }) {
   const values = access.sees_values
   const items = v.items.map(i => {
-    const per = values ? costOf(v.venue_id, i.item_id, v.at) : null
+    const per = values ? i.cost_per_base ?? null : null
     const n = names.get(i.item_id)
     return { item_id: i.item_id, name: n?.name || 'An item', base_unit: n?.base_unit || null, qty_base: i.qty_base, ...(values ? { value: per == null ? null : r2(i.qty_base * per) } : {}) }
-  })
+  }).sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()))  // by name, as a logged entry's are
   const valued = items.filter(i => i.value != null)
   return {
     id: v.id, kind: 'till_void', venue_id: v.venue_id, at: v.at, day: v.day, what: 'dish', what_label: 'Till void',
     dish_id: v.dish_id, name: v.name, qty: v.qty, unit: 'each', check_id: v.check_id, check_number: v.check_number,
     reason_id: v.reason_id, reason: v.reason, reason_kind: v.reason_kind, kind_label: WASTE_KINDS[v.reason_kind]?.label,
     gaps: v.gaps, by: v.by, read_only: true, items,
-    ...(values ? { value: valued.length ? r2(valued.reduce((s, i) => s + i.value, 0)) : null } : {}),
+    ...(values ? { value: valued.length ? r2(valued.reduce((s, i) => s + i.value, 0)) : null, unvalued: items.length - valued.length } : {}),
     can_undo: false, can_reverse: false, why_not: 'Voided on the till: it is waste by itself, and the till keeps its record',
   }
 }
 
 /** The logged entries (not undone) and the till's voids of some days, as rows wasteTotals() and the page read. */
-async function wasteRows(tx, tenantId, venueId, days, access, limit = MAX_ROWS) {
+async function wasteRows(tx, tenantId, venueId, days, limit = MAX_ROWS) {
   const [logged, voids] = await Promise.all([
     loggedEntries(tx, tenantId, venueId, days, limit),
     loadWastedVoids(tx, tenantId, { venueIds: [venueId], days }),
   ])
   const ids = [...new Set(voids.flatMap(v => v.items.map(i => i.item_id)))]
-  const latest = voids.length ? new Date(Math.max(...voids.map(v => new Date(v.at).getTime()))) : null
-  const [costOf, names] = await Promise.all([
-    access.sees_values && ids.length ? costLookup(tx, tenantId, [venueId], ids, latest) : () => null,
-    ids.length ? tx`SELECT id, name, base_unit FROM inv_items WHERE tenant_id = ${tenantId} AND id = ANY(${ids}::uuid[])` : [],
-  ])
-  return { logged, voids, costOf, names: new Map(names.map(n => [n.id, n])) }
+  const names = ids.length ? await tx`SELECT id, name, base_unit FROM inv_items WHERE tenant_id = ${tenantId} AND id = ANY(${ids}::uuid[])` : []
+  return { logged, voids, names: new Map(names.map(n => [n.id, n])) }
 }
 
 export default async function stockWasteRoutes(app) {
@@ -392,6 +424,7 @@ export default async function stockWasteRoutes(app) {
     const access = await stockAccess(req)
     const { by, ids } = await stockPerson(req)
     const at = checkAt(b.wasted_at)
+    mustBeAt(req, req.params.venueId)
     const row = await withTenant(req.tenantId, async tx => {
       const venueId = req.params.venueId
       const reason = await activeReason(tx, req.tenantId, b.reason_id)
@@ -419,20 +452,20 @@ export default async function stockWasteRoutes(app) {
 
   app.get('/venues/:venueId/waste', { preHandler: canView }, async req => {
     const q = z.object({ day: Day.optional(), from: Day.optional(), to: Day.optional() }).parse(req.query || {})
-    const access = await stockAccess(req)
+    const access = accessAt(await stockAccess(req), req, req.params.venueId)
     const { ids } = await stockPerson(req)
     return withTenant(req.tenantId, async tx => {
       const venueId = req.params.venueId
       const days = await daysOf(tx, req.tenantId, venueId, q)
-      const { logged, voids, costOf, names } = await wasteRows(tx, req.tenantId, venueId, days, access)
+      const { logged, voids, names } = await wasteRows(tx, req.tenantId, venueId, days)
       const entries = [
         ...logged.map(e => entryView(e, { access, ids, today: days.today })),
-        ...voids.map(v => voidView(v, { access, costOf, names })),
+        ...voids.map(v => voidView(v, { access, names })),
       ].sort((a, b) => new Date(b.at) - new Date(a.at))
       const counted = entries.filter(e => !e.undone_at)
       return {
         from: days.from, to: days.to, today: days.today, sees_values: access.sees_values,
-        can_log: access.can_count, can_manage: access.can_manage,
+        can_log: access.can_count, can_manage: access.can_manage, venue_problem: access.venue_problem,
         entries,
         by_kind: wasteTotals(counted, 'kind').map(({ value, ...t }) => (access.sees_values ? { ...t, value } : t)),
         ...(access.sees_values ? { value: r2(counted.reduce((s, e) => s + (e.value || 0), 0)) } : {}),
@@ -443,25 +476,29 @@ export default async function stockWasteRoutes(app) {
   app.get('/venues/:venueId/waste/summary', { preHandler: canView }, async req => {
     const q = z.object({
       from: Day.optional(), to: Day.optional(),
+      // Or the last `days` trading days up to `to` (today at the venue when left out).
+      days: z.coerce.number().int().min(1).max(MAX_DAYS).optional(),
       by: z.enum(['reason', 'kind', 'item', 'dish', 'person', 'day', 'what']).default('reason'),
     }).parse(req.query || {})
     const access = await stockAccess(req)
     return withTenant(req.tenantId, async tx => {
       const venueId = req.params.venueId
       const today = await venueDay(tx, req.tenantId, venueId)
-      const days = await daysOf(tx, req.tenantId, venueId, { from: q.from || addDays(q.to || today, -6), to: q.to || today })
-      const { logged, voids, costOf, names } = await wasteRows(tx, req.tenantId, venueId, days, access, null)
+      const to = q.to || today
+      const days = await daysOf(tx, req.tenantId, venueId, { from: q.from || addDays(to, -((q.days || 7) - 1)), to })
+      const { logged, voids, names } = await wasteRows(tx, req.tenantId, venueId, days, null)
       const rows = [
         ...logged.filter(e => !e.undone_at).map(e => ({ ...e, by: e.wasted_by, day: dayText(e.day), value: e.value == null ? null : Number(e.value), qty: Number(e.qty) })),
-        ...voids.map(v => ({ ...voidView(v, { access: { ...access, sees_values: true }, costOf: access.sees_values ? costOf : () => null, names }), by: v.by })),
+        ...voids.map(v => ({ ...voidView(v, { access, names }), by: v.by })),
       ]
       const flat = q.by === 'item'
-        ? rows.flatMap(r => (r.items || []).map(i => ({ item_id: i.item_id, item_name: i.name, base_unit: i.base_unit, qty_base: Number(i.qty_base), value: i.value ?? null })))
+        ? rows.flatMap(r => (r.items || []).map(i => ({ item_id: i.item_id, item_name: i.name, base_unit: i.base_unit, qty_base: Number(i.qty_base), value: i.value ?? null, reverses: !!r.reverses_id })))
         : rows
       const totals = wasteTotals(flat, q.by).map(({ value, ...t }) => (access.sees_values ? { ...t, value } : t))
       return {
         from: days.from, to: days.to, by: q.by, sees_values: access.sees_values, rows: totals,
-        entries: rows.length, till_voids: voids.length,
+        // A reversing entry takes back the entry it reverses (wasteTotals()'s rule).
+        entries: Math.max(0, rows.reduce((n, r) => n + (r.reverses_id ? -1 : 1), 0)), till_voids: voids.length,
         ...(access.sees_values ? { value: r2(rows.reduce((s, r) => s + (r.value || 0), 0)) } : {}),
       }
     })
@@ -473,6 +510,7 @@ export default async function stockWasteRoutes(app) {
     const { by, ids } = await stockPerson(req)
     return withTenant(req.tenantId, async tx => {
       const e = await loadEntry(tx, req.tenantId, req.params.wasteId, true)
+      mustBeAt(req, e.venue_id)
       const today = await venueDay(tx, req.tenantId, e.venue_id)
       const may = wasteUndo(e, { today, me: ids, canUse: access.can_count, canManage: access.can_manage })
       if (!may.undo) throw httpError(may.reverse ? 409 : 403, may.reverse ? 'Its trading day is over: reverse it instead' : may.why, { code: may.reverse ? 'day_over' : 'undo' })
@@ -487,6 +525,7 @@ export default async function stockWasteRoutes(app) {
     const { by, ids } = await stockPerson(req)
     const row = await withTenant(req.tenantId, async tx => {
       const e = await loadEntry(tx, req.tenantId, req.params.wasteId, true)
+      mustBeAt(req, e.venue_id)
       const today = await venueDay(tx, req.tenantId, e.venue_id)
       const may = wasteUndo(e, { today, me: ids, canUse: access.can_count, canManage: access.can_manage })
       if (!may.reverse) throw httpError(409, may.undo ? 'It is still its trading day: undo it instead' : may.why, { code: may.undo ? 'undo_instead' : 'reverse' })
@@ -513,6 +552,7 @@ export default async function stockWasteRoutes(app) {
     const access = await stockAccess(req)
     const { ids } = await stockPerson(req)
     const e = await withTenant(req.tenantId, tx => loadEntry(tx, req.tenantId, req.params.wasteId))
+    mustBeAt(req, e.venue_id)
     const own = !!e.wasted_by && ids.some(i => String(i).toLowerCase() === String(e.wasted_by).toLowerCase())
     if (!own && !access.can_manage) throw httpError(403, 'Only whoever logged it, or someone with Stock manage, can add its photo')
     if (e.undone_at) throw httpError(409, 'This entry was undone', { code: 'undone' })
@@ -520,9 +560,11 @@ export default async function stockWasteRoutes(app) {
     if (!data) throw httpError(400, 'No file uploaded')
     if (!PHOTO_MIME.has(data.mimetype)) throw httpError(415, 'Unsupported file type: a JPEG, PNG, WebP or HEIC photo')
     const buffer = await data.toBuffer()
-    const ext = path.extname(data.filename || '').replace('.', '') || data.mimetype.split('/')[1]
+    // Stored as what its bytes are, under that type's own extension (PHOTO_EXT), never the filename's.
+    const type = photoType(buffer)
+    if (!type) throw httpError(415, 'That file isn\'t a JPEG, PNG, WebP or HEIC photo', { code: 'not_a_photo' })
     if (e.photo_url) await getStorage().delete(e.photo_url).catch(() => null)
-    const { url } = await getStorage().put(req.tenantId, 'waste', ext, data.mimetype, buffer)
+    const { url } = await getStorage().put(req.tenantId, 'waste', PHOTO_EXT[type], type, buffer)
     await withTenant(req.tenantId, tx => tx`UPDATE stock_waste SET photo_url = ${url} WHERE id = ${e.id} AND tenant_id = ${req.tenantId}`)
     return { photo_url: url }
   })

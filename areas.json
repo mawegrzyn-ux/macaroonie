@@ -1347,6 +1347,7 @@
     "admin/src/pages/mobile/MobileStockCount.jsx",
     "admin/src/pages/mobile/MobileStockWaste.jsx",
     "api/src/ai/tools/stock.js",
+    "api/src/jobs/stock-voids.js",
     "api/src/routes/stock.js",
     "api/src/routes/stockCounts.js",
     "api/src/routes/stockSetup.js",

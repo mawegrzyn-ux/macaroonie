@@ -53,13 +53,15 @@
 //                          logged it, or Manage), reverse after it (Manage)
 //   wasteTotals(rows, by)  waste added up by reason, kind, item, dish, person
 //                          or day: quantity, value, entries (the summary and
-//                          Pepper's waste_summary)
+//                          Pepper's waste_summary; a reversal takes its entry back)
 //   TRANSFER_STATUSES, transferLineMoves(transfer, line)   a transfer line's
 //                          moves: out of the sender when sent (what arrived),
 //                          lost in transit (what didn't) at the same moment, in
 //                          at the receiver when received, back at the sender
 //                          when a sent transfer is cancelled
 //   lostInTransit(sent, received)   what didn't arrive (never below zero)
+//   asSentEntry(line, choices)   a line that arrived as sent, typed in: the unit
+//                          it was sent in while its size is the same, else base
 //
 // Never import from procurement.js at the top level here (it re-exports
 // stockOnHand(), so the two modules load each other): use its bindings only
@@ -404,9 +406,13 @@ export function wasteUndo(entry, { today, me, canUse = false, canManage = false 
  * Waste added up by `by` (reason, kind, item, dish, person, day, what):
  * rows [{ key, label, entries, qty, unit, value, unvalued }], biggest value
  * first (then most entries). rows: [{ reason, reason_kind, name, what,
- * dish_id, by, day, qty, unit, value }]; for `item` a row per item of an
- * entry: { item_id, item_name, qty_base, base_unit, value }. qty is added
- * only while every row of a group has the same unit (else null).
+ * dish_id, by, day, qty, unit, value, reverses_id }]; for `item` a row per
+ * item of an entry: { item_id, item_name, qty_base, base_unit, value,
+ * reverses }. qty is added only while every row of a group has the same
+ * unit (else null). A reversing entry (reverses_id, or reverses: true) takes
+ * its entry back: its quantity and value are below zero and it counts minus
+ * one, so a mistake and its reversal are no entries at all, and a group they
+ * leave at nothing is left out.
  */
 export function wasteTotals(rows, by = 'reason') {
   const keyOf = {
@@ -424,16 +430,17 @@ export function wasteTotals(rows, by = 'reason') {
     if (key == null) continue
     const u = by === 'item' ? r.base_unit : r.unit
     const t = out.get(key) || { key, label, entries: 0, qty: 0, unit: u, mixed: false, value: 0, valued: 0, unvalued: 0 }
-    t.entries++
+    const sign = r.reverses_id || r.reverses ? -1 : 1
+    t.entries += sign
     if (u !== t.unit) t.mixed = true
     t.qty += num(by === 'item' ? r.qty_base : r.qty)
-    if (r.value == null) t.unvalued++
+    if (r.value == null) t.unvalued += sign
     else { t.value += num(r.value); t.valued++ }
     out.set(key, t)
   }
-  return [...out.values()].map(t => ({
+  return [...out.values()].filter(t => t.entries > 0 || round4(t.qty) !== 0 || Math.round(t.value * 100) !== 0).map(t => ({
     key: t.key, label: t.label, entries: t.entries, qty: t.mixed ? null : round4(t.qty), unit: t.mixed ? null : t.unit,
-    value: t.valued ? Math.round(t.value * 100) / 100 : null, unvalued: t.unvalued,
+    value: t.valued ? Math.round(t.value * 100) / 100 : null, unvalued: Math.max(0, t.unvalued),
   })).sort((a, b) => (num(b.value) - num(a.value)) || (b.entries - a.entries) || String(a.label).localeCompare(String(b.label)))
 }
 
@@ -449,6 +456,20 @@ export const TRANSFER_STATUSES = {
 export function lostInTransit(sent, received) {
   if (received == null) return 0
   return round4(Math.max(0, num(sent) - num(received)))
+}
+
+/**
+ * How a transfer line that arrived as sent is typed in: its quantity in the
+ * unit it was sent in while that unit's size today gives the same base
+ * quantity, else what was sent in the item's base unit (a pack whose size
+ * changed since it was sent would otherwise make a shortfall, or a gain,
+ * nobody reported). line: { qty, unit, qty_base, base_unit } (unit: the
+ * label it was sent in); choices: countUnits(). -> { qty, unit: a choice's key }
+ */
+export function asSentEntry(line, choices) {
+  const c = unitChoice(choices, line.unit)
+  if (c && round4(num(line.qty) * c.base_qty) === round4(num(line.qty_base))) return { qty: round4(num(line.qty)), unit: c.key }
+  return { qty: round4(num(line.qty_base)), unit: unitChoice(choices, line.base_unit)?.key || line.base_unit }
 }
 
 /**

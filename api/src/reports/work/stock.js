@@ -20,7 +20,8 @@
 //                     from the venue's latest approved count, in any period
 //   stock_waste       (phase 4b) one row per item of each waste entry not
 //                     undone and of each till void marked wasted (broken into
-//                     items by loadWastedVoids(), test sales left out), on its
+//                     items by loadWastedVoids(), which keeps them the first
+//                     time: migration 310; test sales left out), on its
 //                     trading day; an entry with no items is one row
 //   stock_transfer_lines  (phase 4b) one row per transfer line at each end:
 //                     out at the sender on the day sent, in at the receiver on
@@ -36,7 +37,7 @@ import { runningBalance, stockOnHand, countReview, lostInTransit } from '../../.
 
 // The tables each work reads (the catalogue's from.tables). On hand and the ledger read waste
 // (the till's voids marked wasted too) and transfers since phase 4b.
-export const WASTE_TABLES = ['stock_waste', 'stock_waste_items', 'waste_reasons', 'pos_check_lines', 'pos_checks']
+export const WASTE_TABLES = ['stock_waste', 'stock_waste_items', 'waste_reasons', 'pos_check_lines', 'pos_checks', 'stock_void_waste', 'stock_void_waste_items']
 export const TRANSFER_TABLES = ['stock_transfers', 'stock_transfer_lines']
 export const STOCK_TABLES = ['stock_counts', 'stock_count_lines', 'stock_adjustments', ...WASTE_TABLES, ...TRANSFER_TABLES]
 export const MOVE_TABLES = [...STOCK_TABLES, 'purchase_order_lines', 'purchase_orders']
@@ -219,11 +220,7 @@ export const STOCK_WORKS = {
         loadWastedVoids(tx, tenantId, { venueIds, days }),
       ])
       const itemIds = [...new Set([...logged.map(r => r.item_id), ...voids.flatMap(v => v.items.map(i => i.item_id))].filter(Boolean))]
-      const latest = voids.length ? new Date(Math.max(...voids.map(v => new Date(v.at).getTime()))) : null
-      const [{ itemOf }, costOf] = await Promise.all([
-        itemsAndZones(tx, tenantId, itemIds),
-        voids.length ? costLookup(tx, tenantId, [...new Set(voids.map(v => v.venue_id))], itemIds, latest) : () => null,
-      ])
+      const { itemOf } = await itemsAndZones(tx, tenantId, itemIds)
       const out = []
       for (const r of logged) {
         if (!inRanges(r.day, ranges)) continue
@@ -247,7 +244,8 @@ export const STOCK_WORKS = {
         if (!v.items.length) out.push({ ...base, id: v.id + '|-', item_id: null, item_name: null, base_unit: null, qty: null, value: null })
         for (const it of v.items) {
           const i = itemOf.get(it.item_id)
-          const per = costOf(v.venue_id, it.item_id, v.at)
+          // Its cost at the void's moment, kept with its items (loadWastedVoids()).
+          const per = it.cost_per_base ?? null
           out.push({ ...base, id: v.id + '|' + it.item_id, item_id: it.item_id, item_name: i?.name ?? null, base_unit: i?.base_unit ?? null, qty: it.qty_base, value: per == null ? null : r2(it.qty_base * per) })
         }
       }

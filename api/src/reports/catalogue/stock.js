@@ -272,7 +272,9 @@ export const subjects = [
     venue: 'venue_id',
     date: { sql: '{t}.date', label: 'Trading day' },
     name: 'name',
-    open: { page: '/stock?tab=waste&venue=:venue&waste=:id', module: 'stock', id: 'entry_id', with: { venue: 'venue_id' } },
+    // The Waste tab at the row's venue on its trading day (?date=), the entry picked out (?waste=: a logged
+    // entry's id, or a till void's line id).
+    open: { page: '/stock?tab=waste&venue=:venue&date=:date&waste=:id', module: 'stock', id: 'entry_id', with: { venue: 'venue_id', date: 'date' } },
     fields: {
       name: text('name', { label: 'Wasted', synonyms: ['dish', 'what was wasted'], about: 'What was logged: the item, the prep batch or the dish.' }),
       what: choice('what', WASTE_WHAT, { label: 'Logged as' }),

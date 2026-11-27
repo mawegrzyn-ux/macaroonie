@@ -159,9 +159,22 @@ export function Section() {
         Till voids: <Mono>loadWastedVoids()</Mono> reads <Mono>pos_check_lines</Mono> with{' '}
         <Mono>status = &apos;voided&apos;</Mono> and <Mono>void_waste</Mono>, <Mono>NOT pos_checks.is_generated</Mono>{' '}
         (D10), the line&apos;s own record from <Mono>pos_checks.state</Mono> (its modifiers and combo picks), the
-        trading day from <Mono>void_day_id</Mono>, who from <Mono>cash_staff</Mono>; <Mono>voidReason()</Mono>{' '}
-        names the group&apos;s reason of the void&apos;s words, else preparation. Read every time, never copied, never
-        undone here. Both are <Mono>waste</Mono> moves (<Mono>wasteMoves</Mono>, <Mono>voidWasteMoves</Mono> in{' '}
+        trading day from <Mono>void_day_id</Mono> (else the venue&apos;s at the void&apos;s moment, by the till&apos;s day
+        start), who from <Mono>cash_staff</Mono>; <Mono>voidReason()</Mono> names the group&apos;s reason of the
+        void&apos;s words, else preparation. Never copied into <Mono>stock_waste</Mono>, never undone here.
+      </P>
+      <P>
+        What a void took off is kept (migration 310): <Mono>stock_void_waste</Mono> (keyed by the till line&apos;s id,
+        no foreign key to <Mono>pos_check_lines</Mono>, which the till rewrites on every save; the check&apos;s{' '}
+        <Mono>at</Mono> and <Mono>qty</Mono> it was broken in for, the recipe, the gaps) and{' '}
+        <Mono>stock_void_waste_items</Mono> (each item&apos;s <Mono>qty_base</Mono> and <Mono>cost_per_base</Mono> at
+        the void&apos;s moment). <Mono>loadWastedVoids()</Mono> breaks a void in only when nothing is kept for it, its
+        own record changed, or its till day is still open (D9: open days are recomputed, closed ones never change);
+        a dish on no menu now keeps what was kept, and isn&apos;t kept when nothing was. Keeping happens under the
+        group&apos;s advisory lock in a savepoint, only in a read committed transaction that can write (a report
+        run&apos;s repeatable read breaks in without keeping). The sweep <Mono>jobs/stock-voids.js</Mono> (every 10
+        minutes, <Mono>sweepVoidWaste()</Mono>, system mode per group) keeps the last 14 days&apos; voids nobody has
+        read yet. Both are <Mono>waste</Mono> moves (<Mono>wasteMoves</Mono>, <Mono>voidWasteMoves</Mono> in{' '}
         <Mono>MOVE_SOURCES</Mono>); an undone entry moves nothing; a reversing entry is dated at its original&apos;s{' '}
         <Mono>wasted_at</Mono> and <Mono>day</Mono> (a count between keeps its figure). The trading day is{' '}
         <Mono>venueDay()</Mono>: <Mono>businessDate()</Mono> at the till&apos;s <Mono>day_starts_at</Mono>, else 04:00.
@@ -174,11 +187,18 @@ export function Section() {
         streams, order types, active reasons, <Mono>today</Mono>); <Mono>POST /venues/:venueId/waste/preview</Mono>{' '}
         and <Mono>POST /venues/:venueId/waste</Mono> (<Mono>WasteBody</Mono>, Use); <Mono>GET /venues/:venueId/waste?day=|from=&to=</Mono>{' '}
         (entries and voids, <Mono>by_kind</Mono>, <Mono>can_undo</Mono> / <Mono>can_reverse</Mono> per entry by{' '}
-        <Mono>wasteUndo()</Mono>); <Mono>GET /venues/:venueId/waste/summary?from=&to=&by=</Mono> (<Mono>wasteTotals()</Mono>);{' '}
+        <Mono>wasteUndo()</Mono>, <Mono>venue_problem</Mono> on a shared device at another venue);{' '}
+        <Mono>GET /venues/:venueId/waste/summary?from=&to=&days=&by=</Mono> (<Mono>wasteTotals()</Mono>: a reversing
+        entry counts minus one; <Mono>days</Mono> trading days up to <Mono>to</Mono>, the venue&apos;s today by
+        default);{' '}
         <Mono>POST /waste/:wasteId/undo</Mono> (its trading day: whoever logged it with Use, or Manage; 409{' '}
         <Mono>day_over</Mono> after), <Mono>POST /waste/:wasteId/reverse</Mono> (Manage, after its day),{' '}
-        <Mono>POST /waste/:wasteId/photo</Mono> (multipart, storage folder <Mono>waste</Mono>). Values need Costing
-        view everywhere.
+        <Mono>POST /waste/:wasteId/photo</Mono> (multipart, storage folder <Mono>waste</Mono>; the file&apos;s first
+        bytes must be a JPEG, PNG, WebP or HEIC and it is stored under that type&apos;s extension, never the
+        filename&apos;s: <Mono>/uploads/</Mono> is served on the admin&apos;s origin). Logging, undo, reverse and the
+        photo hold a shared device&apos;s person to its venue (<Mono>venueProblem()</Mono>, 403{' '}
+        <Mono>venue</Mono>). An entry&apos;s <Mono>unvalued</Mono> counts its items with no price paid (the value is
+        then partial). Values need Costing view everywhere.
       </P>
       <H3>Transfers (phase 4b, migration 309)</H3>
       <P>
@@ -192,7 +212,11 @@ export function Section() {
         once received, <Mono>transfer_out</Mono> of what arrived and <Mono>lost_in_transit</Mono> of the rest (
         <Mono>lostInTransit()</Mono>, never below zero), both at <Mono>sent_at</Mono>, and <Mono>transfer_in</Mono>{' '}
         at the receiver at <Mono>received_at</Mono>; once cancelled, <Mono>transfer_in</Mono> back at the sender at{' '}
-        <Mono>cancelled_at</Mono>. One source (<Mono>transferMoves</Mono>) in <Mono>MOVE_SOURCES</Mono>.
+        <Mono>cancelled_at</Mono>. One source (<Mono>transferMoves</Mono>) in <Mono>MOVE_SOURCES</Mono>; its moves
+        carry <Mono>cost_fixed</Mono>, so a line the sender had no cost for has no value at either end (never the
+        receiver&apos;s own average). A line received as sent is typed in by <Mono>asSentEntry()</Mono> (the unit it
+        was sent in while that unit&apos;s size is the same, else the base quantity sent), on the page and in
+        Pepper&apos;s <Mono>receive_transfer</Mono>.
       </P>
       <P>
         Routes (<Mono>api/src/routes/stockTransfers.js</Mono>): <Mono>GET /venues/:venueId/transfers</Mono>{' '}
@@ -263,8 +287,11 @@ export function Section() {
         <Mono>send_transfer</Mono> and <Mono>receive_transfer</Mono> (consequential), all <Mono>needs: &apos;use&apos;</Mono>,
         Activity words in <Mono>shared/pepperActions.js</Mono>; the plain forms <Mono>stock_waste</Mono> (with a photo
         attached after the save) and <Mono>stock_transfer</Mono> (one item); registry objects <Mono>stock.waste</Mono>,{' '}
-        <Mono>stock.waste_reasons</Mono>, <Mono>stock.transfers</Mono>; report subjects <Mono>stock.waste</Mono> (a
-        row per item of each entry, voids included) and <Mono>stock.transfers</Mono> (a row per line at each end),
+        <Mono>stock.waste_reasons</Mono>, <Mono>stock.transfers</Mono> (opened at their tabs: the page&apos;s nav
+        record in <Mono>shared/nav/stock.js</Mono> lists <Mono>waste</Mono> and <Mono>transfers</Mono> among its{' '}
+        <Mono>tabs</Mono>); report subjects <Mono>stock.waste</Mono> (a row per item of each entry, voids included;
+        a row opens <Mono>/stock?tab=waste&amp;venue=&amp;date=&amp;waste=</Mono>, the Waste tab on its trading day
+        with the entry picked out) and <Mono>stock.transfers</Mono> (a row per line at each end),
         starters <Mono>stock_waste_by_reason_week</Mono> and <Mono>stock_transfers_in_transit</Mono>. Tests:{' '}
         <Mono>api/test/stock-counts.test.mjs</Mono>, <Mono>api/test/stock-on-hand.test.mjs</Mono>,{' '}
         <Mono>api/test/stock-waste.test.mjs</Mono>, <Mono>api/test/stock-transfers.test.mjs</Mono>,{' '}

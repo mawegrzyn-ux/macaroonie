@@ -6,9 +6,13 @@
 // logged it, or Manage) and a reversing entry after it, dated with what it
 // reverses (a count between keeps its figure); a till void marked wasted shown
 // once, read only, broken into items, with test till sales and voids not
-// wasted left out; the reasons (seeded, added, dragged, switched off, never
-// deleted once used); the summary; a photo; cross-tenant ids refused (venue,
-// item, recipe, dish, reason, waste); View / Use / Manage.
+// wasted left out, its items kept (migration 310: the sweep, a dish leaving
+// every menu, a recipe changed, an open till day read again until it
+// closes); the reasons (seeded, added, dragged, switched off, never
+// deleted once used); the summary (a reversal takes its entry back; the last
+// days by the venue's trading day); a photo stored by its own type, never
+// the filename's; a shared device's person held to its venue; cross-tenant
+// ids refused (venue, item, recipe, dish, reason, waste); View / Use / Manage.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
@@ -31,12 +35,13 @@ async function onHand(api, venueId) {
 /**
  * A till check at a venue with lines [{ id, item_id, name, qty, status, waste, reason, modifiers }], on a
  * trading day of its own dated the venue's trading day today (`today`, from the API: between midnight and
- * the day's start it is still yesterday there), closed so a second one can be made.
+ * the day's start it is still yesterday there), closed so a second one can be made (open: left open, the
+ * venue's one open till day).
  */
-async function tillCheck(tenantId, venueId, today, lines, { generated = false } = {}) {
+async function tillCheck(tenantId, venueId, today, lines, { generated = false, open = false } = {}) {
   const [d] = await sql`
     INSERT INTO pos_days (tenant_id, venue_id, business_date, opened_at, closed_at, is_generated)
-    VALUES (${tenantId}, ${venueId}, ${today}::date, now() - interval '2 hours', now(), ${generated}) RETURNING id`
+    VALUES (${tenantId}, ${venueId}, ${today}::date, now() - interval '2 hours', ${open ? null : new Date()}, ${generated}) RETURNING id`
   const id = 'c-' + randomUUID()
   const state = { id, lines: lines.map(l => ({ id: l.id, item_id: l.item_id, name: l.name, qty: l.qty, modifiers: l.modifiers || [], combo: l.combo || null })) }
   await sql`
@@ -233,6 +238,9 @@ test('undo on the trading day by whoever logged it or Manage; a reversing entry 
   assert.equal(itemQty(rev, 'Chicken thighs'), -1000)
   assert.equal((await owner.post(`/api/stock/waste/${old.id}/reverse`, {})).status, 409, 'once')
   assert.equal((await onHand(owner, soho))['Chicken thighs'].on_hand, 17000, 'the count keeps its figure')
+  // Added up, the mistake and its reversal are no waste at all: no entries, no row.
+  const sum = await ok(owner.get(`/api/stock/venues/${soho}/waste/summary?by=reason&from=${rev.day}&to=${rev.day}`))
+  assert.deepEqual([sum.entries, sum.rows.map(r => r.label)], [0, []])
 })
 
 test('a till void marked wasted is waste by itself: listed once, read only, broken into items; test sales and plain voids left out', async () => {
@@ -264,6 +272,110 @@ test('a till void marked wasted is waste by itself: listed once, read only, brok
   assert.ok(byItem.rows.find(r => r.label === 'Chicken thighs').qty > 0)
 })
 
+test('a till void keeps what it took off: kept by the sweep with nobody reading; a dish leaving every menu or a recipe changed later leaves it as it was; an open till day is read again until it closes', async () => {
+  const { sweepVoidWaste } = await import('../src/services/stockSvc.js')
+  const { today } = await ok(owner.get(`/api/stock/venues/${soho}/waste/pickers`))
+  const { today: leedsToday } = await ok(owner.get(`/api/stock/venues/${leeds}/waste/pickers`))
+  // Specials: a pie (100 g of chicken and 5 g of salt, which nobody has bought) and a soup (160 g of usable onion, 200 g bought).
+  const salt = await ok(owner.post('/api/inventory/items', { name: 'Sea salt', base_unit: 'g' }))
+  const pieRecipe = await ok(owner.post('/api/recipes', { name: 'Seasonal pie', kind: 'dish', status: 'live', lines: [{ item_id: chicken.id, qty: 100, unit: 'g' }, { item_id: salt.id, qty: 5, unit: 'g' }] }))
+  const soupRecipe = await ok(owner.post('/api/recipes', { name: 'Daily soup', kind: 'dish', status: 'live', lines: [{ item_id: onion.id, qty: 160, unit: 'g' }] }))
+  const m = await ok(owner.post('/api/menus', { name: 'Specials', slug: 'specials-waste' }))
+  const full = await ok(owner.get('/api/menus/' + m.id))
+  await ok(owner.patch('/api/menus/' + m.id, { ...full, sections: [{ title: 'Specials', items: [
+    { name: 'Seasonal pie', price_pence: 900, is_orderable: true, variant_groups: [], variants: [] },
+    { name: 'Daily soup', price_pence: 500, is_orderable: true, variant_groups: [], variants: [] },
+  ] }] }))
+  const specials = await ok(owner.get('/api/menus/' + m.id))
+  await ok(owner.post(`/api/menus/${m.id}/publish`, {}))
+  const pie = dishIn(specials, 'Seasonal pie').id
+  const soup = dishIn(specials, 'Daily soup').id
+  await ok(owner.put(`/api/recipe-links/dishes/${pie}/cell`, { recipe_id: pieRecipe.id }))
+  await ok(owner.put(`/api/recipe-links/dishes/${soup}/cell`, { recipe_id: soupRecipe.id }))
+  // A pie logged by hand: the salt has no price paid yet, so its value is the chicken's alone and says so.
+  const logged = await ok(owner.post(`/api/stock/venues/${soho}/waste`, { what: 'dish', dish_id: pie, qty: 1, reason_id: reason('Made too much') }))
+  assert.deepEqual([logged.value, logged.unvalued], [0.4, 1])
+  await ok(owner.post(`/api/stock/waste/${logged.id}/undo`, {}))
+
+  // A pie voided as wasted at Soho on a closed till day, and nobody reads stock: the sweep keeps its items.
+  const before = (await onHand(owner, soho))['Chicken thighs'].on_hand
+  const pieLine = 'l-' + randomUUID()
+  await tillCheck(ids.a, soho, today, [{ id: pieLine, item_id: pie, name: 'Seasonal pie', qty: 1, reason: 'Dropped or spilt' }])
+  assert.ok((await sweepVoidWaste()).voids >= 1)
+  const kept = await sql`
+    SELECT k.recipe_name, i.item_id, i.qty_base::float8 AS qty_base, i.cost_per_base::float8 AS cost
+      FROM stock_void_waste k JOIN stock_void_waste_items i ON i.tenant_id = k.tenant_id AND i.line_id = k.line_id
+     WHERE k.tenant_id = ${ids.a} AND k.line_id = ${pieLine} ORDER BY i.qty_base`
+  assert.deepEqual(kept.map(r => [r.item_id, r.qty_base, r.cost]), [[salt.id, 5, null], [chicken.id, 100, 0.004]])
+  assert.equal(kept[0].recipe_name, 'Seasonal pie')
+  assert.equal((await sweepVoidWaste()).voids, 0, 'kept once: nothing left to keep')
+
+  // A soup voided as wasted at Leeds while its till day is open: read again as the recipe is put right (D9).
+  const soupLine = 'l-' + randomUUID()
+  await tillCheck(ids.a, leeds, leedsToday, [{ id: soupLine, item_id: soup, name: 'Daily soup', qty: 1, reason: 'Made too much' }], { open: true })
+  const soupItems = async () => (await ok(owner.get(`/api/stock/venues/${leeds}/waste`))).entries.find(e => e.id === soupLine).items.map(i => [i.name, i.qty_base])
+  assert.deepEqual(await soupItems(), [['Onions', 200]])
+  await sql`UPDATE recipe_lines SET qty = 240 WHERE tenant_id = ${ids.a} AND recipe_id = ${soupRecipe.id}`
+  assert.deepEqual(await soupItems(), [['Onions', 300]], 'an open day is broken in again')
+  assert.deepEqual((await sql`SELECT qty_base::float8 AS q FROM stock_void_waste_items WHERE tenant_id = ${ids.a} AND line_id = ${soupLine}`).map(r => r.q), [300], 'and kept as it is now')
+  // Once the till day is closed, what was kept is final.
+  await sql`UPDATE pos_days SET closed_at = now() WHERE tenant_id = ${ids.a} AND venue_id = ${leeds} AND closed_at IS NULL`
+  await sql`UPDATE recipe_lines SET qty = 320 WHERE tenant_id = ${ids.a} AND recipe_id = ${soupRecipe.id}`
+  assert.deepEqual(await soupItems(), [['Onions', 300]], 'a closed day never changes')
+
+  // The specials leave every menu, and the pie's recipe changes: past waste stays as it was.
+  const now = await ok(owner.get('/api/menus/' + m.id))
+  await ok(owner.patch('/api/menus/' + m.id, { ...now, sections: [] }))
+  await ok(owner.post(`/api/menus/${m.id}/publish`, {}))
+  await sql`UPDATE recipe_lines SET qty = 999 WHERE tenant_id = ${ids.a} AND recipe_id = ${pieRecipe.id} AND item_id = ${chicken.id}`
+  assert.equal((await ok(owner.get(`/api/stock/venues/${soho}/waste/pickers`))).dishes.some(d => d.name === 'Seasonal pie'), false, 'on no menu now')
+  const row = (await ok(owner.get(`/api/stock/venues/${soho}/waste`))).entries.find(e => e.id === pieLine)
+  assert.deepEqual(row.items.map(i => [i.name, i.qty_base]).sort(), [['Chicken thighs', 100], ['Sea salt', 5]])
+  assert.deepEqual([row.value, row.unvalued], [0.4, 1])
+  assert.equal((await onHand(owner, soho))['Chicken thighs'].on_hand, before - 100, 'on hand keeps it taken off')
+  const led = await ok(owner.get(`/api/stock/venues/${soho}/items/${chicken.id}/moves`))
+  assert.ok(led.moves.some(x => x.source.type === 'till_void' && x.source.id === pieLine && x.change === -100), 'and the ledger')
+  assert.deepEqual(await soupItems(), [['Onions', 300]])
+  const sum = await ok(owner.get(`/api/stock/venues/${soho}/waste/summary?by=dish`))
+  assert.ok(sum.rows.some(r => r.label === 'Seasonal pie' && r.value === 0.4), 'and the summary')
+})
+
+test('on a shared device a person logs, undoes and adds photos only at its venue', async () => {
+  const { DEVICE_HEADER, ACT_HEADER } = await import('../src/middleware/sharedDevice.js')
+  await ok(admin.put('/api/shared-devices/my-pin', { pin: '5928' }))
+  const device = await ok(owner.post('/api/shared-devices', { venue_id: leeds, name: 'Leeds waste tablet' }))
+  const [adminRow] = await sql`SELECT id, email FROM users WHERE tenant_id = ${ids.a} AND auth0_user_id = ${A.admin}`
+  const on = act => ({ [DEVICE_HEADER]: device.token, ...(act ? { [ACT_HEADER]: act } : {}) })
+  const asAdmin = on((await ok(owner.post('/api/shared-devices/act', { person: 'user:' + adminRow.id, pin: '5928' }, on()))).token)
+  try {
+    const body = { what: 'item', item_id: onion.id, qty: 100, unit: 'g', reason_id: reason('Gone off') }
+    const out = await owner.post(`/api/stock/venues/${soho}/waste`, body, asAdmin)
+    assert.equal(out.status, 403, 'the Leeds tablet doesn\'t log Soho\'s waste')
+    assert.match(out.body, /Leeds/)
+    const list = await ok(owner.get(`/api/stock/venues/${soho}/waste`, undefined, asAdmin))
+    assert.deepEqual([list.can_log, list.can_manage, /Leeds/.test(list.venue_problem)], [false, false, true])
+    const soho1 = await ok(owner.post(`/api/stock/venues/${soho}/waste`, body))
+    assert.equal(list.entries.some(e => e.can_undo), false, 'nothing to undo there')
+    assert.equal((await owner.post(`/api/stock/waste/${soho1.id}/undo`, {}, asAdmin)).status, 403, 'nor undoes Soho\'s')
+    // At Leeds, from Leeds' tablet: logged as the person who switched in.
+    const here = await ok(owner.post(`/api/stock/venues/${leeds}/waste`, body, asAdmin))
+    assert.equal(here.by, adminRow.email)
+    assert.equal((await ok(owner.get(`/api/stock/venues/${leeds}/waste`, undefined, asAdmin))).venue_problem, null)
+    await ok(owner.post(`/api/stock/waste/${here.id}/undo`, {}, asAdmin))
+    await ok(owner.post(`/api/stock/waste/${soho1.id}/undo`, {}))
+  } finally {
+    await ok(owner.delete('/api/shared-devices/' + device.device.id))
+  }
+})
+
+test('the summary\'s last days end on the venue\'s trading day', async () => {
+  const { today } = await ok(owner.get(`/api/stock/venues/${soho}/waste/pickers`))
+  const back = n => new Date(new Date(today + 'T12:00:00Z').getTime() - n * 86400000).toISOString().slice(0, 10)
+  const s = await ok(owner.get(`/api/stock/venues/${soho}/waste/summary?days=3`))
+  assert.deepEqual([s.from, s.to], [back(2), today])
+  assert.deepEqual(await ok(owner.get(`/api/stock/venues/${soho}/waste/summary`)).then(x => [x.from, x.to]), [back(6), today])
+})
+
 test('the list and summary for View without values; a photo; Use logs, View can\'t', async () => {
   const day = await ok(viewer.get(`/api/stock/venues/${soho}/waste`))
   assert.ok(day.entries.length > 0)
@@ -289,6 +401,19 @@ test('the list and summary for View without values; a photo; Use logs, View can\
   assert.match(up.json().photo_url, /waste/)
   const listed = (await ok(operator.get(`/api/stock/venues/${soho}/waste`))).entries.find(x => x.id === e.id)
   assert.ok(listed.photo_url)
+  // Stored under its own type's extension, never the filename's: an .html name can't make a page on the admin's origin.
+  const send = (filename, type, body) => app.inject({
+    method: 'POST', url: `/api/stock/waste/${e.id}/photo`,
+    payload: Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${type}\r\n\r\n`), body, Buffer.from(`\r\n--${boundary}--\r\n`)]),
+    headers: { authorization: 'Bearer test:' + A.operator, 'x-tenant-id': ids.a, [INTERNAL_CALL_HEADER]: INTERNAL_CALL_SECRET, 'content-type': 'multipart/form-data; boundary=' + boundary },
+  })
+  const named = await send('x.html', 'image/png', png)
+  assert.equal(named.statusCode, 200, named.body)
+  assert.match(named.json().photo_url, /\.png$/)
+  const page = await send('x.png', 'image/jpeg', Buffer.from('<html><script>alert(1)</script></html>'))
+  assert.equal(page.statusCode, 415, 'a page sent as a photo is refused')
+  const svg = await send('x.svg', 'image/png', Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>'))
+  assert.equal(svg.statusCode, 415)
 })
 
 test('another group\'s venue, item, recipe, dish, reason and waste are refused', async () => {
@@ -368,8 +493,14 @@ test('the report subject Waste: logged entries and till voids by item, test sale
   const run = spec => ok(owner.post('/api/reports/preview', { spec }))
   const period = { params: [{ key: 'period', type: 'period', default: { relative: 'this_year' } }], filters: [{ field: 'date', op: 'in_period', param: 'period' }] }
   const rows = await run({ kind: 'list', subject: 'stock.waste', rows: ['source', 'name', 'item_name', 'qty', 'reason', 'kind', 'value'], ...period })
-  const voids = rows.rows.filter(r => /till/i.test(r.cells[0]))
+  const voids = rows.rows.filter(r => /till/i.test(r.cells[0]) && r.cells[1] === 'Chicken burger')
   assert.deepEqual(voids.map(r => [r.cells[2], r.cells[3]]).sort(), [['Chicken thighs', 300], ['Onions', 125]], 'the void marked wasted once, broken into items; no test sales')
+  // The pie voided before it left every menu keeps its items in the report too.
+  assert.deepEqual(rows.rows.filter(r => /till/i.test(r.cells[0]) && r.cells[1] === 'Seasonal pie').map(r => [r.cells[2], r.cells[3]]).sort(), [['Chicken thighs', 100], ['Sea salt', 5]])
+  // A row opens the Waste tab on its own trading day, the entry picked out.
+  assert.match(rows.meta.open.page, /tab=waste&venue=:venue&date=:date&waste=:id/)
+  const pieOpen = rows.rows.find(r => r.cells[1] === 'Seasonal pie').open
+  assert.deepEqual([pieOpen.venue, /^\d{4}-\d{2}-\d{2}$/.test(pieOpen.date), pieOpen.id.startsWith('l-')], [soho, true, true], 'its venue, trading day and the till line')
   assert.ok(rows.rows.some(r => /logged/i.test(r.cells[0]) && r.cells[1] === 'Chips' && r.cells[2] == null), 'a dish with no recipe is a row with no item')
   const byKind = await run({ subject: 'stock.waste', rows: ['kind'], values: [{ measure: 'entries' }, { measure: 'waste_value' }], ...period })
   assert.ok(byKind.rows.length >= 2)

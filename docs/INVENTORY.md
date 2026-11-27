@@ -699,8 +699,9 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
   item). Reports: Waste and Stock transfers; starters Waste by reason this week, Transfers in transit.
 - **What the build changed in the plan**: the item walk is `itemsOf()` in `shared/stockItems.js` over `dishCost()`'s
   lines rather than a `usageOf()` in `shared/costing.js` (`shared/stock.js` can't import the cost engine, and the walk
-  is stock's; phase 5's usage calls it); logged waste keeps the items it was broken into then, while a till void is broken
-  in each time by the recipe now (as usage will be); "venues per person" is the group's venues and, on a shared device,
+  is stock's; phase 5's usage calls it); logged waste keeps the items it was broken into then, and a till void keeps
+  its items the first time it is read or swept (`stock_void_waste`, migration 310, review fixes), broken in again only
+  while its till day is open (D9); "venues per person" is the group's venues and, on a shared device,
   the device's venue: the app has no list of venues per person (`docs/claude/outstanding/stock.md` item 73); a
   cancelled transfer comes back when it is cancelled, not as if never sent; the receiver's average paid doesn't take
   in what arrived by transfer (deliveries only).

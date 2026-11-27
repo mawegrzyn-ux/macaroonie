@@ -34,7 +34,7 @@ import { z } from 'zod'
 import { callApi, staffPermissionLevel, levelAtLeast, ToolError } from '../context.js'
 import { VenueText, venueFor, pickByName, plural, audited, localParts, longDate } from './util.js'
 import { formatBase, UNITS } from '../../../../shared/procurement.js'
-import { entriesToBase, entriesText, unitChoice, signedBase, lostInTransit, WASTE_KINDS } from '../../../../shared/stock.js'
+import { entriesToBase, entriesText, unitChoice, signedBase, lostInTransit, asSentEntry, WASTE_KINDS } from '../../../../shared/stock.js'
 import { pounds } from '../../../../shared/costing.js'
 
 const COUNTED = { g: 'by weight (g / kg)', ml: 'by volume (ml / l)', each: 'by count (each)' }
@@ -78,11 +78,11 @@ export const promptLines = [
   'Stock: stock_on_hand (how much of an item there is at a venue, or what is below its par), stock_moves (an item\'s ' +
     'history at a venue: deliveries, counts and adjustments with the running balance), count_stock (a count of the ' +
     'items the person names, in their units, by storage area), log_waste (an item, a prep batch or a dish thrown away, ' +
-    'with a reason; Undo the same day), waste_summary (what was wasted by reason, kind, item or person), send_transfer and ' +
+    'with a reason; Undo on its card for 10 minutes), waste_summary (what was wasted by reason, kind, item or person), send_transfer and ' +
     'receive_transfer (stock moved between venues in two steps).',
 ]
 export const promptNotes = [
-  'Stock: on hand is the last approved count plus the deliveries and adjustments since; sales aren\'t taken off yet, ' +
+  'Stock: on hand is the last approved count plus the deliveries, adjustments, waste and transfers since; sales aren\'t taken off yet, ' +
     'so say so. count_stock records only what the person counted, in their numbers and units (2 cases and 400 g is ' +
     'one item in two units): never work a count out, and with blind counts on never tell the counter what is ' +
     'expected (stock_on_hand) before their count is in. A count someone who can approve makes is approved at once; ' +
@@ -102,8 +102,9 @@ export const tools = [
     title: 'Stock on hand',
     activity: 'Looked at stock on hand',
     description:
-      'How much of an inventory item there is at a venue: its last approved stock count plus what was delivered and ' +
-      'adjusted since (the Stock page\'s On hand tab, the same figures). Sales aren\'t taken off yet, so say so. items: ' +
+      'How much of an inventory item there is at a venue: its last approved stock count plus what was delivered, ' +
+      'adjusted, wasted (the till\'s voids marked wasted too) and moved by transfer since (sent, received, lost in transit), ' +
+      'the Stock page\'s On hand tab, the same figures. Sales aren\'t taken off yet, so say so. items: ' +
       'a few names, codes or barcodes; or low: true for every item below its par at the venue (pars from its order ' +
       'lists); with neither, every counted item. For "how much rice have we got?".',
     input: z.object({
@@ -130,6 +131,8 @@ export const tools = [
           ...(r.counted_at ? { last_count: formatBase(r.counted, r.base_unit) + ' on ' + at(r.counted_at, tz) } : {}),
           ...(r.received_since ? { received_since: formatBase(r.received_since, r.base_unit) } : {}),
           ...(r.adjusted_since ? { adjusted_since: signedBase(r.adjusted_since, r.base_unit) } : {}),
+          ...(r.wasted_since ? { wasted_since: signedBase(r.wasted_since, r.base_unit) } : {}),
+          ...(r.transferred_since ? { transferred_since: signedBase(r.transferred_since, r.base_unit) } : {}),
           ...(r.par_base != null ? { par: formatBase(r.par_base, r.base_unit) } : {}),
           ...(r.areas?.length ? { kept_in: r.areas.join(', ') } : {}),
           ...(r.value != null ? { value: pounds(r.value) } : {}),
@@ -258,8 +261,9 @@ export const tools = [
       'thighs, qty 12 (or 1 tray when the item has a tray unit), reason Dropped or spilt. what: item, batch or dish when ' +
       'a name could be either; order_type for a dish taken away or delivered (its recipe can differ). A batch or a dish ' +
       'is broken into its items by its recipe; the card shows what it takes off stock and anything the recipe can\'t say. ' +
-      'Never log a dish voided on the till as wasted: the till counts it already. Undo takes it back on the same trading ' +
-      'day. Needs Stock use.',
+      'Never log a dish voided on the till as wasted: the till counts it already. Undo on the card takes it back for 10 ' +
+      'minutes; after that it is undone on the Stock page\'s Waste tab on its trading day, or reversed by someone with ' +
+      'Stock manage. Needs Stock use.',
     input: z.object({
       venue: VenueText,
       thing: z.string().trim().min(1).max(200).describe('The item, prep recipe or dish, by name, code or barcode'),
@@ -326,11 +330,8 @@ export const tools = [
     async run(ctx, input) {
       await requireView(ctx)
       const venue = await venueFor(ctx, input.venue)
-      const tz = venue.timezone || 'Europe/London'
-      const days = input.days || 7
-      const to = localParts(new Date(), tz).date
-      const from = localParts(new Date(Date.now() - (days - 1) * 86400000), tz).date
-      const s = await callApi(ctx, 'GET', `/api/stock/venues/${venue.id}/waste/summary?from=${from}&to=${to}&by=${input.by || 'reason'}`)
+      // The last days up to the venue's trading day today (the route's: the till's day start), never the calendar date.
+      const s = await callApi(ctx, 'GET', `/api/stock/venues/${venue.id}/waste/summary?days=${input.days || 7}&by=${input.by || 'reason'}`)
       return {
         venue: venue.name, from: longDate(s.from), to: longDate(s.to), by: s.by,
         entries: s.entries, ...(s.till_voids ? { of_which_till_voids: s.till_voids } : {}),
@@ -532,10 +533,12 @@ async function receivePlan(ctx, input) {
   const lines = t.lines.map(line => {
     const x = given.get(line.id)
     const units = line.units || []
-    const asSent = units.find(u => u.label === line.unit || u.key === line.unit)
-    const c = x ? unitChoice(units, x.unit || line.base_unit) : asSent || unitChoice(units, line.base_unit)
-    if (!c) throw new ToolError(line.name + ' has no size for ' + (x?.unit || line.unit) + '.', 422)
-    const qty = x ? x.qty : asSent ? line.qty : line.qty_base
+    // A line not mentioned arrived as sent (asSentEntry(): in the unit it was sent in only while that
+    // unit's size is the same as then, else what left the sender in the base unit).
+    const sent = x ? null : asSentEntry(line, units)
+    const c = unitChoice(units, x ? x.unit || line.base_unit : sent.unit)
+    if (!c) throw new ToolError(line.name + ' has no size for ' + (x?.unit || line.base_unit) + '.', 422)
+    const qty = x ? x.qty : sent.qty
     const r = entriesToBase([{ qty, unit: c.key }], units, { name: line.name })
     if (r.problem) throw new ToolError(r.problem + '.', 422)
     return { line, qty, unit: c.key, text: formatBase(r.qty_base ?? 0, line.base_unit) + (x ? '' : ' (as sent)'), lost: lostInTransit(line.qty_base, r.qty_base ?? 0) }

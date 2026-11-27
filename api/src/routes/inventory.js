@@ -853,8 +853,8 @@ export default async function inventoryRoutes(app) {
     // open order with a quantity (which then says it's switched off); or a
     // recipe uses it (migration 300: its lines keep their item); or stock
     // records it (inventory phase 4a: a count line or an adjustment; phase
-    // 4b: waste or a transfer line, which would go with it and change past
-    // counts, the ledger and reports).
+    // 4b: waste, a till void's kept items or a transfer line, which would go
+    // with it and change past counts, the ledger and reports).
     const [used] = await tx`
       SELECT 1 FROM purchase_order_lines WHERE item_id = ${item.id} AND tenant_id = ${req.tenantId}
       UNION ALL
@@ -865,6 +865,8 @@ export default async function inventoryRoutes(app) {
       SELECT 1 FROM stock_adjustments WHERE item_id = ${item.id} AND tenant_id = ${req.tenantId}
       UNION ALL
       SELECT 1 FROM stock_waste_items WHERE item_id = ${item.id} AND tenant_id = ${req.tenantId}
+      UNION ALL
+      SELECT 1 FROM stock_void_waste_items WHERE item_id = ${item.id} AND tenant_id = ${req.tenantId}
       UNION ALL
       SELECT 1 FROM stock_transfer_lines WHERE item_id = ${item.id} AND tenant_id = ${req.tenantId}
       UNION ALL

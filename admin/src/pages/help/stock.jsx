@@ -161,8 +161,10 @@ export function Section() {
         mistake? <strong>Undo</strong> takes an entry back on the same trading day (asked twice), for whoever logged
         it or someone with Stock manage; it stays on the list marked <em>Undone</em>. Once the trading day is over,
         someone with Stock manage can <strong>Reverse</strong> it instead: a second entry the other way, dated with the
-        first, so a count since keeps its figure. Under the list, <strong>The last seven days</strong> adds waste up by
-        reason, kind, item or person.
+        first, so a count since keeps its figure (added up, the mistake and its reversal count as nothing). Under the
+        list, <strong>The last seven days</strong> adds waste up by reason, kind, item or person. When some of what
+        an entry took off has no price paid at the venue yet, its value covers the rest and the line says so. On a
+        shared tablet waste is logged, undone and photographed only for the tablet&apos;s own venue.
       </P>
       <H3>Waste reasons and WRAP&apos;s kinds</H3>
       <P>
@@ -170,8 +172,9 @@ export function Section() {
         off or out of date before it was used), <strong>preparation</strong> (lost in the kitchen: trim, made too much,
         dropped, burnt, a dish made and not served) and <strong>plate</strong> (what guests leave or send back). The
         group starts with nine reasons. On the <strong>Settings</strong> tab (Stock manage) add your own with their
-        kind, change one, switch one off, or drag them into the order the waste form shows them. A reason already used
-        is switched off rather than deleted, so past waste keeps its reason.
+        kind, change one or switch one off (the pencil, then <strong>Save</strong>), or drag them into the order the
+        waste form shows them. A reason already used is switched off rather than deleted, so past waste keeps its
+        reason.
       </P>
       <H3>Dishes voided on the till as wasted</H3>
       <P>
@@ -180,7 +183,10 @@ export function Section() {
         ingredients by its recipe and taken off stock. Don&apos;t log it again, and it can&apos;t be undone here: the
         till keeps its record. A void&apos;s reason counts under your waste reason of the same name (so
         <em> Sent back by a guest</em> is plate waste); any other reason counts as preparation. Test sales made on the
-        Test data page are left out.
+        Test data page are left out. What a void took off is kept within minutes of it: while the till&apos;s day is
+        still open it follows the recipe as you put it right, and once the day is closed it never changes, so a dish
+        taken off every menu later, or a recipe changed, leaves past waste, on hand and the Waste report as they
+        were.
       </P>
       <H3>Transfers between venues</H3>
       <P>
@@ -196,7 +202,8 @@ export function Section() {
       </P>
       <P>
         A transfer is valued at what the sending venue paid for the stock lately (its average over the last 90 days),
-        so both venues see the same pounds (with Costing view). On a shared tablet a person can only send from, and
+        so both venues see the same pounds (with Costing view); when the sending venue has paid nothing for it yet,
+        it has no value at either venue. On a shared tablet a person can only send from, and
         receive at, the tablet&apos;s own venue.
       </P>
       <H3>Waste on the phone</H3>
@@ -220,12 +227,14 @@ export function Section() {
       <P>
         Tell Pepper <em>we dropped a tray of 12 chicken thighs</em> and it logs the waste with the right item and
         reason after you confirm its card (which shows what it takes off); <strong>Undo</strong> on the card takes it
-        back the same day. Ask <em>what did we waste this week?</em> for waste by reason, kind, item or person. Pepper
+        back for 10 minutes after (after that, undo it on the Waste tab on its trading day, or someone with Stock
+        manage reverses it). Ask <em>what did we waste this week?</em> for waste by reason, kind, item or person. Pepper
         can send stock to another venue (<em>send 2 trays of chicken to Leeds</em>) and receive a transfer (<em>the
         rice from Soho came, but 2 limes short</em>), each confirmed first. Reports have <strong>Waste</strong> (each
         item of each entry, till voids marked wasted included) and <strong>Stock transfers</strong> (sent, received,
         lost in transit), with the starters <strong>Waste by reason this week</strong> and <strong>Transfers in
-        transit</strong>.
+        transit</strong>. A row of the Waste report opens the Waste tab on its trading day with that entry picked
+        out.
       </P>
     </section>
   )

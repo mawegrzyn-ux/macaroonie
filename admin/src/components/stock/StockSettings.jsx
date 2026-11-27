@@ -283,7 +283,7 @@ function WasteReasonsCard({ canManage }) {
       <div className="space-y-3" data-testid="waste-reasons-card">
         <p className="text-xs text-muted-foreground">
           Each reason is one of WRAP&apos;s three kinds: spoilage (gone off or out of date), preparation (lost in the kitchen) or plate (what guests leave or send back).
-          Drag them into the order the waste form shows them. A reason already on logged waste is switched off rather than deleted.
+          Drag them into the order the waste form shows them. A reason already on logged waste is switched off rather than deleted: change it (the pencil), switch it off and Save.
         </p>
         {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
           <SortableRows items={rows} locked={!canManage} onReorder={ids => order.mutate(ids)} renderItem={r => (
@@ -292,6 +292,8 @@ function WasteReasonsCard({ canManage }) {
                 <>
                   <input value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })} maxLength={60} className={cn(inputCls, 'flex-1 min-w-[8rem]')} aria-label="Reason" />
                   <Segmented value={editing.kind} onChange={v => setEditing({ ...editing, kind: v })} options={kinds} />
+                  {/* Switched on or off with the rest of the reason, saved by Save (design rule 5). */}
+                  <Toggle checked={editing.is_active} onChange={on => setEditing({ ...editing, is_active: on })} label={editing.is_active ? 'On' : 'Off'} />
                   <button type="button" className={btn.primary} disabled={!editing.name.trim() || save.isPending} onClick={() => save.mutate(editing)} data-testid="waste-reason-save">Save</button>
                   <button type="button" className={btn.ghost} onClick={() => setEditing(null)}>Cancel</button>
                 </>
@@ -300,9 +302,9 @@ function WasteReasonsCard({ canManage }) {
                   <span className={cn('flex-1 text-sm font-medium', !r.is_active && 'text-muted-foreground line-through')}>{r.name}</span>
                   <KindBadge kind={r.kind} />
                   {r.used > 0 && <span className="text-xs text-muted-foreground">{r.used} logged</span>}
+                  {!r.is_active && <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium" data-testid="waste-reason-off">Switched off</span>}
                   {canManage && (
                     <>
-                      <Toggle checked={r.is_active} onChange={on => save.mutate({ ...r, is_active: on })} label={r.is_active ? 'On' : 'Off'} />
                       <button type="button" className={btn.ghost} aria-label={'Change ' + r.name} onClick={() => setEditing({ ...r })}><Pencil className="w-4 h-4" /></button>
                       {!r.used && <ConfirmDelete onConfirm={() => remove.mutate(r.id)} label={'Delete ' + r.name} />}
                     </>

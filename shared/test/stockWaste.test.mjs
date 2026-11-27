@@ -7,9 +7,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { itemsOf } from '../stockItems.js'
 import {
-  wasteUndo, wasteTotals, voidReason, transferLineMoves, lostInTransit, stockOnHand, runningBalance,
+  wasteUndo, wasteTotals, voidReason, transferLineMoves, lostInTransit, stockOnHand, runningBalance, asSentEntry, entriesToBase,
   MOVE_KINDS, WASTE_KINDS, WASTE_REASON_SEEDS,
 } from '../stock.js'
+import { pageLink } from '../nav/links.js'
+import { NAV_KEYWORDS, NAV_DESCRIPTIONS } from '../nav/index.js'
+import { objects } from '../registry/stock.js'
+import { openLink } from '../registry/index.js'
 
 const item = (id, name, base_unit = 'g', extra = {}) => ({ id, name, base_unit, yield_pct: 100, units: [], ...extra })
 const recipe = (id, name, lines, extra = {}) => ({
@@ -125,6 +129,46 @@ test('waste added up by reason, kind, item and person; quantities only in one un
   assert.deepEqual(items.map(r => [r.label, r.qty, r.unit, r.value]), [['Onion', 150, 'g', 0.15]])
   assert.equal(WASTE_REASON_SEEDS.length, 9)
   assert.ok(WASTE_REASON_SEEDS.every(r => WASTE_KINDS[r.kind]))
+})
+
+test('a reversing entry takes its entry back: a mistake and its reversal are no entries at all', () => {
+  const rows = [
+    { reason: 'Dropped', reason_kind: 'preparation', by: 'a@x', qty: 2, unit: 'each', value: 3, day: '2026-11-27' },
+    { reason: 'Gone off', reason_kind: 'spoilage', by: 'a@x', qty: 1, unit: 'kg', value: 4, day: '2026-11-26' },
+    { reason: 'Gone off', reason_kind: 'spoilage', by: 'b@x', qty: -1, unit: 'kg', value: -4, day: '2026-11-26', reverses_id: 'w2' },
+  ]
+  assert.deepEqual(wasteTotals(rows, 'reason').map(r => [r.label, r.entries, r.value]), [['Dropped', 1, 3]], 'the reversed mistake leaves no row')
+  assert.deepEqual(wasteTotals(rows, 'kind').map(r => [r.key, r.entries]), [['preparation', 1]])
+  const items = wasteTotals([
+    { item_id: 'i', item_name: 'Onion', qty_base: 100, base_unit: 'g', value: 0.1 },
+    { item_id: 'i', item_name: 'Onion', qty_base: 100, base_unit: 'g', value: 0.1 },
+    { item_id: 'i', item_name: 'Onion', qty_base: -100, base_unit: 'g', value: -0.1, reverses: true },
+  ], 'item')
+  assert.deepEqual(items.map(r => [r.label, r.entries, r.qty, r.value]), [['Onion', 1, 100, 0.1]])
+})
+
+test('received as sent: in the unit it was sent in while its size is the same, else what was sent in the base unit', () => {
+  const choices = [{ key: 'g', label: 'g', base_qty: 1 }, { key: 'kg', label: 'kg', base_qty: 1000 }, { key: 'tray', label: 'tray', base_qty: 2500 }]
+  const line = { qty: 2, unit: 'tray', qty_base: 5000, base_unit: 'g' }
+  assert.deepEqual(asSentEntry(line, choices), { qty: 2, unit: 'tray' })
+  // The tray is 3 kg now: 2 trays would read 6 kg, a gain nobody reported.
+  const bigger = choices.map(c => (c.key === 'tray' ? { ...c, base_qty: 3000 } : c))
+  const e = asSentEntry(line, bigger)
+  assert.deepEqual(e, { qty: 5000, unit: 'g' })
+  assert.equal(lostInTransit(line.qty_base, entriesToBase([e], bigger).qty_base), 0)
+  assert.deepEqual(asSentEntry({ ...line, unit: 'crate' }, choices), { qty: 5000, unit: 'g' }, 'a unit it no longer has')
+})
+
+test('the Stock page opens at its Waste and Transfers tabs, and is found by their words', () => {
+  assert.equal(pageLink('/stock', { tab: 'waste' }), '/stock?tab=waste')
+  assert.equal(pageLink('/stock', { tab: 'transfers' }), '/stock?tab=transfers')
+  for (const key of ['stock.waste', 'stock.transfers']) {
+    const o = objects.find(x => x.key === key)
+    assert.match(openLink(o, { tab: key === 'stock.waste' ? 'waste' : 'transfers' }), /\?tab=(waste|transfers)$/, key + ' opens at its tab')
+  }
+  for (const w of ['waste', 'wastage', 'spoilage', 'transfer', 'in transit']) assert.ok(NAV_KEYWORDS['/stock'].includes(w), w)
+  assert.match(NAV_DESCRIPTIONS['/stock'], /waste/)
+  assert.match(NAV_DESCRIPTIONS['/stock'], /transfers/)
 })
 
 test('a till void counts under the group\'s reason of its name, else its own words as preparation', () => {

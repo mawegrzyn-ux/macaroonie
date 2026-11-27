@@ -23,6 +23,7 @@ import { Field, inputCls, ErrorNote, useVenues } from '@/components/staff/shared
 import { Card, NumInput, btn } from '@/components/purchasing/shared'
 import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { useStockList, matchItem, qty, when, pounds, TransferStatus } from '@/components/stock/shared'
+import { entriesToBase, lostInTransit, asSentEntry } from '@shared/stock.js'
 
 function useTransfers(venueId) {
   const api = useApi()
@@ -115,11 +116,9 @@ function Receive({ transfer, onDone }) {
   const [note, setNote] = useState('')
   useEffect(() => {
     if (!t) return
-    // As sent, in the unit it was sent in (else the item's usual unit) until someone says otherwise.
-    setGot(Object.fromEntries(t.lines.map(l => {
-      const u = (l.units || []).find(x => x.label === l.unit || x.key === l.unit)
-      return [l.id, u ? { qty: l.qty, unit: u.key } : { qty: l.qty_base, unit: l.base_unit }]
-    })))
+    // As sent until someone says otherwise: in the unit it was sent in while that unit's size is the
+    // same as then, else what was sent in the base unit (asSentEntry()).
+    setGot(Object.fromEntries(t.lines.map(l => [l.id, asSentEntry(l, l.units || [])])))
   }, [t])
   const receive = useMutation({
     mutationFn: () => api.post(`/stock/transfers/${t.id}/receive`, {
@@ -133,15 +132,15 @@ function Receive({ transfer, onDone }) {
     <div className="space-y-2" data-testid="transfer-receive">
       {t.lines.map(l => {
         const g = got[l.id] || {}
-        const unit = (l.units || []).find(u => u.key === g.unit)
-        const base = unit && g.qty != null ? Number(g.qty) * unit.base_qty : null
-        const short = base != null && base < l.qty_base
+        // The item's own unit sizes and the one rule for what didn't arrive (shared/stock.js), as the API reads them.
+        const base = g.qty != null ? entriesToBase([{ qty: g.qty, unit: g.unit }], l.units || [], l).qty_base : null
+        const lost = base != null ? lostInTransit(l.qty_base, base) : 0
         return (
           <div key={l.id} className="flex flex-wrap items-center gap-2" data-testid="transfer-receive-line" data-item={l.name}>
             <span className="flex-1 min-w-[10rem] text-sm">
               <span className="font-medium">{l.name}</span>
               <span className="block text-xs text-muted-foreground">sent {l.qty} {l.unit}{l.unit === l.base_unit ? '' : ' = ' + qty(l.qty_base, l.base_unit)}</span>
-              {short && <span className="block text-xs text-amber-800" data-testid="transfer-short">{qty(l.qty_base - base, l.base_unit)} short: kept as lost in transit</span>}
+              {lost > 0 && <span className="block text-xs text-amber-800" data-testid="transfer-short">{qty(lost, l.base_unit)} short: kept as lost in transit</span>}
             </span>
             <NumInput value={g.qty ?? null} onChange={v => setGot(x => ({ ...x, [l.id]: { ...g, qty: v } }))} className="w-24 h-12 text-base" aria-label={'Arrived of ' + l.name} data-testid="transfer-receive-qty" />
             <select value={g.unit || ''} onChange={e => setGot(x => ({ ...x, [l.id]: { ...g, unit: e.target.value } }))} aria-label="Unit"
@@ -217,6 +216,7 @@ export default function Transfers({ venueId, transferId, onOpenTransfer }) {
     </Card>
   )
   if (isLoading) return <div className="py-16 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" /></div>
+  if (!data) return <ErrorNote error={error} />
   return (
     <div className="space-y-4" data-testid="stock-transfers">
       <ErrorNote error={error} />

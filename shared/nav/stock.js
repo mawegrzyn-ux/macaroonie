@@ -7,8 +7,8 @@ export const pages = [
   {
     path: '/stock', label: 'Stock', icon: 'Boxes', module: 'stock',
     section: 'Stock', order: 25, catalogOrder: 166,
-    keywords: 'stock stocktake stock take count counts counting on hand stock level storage areas walk-in key items adjustment shrinkage ledger history',
-    description: 'Stock on hand at each venue, stock counts by storage area with their approval, adjustments, and each item\'s history.',
-    accepts: ['venue', 'tab'], tabs: ['on-hand', 'counts', 'adjustments', 'settings'],
+    keywords: 'stock stocktake stock take count counts counting on hand stock level storage areas walk-in key items adjustment shrinkage ledger history waste wastage spoilage thrown away binned waste reasons transfer transfers send stock receive stock in transit lost in transit',
+    description: 'Stock on hand at each venue, stock counts by storage area with their approval, waste and its reasons, transfers between venues (in transit, received, lost), adjustments, and each item\'s history.',
+    accepts: ['venue', 'tab'], tabs: ['on-hand', 'counts', 'waste', 'transfers', 'adjustments', 'settings'],
   },
 ]
