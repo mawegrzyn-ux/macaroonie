@@ -15,6 +15,6 @@ export const pages = [
     section: 'Stock', order: 30, catalogOrder: 167,
     keywords: 'menu margins margin gp gross profit cost percent cost percentage food cost plate cost dish cost target threshold vat net price meal deal options sold dishes sold theoretical cost theoretical food cost menu engineering stars dogs plough horse puzzle scenario what if price change push prices',
     description: 'Every dish on a menu with its price net of VAT, what it costs, its gross profit and cost %, coloured against your targets, at a venue and order type; what really sold, with its theoretical cost and GP; menu engineering (stars, plough-horses, puzzles and dogs); and scenarios that try price and cost changes and push new prices into a menu\'s draft.',
-    accepts: ['tab'], tabs: ['margins', 'sold', 'engineering'],
+    accepts: ['tab'], tabs: ['margins', 'sold', 'engineering', 'scenarios'],
   },
 ]

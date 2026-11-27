@@ -1497,6 +1497,30 @@ export function dealRange(parts, basePence, vatRate = 0) {
 }
 
 /**
+ * A meal deal at its typical picks (inventory phase 7a: scenarios and the
+ * weighted figures at the real mix): the dishes guests pick most (ctx.pickMix
+ * from sales, else each step's first: typicalPicks()), their cost
+ * (dishCost().typical) and what those picks add to the bill (each choice's
+ * extra charge in the deal), so the cost is paired with what the guest pays
+ * for it (the rule dealRange() keeps). { cost, charge_pence, picks: [names] },
+ * cost null when the picks can't be costed. mctx: the menu's combo ctx.
+ */
+export function dealTypical(item, scope, ctx, mctx = null) {
+  const m = mctx || comboCtx(ctx)
+  const dc = dishCost(item.id, {}, scope, ctx)
+  const combo = comboOf(item)
+  let charge = 0
+  const names = []
+  for (const p of dc.typical_picks || []) {
+    const step = (combo?.steps || []).find(st => st.id === p.step_id)
+    const choice = step ? stepChoices(step, { ...m, soldOut: null, selfId: item.id }).find(c => c.item_id === p.dish_id) : null
+    charge += Math.max(0, Math.round(num(choice?.price_pence)))
+    names.push(choice?.label || get(ctx.dishes, p.dish_id)?.name || 'a dish')
+  }
+  return { cost: dc.typical ?? null, charge_pence: charge, picks: names, gaps: dc.gaps }
+}
+
+/**
  * One dish's margin at a scope: its price there (the menu's price, as the
  * till and online price it: fromPrice(); a dish has one price on a menu, and
  * only its VAT changes with the venue, stream and order type), the VAT in it

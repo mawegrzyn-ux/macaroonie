@@ -982,6 +982,7 @@
     "admin/src/pages/help/recipes.jsx",
     "api/src/ai/tools/recipes.js",
     "api/src/jobs/recipe-links.js",
+    "api/src/routes/costScenarios.js",
     "api/src/routes/menuMargins.js",
     "api/src/routes/recipeLinks.js",
     "api/src/routes/recipeOptions.js",
@@ -991,6 +992,7 @@
     "api/src/services/dishCostSvc.js",
     "api/src/services/recipeCoverageSvc.js",
     "api/src/services/recipeReadAi.js",
+    "api/test/menu-engineering.test.mjs",
     "api/test/recipe-coverage.test.mjs",
     "api/test/recipe-links.test.mjs",
     "api/test/recipe-pepper.test.mjs",
@@ -998,10 +1000,12 @@
     "api/test/recipes.test.mjs",
     "shared/costing.js",
     "shared/engineering.js",
+    "shared/scenarios.js",
     "shared/test/costing.test.mjs",
     "shared/test/dishCost.test.mjs",
     "shared/test/engineering.test.mjs",
-    "shared/test/recipeCoverage.test.mjs"
+    "shared/test/recipeCoverage.test.mjs",
+    "shared/test/scenarios.test.mjs"
    ],
    "public": [
     "api/src/ai/tools/recipes.js",
@@ -1010,7 +1014,8 @@
     "api/src/services/recipeCoverageSvc.js",
     "shared/costing.js",
     "shared/engineering.js",
-    "shared/nav/recipes.js"
+    "shared/nav/recipes.js",
+    "shared/scenarios.js"
    ]
   },
   "reports": {

@@ -40,9 +40,10 @@ import { pounds, penceText, pctText, BandBadge, bandWord, CoverageBadge } from '
 const SoldMargins = lazy(() => import('@/components/recipes/SoldMargins'))
 // Engineering and scenarios (inventory phase 7a), each loaded on demand too.
 const Engineering = lazy(() => import('@/components/recipes/Engineering'))
+const Scenarios = lazy(() => import('@/components/recipes/Scenarios'))
 const TABS = [
   { value: 'margins', label: 'Margins' }, { value: 'sold', label: 'Sold' },
-  { value: 'engineering', label: 'Engineering' },
+  { value: 'engineering', label: 'Engineering' }, { value: 'scenarios', label: 'Scenarios' },
 ]
 const TAB_KEYS = TABS.map(t => t.value)
 
@@ -115,6 +116,7 @@ export default function MenuMargins() {
           <Suspense fallback={<div className="py-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" /></div>}>
             {tab === 'sold' && <SoldMargins venues={c?.venues || []} />}
             {tab === 'engineering' && <Engineering venues={c?.venues || []} menus={c?.menus || []} />}
+            {tab === 'scenarios' && (c ? <Scenarios choices={c} canManage={canManage} /> : <Loader2 className="w-5 h-5 animate-spin" />)}
           </Suspense>
         ) : (<>
         {loaded && !canManage && <ReadOnlyNotice what="the cost targets" />}
