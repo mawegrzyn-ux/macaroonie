@@ -41,15 +41,17 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission, permissionLevels } from '../middleware/auth.js'
 import { permissionAtLeast } from '../config/modules.js'
 import { httpError } from '../middleware/error.js'
-import { loadMenuVersion } from '../services/menuReleases.js'
+import { loadMenuVersion, publishStatus } from '../services/menuReleases.js'
 import { loadDishCosting, loadScopes, loadCostingSettings } from '../services/dishCostSvc.js'
 import { loadPickMix } from '../services/recipeCoverageSvc.js'
 import { loadTaxRates } from '../services/taxSvc.js'
+import { makeContext, callApi, staffAuthOf, staffPrincipalOf, ToolError } from '../ai/context.js'
 import { pickMix, scopeText } from '../../../shared/costing.js'
 import { isCombo } from '../../../shared/combos.js'
 import { resolveItemTypes } from '../../../shared/catalogue.js'
+import { menuSaveBody } from '../../../shared/menuSave.js'
 import {
-  scenarioFigures, changeProblem, changeWords, MAX_CHANGES, MIX_DAYS, ROUND_TO, ROUND_MODES,
+  scenarioFigures, pushPrices, priceStamp, changeProblem, changeWords, MAX_CHANGES, MIX_DAYS, ROUND_TO, ROUND_MODES,
 } from '../../../shared/scenarios.js'
 
 const uuid = z.string().uuid()
@@ -75,9 +77,12 @@ export const ScenarioBody = z.object({
   notes: z.string().max(1000).nullable(),
 }).strict()
 const PreviewBody = ScenarioBody.extend({ name: z.string().trim().max(120).optional(), notes: z.string().max(1000).nullable().optional() })
+const PushBody = z.object({ stamp: z.string().min(1).max(80) }).strict()
 
 const canView = requirePermission('costing', 'view')
 const canManage = requirePermission('costing', 'manage')
+// Push prices changes a menu: Menus manage as well (the menus routes check it again, as the person).
+const canPush = [canManage, requirePermission('menus', 'manage')]
 const who = req => req.user?.email ?? req.user?.sub ?? null
 const COLS = 'id, name, menu_id, venue_id, revenue_stream_id, order_type_id, mix_days, changes, notes, created_by, updated_by, pushed_at, pushed_by, created_at, updated_at'
 
@@ -181,6 +186,16 @@ async function oneScenario(tx, tenantId, id) {
   return s
 }
 
+const asHttp = err => (err instanceof ToolError ? httpError(err.status || 422, err.message) : err)
+
+/** Where a menu is sold, in words: its venue (or every venue) and the revenue streams that sell it. */
+async function soldAt(tx, tenantId, menu) {
+  const [venue] = menu.venue_id ? await tx`SELECT name FROM venues WHERE id = ${menu.venue_id} AND tenant_id = ${tenantId}` : [null]
+  const streams = await tx`
+    SELECT r.name, v.name AS venue FROM pos_revenue_streams r JOIN venues v ON v.id = r.venue_id AND v.tenant_id = r.tenant_id
+     WHERE r.tenant_id = ${tenantId} AND ${menu.id} = ANY(r.menu_ids) AND r.is_active ORDER BY v.name, r.sort_order, r.name`
+  return { venue: venue?.name ?? null, streams: streams.map(r => r.name + ' (' + r.venue + ')') }
+}
 
 export default async function costScenarioRoutes(app) {
   app.addHook('preHandler', requireAuth)
@@ -269,5 +284,58 @@ export default async function costScenarioRoutes(app) {
       if (!gone) throw httpError(404, 'Scenario not found')
       return { deleted: true }
     })
+  })
+
+  // ── Push prices (into the menu's draft only) ────────────────
+
+  const staffCtx = req => makeContext({
+    app, channel: 'staff_chat', tenantId: req.tenantId, log: req.log,
+    auth: staffAuthOf(req), principal: staffPrincipalOf(req), actor: who(req),
+  })
+
+  /** The saved scenario's price changes on the menu's draft as it is now, through the menus area's own route. */
+  async function pushPlan(req, id) {
+    const s = await withTenant(req.tenantId, tx => oneScenario(tx, req.tenantId, id))
+    let full
+    try { full = await callApi(staffCtx(req), 'GET', '/api/menus/' + s.menu_id) } catch (err) { throw asHttp(err) }
+    const plan = pushPrices(full, s.changes || [])
+    return { s, full, plan }
+  }
+
+  app.post('/:id/push/preview', { preHandler: canPush }, async req => {
+    const id = uuid.parse(req.params.id)
+    const { s, full, plan } = await pushPlan(req, id)
+    return withTenant(req.tenantId, async tx => {
+      const [where, status] = await Promise.all([soldAt(tx, req.tenantId, full), publishStatus(tx, req.tenantId, s.menu_id)])
+      return {
+        scenario: { id: s.id, name: s.name }, menu: { id: full.id, name: full.name, venue_id: full.venue_id ?? null },
+        prices: plan.prices, skipped: plan.skipped, stamp: priceStamp(plan.prices),
+        sold_at: where,
+        // What the draft already holds that isn't live: publishing later puts that live too.
+        unpublished: status.in_sync ? 0 : status.changes.length, live: !!status.live,
+        publish_page: '/menus?edit=' + full.id,
+      }
+    })
+  })
+
+  app.post('/:id/push', { preHandler: canPush }, async req => {
+    const id = uuid.parse(req.params.id)
+    const b = PushBody.parse(req.body || {})
+    const { s, plan } = await pushPlan(req, id)
+    if (!plan.prices.length) throw httpError(422, 'No price changes: this scenario changes no price on the menu\'s draft', { code: 'nothing' })
+    if (priceStamp(plan.prices) !== b.stamp) {
+      throw httpError(409, 'The menu\'s draft changed since the preview: look at the prices again before pushing them', { code: 'changed' })
+    }
+    // The whole tree goes back with every field (rule 13); the menus route checks Menus manage again, as the person.
+    try {
+      await callApi(staffCtx(req), 'PATCH', '/api/menus/' + s.menu_id, { body: menuSaveBody(plan.full) })
+    } catch (err) { throw asHttp(err) }
+    await withTenant(req.tenantId, tx => tx`
+      UPDATE cost_scenarios SET pushed_at = now(), pushed_by = ${who(req)} WHERE id = ${id} AND tenant_id = ${req.tenantId}`)
+    return {
+      pushed: plan.prices.length, prices: plan.prices, menu: { id: s.menu_id },
+      message: 'The new prices are in the menu\'s draft. Nothing is live until the menu is published.',
+      publish_page: '/menus?edit=' + s.menu_id,
+    }
   })
 }

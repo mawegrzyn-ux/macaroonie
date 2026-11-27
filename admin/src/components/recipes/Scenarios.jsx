@@ -155,6 +155,7 @@ function Builder({ id, draft, setDraft, dirty, choices, canManage, canPush, push
     mutationFn: () => (id ? api.put('/cost-scenarios/' + id, bodyOf(draft)) : api.post('/cost-scenarios', bodyOf(draft))),
     onSuccess: onSaved,
   })
+  const [pushing, setPushing] = useState(false)
   const venue = choices.venues.find(v => v.id === draft.venue_id)
   const fig = preview.data?.figures
   const sales = !!preview.data?.sees_sales
@@ -247,6 +248,14 @@ function Builder({ id, draft, setDraft, dirty, choices, canManage, canPush, push
           <MixCard total={fig.total} sales={sales} loading={preview.isFetching} leftOut={fig.left_out} />
           <div className="flex flex-wrap gap-2">
             <button type="button" className={cn(btn.outline, 'h-12')} onClick={() => downloadCsv(draft.name || 'scenario', fig, sales)} data-testid="scenario-csv"><Download className="w-4 h-4" />Export CSV</button>
+            {canPush && id && priceChanges && (
+              <button type="button" className={cn(btn.primary, 'h-12')} disabled={dirty} onClick={() => setPushing(true)} data-testid="scenario-push"
+                title={dirty ? 'Save the scenario first' : undefined}>
+                <Upload className="w-4 h-4" />Push prices to the menu&apos;s draft
+              </button>
+            )}
+            {canPush && id && priceChanges && dirty && <span className="text-xs text-muted-foreground self-center">Save the scenario first: Push prices uses what is saved.</span>}
+            {canManage && !canPush && priceChanges && <span className="text-xs text-muted-foreground self-center">Pushing prices into a menu needs Menus manage as well.</span>}
             {pushedAt && <span className="text-xs text-muted-foreground self-center">Last pushed {new Date(pushedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.</span>}
           </div>
           {sections.filter(s => dishes.some(d => d.section_id === s.section_id)).map(s => (
@@ -254,6 +263,7 @@ function Builder({ id, draft, setDraft, dirty, choices, canManage, canPush, push
           ))}
         </>
       )}
+      {pushing && <PushModal id={id} onClose={() => setPushing(false)} />}
     </>
   )
 }
@@ -420,6 +430,64 @@ function Cell({ b, a, f }) {
         <span><span className="text-muted-foreground line-through decoration-1">{b == null ? '-' : f(b)}</span> <strong className="text-primary">{a == null ? '-' : f(a)}</strong></span>
       ) : f(b)}
     </td>
+  )
+}
+
+/** Push prices: every price that will change first, where the menu is sold, then a confirm. Publishing stays on the Menus page. */
+function PushModal({ id, onClose }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const plan = useQuery({ queryKey: ['cost-scenarios', id, 'push'], queryFn: () => api.post('/cost-scenarios/' + id + '/push/preview', {}), staleTime: 0, gcTime: 0 })
+  const push = useMutation({
+    mutationFn: () => api.post('/cost-scenarios/' + id + '/push', { stamp: plan.data.stamp }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['cost-scenarios'] }); qc.invalidateQueries({ queryKey: ['menu-margins'] }) },
+  })
+  const p = plan.data
+  const where = p ? (p.sold_at.venue ? p.sold_at.venue + '\'s menu' : 'a group menu, sold at every venue') + (p.sold_at.streams.length ? '; revenue streams that sell it: ' + p.sold_at.streams.join(', ') : '') : ''
+  return (
+    <Modal title="Push prices to the menu's draft" onClose={onClose} footer={push.isSuccess ? (
+      <>
+        <Link to={p.publish_page} className={cn(btn.primary, 'h-12')} data-testid="push-open-menu">Open the menu to publish</Link>
+        <button type="button" className={cn(btn.outline, 'h-12')} onClick={onClose}>Close</button>
+      </>
+    ) : (
+      <>
+        <button type="button" className={cn(btn.primary, 'h-12')} disabled={!p?.prices?.length || push.isPending} onClick={() => push.mutate()} data-testid="push-confirm">
+          {push.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Push {p?.prices?.length || ''} {p?.prices?.length === 1 ? 'price' : 'prices'} into the draft
+        </button>
+        <button type="button" className={cn(btn.outline, 'h-12')} onClick={onClose}>Cancel</button>
+      </>
+    )}>
+      {plan.isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : plan.error ? <ErrorNote error={plan.error} /> : push.isSuccess ? (
+        <div className="space-y-3" data-testid="push-done">
+          <p className="text-sm flex items-start gap-2"><CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" />{push.data.pushed} {push.data.pushed === 1 ? 'price is' : 'prices are'} in {p.menu.name}&apos;s draft.</p>
+          <p className="text-sm">Nothing is live yet: guests, tills and online ordering keep the live prices until the menu is published. Publish it on the Menus page when you are ready (now, or at a date and time).</p>
+        </div>
+      ) : (
+        <div className="space-y-3" data-testid="push-preview">
+          <p className="text-sm">These prices change in <strong>{p.menu.name}</strong>&apos;s draft ({where}). Each dish has one price on the menu, so the new price applies wherever the menu is sold; only the VAT differs by order type.</p>
+          <p className="text-sm rounded-lg bg-sky-50 border border-sky-200 text-sky-900 px-3 py-2">
+            Publishing stays a separate step: nothing goes live until you publish the menu on the Menus page.
+            {p.unpublished > 0 && ' The draft already has ' + p.unpublished + (p.unpublished === 1 ? ' change' : ' changes') + ' that aren\'t live: publishing puts those live too.'}
+          </p>
+          {!p.prices.length ? <p className="text-sm text-muted-foreground">No price on the draft changes with this scenario.</p> : (
+            <ul className="divide-y rounded-lg border text-sm" data-testid="push-prices">
+              {p.prices.map((x, i) => (
+                <li key={i} className="flex items-center gap-2 px-3 py-2" data-testid="push-price">
+                  <span className="flex-1 min-w-0">{x.dish}{x.label ? ': ' + (x.group ? x.group + ' ' : '') + x.label : ''}<span className="block text-xs text-muted-foreground">{x.section}</span></span>
+                  <span className="tabular-nums text-muted-foreground">{penceText(x.from_pence)}</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-muted-foreground" aria-label="becomes" />
+                  <strong className="tabular-nums">{penceText(x.to_pence)}</strong>
+                </li>
+              ))}
+            </ul>
+          )}
+          {p.skipped.length > 0 && <ul className="text-xs text-amber-900 space-y-1">{p.skipped.map((s, i) => <li key={i}>{s}.</li>)}</ul>}
+          <Link to={p.publish_page} className="text-sm underline">Open {p.menu.name} on the Menus page</Link>
+        </div>
+      )}
+      <ErrorNote error={push.error} />
+    </Modal>
   )
 }
 

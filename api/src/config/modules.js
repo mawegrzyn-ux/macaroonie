@@ -326,7 +326,7 @@ export const MODULES = [
     key:    'costing',
     label:  'Costing',
     group:  'recipes',
-    description: 'What recipes cost at each venue\'s supplier prices, with the gaps and how each cost is worked out. View shows costs; Manage will set cost targets and scenarios.',
+    description: 'What recipes cost at each venue\'s supplier prices, with the gaps and how each cost is worked out, menu margins and menu engineering. View shows costs; Manage sets cost targets and saves scenarios, and with Menus manage pushes a scenario\'s prices into a menu\'s draft.',
     default: { owner: 'manage', admin: 'manage', operator: 'none', viewer: 'none' },
   },
   // Stock (inventory phase 4a, migration 305): counts, the ledger and
