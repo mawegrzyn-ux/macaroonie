@@ -881,8 +881,10 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
   its pack, a pack change is a row of its own, the latest company row of each price was backfilled).
 - **The rule** `shared/priceCreep.js` (rule 12): `pricesAt()` (prices and packs at a moment from the history), `dishesUsing()`
   (the index from items to recipes, through prep recipes, to the dishes linked), `dealsHolding()`, `itemMoves()`, `dishMoves()`
-  (on `usageOf()`, so the change in a dish's cost is the sum of its items' moves), `priceCrossings()` (`overTarget()` and
-  `targetCrossings()` of `shared/foodCost.js`, the sweep's own rule), `causeWords()`, `alertSummary()`.
+  (on `usageOf()`, so the change in a dish's cost is the sum of its items' moves; a meal deal at the picks that give its
+  highest cost %, the ones it crossed at, `bandedPicks()` in `shared/costing.js`), `priceCrossings()` (`overTarget()` and
+  `targetCrossings()` of `shared/foodCost.js`, the sweep's own rule), `crossingMoves()` (rises named first), `causeWords()`,
+  `alertSummary()`.
 - **The hook** `priceChanged()` in `services/priceCreepSvc.js`, in the price change's transaction (a savepoint: a failure never
   stops the price), from purchasing's `routes/inventory.js` and `routes/purchasing.js`; "before" is the history strictly before
   the transaction's `now()`. Stock's `keepCrossings()` (under `lockCostTargets()`) is now the one writer of

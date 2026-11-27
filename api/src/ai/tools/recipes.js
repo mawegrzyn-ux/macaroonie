@@ -1040,6 +1040,11 @@ export const creepTools = [
           cost_pct: (pct(r.cost_pct_then) || 'none') + ' then, ' + (pct(r.cost_pct_now) || 'none') + ' now, at today\'s menu price' +
             ' (target ' + pct(r.thresholds?.target_pct) + ', limit ' + pct(r.thresholds?.limit_pct) + ')',
         } : {}),
+        // A meal deal: its cost, cost % and what moved are all at the picks with its highest cost %.
+        ...(r.picks_now?.length ? {
+          deal_picks: 'Costed at the picks with its highest cost %: ' + r.picks_now.join(', ') +
+            (r.picks_then?.length && r.picks_then.join('|') !== r.picks_now.join('|') ? ' (then ' + r.picks_then.join(', ') + ')' : ''),
+        } : {}),
         moved: moved.length ? moved.map(m => moveText(m, r.sees_prices)) : ['No ingredient\'s supplier price moved since then.'],
         ...(r.no_history?.length ? { no_price_history_then: r.no_history.join(', ') + ': no price recorded before then, so taken as today\'s' } : {}),
         ...(r.recipes_changed?.length ? { recipes_changed_since: r.recipes_changed.map(x => x.name).join(', ') + ' (recipes keep no history: this compares prices only, on today\'s recipe)' } : {}),

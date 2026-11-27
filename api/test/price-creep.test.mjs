@@ -10,6 +10,10 @@
 // carries the alerts and opens them; marking them seen (seen_by); Pepper's
 // why_cost_changed from the price history; the report starter; another
 // group's ids refused; Costing view, Costing manage and purchasing prices.
+// Review fixes: a "choose a main" deal named by the dish at its dearest picks
+// (the alert and why_cost_changed), two price changes at once never clearing
+// a crossing (the lock before the prices are read), the summary without
+// supplier prices, Today's card key kept when the alerts are marked seen.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
@@ -240,6 +244,7 @@ test('Today: the dishes over target card carries the alerts and opens them; mark
   assert.ok(task.detail.endsWith(sum.words), task.detail)
   assert.equal(task.action.path, '/menu-margins?venue=' + soho + '&alerts=1')
   assert.ok(task.key.endsWith(':' + sum.newest_id), 'a new crossing brings the card back')
+  assert.equal(sum.latest_id, sum.newest_id, 'all unseen: the newest is the latest')
   // Without Costing manage it can't be marked seen; with it, seen by that person for everyone.
   assert.equal((await operator.post('/api/cost-alerts/seen', { venue_id: soho })).status, 403)
   const seen = await ok(owner.post('/api/cost-alerts/seen', { venue_id: soho }))
@@ -251,6 +256,7 @@ test('Today: the dishes over target card carries the alerts and opens them; mark
   const after = (await ok(owner.get(`/api/ops/today?venue_id=${soho}`))).tasks.find(t => t.kind === 'dishes_over_target')
   assert.equal(after.action.path, '/menu-margins?venue=' + soho)
   assert.doesNotMatch(after.detail, /crossed/)
+  assert.equal(after.key, task.key, 'marking them seen keeps the card\'s key: done or skipped stays so')
   // One alert by id.
   const leedsList = await ok(owner.get(`/api/cost-alerts?venue_id=${leeds}&unseen=1`))
   assert.equal((await ok(owner.post('/api/cost-alerts/seen', { ids: [leedsList.alerts[0].id] }))).seen, 1)
@@ -319,10 +325,87 @@ test('permissions: Costing view reads, Costing manage marks seen, supplier price
     assert.ok(r.alerts.length > 0)
     assert.equal(r.sees_prices, false)
     assert.ok(r.alerts.every(a => a.causes.every(c => c.quote_before === null && c.quote_after === null)), 'no supplier price')
+    // Nor in the summary over them (its top item is a cause).
+    assert.equal(r.summary.top.name, 'Chicken thighs')
+    assert.equal(r.summary.top.quote_before, undefined)
+    assert.equal(r.summary.top.quote_after, undefined)
+    assert.doesNotMatch(JSON.stringify(r.summary), /Brakes/, 'no supplier in the summary')
     assert.equal((await viewer.post('/api/cost-alerts/seen', {})).status, 403)
   })
   await asRole({ costing: 'view', purchasing_setup: 'view' }, async () => {
     const r = await ok(viewer.get(`/api/cost-alerts?venue_id=${leeds}`))
     assert.equal(r.alerts[0].causes[0].quote_after.supplier, 'Brakes')
   })
+})
+
+test('a "choose a main" deal: two price changes at once keep its crossing, named by the dish at its dearest picks', async () => {
+  // Toast is the step's first choice, the platter its dearest. £15 (£12.50 net): at Leeds the platter's £3.60 is
+  // 28.8% (on target), the toast's £1.40 (butter £70 a kg) 11.2%.
+  const full = await ok(owner.get('/api/menus/' + menu.id))
+  const sections = full.sections.map(s => (s.title !== 'Deals' ? s : { ...s, items: [...s.items, {
+    name: 'Choose a main', kind: 'combo', price_pence: 1500, is_orderable: true, variant_groups: [], variants: [],
+    combo: { mode: 'manual', steps: [{ id: randomUUID(), name: 'Main', min: 1, max: 1, options: [
+      { id: randomUUID(), type: 'item', item_id: toast, price_pence: 0 }, { id: randomUUID(), type: 'item', item_id: platter, price_pence: 0 },
+    ] }] },
+  }] }))
+  await ok(owner.patch('/api/menus/' + menu.id, { ...full, sections }))
+  const choose = (await ok(owner.get('/api/menus/' + menu.id))).sections.find(s => s.title === 'Deals').items.find(i => i.name === 'Choose a main').id
+  await ok(owner.post(`/api/menus/${menu.id}/publish`, {}))
+  assert.equal((await stateOf(choose, leeds)).length, 0, 'on target at Leeds')
+
+  // Two price changes at once: chicken £7.20 to £8 takes the deal over its target (32%) and keeps it so; butter
+  // £70 to £60 starts while the first still holds the lock, and must cost the deal at the new chicken price, not
+  // clear the crossing the first one kept.
+  const change = (tx, quoteId, price) => tx`
+    WITH q AS (UPDATE inv_quotes SET price = ${price} WHERE id = ${quoteId} RETURNING id, pack_base_qty)
+    INSERT INTO inv_price_history (tenant_id, quote_id, venue_id, price, pack_base_qty, changed_by, source)
+    SELECT ${ids.a}, q.id, NULL, ${price}, q.pack_base_qty, 'test', 'manual' FROM q`
+  let release
+  const gate = new Promise(r => { release = r })
+  let holding = false
+  const first = withTenant(ids.a, async tx => {
+    await change(tx, chicken.quote.id, 8)
+    const r = await priceCreep(tx, ids.a, { quoteIds: [chicken.quote.id], source: 'manual', by: 'first' })
+    holding = true
+    await gate
+    return r
+  })
+  let second
+  try {
+    await waitFor(async () => holding, 'the first change to hold the lock')
+    second = withTenant(ids.a, async tx => {
+      await change(tx, butter.quote.id, 60)
+      return priceCreep(tx, ids.a, { quoteIds: [butter.quote.id], source: 'manual', by: 'second' })
+    })
+    await waitFor(async () => (await sql`
+      SELECT count(*)::int AS n FROM pg_locks
+       WHERE locktype = 'advisory' AND NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`)[0].n > 0,
+    'the second change to wait for the lock')
+  } finally {
+    release()
+  }
+  const [r1, r2] = await Promise.all([first, second])
+  assert.ok(r1.alerts.some(a => a.dish_id === choose && a.venue_id === leeds), JSON.stringify(r1.alerts.map(a => a.name)))
+  assert.ok(r2.worked.includes(choose), 'the deal holds the toast')
+  assert.equal((await stateOf(choose, leeds))[0]?.band, 'watch', 'the second change kept the crossing')
+  const sweep = await sweepCostTargets(await getApp(), quiet, { tenantIds: [ids.a] })
+  assert.equal(sweep.crossed, 0, 'so the sweep finds nothing new: it fires once')
+
+  // The alert names what moved in the platter (the picks it crossed at), not the toast it would take first.
+  const [alert] = await alertsOf(choose, leeds)
+  assert.deepEqual([alert.old_cost_pct, alert.new_cost_pct, alert.threshold_pct, alert.cause], [28.8, 32, 30, 'Chicken thighs up 11.1%'])
+  assert.equal(alert.causes[0].name, 'Chicken thighs')
+
+  // why_cost_changed: its cost, what moved and its cost % all at the platter. A week ago chicken was £6 and the
+  // butter had no price yet (its price is today's), so the toast couldn't be costed then.
+  const since = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)
+  const w = await ok(owner.get(`/api/cost-alerts/why?dish_id=${choose}&venue_id=${leeds}&since=${since}`))
+  assert.deepEqual([w.cost_then, w.cost_now, w.cost_pct_then, w.cost_pct_now], [3, 4, 24, 32])
+  assert.deepEqual(w.picks_then, ['Chicken platter'])
+  assert.deepEqual(w.picks_now, ['Chicken platter'])
+  assert.deepEqual(w.items.map(m => [m.name, m.pct]), [['Chicken thighs', 33.3]])
+  const { out } = await pepper(A.owner, 'why_cost_changed', { dish: 'choose a main', venue: 'Leeds', since })
+  assert.equal(out.deal_picks, 'Costed at the picks with its highest cost %: Chicken platter')
+  assert.match(out.moved[0], /^Chicken thighs: £6\.00 a kg to £8\.00 a kg \(up 33\.3%\)/)
+  assert.doesNotMatch(JSON.stringify(out), UUID)
 })

@@ -7,10 +7,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  pricesAt, dishesUsing, dealsHolding, itemMoves, dishMoves, priceCrossings, causeWords, moveWords, alertSummary, dayWords, CREEP_SOURCE_KEYS,
+  pricesAt, dishesUsing, dealsHolding, itemMoves, dishMoves, priceCrossings, crossingMoves, causeWords, moveWords, alertSummary, dayWords, CREEP_SOURCE_KEYS,
 } from '../priceCreep.js'
-import { menuMargins, dishMap, dishCost } from '../costing.js'
+import { menuMargins, dishMap, dishCost, bandedPct, bandedPicks } from '../costing.js'
 import { overTarget, targetCrossings } from '../foodCost.js'
+import { menuCtx } from '../combos.js'
 
 const close = (a, b, msg) => assert.ok(a != null && Math.abs(a - b) < 1e-6, (msg || '') + ': ' + a + ' is not ' + b)
 const V = 'v1', W = 'v2'
@@ -208,4 +209,70 @@ test('causeWords and alertSummary: what moved, no money; how many crossed what s
   assert.deepEqual(CREEP_SOURCE_KEYS, ['manual', 'import', 'price_update', 'invoice'])
   // A dish costed by the same engine the page uses: the platter at today's prices.
   close(dishCost('d-platter', {}, { venue_id: V }, ctx()).cost, 3)
+})
+
+test('a meal deal is judged at its dearest picks, and named by what moved in them, not by its first choice', () => {
+  // "Choose a main": toast is the step's first choice, the platter its dearest. £15 (£12.50 net).
+  const choose = {
+    id: 'd-choose', name: 'Choose a main', kind: 'combo', price_pence: 1500, tax: null, variants: [], variant_groups: [], combo: { mode: 'manual', steps: [
+      { id: 'st3', name: 'Main', min: 1, max: 1, options: [{ id: 'c3', type: 'item', item_id: 'd-toast' }, { id: 'c4', type: 'item', item_id: 'd-platter' }] },
+    ] },
+  }
+  const menu2 = { ...menu, sections: [...menu.sections, { id: 's3', title: 'Choose', tax: null, items: [choose] }] }
+  const q = price => new Map([...quotes, ['chicken', [quote('q-chicken', 'chicken', price, 1000)]]])
+  const c = price => ({ ...ctx(q(price)), dishes: dishMap([menu2]), combo: menuCtx(menu2) })
+  const rows = price => tag(menuMargins(menu2, { venue_id: V, order_type_id: null }, c(price), { rates, settings, withOptions: false, only: new Set(['d-choose']) }))
+    .map(r => ({ ...r, menu_id: menu2.id }))
+  const [b, a] = [rows(6), rows(9)]
+  // Banded at its highest cost %: the platter's £3.00 (24%), then £4.50 (36%: over the limit).
+  assert.equal(bandedPct(b[0]), 24)
+  assert.deepEqual(bandedPicks(a[0]), [{ dish_id: 'd-platter', options: [] }])
+  assert.equal(bandedPicks({ kind: 'dish', cost_pct: 30 }), null, 'a dish has no picks')
+  const [crossed] = priceCrossings(b, a)
+  assert.deepEqual([crossed.dish_id, crossed.old_cost_pct, crossed.new_cost_pct, crossed.threshold_pct], ['d-choose', 24, 36, 35])
+  assert.deepEqual(crossed.picks_before, [{ dish_id: 'd-platter', options: [] }])
+  assert.deepEqual(crossed.picks_after, [{ dish_id: 'd-platter', options: [] }])
+  // At the picks it crossed at: the chicken in the platter moved.
+  const moves = dishMoves('d-choose', { venue_id: V }, c(6), c(9), { picksBefore: crossed.picks_before, picksAfter: crossed.picks_after })
+  assert.deepEqual(moves.items.map(m => [m.name, m.pct]), [['Chicken thighs', 50]])
+  close(moves.cost_before, 3)
+  close(moves.cost_after, 4.5)
+  assert.equal(causeWords(moves.items), 'Chicken thighs up 50%')
+  // At its typical picks (the first choice, toast) nothing moved: what the alert named before.
+  assert.deepEqual(dishMoves('d-choose', { venue_id: V }, c(6), c(9)).items, [])
+  // The picks can differ between the sides: each side's cost at its own, every item either uses compared.
+  const both = dishMoves('d-choose', { venue_id: V }, c(6), c(9), { picksBefore: [{ dish_id: 'd-toast' }], picksAfter: [{ dish_id: 'd-platter' }] })
+  close(both.cost_before, 0.16, 'the toast then')
+  close(both.cost_after, 4.5, 'the platter now')
+  assert.deepEqual(both.items.map(m => m.name), ['Chicken thighs'])
+})
+
+test('crossingMoves: the rises come first, so a fall in the same price list is never named as the cause', () => {
+  const m = (name, pct, effect, extra = {}) => ({ item_id: name, name, pct, before: 1, after: 1 + pct / 100, effect, ...extra })
+  // itemMoves() sorts by the size of the effect: the butter's fall first.
+  const moves = [m('Butter', -10, -0.3), m('Chicken thighs', 5, 0.2), m('Rice', 2, 0.01), m('Saffron', null, null, { before: null, after: 2 })]
+  assert.deepEqual(crossingMoves(moves).map(x => x.name), ['Chicken thighs', 'Rice', 'Saffron', 'Butter'])
+  assert.equal(causeWords(crossingMoves(moves)), 'Chicken thighs up 5%, Rice up 2% and 2 more items')
+  assert.deepEqual(crossingMoves([]), [])
+})
+
+test('alertSummary: the top item never carries a supplier\'s price, and its move is taken at one venue', () => {
+  const cause = (before, after, supplier) => ({
+    item_id: 'chicken', name: 'Chicken thighs', base_unit: 'g', before, after, pct: Math.round((after - before) / before * 1000) / 10, effect: 0.1,
+    quote_before: { supplier, pack: 'Bag 1 kg', price: before * 1000 }, quote_after: { supplier, pack: 'Bag 1 kg', price: after * 1000 },
+  })
+  const alert = (dish, venue, at, c) => ({ dish_id: dish, venue_id: venue, day: at.slice(0, 10), at, threshold_pct: 35, new_band: 'over', causes: [c] })
+  // The group's price at V (£6 to £6.72 a kg), then W's own (£13 to £14): never £6 to £14.
+  const s = alertSummary([alert('a', V, '2026-12-01T10:00:00Z', cause(0.006, 0.00672, 'Brakes')), alert('b', W, '2026-12-02T10:00:00Z', cause(0.013, 0.014, 'Local farm'))])
+  assert.equal(s.top.venue_id, W)
+  close(s.top.before, 0.013)
+  close(s.top.after, 0.014)
+  assert.equal(s.top.pct, 7.7)
+  assert.equal(s.words, '2 dishes crossed 35% at 2 venues since 1 Dec: Chicken thighs up 7.7%')
+  assert.equal(s.top.quote_before, undefined)
+  assert.equal(s.top.quote_after, undefined)
+  assert.doesNotMatch(JSON.stringify(s), /Brakes|Local farm|Bag 1 kg/, 'no supplier, pack or pack price in the summary')
+  // At one venue, from before the first to after the last.
+  const one = alertSummary([alert('a', V, '2026-12-01T10:00:00Z', cause(0.006, 0.00672, 'Brakes')), alert('b', V, '2026-12-05T10:00:00Z', cause(0.00672, 0.0072, 'Brakes'))])
+  assert.equal(one.top.pct, 20)
 })

@@ -52,6 +52,10 @@
 //                                 of VAT, cost, GP and cost %, banded; a
 //                                 meal deal's range by dealRange(), each end
 //                                 over what its own picks sell for
+//   bandedPct(row) / bandedPicks(row)
+//                                 the cost % a margin row is banded at (a
+//                                 deal's highest) and the deal's picks that
+//                                 give it
 //   costBand() / thresholdsFor()  the target and limit cost % colours
 //
 // ctx / data: { items, recipes, quotes, preferred, receipts, since, venueId,
@@ -1460,6 +1464,7 @@ const pickTotals = (picks, basePence) => ({
   cost: round6(picks.reduce((s, c) => s + c.cost, 0)),
   gross: Math.round(num(basePence) + picks.reduce((s, c) => s + num(c.upcharge_pence), 0)),
   picks: picks.map(c => c.name),
+  ids: picks.map(c => c.dish_id),
 })
 
 /**
@@ -1484,10 +1489,11 @@ function ratioPicks(parts, basePence, most) {
  * the lowest and highest cost %, and the least and most gross profit, each at
  * the picks that give it with what the guest pays for them. basePence: the
  * deal's price before any pick's extra charge. { pct_low, pct_high, gp_low,
- * gp_high }: margin() at those picks, each with `picks` (the dishes' names).
+ * gp_high }: margin() at those picks, each with `picks` (the dishes' names)
+ * and `pick_ids` (their dish ids, a dish once per pick).
  */
 export function dealRange(parts, basePence, vatRate = 0) {
-  const at = t => ({ ...margin({ gross_pence: t.gross, vat_rate: vatRate, cost: t.cost }), cost: t.cost, picks: t.picks })
+  const at = t => ({ ...margin({ gross_pence: t.gross, vat_rate: vatRate, cost: t.cost }), cost: t.cost, picks: t.picks, pick_ids: t.ids })
   // Gross profit is the net (the price less its VAT: 100 / (100 + VAT) of it) less the cost.
   const k = 100 / (100 + num(vatRate))
   return {
@@ -1554,7 +1560,10 @@ export function dishMargin(item, section, menu, scope, ctx, { rates = [], settin
       net_pence: from.net_pence, vat_pence: from.vat_pence, cost: null, cost_pence: null, cost_min: dc.min, cost_max: dc.max,
       gp_pence: null, gp_min_pence: r?.gp_low.gp_pence ?? null, gp_max_pence: r?.gp_high.gp_pence ?? null, cost_pct: null, gp_pct: null,
       cost_pct_min: r?.pct_low.cost_pct ?? null, cost_pct_max: r?.pct_high.cost_pct ?? null, band: costBand(r?.pct_high.cost_pct, t),
-      range: r ? { cost_pct_min_picks: r.pct_low.picks, cost_pct_max_picks: r.pct_high.picks } : null, parts: dc.parts,
+      range: r ? {
+        cost_pct_min_picks: r.pct_low.picks, cost_pct_max_picks: r.pct_high.picks,
+        cost_pct_min_pick_ids: r.pct_low.pick_ids, cost_pct_max_pick_ids: r.pct_high.pick_ids,
+      } : null, parts: dc.parts,
     })
     return row
   }
@@ -1587,6 +1596,24 @@ export function dishMargin(item, section, menu, scope, ctx, { rates = [], settin
     }
   }
   return row
+}
+
+/**
+ * The cost % a dishMargin() row is banded and judged at: a dish's own, a meal
+ * deal's highest (cost_pct_max, at the picks that give it). What overTarget()
+ * (shared/foodCost.js), price creep and why_cost_changed compare.
+ */
+export const bandedPct = row => (row?.kind === 'deal' ? row.cost_pct_max : row?.cost_pct) ?? null
+
+/**
+ * The picks a meal deal's dishMargin() row is banded at (its highest cost %:
+ * range.cost_pct_max_pick_ids), as usageOf() and dishCost() take them:
+ * [{ dish_id, options: [] }]. null for a dish, or a deal none of whose
+ * choices can be costed (usageOf() then takes its typical picks).
+ */
+export function bandedPicks(row) {
+  const ids = row?.kind === 'deal' ? row.range?.cost_pct_max_pick_ids : null
+  return ids?.length ? ids.map(id => ({ dish_id: id, options: [] })) : null
 }
 
 /**

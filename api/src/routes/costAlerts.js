@@ -7,10 +7,12 @@
 // change hook, services/priceCreepSvc.js, in the purchasing routes).
 //
 //   GET  /           ?venue_id &since (a day) &unseen (1) &dish_id &limit   the alerts, newest
-//                    first, with alertSummary()'s words over them
+//                    first, with alertSummary()'s words over them (worked out from the alerts as
+//                    the person may see them)
 //   GET  /summary    ?venue_id   the alerts nobody has marked seen yet: how many dishes crossed
 //                    what since when and the move behind most ("4 dishes crossed 35% since 1 Dec:
-//                    Chicken thighs up 12%"), and the newest's id (Today's card key)
+//                    Chicken thighs up 12%"), the newest's id, and the newest alert's id seen or
+//                    not (latest_id: Today's card key, which marking them seen leaves as it was)
 //   POST /seen       { ids } or { venue_id } (every unseen alert there) or {} (every unseen
 //                    alert)   marked seen by the person, for everyone (Costing manage)
 //   GET  /why        ?dish_id &venue_id &order_type_id &since (a day; 30 days back when left
@@ -73,7 +75,9 @@ export default async function costAlertRoutes(app) {
       const rows = await loadCostAlerts(tx, req.tenantId, {
         venueId: q.venue_id ?? null, since: q.since ?? null, unseen: q.unseen === '1' || q.unseen === 'true', dishId: q.dish_id ?? null, limit: q.limit ?? 200,
       })
-      return { alerts: rows.map(a => alertView(a, prices)), summary: alertSummary(rows), sees_prices: prices }
+      // The summary from the alerts as shown: its top item is a cause, which carries the supplier's price.
+      const shown = rows.map(a => alertView(a, prices))
+      return { alerts: shown, summary: alertSummary(shown), sees_prices: prices }
     })
   })
 
@@ -81,12 +85,15 @@ export default async function costAlertRoutes(app) {
     const q = SummaryQuery.parse(req.query || {})
     return withTenant(req.tenantId, async tx => {
       await checkVenue(tx, req.tenantId, q.venue_id)
-      const rows = await loadCostAlerts(tx, req.tenantId, { venueId: q.venue_id ?? null, unseen: true, limit: 500 })
+      const [rows, [latest]] = await Promise.all([
+        loadCostAlerts(tx, req.tenantId, { venueId: q.venue_id ?? null, unseen: true, limit: 500 }),
+        loadCostAlerts(tx, req.tenantId, { venueId: q.venue_id ?? null, limit: 1 }),
+      ])
       const s = alertSummary(rows)
       return {
         venue_id: q.venue_id ?? null, count: s.count, dishes: s.dishes, venues: s.venues, threshold_pct: s.threshold_pct, since: s.since,
         top: s.top ? { name: s.top.name, pct: s.top.pct } : null, words: s.words,
-        newest_id: rows[0]?.id ?? null, newest_at: rows[0]?.at ?? null,
+        newest_id: rows[0]?.id ?? null, newest_at: rows[0]?.at ?? null, latest_id: latest?.id ?? null,
       }
     })
   })

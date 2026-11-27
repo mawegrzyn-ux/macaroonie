@@ -5,10 +5,12 @@
 // changes took dishes over their cost target or limit and nobody has marked
 // them seen yet ("4 dishes crossed 35% since 1 Dec: Chicken thighs up 12%"),
 // at the page's venue (every venue on the group's prices). See them opens a
-// drawer of the alerts of the last 90 days: each dish at its venue and order
-// type, its cost % before and after, what moved (each item's cost per kg,
-// litre or each, and what it did to a serving), where the change came from,
-// and who marked it seen. Mark as seen (Costing manage) clears them for
+// drawer of the alerts of the last 90 days (back to the oldest not seen yet,
+// when that is older, so what the banner counts is listed): each dish at its
+// venue and order type, its cost % before and after, what moved (each item's
+// cost per kg, litre or each, and what it did to a serving), where the change
+// came from, and who marked it seen. Mark as seen (Costing manage, on the
+// banner or in the drawer) clears every unseen alert at the venue for
 // everyone. ?alerts=1 opens the drawer (Today's card links here); &alert= (a
 // report row) marks that alert in it.
 // Loaded on demand by pages/MenuMargins.jsx.
@@ -57,28 +59,33 @@ export default function CostAlerts({ venueId = '', canManage = false, open = fal
         </div>
       )}
       <ErrorNote error={seen.error} />
-      {open && <AlertList venueId={venueId} canManage={canManage} alertId={alertId} onClose={onClose} />}
+      {open && <AlertList venueId={venueId} canManage={canManage} alertId={alertId} onClose={onClose} oldest={s?.since || ''} unseenCount={s?.count || 0} />}
     </>
   )
 }
 
-function AlertList({ venueId, canManage, alertId, onClose }) {
+function AlertList({ venueId, canManage, alertId, onClose, oldest = '', unseenCount = 0 }) {
   const api = useApi()
   const qc = useQueryClient()
-  const params = new URLSearchParams({ since: sinceDay(), limit: '200', ...(venueId ? { venue_id: venueId } : {}) }).toString()
+  // The last 90 days, or back to the oldest alert nobody has seen (the banner counts those).
+  const recent = sinceDay()
+  const since = oldest && oldest < recent ? oldest : recent
+  const params = new URLSearchParams({ since, limit: '200', ...(venueId ? { venue_id: venueId } : {}) }).toString()
   const list = useQuery({ queryKey: ['cost-alerts', 'list', params], queryFn: () => api.get('/cost-alerts?' + params) })
   const seen = useMutation({
     mutationFn: body => api.post('/cost-alerts/seen', body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['cost-alerts'] }),
   })
   const alerts = list.data?.alerts || []
-  const unseen = alerts.filter(a => !a.seen_at)
+  // Every unseen alert at the venue, as the banner's Mark as seen does, also any beyond the list.
+  const unseen = Math.max(alerts.filter(a => !a.seen_at).length, unseenCount)
+  const span = since === recent ? 'the last ' + DAYS + ' days' : 'since ' + dayWords(since)
   return (
-    <Drawer title="Price creep" subtitle={'Dishes a supplier price change took over their cost target, the last ' + DAYS + ' days'} onClose={onClose} wide
-      footer={canManage && unseen.length > 0 ? (
+    <Drawer title="Price creep" subtitle={'Dishes a supplier price change took over their cost target, ' + span} onClose={onClose} wide
+      footer={canManage && unseen > 0 ? (
         <button type="button" className={cn(btn.primary, 'h-12 w-full')} disabled={seen.isPending}
-          onClick={() => seen.mutate({ ids: unseen.slice(0, 500).map(a => a.id) })} data-testid="cost-alerts-seen-all">
-          {seen.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}Mark {unseen.length} as seen
+          onClick={() => seen.mutate(venueId ? { venue_id: venueId } : {})} data-testid="cost-alerts-seen-all">
+          {seen.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}Mark {unseen} as seen
         </button>
       ) : null}>
       <div className="p-4 space-y-3" data-testid="cost-alerts-list">

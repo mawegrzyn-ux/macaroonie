@@ -17,11 +17,14 @@
 //                                               recipes they sit in) to the dishes linked to them
 //   dealsHolding(menus, dishIds)                the meal deals whose steps can hold one of those dishes
 //   itemMoves(items, before, after, venueId)    which items' cost per base unit moved, and by how much
-//   dishMoves(dishId, scope, before, after)     a dish's cost then and now, with each item it uses that
-//                                               moved and what that did to one serving (pounds)
+//   dishMoves(dishId, scope, before, after, { picksBefore, picksAfter })
+//                                               a dish's cost then and now, with each item it uses that
+//                                               moved and what that did to one serving (pounds); a meal
+//                                               deal at the picks it is judged at (bandedPicks())
 //   priceCrossings(beforeRows, afterRows)       the dishes a price change took over their cost target
 //                                               or limit (dishMargin() rows before and after), with
-//                                               their cost % before and after
+//                                               their cost % before and after, and a deal's picks then
+//   crossingMoves(moves)                        the moves behind a crossing: the rises first
 //   causeWords(moves)                           "Chicken thighs up 12%, Butter up 5%" (no money)
 //   alertSummary(alerts)                        the banner's and Today's words: "4 dishes crossed 35%
 //                                               since 1 Dec: Chicken thighs up 12%"
@@ -29,7 +32,7 @@
 // Money: costs in pounds (as purchasing keeps them); a cost % is
 // dishMargin()'s (costShare() is where pounds meet pence).
 
-import { itemCost, usageOf } from './costing.js'
+import { itemCost, usageOf, bandedPct, bandedPicks } from './costing.js'
 import { overTarget, targetCrossings } from './foodCost.js'
 import { comboItemIds, menuCtx, isCombo } from './combos.js'
 
@@ -194,23 +197,27 @@ export function itemMoves(items = [], before = {}, after = {}, venueId = null) {
 /**
  * A dish's cost under two sets of prices (a ctx at a date, and now), on the
  * same recipe (recipes keep no history): usageOf() gives what one serving
- * takes of each item (a meal deal at its typical picks), and itemMoves() what
- * moved. -> { cost_before, cost_after, change, items: itemMoves(), uncosted }
+ * takes of each item, and itemMoves() what moved. A meal deal is taken at the
+ * picks given for each side, the ones its cost % is judged at then and now
+ * (bandedPicks() of its dishMargin() rows: its highest cost %), so its cost
+ * and what moved match the cost % that crossed; with none given (or none
+ * costed), at its typical picks. When the picks differ between the sides, the
+ * change is the cost of the picks now less that of the picks then, and an
+ * item either side uses is compared.
+ * -> { cost_before, cost_after, change, items: itemMoves(), uncosted, picks_before, picks_after }
  */
-export function dishMoves(dishId, scope = {}, before = {}, after = {}) {
-  const ub = usageOf({ dish_id: dishId, qty: 1 }, scope, before)
-  const ua = usageOf({ dish_id: dishId, qty: 1 }, scope, after)
+export function dishMoves(dishId, scope = {}, before = {}, after = {}, { picksBefore = null, picksAfter = null } = {}) {
+  const ub = usageOf({ dish_id: dishId, qty: 1, picks: picksBefore ?? null }, scope, before)
+  const ua = usageOf({ dish_id: dishId, qty: 1, picks: picksAfter ?? null }, scope, after)
   const qty = new Map(ua.items.map(i => [i.item_id, i.qty_base]))
   for (const i of ub.items) if (!qty.has(i.item_id)) qty.set(i.item_id, i.qty_base)
   const items = itemMoves([...qty].map(([item_id, qty_base]) => ({ item_id, qty_base })), before, after, scope.venue_id ?? after.venueId ?? null)
   return {
     cost_before: ub.cost, cost_after: ua.cost,
     change: ub.cost != null && ua.cost != null ? round6(ua.cost - ub.cost) : null,
-    items, uncosted: ua.uncosted,
+    items, uncosted: ua.uncosted, picks_before: ub.picks, picks_after: ua.picks,
   }
 }
-
-const pctOf = r => (r?.kind === 'deal' ? r.cost_pct_max : r?.cost_pct)
 
 /**
  * The dishes a price change took over their cost target or limit, from
@@ -219,25 +226,45 @@ const pctOf = r => (r?.kind === 'deal' ? r.cost_pct_max : r?.cost_pct)
  * meal deal at its highest cost %), then targetCrossings() with the before
  * side as what was kept, the rule the hourly sweep fires by: newly over the
  * target, or from over the target to over the limit. The cost % before is the
- * same dish's at the same menu and order type (null when it had none).
+ * same dish's at the same menu and order type (null when it had none). A meal
+ * deal is judged at its highest cost % (bandedPct()), so it carries the picks
+ * that give it on each side (bandedPicks(): picks_before, picks_after; null
+ * for a dish), for dishMoves() to name what moved in them.
  * -> [{ dish_id, name, menu_id, menu, section, order_type_id, order_type,
- *       old_cost_pct, old_band, new_cost_pct, new_band, threshold_pct, target_pct, limit_pct }]
+ *       old_cost_pct, old_band, new_cost_pct, new_band, threshold_pct, target_pct, limit_pct,
+ *       picks_before, picks_after }]
  */
 export function priceCrossings(beforeRows = [], afterRows = []) {
   const was = overTarget(beforeRows)
   const now = overTarget(afterRows)
   const { crossed } = targetCrossings(was.map(d => ({ dish_id: d.dish_id, band: d.band, cost_pct: d.cost_pct })), now)
+  const same = d => r => r.dish_id === d.dish_id && (r.menu_id ?? null) === (d.menu_id ?? null) && (r.order_type_id ?? null) === (d.order_type_id ?? null)
   return crossed.map(d => {
-    const b = (beforeRows || []).find(r => r.dish_id === d.dish_id && (r.menu_id ?? null) === (d.menu_id ?? null) && (r.order_type_id ?? null) === (d.order_type_id ?? null))
-    const old = pctOf(b)
+    const b = (beforeRows || []).find(same(d))
+    const a = (afterRows || []).find(same(d))
+    const old = bandedPct(b)
     return {
       dish_id: d.dish_id, name: d.name, menu_id: d.menu_id, menu: d.menu, section: d.section,
       order_type_id: d.order_type_id, order_type: d.order_type,
       old_cost_pct: old == null ? null : round2(old), old_band: old == null ? null : (b.band || 'good'),
       new_cost_pct: d.cost_pct, new_band: d.band,
       threshold_pct: d.band === 'over' ? d.limit_pct : d.target_pct, target_pct: d.target_pct, limit_pct: d.limit_pct,
+      picks_before: bandedPicks(b), picks_after: bandedPicks(a),
     }
   })
+}
+
+// A move that adds to a serving's cost: dearer, or priced where it had no price (its quantity unknown: by its %).
+const rises = m => (m.effect != null ? m.effect > 0 : m.before == null ? m.after != null : m.pct != null && m.pct > 0)
+
+/**
+ * The moves behind a crossing (a cost % that went up), as a cost alert names
+ * them: the ones that added to a serving first, each group as itemMoves()
+ * sorts it (the biggest effect first), so a price that fell in the same price
+ * list is never named as the cause of a rise.
+ */
+export function crossingMoves(moves = []) {
+  return [...(moves || []).filter(Boolean)].sort((a, b) => Number(rises(b)) - Number(rises(a)))
 }
 
 /** One item's move in words, no money: "Chicken thighs up 12%", "Butter down 3%", "Saffron now priced". */
@@ -270,8 +297,10 @@ export function dayWords(day) {
  * alerts: cost_alerts rows ({ dish_id, venue_id, threshold_pct, new_band,
  * day, at, causes }). -> { count, dishes, venues, threshold_pct (when every
  * alert crossed the same %, else null), since (the first day), top (the item
- * most alerts name first, its move from before the first of them to after
- * the last), words }
+ * most alerts name first: { item_id, name, base_unit, venue_id, before,
+ * after, pct }, its move at the venue of the last of them, from before the
+ * first there to after the last; never a supplier's name, pack or price),
+ * words }
  */
 export function alertSummary(alerts = []) {
   const list = (alerts || []).filter(Boolean)
@@ -281,23 +310,28 @@ export function alertSummary(alerts = []) {
   const pcts = new Set(list.map(a => (a.threshold_pct == null ? null : Number(a.threshold_pct))))
   const threshold = pcts.size === 1 ? [...pcts][0] : null
   const since = list.map(a => String(a.day).slice(0, 10)).sort()[0]
-  // The item behind most alerts (each alert's biggest move), and how far it moved over them all: from its cost
+  // The item behind most alerts (each alert's biggest move), and how far it moved over them: from its cost
   // before the first of them to its cost after the last, so "since 1 Dec" reads as the whole rise since then.
+  // Both ends at one venue (the last alert's): a venue can have prices of its own.
   const when = a => (a.at ? time(a.at) : time(String(a.day).slice(0, 10) + 'T12:00:00Z'))
   const tally = new Map()
   for (const a of [...list].sort((x, y) => when(x) - when(y))) {
     for (const m of (Array.isArray(a.causes) ? a.causes : []).slice(0, 1)) {
       const k = m.item_id || m.name
-      const t = tally.get(k) || { n: 0, first: m, last: m }
+      const t = tally.get(k) || { n: 0, first: new Map(), last: m, venue: null }
       t.n++
+      if (!t.first.has(a.venue_id ?? null)) t.first.set(a.venue_id ?? null, m)
       t.last = m
+      t.venue = a.venue_id ?? null
       tally.set(k, t)
     }
   }
   const best = [...tally.values()].sort((a, b) => b.n - a.n || Math.abs(b.last.pct ?? 0) - Math.abs(a.last.pct ?? 0))[0] ?? null
+  const first = best ? best.first.get(best.venue) || best.last : null
   const top = best ? {
-    ...best.last, before: best.first.before ?? null, after: best.last.after ?? null,
-    pct: best.first.before > 0 && best.last.after != null ? round1((best.last.after - best.first.before) / best.first.before * 100) : best.last.pct ?? null,
+    item_id: best.last.item_id ?? null, name: best.last.name, base_unit: best.last.base_unit ?? null, venue_id: best.venue,
+    before: first.before ?? null, after: best.last.after ?? null,
+    pct: first.before > 0 && best.last.after != null ? round1((best.last.after - first.before) / first.before * 100) : best.last.pct ?? null,
   } : null
   const crossed = threshold != null ? 'crossed ' + String(round2(threshold)) + '%'
     : list.every(a => a.new_band === 'over') ? 'crossed their cost limit' : list.every(a => a.new_band === 'watch') ? 'crossed their cost target' : 'crossed their cost target or limit'

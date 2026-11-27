@@ -583,7 +583,8 @@ const SOURCES = {
   // Price creep (inventory phase 7b) extends the same card rather than adding one: the cost alerts
   // at the venue nobody has marked seen ("2 dishes crossed 35% since 1 Dec: Chicken thighs up 12%",
   // /api/cost-alerts/summary) are added to its words, it opens the alerts, and its key carries the
-  // newest alert, so a crossing after the card was skipped or done brings it back.
+  // newest alert at the venue (seen or not: latest_id), so a crossing after the card was skipped or
+  // done brings it back, and marking the alerts seen leaves the card done or skipped.
   async costing(ctx, v, s) {
     const [r, alerts] = await Promise.all([
       callApi(ctx, 'GET', `/api/stock/venues/${v.id}/cost-targets`),
@@ -594,7 +595,7 @@ const SOURCES = {
     const over = list.filter(d => d.band === 'over').length
     const crept = alerts?.count > 0 ? alerts : null
     return [{
-      key: 'costing_over_target:' + v.id + ':' + s.date + (crept ? ':' + crept.newest_id : ''), area: 'costing', kind: 'dishes_over_target', compliance: false,
+      key: 'costing_over_target:' + v.id + ':' + s.date + (alerts?.latest_id ? ':' + alerts.latest_id : ''), area: 'costing', kind: 'dishes_over_target', compliance: false,
       title: plural(list.length, 'dish', 'dishes') + ' over the cost target',
       detail: list.slice(0, 3).map(d => d.name + ' ' + d.cost_pct + '%').join(' · ') + (list.length > 3 ? ' · and ' + (list.length - 3) + ' more' : '') +
         (over ? ' · ' + over + ' over the limit' : '') + (crept ? ' · ' + crept.words : ''),

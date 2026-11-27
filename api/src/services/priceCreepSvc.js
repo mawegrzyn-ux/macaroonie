@@ -14,10 +14,15 @@
 //       history as it was: pricesAt()) and after it, by menuMargins() at today's
 //       standard prices; the ones that crossed their cost target or limit
 //       (priceCrossings(), the sweep's crossing rule) recorded in cost_alerts
-//       with what moved (dishMoves()), and cost_target_states kept by
-//       keepCrossings() (services/stockFoodCostSvc.js, the one function the
-//       hourly sweep keeps them by), so the rule trigger dish_over_target fires
-//       once whichever of the two notices a crossing first.
+//       with what moved (dishMoves(): a meal deal at the picks it crossed at,
+//       its highest cost %; the rises first, crossingMoves()), and
+//       cost_target_states kept by keepCrossings() (services/stockFoodCostSvc.js,
+//       the one function the hourly sweep keeps them by), so the rule trigger
+//       dish_over_target fires once whichever of the two notices a crossing
+//       first. The lock (lockCostTargets()) is taken before the prices, the
+//       price history and the states are read, as the sweep takes it, so two
+//       price changes at once never cost one against prices the other is
+//       still changing.
 //       change: { quoteIds, venueIds (null: every venue: a company price),
 //                 source (CREEP_SOURCE_KEYS), by, poId }
 //       -> { worked: [dish ids], alerts: [cost_alerts rows], events: [rule events] }
@@ -34,7 +39,9 @@
 //       why_cost_changed, GET /api/cost-alerts/why): the same recipe at that
 //       day's supplier prices (pricesAt() over the price history) and at
 //       today's, each item it uses that moved and what that did to a serving
-//       (dishMoves()), its cost % then and now at today's menu price, the
+//       (dishMoves()), its cost % then and now at today's menu price (a meal
+//       deal's cost, what moved and its cost % all at the picks its cost % is
+//       judged at then and now: bandedPicks(), its highest), the
 //       recipes changed since (recipes keep no history, so that is said, not
 //       priced), the items with no price history back then, and the cost
 //       alerts recorded for it since
@@ -44,14 +51,14 @@ import { loadRecipes } from './costingSvc.js'
 import { loadDishCosting, loadLinks, loadCostingSettings, menusFor } from './dishCostSvc.js'
 import { loadTaxRates } from './taxSvc.js'
 import { keepCrossings, lockCostTargets, localDay } from './stockFoodCostSvc.js'
-import { menuMargins, dishMap, dishMargin, usageOf } from '../../../shared/costing.js'
+import { menuMargins, dishMap, dishMargin, usageOf, bandedPct, bandedPicks } from '../../../shared/costing.js'
 import { overTarget } from '../../../shared/foodCost.js'
 import { menuCtx, comboItemIds, isCombo } from '../../../shared/combos.js'
 import { resolveItemTypes } from '../../../shared/catalogue.js'
 import { variantRules } from '../../../shared/orderPricing.js'
 import { zonedToUtc } from './orderSvc.js'
 import { httpError } from '../middleware/error.js'
-import { pricesAt, dishesUsing, dealsHolding, dishMoves, priceCrossings, causeWords, CREEP_SOURCE_KEYS } from '../../../shared/priceCreep.js'
+import { pricesAt, dishesUsing, dealsHolding, dishMoves, priceCrossings, crossingMoves, causeWords, CREEP_SOURCE_KEYS } from '../../../shared/priceCreep.js'
 
 export const ALERT_COLS = `a.id, a.venue_id, v.name AS venue, a.dish_id, a.name, a.menu_id, a.menu, a.section, a.order_type_id, a.order_type,
   a.old_cost_pct::float8 AS old_cost_pct, a.new_cost_pct::float8 AS new_cost_pct, a.old_band, a.new_band,
@@ -109,6 +116,11 @@ export async function priceCreep(tx, tenantId, change = {}) {
     const mctx = menuCtx(m)
     for (const s of m.sections || []) for (const i of s.items || []) if (work.has(i.id) && isCombo(i)) for (const id of comboItemIds(i, mctx)) need.add(id)
   }
+  // The lock first, as the sweep takes it, then the prices, their history and the states. Read before
+  // it, another price change still holding it could have left these prices stale against the states it
+  // writes (a crossing it kept then cleared here, and fired again by the next sweep). The recipes, links
+  // and menus read above are no price change's to write.
+  await lockCostTargets(tx, tenantId)
   const [ctx, types, rates, settings, venueRows, [{ now }]] = await Promise.all([
     loadDishCosting(tx, tenantId, null, { recipes: recipesFor(recipes, links, need) }),
     tx`SELECT id, name FROM order_types WHERE tenant_id = ${tenantId} AND is_active ORDER BY sort_order, name`,
@@ -128,7 +140,6 @@ export async function priceCreep(tx, tenantId, change = {}) {
   const scopes = types.length ? types : [{ id: null, name: null }]
   const venues = change.venueIds?.length ? venueRows.filter(v => change.venueIds.includes(v.id)) : venueRows
 
-  await lockCostTargets(tx, tenantId)
   const alerts = []
   const events = []
   for (const v of venues) {
@@ -152,8 +163,9 @@ export async function priceCreep(tx, tenantId, change = {}) {
     for (const c of priceCrossings(rowsB, rowsA)) {
       const menu = here.find(m => m.id === c.menu_id)
       const scope = { venue_id: v.id, revenue_stream_id: null, order_type_id: c.order_type_id }
-      const moves = menu ? dishMoves(c.dish_id, scope, onMenu(b, menu), onMenu(a, menu)) : { items: [] }
-      const causes = moves.items.map(m => ({
+      // A meal deal at the picks it crossed at (its highest cost %), not its typical ones.
+      const moves = menu ? dishMoves(c.dish_id, scope, onMenu(b, menu), onMenu(a, menu), { picksBefore: c.picks_before, picksAfter: c.picks_after }) : { items: [] }
+      const causes = crossingMoves(moves.items).map(m => ({
         item_id: m.item_id, name: m.name, base_unit: m.base_unit, qty_base: m.qty_base,
         before: m.before, after: m.after, pct: m.pct, effect: m.effect, quote_before: m.quote_before, quote_after: m.quote_after,
       }))
@@ -165,7 +177,8 @@ export async function priceCreep(tx, tenantId, change = {}) {
                 ${c.old_cost_pct}, ${c.new_cost_pct}, ${c.old_band}, ${c.new_band}, ${c.threshold_pct}, ${c.target_pct}, ${c.limit_pct},
                 ${source}, ${causeWords(causes).slice(0, 500)}, ${tx.json(causes)}, ${change.poId ?? null}, ${change.by ?? null}, ${day}, ${now})
         RETURNING id`
-      alerts.push({ id: row.id, venue_id: v.id, venue: v.name, ...c, source, cause: causeWords(causes), causes, day })
+      const { picks_before: _pb, picks_after: _pa, ...crossing } = c
+      alerts.push({ id: row.id, venue_id: v.id, venue: v.name, ...crossing, source, cause: causeWords(causes), causes, day })
     }
   }
   return { worked: [...work], alerts, events }
@@ -209,7 +222,7 @@ export function loadCostAlerts(tx, tenantId, { venueId = null, since = null, uns
        ${since ? tx`AND a.day >= ${since}::date` : tx``}
        ${unseen ? tx`AND a.seen_at IS NULL` : tx``}
        ${dishId ? tx`AND a.dish_id = ${dishId}` : tx``}
-     ORDER BY a.at DESC, a.name
+     ORDER BY a.at DESC, a.name, a.id
      LIMIT ${limit}`
 }
 
@@ -236,21 +249,24 @@ export async function whyCostChanged(tx, tenantId, { dishId, venueId = null, ord
     loadDishCosting(tx, tenantId, scope.venue_id, { menus: [menu] }), loadTaxRates(tx, tenantId), loadCostingSettings(tx, tenantId),
   ])
   const now = onMenu({ ...ctx, _memo: new Map() }, menu)
-  // The items one serving uses now (a meal deal's typical picks), and their supplier prices as they were.
-  const itemIds = usageOf({ dish_id: dishId, qty: 1 }, scope, now).items.map(i => i.item_id)
+  // The items one serving can use now (a meal deal: every dish its steps can hold, since it is judged at
+  // the picks with its highest cost %, then and now), and their supplier prices as they were.
+  const mctx = menuCtx(menu)
+  const parts = isCombo(item) ? [dishId, ...comboItemIds(item, mctx)] : [dishId]
+  const itemIds = [...new Set(parts.flatMap(id => usageOf({ dish_id: id, qty: 1 }, scope, now).items.map(i => i.item_id)))]
   const quotes = new Map(itemIds.map(id => [id, ctx.quotes.get(id) || []]))
   const history = await historyFor(tx, tenantId, [...quotes.values()].flat().map(q => q.id))
   const then = pricesAt(quotes, history, at)
   const priorQuotes = new Map(ctx.quotes)
   for (const [id, qs] of then.quotes) priorQuotes.set(id, qs)
   const before = onMenu({ ...ctx, quotes: priorQuotes, _memo: new Map() }, menu)
-  const moves = dishMoves(dishId, scope, before, now)
   const rules = variantRules(menu)
-  const rowThen = dishMargin(item, section, menu, scope, before, { rates, settings, rules, withOptions: false })
-  const rowNow = dishMargin(item, section, menu, scope, now, { rates, settings, rules, withOptions: false })
-  const pct = r => (r.kind === 'deal' ? r.cost_pct_max : r.cost_pct)
+  const rowThen = dishMargin(item, section, menu, scope, before, { rates, settings, rules, mctx, withOptions: false })
+  const rowNow = dishMargin(item, section, menu, scope, now, { rates, settings, rules, mctx, withOptions: false })
+  // The cost and what moved at the picks the cost % is judged at on each side (a meal deal's highest).
+  const moves = dishMoves(dishId, scope, before, now, { picksBefore: bandedPicks(rowThen), picksAfter: bandedPicks(rowNow) })
   // Recipes keep no history: the ones this dish uses that were changed since are named, not priced.
-  const recipeIds = [...new Set(ctx.links.filter(l => l.dish_id === dishId || (isCombo(item) && comboItemIds(item, menuCtx(menu)).includes(l.dish_id))).map(l => l.recipe_id))]
+  const recipeIds = [...new Set(ctx.links.filter(l => parts.includes(l.dish_id)).map(l => l.recipe_id))]
   const changed = recipeIds.length ? await tx`
     SELECT name, updated_at FROM recipes WHERE tenant_id = ${tenantId} AND id = ANY(${recipeIds}::uuid[]) AND updated_at >= ${at}
      ORDER BY updated_at DESC` : []
@@ -263,7 +279,10 @@ export async function whyCostChanged(tx, tenantId, { dishId, venueId = null, ord
     since, at,
     cost_then: moves.cost_before, cost_now: moves.cost_after, change: moves.change,
     change_pct: moves.cost_before > 0 && moves.cost_after != null ? Math.round((moves.cost_after - moves.cost_before) / moves.cost_before * 1000) / 10 : null,
-    cost_pct_then: pct(rowThen) ?? null, cost_pct_now: pct(rowNow) ?? null, band_then: rowThen.band ?? null, band_now: rowNow.band ?? null,
+    cost_pct_then: bandedPct(rowThen), cost_pct_now: bandedPct(rowNow), band_then: rowThen.band ?? null, band_now: rowNow.band ?? null,
+    // A meal deal: the dishes its cost and cost % are taken at, then and now (its highest cost %).
+    picks_then: rowThen.kind === 'deal' ? rowThen.range?.cost_pct_max_picks ?? null : null,
+    picks_now: rowNow.kind === 'deal' ? rowNow.range?.cost_pct_max_picks ?? null : null,
     price_pence: rowNow.price_pence ?? null, thresholds: rowNow.thresholds,
     items: moves.items, uncosted: moves.uncosted,
     no_history: unknownItems, recipes_changed: changed.map(r => ({ name: r.name, at: r.updated_at })),

@@ -14,6 +14,7 @@
 // hook recorded them.
 
 import { subject, text, number, money, percent, yesno, choice, moment, sum, avg, count, countDistinct, one, many } from './define.js'
+import { CREEP_SOURCES } from '../../../../shared/priceCreep.js'
 
 const COSTING = 'costing'
 const pounds = (src, opts = {}) => money(src, { unit: 'pounds', needs: COSTING, ...opts })
@@ -38,8 +39,6 @@ const SOLD_STATES = { costed: 'Costed', uncosted: 'Not costed', left_out: 'Left 
 const FIX_KINDS = { link: 'Link a recipe', recipe: 'Finish the recipe', option: 'Add an option rule', deal: 'Cost the meal deal\'s dishes', map: 'Map it to a menu dish' }
 
 const BANDS = { good: 'On target', watch: 'Over target', over: 'Over the limit' }
-// Where a price change came from (CREEP_SOURCES in shared/priceCreep.js).
-const CREEP_SOURCES = { manual: 'A price typed in or edited', import: 'An inventory import', price_update: 'A supplier price list', invoice: 'An invoice\'s prices' }
 const DISH_KINDS = { dish: 'Dish', deal: 'Meal deal', goods: 'Goods', service: 'Service' }
 const DISH_COVERAGE = { full: 'Fully costed', partial: 'Partly costed', none: 'Not costed', not_needed: 'No recipe needed (a service)' }
 // A link's dish, its menu and section, from the menu as it is being edited (plain ids: a dish gone is empty).

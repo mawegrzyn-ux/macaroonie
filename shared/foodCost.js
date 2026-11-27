@@ -25,7 +25,7 @@
 // Money: costs in pounds, sales in integer pence; they meet in costShare().
 
 import { isFoodSale, periodWords } from './variance.js'
-import { costShare, soldMargins } from './costing.js'
+import { costShare, soldMargins, bandedPct } from './costing.js'
 
 const num = v => (v == null || v === '' ? 0 : Number(v))
 const round2 = n => (n == null ? null : Math.round(Number(n) * 100) / 100)
@@ -142,7 +142,7 @@ export function overTarget(rows = []) {
   const worst = new Map()
   for (const r of rows || []) {
     if (r.band !== 'watch' && r.band !== 'over') continue
-    const p = r.kind === 'deal' ? r.cost_pct_max : r.cost_pct
+    const p = bandedPct(r)
     if (p == null) continue
     const key = r.dish_id || (r.menu_id + ':' + r.name)
     const was = worst.get(key)
