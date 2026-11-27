@@ -14,7 +14,10 @@ Today's dishes over their cost target and Home's set-up gaps, the rule triggers;
 Phase 7a built on 27 Nov 2026 (menu engineering from real sales, cost scenarios at the real mix, Push prices into a
 menu's draft; migration 314; see "Phase 7a as built") and 7b (price creep and cost alerts on every supplier price change,
 the rule trigger from the same place, Pepper's `why_cost_changed`; migration 315; see "Phase 7b as built"), so phase 7 is
-built. Phases 8 to 10 are a plan. The decisions in section 12 are taken as
+built. Phase 8a built on 27 Nov 2026 (allergens on supplier products and Pepper's spec sheet reader, the roll-up
+through recipes, the check against declared allergens with accept and dismiss, the Allergens tab, `allergen_check`
+and the reports; migration 316; see "Phase 8a as built"); 8b (reopening checks when something changes, the Today
+item, calories) is still to come. Phases 9 and 10 are a plan. The decisions in section 12 are taken as
 recommended, D1 to D12.** The owner's ask when building started: "recipes variations, per revenue stream/order type
 matrix, and per location (or ability to link a different recipe to menu items in different locations)",
 "stock take module" and "reports". The variation matrix is part of phase 2's links (5.4).
@@ -493,7 +496,10 @@ unexplained       = variance - logged waste
 ### 8.3 Allergens, calories, labels
 
 - **Allergens are kept on the supplier's product** (`inv_quotes`), because two suppliers' soy
-  sauces differ: contains, may contain. Pepper can read them from a product spec when asked.
+  sauces differ: contains, may contain. Pepper can read them from a product spec when asked. *Built in phase 8a
+  (migration 316): the 14 keys of the menus' `STANDARD_ALLERGENS`, when they were checked (none: unknown, a gap,
+  never free) and a source note; the spec reader answers contains, may contain, free or not said with the words
+  read, and the person saves.*
 - The roll-up through recipes gives **suggested** allergens per dish. The page shows where the
   suggestion and the declaration differ ("the recipe has sesame; the dish does not say so"). A
   person accepts or dismisses each; nothing changes the declared allergens by itself.
@@ -504,6 +510,13 @@ unexplained       = variance - logged waste
 - **Calories**: `menu_items.calories` exists. Energy per 100 g on an item gives a suggested figure
   the same way. Calorie labelling applies to businesses of 250 or more employees in England, and a
   franchise counts the whole network; confirm the detail before relying on it.
+- *As built (phase 8a): a dish has one declaration on its menu, so the check compares it with the union of the
+  suggestions over every scope the dish is sold at (each venue, and each of its links that applies there), and the
+  scopes are groups inside one check per dish, not a check per scope. A declared allergen nothing has, and contains
+  where only may contain, are said only when every product is known. Accepting writes the dish's allergens through the
+  Allergen matrix's own route (one dish, every tag) into the menu's draft, not the whole-tree menu save; a dismissal holds
+  while the differences (allergen, kind, levels) are the same. Checks are worked out when the tab or Pepper asks; 8b
+  reopens them on changes and adds the Today item.*
 - **Labels** for food packed before it is ordered (PPDS): the ingredients list with allergens in
   bold and a use-by from the shelf life, printed through the hub. Phase 10.
 
@@ -601,7 +614,7 @@ scale; steps that follow the same day run nearer half.
 | 5 | **Built 27 Nov 2026.** Usage from sales (till, kiosk, online, imported); on hand with sales taken off; order to par minus stock | Stock on hand that follows trading | 70 to 90 |
 | 6 | **Built 27 Nov 2026.** 6a: periods and variance; actual and theoretical food cost; `explain_variance`; variance to review on Today. 6b: the Cash Recon line; widgets and the Overview tile; dishes over target on Today, Home's set-up gaps; rule triggers | A pound figure on the gap, per item and venue | 70 to 90 |
 | 7 | **Built 27 Nov 2026.** 7a: engineering from real sales; scenarios; what-if; push prices. 7b: price creep and its rule trigger, cost alerts, `why_cost_changed` | Pricing decisions made in the app | 60 to 80 |
-| 8 | Allergens on supplier products; the roll-up check and its Today item; suggested calories | Declared allergens checked against recipes | 50 to 65 |
+| 8 | **8a built 27 Nov 2026**: allergens on supplier products, the roll-up check, accept and dismiss, the Allergens tab, Pepper and reports. 8b: reopening on changes, its Today item, suggested calories | Declared allergens checked against recipes | 50 to 65 |
 | 9 | Suggested orders from usage and bookings; returns and credit notes | Orders proposed, not just listed | 60 to 80 |
 | 10 | Later, not estimated: production of prep batches held as stock, labels, a central kitchen, recipe packs passed from a franchisor to its franchisees, GloriaFood through the mapping tool, remakes with dish ids | | |
 
@@ -900,6 +913,39 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
   added the pack; a cost alert is a crossing caused by a price change, while the sweep (which can't say why) makes none; a meal
   deal holding a dish crosses on its own; the Today item is the existing card extended; the starter is month to date (a
   report's last days end yesterday, and alerts are today's). Limits: `docs/claude/outstanding/recipes.md` item 79.
+
+### Phase 8a as built (27 Nov 2026)
+
+- **Migration** 316: `inv_quotes.allergens_contains`, `allergens_may_contain` (text[] of the 14 standard keys),
+  `allergens_checked_at` (null = unknown), `allergens_checked_by`, `allergens_source` (purchasing's table); `allergen_checks`
+  (one per menu dish, plain dish and menu ids, status open | accepted | dismissed, the differences and their fingerprint, the
+  suggestion, the declaration, the scope groups with evidence, the gaps, who decided, when and why, the history; RLS forced).
+- **The product** (8.3): `PUT /api/inventory/quotes/:id/allergens` (whole; Purchasing setup manage), shown on each supplier
+  price's row and edited in a lazy modal on the Inventory page. The spec sheet reader `services/allergenReadAi.js`,
+  `POST /api/ai/allergens/read` (one `askForJson()` call, the names as data, no ids; photos and PDFs; nothing saved, the
+  file not kept).
+- **The rule** `shared/allergenCheck.js` (rule 12): `dishItems()` on `usageOf()`'s walk with a trace (no fourth walk: the
+  recipe `recipeFor()` picks, its prep recipes, each offered option's rule that adds, swaps in or is a recipe, every line
+  whatever its quantity), each item at `chooseQuote()`'s product at the scope's venue; `dishScopes()`, `scopeSuggestion()`,
+  `recipeSuggestion()`, `declaredOf()`, `dishCheck()` (missing, may contain missing, weaker; and, only when every product
+  is known, declared but in nothing and contains where only may contain), `fingerprint()`, `nextCheck()`,
+  `acceptedLevels()`. Gaps: no recipe, an empty recipe, a draft Pepper read in, an option with no rule that adds, an item
+  with no product, a product with no allergens.
+- **The check** `services/allergenCheckSvc.js`, `/api/allergen-checks` (Recipes view to read; Recipes manage and Menus
+  manage to decide): worked out and kept on each read; accept GETs and PUTs the menus area's `/api/menus/:id/allergens` as
+  the person (the draft only, publishing apart); dismiss needs a note; a dismissal holds while the differences are the same;
+  a recipe's own suggestion per venue. The nightly links sweep deletes checks of dishes on no menu.
+- **Pages**: the Recipes page's Allergens tab (`components/recipes/Allergens.jsx`, lazy; open first, by venue, the evidence,
+  the unknowns, accept the ticked differences after an inline confirm, dismiss, open again, the decisions; the liability note)
+  and the recipe editor's Suggested allergens.
+- **Pepper**: `allergen_check` (read, Recipes view; never a guest's answer: `find_dishes` still reads the live declaration)
+  and `read_product_allergens` (consequential: the card pins the reading). **Reports**: subject Allergen checks, the
+  allergen fields on Supplier prices, starters Dishes with allergen differences and Items with unknown allergens; synonyms
+  allergen, may contain, sesame, gluten, nuts.
+- **What the build changed in the plan**: one check per dish over every scope it is sold at, not one per dish and scope
+  (the declaration is the dish's, so a check per scope would call an allergen only another venue's product has "not in the
+  recipe"); accepting goes through the Allergen matrix's route, not the whole-menu save (the menus area's rule for writing
+  dish tags); unknown products hold back "declared but in nothing". Limits: `docs/claude/outstanding/recipes.md` item 80.
 
 ## 12. Decisions for the owner
 

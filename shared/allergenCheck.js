@@ -168,6 +168,8 @@ export function dishItems(dishId, scope = {}, ctx = {}) {
   }
   out.recipe = base.recipe ? { id: base.recipe.id, name: base.recipe.name } : null
   if (!out.recipe) return out
+  // A recipe with nothing in it says nothing about allergens: unknown, never free.
+  if (!out.entries.length) out.gaps.push({ reason: 'empty', recipe_id: out.recipe.id, text: out.recipe.name + ' has no ingredients yet', fix: 'Add what goes into ' + out.recipe.name + ' on the Recipes page.' })
   for (const o of offeredOptions(dish, ctx)) {
     if (o.state === 'gap') {
       out.gaps.push({ reason: 'option', option: o.label, text: o.label + ': ' + (o.default_text || 'adds to the dish with no rule saying what'), fix: 'Give ' + o.label + ' a rule on the Recipes page, Options tab.' })
@@ -355,7 +357,20 @@ export function dishCheck(dish, results = [], declared = {}, names = {}) {
       else if (d === 'contains' && s === 'may_contain' && complete) kind = 'stronger'
       if (!kind) continue
       const having = groups.filter(g => g.levels[key])
-      const evidence = having.flatMap(g => (g.evidence[key] || []).map(e => ({ ...e, where: g.where }))).slice(0, EVIDENCE_MAX)
+      // The same line through the same product at several scope groups is one line of evidence, with all their places.
+      const evidence = []
+      const seen = new Map()
+      for (const g of having) {
+        for (const e of g.evidence[key] || []) {
+          const k = [e.item_id, e.quote_id, e.via.join('>'), e.option || '', e.level].join('|')
+          const hit = seen.get(k)
+          if (hit) { for (const w of g.where) if (!hit.where.includes(w)) hit.where.push(w); continue }
+          const line = { ...e, where: [...g.where] }
+          seen.set(k, line)
+          evidence.push(line)
+        }
+      }
+      evidence.splice(EVIDENCE_MAX)
       differences.push({
         allergen: key, label: label(key), kind, suggested: s, declared: d,
         where: having.flatMap(g => g.where), evidence,

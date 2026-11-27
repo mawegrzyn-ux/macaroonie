@@ -126,6 +126,12 @@ test('the walk is the cost engine\'s: a prep recipe inside, an option\'s rule, a
   const none = dishItems('d-norecipe', { venue_id: SOHO }, c)
   assert.equal(none.recipe, null)
   assert.equal(none.gaps[0].reason, 'no_recipe')
+  // A recipe with nothing in it is unknown, never free of allergens.
+  const r = recipes()
+  r.set('empty', recipe('empty', 'Soup base', 'dish', []))
+  const empty = dishItems('d-norecipe', { venue_id: SOHO }, ctx({ recipes: r, links: [...c.links, link('l9', 'd-norecipe', 'empty')] }))
+  assert.deepEqual(empty.gaps.map(g => g.reason), ['empty'])
+  assert.equal(scopeSuggestion('d-norecipe', { venue_id: SOHO }, ctx({ recipes: r, links: [...c.links, link('l9', 'd-norecipe', 'empty')] })).complete, false)
 })
 
 test('each item at the product chooseQuote() picks at the venue: another supplier, another suggestion; unknown is a gap', () => {
@@ -193,6 +199,14 @@ test('the check: the union over every scope against the one declaration; "nothin
   assert.deepEqual(Object.keys(byKey).sort(), ['molluscs', 'sesame', 'soya'])
   assert.equal(byKey.soya.kind, 'missing')
   assert.equal(byKey.soya.text, 'The recipe has soya; the dish does not say so')
+  // The same line through the same product at several scopes is one line of evidence with all their places.
+  const brakesOyster = byKey.soya.evidence.filter(e => e.quote_id === 'q-oyster-brakes' && e.via[0] === 'Pad thai')
+  assert.equal(brakesOyster.length, 1)
+  assert.deepEqual(brakesOyster[0].where, ['Soho'])
+  const prawnLines = dishCheck(dish, results, { gluten: 'contains' }, names).differences.find(d => d.allergen === 'crustaceans').evidence
+  assert.equal(prawnLines.length, 1, 'the option adds the same prawns at every scope: one line')
+  assert.equal(prawnLines[0].where.length, 4)
+  assert.ok(byKey.soya.evidence.some(e => e.item === 'Tofu'), 'the takeaway version\'s tofu')
   assert.equal(byKey.sesame.kind, 'missing_may')
   assert.deepEqual(byKey.sesame.where, ['Leeds', 'Take out at Leeds'], 'only Leeds\' supplier has it')
   assert.equal(byKey.molluscs.kind, 'weaker')
