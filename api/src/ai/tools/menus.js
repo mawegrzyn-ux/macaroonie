@@ -51,6 +51,7 @@ import { withTenant } from '../../config/db.js'
 import { ToolError, callApi, audit, requireStaffPermission, staffPermissionLevel, levelAtLeast } from '../context.js'
 import { menuSaveBody } from '../../routes/menus.js'
 import { stepRule } from '../../../../shared/combos.js'
+import { changedPrice } from '../../../../shared/scenarios.js'
 import { pickByName, DateStr, TimeStr, localParts, whenText, zonedInstant, touchesAllergens } from './util.js'
 
 // Dishes per create_menu / add_dishes call. A whole menu read from a photo is
@@ -523,16 +524,10 @@ function slugify(name, taken) {
 
 // ── Price rules ────────────────────────────────────────────
 
+// One rule for a menu price changed by a percentage or a figure, or set, and rounded: changedPrice() in
+// shared/scenarios.js, which cost scenarios and Push prices use too (rule 12; inventory phase 7a).
 function priceRule(p, { mode, value }, { round_to = 1, round = 'nearest' } = {}) {
-  if (p == null) return null
-  let raw
-  if (mode === 'percent') raw = p * (1 + value / 100)
-  else if (mode === 'amount') raw = p + value * 100
-  else raw = value * 100
-  raw = Math.round(raw * 10000) / 10000
-  const step = round_to || 1
-  const f = round === 'up' ? Math.ceil : round === 'down' ? Math.floor : Math.round
-  return Math.max(0, f(raw / step) * step)
+  return changedPrice(p, { how: mode, value, round_to, round })
 }
 
 // ── Plans ──────────────────────────────────────────────────

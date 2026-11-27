@@ -26,6 +26,10 @@ export const RECIPE_COST_TABLES = ['recipes', 'recipe_lines', 'inv_item_units']
 export const DISH_MARGIN_TABLES = [...RECIPE_COST_TABLES, 'recipe_links', 'recipe_option_rules', 'costing_settings']
 // And coverage by sales (phase 3): what was sold on each channel too (pos_devices tells a kiosk's checks from the till's).
 export const COVERAGE_TABLES = [...DISH_MARGIN_TABLES, 'pos_check_lines', 'pos_checks', 'pos_days', 'pos_devices', 'order_items', 'orders', 'ext_check_lines', 'ext_checks', 'ext_line_parts']
+// And menu engineering (phase 7a): usage from sales and the menus' sections and dishes it names.
+export const ENGINEERING_TABLES = ['dish_cost_days', 'menu_sections', 'menu_items', 'menus']
+const CLASS_LABELS = { star: 'Star', plough_horse: 'Plough-horse', puzzle: 'Puzzle', dog: 'Dog', not_costed: 'Not costed' }
+const SALES = [COSTING, 'pos_reports']
 const CHANNELS = { till: 'Till', kiosk: 'Kiosk', online: 'Online orders', imported: 'Other tills' }
 const SOLD_STATES = { costed: 'Costed', uncosted: 'Not costed', left_out: 'Left out (a service, or no longer on a menu)' }
 const FIX_KINDS = { link: 'Link a recipe', recipe: 'Finish the recipe', option: 'Add an option rule', deal: 'Cost the meal deal\'s dishes', map: 'Map it to a menu dish' }
@@ -309,5 +313,95 @@ export const subjects = [
     },
     list: ['dish', 'venue.name', 'order_type', 'price', 'net', 'cost', 'gp', 'cost_pct', 'band'],
     sort: [{ by: 'cost_pct', dir: 'desc' }],
+  }),
+
+  // Phase 7a: menu engineering from what sold, worked out for each run by
+  // the Engineering tab's rule (work/recipes.js, engineer() in
+  // shared/engineering.js). GP and the classes are worked out from what the
+  // till took: they need till reports view as well.
+  subject({
+    key: 'recipes.engineering',
+    label: 'Menu engineering',
+    one: 'dish sold in a menu section',
+    area: 'recipes',
+    module: COSTING,
+    about: 'Each dish sold in each menu section over the period (the venues the report covers, together), by Kasavana and Smith: popular when its share of the section\'s units is at least 70% of an equal share, profitable when its gross profit per unit is at least the section\'s average per unit sold; stars, plough-horses, puzzles and dogs, with what to do with each. From usage from sales: units that couldn\'t be costed count for popularity, never for gross profit. A meal deal rung up as a deal is one dish of its own section; an automatic deal the till found among dishes rung up one by one is a discount over them, which count in their own sections at what they took.',
+    from: { work: 'menu_engineering', tables: ENGINEERING_TABLES },
+    idType: 'text',
+    date: { sql: '{t}.date', label: 'Period ends' },
+    name: 'dish',
+    open: { page: '/menu-margins?menu=:menu&dish=:id', module: COSTING, id: 'dish_id', with: { menu: 'menu_id' } },
+    fields: {
+      dish: text('dish', { label: 'Dish', synonyms: ['menu item'] }),
+      section: text('section', { label: 'Section', synonyms: ['menu section'] }),
+      menu: text('menu', { label: 'Menu' }),
+      kind: choice('kind', { dish: 'Dish', deal: 'Meal deal' }, { label: 'Kind' }),
+      class: choice('class', CLASS_LABELS, {
+        label: 'Menu engineering class', needs: SALES, synonyms: ['menu engineering', 'stars and dogs', 'plough horse', 'plowhorse', 'puzzle', 'kasavana smith'],
+        about: 'Star: sells well and earns at least the section\'s average GP per unit; plough-horse: sells well, earns less; puzzle: earns more, sells little; dog: neither. Not costed: none of its units could be costed.',
+        examples: ['which dishes are dogs', 'menu engineering this month'],
+      }),
+      popular: yesno('popular', { label: 'Popular', about: 'Its share of the section\'s units is at least 70% of an equal share.' }),
+      profitable: yesno('profitable', { label: 'Profitable', needs: SALES, about: 'Its gross profit per unit is at least the section\'s average per unit sold.' }),
+      units: number('units', { label: 'Units sold', adds: true, decimals: 0 }),
+      share: percent('share_pct', { label: 'Share of the section\'s units', synonyms: ['menu mix'] }),
+      popular_from: percent('popular_pct', { label: 'Popular from', about: '70% of an equal share: 70% divided by the dishes the section sold.' }),
+      costed_units: number('costed_units', { label: 'Units costed', adds: true, decimals: 0 }),
+      uncosted_units: number('uncosted_units', { label: 'Units left out of GP', adds: true, decimals: 0, about: 'Sold on days or in ways that couldn\'t be costed in full: they count for popularity, never for GP.' }),
+      net: money('net_pence', { label: 'Net sales', needs: SALES, about: 'Of the units costed, after discounts, VAT out.' }),
+      cost: money('cost_pence', { label: 'Theoretical cost', needs: COSTING }),
+      gp: money('gp_pence', { label: 'Gross profit', needs: SALES }),
+      gp_per_unit: money('gp_per_unit_pence', { label: 'GP per unit', adds: false, needs: SALES, synonyms: ['contribution margin'] }),
+      section_gp_per_unit: money('avg_gp_per_unit_pence', { label: 'Section average GP per unit', adds: false, needs: SALES }),
+      cost_pct: percent('cost_pct', { label: 'Cost %', needs: SALES }),
+      suggestion: text('suggestion', { label: 'What to do', needs: SALES }),
+    },
+    measures: {
+      dishes: count({ label: 'Dishes' }),
+      units_sold: sum('units', { label: 'Units sold' }),
+      gross_profit: sum('gp_pence', { type: 'money', label: 'Gross profit', needs: SALES }),
+      stars: count({ label: 'Stars', where: "{t}.class = 'star'", needs: SALES }),
+      plough_horses: count({ label: 'Plough-horses', where: "{t}.class = 'plough_horse'", needs: SALES }),
+      puzzles: count({ label: 'Puzzles', where: "{t}.class = 'puzzle'", needs: SALES }),
+      dogs: count({ label: 'Dogs', where: "{t}.class = 'dog'", needs: SALES }),
+    },
+    skip: ['section_id'],
+    list: ['section', 'dish', 'class', 'units', 'share', 'gp_per_unit', 'gp', 'cost_pct', 'suggestion'],
+    sort: [{ by: 'section', dir: 'asc' }, { by: 'units', dir: 'desc' }],
+  }),
+
+  // Phase 7a (migration 314): the cost scenarios saved on the Scenarios tab.
+  subject({
+    key: 'recipes.scenarios',
+    label: 'Cost scenarios',
+    one: 'cost scenario',
+    area: 'recipes',
+    module: COSTING,
+    about: 'Each what-if saved on the Menu margins page\'s Scenarios tab: the menu, the venue, revenue stream and order type it is for, how many days of sales make its mix, how many price and cost changes it holds, who saved it and when, and when its prices were last pushed into the menu\'s draft. Its figures are worked out on the page.',
+    from: 'cost_scenarios',
+    venue: 'venue_id',
+    name: 'name',
+    open: { page: '/menu-margins?tab=scenarios&scenario=:id', module: COSTING },
+    fields: {
+      name: text('name', { label: 'Scenario', synonyms: ['scenario', 'what if'] }),
+      menu: text({ sql: '(SELECT m.name FROM menus m WHERE m.id = {t}.menu_id AND m.tenant_id = {t}.tenant_id)' }, { label: 'Menu' }),
+      revenue_stream: text({ sql: STREAM_NAME }, { label: 'Revenue stream' }),
+      order_type: text({ sql: TYPE_NAME }, { label: 'Order type' }),
+      mix_days: number('mix_days', { label: 'Days of sales in the mix', decimals: 0 }),
+      changes: number({ sql: 'jsonb_array_length({t}.changes)' }, { label: 'Changes', decimals: 0 }),
+      notes: text('notes', { label: 'Notes' }),
+      created_by: text('created_by', { label: 'Saved first by' }),
+      updated_by: text('updated_by', { label: 'Last saved by' }),
+      created_at: moment('created_at', { label: 'Made' }),
+      updated_at: moment('updated_at', { label: 'Last saved' }),
+      pushed_at: moment('pushed_at', { label: 'Prices last pushed', about: 'When its new prices were last written into the menu\'s draft (publishing is apart).' }),
+      pushed_by: text('pushed_by', { label: 'Pushed by' }),
+      pushed: yesno({ sql: '({t}.pushed_at IS NOT NULL)' }, { label: 'Prices pushed' }),
+    },
+    measures: {
+      scenarios: count({ label: 'Scenarios' }),
+    },
+    list: ['name', 'menu', 'venue.name', 'order_type', 'changes', 'updated_at', 'pushed_at'],
+    sort: [{ by: 'updated_at', dir: 'desc' }],
   }),
 ]

@@ -15,7 +15,13 @@
 // The choices are in the address (?menu= &venue= &stream= &type= &version=;
 // ?dish= opens one dish's explanation). The Sold tab (?tab=sold, inventory
 // phase 5: components/recipes/SoldMargins.jsx, lazy) is what really sold at a
-// venue over some days, from usage from sales (dish_cost_days).
+// venue over some days, from usage from sales (dish_cost_days). The
+// Engineering tab (?tab=engineering, inventory phase 7a:
+// components/recipes/Engineering.jsx, lazy) sorts each section's dishes into
+// stars, plough-horses, puzzles and dogs from what sold; the Scenarios tab
+// (?tab=scenarios, components/recipes/Scenarios.jsx, lazy) tries price and
+// cost changes at the real mix, saves them and pushes prices into a menu's
+// draft.
 // API: routes/menuMargins.js, routes/recipeLinks.js (a dish's steps).
 
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
@@ -32,7 +38,14 @@ import { pounds, penceText, pctText, BandBadge, bandWord, CoverageBadge } from '
 
 // The Sold tab (inventory phase 5): what really sold, from usage from sales. Loaded on demand.
 const SoldMargins = lazy(() => import('@/components/recipes/SoldMargins'))
-const TABS = [{ value: 'margins', label: 'Margins' }, { value: 'sold', label: 'Sold' }]
+// Engineering and scenarios (inventory phase 7a), each loaded on demand too.
+const Engineering = lazy(() => import('@/components/recipes/Engineering'))
+const Scenarios = lazy(() => import('@/components/recipes/Scenarios'))
+const TABS = [
+  { value: 'margins', label: 'Margins' }, { value: 'sold', label: 'Sold' },
+  { value: 'engineering', label: 'Engineering' }, { value: 'scenarios', label: 'Scenarios' },
+]
+const TAB_KEYS = TABS.map(t => t.value)
 
 const SORTS = [
   { value: 'cost_pct', label: 'Cost %' }, { value: 'gp', label: 'GP' }, { value: 'name', label: 'Name' }, { value: 'section', label: 'Section' },
@@ -53,7 +66,7 @@ export default function MenuMargins() {
   const streamId = params.get('stream') || ''
   const typeId = params.get('type') || ''
   const version = params.get('version') === 'draft' ? 'draft' : 'live'
-  const tab = params.get('tab') === 'sold' ? 'sold' : 'margins'
+  const tab = TAB_KEYS.includes(params.get('tab')) ? params.get('tab') : 'margins'
   const [sort, setSort] = useState('cost_pct')
   const [open, setOpen] = useState(null)
   const choices = useQuery({ queryKey: ['menu-margins', 'choices'], queryFn: () => api.get('/menu-margins'), enabled: !!canView })
@@ -99,9 +112,11 @@ export default function MenuMargins() {
       </PageHeader>
       <div className="max-w-6xl mx-auto p-4 space-y-4">
         <Segmented value={tab} onChange={v => set({ tab: v === 'margins' ? '' : v })} options={TABS} className="[&>button]:h-12" testid="margins-tabs" />
-        {tab === 'sold' ? (
+        {tab !== 'margins' ? (
           <Suspense fallback={<div className="py-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" /></div>}>
-            <SoldMargins venues={c?.venues || []} />
+            {tab === 'sold' && <SoldMargins venues={c?.venues || []} />}
+            {tab === 'engineering' && <Engineering venues={c?.venues || []} menus={c?.menus || []} />}
+            {tab === 'scenarios' && (c ? <Scenarios choices={c} canManage={canManage} /> : <Loader2 className="w-5 h-5 animate-spin" />)}
           </Suspense>
         ) : (<>
         {loaded && !canManage && <ReadOnlyNotice what="the cost targets" />}

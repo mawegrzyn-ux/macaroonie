@@ -33,6 +33,15 @@
 //                  found among the items and prep recipes are kept in its
 //                  notes                                          consequential
 //
+// Phase 7a (menu engineering and scenarios, migration 314):
+//   menu_engineering  each section's dishes from what sold as stars,
+//                  plough-horses, puzzles and dogs (GET /api/menu-margins/
+//                  engineering; GP and classes with till reports view)  costing, view
+//   save_scenario  a cost scenario from names: changes for a dish, a section
+//                  or every dish, the figures at the mix on the card, saved
+//                  (or the same-named one changed); pushing prices and
+//                  publishing stay on the pages                     consequential
+//
 // The model is given names, never ids (rule 19): a recipe is picked by its
 // name, and its page link searches the Recipes page for that name.
 
@@ -43,6 +52,7 @@ import { VenueText, venueFor, tenantVenueList, pickByName, plural, audited } fro
 import { fmtNum, UNITS } from '../../../../shared/procurement.js'
 import { pounds, perWord, BASIS_KEYS, COVERAGE, BANDS, sameScope, toBase, inRecipeUnit, YIELD_UNITS, readLineKept } from '../../../../shared/costing.js'
 import { matchIndex, matchThing, normName } from '../../../../shared/itemMatch.js'
+import { averageText } from '../../../../shared/engineering.js'
 
 const MAX_LIST = 40
 const METHOD_MAX = 2000
@@ -78,6 +88,10 @@ export const promptLines = [
     'drafts once the person confirms), make_recipe (a draft recipe from their description), link_recipes (dishes linked ' +
     'to recipes for every venue, or at a venue, revenue stream or order type), recipe_coverage (how much of what sold ' +
     'can be costed, and the dishes to cost first).',
+  'Menu engineering and what-ifs: menu_engineering (each section\'s dishes from what sold as stars, plough-horses, ' +
+    'puzzles and dogs, with GP per unit and what to do with each), save_scenario (price or cost changes on a menu with ' +
+    'the cost % and GP at what really sold before and after, saved for the Scenarios tab; pushing prices into a menu and ' +
+    'publishing are the person\'s steps on the pages).',
 ]
 
 export const recipeTools = [
@@ -711,5 +725,252 @@ export const changeTools = [
   },
 ]
 
+// ── Menu engineering and scenarios (phase 7a) ────────────────
+
+const CLASS_PLURAL = { star: 'stars', plough_horse: 'plough_horses', puzzle: 'puzzles', dog: 'dogs' }
+const NO_AVERAGE = 'not costed: none of the section\'s units could be costed'
+const AUTO_DEALS_NOTE = 'When the till, a kiosk or online ordering finds one of these deals among dishes rung up one by one, it is a discount '
+  + 'over those dishes: they count in their own sections at what they took after the saving, and the deal has no units for them. '
+  + 'Only a deal rung up from its own button counts as a deal.'
+const MAX_SECTIONS = 8
+const MAX_DISHES = 30
+const qtyWords = n => fmtNum(n, Number.isInteger(n) ? 0 : 1)
+
+const ChangeIn = z.object({
+  what: z.enum(['price', 'cost']).describe('price (the menu price, VAT included) or cost (what one costs)'),
+  dish: z.string().trim().max(200).optional().describe('The dish it is for, by name; leave dish and section out for every dish'),
+  section: z.string().trim().max(120).optional().describe('The menu section it is for, by name'),
+  how: z.enum(['percent', 'amount', 'set']).describe('percent (5 = up 5%, -10 = down 10%), amount (pounds added, -0.25 takes 25p off) or set (pounds)'),
+  value: z.number().min(-1000).max(10000),
+  round_to: z.union([z.literal(1), z.literal(5), z.literal(10), z.literal(50), z.literal(100)]).optional().describe('A price change: round new prices to 1, 5, 10, 50 or 100 pence'),
+  round: z.enum(['up', 'nearest', 'down']).optional(),
+})
+
+/**
+ * The venue, stream and order type of a scenario changed in place: what the
+ * person named, else what the saved one has (a venue named without a stream
+ * leaves the saved stream only when it is that venue's).
+ */
+async function savedScope(ctx, input, saved) {
+  const venue = input.venue ? await venueFor(ctx, input.venue) : null
+  const venueId = venue ? venue.id : saved.venue_id
+  let streamId = venue && venue.id !== saved.venue_id ? null : saved.revenue_stream_id
+  let typeId = saved.order_type_id
+  if (input.stream || input.order_type) {
+    const tax = await callApi(ctx, 'GET', '/api/tax-rates')
+    if (input.stream) {
+      if (!venueId) throw new ToolError('Which venue is ' + input.stream + ' at?', 422)
+      const at = venue?.name || (await tenantVenueList(ctx)).find(v => v.id === venueId)?.name || 'that venue'
+      streamId = pickByName((tax.streams || []).filter(x => x.venue_id === venueId && x.is_active), input.stream, x => x.name, 'revenue stream at ' + at, at + ' has no revenue streams.').id
+    }
+    if (input.order_type) typeId = pickByName((tax.order_types || []).filter(t => t.is_active), input.order_type, t => t.name, 'order type').id
+  }
+  return { venue_id: venueId || null, revenue_stream_id: streamId || null, order_type_id: typeId || null }
+}
+
+const noteWords = n => (n == null || n === '' ? 'none' : n.length > 80 ? n.slice(0, 77) + '...' : n)
+
+/**
+ * A scenario's body from names: the menu, the scope and each change's dish
+ * or section, found by name (rule 19: names, never ids). With replace and a
+ * saved scenario of that name on the menu, the body starts from the saved
+ * one (rule 13: a whole save sends every field back) and takes only what the
+ * person named: the changes, and the venue, stream, order type, days or notes
+ * when given; `changed` says in words what else will change.
+ */
+async function scenarioPlan(ctx, input) {
+  const choices = await callApi(ctx, 'GET', '/api/menu-margins')
+  const menu = pickByName(choices.choices.menus, input.menu, m => m.name, 'menu', 'No menus yet.')
+  // The scenario of that name on this menu, changed when the person asks for it to be.
+  const list = await callApi(ctx, 'GET', '/api/cost-scenarios')
+  const same = list.scenarios.find(x => x.menu_id === menu.id && x.name.trim().toLowerCase() === input.name.trim().toLowerCase()) || null
+  const was = input.replace && same ? await callApi(ctx, 'GET', '/api/cost-scenarios/' + same.id) : null
+  const saved = was?.scenario || null
+  let base
+  if (saved) {
+    base = {
+      name: saved.name, menu_id: menu.id, ...(await savedScope(ctx, input, saved)),
+      mix_days: input.days || saved.mix_days, notes: input.notes !== undefined ? input.notes || null : saved.notes ?? null,
+    }
+  } else {
+    const { scope } = await scopeFor(ctx, input, { onlyVenue: false })
+    base = {
+      name: input.name, menu_id: menu.id, venue_id: scope.venue_id || null, revenue_stream_id: scope.revenue_stream_id || null,
+      order_type_id: scope.order_type_id || null, mix_days: input.days || 28, notes: input.notes || null,
+    }
+  }
+  // The draft's sections and dishes, from the scenario's own read (Costing view, like the tool).
+  const blank = await callApi(ctx, 'POST', '/api/cost-scenarios/preview', { body: { ...base, changes: [] } })
+  const sections = blank.figures.sections.map(x => ({ id: x.section_id, name: x.section || '' }))
+  const dishes = blank.figures.dishes.map(d => ({ id: d.dish_id, name: d.name }))
+  const changes = input.changes.map(c => {
+    if (c.dish && c.section) throw new ToolError('A change is for a dish or a section, not both: ' + c.dish + ' or ' + c.section + '?', 422)
+    const dish = c.dish ? pickByName(dishes, c.dish, d => d.name, 'dish on ' + menu.name, menu.name + ' has no dishes.') : null
+    const section = c.section ? pickByName(sections, c.section, x => x.name, 'section of ' + menu.name, menu.name + ' has no sections.') : null
+    return {
+      what: c.what, applies: dish ? 'dish' : section ? 'section' : 'all', section_id: section?.id ?? null, dish_id: dish?.id ?? null,
+      how: c.how, value: c.value,
+      round_to: c.what === 'price' && c.how !== 'set' ? (c.round_to ?? 1) : null, round: c.what === 'price' && c.how !== 'set' ? (c.round ?? 'nearest') : null,
+    }
+  })
+  const body = { ...base, changes }
+  const fig = await callApi(ctx, 'POST', '/api/cost-scenarios/preview', { body })
+  // What a change in place does besides the changes, said on the card.
+  const changed = []
+  if (saved) {
+    changed.push('Its ' + plural((saved.changes || []).length, 'change') + ' replaced by ' + (changes.length === 1 ? 'this one' : 'these ' + changes.length))
+    if (base.venue_id !== saved.venue_id || base.revenue_stream_id !== saved.revenue_stream_id || base.order_type_id !== saved.order_type_id) {
+      changed.push('Where: ' + was.where + ' to ' + fig.where)
+    }
+    if (base.mix_days !== saved.mix_days) changed.push('The mix: the last ' + plural(saved.mix_days, 'day') + ' to the last ' + plural(base.mix_days, 'day'))
+    if ((base.notes ?? null) !== (saved.notes ?? null)) changed.push('Notes: ' + noteWords(saved.notes) + ' to ' + noteWords(base.notes))
+  }
+  return { menu, where: fig.where, body, fig, same, saved, changed }
+}
+
+/** A scenario's figures in words for a card or an answer (sales at the mix only when the route gave them). */
+function scenarioWords(fig) {
+  const t = fig.figures.total
+  const out = ['Cost % at what sold (' + fig.mix.from + ' to ' + fig.mix.to + '): ' + (pct(t.before.cost_pct) || 'no costed sales') + ' to ' + (pct(t.after.cost_pct) || '-')]
+  if (fig.sees_sales && t.before.gp_pence != null) out.push('Gross profit at the mix: ' + money(t.before.gp_pence) + ' to ' + money(t.after.gp_pence) + ' (' + (t.change.gp_pence >= 0 ? '+' : '') + money(t.change.gp_pence) + ')')
+  if (t.left_out_units > 0) out.push(qtyWords(t.left_out_units) + ' units of dishes with no cost are left out of both sides')
+  return out
+}
+
+export const engineeringTools = [
+  {
+    name: 'menu_engineering',
+    activity: 'Looked at menu engineering',
+    section: 'recipes',
+    modules: ['costing'],
+    title: 'Menu engineering',
+    description:
+      'Menu engineering from what really sold (Kasavana and Smith), from the Menu margins page\'s Engineering tab: each ' +
+      'menu section\'s dishes as stars (sell well and earn at least the section\'s average gross profit per unit), ' +
+      'plough-horses (sell well, earn less), puzzles (earn more, sell little) and dogs (neither), with units, share of the ' +
+      'section\'s units, GP per unit, total GP and cost %, and what to do with each class. Popular is a share of at least 70% ' +
+      'of an equal share. A meal deal rung up as a deal is one dish of its own section; an automatic deal the till found ' +
+      'among dishes rung up one by one is a discount over them (they count in their own sections at what they took). ' +
+      'At a venue or every venue, one menu or all, a section ' +
+      'or all, over the last days (28 unless asked). GP and the classes need till reports view as well as Costing view.',
+    input: z.object({
+      menu: z.string().trim().max(120).optional().describe('A menu, by name; leave out for every menu'),
+      section: z.string().trim().max(120).optional().describe('One section, by name'),
+      venue: VenueText.describe('A venue; leave out for every venue'),
+      days: z.number().int().min(1).max(93).optional().describe('The last days up to yesterday (28 unless asked)'),
+    }),
+    readOnly: true,
+    async run(ctx, input) {
+      await requireStaffPermission(ctx, 'costing', 'view')
+      const venue = input.venue ? await venueFor(ctx, input.venue) : null
+      let menu = null
+      if (input.menu) {
+        const choices = await callApi(ctx, 'GET', '/api/menu-margins')
+        menu = pickByName(choices.choices.menus, input.menu, m => m.name, 'menu', 'No menus yet.')
+      }
+      const q = new URLSearchParams({ ...(venue ? { venue_id: venue.id } : {}), ...(menu ? { menu_id: menu.id } : {}), days: String(input.days || 28) })
+      const e = await callApi(ctx, 'GET', '/api/menu-margins/engineering?' + q.toString())
+      const where = venue ? venue.name : 'every venue'
+      if (!e.sections.length) return { where, days: e.from + ' to ' + e.to, message: 'Nothing sold was worked out for these days' + (menu ? ' on ' + menu.name : '') + '.', page: '/menu-margins?tab=engineering' }
+      let sections = e.sections
+      if (input.section) {
+        const hit = pickByName(sections, input.section, s => s.section || '', 'section that sold', 'Nothing sold in any section.')
+        sections = [hit]
+      }
+      const out = sections.slice(0, MAX_SECTIONS).map(s => {
+        const row = {
+          section: s.section, ...(s.menu ? { menu: s.menu } : {}), dishes_sold: s.dish_count, units: qtyWords(s.units),
+          popular_from: pct(s.popular_pct) + ' of the section\'s units',
+        }
+        if (e.sees_sales) {
+          // An average none of whose units could be costed is a gap, never £0.00.
+          row.average_gp_per_unit = averageText(s, money, NO_AVERAGE)
+          for (const [k, plural] of Object.entries(CLASS_PLURAL)) row[plural] = s.dishes.filter(d => d.class === k).map(d => d.name)
+          const none = s.dishes.filter(d => d.class == null).map(d => d.name)
+          if (none.length) row.not_costed = none
+        }
+        row.dishes = s.dishes.slice(0, MAX_DISHES).map(d => ({
+          dish: d.name, ...(d.kind === 'deal' ? { meal_deal: true } : {}), units: qtyWords(d.units), share: pct(d.share_pct), popular: d.popular,
+          ...(e.sees_sales ? {
+            class: d.class ? e.classes[d.class].label : 'not costed',
+            gp_per_unit: d.gp_per_unit_pence == null ? null : money(Math.round(d.gp_per_unit_pence)),
+            total_gp: money(d.gp_pence), cost_pct: pct(d.cost_pct),
+          } : {}),
+          ...(d.uncosted_units > 0 ? { units_left_out_of_gp: qtyWords(d.uncosted_units) } : {}),
+        }))
+        if (s.dishes.length > MAX_DISHES) row.more = s.dishes.length - MAX_DISHES + ' more on the page'
+        return row
+      })
+      return {
+        where, ...(menu ? { menu: menu.name } : {}), days: e.from + ' to ' + e.to, sections: out,
+        ...(sections.length > MAX_SECTIONS ? { more_sections: sections.length - MAX_SECTIONS + ' more on the page' } : {}),
+        ...(e.auto_deals?.length ? {
+          automatic_deals: e.auto_deals.map(d => d.name + (menu ? '' : ' (' + d.menu + ')')),
+          automatic_deals_note: AUTO_DEALS_NOTE,
+        } : {}),
+        ...(e.sees_sales
+          ? { what_to_do: Object.fromEntries(Object.entries(CLASS_PLURAL).map(([k, plural]) => [plural, e.classes[k].suggestion])) }
+          : { note: 'GP, cost % and the classes come from what the till took: they need till reports view as well, so only units and shares are here.' }),
+        page: '/menu-margins?tab=engineering',
+      }
+    },
+  },
+
+  {
+    name: 'save_scenario',
+    class: 'consequential',
+    title: 'Save a cost scenario',
+    activity: 'Saved a cost scenario',
+    section: 'recipes',
+    modules: ['costing'],
+    description:
+      'Saves a what-if on a menu (the Menu margins page\'s Scenarios tab): price or cost changes, each by a percentage or ' +
+      'a figure, or set, for a dish, a section or every dish, in order, at a venue (and revenue stream) and order type, ' +
+      'and shows the cost % and gross profit at what really sold before and after. Nothing on the menu changes: pushing a ' +
+      'scenario\'s prices into the menu\'s draft is done on the page (it needs Menus manage), and publishing after that. ' +
+      'replace: true changes the scenario of the same name on that menu instead of saving another: its changes become ' +
+      'these, and its venue, stream, order type, days and notes stay as saved unless given here. Costing manage.',
+    input: z.object({
+      name: z.string().trim().min(1).max(120),
+      menu: z.string().trim().min(1).max(120).describe('The menu, by name'),
+      venue: VenueText.describe('The venue whose prices and sales to use; leave out for the group\'s prices and every venue\'s sales'),
+      stream: StreamText.describe('A revenue stream at that venue'),
+      order_type: TypeText.describe('The order type (its VAT and its sales): eat in, take out...'),
+      days: z.number().int().min(1).max(93).optional().describe('The mix: units sold over the last days up to yesterday (28 unless asked)'),
+      changes: z.array(ChangeIn).min(1).max(20),
+      notes: z.string().trim().max(1000).optional(),
+      replace: z.boolean().optional(),
+    }),
+    confirm: true,
+    async describe(ctx, input) {
+      await requireStaffPermission(ctx, 'costing', 'manage')
+      const p = await scenarioPlan(ctx, input)
+      const skipped = [...new Set(p.fig.figures.dishes.flatMap(d => d.skipped || []))]
+      return {
+        title: (p.saved ? 'Change' : 'Save') + ' the scenario ' + (p.saved ? p.saved.name : input.name) + ' on ' + p.menu.name + '?',
+        lines: [p.where + ', the menu\'s draft', ...p.changed, ...p.fig.words, ...scenarioWords(p.fig)],
+        ...(skipped.length || (p.same && !input.replace)
+          ? { warningTitle: 'Check', warnings: [...skipped, ...(p.same && !input.replace ? ['A scenario called ' + p.same.name + ' is saved already: this saves another (replace changes it)'] : [])] }
+          : {}),
+        confirmLabel: p.saved ? 'Change it' : 'Save',
+      }
+    },
+    async run(ctx, input) {
+      await requireStaffPermission(ctx, 'costing', 'manage')
+      const p = await scenarioPlan(ctx, input)
+      return audited(ctx, 'save_scenario', { name: input.name, menu: input.menu, changes: input.changes.length }, async () => {
+        // A change in place sends the whole saved scenario back, with only what was named changed (rule 13).
+        if (p.saved) await callApi(ctx, 'PUT', '/api/cost-scenarios/' + p.saved.id, { body: p.body })
+        else await callApi(ctx, 'POST', '/api/cost-scenarios', { body: p.body })
+        return {
+          saved: input.name, menu: p.menu.name, where: p.where, changes: p.fig.words, figures: scenarioWords(p.fig),
+          message: 'Saved. Nothing on the menu has changed: push its prices into the menu\'s draft from the Scenarios tab, then publish the menu, when you want them.',
+          page: '/menu-margins?tab=scenarios',
+        }
+      })
+    },
+  },
+]
+
 // What Pepper is told about this file's tools, gathered by tools/index.js.
-export const tools = [...recipeTools, ...marginTools, ...changeTools]
+export const tools = [...recipeTools, ...marginTools, ...changeTools, ...engineeringTools]

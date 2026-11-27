@@ -16,13 +16,18 @@
 //     columns: [[column, postgres type], ...]   tenant_id comes first: the
 //                                               compiler filters on it like
 //                                               on any other subject's rows
-//     fill: async (tx, { tenantId, venueIds, ranges, levels, memo }) => rows
+//     fill: async (tx, { tenantId, venueIds, ranges, periods, levels, memo }) => rows
 //   }
 //
 //   venueIds   the venues the report asks for (null = every venue)
 //   ranges     the period and the one it is compared with ([{ from, to }],
 //              null = every day): which days a work's rows sit on is its own
-//              business (a week by its Monday)
+//              business (a week by its Monday). A daily subject beside a
+//              weekly report gets each widened by up to six days past its
+//              last (the days of the weeks the period picks)
+//   periods    the same as the report asks for them, never widened: for a
+//              work whose rows are one figure over the period (menu
+//              engineering), dated inside it
 //   levels     the person's module levels; columns a role can't see are
 //              left out by the catalogue's `needs`, so a work may fill them
 //   memo       a Map shared by the works of one run, for what several of
