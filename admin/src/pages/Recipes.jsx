@@ -13,6 +13,12 @@
 // opens its variation matrix, components/recipes/DishMatrix.jsx) and
 // Options (what each option does to a recipe; ?option= opens one).
 // API: routes/recipeLinks.js, routes/recipeOptions.js.
+//
+// Phase 3: the Recipes tab opens on coverage by sales (components/recipes/
+// Coverage.jsx: the share of the last 30 days' sales that can be costed, and
+// the dishes not costed by sales value with how to fix each); Read recipes
+// (?read=1, Manage) opens Pepper's reader and its review (RecipeReader.jsx,
+// lazy); ?recipe=new&for_dish= starts a recipe from a menu dish.
 
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -29,6 +35,7 @@ import { RecipeEditor } from '@/components/recipes/RecipeEditor'
 import { DishList } from '@/components/recipes/DishList'
 import { DishMatrix } from '@/components/recipes/DishMatrix'
 import { OptionList, OptionEditor } from '@/components/recipes/OptionRules'
+import { CoverageCard } from '@/components/recipes/Coverage'
 
 // The reader's review is big and opened now and then: its own chunk (the main bundle's precache limit).
 const RecipeReader = lazy(() => import('@/components/recipes/RecipeReader'))
@@ -95,8 +102,13 @@ export default function Recipes() {
                     onMake={id => set({ tab: '', recipe: 'new', for_dish: id })} />
                 : tab === 'options'
                   ? <OptionList onOpen={id => set({ option: id })} />
-                  : <RecipeList venueId={venueId} basis={basis} startQ={params.get('q') || ''} onVenue={v => set({ venue: v })}
-                      onBasis={b => set({ basis: b === 'standard' ? '' : b })} onOpen={id => set({ recipe: id })} />}
+                  : (
+                    <>
+                      <CoverageCard onOpenDish={toDish} onOpenRecipe={toRecipe} onOpenOption={id => set({ tab: 'options', option: id })} />
+                      <RecipeList venueId={venueId} basis={basis} startQ={params.get('q') || ''} onVenue={v => set({ venue: v })}
+                        onBasis={b => set({ basis: b === 'standard' ? '' : b })} onOpen={id => set({ recipe: id })} />
+                    </>
+                  )}
       </div>
     </div>
   )

@@ -24,6 +24,11 @@ export const RECIPE_COST_TABLES = ['recipes', 'recipe_lines', 'inv_item_units']
 // And a dish's margin (phase 2): the links, the option rules and the targets
 // too. Read by the dish margins work, so they are decided as read.
 export const DISH_MARGIN_TABLES = [...RECIPE_COST_TABLES, 'recipe_links', 'recipe_option_rules', 'costing_settings']
+// And coverage by sales (phase 3): what was sold on each channel too.
+export const COVERAGE_TABLES = [...DISH_MARGIN_TABLES, 'pos_check_lines', 'pos_checks', 'pos_days', 'order_items', 'orders', 'ext_check_lines', 'ext_checks', 'ext_line_parts']
+const CHANNELS = { till: 'Till', kiosk: 'Kiosk', online: 'Online orders', imported: 'Other tills' }
+const SOLD_STATES = { costed: 'Costed', uncosted: 'Not costed', left_out: 'Left out (a service, or no longer on a menu)' }
+const FIX_KINDS = { link: 'Link a recipe', recipe: 'Finish the recipe', option: 'Add an option rule', deal: 'Cost the meal deal\'s dishes', map: 'Map it to a menu dish' }
 
 const BANDS = { good: 'On target', watch: 'Over target', over: 'Over the limit' }
 const DISH_KINDS = { dish: 'Dish', deal: 'Meal deal', goods: 'Goods', service: 'Service' }
@@ -216,6 +221,46 @@ export const subjects = [
     },
     list: ['dish', 'menu', 'recipe.name', 'applies_to', 'portions', 'missing'],
     sort: [{ by: 'dish', dir: 'asc' }],
+  }),
+
+  // What was sold, costed or not (phase 3), worked out for each run by the
+  // Recipes page's coverage rule (work/recipes.js, salesCoverage() in
+  // shared/costing.js). Sales are till figures: their pounds need till reports view.
+  subject({
+    key: 'recipes.coverage',
+    label: 'Recipe coverage',
+    one: 'dish sold on a day',
+    area: 'recipes',
+    module: 'recipes',
+    about: 'Each dish sold on a trading day at a venue (till, kiosk, online and other tills; test till sales left out), whether it can be costed there with today\'s recipes (its recipe has no gaps and its options have rules), and why not. The share costed of sales is coverage.',
+    from: { work: 'recipe_coverage', tables: COVERAGE_TABLES },
+    idType: 'text',
+    venue: 'venue_id',
+    date: { sql: '{t}.date', label: 'Trading day' },
+    name: 'dish',
+    open: { page: '/recipes?tab=dishes&dish=:id', module: 'recipes', id: 'dish_id' },
+    fields: {
+      dish: text('dish', { label: 'Dish', synonyms: ['uncosted dish', 'menu item'] }),
+      menu: text('menu', { label: 'Menu' }),
+      channel: choice('channel', CHANNELS, { label: 'Sold through' }),
+      where_sold: text('where_sold', { label: 'Sold at', about: 'The venue, revenue stream and order type it was sold at, in words.' }),
+      sales: money('sales_pence', { label: 'Sales value', needs: 'pos_reports', about: 'What it sold for after discounts, VAT included.' }),
+      qty: number('qty', { label: 'Units sold', adds: true, decimals: 0 }),
+      state: choice('state', SOLD_STATES, { label: 'Costed or not' }),
+      costed: yesno('costed', { label: 'Costed', synonyms: ['costed', 'has a recipe', 'coverage'] }),
+      fix_kind: choice('fix_kind', FIX_KINDS, { label: 'How to fix' }),
+      why: text('why', { label: 'Why not', about: 'What stops it being costed, and how to fix each.' }),
+      recipe: text('recipe', { label: 'Recipe used' }),
+    },
+    measures: {
+      sales_total: sum('sales_pence', { type: 'money', label: 'Sales', needs: 'pos_reports' }),
+      sales_costed: sum('sales_pence', { type: 'money', label: 'Sales costed', needs: 'pos_reports', where: '{t}.costed' }),
+      sales_uncosted: sum('sales_pence', { type: 'money', label: 'Sales not costed', needs: 'pos_reports', where: "{t}.state = 'uncosted'" }),
+      units: sum('qty', { label: 'Units sold' }),
+      dishes: countDistinct({ sql: "COALESCE({t}.dish_id::text, {t}.dish)" }, { label: 'Dishes' }),
+    },
+    list: ['date', 'dish', 'venue.name', 'channel', 'sales', 'qty', 'costed', 'why'],
+    sort: [{ by: 'sales', dir: 'desc' }],
   }),
 
   // Each live menu dish's margin at each venue and order type, worked out

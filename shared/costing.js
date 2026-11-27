@@ -70,6 +70,7 @@ import { isCombo, comboOf, stepChoices, menuCtx, comboFromPrice } from './combos
 import { nameScore, normName, AUTO_MATCH } from './itemMatch.js'
 import { itemType } from './catalogue.js'
 import { ASSISTANT_NAME } from './assistant.js'
+import { coverageShare } from './itemMapping.js'
 
 export const MAX_DEPTH = 5
 export const AVERAGE_DAYS = 90
@@ -1339,3 +1340,153 @@ export function marginSteps(row) {
   return out
 }
 
+// ── Coverage by sales (phase 3) ───────────────────────────────
+//
+// How much of what was sold can be costed (docs/INVENTORY.md 5.6, principle
+// 7: effort follows value): each dish sold, at the venue, revenue stream and
+// order type it was sold at, is costed when dishCost() there has no gaps and
+// none of the options it offers needs a rule; its sales value counts as
+// costed, else as not costed with how to fix it. The share is the item
+// mapping's rule (coverageShare() in shared/itemMapping.js): what is decided
+// over what isn't left out, to one place. Left out of both sides: services
+// (they need no recipe) and dishes on no menu any more (nothing to fix).
+// Options are judged by what the dish offers, not by what was picked with each
+// sale (a till line's options are only in its check's state, an online
+// order's are labels): an option that adds something with no rule leaves
+// every sale that has it partly costed.
+
+export const COVERAGE_DAYS = 30
+export const SALE_CHANNELS = { till: 'Till', kiosk: 'Kiosk', online: 'Online orders', imported: 'Other tills' }
+export const SOLD_STATES = { costed: 'Costed', uncosted: 'Not costed', left_out: 'Left out' }
+export const FIX_KINDS = {
+  link: 'Link a recipe', recipe: 'Finish the recipe', option: 'Add an option rule', deal: 'Cost the meal deal\'s dishes', map: 'Map it to a menu dish',
+}
+export const LEFT_OUT_WHY = { gone: 'no longer on a menu', service: 'a service: no recipe needed' }
+
+/** The options a dish offers that need a rule before a sale with them can be costed: [{ option_id, label, group, text }]. */
+export function optionGaps(dish, ctx = {}) {
+  if (!dish || isCombo(dish)) return []
+  const out = []
+  for (const c of itemChoices(dish, {})) {
+    for (const o of c.options) {
+      const own = c.key === 'variants'
+      if (ruleFor(dish.id, { id: o.id }, ctx.rules)) continue
+      const lib = own ? null : get(ctx.options, o.id)
+      const d = optionDefault(own ? { own: true } : lib || { price_mode: c.mode, price_pence: o.price_pence })
+      if (d.state !== 'gap') continue
+      out.push({ option_id: o.id, label: o.label, group: own ? null : c.name, text: d.text })
+    }
+  }
+  return out
+}
+
+/**
+ * Whether one sold dish (at its scope) is costed: { state: 'costed' |
+ * 'uncosted' | 'left_out', reason, fixes: [{ kind, text, recipe_id?,
+ * option_id?, dish_id? }], why, recipe }. sold: { dish_id (null: another
+ * till's line not mapped to a dish), venue_id, revenue_stream_id,
+ * order_type_id, mapping ('kept', 'bucket', 'unmapped' for another till's
+ * line) }. ctx: the dish costing ctx at the sale's venue.
+ */
+export function soldState(sold, ctx = {}) {
+  if (!sold?.dish_id) {
+    const how = sold?.mapping === 'kept' ? 'It is kept as sold: map it' : sold?.mapping === 'bucket' ? 'It is counted under a section: map it' : 'Map it'
+    return { state: 'uncosted', reason: 'map', why: null, recipe: null, fixes: [{ kind: 'map', text: how + ' to a menu dish on the Item mapping page, then link the dish to its recipe.' }] }
+  }
+  const dish = get(ctx.dishes, sold.dish_id)
+  if (!dish) return { state: 'left_out', reason: 'gone', why: null, recipe: null, fixes: [] }
+  const scope = { venue_id: sold.venue_id ?? null, revenue_stream_id: sold.revenue_stream_id ?? null, order_type_id: sold.order_type_id ?? null }
+  const dc = dishCost(sold.dish_id, {}, scope, ctx)
+  if (dc.coverage === 'not_needed') return { state: 'left_out', reason: 'service', why: null, recipe: null, fixes: [] }
+  const fixes = []
+  const add = f => { if (!fixes.some(x => x.kind === f.kind && x.text === f.text)) fixes.push(f) }
+  for (const g of dc.gaps) {
+    if (g.reason === 'no_recipe' || g.reason === 'not_dish' || (g.reason === 'missing' && !g.recipe_id)) add({ kind: 'link', text: g.fix })
+    else if (g.dish_id) add({ kind: 'deal', dish_id: g.dish_id, text: g.text + '. ' + g.fix })
+    else if (g.option_id) add({ kind: 'option', option_id: g.option_id, text: g.text + '. ' + g.fix })
+    else add({ kind: 'recipe', recipe_id: g.recipe_id ?? null, text: g.text + '. ' + g.fix })
+  }
+  for (const o of optionGaps(dish, ctx)) {
+    add({ kind: 'option', option_id: o.option_id, text: (o.group ? o.group + ': ' : '') + o.label + ' needs a rule (' + o.text.charAt(0).toLowerCase() + o.text.slice(1) + '). Give it one on the Recipes page, Options tab.' })
+  }
+  // Nothing in it could be costed, with no gap to say why (a meal deal none of whose choices is found).
+  if (!fixes.length && dc.coverage !== 'full') {
+    add(dc.kind === 'deal'
+      ? { kind: 'deal', text: 'None of its choices can be costed yet. Link the dishes it offers to their recipes.' }
+      : { kind: 'recipe', recipe_id: dc.recipe?.id ?? null, text: 'It can\'t be costed yet. Open its recipe and fix its gaps.' })
+  }
+  const recipe = dc.recipe ? { id: dc.recipe.id, name: dc.recipe.name, status: dc.recipe.status } : null
+  if (!fixes.length) return { state: 'costed', reason: null, why: dc.why, recipe, fixes }
+  return { state: 'uncosted', reason: fixes[0].kind, why: dc.why, recipe, fixes }
+}
+
+const emptySums = () => ({ total_pence: 0, costed_pence: 0, uncosted_pence: 0, left_out_pence: 0, qty: 0 })
+/** The share costed, in percent to one place: the item mapping's coverage rule. */
+export const costedShare = s => coverageShare({ total: s?.total_pence, mapped: s?.costed_pence, ignored: s?.left_out_pence })
+
+/**
+ * Coverage of some sales: { ...sums, percent, channels: { till: sums }, venues:
+ * { venueId: sums }, dishes: [uncosted dish: { dish_id, name, menu,
+ * sales_pence, qty, venue_ids, channels, fixes, where, recipe, mapping }]
+ * (most sold first), left_out: [{ dish_id, name, reason, why, sales_pence }] }.
+ * sums: { total_pence, costed_pence, uncosted_pence, left_out_pence, qty,
+ * percent }. rows: what was sold, [{ channel, dish_id, name, venue_id,
+ * revenue_stream_id, order_type_id, mapping, qty, sales_pence }] (pence, VAT
+ * included, after discounts). ctxFor(venueId): the dish costing ctx at that
+ * venue. Each dish and scope is judged once. judged: rows' states, when asked.
+ */
+export function salesCoverage(rows, ctxFor, { judged = null } = {}) {
+  const all = emptySums()
+  const channels = {}
+  const venues = {}
+  const dishes = new Map()
+  const leftOut = new Map()
+  const seen = new Map()
+  const into = (s, state, pence, qty) => {
+    s.total_pence += pence
+    s.qty += qty
+    s[state + '_pence'] += pence
+  }
+  for (const r of rows || []) {
+    const pence = Math.round(num(r.sales_pence))
+    const qty = num(r.qty)
+    const dishKey = r.dish_id || 'name:' + lower(r.name)
+    const key = [dishKey, r.venue_id, r.revenue_stream_id, r.order_type_id, r.dish_id ? '' : r.mapping].join('|')
+    let st = seen.get(key)
+    if (!st) {
+      const ctx = ctxFor(r.venue_id ?? null)
+      st = soldState(r, ctx)
+      st.where = r.dish_id ? scopeText({ venue_id: r.venue_id, revenue_stream_id: r.revenue_stream_id, order_type_id: r.order_type_id }, ctx.names || {}) : null
+      st.dish = r.dish_id ? get(ctx.dishes, r.dish_id) : null
+      seen.set(key, st)
+    }
+    if (judged) judged.push({ row: r, state: st })
+    into(all, st.state, pence, qty)
+    into(channels[r.channel] ||= emptySums(), st.state, pence, qty)
+    into(venues[r.venue_id] ||= emptySums(), st.state, pence, qty)
+    if (st.state === 'left_out') {
+      const l = leftOut.get(dishKey) || leftOut.set(dishKey, { dish_id: r.dish_id ?? null, name: st.dish?.name || r.name || 'A dish', reason: st.reason, why: LEFT_OUT_WHY[st.reason], sales_pence: 0 }).get(dishKey)
+      l.sales_pence += pence
+      continue
+    }
+    if (st.state !== 'uncosted') continue
+    const d = dishes.get(dishKey) || dishes.set(dishKey, {
+      dish_id: r.dish_id ?? null, name: st.dish?.name || r.name || 'A dish', menu: st.dish?.menu ?? null, sales_pence: 0, qty: 0,
+      venue_ids: [], channels: [], fixes: [], where: [], recipe: st.recipe, mapping: r.dish_id ? null : (r.mapping || 'unmapped'),
+    }).get(dishKey)
+    d.sales_pence += pence
+    d.qty += qty
+    if (!d.venue_ids.includes(r.venue_id)) d.venue_ids.push(r.venue_id)
+    if (!d.channels.includes(r.channel)) d.channels.push(r.channel)
+    if (st.where && !d.where.includes(st.where)) d.where.push(st.where)
+    for (const f of st.fixes) if (!d.fixes.some(x => x.kind === f.kind && x.text === f.text)) d.fixes.push(f)
+  }
+  const done = s => ({ ...s, qty: round6(s.qty), percent: costedShare(s) })
+  return {
+    ...done(all),
+    channels: Object.fromEntries(Object.entries(channels).map(([k, v]) => [k, done(v)])),
+    venues: Object.fromEntries(Object.entries(venues).map(([k, v]) => [k, done(v)])),
+    dishes: [...dishes.values()].map(d => ({ ...d, qty: round6(d.qty) })).sort((a, b) => b.sales_pence - a.sales_pence || a.name.localeCompare(b.name)),
+    left_out: [...leftOut.values()].sort((a, b) => b.sales_pence - a.sales_pence),
+  }
+}

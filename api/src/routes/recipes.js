@@ -12,6 +12,15 @@
 //   GET    /pickers          inventory items (names and units, no prices), prep
 //                            recipes (the editor's line pickers) and dish recipes
 //                            (linking dishes and options, phase 2)
+//   GET    /coverage         ?venue_id &days (30)   coverage by sales (phase 3):
+//                            the share of what was sold in the last days that
+//                            can be costed (salesCoverage() in
+//                            shared/costing.js, the sales from
+//                            services/recipeCoverageSvc.js), by channel and
+//                            venue, and the dishes not costed by sales value
+//                            with how to fix each; pounds only with Costing
+//                            view or till reports view (the percent and the
+//                            order for every Recipes view)
 //   GET    /:recipeId        ?venue_id &basis   one recipe: its lines, gaps,
 //                            where it is used, its variations; for costing View
 //                            its cost on each basis and the step by step
@@ -51,6 +60,7 @@ import { requireAuth, requirePermission, permissionLevels } from '../middleware/
 import { httpError } from '../middleware/error.js'
 import { loadVenue } from '../services/purchasingSvc.js'
 import { loadRecipes, loadCosting, loadCostItems, recipeView } from '../services/costingSvc.js'
+import { salesCoverageFor } from '../services/recipeCoverageSvc.js'
 import { recipeCost, nestingProblem, needsCheck, BASIS_KEYS, YIELD_UNITS, unitChoices, recipeUnitChoices } from '../../../shared/costing.js'
 import { PRICES_MODULE, seesPurchasingPrices, UNITS } from '../../../shared/procurement.js'
 import { webLink } from '../../../shared/links.js'
@@ -147,6 +157,7 @@ const ListQuery = z.object({
   active:   z.enum(['on', 'off', 'all']).optional(),
 })
 const OneQuery = z.object({ venue_id: uuid.optional(), basis: z.enum(BASIS_KEYS).optional() })
+const CoverageQuery = z.object({ venue_id: uuid.optional(), days: z.coerce.number().int().min(1).max(365).optional() })
 
 const canView = requirePermission('recipes', 'view')
 const canManage = requirePermission('recipes', 'manage')
@@ -449,6 +460,39 @@ export default async function recipeRoutes(app) {
         lines: view.lines, costs_shown: view.costs_shown, nesting: nesting ? { code: nesting.code, message: nesting.message } : null,
         ...(a.costs ? { cost: view.cost, per_unit: view.per_unit, basis: view.basis, explanation: view.explanation } : {}),
         unit_choices: view.lines.map(l => (l.item ? unitChoices(l.item) : recipeUnitChoices(recipes.get(l.sub_recipe_id)))),
+      }
+    })
+  })
+
+  app.get('/coverage', { preHandler: canView }, async req => {
+    const q = CoverageQuery.parse(req.query || {})
+    const lv = await permissionLevels(req, ['recipes', 'costing', 'pos_reports'])
+    // Sales in pounds for people who see costs or the till's figures; the share and the order for every Recipes view.
+    const money = permissionAtLeast(lv.costing, 'view') || permissionAtLeast(lv.pos_reports, 'view')
+    return withTenant(req.tenantId, async tx => {
+      const venue = q.venue_id ? await loadVenue(tx, req.tenantId, q.venue_id) : null
+      const c = await salesCoverageFor(tx, req.tenantId, { venueId: venue?.id ?? null, days: q.days })
+      const venues = await tx`SELECT id, name FROM venues WHERE tenant_id = ${req.tenantId} ORDER BY created_at, name`
+      const name = Object.fromEntries(venues.map(v => [v.id, v.name]))
+      const sums = s => ({
+        percent: s.percent, qty: s.qty,
+        ...(money ? { total_pence: s.total_pence, costed_pence: s.costed_pence, uncosted_pence: s.uncosted_pence, left_out_pence: s.left_out_pence } : {}),
+      })
+      return {
+        from: c.from, to: c.to, days: c.days, venue: venue ? { id: venue.id, name: venue.name } : null,
+        ...sums(c), sold: c.total_pence > 0,
+        // The share of the uncosted value each dish holds, for people who don't see pounds.
+        channels: Object.fromEntries(Object.entries(c.channels).map(([k, v]) => [k, sums(v)])),
+        venues: Object.entries(c.venues).map(([id, v]) => ({ id, name: name[id] || 'A venue', ...sums(v) })).sort((a, b) => a.name.localeCompare(b.name)),
+        dishes: c.dishes.map(d => ({
+          dish_id: d.dish_id, name: d.name, menu: d.menu, qty: d.qty, mapping: d.mapping,
+          share_pct: c.total_pence - c.left_out_pence > 0 ? Math.round(d.sales_pence * 1000 / (c.total_pence - c.left_out_pence)) / 10 : null,
+          ...(money ? { sales_pence: d.sales_pence } : {}),
+          venues: d.venue_ids.map(id => name[id] || 'A venue'), channels: d.channels, where: d.where,
+          recipe: d.recipe, fixes: d.fixes,
+        })),
+        left_out: c.left_out.map(l => ({ dish_id: l.dish_id, name: l.name, reason: l.reason, why: l.why, ...(money ? { sales_pence: l.sales_pence } : {}) })),
+        can: { money },
       }
     })
   })

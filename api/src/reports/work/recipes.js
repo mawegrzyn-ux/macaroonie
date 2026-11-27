@@ -14,6 +14,14 @@
 // pence, cost % and its band against the targets.
 //
 // Not by period: a cost is today's prices. A report's venues narrow the rows.
+//
+// Recipe coverage (phase 3): one row per dish sold on a trading day at a
+// venue (and revenue stream, order type, channel) in the report's period
+// (the last 30 days when it has none), from the Recipes page's own reading
+// (loadSold() in services/recipeCoverageSvc.js: till, kiosk, online and
+// imported sales, test till sales left out) and judged by its rule
+// (salesCoverage() in shared/costing.js): costed or not, and why, at
+// today's recipes and prices.
 
 import { loadRecipes, loadCosting } from '../../services/costingSvc.js'
 import { recipeCost } from '../../../../shared/costing.js'
@@ -44,6 +52,36 @@ export const RECIPE_WORKS = {
         }
       }
       return rows
+    },
+  },
+
+  recipe_coverage: {
+    columns: [
+      ['tenant_id', 'uuid'], ['id', 'text'], ['venue_id', 'uuid'], ['date', 'date'], ['dish_id', 'uuid'],
+      ['dish', 'text'], ['menu', 'text'], ['channel', 'text'], ['where_sold', 'text'],
+      ['sales_pence', 'bigint'], ['qty', 'numeric'], ['state', 'text'], ['costed', 'boolean'],
+      ['fix_kind', 'text'], ['why', 'text'], ['recipe', 'text'],
+    ],
+    async fill(tx, { tenantId, venueIds, ranges }) {
+      // Loaded when a run asks for it: the sales and menu loaders reach other areas' files.
+      const { loadSold, coverageCtx, lastDays } = await import('../../services/recipeCoverageSvc.js')
+      const { salesCoverage, LEFT_OUT_WHY } = await import('../../../../shared/costing.js')
+      const span = ranges?.length
+        ? { from: ranges.map(r => r.from).sort()[0], to: ranges.map(r => r.to).sort().at(-1) }
+        : await lastDays(tx)
+      const rows = await loadSold(tx, tenantId, { venueIds, from: span.from, to: span.to, byDay: true })
+      if (!rows.length) return []
+      const { ctxFor } = await coverageCtx(tx, tenantId)
+      const judged = []
+      salesCoverage(rows, ctxFor, { judged })
+      return judged.map(({ row: r, state: st }, i) => ({
+        tenant_id: tenantId, id: [r.day, r.venue_id, r.dish_id || r.name, r.revenue_stream_id, r.order_type_id, r.channel, i].join('|'),
+        venue_id: r.venue_id, date: r.day, dish_id: r.dish_id, dish: st.dish?.name || r.name, menu: st.dish?.menu ?? null,
+        channel: r.channel, where_sold: st.where, sales_pence: r.sales_pence, qty: r.qty, state: st.state, costed: st.state === 'costed',
+        fix_kind: st.fixes[0]?.kind ?? null,
+        why: st.state === 'left_out' ? LEFT_OUT_WHY[st.reason] : st.fixes.map(f => f.text).join(' ') || null,
+        recipe: st.recipe?.name ?? null,
+      }))
     },
   },
 

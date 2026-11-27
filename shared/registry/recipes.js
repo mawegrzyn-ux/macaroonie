@@ -28,4 +28,5 @@ export const objects = [
 
 export const notObjects = {
   'What a recipe costs at each venue, worked out from its lines and the supplier prices each time: a figure, never kept or changed by hand.': ['recipes.costs'],
+  'Whether each dish sold can be costed, worked out from the sales and the recipes each time (coverage by sales): a figure, never kept.': ['recipes.coverage'],
 }

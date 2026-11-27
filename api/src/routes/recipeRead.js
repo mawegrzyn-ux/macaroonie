@@ -28,7 +28,6 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission, requireAnyPermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { pepperOn } from '../services/aiJson.js'
-import { detectFile } from '../ai/attachments.js'
 import { readSheet, fileText } from '../services/sheetRead.js'
 import { loadCostItems } from '../services/costingSvc.js'
 import { readRecipes, suggestYield, MAX_ITEMS } from '../services/recipeReadAi.js'
@@ -56,6 +55,17 @@ const YieldBody = z.object({
 }).refine(b => b.item_id || b.name, 'Say which item')
 
 const isSheet = buf => (buf[0] === 0x50 && buf[1] === 0x4b) || (buf[0] === 0xd0 && buf[1] === 0xcf)
+const starts = (buf, bytes) => bytes.every((b, i) => buf[i] === b)
+/** A photo or a PDF, from its first bytes (never its name): { kind, media_type } or null. */
+export function photoOrPdf(buf) {
+  if (starts(buf, [0xFF, 0xD8, 0xFF])) return { kind: 'image', media_type: 'image/jpeg' }
+  if (starts(buf, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])) return { kind: 'image', media_type: 'image/png' }
+  const head = buf.subarray(0, 12).toString('latin1')
+  if (head.startsWith('GIF87a') || head.startsWith('GIF89a')) return { kind: 'image', media_type: 'image/gif' }
+  if (head.startsWith('RIFF') && head.slice(8, 12) === 'WEBP') return { kind: 'image', media_type: 'image/webp' }
+  if (head.startsWith('%PDF-')) return { kind: 'pdf', media_type: 'application/pdf' }
+  return null
+}
 const TEXT_NAMES = /\.(csv|tsv|txt)$/i
 
 /** A sheet's rows as text for the model: cells by tabs, empty rows gone, cut at MAX_SHEET_ROWS. */
@@ -83,9 +93,8 @@ export function sortFiles(list) {
       texts.push({ kind: asText ? 'text' : 'sheet', name: label, text })
       return
     }
-    let kind = null
-    try { kind = detectFile(buffer, f.name || '') } catch { kind = null }
-    if (!kind || (kind.kind !== 'image' && kind.kind !== 'pdf')) {
+    const kind = photoOrPdf(buffer)
+    if (!kind) {
       throw httpError(422, label + ' isn\'t a photo, a PDF or a spreadsheet: use JPEG, PNG, WebP, GIF, PDF, Excel or CSV.')
     }
     if (buffer.length > (kind.kind === 'pdf' ? MAX_DOC : MAX_IMAGE)) throw httpError(413, label + ' is too big: photos up to 5 MB, PDFs up to 10 MB.')
