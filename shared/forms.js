@@ -161,6 +161,11 @@ export const FORMS = {
     title: 'Close dates', module: 'schedule', edit: 'manage', path: '/schedule', by: null,
     fields: {}, plain: true, drafts: true,
   },
+  // A recipe's details (inventory phase 3); its lines are added on its page.
+  recipe: {
+    title: 'New recipe', module: 'recipes', edit: 'manage', path: '/recipes', by: null,
+    fields: {}, plain: true, drafts: true, group: true,
+  },
 }
 
 /** The flat set-up forms drawn from their route's schema (plain: true). */

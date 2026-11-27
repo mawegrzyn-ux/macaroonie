@@ -107,9 +107,12 @@ const DEFAULTS = {
   kind: 'dish', category: null, code: null, status: 'draft', yield_qty: null, yield_unit: null, portions: null, loss_pct: 0,
   method: null, photo_url: null, shelf_life_hours: null, variant_of: null, notes: null, is_active: true, lines: [],
 }
-export const RecipeNew = z.object({
+// A new recipe's fields, every one but the name optional: the object the
+// route validates with, and the plain form "New recipe" draws (forms/recipes.js).
+export const RecipeNewBody = z.object({
   ...Object.fromEntries(Object.entries(FIELDS).map(([k, v]) => [k, k === 'name' ? v : v.optional()])),
-}).strict().transform(b => ({ ...DEFAULTS, ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)) }))
+}).strict()
+export const RecipeNew = RecipeNewBody.transform(b => ({ ...DEFAULTS, ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)) }))
 
 // The editor's draft: the recipe's fields as far as the page has them.
 const PreviewBody = z.object({ id: uuid.nullable().optional(), ...Object.fromEntries(Object.entries(FIELDS).map(([k, v]) => [k, v.optional()])) })

@@ -19,14 +19,30 @@
 //   menu_margins   a menu at a venue and order type: every dish's
 //                  margin, worst first, uncosted ones named        costing, view
 //
+// Phase 3, change tools (confirm cards; recipes manage):
+//   read_recipes   reads recipes from files attached in the chat or text
+//                  pasted (the recipe reader, POST /api/ai/recipes/read),
+//                  shows what was read and makes DRAFTS on Confirm (POST
+//                  /api/recipes/drafts); never live. The card pins the
+//                  reading, so Confirm makes exactly what it showed.  consequential
+//   link_recipes   links dishes to recipes by name, for every venue or at a
+//                  venue, revenue stream or order type (the matrix cell in
+//                  words), shown before it is set; Undo puts each cell back.
+//                                                                    reversible
+//   make_recipe    a draft recipe from a description with lines; lines not
+//                  found among the items and prep recipes are kept in its
+//                  notes                                          consequential
+//
 // The model is given names, never ids (rule 19): a recipe is picked by its
 // name, and its page link searches the Recipes page for that name.
 
 import { z } from 'zod'
+import { withTenant } from '../../config/db.js'
 import { callApi, requireStaffPermission, ToolError } from '../context.js'
-import { VenueText, venueFor, tenantVenueList, pickByName, plural } from './util.js'
+import { VenueText, venueFor, tenantVenueList, pickByName, plural, audited } from './util.js'
 import { fmtNum, UNITS } from '../../../../shared/procurement.js'
-import { pounds, perWord, BASIS_KEYS, COVERAGE, BANDS } from '../../../../shared/costing.js'
+import { pounds, perWord, BASIS_KEYS, COVERAGE, BANDS, sameScope, toBase, inRecipeUnit, YIELD_UNITS } from '../../../../shared/costing.js'
+import { matchIndex, matchThing, normName } from '../../../../shared/itemMatch.js'
 
 const MAX_LIST = 40
 const METHOD_MAX = 2000
@@ -58,6 +74,10 @@ export const promptLines = [
   'Dish costs and margins: dish_cost (a menu dish at a venue, revenue stream and order type: which recipe or variation ' +
     'it uses there and why, what it costs, its price, GP and cost %, with the steps), menu_margins (every dish of a menu ' +
     'at a venue and order type, worst cost % first, with the dishes that can\'t be costed yet and how to fix each).',
+  'Getting recipes in: read_recipes (recipes from photos, a PDF or a CSV attached in the chat, or pasted text, made as ' +
+    'drafts once the person confirms), make_recipe (a draft recipe from their description), link_recipes (dishes linked ' +
+    'to recipes for every venue, or at a venue, revenue stream or order type), recipe_coverage (how much of what sold ' +
+    'can be costed, and the dishes to cost first).',
 ]
 
 export const recipeTools = [
@@ -176,9 +196,10 @@ const pct = p => (p == null ? null : fmtNum(p, 1) + '%')
 const bandText = b => (b ? BANDS[b].label.toLowerCase() : null)
 
 /** The venue, revenue stream and order type named, as ids for the routes; names for the answer. */
-async function scopeFor(ctx, input) {
+async function scopeFor(ctx, input, { onlyVenue = true } = {}) {
   const venues = await tenantVenueList(ctx)
-  const venue = input.venue ? await venueFor(ctx, input.venue) : venues.length === 1 ? venues[0] : null
+  // A group with one venue costs at it when none is named; a link names the venue only when asked (else every venue).
+  const venue = input.venue ? await venueFor(ctx, input.venue) : onlyVenue && venues.length === 1 ? venues[0] : null
   const scope = {}
   let stream = null
   let type = null
@@ -193,7 +214,7 @@ async function scopeFor(ctx, input) {
   if (venue) scope.venue_id = venue.id
   if (stream) scope.revenue_stream_id = stream.id
   if (type) scope.order_type_id = type.id
-  const where = [type ? type.name : null, stream ? stream.name + ' (' + venue.name + ')' : venue ? venue.name : 'the group\'s own prices'].filter(Boolean).join(' at ')
+  const where = [type ? type.name : null, stream ? stream.name + ' (' + venue.name + ')' : venue ? venue.name : onlyVenue ? 'the group\'s own prices' : 'every venue'].filter(Boolean).join(' at ')
   return { scope, venue, stream, type, where }
 }
 
@@ -325,5 +346,370 @@ export const marginTools = [
   },
 ]
 
+// ── Getting recipes in (phase 3) ─────────────────────────────
+
+const MAX_CARD = 40
+const unitText = (qty, unit) => fmtNum(qty) + ' ' + (UNITS[unit]?.label ?? unit)
+const kindText = r => (r.kind === 'prep'
+  ? 'prep' + (r.yield_qty && r.yield_unit ? ', makes ' + unitText(r.yield_qty, r.yield_unit) : ', what it makes not read')
+  : 'dish, ' + plural(Number(r.portions || 1), 'portion'))
+const DRAFT_NOTE = 'Each is a draft: it shows as partly costed (not checked yet) until someone checks it on the Recipes page and makes it live.'
+
+/** Files attached in this chat by this person, by name ('all' or none named: every one), as the reader takes them. */
+async function chatFiles(ctx, names) {
+  if (ctx.channel !== 'staff_chat' || !ctx.conversationId) {
+    throw new ToolError('Attached files can only be read in the chat. Paste the recipes as text instead.', 422)
+  }
+  const files = await withTenant(ctx.tenantId, tx => tx`
+    SELECT id, filename, kind, data FROM ai_attachments
+     WHERE tenant_id = ${ctx.tenantId} AND conversation_id = ${ctx.conversationId} AND user_sub = ${ctx.principal?.sub ?? ''}
+     ORDER BY created_at`)
+  if (!files.length) throw new ToolError('No files are attached in this chat. Attach the recipes (photos, a PDF or a CSV) or paste them.', 404)
+  const picked = names?.length ? names.map(n => pickByName(files, n, f => f.filename, 'attached file')) : files
+  const out = { files: [], text: [] }
+  for (const f of picked) {
+    if (f.kind === 'text') out.text.push(Buffer.from(f.data).toString('utf8'))
+    else out.files.push({ name: f.filename, data: Buffer.from(f.data).toString('base64') })
+  }
+  return out
+}
+
+/** The reading as POST /api/recipes/drafts takes it: matched lines with a quantity are lines, the rest kept in the notes. */
+export function draftsFromReading(read) {
+  const key = i => 'r' + (i + 1)
+  const prepAt = i => read.recipes[i]?.kind === 'prep'
+  return {
+    source: 'reader',
+    recipes: read.recipes.map((r, i) => {
+      const ok = l => l.match.state === 'matched' && l.qty > 0 && (l.match.kind !== 'new' || prepAt(l.match.new_idx))
+      return {
+        key: key(i), name: r.name, kind: r.kind, category: r.category, code: r.code,
+        portions: r.kind === 'dish' ? r.portions || 1 : null,
+        yield_qty: r.kind === 'prep' && r.yield_unit ? r.yield_qty : null, yield_unit: r.kind === 'prep' && r.yield_qty ? r.yield_unit : null,
+        loss_pct: r.kind === 'prep' ? r.loss_pct || 0 : 0, method: r.method, notes: r.notes,
+        lines: r.lines.filter(ok).map(l => ({
+          ...(l.match.kind === 'item' ? { item_id: l.match.item_id } : l.match.kind === 'recipe' ? { sub_recipe_id: l.match.sub_recipe_id } : { new_key: key(l.match.new_idx) }),
+          qty: l.qty, unit: l.unit, note: l.note,
+        })),
+        left_out: r.lines.filter(l => !ok(l)).map(l => l.words),
+      }
+    }),
+  }
+}
+
+/** What read_recipes will make, in words: the card's lines and warnings. */
+function readingCard(read) {
+  const lines = []
+  const warnings = []
+  for (const r of read.recipes.slice(0, MAX_CARD)) {
+    const ok = r.lines.filter(l => l.match.state === 'matched' && l.qty > 0)
+    const rest = r.lines.filter(l => !ok.includes(l))
+    lines.push(r.name + ' (' + kindText(r) + '): ' + ok.map(l => unitText(l.qty, l.unit) + ' ' + l.match.name).join(', ') + (ok.length ? '' : 'no lines matched'))
+    if (rest.length) {
+      lines.push('  not matched, kept in its notes: ' + rest.map(l => l.words + (l.match.state === 'suggested' ? ' (maybe ' + l.match.name + ')' : l.qty == null ? ' (no quantity)' : '')).join('; '))
+    }
+    for (const l of ok) if (l.unit_problem) warnings.push(r.name + ': ' + l.unit_problem + ' (the line shows as a gap until it has one)')
+    if (r.existing) warnings.push('A recipe called ' + r.existing.name + ' is already on the Recipes page: this makes another one.')
+  }
+  if (read.recipes.length > MAX_CARD) lines.push('and ' + plural(read.recipes.length - MAX_CARD, 'more recipe'))
+  if (read.notes) warnings.push(read.notes)
+  return { lines, warnings }
+}
+
+const ReadPin = z.object({ source: z.literal('reader'), recipes: z.array(z.any()).min(1).max(50) })
+
+async function readPlan(ctx, input) {
+  if (!input.attached_files?.length && !input.text?.trim() && input.from_chat !== true) {
+    throw new ToolError('Say which attached file to read (attached_files) or pass the recipes as text.', 422)
+  }
+  const got = input.attached_files?.length || input.from_chat ? await chatFiles(ctx, input.attached_files) : { files: [], text: [] }
+  const text = [...got.text, input.text || ''].filter(t => t.trim()).join('\n\n').slice(0, 60000)
+  const read = await callApi(ctx, 'POST', '/api/ai/recipes/read', { body: { files: got.files, text, hint: input.hint || '' } })
+  return { read, body: draftsFromReading(read) }
+}
+
+// An ingredient named by the model: an inventory item or a prep recipe, by its exact name, else a sure match by name or code.
+function findThing(name, pickers) {
+  const items = (pickers.items || []).filter(i => i.is_active !== false)
+  const preps = (pickers.recipes || []).filter(r => r.is_active !== false)
+  const want = normName(name)
+  const exact = [...items.map(i => ({ kind: 'item', thing: i })), ...preps.map(r => ({ kind: 'recipe', thing: r }))].filter(x => normName(x.thing.name) === want)
+  if (exact.length === 1) return exact[0]
+  const idx = matchIndex({ dishes: [...items.map(i => ({ id: 'i:' + i.id, name: i.name, sku: i.code || null, kind: 'item' })), ...preps.map(r => ({ id: 'r:' + r.id, name: r.name, kind: 'item' }))] })
+  const hit = matchThing({ kind: 'item', name, sku: null }, idx)
+  if (!hit.auto) return null
+  const id = hit.best.target.item_id
+  return id.startsWith('i:') ? { kind: 'item', thing: items.find(i => i.id === id.slice(2)) } : { kind: 'recipe', thing: preps.find(r => r.id === id.slice(2)) }
+}
+
+async function makePlan(ctx, input) {
+  const pickers = await callApi(ctx, 'GET', '/api/recipes/pickers')
+  const kind = input.kind || 'dish'
+  if (kind === 'prep' && input.makes_unit && !YIELD_UNITS.includes(input.makes_unit)) throw new ToolError('A prep recipe is made in ' + YIELD_UNITS.join(', ') + '.', 422)
+  const lines = []
+  const leftOut = []
+  const shown = []
+  const warnings = []
+  for (const l of input.lines) {
+    const unit = String(l.unit || 'each').trim().toLowerCase() === 'each' ? 'each' : String(l.unit).trim()
+    const words = unitText(l.qty, unit) + ' ' + l.ingredient + (l.note ? ', ' + l.note : '')
+    const hit = findThing(l.ingredient, pickers)
+    if (!hit) {
+      leftOut.push(words)
+      shown.push('not found, kept in the notes: ' + words)
+      continue
+    }
+    const problem = hit.kind === 'item' ? toBase(l.qty, unit, hit.thing).problem : inRecipeUnit(l.qty, unit, { kind: 'prep', ...hit.thing }).problem
+    if (problem) warnings.push(problem + ' (the line shows as a gap until it has one)')
+    lines.push({ ...(hit.kind === 'item' ? { item_id: hit.thing.id } : { sub_recipe_id: hit.thing.id }), qty: l.qty, unit, note: l.note || null })
+    shown.push(unitText(l.qty, unit) + ' ' + hit.thing.name + (hit.kind === 'recipe' ? ' (prep recipe)' : '') + (l.note ? ', ' + l.note : ''))
+  }
+  const recipe = {
+    key: 'r1', name: input.name, kind, category: input.category || null, code: null,
+    portions: kind === 'dish' ? input.portions || 1 : null,
+    yield_qty: kind === 'prep' && input.makes_qty && input.makes_unit ? input.makes_qty : null,
+    yield_unit: kind === 'prep' && input.makes_qty && input.makes_unit ? input.makes_unit : null,
+    loss_pct: kind === 'prep' ? input.loss_pct || 0 : 0, method: input.method || null, notes: input.notes || null,
+    lines, left_out: leftOut,
+  }
+  if ((pickers.dishes || []).concat(pickers.recipes || []).some(r => normName(r.name) === normName(input.name))) {
+    warnings.push('A recipe called ' + input.name + ' is already on the Recipes page: this makes another one.')
+  }
+  return { body: { source: 'pepper', recipes: [recipe] }, shown, warnings, recipe }
+}
+
+/** Each link asked for, found by name: the dish, the recipe, the cell in words and what it holds now. */
+async function linkPlan(ctx, input) {
+  const [names, pickers] = await Promise.all([callApi(ctx, 'GET', '/api/recipe-links/names'), callApi(ctx, 'GET', '/api/recipes/pickers')])
+  const recipes = (pickers.dishes || []).filter(r => r.is_active !== false)
+  const out = []
+  for (const l of input.links) {
+    const menu = l.menu ? pickByName(names.menus, l.menu, m => m.name, 'menu', 'No menus yet.') : null
+    const dish = pickByName(menu ? names.dishes.filter(d => d.menu_id === menu.id) : names.dishes, l.dish, d => d.name, 'dish', 'No dishes on the menus yet.')
+    const recipe = pickByName(recipes, l.recipe, r => r.name, 'dish recipe', 'No dish recipes yet: make one with make_recipe or on the Recipes page.')
+    const { scope, where } = await scopeFor(ctx, l, { onlyVenue: false })
+    if (out.some(x => x.dish.id === dish.id && sameScope(x.scope, scope))) throw new ToolError(dish.name + ' is asked twice for ' + where + '.', 422)
+    const m = await callApi(ctx, 'GET', '/api/recipe-links/dishes/' + dish.id)
+    if (m.dish.kind === 'deal' || m.dish.kind === 'service') throw new ToolError(dish.name + (m.dish.kind === 'deal' ? ' is a meal deal: it costs the dishes picked in it, so it has no recipe.' : ' is a service: it has no recipe.'), 422)
+    const set = m.links.find(x => sameScope(x, scope))
+    const cell = Object.values(m.cells).find(c => sameScope(c.scope, scope))
+    out.push({
+      dish, recipe, scope, where, portions: l.portions ?? 1,
+      before: set ? { recipe_id: set.recipe_id, recipe_name: set.recipe_name, portions: set.portions } : null,
+      inherited: !set && cell?.recipe ? cell.recipe.name + ' (from ' + (cell.from_name || 'another cell') + ')' : null,
+    })
+  }
+  return out
+}
+
+const RecipeText = z.string().trim().min(1).max(200)
+
+export const changeTools = [
+  {
+    name: 'read_recipes',
+    class: 'consequential',
+    title: 'Read recipes in',
+    activity: 'Read the recipes',
+    section: 'recipes',
+    description:
+      'Reads recipes from files attached in this chat (photos of recipe cards, a PDF, a CSV) and / or text the person ' +
+      'pasted: each recipe\'s name, dish or prep, what it makes, its lines matched to the group\'s inventory items and prep ' +
+      'recipes, and its method. The card shows what was read; confirming makes them as DRAFT recipes, never live: a person ' +
+      'checks each on the Recipes page and makes it live, and until then it shows as partly costed. Lines that match ' +
+      'nothing are kept in each draft\'s notes. attached_files: the files\' names as attached (leave out with from_chat ' +
+      'true for every file attached); text: recipes typed or pasted in the chat, as they were written.',
+    input: z.object({
+      attached_files: z.array(z.string().trim().min(1).max(200)).max(10).optional().describe('Names of files attached in this chat'),
+      from_chat: z.boolean().optional().describe('true: read every file attached in this chat'),
+      text: z.string().max(60000).optional().describe('The recipes as the person wrote or pasted them'),
+      hint: z.string().max(500).optional().describe('Anything to know: "quantities are for 10 portions"'),
+      read: ReadPin.optional().describe('Never set: the card pins what was read'),
+    }),
+    confirm: true,
+    async describe(ctx, input) {
+      await requireStaffPermission(ctx, 'recipes', 'manage')
+      // The card always shows a fresh reading; Confirm makes exactly the pinned one.
+      const { read, body } = await readPlan(ctx, input)
+      const card = readingCard(read)
+      return {
+        title: 'Make ' + plural(read.recipes.length, 'draft recipe') + ' from what was read?',
+        lines: [...card.lines, DRAFT_NOTE],
+        ...(card.warnings.length ? { warningTitle: 'Check', warnings: card.warnings } : {}),
+        confirmLabel: 'Make drafts',
+        pin: { read: body },
+      }
+    },
+    async run(ctx, input) {
+      await requireStaffPermission(ctx, 'recipes', 'manage')
+      const body = input.read || (await readPlan(ctx, input)).body
+      return audited(ctx, 'read_recipes', { attached_files: input.attached_files, text: input.text ? input.text.slice(0, 200) : undefined, recipes: body.recipes.length }, async () => {
+        const r = await callApi(ctx, 'POST', '/api/recipes/drafts', { body })
+        return {
+          made: r.made.map(m => m.name + (m.kind === 'prep' ? ' (prep)' : '')),
+          message: 'Made ' + plural(r.made.length, 'draft recipe') + '. ' + DRAFT_NOTE,
+          page: '/recipes',
+        }
+      })
+    },
+  },
+
+  {
+    name: 'make_recipe',
+    class: 'consequential',
+    title: 'Make a recipe',
+    activity: 'Wrote a draft recipe',
+    section: 'recipes',
+    description:
+      'Makes a DRAFT recipe from the person\'s description: its name, dish (costed per portion) or prep (a batch used ' +
+      'inside other recipes, with what it makes: makes_qty and makes_unit g, kg, ml, cl, l, each or portion), and its ' +
+      'lines, each an ingredient named as the inventory item or prep recipe it is, with a quantity and unit. An ' +
+      'ingredient that matches none is kept in its notes, never guessed. Shown on a card first; a person checks the ' +
+      'draft on the Recipes page and makes it live. To link it to a menu dish afterwards, use link_recipes.',
+    input: z.object({
+      name: RecipeText,
+      kind: z.enum(['dish', 'prep']).optional().describe('dish (default) or prep'),
+      portions: z.number().positive().max(1000).optional().describe('A dish: how many portions it makes (default 1)'),
+      makes_qty: z.number().positive().max(100000).optional().describe('A prep recipe: how much it makes'),
+      makes_unit: z.string().trim().max(30).optional().describe('A prep recipe: g, kg, ml, cl, l, each or portion'),
+      loss_pct: z.number().min(0).max(99).optional().describe('A prep recipe: what cooking loses, in %'),
+      category: z.string().trim().max(100).optional(),
+      method: z.string().max(20000).optional(),
+      notes: z.string().max(1500).optional(),
+      lines: z.array(z.object({
+        ingredient: z.string().trim().min(1).max(200).describe('The inventory item or prep recipe, by name'),
+        qty: z.number().positive().max(10000000),
+        unit: z.string().trim().min(1).max(30).describe('g, kg, ml, l, each, or the item\'s own unit (slice, tbsp)'),
+        note: z.string().trim().max(300).optional(),
+      })).min(1).max(60),
+    }),
+    confirm: true,
+    async describe(ctx, input) {
+      await requireStaffPermission(ctx, 'recipes', 'manage')
+      const p = await makePlan(ctx, input)
+      return {
+        title: 'Make the draft recipe ' + input.name + '?',
+        lines: [input.name + ' (' + kindText({ ...p.recipe, yield_qty: p.recipe.yield_qty }) + ')', ...p.shown, ...(input.method ? ['Method: ' + input.method.slice(0, 200) + (input.method.length > 200 ? '...' : '')] : []), DRAFT_NOTE],
+        ...(p.warnings.length ? { warningTitle: 'Check', warnings: p.warnings } : {}),
+        confirmLabel: 'Make draft',
+      }
+    },
+    async run(ctx, input) {
+      await requireStaffPermission(ctx, 'recipes', 'manage')
+      const p = await makePlan(ctx, input)
+      return audited(ctx, 'make_recipe', input, async () => {
+        const r = await callApi(ctx, 'POST', '/api/recipes/drafts', { body: p.body })
+        return {
+          made: r.made[0].name, lines: p.recipe.lines.length, ...(p.recipe.left_out.length ? { kept_in_notes: p.recipe.left_out } : {}),
+          message: 'Made ' + r.made[0].name + ' as a draft. It shows as partly costed until someone checks it on the Recipes page and makes it live.',
+          page: '/recipes?q=' + encodeURIComponent(r.made[0].name),
+        }
+      })
+    },
+  },
+
+  {
+    name: 'link_recipes',
+    class: 'reversible',
+    title: 'Link dishes to recipes',
+    activity: 'Linked dishes to recipes',
+    section: 'recipes',
+    description:
+      'Links menu dishes to dish recipes by name: which recipe (and how many portions of it) a dish uses for every venue, ' +
+      'or at a venue, a revenue stream at a venue, an order type (takeaway, delivery) or a mix: a cell of the dish\'s ' +
+      'variation matrix on the Recipes page. Leave venue, stream and order_type out for every venue. A closer cell beats ' +
+      'every venue. The card shows what each cell holds now and what it becomes; Undo puts each back.',
+    input: z.object({
+      links: z.array(z.object({
+        dish: z.string().trim().min(1).max(200).describe('The dish\'s name on the menu'),
+        menu: z.string().trim().max(120).optional().describe('The menu, when two menus have a dish of that name'),
+        recipe: RecipeText.describe('The dish recipe\'s name'),
+        venue: VenueText.describe('A venue; leave out for every venue'),
+        stream: StreamText.describe('A revenue stream at that venue'),
+        order_type: TypeText.describe('An order type: eat in, take out, delivery...'),
+        portions: z.number().positive().max(1000).optional().describe('Portions of the recipe one sale uses (default 1)'),
+      })).min(1).max(30),
+    }),
+    confirm: true,
+    async describe(ctx, input) {
+      await requireStaffPermission(ctx, 'recipes', 'manage')
+      const plan = await linkPlan(ctx, input)
+      return {
+        title: 'Link ' + plural(plan.length, 'dish', 'dishes') + ' to recipes?',
+        lines: plan.map(p => p.dish.name + ', ' + p.where + ': ' + p.recipe.name + (Number(p.portions) !== 1 ? ' x ' + fmtNum(p.portions) : '')
+          + (p.before ? ' (was ' + p.before.recipe_name + (Number(p.before.portions) !== 1 ? ' x ' + fmtNum(p.before.portions) : '') + ')'
+            : p.inherited ? ' (now ' + p.inherited + ')' : ' (no recipe there now)')),
+        confirmLabel: 'Link',
+      }
+    },
+    async run(ctx, input) {
+      await requireStaffPermission(ctx, 'recipes', 'manage')
+      const plan = await linkPlan(ctx, input)
+      return audited(ctx, 'link_recipes', input, async () => {
+        const done = []
+        const undo = []
+        for (const p of plan) {
+          await callApi(ctx, 'PUT', '/api/recipe-links/dishes/' + p.dish.id + '/cell', { body: { ...p.scope, recipe_id: p.recipe.id, portions: p.portions } })
+          done.push(p.dish.name + ', ' + p.where + ': ' + p.recipe.name)
+          undo.push({ dish_id: p.dish.id, dish: p.dish.name, scope: p.scope, before: p.before ? { recipe_id: p.before.recipe_id, portions: p.before.portions } : null })
+        }
+        return { linked: done, message: 'Linked. Costs and margins follow at once.', page: '/recipes?tab=dishes', _undo: { links: undo } }
+      })
+    },
+    // Undo: each cell back to the recipe it had, or cleared where it had none.
+    async inverse(ctx, undo) {
+      await requireStaffPermission(ctx, 'recipes', 'manage')
+      const back = []
+      for (const u of undo.links || []) {
+        if (u.before) {
+          await callApi(ctx, 'PUT', '/api/recipe-links/dishes/' + u.dish_id + '/cell', { body: { ...u.scope, ...u.before } })
+        } else {
+          const m = await callApi(ctx, 'GET', '/api/recipe-links/dishes/' + u.dish_id)
+          const set = m.links.find(x => sameScope(x, u.scope))
+          if (set) await callApi(ctx, 'DELETE', '/api/recipe-links/links/' + set.id)
+        }
+        back.push(u.dish)
+      }
+      return { message: 'Put back: ' + back.join(', ') + '.' }
+    },
+  },
+
+  {
+    name: 'recipe_coverage',
+    activity: 'Looked at how much of what sold is costed',
+    section: 'recipes',
+    title: 'Coverage by sales',
+    description:
+      'How much of what was sold in the last days (30 unless asked) can be costed, at a venue or every venue: the share ' +
+      'of sales costed, by till, kiosk, online and other tills (test till sales left out), and the dishes that can\'t be ' +
+      'costed yet, most sold first, each with how to fix it (link a recipe, finish the recipe, add an option rule, map ' +
+      'another till\'s item). Sales in pounds only for people who see costs or till reports.',
+    input: z.object({
+      venue: VenueText.describe('A venue; leave out for every venue'),
+      days: z.number().int().min(1).max(365).optional(),
+    }),
+    readOnly: true,
+    async run(ctx, input) {
+      await requireStaffPermission(ctx, 'recipes', 'view')
+      const venue = input.venue ? await venueFor(ctx, input.venue) : null
+      const q = new URLSearchParams({ ...(venue ? { venue_id: venue.id } : {}), ...(input.days ? { days: String(input.days) } : {}) })
+      const c = await callApi(ctx, 'GET', '/api/recipes/coverage' + (q.toString() ? '?' + q.toString() : ''))
+      const pct = p => (p == null ? 'nothing sold' : fmtNum(p, 1) + '%')
+      if (!c.sold) return { where: venue ? venue.name : 'every venue', message: 'Nothing was sold in the last ' + plural(c.days, 'day') + ' (test till sales are left out).', page: '/recipes' }
+      return {
+        where: venue ? venue.name : 'every venue', days: c.days, costed: pct(c.percent) + ' of sales',
+        ...(c.can.money ? { sales: money(c.total_pence - c.left_out_pence), costed_sales: money(c.costed_pence) } : {}),
+        by_channel: Object.fromEntries(Object.entries(c.channels).map(([k, v]) => [k, pct(v.percent)])),
+        not_costed: c.dishes.slice(0, MAX_LIST).map(d => ({
+          dish: d.name, ...(c.can.money ? { sales: money(d.sales_pence) } : { share_of_sales: d.share_pct + '%' }), sold: fmtNum(d.qty),
+          ...(d.where.length === 1 ? { at: d.where[0] } : {}), fix: d.fixes.slice(0, 3).map(f => f.text),
+        })),
+        ...(c.dishes.length > MAX_LIST ? { more: c.dishes.length - MAX_LIST + ' more on the page' } : {}),
+        ...(c.left_out.length ? { left_out: c.left_out.slice(0, 10).map(l => l.name + ': ' + l.why) } : {}),
+        page: '/recipes',
+      }
+    },
+  },
+]
+
 // What Pepper is told about this file's tools, gathered by tools/index.js.
-export const tools = [...recipeTools, ...marginTools]
+export const tools = [...recipeTools, ...marginTools, ...changeTools]

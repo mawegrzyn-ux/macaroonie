@@ -521,6 +521,9 @@ function changeDetail(r) {
     case 'log_delivery':          return x.supplier
     case 'add_corrective_action': return x.what
     case 'tick_checklist':        return x.checklist ? x.checklist + (x.ticked ? ' (' + x.ticked + ' ticked)' : '') : null
+    case 'read_recipes':          return Array.isArray(x.made) ? x.made.slice(0, 3).join(', ') + (x.made.length > 3 ? ' and ' + (x.made.length - 3) + ' more' : '') : null
+    case 'make_recipe':           return x.made || null
+    case 'link_recipes':          return Array.isArray(x.linked) ? x.linked.slice(0, 2).join('; ') + (x.linked.length > 2 ? ' and ' + (x.linked.length - 2) + ' more' : '') : null
     case 'add_hs_action':
     case 'complete_hs_action':    return x.task
     case 'add_inventory_item':
