@@ -4,8 +4,10 @@
 // loadStockMoves(), newest first, each delivery, approved count and
 // adjustment with the change it made and the balance after it
 // (runningBalance() in shared/stock.js, worked out by the API), and with
-// Costing view each move's value. A count's change is what it found over
-// what was expected. From a day, picked with the date button.
+// Costing view each move's value (a delivery's, its supplier's price, with
+// purchasing prices as well: the API leaves it out otherwise). A count's
+// change is what it found over what was expected. From a day, picked with
+// the date button.
 //
 //   ItemHistory({ venueId, item, onClose })
 //   API GET /api/stock/venues/:venueId/items/:itemId/moves?from=

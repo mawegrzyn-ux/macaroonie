@@ -48,6 +48,21 @@ export function CountStatus({ status }) {
   )
 }
 
+/**
+ * A count dated before an approved one at the venue (the API's later_count):
+ * on hand starts from each item's last count, so what that later count
+ * counted keeps its figures whatever this one says.
+ */
+export function LaterCountNote({ later }) {
+  if (!later) return null
+  return (
+    <p className="rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-sm" data-testid="stock-count-later">
+      An approved count of {when(later.counted_at)} is later than this one: the items it counted keep its figures, so
+      this count changes on hand only for items that one didn&apos;t count.
+    </p>
+  )
+}
+
 /** A name, code or barcode search over stock items (a scan types the barcode in). */
 export function matchItem(i, q) {
   const t = String(q || '').trim().toLowerCase()

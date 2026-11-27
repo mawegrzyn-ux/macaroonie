@@ -4,10 +4,15 @@
 // docs/INVENTORY.md 6.2), since counting happens in the walk-in: the venue's
 // count being taken, area by area, one column, with the Office app's scanner
 // finding the line (CountSheet with `phone`), or starting one (Stock use).
-// Approving is on the Stock page's Counts tab; a submitted count shows its
-// review here too. Loaded on demand from src/routes/stock.jsx.
+// A submitted count shows its review here too, with Approve for whoever may
+// (as on the Stock page's Counts tab). Loaded on demand from
+// src/routes/stock.jsx. The address says where it opens, as the Stock
+// page's does: ?venue= (a venue, once) and ?count= (a count), so Today's
+// stock cards on the phone (src/mobile/today.js maps /stock here) open the
+// venue and the count they name.
 
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { usePermission } from '@/hooks/usePermission'
 import { VenuePicker, useVenues, useVenueChoice } from '@/components/staff/shared'
@@ -22,7 +27,16 @@ export default function MobileStockCount() {
   const { data: venues = [] } = useVenues()
   const [venueId, setVenueId] = useVenueChoice(venues)
   const { data: counts = [], isLoading } = useCounts(venueId)
-  const [openId, setOpenId] = useState(null)
+  const [params, setParams] = useSearchParams()
+  const [openId, setOpenId] = useState(() => params.get('count') || null)
+  // ?venue= (Today's card) picks the venue once, then leaves the address; ?count= is taken at the start.
+  const asked = params.get('venue')
+  useEffect(() => {
+    if (!asked && !params.get('count')) return
+    if (asked && !venues.some(v => v.id === asked)) return
+    if (asked) setVenueId(asked)
+    setParams(new URLSearchParams(), { replace: true })
+  }, [asked, venues.length])
   if (loaded && !canView) return <p className="p-4 text-sm text-muted-foreground">Your role can&apos;t see stock: it needs Stock view.</p>
   const draft = counts.find(c => c.status === 'draft')
   const shown = openId || draft?.id || null

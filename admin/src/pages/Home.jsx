@@ -32,7 +32,7 @@ import {
   Home as HomeIcon, Sun, Sunrise, Moon, RefreshCw, Thermometer, Flame, ListChecks, AlertTriangle, Truck, Send,
   Wallet, ShoppingBag, ClipboardList, CheckCircle2, ExternalLink, ChevronRight, CalendarDays,
   Users, Loader2, Info, CloudSun, BarChart3, Pin, Sparkles, MailWarning, MessageSquare, Monitor, MonitorSmartphone,
-  Ban, CalendarRange,
+  Ban, CalendarRange, Boxes,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
@@ -67,6 +67,7 @@ const KIND_ICON = {
   orders_to_approve: ClipboardList, cash_up: Wallet, cash_week: Wallet, wages_to_pay: Users, online_orders: ShoppingBag,
   report_alert: BarChart3, failed_email: MailWarning, review_to_check: MessageSquare, screen_offline: Monitor,
   device_offline: MonitorSmartphone, sold_out: Ban, rota_not_ready: CalendarRange,
+  stock_count_due: Boxes, stock_count_to_approve: Boxes,
 }
 
 
@@ -74,7 +75,7 @@ const AREA_NAMES = {
   food_safety: 'food safety', checklists: 'checklists', hs_actions: 'the H&S action log',
   purchasing: 'purchasing', cash: 'cash reconciliation', wages: 'wages', online_orders: 'online orders',
   report_alerts: 'report alerts', failed_emails: 'failed booking emails', reviews: 'reviews', screens: 'menu screens',
-  devices: 'tills and devices', sold_out: 'sold out dishes', rota: 'the rota',
+  devices: 'tills and devices', sold_out: 'sold out dishes', rota: 'the rota', stock: 'stock counts',
 }
 
 export function readVenue() { try { return localStorage.getItem(VENUE_KEY) || '' } catch { return '' } }

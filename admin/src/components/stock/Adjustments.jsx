@@ -4,7 +4,9 @@
 // 6.4): stock put right for what fits no other record, always with a reason
 // (Stock manage). A quantity in one of the item's units, minus to take stock
 // off; Save sends it. An adjustment is never edited or deleted: Reverse adds
-// the same quantity the other way (asked twice). Values with Costing view.
+// the same quantity the other way (asked twice), dated at the adjustment it
+// reverses so a count since then keeps its figure. Values with Costing view.
+// Below Stock manage the tab is read only.
 //
 //   Adjustments({ venueId, canManage })
 //   API GET/POST /api/stock/venues/:venueId/adjustments, POST /api/stock/adjustments/:id/reverse
@@ -16,6 +18,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Field, inputCls, ErrorNote, Segmented } from '@/components/staff/shared'
 import { Card, NumInput, btn } from '@/components/purchasing/shared'
+import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { useStockList, matchItem, signedBase, when, pounds, qty } from '@/components/stock/shared'
 
 const REASONS = ['Found in another area', 'Damaged in storage', 'Used for staff food', 'Sample or tasting', 'Correction of a mistake']
@@ -112,7 +115,7 @@ export default function Adjustments({ venueId, canManage }) {
   const values = rows.some(r => 'value' in r)
   return (
     <div className="space-y-4" data-testid="stock-adjustments">
-      {canManage && <NewAdjustment venueId={venueId} />}
+      {canManage ? <NewAdjustment venueId={venueId} /> : <ReadOnlyNotice what="the adjustments" />}
       <Card title="Adjustments" bodyClass="p-0">
         <ErrorNote error={error || reverse.error} />
         {isLoading ? <div className="p-6 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" /></div> : (
@@ -121,7 +124,10 @@ export default function Adjustments({ venueId, canManage }) {
               <div key={r.id} className="px-4 py-3 flex flex-wrap items-center gap-3 text-sm" data-testid="stock-adjust-row" data-item={r.item_name}>
                 <span className="flex-1 min-w-[12rem]">
                   <span className="font-medium">{r.item_name}</span> <span className="tabular-nums">{signedBase(r.qty_base, r.base_unit)}</span>
-                  <span className="block text-xs text-muted-foreground">{r.reason}{r.note ? ' · ' + r.note : ''} · {when(r.adjusted_at)}{r.adjusted_by ? ' · ' + r.adjusted_by : ''}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {r.reason}{r.note ? ' · ' + r.note : ''} · {when(r.adjusted_at)}{r.adjusted_by ? ' · ' + r.adjusted_by : ''}
+                    {r.reverses_id && r.created_at ? ' · reversed ' + when(r.created_at) + ', dated as the adjustment it reverses' : ''}
+                  </span>
                 </span>
                 {values && <span className="tabular-nums">{r.value == null ? '–' : pounds(r.value)}</span>}
                 {r.reversed && <span className="text-xs text-muted-foreground">Reversed</span>}

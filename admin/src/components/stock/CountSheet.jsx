@@ -12,8 +12,10 @@
 // 5 gives way): each line is saved on its own about a second after it is
 // typed (PUT /api/stock/counts/:id/lines), and said so on the sheet, so two
 // people can count two areas of one count at once; the sheet fetches the
-// count again every few seconds to show the others' lines. Expected is
-// shown while counting unless the group counts blind.
+// count again every few seconds to show the others' lines. Submitting first
+// waits for every line still waiting or saving, and stops when one didn't
+// save. Expected is shown while counting unless the group counts blind.
+// Someone with Stock View sees the sheet read only.
 //
 //   CountSheet({ countId, venueId, phone, onClose })
 
@@ -24,27 +26,32 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { inputCls, ErrorNote, Modal } from '@/components/staff/shared'
 import { btn } from '@/components/purchasing/shared'
+import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { canScan, scanBarcode } from '@/lib/officeApp'
-import { EntriesEditor, CountStatus, matchItem, qty, when, useStockList, COUNT_KINDS } from '@/components/stock/shared'
+import { notCounted, lineSaves } from '@shared/stock.js'
+import { EntriesEditor, CountStatus, LaterCountNote, matchItem, qty, when, useStockList, COUNT_KINDS } from '@/components/stock/shared'
 
 const CountReview = lazy(() => import('@/components/stock/CountReview'))
 const SAVE_AFTER_MS = 900
 const REFRESH_MS = 8000
 const keyOf = (itemId, areaId) => itemId + '|' + (areaId || '')
 
-/** Saves each line on its own a moment after it is typed; flushes what is waiting when the sheet closes. */
+/**
+ * Saves each line on its own a moment after it is typed (lineSaves() in
+ * shared/stock.js); flushes what is waiting when the sheet closes. flush()
+ * sends what is waiting now and resolves once every line sent (and any
+ * already saving) has its answer: true when all saved, so a submit waits
+ * for it.
+ */
 function useLineSaver(countId) {
-  // useApi() is a new object on every render: kept in a ref, so `send` and
-  // `save` stay the same functions and the wait before saving isn't cut short.
+  // useApi() is a new object on every render: kept in a ref, so the saves
+  // stay the same object and the wait before saving isn't cut short.
   const api = useApi()
   const apiRef = useRef(api)
   apiRef.current = api
   const qc = useQueryClient()
-  const timers = useRef(new Map())
-  const waiting = useRef(new Map())
   const [state, setState] = useState({})
-  const send = useCallback(async (k, body) => {
-    waiting.current.delete(k)
+  const saves = useMemo(() => lineSaves(async (k, body) => {
     setState(s => ({ ...s, [k]: 'saving' }))
     try {
       const out = await apiRef.current.put(`/stock/counts/${countId}/lines`, body)
@@ -56,22 +63,18 @@ function useLineSaver(countId) {
       setState(s => ({ ...s, [k]: 'saved' }))
     } catch (err) {
       setState(s => ({ ...s, [k]: { error: err.message } }))
+      throw err
     }
-  }, [qc, countId])
+  }, { delay: SAVE_AFTER_MS }), [qc, countId])
   const save = useCallback((itemId, areaId, entries) => {
     const k = keyOf(itemId, areaId)
     const body = { item_id: itemId, area_id: areaId || null, entries: entries.filter(e => e.qty != null).map(e => ({ qty: e.qty, unit: e.unit })) }
-    waiting.current.set(k, body)
     setState(s => ({ ...s, [k]: 'waiting' }))
-    clearTimeout(timers.current.get(k))
-    timers.current.set(k, setTimeout(() => send(k, body), SAVE_AFTER_MS))
-  }, [send])
-  const flush = useCallback(() => {
-    for (const [k, body] of waiting.current) { clearTimeout(timers.current.get(k)); send(k, body) }
-  }, [send])
-  useEffect(() => () => { for (const [k, body] of waiting.current) { clearTimeout(timers.current.get(k)); send(k, body) } }, [send])
+    saves.save(k, body)
+  }, [saves])
+  useEffect(() => () => { saves.flush() }, [saves])
   const busy = Object.values(state).some(v => v === 'waiting' || v === 'saving')
-  return { save, flush, state, busy }
+  return { save, flush: saves.flush, state, busy }
 }
 
 export default function CountSheet({ countId, venueId, phone = false, onClose }) {
@@ -99,6 +102,10 @@ function Counting({ c, venueId, phone, onClose }) {
   const [typed, setTyped] = useState({})
   const [missing, setMissing] = useState(null)
   const [cancelling, setCancelling] = useState(false)
+  // While the lines still waiting or saving are sent before a submit; `unsaved` when one of them failed.
+  const [flushing, setFlushing] = useState(false)
+  const [unsaved, setUnsaved] = useState(false)
+  const canCount = !!c.can_count
   const stockList = useStockList(venueId, !!search.trim())
   const lineOf = useMemo(() => new Map(c.lines.map(l => [keyOf(l.item_id, l.area_id), l])), [c.lines])
   const expectedOf = useMemo(() => new Map(Object.entries(c.expected || {})), [c.expected])
@@ -112,6 +119,7 @@ function Counting({ c, venueId, phone, onClose }) {
     ? (stockList.data?.items || []).filter(i => matchItem(i, search)).slice(0, 10).map(i => ({ ...i, id: i.item_id }))
     : []
   const setEntries = (item, entries) => {
+    if (!canCount) return
     const k = keyOf(item.id, lineArea)
     setTyped(t => ({ ...t, [k]: entries }))
     saver.save(item.id, lineArea, entries)
@@ -129,32 +137,52 @@ function Counting({ c, venueId, phone, onClose }) {
     mutationFn: () => api.post(`/stock/counts/${c.id}/cancel`, {}),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['stock'] }); onClose?.() },
   })
-  // A full count asks about what nobody counted before it is sent (the API refuses with the same list, 422 not_counted).
-  const startSubmit = () => {
-    saver.flush()
+  // Every line still waiting or saving goes first, and the submit waits for their answers: a submit
+  // that got there first would leave a late line refused (409), dropped from the count or, on a full
+  // count, confirmed as zero. A line that didn't save stops the submit (its error is on the line).
+  const linesSaved = async () => {
+    setFlushing(true)
+    try {
+      const saved = await saver.flush()
+      setUnsaved(!saved)
+      return saved
+    } finally { setFlushing(false) }
+  }
+  // A full count asks about what nobody counted before it is sent (the API refuses with the same list,
+  // 422 not_counted), by the same rule, notCounted(), over the lines as they are once saved.
+  const startSubmit = async () => {
+    if (!(await linesSaved())) return
     if (c.kind === 'full') {
-      const scope = [...new Set([...c.areas.flatMap(a => a.item_ids), ...c.other])]
-      const left = scope.filter(id => !counted.has(id) && !Object.entries(typed).some(([k, e]) => k.startsWith(id + '|') && e?.some(x => x.qty != null)))
+      const now = qc.getQueryData(['stock', 'count', c.id]) || c
+      const left = notCounted([...c.areas.flatMap(a => a.item_ids), ...c.other], now.lines)
       if (left.length) { setMissing(left.map(id => ({ id, name: c.items[id]?.name || 'An item' })).sort((a, b) => a.name.localeCompare(b.name))); return }
     }
-    setTimeout(() => submit.mutate({}), saver.busy ? 600 : 0)
+    submit.mutate({})
+  }
+  const zeroAndSubmit = async () => {
+    if (!(await linesSaved())) { setMissing(null); return }
+    submit.mutate({ all_zero: true })
   }
   const progress = a => {
     const n = a.item_ids.filter(id => counted.has(id)).length
     return n + ' of ' + a.item_ids.length
   }
   return (
-    <div className={cn('space-y-3', phone && 'pb-24')} data-testid="stock-count-sheet" data-count={c.id}>
+    <div className={cn('space-y-3', phone && canCount && 'pb-24')} data-testid="stock-count-sheet" data-count={c.id}>
       <div className="rounded-xl border bg-background p-3 flex flex-wrap items-center gap-2">
         <div className="flex-1 min-w-[12rem]">
           <p className="text-sm font-semibold">{c.key_list_name ? 'Key items: ' + c.key_list_name : COUNT_KINDS[c.kind]?.label}</p>
           <p className="text-xs text-muted-foreground">As at {when(c.counted_at)} · started by {c.started_by || 'someone'} · {counted.size} item{counted.size === 1 ? '' : 's'} counted</p>
         </div>
         <CountStatus status={c.status} />
-        <span className="text-xs text-muted-foreground w-full" data-testid="stock-count-autosave">
-          Each line saves by itself as you type{saver.busy ? ': saving...' : '.'} {c.blind ? 'Blind count: what is expected stays hidden until it is submitted.' : ''}
-        </span>
+        {canCount && (
+          <span className="text-xs text-muted-foreground w-full" data-testid="stock-count-autosave">
+            Each line saves by itself as you type{saver.busy ? ': saving...' : '.'} {c.blind ? 'Blind count: what is expected stays hidden until it is submitted.' : ''}
+          </span>
+        )}
       </div>
+      {!canCount && <ReadOnlyNotice what="this count" />}
+      <LaterCountNote later={c.later_count} />
 
       {/* Areas: each with how many of its items are counted, and Done. */}
       <div className="flex gap-2 overflow-x-auto pb-1" data-testid="stock-count-areas">
@@ -220,7 +248,7 @@ function Counting({ c, venueId, phone, onClose }) {
                   {st === 'waiting' || st === 'saving' ? 'Saving...' : st === 'saved' ? <span className="text-emerald-700 inline-flex items-center gap-1"><Check className="w-3 h-3" />Saved</span> : st?.error ? <span className="text-red-700">{st.error}</span> : ''}
                 </p>
               </div>
-              <EntriesEditor item={item} entries={entries} onChange={e => setEntries(item, e)} />
+              <EntriesEditor item={item} entries={entries} onChange={e => setEntries(item, e)} disabled={!canCount} />
             </div>
           )
         })}
@@ -229,7 +257,7 @@ function Counting({ c, venueId, phone, onClose }) {
         )}
       </div>
 
-      <div className={cn('flex flex-wrap gap-2', phone && 'fixed bottom-0 inset-x-0 bg-background border-t p-3 z-20')}>
+      {canCount && <div className={cn('flex flex-wrap gap-2', phone && 'fixed bottom-0 inset-x-0 bg-background border-t p-3 z-20')}>
         {area && (
           <button type="button" className={btn.outline + ' h-12'} disabled={areaDone.isPending}
             onClick={() => areaDone.mutate({ id: area.id, done: !area.done })} data-testid="stock-count-area-done">
@@ -245,17 +273,18 @@ function Counting({ c, venueId, phone, onClose }) {
         ) : (
           <button type="button" className={btn.ghost + ' h-12'} onClick={() => setCancelling(true)} data-testid="stock-count-cancel">Cancel count</button>
         )}
-        <button type="button" className={btn.primary + ' h-12'} disabled={submit.isPending || !c.can_count} onClick={startSubmit} data-testid="stock-count-submit">
-          {submit.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Submit the count
+        <button type="button" className={btn.primary + ' h-12'} disabled={submit.isPending || flushing} onClick={startSubmit} data-testid="stock-count-submit">
+          {(submit.isPending || flushing) && <Loader2 className="w-4 h-4 animate-spin" />}Submit the count
         </button>
-      </div>
+      </div>}
+      {unsaved && <p className="text-sm text-red-700" data-testid="stock-count-unsaved">A line didn&apos;t save (its error is under it): put it right, then submit again.</p>}
       {submit.error && submit.error.body?.code !== 'not_counted' && <ErrorNote error={submit.error} />}
       <ErrorNote error={cancel.error || areaDone.error} />
 
       {missing && (
         <Modal title="Not counted yet" onClose={() => setMissing(null)}
           footer={<>
-            <button type="button" className={btn.primary + ' h-12'} disabled={submit.isPending} onClick={() => setTimeout(() => submit.mutate({ all_zero: true }), saver.busy ? 800 : 0)} data-testid="stock-count-zero-all">
+            <button type="button" className={btn.primary + ' h-12'} disabled={submit.isPending || flushing} onClick={zeroAndSubmit} data-testid="stock-count-zero-all">
               Confirm all {missing.length} as zero and submit
             </button>
             <button type="button" className={btn.outline + ' h-12'} onClick={() => setMissing(null)}>Go back and count</button>

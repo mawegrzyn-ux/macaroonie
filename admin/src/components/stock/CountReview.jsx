@@ -18,7 +18,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ErrorNote } from '@/components/staff/shared'
 import { btn } from '@/components/purchasing/shared'
-import { CountStatus, qty, signedBase, when, pounds, COUNT_KINDS } from '@/components/stock/shared'
+import { CountStatus, LaterCountNote, qty, signedBase, when, pounds, COUNT_KINDS } from '@/components/stock/shared'
 
 export default function CountReview({ count: c, onClose, onChanged }) {
   const api = useApi()
@@ -47,6 +47,7 @@ export default function CountReview({ count: c, onClose, onChanged }) {
         </div>
         <CountStatus status={c.status} />
       </div>
+      <LaterCountNote later={c.later_count} />
 
       {c.sees_values && t && (
         <div className="grid grid-cols-3 gap-2" data-testid="stock-review-totals">
