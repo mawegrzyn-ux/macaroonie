@@ -19,6 +19,10 @@
 // the dishes not costed by sales value with how to fix each); Read recipes
 // (?read=1, Manage) opens Pepper's reader and its review (RecipeReader.jsx,
 // lazy); ?recipe=new&for_dish= starts a recipe from a menu dish.
+//
+// Phase 8a: the Allergens tab (?tab=allergens; &check=<dish id> opens one
+// dish's check), each dish's declared allergens against what its recipes
+// suggest (components/recipes/Allergens.jsx, lazy). API: routes/allergenChecks.js.
 
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -39,8 +43,12 @@ import { CoverageCard } from '@/components/recipes/Coverage'
 
 // The reader's review is big and opened now and then: its own chunk (the main bundle's precache limit).
 const RecipeReader = lazy(() => import('@/components/recipes/RecipeReader'))
+const AllergenChecks = lazy(() => import('@/components/recipes/Allergens'))
+const Waiting = () => <div className="py-16 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" /></div>
 
-const TABS = [{ value: 'recipes', label: 'Recipes' }, { value: 'dishes', label: 'Dishes' }, { value: 'options', label: 'Options' }]
+const TABS = [
+  { value: 'recipes', label: 'Recipes' }, { value: 'dishes', label: 'Dishes' }, { value: 'options', label: 'Options' }, { value: 'allergens', label: 'Allergens' },
+]
 
 export default function Recipes() {
   const { canView, canManage, loaded } = usePermission('recipes')
@@ -102,13 +110,21 @@ export default function Recipes() {
                     onMake={id => set({ tab: '', recipe: 'new', for_dish: id })} />
                 : tab === 'options'
                   ? <OptionList onOpen={id => set({ option: id })} />
-                  : (
+                  : tab === 'allergens'
+                    ? (
+                      <Suspense fallback={<Waiting />}>
+                        <AllergenChecks canManage={canManage} openId={params.get('check')} startQ={params.get('q') || ''}
+                          onOpen={id => setParams(p => { const n = new URLSearchParams(p); n.set('check', id); return n })}
+                          onClose={() => set({ check: '' })} />
+                      </Suspense>
+                    )
+                    : (
                     <>
                       <CoverageCard onOpenDish={toDish} onOpenRecipe={toRecipe} onOpenOption={id => set({ tab: 'options', option: id })} />
                       <RecipeList venueId={venueId} basis={basis} startQ={params.get('q') || ''} onVenue={v => set({ venue: v })}
                         onBasis={b => set({ basis: b === 'standard' ? '' : b })} onOpen={id => set({ recipe: id })} />
                     </>
-                  )}
+                    )}
       </div>
     </div>
   )
