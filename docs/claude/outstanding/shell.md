@@ -143,3 +143,30 @@ Built: the Android share target (a picture, a link or a note) into Capture on th
 - **Tried only in a browser with a stand-in bridge** (Playwright at 390 px) and on the prebuild's manifest: not on a real phone. To check on a phone with the new build: share one picture, several, a big HEIC, a screenshot, a picture from Files / Downloads (the content address), a link from Chrome; while signed out; while on another phone page; while on an office page; with the app closed and open.
 - The module's copy of a shared file in the app's cache, and the image manipulator's output, are left to Android's cache clearing.
 - A share arriving while an office page (not the phone pages) is open in the app reloads the phone home, losing that page's state.
+
+**73. The Terms and conditions and Privacy policy on macaroonie.com: what the owner must confirm, and what is left (27 Nov 2026, no migration)**
+
+The pages say only what the code shows, or make a promise the owner has to keep. A solicitor should review both before the first real customer. To confirm or act on:
+- **Company**: "registered in England and Wales" (from the 8-digit number; not checked against Companies House), "Macaroonie is a trading name of GOMONO LONDON LIMITED", and that info@macaroonie.com is a watched inbox. No VAT number is shown: if the company is VAT-registered, add it to `company.js`, the footer and Terms 1.1 (E-Commerce Regulations reg 6). No ICO fee registration number and no data protection officer are named.
+- **Hosting**: "Amazon Web Services (Amazon Lightsail)", no region. Privacy section 8 says transfers go mainly to the United States; if the server is outside the UK, section 8 must say where.
+- **Server logs "up to 14 days"** (Privacy 3 and 9): PM2's logs rotate daily keeping 14 (`setup.sh`); nginx's access log follows the Ubuntu package default, not set in the repo. Check both on the server.
+- **Register-interest details deleted within 24 months of the last contact** (Privacy 4 and 9): nothing in the code does this. Delete by hand on Platform → Interest, or add a sweep.
+- **Transfer safeguards** (Privacy 8): the UK Extension to the Data Privacy Framework where a provider is certified, otherwise the IDTA or the UK Addendum. Confirm per provider (AWS, Auth0 / Okta, Twilio SendGrid, Anthropic, Stripe, Expo, Google, Apple, Apify, Dojo, SumUp), keep their data processing terms on file, and confirm the Auth0 tenant's region (its domain ends `.uk.auth0.com`).
+- **The provider list** (Privacy 7): add the mailbox provider behind info@macaroonie.com, and any service used outside the code (accounts, CRM, support desk).
+- **Backups**: "where data is also held in a backup, it is deleted when that backup is replaced" (Privacy 9), restoring "from the latest backup we hold" (Terms 17.3) and deletion from backups "within 90 days of the end" (Terms 19.2). No backup schedule is in the repo: confirm Lightsail snapshots or pg_dump, how long they are kept (90 days or less) and where.
+- **End of an agreement** (Terms 19): a copy within 30 days, deletion within a further 30. No tenant export or deletion flow exists in code; it is done by hand until one is built.
+- **Sub-processor notice 30 days ahead** (schedule 3.4) and **marketing to customer contacts only where agreed or allowed** (Privacy 5): no mailing list or marketing tool exists yet.
+- **Security** (Privacy 10, schedule 6(h)): "access to our systems only for the people who need it, under confidentiality" is an organisational promise.
+- **Liability cap** (Terms 17.4): the Fees of the previous 12 months, so a customer on free early access has a cap of nil, which may not pass the UCTA reasonableness test. Set a cap in each Order (17.4 allows it).
+- **Commercial defaults** in the Terms are drafting choices, not decisions the owner has made: invoices due in 30 days (11.2), 60 days' notice of a price change (11.5), one month's notice for an Order with no term (4.4), 90 days' notice to stop the Service for everyone (18.3), 30 days' notice of an audit (schedule 3.9), 30 days' notice of a change to the terms (20.2).
+- **AI**: "we don't use Customer Data to train AI models" is about Macaroonie; the pages say nothing about how long Anthropic keeps API data (the code sets no retention option).
+- **The office's usage record and till tap counts** rely on the storage law's statistics and functionality exceptions, which need a free way to object: the policy offers objection by email; there is no switch in the app.
+
+Not done:
+- **Tenant websites load Google Analytics and the Meta Pixel whenever a tenant sets their ids, whatever the cookie banner says** (website area, `views/site/shared/head.eta`), while the built-in Cookies template says they run only after acceptance. The Terms put the consent on the restaurant (7.3, schedule 4.2); the code should hold the scripts until `mc_cookies` is 1, or use consent mode.
+- **No link to either page from the office sign-in** (Auth0 Universal Login settings), the office, the Macaroonie Office app or its store listings; both app stores need a privacy policy address (https://macaroonie.com/privacy).
+- The reservations widget has no privacy line pointing at the restaurant's own policy (bookings and website areas).
+- `email_log` and `notification_log` keep guests' email addresses with no clean-up, and anonymising a guest skips them; finished booking-email jobs stay in Redis (no `removeOnComplete` on the notifications queue). The policy covers this as data kept "as long as the customer keeps it", but a processor shouldn't keep these past need.
+- No `/cookies` address (it 301s to office like any unknown path); the footer links `/privacy#cookies`.
+- The platform site is light only, so the legal pages are too: with a dark preference they show light (checked in the browser). Google Fonts still come from Google (item 64).
+- Browser checks in Chromium at 390 and 1280 px, light and dark preference, no screen reader.

@@ -1,0 +1,277 @@
+<%
+/* The Privacy policy (macaroonie.com/privacy): UK GDPR Articles 13 and 14,
+   with the cookies part (#cookies, linked from every footer). The company's
+   details come from company.js (it.company). When an outside service that
+   receives personal data is added or dropped, section 7 (#sharing) and the
+   Terms' data processing schedule (terms.eta) change with it, and the date
+   on the page record (pages.js, updated). The contents list's links must
+   each match a heading's id (platform-site.test.mjs checks). */
+const co = it.company
+%>
+<%~ include('./_head', it) %>
+<section class="page-hero legal-hero">
+  <div class="wrap">
+    <h1>Privacy policy</h1>
+    <p class="lead">How we use personal data, and the rights you have over it.</p>
+    <p class="updated">Last updated <%= it.page.updated %></p>
+  </div>
+</section>
+<section class="tight">
+  <div class="wrap legal">
+    <nav class="legal-toc" aria-labelledby="toc-title">
+      <h2 id="toc-title">Contents</h2>
+      <ol>
+        <li><a href="#short-version">The short version</a></li>
+        <li><a href="#who-we-are">1. Who we are</a></li>
+        <li><a href="#who-it-covers">2. Who this policy covers</a></li>
+        <li><a href="#visitors">3. Visitors to macaroonie.com</a></li>
+        <li><a href="#register-interest">4. People who register interest</a></li>
+        <li><a href="#customers">5. Our customers and their staff</a></li>
+        <li><a href="#guests">6. Guests of restaurants that use Macaroonie</a></li>
+        <li><a href="#sharing">7. Who we share data with</a></li>
+        <li><a href="#transfers">8. Transfers outside the UK</a></li>
+        <li><a href="#retention">9. How long we keep data</a></li>
+        <li><a href="#security">10. Security</a></li>
+        <li><a href="#automated-decisions">11. Automated decisions and AI</a></li>
+        <li><a href="#your-rights">12. Your rights</a></li>
+        <li><a href="#complaints">13. Complaints</a></li>
+        <li><a href="#children">14. Children</a></li>
+        <li><a href="#cookies">15. Cookies and similar technologies</a></li>
+        <li><a href="#changes">16. Changes to this policy</a></li>
+      </ol>
+    </nav>
+    <article class="legal-doc">
+      <div class="legal-summary">
+        <h2 id="short-version">The short version</h2>
+        <ul>
+          <li>We are <%= co.name %>, trading as <%= co.tradingName %>. Email us at <a href="mailto:<%= co.email %>"><%= co.email %></a>.</li>
+          <li>macaroonie.com sets no cookies and has no advertising or analytics tracking.</li>
+          <li>If you register interest, we use your details only to talk to you about Macaroonie, and we don't send you marketing.</li>
+          <li>When a restaurant uses Macaroonie for your booking, order or loyalty card, the restaurant decides how your details are used. Its own privacy notice applies, and we look after your details for it.</li>
+          <li>We never sell personal data.</li>
+          <li>You have rights over your data, and you can complain to the Information Commissioner's Office (ICO).</li>
+        </ul>
+      </div>
+
+      <h2 id="who-we-are"><span class="sn">1.</span> Who we are</h2>
+      <p>This policy is from <%= co.name %>, which trades as <%= co.tradingName %> ("Macaroonie", "we", "us"). We make Macaroonie, a platform that restaurant groups and franchises use to run their venues: table bookings, websites, online ordering, the till, kitchen screens, kiosks, loyalty and the back office.</p>
+      <p><%= co.name %> is a company registered in <%= co.registeredIn %>, company number <%= co.number %>. Our registered office is <%= co.office %>.</p>
+      <p>For anything about this policy or your personal data, email <a href="mailto:<%= co.email %>"><%= co.email %></a> or write to us at our registered office.</p>
+      <p>UK data protection law (the UK GDPR and the Data Protection Act 2018) uses two words that matter here. A <strong>controller</strong> decides how and why personal data is used, and is responsible for it. A <strong>processor</strong> handles personal data for a controller, on its instructions. This policy says which we are for each group of people.</p>
+
+      <h2 id="who-it-covers"><span class="sn">2.</span> Who this policy covers</h2>
+      <div class="table-wrap">
+        <table class="legal-table">
+          <thead><tr><th scope="col">You are</th><th scope="col">Our role</th><th scope="col">Read</th></tr></thead>
+          <tbody>
+            <tr><td data-label="You are">A visitor to macaroonie.com</td><td data-label="Our role">Controller</td><td data-label="Read"><a href="#visitors">Section 3</a></td></tr>
+            <tr><td data-label="You are">Someone who registers interest on our home page</td><td data-label="Our role">Controller</td><td data-label="Read"><a href="#register-interest">Section 4</a></td></tr>
+            <tr><td data-label="You are">A contact at one of our business customers, or a member of its staff who uses Macaroonie</td><td data-label="Our role">Controller for your account and for running the service. Processor for the records your employer keeps in Macaroonie.</td><td data-label="Read"><a href="#customers">Section 5</a></td></tr>
+            <tr><td data-label="You are">A guest of a restaurant that uses Macaroonie</td><td data-label="Our role">Processor. The restaurant is the controller.</td><td data-label="Read"><a href="#guests">Section 6</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Sections 7 to 16 apply to everyone.</p>
+
+      <h2 id="visitors"><span class="sn">3.</span> Visitors to macaroonie.com</h2>
+      <h3>What we collect</h3>
+      <p>When your browser asks for a page, our servers receive and log your IP address, the page asked for, the time, and your browser and device type. Our web server's log also records the page you came from, if your browser sends it.</p>
+      <p>Our pages load their fonts from Google Fonts, so your browser also sends your IP address and browser details to Google.</p>
+      <p>We don't use cookies, analytics or advertising trackers on macaroonie.com, and we don't build profiles of visitors.</p>
+      <p>The Try it pages run in your browser. The kitchen walkthrough stores nothing. The kiosk designer demo keeps the design you make, and any pictures you add, in your own browser (see <a href="#cookies">section 15</a>). Nothing you do in the demos is sent to us.</p>
+      <h3>Why, and our lawful basis</h3>
+      <p>We use this information to show you the site, keep it secure and working, stop abuse (for example, too many requests from one address are slowed down or blocked for a while), and find and fix faults.</p>
+      <p>Our lawful basis is our <strong>legitimate interests</strong> in running a website that works and is secure. We collect little, keep it for a short time and use it for nothing else, so we don't think your interests override ours. Your browser sends this information to load any web page, so we can't show you the site without it.</p>
+      <h3>How long</h3>
+      <p>Server logs are kept for up to 14 days, then deleted.</p>
+
+      <h2 id="register-interest"><span class="sn">4.</span> People who register interest</h2>
+      <h3>What we collect</h3>
+      <p>The details you type into the form on our home page: your name and email address and, if you give them, your company or brand, phone number, number of sites and message. We also record when you ticked the box, and the IP address and browser details the form came from.</p>
+      <h3>Why, and our lawful basis</h3>
+      <ul>
+        <li>To reply to you, show you round the platform and talk about whether it fits your business. Our lawful basis is your <strong>consent</strong>, which you give with the tick box on the form.</li>
+        <li>To keep automated spam out, and as a record of when you asked us to contact you, we use the IP address and browser details. Our lawful basis is our <strong>legitimate interests</strong> in protecting the form and being able to show that you asked.</li>
+      </ul>
+      <p>You can withdraw your consent at any time by emailing <a href="mailto:<%= co.email %>"><%= co.email %></a>. We will then stop contacting you and delete your details.</p>
+      <p>We don't add you to a newsletter or send you marketing. If we ever want to, we will ask you first, and every message will tell you how to stop them.</p>
+      <h3>Who sees them</h3>
+      <p>Our team. Your details are stored on our servers with our hosting provider, and a copy of what you sent may be emailed to our team through our email delivery provider (see <a href="#sharing">section 7</a>). We don't sell your details or pass them on for anyone else to use.</p>
+      <p>Your name and email address are needed so that we can reply. Everything else is up to you.</p>
+      <h3>How long</h3>
+      <p>We keep your details while we are talking to you about Macaroonie. If you don't become a customer, we delete them within 24 months of our last contact with you, or sooner if you ask. If you become a customer, <a href="#customers">section 5</a> applies.</p>
+
+      <h2 id="customers"><span class="sn">5.</span> Our customers and their staff</h2>
+      <h3>Contacts at our business customers</h3>
+      <p>We hold the names, business email addresses and phone numbers and job titles of the people we deal with at each customer, and what passes between us: the agreement, invoices and payments, emails, calls and support requests.</p>
+      <ul>
+        <li>We use them to provide the service the business has agreed with us, run its account, invoice it, answer support requests and tell it about changes to the service. Our lawful basis is our <strong>legitimate interests</strong> in running our relationship with your business, or the <strong>contract</strong>, where you are a sole trader or partner and the agreement is with you.</li>
+        <li>We keep accounting and tax records because the law requires it (<strong>legal obligation</strong>).</li>
+        <li>We may tell you about new features or services. We do this by email only where you have agreed to it or the law otherwise allows it, and every email lets you opt out. Our lawful basis is your <strong>consent</strong> where we have asked for it, otherwise our <strong>legitimate interests</strong> in telling our customers about our services. You can object to it at any time.</li>
+      </ul>
+      <h3>Staff who use Macaroonie</h3>
+      <p>Our customers give their staff accounts in Macaroonie: the office at office.macaroonie.com, the phone app (the Macaroonie Office app, or ops.macaroonie.com in a browser), and the tills, kitchen screens and other devices at their venues. If your employer has given you an account, this part is for you.</p>
+      <p>As a <strong>controller</strong>, to give you an account and run the service, we hold:</p>
+      <ul>
+        <li><strong>Your account:</strong> your name, email address, role and permissions, the businesses you belong to, and when you were invited and last signed in.</li>
+        <li><strong>Your sign-in:</strong> you sign in through Auth0, our sign-in provider. Auth0 holds your password (we never see it), or the identity of the account you sign in with, and a record of your sign-ins.</li>
+        <li><strong>How you use the service:</strong> the office pages you open (the page only, not what is on it) and what you type into its menu search; on the till, a count each day of the buttons each person taps, with no times.</li>
+        <li><strong>Notifications:</strong> if you turn them on, a code for your browser or phone so that we can send you notices about tasks.</li>
+        <li><strong>Pepper and voice:</strong> what you ask Pepper, the assistant, and any files you attach (see <a href="#automated-decisions">section 11</a>). If you speak to Pepper, your browser or phone turns your speech into words, and only the words reach us; we keep no audio. Your browser's or phone's speech service may process the audio on its maker's servers (for example Google or Apple), under that company's terms.</li>
+      </ul>
+      <p>We use these to give you access, keep accounts and the service secure, send the notices you turn on, support you, and understand how the service is used so that we can improve it and suggest pages you may need. Our lawful basis is our <strong>legitimate interests</strong> in providing a secure, working service to our customer and its staff, and in improving it. You can object to the record of how you use the service (see <a href="#your-rights">section 12</a>).</p>
+      <p>As a <strong>processor</strong>, we also hold the records your employer keeps about you in Macaroonie, such as your staff record, pay rates and how you are paid, your rota and shifts (including days off sick and holidays), tips, your till PIN (stored only as a hash, a one-way scrambled form), and the food safety and cleaning checks you sign. Your employer decides what to keep and why, and is the controller of these records. Its own privacy notice for staff applies, and questions or requests about these records should go to your employer. We handle them for your employer under our agreement with it.</p>
+      <p>Most of this comes from your employer, who sets up your account and your records, and from your own use of Macaroonie. You need an account to use Macaroonie; what else your employer needs from you is up to your employer.</p>
+
+      <h2 id="guests"><span class="sn">6.</span> Guests of restaurants that use Macaroonie</h2>
+      <p>Restaurants and their groups use Macaroonie to take bookings, orders and payments, run loyalty schemes, send emails and run their websites, at addresses ending macaroonie.com or on their own domains. When you book a table, order food, join a loyalty scheme, chat on a restaurant's website or ask for a receipt, the restaurant decides what it collects and why.</p>
+      <p>The restaurant is the <strong>controller</strong> of your personal data, and Macaroonie is its <strong>processor</strong>: we store and handle your details for the restaurant, on its instructions, under our agreement with it. So:</p>
+      <ul>
+        <li>the restaurant's own privacy notice applies (a restaurant website on Macaroonie can link to it at the foot of each page);</li>
+        <li>to use your rights, for example to see, correct or delete your details, contact the restaurant;</li>
+        <li>if you contact us instead, we will pass your request to the restaurant without delay and help it respond.</li>
+      </ul>
+      <p>What a restaurant keeps through Macaroonie depends on what it uses. It can include your name, email address and phone number; your bookings (date, time, party size and any notes, which may include dietary needs, allergies or access needs); your orders and their notes, including allergy notes; your loyalty membership, points and visits, and your wallet pass; whether you agreed to hear from the restaurant; the emails sent to you and whether they arrived; and the messages you send in a website chat.</p>
+      <p>Card payments go straight from your browser, or from the card machine, to the restaurant's payment provider, such as Stripe. Card details never reach our servers.</p>
+      <p>Some restaurants show their Google reviews. If you have reviewed one, your review and your reviewer name and picture, as they appear on Google, may be copied into Macaroonie through Apify, a data collection service, so that the restaurant can read and reply to them.</p>
+      <p>We use guests' details only to provide the service to the restaurant and keep it secure. We don't sell them, use them for our own marketing or combine them across restaurants. If we ever run a service for guests ourselves, we will be its controller and will say so here first.</p>
+
+      <h2 id="sharing"><span class="sn">7.</span> Who we share data with</h2>
+      <p>We use other companies for parts of our service. Most act on our instructions as our processors: they must keep the data secure and may use it only to provide their service. A few work under their own terms and privacy policies, and the table says which.</p>
+      <div class="table-wrap">
+        <table class="legal-table">
+          <thead><tr><th scope="col">For</th><th scope="col">Provider</th><th scope="col">What they receive</th></tr></thead>
+          <tbody>
+            <tr><td data-label="For">Hosting</td><td data-label="Provider">Amazon Web Services (Amazon Lightsail)</td><td data-label="What they receive">Everything held in the service: our servers, database and stored files.</td></tr>
+            <tr><td data-label="For">Sign-in</td><td data-label="Provider">Auth0, part of Okta</td><td data-label="What they receive">Staff names, email addresses, passwords or sign-in identities, and sign-in records.</td></tr>
+            <tr><td data-label="For">Sending email</td><td data-label="Provider">Twilio SendGrid</td><td data-label="What they receive">The emails Macaroonie sends (booking and order emails, invitations, our register-interest notices) and the names and addresses they go to. A restaurant can choose its own email provider for its guests' emails instead: Postmark, Mailgun, Amazon SES or its own mail server.</td></tr>
+            <tr><td data-label="For">AI</td><td data-label="Provider">Anthropic</td><td data-label="What they receive">What staff ask Pepper and the data Pepper reads to answer; the files given to Pepper's readers (menus, invoices, receipts); and guests' messages in a restaurant's website chat, where the restaurant turns it on.</td></tr>
+            <tr><td data-label="For">Notifications</td><td data-label="Provider">Expo, Google (Firebase Cloud Messaging), Apple (Apple Push Notification service) and the push services of web browsers</td><td data-label="What they receive">A code for the device and the notice itself: a title, a line and a link. A browser's push service works under its maker's terms.</td></tr>
+            <tr><td data-label="For">Wallet passes</td><td data-label="Provider">Google (Google Wallet) and Apple (Apple Wallet)</td><td data-label="What they receive">For Google Wallet, a loyalty member's name, points or stamps and card barcode. For Apple Wallet, a notice that a pass has changed.</td></tr>
+            <tr><td data-label="For">Payments</td><td data-label="Provider">Stripe</td><td data-label="What they receive">Payment amounts and descriptions, and the guest's email address for a deposit receipt, on the restaurant's own Stripe account and under the restaurant's own agreement with Stripe. Card details go straight from the guest's browser to Stripe.</td></tr>
+            <tr><td data-label="For">Card machines</td><td data-label="Provider">Dojo, SumUp or Stripe Terminal, as the restaurant chooses</td><td data-label="What they receive">Payment amounts and references, under the restaurant's own agreement with the provider. Card details stay in the card machine.</td></tr>
+            <tr><td data-label="For">Fonts</td><td data-label="Provider">Google Fonts</td><td data-label="What they receive">Visitors' IP addresses and browser details, under Google's own terms and privacy policy.</td></tr>
+            <tr><td data-label="For">Reviews</td><td data-label="Provider">Apify</td><td data-label="What they receive">The restaurant's place on Google Maps. Apify collects that place's public reviews, with reviewers' names and pictures, and passes them to us.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Services that receive no personal data, such as the weather service, are not listed.</p>
+      <p>A customer can also connect other services to Macaroonie: its till or ordering system (such as Loyverse, Square or GloriaFood), outside AI apps through Macaroonie's connectors, web addresses it sends reports to, and tools it adds to its website. What they send in, or what the customer sends to them, is under the customer's own arrangement with them.</p>
+      <p>We may also share personal data with our professional advisers (lawyers, accountants and insurers), who must keep it confidential; with the police, courts, regulators or others where the law requires it or to protect people's rights and safety; and with a buyer of our business or part of it, who would then have to use it as this policy says.</p>
+      <p>Each customer's data is kept apart from every other customer's. We don't sell personal data.</p>
+
+      <h2 id="transfers"><span class="sn">8.</span> Transfers outside the UK</h2>
+      <p>Some of the providers in section 7 are based in, or reach data from, countries outside the UK, mainly the United States. When personal data goes to a country that UK law has not found to protect it adequately, we use one of the safeguards UK law provides: the UK Extension to the EU-US Data Privacy Framework, where the provider has certified to it, or the International Data Transfer Agreement or the UK Addendum to the EU standard contractual clauses, with the checks the law requires. Transfers to the European Economic Area are covered by UK adequacy regulations.</p>
+      <p>To find out which safeguard applies to a provider, or to get a copy, email <a href="mailto:<%= co.email %>"><%= co.email %></a>.</p>
+
+      <h2 id="retention"><span class="sn">9.</span> How long we keep data</h2>
+      <p>We keep personal data only for as long as we need it for the purposes in this policy, or as long as the law requires.</p>
+      <div class="table-wrap">
+        <table class="legal-table">
+          <thead><tr><th scope="col">Data</th><th scope="col">How long</th></tr></thead>
+          <tbody>
+            <tr><td data-label="Data">Server logs</td><td data-label="How long">Up to 14 days</td></tr>
+            <tr><td data-label="Data">Register-interest details</td><td data-label="How long">While we are in touch; deleted within 24 months of our last contact if you don't become a customer</td></tr>
+            <tr><td data-label="Data">Staff accounts</td><td data-label="How long">While your employer keeps your account. Your employer can close it (it is kept but can't be used) or delete it.</td></tr>
+            <tr><td data-label="Data">Office pages opened and menu searches, and till tap counts</td><td data-label="How long">90 days</td></tr>
+            <tr><td data-label="Data">Notices sent to staff</td><td data-label="How long">30 days</td></tr>
+            <tr><td data-label="Data">Pepper chats</td><td data-label="How long">Deleted after the time the business chooses: 30, 90, 180 or 365 days after the last message (90 days unless it changes it)</td></tr>
+            <tr><td data-label="Data">Files attached to a Pepper message that is never sent</td><td data-label="How long">1 day</td></tr>
+            <tr><td data-label="Data">Pepper captures (a photo, voice note or text saved for later)</td><td data-label="How long">30 days after they are opened or dismissed</td></tr>
+            <tr><td data-label="Data">The details of each action Pepper took</td><td data-label="How long">Cleared after 365 days</td></tr>
+            <tr><td data-label="Data">Counts of each person's AI use</td><td data-label="How long">400 days</td></tr>
+            <tr><td data-label="Data">Our agreements with customers, invoices and payments</td><td data-label="How long">As long as the law requires, normally six years after the end of the financial year they relate to</td></tr>
+            <tr><td data-label="Data">Data we hold for our customers (their staff and guest records)</td><td data-label="How long">As long as the customer keeps it in Macaroonie, as it decides. Some is removed automatically: for example, an email address given for a kiosk receipt is removed once the receipt is sent. When a customer's agreement ends, we delete its data as our <a href="/terms#data-on-exit">Terms and conditions</a> set out.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Where data is also held in a backup, it is deleted when that backup is replaced.</p>
+
+      <h2 id="security"><span class="sn">10.</span> Security</h2>
+      <p>We protect personal data with measures that fit the risk, including:</p>
+      <ul>
+        <li>encrypted connections (HTTPS) to every Macaroonie address;</li>
+        <li>each customer's data kept apart in the database, and every request checked so that people reach only their own business's data;</li>
+        <li>access by role and permission, set by each business;</li>
+        <li>passwords held by our sign-in provider, and till and device PINs stored only as hashes;</li>
+        <li>the keys for connected services stored encrypted;</li>
+        <li>a firewall, limits on how many requests one address can make, and automatic blocking of addresses that abuse the service;</li>
+        <li>access to our systems only for the people who need it.</li>
+      </ul>
+      <p>No system is completely secure. If a personal data breach is likely to put your rights at risk, we will tell the ICO and, where the law requires, you. Where we hold the data for a customer, we will tell the customer without undue delay so that it can do the same.</p>
+
+      <h2 id="automated-decisions"><span class="sn">11.</span> Automated decisions and AI</h2>
+      <p>We don't make decisions about people based solely on automated processing that have legal or similarly significant effects on them.</p>
+      <p>Pepper, the assistant in Macaroonie, uses AI models from Anthropic to answer staff questions and suggest changes. It suggests; a person decides. A change Pepper offers to make, such as a booking, a rota change or a price, waits until a member of staff confirms it (or, in a restaurant's website chat, the guest), and each one is recorded. Pepper's readers turn menus, invoices and receipts into drafts for staff to check. AI can make mistakes, so what it gives is always for a person to check. We do not use personal data in Macaroonie to train AI models.</p>
+      <p>The service also applies the rules each restaurant sets, in the same way for everyone: which booking times are free, whether a deposit is due, and loyalty points, stamps and rewards, including points that expire after a time without a visit. If you think one of these got something wrong, ask the restaurant to check it.</p>
+
+      <h2 id="your-rights"><span class="sn">12.</span> Your rights</h2>
+      <p>You have the right to:</p>
+      <ul>
+        <li><strong>be informed</strong> about how your data is used, which is what this policy does;</li>
+        <li><strong>access</strong> your data: get a copy of it;</li>
+        <li><strong>rectification:</strong> have inaccurate data corrected and incomplete data completed;</li>
+        <li><strong>erasure:</strong> have your data deleted, in some cases;</li>
+        <li><strong>restriction:</strong> have us limit how we use your data, in some cases;</li>
+        <li><strong>object</strong> to our use of your data where we rely on legitimate interests, and to direct marketing at any time;</li>
+        <li><strong>data portability:</strong> get the data you gave us in a common, machine-readable form, or have it sent to another organisation, where we use it on the basis of consent or a contract and by automated means;</li>
+        <li><strong>withdraw consent</strong> at any time, where we rely on consent. This doesn't affect what we did before you withdrew it.</li>
+      </ul>
+      <p>To use any of these, email <a href="mailto:<%= co.email %>"><%= co.email %></a> or write to us at our registered office. We may ask you to prove who you are. We will reply within one month. If your request is complex, or you have made several, we can take up to two more months, and we will tell you so within the first month. The time limit pauses while we wait for information we reasonably need from you, such as proof of identity. There is normally no fee.</p>
+      <p>Some rights have limits, for example where the law requires us to keep data. If we can't do what you ask, we will explain why.</p>
+      <p>Where we hold the data for one of our customers (<a href="#customers">section 5</a> and <a href="#guests">section 6</a>), the customer decides. We will pass your request to them without delay and help them answer it.</p>
+
+      <h2 id="complaints"><span class="sn">13.</span> Complaints</h2>
+      <p>If you are unhappy with how we have used your personal data, please tell us first at <a href="mailto:<%= co.email %>"><%= co.email %></a>. We will acknowledge your complaint within 30 days, look into it without undue delay and tell you the outcome.</p>
+      <p>You also have the right to complain to the Information Commissioner's Office (ICO), the UK's data protection regulator:</p>
+      <ul>
+        <li>online at <a href="https://ico.org.uk/make-a-complaint/">ico.org.uk/make-a-complaint</a>;</li>
+        <li>by phone on 0303 123 1113;</li>
+        <li>by post to the Information Commissioner's Office, Wycliffe House, Water Lane, Wilmslow, Cheshire SK9 5AF.</li>
+      </ul>
+
+      <h2 id="children"><span class="sn">14.</span> Children</h2>
+      <p>macaroonie.com and the register-interest form are for businesses, not children, and we don't knowingly collect children's data through them. Staff accounts are set up by employers, who are responsible for their own staff, including any young workers. Restaurants decide whether children can book, order or join a loyalty scheme, and their own privacy notices explain how they handle children's data.</p>
+
+      <h2 id="cookies"><span class="sn">15.</span> Cookies and similar technologies</h2>
+      <p>Cookies, browser storage and service workers let a site keep information on your device. We use them only where they are needed for something you have asked for, such as signing in or keeping your design in a demo, so we don't ask for consent. We don't use them for advertising or analytics.</p>
+      <h3>On macaroonie.com</h3>
+      <p>No cookies. Nothing is kept on your device, except in the kiosk designer demo at <a href="/try/kiosk">/try/kiosk</a>:</p>
+      <div class="table-wrap">
+        <table class="legal-table">
+          <thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">What it is for</th><th scope="col">How long</th></tr></thead>
+          <tbody>
+            <tr><td data-label="Name"><code>maca_kiosk_demo_v1</code></td><td data-label="Kind">Local storage</td><td data-label="What it is for">The kiosk design you make, so it is still there when you come back</td><td data-label="How long">Until you choose Start again or clear your browser's data for this site</td></tr>
+            <tr><td data-label="Name"><code>kiosk-demo-pictures</code></td><td data-label="Kind">Cache storage</td><td data-label="What it is for">Pictures you add to the demo (up to 12), kept only in your browser</td><td data-label="How long">Until you remove them, choose Start again or clear your browser's data</td></tr>
+            <tr><td data-label="Name">The demo's service worker (<code>/site/demo/</code>)</td><td data-label="Kind">Service worker</td><td data-label="What it is for">Shows your pictures inside the demo</td><td data-label="How long">Until you clear your browser's data</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>If your browser has an old copy of our office app installed at this address, a service worker at <code>/sw.js</code> removes it and then removes itself. It keeps nothing.</p>
+      <p>Our fonts come from Google Fonts: Google receives your IP address and browser details when your browser fetches them. We set no cookie for this.</p>
+      <h3>In the office and the phone app</h3>
+      <p>At office.macaroonie.com, ops.macaroonie.com and in the Macaroonie Office app:</p>
+      <div class="table-wrap">
+        <table class="legal-table">
+          <thead><tr><th scope="col">What</th><th scope="col">Kind</th><th scope="col">What it is for</th><th scope="col">How long</th></tr></thead>
+          <tbody>
+            <tr><td data-label="What">Sign-in (Auth0)</td><td data-label="Kind">Local storage and a cookie named <code>auth0.&lt;id&gt;.is.authenticated</code> on our site, and Auth0's own cookies on its sign-in pages</td><td data-label="What it is for">Signs you in and keeps you signed in securely</td><td data-label="How long">Until you sign out or your session ends</td></tr>
+            <tr><td data-label="What">Your choices</td><td data-label="Kind">Local storage</td><td data-label="What it is for">The business and venue you picked, and your settings such as view options</td><td data-label="How long">Until you sign out or clear them</td></tr>
+            <tr><td data-label="What">The app's service worker</td><td data-label="Kind">Service worker and cache</td><td data-label="What it is for">Loads the office quickly, and delivers notifications if you turn them on</td><td data-label="How long">Until you clear your browser's data</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>There is no advertising or analytics tracking. The record of the pages you open (<a href="#customers">section 5</a>) is kept on our servers, not in a cookie, and you can object to it by emailing us.</p>
+      <h3>On tills, kitchen screens, kiosks and menu screens</h3>
+      <p>These devices keep their setup, orders, changes not yet sent, and the staff PIN hashes they need to keep working when the internet drops, and a count of button taps. This storage is needed for the device to work.</p>
+      <h3>On restaurant websites and booking widgets</h3>
+      <p>A restaurant's website on Macaroonie belongs to the restaurant. It decides whether to show a cookie banner and whether to add analytics or advertising tools, such as Google Analytics or the Meta Pixel, and its own cookie notice applies. The booking widget sets no cookies of its own.</p>
+      <p>Your browser's settings let you see and delete what sites keep on your device, and block cookies. If you block sign-in storage, the office won't work.</p>
+
+      <h2 id="changes"><span class="sn">16.</span> Changes to this policy</h2>
+      <p>We will update this policy when our services or the law change, and change the date at the top. If a change is significant, we will tell our customers by email, and anyone else it affects whose email address we have.</p>
+      <p class="legal-end">See also our <a href="/terms">Terms and conditions</a>.</p>
+    </article>
+  </div>
+</section>
+<%~ include('./_foot', it) %>

@@ -1,10 +1,13 @@
 <%
 /* The platform site's footer: a register-interest call to action (the form
-   itself is on the home page, so the home page leaves it out), then the
-   links. Opened by _head.eta. */
+   itself is on the home page, so the home page leaves it out, and so do the
+   legal pages: cta false), then the links, the legal links (legal, from
+   pages.js) and the company's details (company, from company.js), which the
+   trading disclosure rules ask to be on the site. Opened by _head.eta. */
+const co = it.company
 %>
 </main>
-<% if (it.page.path !== '/') { %>
+<% if (it.page.path !== '/' && it.page.cta !== false) { %>
 <section class="cta-band">
   <div class="wrap">
     <div>
@@ -23,7 +26,11 @@
       <a href="/#interest">Register interest</a>
       <a href="<%= it.officeUrl %>">Sign in</a>
     </nav>
-    <span>&copy; <%= it.year %> Macaroonie</span>
+    <nav class="foot-legal" aria-label="Legal">
+      <% it.legal.forEach(function (n) { %><a href="<%= n.path %>"<% if (n.path === it.page.path) { %> aria-current="page"<% } %>><%= n.label %></a><% }) %>
+    </nav>
+    <p class="company"><%= co.tradingName %> is a trading name of <%= co.name %>, a company registered in <%= co.registeredIn %>, company number <%= co.number %>. Registered office: <%= co.office %>. Email <a href="mailto:<%= co.email %>"><%= co.email %></a>.</p>
+    <p class="copy">&copy; <%= it.year %> <%= co.name %></p>
   </div>
 </footer>
 </body>

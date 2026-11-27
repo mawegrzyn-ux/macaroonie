@@ -13,7 +13,7 @@ export function Section() {
       <H2>Platform site</H2>
       <P>
         The platform&apos;s own public pages on the apex (macaroonie.com): what Macaroonie does, how it is built,
-        screenshots, and the register-interest form. They are served by the API, not the admin: the apex hook in{' '}
+        screenshots, the register-interest form, and the Terms and conditions and Privacy policy. They are served by the API, not the admin: the apex hook in{' '}
         <Mono>api/src/routes/platformSite.js</Mono> renders them from Eta views, and every other GET on the apex
         still goes to office. (301). No database tables; the content is in code.
       </P>
@@ -30,6 +30,8 @@ export function Section() {
           ['/try/kitchen-flow', 'The kitchen walkthrough: a narrated Friday service at an invented restaurant in 5 chapters and 20 steps (Back, Next, Play, Restart, arrow keys and space, #step-7 links), the kitchen map with the ways dishes took lit, and the step\'s screens. Story api/platform-site/kitchen-story.js, page api/platform-site/try-kitchen.js and try-kitchen.css.'],
           ['/try/kiosk', 'The kiosk designer demo: the office\'s real kiosk designer (every panel, the media picker, the theme maker) with an invented menu for Harbour & Co, and the real kiosk app as its preview, in a frame under the site\'s header (view try-kiosk.eta, style try.css). Dish pictures and Start again above it; on a phone, the kiosk with a colour set, the headings font and a start picture. Nothing is sent to the API.'],
           ['/site/demo/kiosk-designer/<file>, /site/demo/kiosk-app/<file>', 'The demo\'s two builds, admin/dist-demo and pos/dist-demo (made by npm run build from each app\'s vite.demo.config.js), served by demoBuilds.js from a list of the files each build made: hashed files under assets/ for a year, pages checked every time, anything else 404. pictures-sw.js is sent with Service-Worker-Allowed: /site/demo/.'],
+          ['/terms', 'Terms and conditions (view terms.eta): website use, the terms for business customers (27 clauses, numbered by hand) and the data processing schedule (UK GDPR Article 28(3)). Linked from every footer, not the header; no register-interest band (cta: false).'],
+          ['/privacy', 'Privacy policy (view privacy.eta): UK GDPR Articles 13 and 14 for visitors, people who register interest, customers and their staff, and restaurant guests (Macaroonie as processor), with the cookies part at /privacy#cookies (the footer\'s Cookies link; there is no /cookies page). The register-interest form links /privacy#register-interest.'],
           ['/sitemap.xml, /robots.txt', 'Every page that is not a placeholder; robots names the sitemap.'],
           ['/site/<file>', 'The pages\' CSS, script and screenshots from api/platform-site/. Linked with ?v=<hash of the file> and then cached for a year; without it, an hour.'],
           ['/site/shared/<version>/<file>', 'The shared rules the sandboxes run in the browser, as they are in shared/ (plain ESM). Only the files the entries import are served (an allowlist made from their import lines); <version> is a hash of them all, so they are cached for a year and an old version answers 404. Gzipped when the browser takes it.'],
@@ -39,7 +41,8 @@ export function Section() {
       <DataTable
         head={['File', 'What it holds']}
         rows={[
-          ['api/src/services/platformSite/pages.js', 'PAGES: one record per page (path, view, title, description, nav label, soon, shot for the Open Graph image). sitePage(), NAV, TRY_PAGES, sitemapXml().'],
+          ['api/src/services/platformSite/pages.js', 'PAGES: one record per page (path, view, title, description, nav label, soon, shot for the Open Graph image; foot, the footer label of a legal page; updated, its Last updated date; cta: false for no register-interest band). sitePage(), NAV, LEGAL_LINKS (the footer\'s legal links), TRY_PAGES, sitemapXml().'],
+          ['api/src/services/platformSite/company.js', 'COMPANY: the registered name, trading name, company number, where it is registered, the registered office and the contact email. The footer of every page and both legal pages read it from here.'],
           ['api/src/services/platformSite/features.js', 'FEATURE_GROUPS: the six groups, their points, parts, screenshot and place in the picture.'],
           ['api/src/services/platformSite/architecture.js', 'ARCH_LAYERS: the layers of the picture and each part\'s text and why it matters.'],
           ['api/src/services/platformSite/screenshots.js', 'SHOTS (file name, size, alt text, caption) and GALLERY, the Screenshots page\'s order.'],
@@ -50,6 +53,31 @@ export function Section() {
           ['scripts/ensure-nginx-site-assets.sh', 'Run by the deploy: adds location ^~ /site/ to the apex nginx config, so the static-file regex doesn\'t look for .css, .js and .png in the admin\'s build.'],
         ]}
       />
+      <H3>The legal pages and the company details</H3>
+      <P>
+        The footer of every page (<Mono>_foot.eta</Mono>, the home page included) carries the trading disclosure the
+        company rules ask for: Macaroonie is a trading name of the registered company, where it is registered, its
+        number and registered office, the contact email (a mailto link), and a copyright line in the company&apos;s
+        name, all from <Mono>company.js</Mono>. Below the site&apos;s links it lists <Mono>LEGAL_LINKS</Mono>: the Terms and
+        conditions, the Privacy policy and Cookies (<Mono>/privacy#cookies</Mono>).
+      </P>
+      <P>
+        The words of both documents are in their views, <Mono>views/platform/site/terms.eta</Mono> and{' '}
+        <Mono>privacy.eta</Mono>, as plain HTML: a contents list beside the text (sticky from 1000 px, above it on a
+        phone) whose links must match the headings&apos; ids, clause numbers written by hand (<Mono>span.sn</Mono> and{' '}
+        <Mono>span.cn</Mono>, the schedule&apos;s <Mono>span.sp</Mono> and <Mono>span.pn</Mono>), tables whose cells carry{' '}
+        <Mono>data-label</Mono> so each row becomes a card under 640 px, and a print style without the header and
+        contents. Styles are the legal block of <Mono>site.css</Mono>. The test checks the numbering, the contents, every
+        link into either page and the footer on every page.
+      </P>
+      <InfoBox type="warn">
+        The Privacy policy names the outside services that receive personal data (its section 7, the sub-processor
+        list the Terms&apos; data processing schedule points to) and how long data is kept (section 9). When a service is
+        added or dropped, or a retention period changes in code, change the policy in the same pull request and move
+        the updated date on both page records. The policy says what is true of the code; the statements only the
+        owner can confirm (hosting region, backups, transfer safeguards and others) are listed in{' '}
+        <Mono>docs/claude/outstanding/shell.md</Mono>.
+      </InfoBox>
       <H3>The kiosk designer demo</H3>
       <P>
         The demo is the office&apos;s own code built twice more, never a copy. <Mono>admin/vite.demo.config.js</Mono> builds{' '}
@@ -84,7 +112,8 @@ export function Section() {
       </P>
       <H3>Adding a page</H3>
       <P>
-        Add a record to <Mono>PAGES</Mono> (a <Mono>nav</Mono> label puts it in the header and footer) and a view in{' '}
+        Add a record to <Mono>PAGES</Mono> (a <Mono>nav</Mono> label puts it in the header and footer; a{' '}
+        <Mono>foot</Mono> label puts it in the footer&apos;s legal links only) and a view in{' '}
         <Mono>views/platform/site/</Mono> that starts with <Mono>{"<%~ include('./_head', it) %>"}</Mono> and ends with{' '}
         <Mono>{"<%~ include('./_foot', it) %>"}</Mono>. Styles go in <Mono>site.css</Mono>, behaviour in{' '}
         <Mono>site.js</Mono> or a file of its own under <Mono>api/platform-site/</Mono>. A sandbox under{' '}
