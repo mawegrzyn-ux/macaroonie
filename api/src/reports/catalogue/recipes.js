@@ -11,10 +11,12 @@
 // suppliers charge. Costs are in pounds, before VAT, as purchasing keeps them.
 // Phase 7b (migration 315): cost alerts, the dishes a supplier price change
 // took over their cost target or limit (price creep), as the price change
-// hook recorded them.
+// hook recorded them. Phase 8a (migration 316): allergen checks, each dish's
+// declared allergens against what its recipes suggest, as last worked out.
 
 import { subject, text, number, money, percent, yesno, choice, moment, sum, avg, count, countDistinct, one, many } from './define.js'
 import { CREEP_SOURCES } from '../../../../shared/priceCreep.js'
+import { CHECK_STATUSES } from '../../../../shared/allergenCheck.js'
 
 const COSTING = 'costing'
 const pounds = (src, opts = {}) => money(src, { unit: 'pounds', needs: COSTING, ...opts })
@@ -453,5 +455,47 @@ export const subjects = [
     },
     list: ['date', 'dish', 'venue.name', 'old_cost_pct', 'new_cost_pct', 'crossed_pct', 'cause', 'seen_by'],
     sort: [{ by: 'date', dir: 'desc' }],
+  }),
+
+  // Phase 8a (migration 316): each dish's declared allergens against what its
+  // recipes suggest, as the Allergens tab or Pepper last worked it out.
+  subject({
+    key: 'recipes.allergen_checks',
+    label: 'Allergen checks',
+    one: 'allergen check',
+    area: 'recipes',
+    module: 'recipes',
+    about: 'Each menu dish whose declared allergens differ from what its recipes suggest (the allergens of the supplier products each venue orders, through its prep recipes and its options), or did: open (nobody has decided), accepted (the declaration was changed to match, in the menu\'s draft) or dismissed (kept as declared, with why). As last worked out on the Recipes page\'s Allergens tab or by Pepper. The declaration on the menu is what guests are told; this is a check on it, only as good as the supplier data under it.',
+    from: 'allergen_checks',
+    name: 'dish',
+    open: { page: '/recipes?tab=allergens&check=:id', module: 'recipes', id: 'dish_id' },
+    skip: ['menu_id', 'fingerprint', 'suggested', 'declared', 'scopes', 'history'],
+    fields: {
+      dish: text('dish', { label: 'Dish', synonyms: ['menu item'] }),
+      menu: text('menu', { label: 'Menu' }),
+      section: text('section', { label: 'Section' }),
+      status: choice('status', CHECK_STATUSES, { label: 'Status', about: 'Open: nobody has decided. Accepted: the declaration was changed to match. Dismissed: kept as declared, with a note.' }),
+      differences: number({ sql: 'jsonb_array_length({t}.differences)' }, { label: 'Differences', decimals: 0, about: 'Allergens where the recipe and the declaration differ (for an accepted check, the ones accepted).' }),
+      what_differs: text({ sql: "(SELECT string_agg(e->>'text', '; ' ORDER BY e->>'allergen') FROM jsonb_array_elements({t}.differences) e)" }, {
+        label: 'What differs', synonyms: ['allergen', 'may contain', 'sesame', 'gluten', 'nuts', 'allergen difference'],
+        about: 'Each difference in words: "The recipe has sesame; the dish does not say so", "The dish declares celery; nothing in the recipe has it".',
+      }),
+      allergens: text({ sql: "(SELECT string_agg(e->>'label', ', ' ORDER BY e->>'allergen') FROM jsonb_array_elements({t}.differences) e)" }, { label: 'Allergens that differ', synonyms: ['allergens', 'which allergen'] }),
+      complete: yesno('complete', { label: 'Every product known', about: 'Every ingredient\'s supplier product has its allergens; when not, an allergen declared that nothing has can\'t be said.' }),
+      gaps: number('gaps', { label: 'Allergens unknown', decimals: 0, about: 'Ingredients whose supplier product has no allergens yet (or has no supplier product), and other gaps such as no recipe at a venue.' }),
+      decided_by: text('decided_by', { label: 'Decided by' }),
+      decided_at: moment('decided_at', { label: 'Decided at' }),
+      note: text('note', { label: 'Why dismissed', about: 'The note left when the check was dismissed.' }),
+      worked_at: moment('worked_at', { label: 'Last worked out' }),
+      first_found: moment('created_at', { label: 'First found' }),
+    },
+    measures: {
+      checks: count({ label: 'Allergen checks', synonyms: ['allergen check', 'allergen differences'] }),
+      open: count({ label: 'Open', where: "{t}.status = 'open'", synonyms: ['allergens to check'] }),
+      dishes: countDistinct('dish_id', { label: 'Dishes' }),
+      unknown: sum('gaps', { label: 'Allergens unknown' }),
+    },
+    list: ['dish', 'menu', 'status', 'what_differs', 'gaps', 'decided_by', 'decided_at'],
+    sort: [{ by: 'dish', dir: 'asc' }],
   }),
 ]

@@ -9,6 +9,8 @@
 // by sales, from Recipe coverage (sales in pounds need till reports view).
 // Phase 7a: menu engineering this month, from Menu engineering. Phase 7b:
 // dishes that crossed the cost limit after a price change, from Cost alerts.
+// Phase 8a: dishes with allergen differences (Allergen checks) and items with
+// unknown allergens (Supplier prices' allergen fields).
 
 import { starter } from './define.js'
 
@@ -117,6 +119,37 @@ export const starters = [
       kind: 'list',
       rows: ['date', 'dish', 'venue.name', 'order_type', 'old_cost_pct', 'new_cost_pct', 'crossed_pct', 'cause', 'source', 'seen_by'],
       sort: [{ by: 'date', dir: 'desc' }, { by: 'new_cost_pct', dir: 'desc' }],
+    },
+  }),
+
+  // Phase 8a (migration 316): the allergen check, from Allergen checks (Recipes view).
+  starter({
+    key: 'dishes_with_allergen_differences',
+    name: 'Dishes with allergen differences',
+    about: 'Dishes whose declared allergens differ from what their recipes suggest and that nobody has decided yet, as last worked out on the Recipes page\'s Allergens tab: what differs in words ("the recipe has sesame; the dish does not say so") and how many ingredients\' allergens are still unknown. Open one to see the evidence and accept or dismiss each. The declaration is what guests are told: a person decides.',
+    period: false,
+    venues: false,
+    spec: {
+      subject: 'recipes.allergen_checks',
+      kind: 'list',
+      rows: ['dish', 'menu', 'section', 'what_differs', 'differences', 'gaps', 'worked_at'],
+      filters: [{ field: 'status', op: 'is', value: 'open' }],
+      sort: [{ by: 'differences', dir: 'desc' }, { by: 'dish', dir: 'asc' }],
+    },
+  }),
+  // From Supplier prices (Purchasing setup view): the gaps in the allergen check.
+  starter({
+    key: 'items_with_unknown_allergens',
+    name: 'Items with unknown allergens',
+    about: 'Supplier products of items used in recipes whose allergens nobody has put in yet: each is a gap in the Recipes page\'s allergen check ("allergens unknown for oyster sauce at Soho"). Put them in on the Inventory page from the product\'s spec sheet, or have Pepper read the sheet.',
+    period: false,
+    venues: false,
+    spec: {
+      subject: 'purchasing.prices',
+      kind: 'list',
+      rows: ['product', 'supplier.name', 'product_name', 'supplier_code', 'allergens_known'],
+      filters: [{ field: 'allergens_known', op: 'is', value: false }, { field: 'in_recipes', op: 'is', value: true }, { field: 'active', op: 'is', value: true }],
+      sort: [{ by: 'product', dir: 'asc' }],
     },
   }),
 ]

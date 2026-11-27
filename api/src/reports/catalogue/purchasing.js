@@ -434,10 +434,19 @@ export const subjects = [
       out_of_stock_at: moment('out_of_stock_at', { label: 'Marked out of stock at' }),
       added_at: moment('created_at', { label: 'Added at' }),
       changed_at: moment('updated_at', { label: 'Last changed' }),
+      // The product's allergens (inventory phase 8a, migration 316): what the allergen check reads.
+      allergens_known: yesno({ sql: '({t}.allergens_checked_at IS NOT NULL)' }, { label: 'Allergens known', synonyms: ['allergen data', 'spec sheet'], about: 'Its allergens have been put in (from its spec sheet or label). Not known is a gap in the Recipes page\'s allergen check.' }),
+      allergens_contains: text({ sql: "array_to_string({t}.allergens_contains, ', ')" }, { label: 'Contains', synonyms: ['allergen', 'allergens', 'gluten', 'sesame', 'nuts'], about: 'Which of the 14 allergens the product contains.' }),
+      allergens_may_contain: text({ sql: "array_to_string({t}.allergens_may_contain, ', ')" }, { label: 'May contain', synonyms: ['may contain', 'cross contact', 'traces'] }),
+      allergens_checked_at: moment('allergens_checked_at', { label: 'Allergens put in at' }),
+      allergens_checked_by: text('allergens_checked_by', { label: 'Allergens put in by' }),
+      allergens_source: text('allergens_source', { label: 'Allergens from', about: 'Where the allergens came from: the spec sheet, its date.' }),
+      in_recipes: yesno({ sql: '(EXISTS (SELECT 1 FROM recipe_lines rl WHERE rl.item_id = {t}.item_id AND rl.tenant_id = {t}.tenant_id))' }, { label: 'Item in a recipe' }),
     },
     measures: {
       prices: count({ label: 'Prices', where: '{t}.is_active', about: 'Supplier prices in use.' }),
       out_of_stock_count: count({ label: 'Out of stock', where: '{t}.is_active AND {t}.out_of_stock_until > (now() AT TIME ZONE {tz})::date', about: 'Supplier prices in use marked out of stock today.' }),
+      allergens_unknown: count({ label: 'Allergens not known', where: '{t}.is_active AND {t}.allergens_checked_at IS NULL', about: 'Supplier prices in use whose allergens nobody has put in.' }),
     },
     links: {
       item: one('purchasing.items', 'item_id', { label: 'Item' }),
