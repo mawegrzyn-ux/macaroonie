@@ -42,6 +42,14 @@
 //                  (or the same-named one changed); pushing prices and
 //                  publishing stay on the pages                     consequential
 //
+// Phase 7b (price creep, migration 315):
+//   why_cost_changed  a dish's cost now against its cost at the start of a day:
+//                  which items moved and by how much, from the supplier price
+//                  history (GET /api/cost-alerts/why), its cost % then and now,
+//                  the recipes changed since and the cost alerts recorded for
+//                  it; supplier names and pack prices with purchasing prices
+//                                                                    costing, view
+//
 // The model is given names, never ids (rule 19): a recipe is picked by its
 // name, and its page link searches the Recipes page for that name.
 
@@ -50,7 +58,8 @@ import { withTenant } from '../../config/db.js'
 import { callApi, requireStaffPermission, ToolError } from '../context.js'
 import { VenueText, venueFor, tenantVenueList, pickByName, plural, audited } from './util.js'
 import { fmtNum, UNITS } from '../../../../shared/procurement.js'
-import { pounds, perWord, BASIS_KEYS, COVERAGE, BANDS, sameScope, toBase, inRecipeUnit, YIELD_UNITS, readLineKept } from '../../../../shared/costing.js'
+import { pounds, perWord, perBaseText, BASIS_KEYS, COVERAGE, BANDS, sameScope, toBase, inRecipeUnit, YIELD_UNITS, readLineKept } from '../../../../shared/costing.js'
+import { moveWords, dayWords } from '../../../../shared/priceCreep.js'
 import { matchIndex, matchThing, normName } from '../../../../shared/itemMatch.js'
 import { averageText } from '../../../../shared/engineering.js'
 
@@ -83,7 +92,9 @@ export const promptLines = [
     'steps it is worked out by).',
   'Dish costs and margins: dish_cost (a menu dish at a venue, revenue stream and order type: which recipe or variation ' +
     'it uses there and why, what it costs, its price, GP and cost %, with the steps), menu_margins (every dish of a menu ' +
-    'at a venue and order type, worst cost % first, with the dishes that can\'t be costed yet and how to fix each).',
+    'at a venue and order type, worst cost % first, with the dishes that can\'t be costed yet and how to fix each), ' +
+    'why_cost_changed (a dish\'s cost now against a date: which ingredients\' supplier prices moved and by how much, and ' +
+    'the dishes a price change took over their cost target, the price creep alerts).',
   'Getting recipes in: read_recipes (recipes from photos, a PDF or a CSV attached in the chat, or pasted text, made as ' +
     'drafts once the person confirms), make_recipe (a draft recipe from their description), link_recipes (dishes linked ' +
     'to recipes for every venue, or at a venue, revenue stream or order type), recipe_coverage (how much of what sold ' +
@@ -972,5 +983,78 @@ export const engineeringTools = [
   },
 ]
 
+// ── Price creep (phase 7b) ───────────────────────────────────
+
+const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+const signed = p => (p == null ? null : (p < 0 ? '-' : '+') + pounds(Math.abs(p)))
+
+/** One item's move for the answer: "Chicken thighs: £6.00 a kg to £6.72 a kg (up 12%), +£0.36 a serving (Brakes, Bag 1 kg)". */
+function moveText(m, prices) {
+  const was = m.before == null ? 'no price' : perBaseText(m.before, m.base_unit)
+  const now = m.after == null ? 'no price' : perBaseText(m.after, m.base_unit)
+  const q = prices && m.quote_after ? ' (' + [m.quote_after.supplier, m.quote_after.pack].filter(Boolean).join(', ') + ')' : ''
+  return m.name + ': ' + was + ' to ' + now + (m.pct != null ? ' (' + (m.pct >= 0 ? 'up ' : 'down ') + Math.abs(m.pct) + '%)' : '') +
+    (m.effect != null ? ', ' + signed(m.effect) + ' a serving' : '') + q
+}
+
+export const creepTools = [
+  {
+    name: 'why_cost_changed',
+    activity: 'Looked at why a dish\'s cost changed',
+    section: 'recipes',
+    modules: ['costing'],
+    title: 'Why a dish\'s cost changed',
+    description:
+      'A dish on a live menu: what one serving costs now against what the same recipe cost at the start of a day (30 ' +
+      'days ago unless a day is given), from the supplier price history, which ingredients\' prices moved and by how much ' +
+      'and what each did to a serving, its cost % then and now at today\'s menu price against the targets, the recipes ' +
+      'changed since (recipes keep no history, so only prices are compared, on today\'s recipe), and the price creep ' +
+      'alerts recorded for it since (a price change that took it over its cost target or limit). Costing view; supplier ' +
+      'names and packs need purchasing prices too.',
+    input: z.object({
+      dish: z.string().trim().min(1).max(200).describe('The dish\'s name on the menu'),
+      menu: z.string().trim().max(120).optional().describe('The menu, when dishes on two menus share the name'),
+      venue: VenueText.describe('The venue; leave out for the group\'s own prices'),
+      order_type: TypeText.describe('The order type for the cost %: eat in, take out...'),
+      since: Day.optional().describe('The day to compare with, YYYY-MM-DD (30 days ago unless asked)'),
+    }),
+    readOnly: true,
+    async run(ctx, input) {
+      await requireStaffPermission(ctx, 'costing', 'view')
+      const list = await callApi(ctx, 'GET', '/api/recipe-links/names')
+      const menu = input.menu ? pickByName(list.menus, input.menu, m => m.name, 'menu', 'No menus yet.') : null
+      const rows = menu ? list.dishes.filter(d => d.menu_id === menu.id) : list.dishes
+      const dish = pickByName(rows, input.dish, d => d.name, 'dish', 'No dishes on the menus yet.')
+      const { scope, where } = await scopeFor(ctx, input)
+      const q = new URLSearchParams({ dish_id: dish.id, ...(scope.venue_id ? { venue_id: scope.venue_id } : {}), ...(scope.order_type_id ? { order_type_id: scope.order_type_id } : {}) })
+      if (input.since) q.set('since', input.since)
+      const r = await callApi(ctx, 'GET', '/api/cost-alerts/why?' + q.toString())
+      const moved = r.items.filter(m => m.before != null || m.after != null)
+      const out = {
+        dish: r.dish.name, menu: r.dish.menu, where: where + (r.order_type ? ' (' + r.order_type.name + ')' : ''),
+        since: 'the start of ' + dayWords(r.since) + ' ' + r.since.slice(0, 4),
+        cost_then: r.cost_then == null ? 'not costed' : pounds(r.cost_then) + ' a serving',
+        cost_now: r.cost_now == null ? 'not costed' : pounds(r.cost_now) + ' a serving',
+        ...(r.change != null ? { change: signed(r.change) + (r.change_pct != null ? ' (' + (r.change_pct >= 0 ? 'up ' : 'down ') + Math.abs(r.change_pct) + '%)' : '') } : {}),
+        ...(r.cost_pct_then != null || r.cost_pct_now != null ? {
+          cost_pct: (pct(r.cost_pct_then) || 'none') + ' then, ' + (pct(r.cost_pct_now) || 'none') + ' now, at today\'s menu price' +
+            ' (target ' + pct(r.thresholds?.target_pct) + ', limit ' + pct(r.thresholds?.limit_pct) + ')',
+        } : {}),
+        moved: moved.length ? moved.map(m => moveText(m, r.sees_prices)) : ['No ingredient\'s supplier price moved since then.'],
+        ...(r.no_history?.length ? { no_price_history_then: r.no_history.join(', ') + ': no price recorded before then, so taken as today\'s' } : {}),
+        ...(r.recipes_changed?.length ? { recipes_changed_since: r.recipes_changed.map(x => x.name).join(', ') + ' (recipes keep no history: this compares prices only, on today\'s recipe)' } : {}),
+        ...(r.uncosted?.length ? { not_costed: r.uncosted.map(g => g.text) } : {}),
+        ...(r.alerts?.length ? {
+          price_creep_alerts: r.alerts.map(a => dayWords(a.day) + ': crossed ' + pct(a.threshold_pct) + ' at ' + a.venue + ' (' +
+            (pct(a.old_cost_pct) || 'not costed') + ' to ' + pct(a.new_cost_pct) + '): ' + a.cause + (a.seen_by ? ', seen by ' + a.seen_by : '')),
+        } : {}),
+        page: '/menu-margins?alerts=1',
+      }
+      if (moved.length) out.summary = moved.slice(0, 2).map(moveWords).join(', ')
+      return out
+    },
+  },
+]
+
 // What Pepper is told about this file's tools, gathered by tools/index.js.
-export const tools = [...recipeTools, ...marginTools, ...changeTools, ...engineeringTools]
+export const tools = [...recipeTools, ...marginTools, ...changeTools, ...engineeringTools, ...creepTools]
