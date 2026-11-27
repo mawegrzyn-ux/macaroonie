@@ -7,7 +7,8 @@
 // Phase 2: dishes over the target cost % and dishes with no recipe, from
 // Dish margins (Costing view), today's prices too. Phase 3: uncosted dishes
 // by sales, from Recipe coverage (sales in pounds need till reports view).
-// Phase 7a: menu engineering this month, from Menu engineering.
+// Phase 7a: menu engineering this month, from Menu engineering. Phase 7b:
+// dishes that crossed the cost limit after a price change, from Cost alerts.
 
 import { starter } from './define.js'
 
@@ -102,6 +103,20 @@ export const starters = [
       rows: ['name', 'kind', 'venue.name', 'unit_cost', 'unit', 'cost', 'coverage'],
       filters: [{ field: 'active', op: 'is', value: true }],
       sort: [{ by: 'name', dir: 'asc' }],
+    },
+  }),
+
+  // Phase 7b: price creep, from Cost alerts (Costing view).
+  starter({
+    key: 'dishes_crossed_cost_limit',
+    name: 'Dishes that crossed the cost limit',
+    about: 'The dishes a supplier price change took over their cost target or limit this month so far (today\'s too), newest first: the venue, the cost % before and after (at today\'s menu price, at the order type where it is worst), the % it crossed, what moved (the ingredients whose cost went up), where the change came from, and whether someone has marked it seen on the Menu margins page.',
+    period: { relative: 'month_to_date' },
+    spec: {
+      subject: 'recipes.cost_alerts',
+      kind: 'list',
+      rows: ['date', 'dish', 'venue.name', 'order_type', 'old_cost_pct', 'new_cost_pct', 'crossed_pct', 'cause', 'source', 'seen_by'],
+      sort: [{ by: 'date', dir: 'desc' }, { by: 'new_cost_pct', dir: 'desc' }],
     },
   }),
 ]

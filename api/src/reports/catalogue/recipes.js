@@ -9,6 +9,9 @@
 // (work/recipes.js, recipeCost() in shared/costing.js) at each venue's
 // standard supplier prices, and needs Costing view: a cost tells what
 // suppliers charge. Costs are in pounds, before VAT, as purchasing keeps them.
+// Phase 7b (migration 315): cost alerts, the dishes a supplier price change
+// took over their cost target or limit (price creep), as the price change
+// hook recorded them.
 
 import { subject, text, number, money, percent, yesno, choice, moment, sum, avg, count, countDistinct, one, many } from './define.js'
 
@@ -35,6 +38,8 @@ const SOLD_STATES = { costed: 'Costed', uncosted: 'Not costed', left_out: 'Left 
 const FIX_KINDS = { link: 'Link a recipe', recipe: 'Finish the recipe', option: 'Add an option rule', deal: 'Cost the meal deal\'s dishes', map: 'Map it to a menu dish' }
 
 const BANDS = { good: 'On target', watch: 'Over target', over: 'Over the limit' }
+// Where a price change came from (CREEP_SOURCES in shared/priceCreep.js).
+const CREEP_SOURCES = { manual: 'A price typed in or edited', import: 'An inventory import', price_update: 'A supplier price list', invoice: 'An invoice\'s prices' }
 const DISH_KINDS = { dish: 'Dish', deal: 'Meal deal', goods: 'Goods', service: 'Service' }
 const DISH_COVERAGE = { full: 'Fully costed', partial: 'Partly costed', none: 'Not costed', not_needed: 'No recipe needed (a service)' }
 // A link's dish, its menu and section, from the menu as it is being edited (plain ids: a dish gone is empty).
@@ -403,5 +408,51 @@ export const subjects = [
     },
     list: ['name', 'menu', 'venue.name', 'order_type', 'changes', 'updated_at', 'pushed_at'],
     sort: [{ by: 'updated_at', dir: 'desc' }],
+  }),
+
+  // Phase 7b (migration 315): price creep, as the price change hook recorded it.
+  subject({
+    key: 'recipes.cost_alerts',
+    label: 'Cost alerts',
+    one: 'cost alert',
+    area: 'recipes',
+    module: COSTING,
+    about: 'Each time a supplier price change (a price typed in or edited, an inventory import, a supplier\'s price list, an invoice\'s prices applied) took a dish on a live menu over its cost target or its limit at a venue: the dish at its worst order type, its cost % before and after at today\'s menu price, the % it crossed, what moved (the ingredients whose cost went up or down, in words), where the change came from and who made it, and who marked it seen on the Menu margins page.',
+    from: 'cost_alerts',
+    venue: 'venue_id',
+    name: 'dish',
+    date: { sql: '{t}.day', label: 'Day' },
+    open: { page: '/menu-margins?venue=:venue&alerts=1&alert=:id', module: COSTING, with: { venue: 'venue_id' } },
+    skip: ['menu_id', 'order_type_id', 'po_id', 'causes'],
+    fields: {
+      dish: text('name', { label: 'Dish', synonyms: ['menu item'] }),
+      menu: text('menu', { label: 'Menu' }),
+      section: text('section', { label: 'Section' }),
+      order_type: text('order_type', { label: 'Order type', about: 'Where its cost % is worst (the VAT differs by order type).' }),
+      old_cost_pct: percent('old_cost_pct', { label: 'Cost % before', about: 'At the prices before the change, today\'s menu price and recipe; empty when it couldn\'t be costed then.' }),
+      new_cost_pct: percent('new_cost_pct', { label: 'Cost % after', synonyms: ['food cost percent', 'cost percentage'] }),
+      points_up: number({ sql: '({t}.new_cost_pct - {t}.old_cost_pct)' }, { label: 'Points up', decimals: 1, adds: false, about: 'How many points the cost % rose (after less before).' }),
+      old_band: choice('old_band', BANDS, { label: 'Before' }),
+      new_band: choice('new_band', BANDS, { label: 'After' }),
+      over_limit: yesno({ sql: "({t}.new_band = 'over')" }, { label: 'Over the limit', about: 'Over the limit cost % (else over the target).' }),
+      crossed_pct: percent('threshold_pct', { label: 'Crossed', about: 'The cost % it went over: its target, or its limit.' }),
+      target_pct: percent('target_pct', { label: 'Target cost %' }),
+      limit_pct: percent('limit_pct', { label: 'Limit cost %' }),
+      cause: text('cause', { label: 'What moved', synonyms: ['price rise', 'cost creep', 'price creep', 'why'], about: 'The ingredients whose cost per kg, litre or each moved, biggest effect on a serving first.' }),
+      source: choice('source', CREEP_SOURCES, { label: 'Where the change came from' }),
+      changed_by: text('changed_by', { label: 'Price changed by' }),
+      at: moment('at', { label: 'Changed at' }),
+      seen: yesno({ sql: '({t}.seen_at IS NOT NULL)' }, { label: 'Seen' }),
+      seen_by: text('seen_by', { label: 'Seen by' }),
+      seen_at: moment('seen_at', { label: 'Seen at' }),
+    },
+    measures: {
+      alerts: count({ label: 'Cost alerts', synonyms: ['cost alert', 'price creep', 'cost creep', 'price rise'] }),
+      dishes: countDistinct('dish_id', { label: 'Dishes', about: 'Different dishes that crossed.' }),
+      unseen: count({ label: 'Not seen yet', where: '{t}.seen_at IS NULL' }),
+      average_points_up: avg({ sql: '({t}.new_cost_pct - {t}.old_cost_pct)' }, { label: 'Average points up', decimals: 1 }),
+    },
+    list: ['date', 'dish', 'venue.name', 'old_cost_pct', 'new_cost_pct', 'crossed_pct', 'cause', 'seen_by'],
+    sort: [{ by: 'date', dir: 'desc' }],
   }),
 ]
