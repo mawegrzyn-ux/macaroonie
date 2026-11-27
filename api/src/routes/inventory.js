@@ -27,6 +27,14 @@
 // the answer went out). The price history keeps each row's pack size
 // (pack_base_qty), and a pack change is a row too, so a cost per base unit
 // can be read back at any moment (pricesAt() in shared/priceCreep.js).
+//
+// Allergens on the supplier's product (inventory phase 8a, migration 316;
+// docs/INVENTORY.md 8.3): which of the 14 allergens it contains and may
+// contain, when that was checked (null: unknown) and where it came from.
+//   PUT /quotes/:id/allergens  { known, contains, may_contain, source }  the
+//                              whole of it (rule 13); known false = unknown again
+// The recipes area's allergen check (shared/allergenCheck.js) reads them at
+// the product chooseQuote() picks at each venue; nothing here changes a dish.
 
 import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
@@ -43,6 +51,7 @@ import { barcodeProblem, cleanBarcode } from '../../../shared/catalogue.js'
 import { unitChoices, unitNameProblem } from '../../../shared/costing.js'
 import { importColumns, importValues } from '../../../shared/customFields.js'
 import { priceChanged, firesCostAlerts } from '../services/priceCreepSvc.js'
+import { ALLERGEN_KEYS, allergenListProblem, SOURCE_MAX } from '../../../shared/allergenCheck.js'
 
 const uuid = z.string().uuid()
 const text = (max = 200) => z.string().trim().max(max)
@@ -98,6 +107,15 @@ const QuoteBody = z.object({
   notes:          optText(2000),
 })
 
+// A product's allergens, whole (migration 316): known false clears them back to unknown.
+const AllergenKey = z.enum(ALLERGEN_KEYS)
+const QuoteAllergensBody = z.object({
+  known:       z.boolean(),
+  contains:    z.array(AllergenKey).max(14),
+  may_contain: z.array(AllergenKey).max(14),
+  source:      z.string().trim().max(SOURCE_MAX).nullable(),
+}).strict()
+
 const VenuePricesBody = z.object({
   prices: z.array(z.object({ venue_id: uuid, price: z.number().min(0).max(10000000).nullable() })).max(500),
 })
@@ -121,6 +139,7 @@ const QUOTE_COLS = (tx, tenantId) => tx`
   q.price::float8 AS price, q.vat_rate::float8 AS vat_rate,
   q.min_qty::float8 AS min_qty, q.order_multiple::float8 AS order_multiple, q.updated_at,
   q.out_of_stock_until::text AS out_of_stock_until, q.out_of_stock_note, q.out_of_stock_by, q.out_of_stock_at,
+  q.allergens_contains, q.allergens_may_contain, q.allergens_checked_at, q.allergens_checked_by, q.allergens_source,
   s.name AS supplier_name, s.is_active AS supplier_active,
   COALESCE((SELECT jsonb_object_agg(vp.venue_id::text, vp.price::float8)
               FROM inv_quote_venue_prices vp
@@ -1118,6 +1137,30 @@ export default async function inventoryRoutes(app) {
       if (moved.length) await priceChanged(tx, req, { quoteIds: [q.id], venueIds: moved, source: 'manual' })
       return (await loadItems(tx, req.tenantId, [q.item_id]))[0]
     })
+  })
+
+  // The product's allergens, whole (inventory phase 8a, migration 316): what it
+  // contains and may contain, by the 14 allergens' keys, and where that came
+  // from; checked now, by whoever saves. known false makes them unknown again
+  // (a gap in the allergen check). No dish changes here: the check on the
+  // Recipes page shows what differs, and a person decides.
+  app.put('/quotes/:id/allergens', { preHandler: canManage }, async req => {
+    const b = QuoteAllergensBody.parse(req.body || {})
+    const contains = b.known ? [...new Set(b.contains)] : []
+    const may = b.known ? [...new Set(b.may_contain)] : []
+    const problem = allergenListProblem({ contains, may_contain: may })
+    if (problem) throw httpError(422, problem)
+    const item = await withTenant(req.tenantId, async tx => {
+      const q = await ownQuote(tx, req.tenantId, req.params.id)
+      await tx`
+        UPDATE inv_quotes SET
+               allergens_contains = ${contains}::text[], allergens_may_contain = ${may}::text[],
+               allergens_checked_at = ${b.known ? tx`now()` : null}, allergens_checked_by = ${b.known ? req.user?.email ?? null : null},
+               allergens_source = ${b.known ? b.source || null : null}, updated_at = now()
+         WHERE id = ${q.id} AND tenant_id = ${req.tenantId}`
+      return (await loadItems(tx, req.tenantId, [q.item_id]))[0]
+    })
+    return item
   })
 
   app.get('/quotes/:id/history', { preHandler: canView }, async req => withTenant(req.tenantId, async tx => {

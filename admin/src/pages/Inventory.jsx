@@ -13,9 +13,13 @@
 // (/stock, the stock area: on hand, counts, adjustments).
 // Since migration 298 (inventory phase 1): an item's yield, usual units and
 // own units, which recipes cost it by (UnitsCard, units.jsx).
+// Since migration 316 (inventory phase 8a): each supplier price's allergens
+// (contains, may contain, checked when, from where), shown on its row and
+// edited in QuoteAllergensModal (allergens.jsx, lazy), which Pepper can fill
+// from the product's spec sheet.
 // API: routes/inventory.js.
 
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -38,8 +42,24 @@ import { CustomFieldsCard, CustomFieldInputs, newRowCustom, useCustomFields } fr
 import { UnitsCard } from '@/components/purchasing/units'
 import { canScan, scanBarcode } from '@/lib/officeApp'
 import { barcodeProblem } from '@shared/catalogue.js'
+import { STANDARD_ALLERGENS } from '@shared/menuTags.js'
 
-const PACK_NAMES = ['Case', 'Box', 'Bag', 'Tray', 'Tub', 'Bottle', 'Tin', 'Jar', 'Pack', 'Crate', 'Sack', 'Each']
+const QuoteAllergensModal = lazy(() => import('@/components/purchasing/allergens').then(m => ({ default: m.QuoteAllergensModal })))
+const ALLERGEN_LABEL = Object.fromEntries(STANDARD_ALLERGENS.map(a => [a.key, a.label]))
+
+/** A supplier price's allergens in a line: "Contains gluten, soya · may contain sesame", "None of the 14", or not known. */
+function QuoteAllergenLine({ q }) {
+  if (!q.allergens_checked_at) return <p className="text-xs text-amber-800" data-testid="quote-allergens-unknown">Allergens not known yet</p>
+  const words = list => list.map(k => (ALLERGEN_LABEL[k] || k).toLowerCase()).join(', ')
+  const has = q.allergens_contains || [], may = (q.allergens_may_contain || []).filter(k => !has.includes(k))
+  return (
+    <p className="text-xs" data-testid="quote-allergens-line">
+      {!has.length && !may.length ? 'None of the 14 allergens' : [has.length && 'Contains ' + words(has), may.length && 'may contain ' + words(may)].filter(Boolean).join(' · ')}
+    </p>
+  )
+}
+
+const PACK_NAMES =['Case', 'Box', 'Bag', 'Tray', 'Tub', 'Bottle', 'Tin', 'Jar', 'Pack', 'Crate', 'Sack', 'Each']
 
 export default function Inventory() {
   const api = useApi()
@@ -307,6 +327,7 @@ function ItemDrawer({ itemId, canEdit, onCreated, onClose, onOpenItem }) {
   const [quoteEdit, setQuoteEdit] = useState(null)
   const [venuePrices, setVenuePrices] = useState(null)
   const [history, setHistory] = useState(null)
+  const [allergens, setAllergens] = useState(null)
   const [deleted, setDeleted] = useState(null)
 
   const refresh = updated => {
@@ -354,7 +375,7 @@ function ItemDrawer({ itemId, canEdit, onCreated, onClose, onOpenItem }) {
                     isDefault={item.preferred.default === q.id}
                     onStar={() => setDefault.mutate({ venue_id: null, quote_id: item.preferred.default === q.id ? null : q.id })}
                     onEdit={() => setQuoteEdit(q)} onVenuePrices={() => setVenuePrices(q)} onHistory={() => setHistory(q)}
-                    onDelete={() => delQuote.mutate(q.id)} />
+                    onAllergens={() => setAllergens(q)} onDelete={() => delQuote.mutate(q.id)} />
                 ))}
               </div>
             )}
@@ -394,6 +415,11 @@ function ItemDrawer({ itemId, canEdit, onCreated, onClose, onOpenItem }) {
       {quoteEdit && <QuoteModal item={item} quote={quoteEdit.id ? quoteEdit : null} onClose={() => setQuoteEdit(null)} onSaved={refresh} />}
       {venuePrices && <VenuePricesModal item={item} quote={venuePrices} venues={venues} onClose={() => setVenuePrices(null)} onSaved={refresh} />}
       {history && <HistoryModal item={item} quote={history} onClose={() => setHistory(null)} />}
+      {allergens && (
+        <Suspense fallback={null}>
+          <QuoteAllergensModal item={item} quote={allergens} canEdit={canEdit} onClose={() => setAllergens(null)} onSaved={refresh} />
+        </Suspense>
+      )}
     </Drawer>
   )
 }
@@ -494,7 +520,7 @@ function ItemForm({ item, canEdit, onSaved, onOpenItem }) {
   )
 }
 
-function QuoteRow({ q, item, canEdit, today, canMark, onStockChanged, isDefault, onStar, onEdit, onVenuePrices, onHistory, onDelete }) {
+function QuoteRow({ q, item, canEdit, today, canMark, onStockChanged, isDefault, onStar, onEdit, onVenuePrices, onHistory, onAllergens, onDelete }) {
   const venueCount = Object.keys(q.venue_prices || {}).length
   return (
     <div className={cn('px-4 py-3 space-y-2', (!q.is_active || q.supplier_active === false) && 'opacity-60')}>
@@ -515,6 +541,7 @@ function QuoteRow({ q, item, canEdit, today, canMark, onStockChanged, isDefault,
           <p className="text-xs text-muted-foreground">
             {[q.min_qty && `min ${fmtNum(q.min_qty)}`, q.order_multiple && `in steps of ${fmtNum(q.order_multiple)}`, `VAT ${fmtNum(q.vat_rate)}%`].filter(Boolean).join(' · ')}
           </p>
+          <QuoteAllergenLine q={q} />
         </div>
         <div className="text-right shrink-0">
           <p className="font-semibold tabular-nums">{money(q.price)}</p>
@@ -527,6 +554,7 @@ function QuoteRow({ q, item, canEdit, today, canMark, onStockChanged, isDefault,
           <Store className="w-4 h-4" />Venue prices{venueCount ? ` (${venueCount})` : ''}
         </button>
         <button type="button" className={cn(btn.ghost, 'border')} onClick={onHistory}><History className="w-4 h-4" />History</button>
+        <button type="button" className={cn(btn.ghost, 'border')} onClick={onAllergens} data-testid="quote-allergens-open">Allergens</button>
         {canEdit && <span className="ml-auto"><ConfirmDelete label="Delete price" onConfirm={onDelete} /></span>}
       </div>
       {q.is_active && q.supplier_active !== false && (
