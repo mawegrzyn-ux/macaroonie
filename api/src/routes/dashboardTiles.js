@@ -28,12 +28,14 @@ export const TILE_CATALOG = [
   { tile_type: 'hs_today_status',   label: 'H&S checks today',       icon: 'ShieldCheck',    default_col_span: 2, default_height_px: 240 },
   { tile_type: 'hs_week_status',    label: "Week's H&S status",      icon: 'CalendarCheck',  default_col_span: 2, default_height_px: 240 },
   { tile_type: 'allergen_lookup',   label: 'Allergen lookup',        icon: 'Grid3x3',        default_col_span: 2, default_height_px: 480 },
+  // Inventory phase 6b (migration 313): each venue's stock in a line (admin components/stock/OverviewTile.jsx).
+  { tile_type: 'stock_status',      label: 'Stock',                  icon: 'Boxes',          default_col_span: 2, default_height_px: 320 },
 ]
 const TILE_TYPES = TILE_CATALOG.map(t => t.tile_type)
 
 // The module a tile's data needs, for the tiles that have one: /api/me leaves
 // a tile out for someone without it (the other tiles are for everyone).
-export const TILE_MODULE = { allergen_lookup: 'allergens' }
+export const TILE_MODULE = { allergen_lookup: 'allergens', stock_status: 'stock' }
 
 const TileBody = z.object({
   tile_type:  z.enum(TILE_TYPES),
