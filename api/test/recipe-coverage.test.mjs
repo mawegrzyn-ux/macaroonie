@@ -235,9 +235,13 @@ test('the report subject Recipe coverage and the starter Uncosted dishes by sale
   assert.ok(!rep.rows.some(r => r.cells[0] === 'Soup' && Number(r.cells[4]) === 50), 'test till sales left out')
   assert.match(String(row('Item not on menu', 'Soho')[6]), /open item/, 'an open item is left out, with why')
   assert.equal(row('Item not on menu', 'Soho')[5], false)
+  // The starter reads usage from sales since inventory phase 5 (dish_cost_days, the last 14 days): worked out first.
+  const { sweepStockUsage } = await import('../src/services/stockUsageSvc.js')
+  await sweepStockUsage(null, { again: 0 })
   const starter = await ok(owner.post('/api/reports/starter:uncosted_dishes_by_sales/run', {}))
-  assert.ok(starter.rows.length >= 2)
-  assert.ok(starter.rows.every(r => !/Burger/.test(r.cells[0]) || /Fries/.test(r.cells[0])), 'costed dishes are not in it')
+  assert.ok(starter.rows.length >= 1)
+  assert.ok(starter.rows.some(r => r.cells[0] === 'Salad'), 'the salad, whose lettuce has no price')
+  assert.ok(starter.rows.every(r => r.cells[0] !== 'Burger'), 'costed dishes are not in it')
   // Without till reports view, no pounds in the report.
   const cookRep = await cook.post('/api/reports/preview', { spec: { subject: 'recipes.coverage', kind: 'list', rows: ['dish', 'sales'] } })
   assert.notEqual(cookRep.status, 200, 'the sales field needs till reports view')

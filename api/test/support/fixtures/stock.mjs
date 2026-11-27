@@ -9,8 +9,13 @@
 // reason (added, renamed, ordered) and an entry of the item, its preview,
 // the day's list and the summary, a second entry undone; a transfer from the
 // first venue to the second, received with a difference, and another sent
-// and cancelled; the transfers lists.
+// and cancelled; the transfers lists. Phase 5 (migration 311), late, after the
+// till's, kiosk's and online orders' sales: the venue's day of usage worked out
+// by Recompute (stock_usage_days, dish_cost_days, the day's mark and the
+// venue's run), the Usage tab and Menu margins' Sold tab read.
 export const order = 87
+// Phase 5: usage from sales is worked out after the till's and online orders' sales (fillLate).
+export const lateOrder = 175
 
 // The tenant sweep's id kinds for this area's named id parameters.
 export const kinds = {
@@ -113,4 +118,15 @@ export async function fill(ctx) {
   await step('stock ledger', () => get(`/api/stock/venues/${V}/items/${item.id}/moves`))
   await step('stock today', () => get(`/api/stock/venues/${V}/today?date=2026-10-19`))
   await step('stock counts', () => get(`/api/stock/venues/${V}/counts`))
+}
+
+export async function fillLate(ctx) {
+  const { V, step, post, get } = ctx
+  // Usage from sales (phase 5): the venue's last days worked out now from what the fixtures sold, then read.
+  const u = await step('stock usage', () => get(`/api/stock/venues/${V}/usage`))
+  if (!u) return
+  const from = new Date(Date.parse(u.today) - 6 * 86400000).toISOString().slice(0, 10)
+  await step('stock usage recompute', () => post(`/api/stock/venues/${V}/usage/recompute`, { from, to: u.today }))
+  await step('stock usage read', () => get(`/api/stock/venues/${V}/usage?from=${from}&to=${u.today}`))
+  await step('menu margins sold', () => get(`/api/menu-margins/sold?venue_id=${V}&from=${from}&to=${u.today}`))
 }
