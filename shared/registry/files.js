@@ -21,6 +21,7 @@ import * as menus from './menus.js'
 import * as ordering from './ordering.js'
 import * as pepper from './pepper.js'
 import * as purchasing from './purchasing.js'
+import * as recipes from './recipes.js'
 import * as reports from './reports.js'
 import * as rota from './rota.js'
 import * as screens from './screens.js'
@@ -42,6 +43,7 @@ export const FILES = [
   ['ordering', ordering],
   ['pepper', pepper],
   ['purchasing', purchasing],
+  ['recipes', recipes],
   ['reports', reports],
   ['rota', rota],
   ['screens', screens],

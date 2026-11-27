@@ -390,6 +390,8 @@ export const subjects = [
       barcode: text('barcode', { label: 'Barcode', synonyms: ['GTIN', 'EAN', 'product code'], about: 'The barcode on the product (a GTIN), as the scanner reads it.' }),
       base_unit: choice('base_unit', UNITS, { label: 'Measured in' }),
       storage: choice('storage', STORAGE),
+      // Inventory phase 1 (migration 298): the usable share after trimming.
+      yield_pct: percent('yield_pct', { label: 'Yield', about: 'The usable share after trimming, which recipes cost the item by.' }),
       active: yesno('is_active', { label: 'In use' }),
       notes: text('notes'),
       added_at: moment('created_at', { label: 'Added at' }),
@@ -405,7 +407,8 @@ export const subjects = [
     list: ['name', 'category.name', 'code', 'base_unit', 'storage', 'active'],
     sort: [{ by: 'name', dir: 'asc' }],
     // custom: the group's own fields (migration 285), offered per group (customCatalogue() in index.js).
-    skip: ['updated_at', 'custom'],
+    // The usual recipe and count units (migration 298) are set-up for the Recipes page and counts.
+    skip: ['updated_at', 'custom', 'recipe_unit', 'count_unit'],
   }),
 
   subject({

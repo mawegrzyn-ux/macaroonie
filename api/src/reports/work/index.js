@@ -39,6 +39,7 @@ import { loadCashDays, loadCashWeeks } from '../../services/cashReconSvc.js'
 import { ROTA_WORKS } from './rota.js'
 import { SAFETY_WORKS } from './safety.js'
 import { STOCK_WORKS } from './stock.js'
+import { RECIPE_WORKS } from './recipes.js'
 
 const MONEY = 'numeric'
 
@@ -81,6 +82,8 @@ export const WORKS = {
   ...SAFETY_WORKS,
   // Stock on hand per item per venue (work/stock.js, migration 287).
   ...STOCK_WORKS,
+  // What each recipe costs at each venue (work/recipes.js, inventory phase 1).
+  ...RECIPE_WORKS,
 }
 
 const NAME = /^[a-z][a-z0-9_]{0,40}$/

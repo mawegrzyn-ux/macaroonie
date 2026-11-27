@@ -57,6 +57,7 @@ import { pages as menus } from './menus.js'
 import { pages as ordering } from './ordering.js'
 import { pages as pepper } from './pepper.js'
 import { pages as purchasing } from './purchasing.js'
+import { pages as recipes } from './recipes.js'
 import { pages as reports } from './reports.js'
 import { pages as rota } from './rota.js'
 import { pages as screens } from './screens.js'
@@ -67,7 +68,7 @@ import { pages as website } from './website.js'
 /** Each area's pages, by the area's slug (its file's name). */
 export const AREA_PAGES = {
   bookings, cash, core, dashboards, hs, hub, kiosk, kitchen, 'local-info': localInfo, loyalty,
-  menus, ordering, pepper, purchasing, reports, rota, screens, shell, till, website,
+  menus, ordering, pepper, purchasing, recipes, reports, rota, screens, shell, till, website,
 }
 
 export { SECTIONS }

@@ -1,6 +1,10 @@
 # Inventory: recipes, costing, stock and variance
 
-**Status: a plan (26 Nov 2026). Nothing in it is built. The decisions in section 12 are open.**
+**Status: phase 1 built on 27 Nov 2026 (recipes and the cost engine, migrations 298 to 301; see "Phase 1 as
+built" under section 11). Phases 2 to 10 are a plan. The decisions in section 12 are taken as recommended,
+D1 to D12.** The owner's ask when building started: "recipes variations, per revenue stream/order type
+matrix, and per location (or ability to link a different recipe to menu items in different locations)",
+"stock take module" and "reports". The variation matrix is part of phase 2's links (5.4).
 
 The owner's ask: "lets plan inventory solution. I am copying below COGS tool i built in the past.
 analyse, and prepare plan and solution document", then "deep dive on the solution". The COGS tool
@@ -179,7 +183,8 @@ New on `inv_items`:
 
 - `yield_pct` numeric, default 100: the usable share after trimming (an onion, 88).
 - `count_unit` and `recipe_unit`: the unit the item is usually counted and used in.
-- `shelf_life_days` once opened or prepped (for labels, later).
+- `shelf_life_days` once opened or prepped (for labels, later). *Not built in phase 1: recipes carry
+  `shelf_life_hours`; the item's waits for labels.*
 
 New table `inv_item_units` (item, name, `base_qty`): the item's own units beyond the standard
 ones. "1 each = 150 g" for an item kept in grams; "1 slice = 20 g"; "1 tbsp = 15 ml";
@@ -207,8 +212,11 @@ came from. The average is worked out from receipts over a window (D1 settles the
 
 `recipes`: name, `kind` (dish or prep), category, what it makes (`yield_qty` + unit for a prep
 recipe; portions for a dish recipe), `loss_pct` (cooking loss on the batch), method, photo, shelf
-life, notes, a code, `status` (draft or live), `venue_id` (empty = the whole group; set = this
-venue's version of `base_recipe_id`).
+life, notes, a code, `status` (draft or live), `variant_of` (a variation: the recipe it varies).
+*As built (phase 1): no `venue_id` on the recipe. A variation (a takeaway version, one venue's own way)
+is a recipe of its own grouped under the one it varies; which variation a dish uses at which venue and
+for which revenue stream or order type is decided by the links (5.4, phase 2), so one variation can serve
+several venues and one venue several variations.*
 
 `recipe_lines`: the recipe, sort order, **an item or a prep recipe**, quantity and unit, an
 optional yield for this line (when this recipe trims harder than usual), a note.
@@ -223,6 +231,9 @@ Rules:
 - **Coverage**: `recipeCost()` returns the cost and the list of what it could not cost (no price,
   no conversion, a prep recipe with nothing in it). A recipe with gaps shows a partial cost marked
   as such, never a confident wrong number.
+- A line's unit is free text: a unit the item doesn't know is a gap named on the page, never a
+  refusal (a reader will bring units nobody has defined yet); deleting an item's own unit that a recipe
+  uses is what is refused.
 - Recipes are group-wide; cost differs per venue because prices do. A venue with a different
   method or product gets its own version (D2).
 
@@ -514,7 +525,7 @@ scale; steps that follow the same day run nearer half.
 
 | Phase | What | Ends with | Estimate |
 |---|---|---|---|
-| 1 | Units and yield on items; recipes and prep recipes; `shared/costing.js`; the Recipes page with live cost, coverage and the explanation; the `recipes` and `costing` modules | A recipe costed at each venue's prices | 80 to 100 |
+| 1 | **Built 27 Nov 2026.** Units and yield on items; recipes and prep recipes; `shared/costing.js`; the Recipes page with live cost, coverage and the explanation; the `recipes` and `costing` modules | A recipe costed at each venue's prices | 80 to 100 |
 | 2 | Links to dishes, option rules, meal deals, goods; the Menu margins page with the order type switch and thresholds; report subjects; Pepper's read tools | Every costed dish shows its margin | 80 to 100 |
 | 3 | Pepper reads recipes (sheet, PDF, photo, text) into drafts; match dishes to recipes; coverage by sales value | Most of a menu costed in a sitting | 50 to 65 |
 | 4 | The `stock` module; storage areas; stocktake (drafts, units, approval, key items, phone and scanner); waste; transfers; adjustments; `loadStockMoves()` | Stock run from documents | 90 to 110 |
@@ -528,12 +539,32 @@ scale; steps that follow the same day run nearer half.
 Phases 1 to 9: about 610 to 780 minutes. Phases 1 to 3 give costing; 4 to 6 give stock control;
 either half is useful alone, and 4 can be built beside 2 and 3 by a second agent.
 
+### Phase 1 as built (27 Nov 2026)
+
+- **Migrations** 298 (`inv_items.yield_pct`, `recipe_unit`, `count_unit`; `inv_item_units`), 299 (modules
+  `recipes` and `costing`, group Recipes and costing; custom roles get recipes View, and costing View only
+  where they already see supplier prices), 300 (`recipes`, `recipe_lines`), 301 (the Recipes menu link,
+  after Purchasing).
+- **Engine** `shared/costing.js`: `toBase()`, `itemCost()` (standard, last paid, average paid over 90 days),
+  `recipeCost()`, `explain()`, `nestingProblem()`, `margin()`. `dishCost()` and `usageOf()` (5.5) wait for
+  the links (phases 2 and 5). Loaded once per request by `loadCosting()` in `api/src/services/costingSvc.js`.
+- **API** `/api/recipes` (`api/src/routes/recipes.js`), with a preview route the editor uses for the live
+  cost before saving; units under `/api/inventory`.
+- **Page** `/recipes`: the list (search, kind, coverage chips, cost at a venue on a basis), the editor (lines
+  with drag order, details, method and photo, each saved on its own; the cost, each basis side by side, the
+  gaps and the explanation). Units and yield in the Inventory page's item drawer.
+- **Reports** Recipes, Recipe lines, Recipe costs (a work subject, standard prices, Costing view); starters
+  Recipes not fully costed, Recipe cost by venue. **Pepper** `find_recipes`, `recipe` (read only).
+- **What the build changed in the plan**: no `venue_id` on recipes (variations instead, 5.3); line units are
+  free text with gaps (5.3); the item's `shelf_life_days` waits; the cost subject is by venue at standard
+  prices only.
+
 ## 12. Decisions for the owner
 
 | | Decision | Recommended |
 |---|---|---|
 | D1 | Which cost a recipe uses | The preferred supplier's price at the venue (what `chooseQuote()` picks), with last paid shown beside it. Stock value and variance at the average paid. |
-| D2 | Recipes per group or per venue | One recipe for the group; a venue can have its own version where it really differs. Built in phase 1 as a field, switched on when needed. |
+| D2 | Recipes per group or per venue | One recipe for the group; a venue can have its own version where it really differs. Built in phase 1 as variations (`variant_of`); which one a dish uses per venue, revenue stream and order type comes with the links in phase 2. |
 | D3 | How options change a recipe | Rules on the library option (add, remove, swap, scale, own recipe), with a per-dish exception. |
 | D4 | Stock per storage area or per venue | Per venue. Areas order the count sheet only. |
 | D5 | Prep batches (sauces, marinades) as stock | Not at first: a counted batch is turned into its ingredients by the recipe. Held as stock with production in phase 10. |

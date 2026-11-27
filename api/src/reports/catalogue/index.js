@@ -44,6 +44,7 @@ export const AREAS = [
   { key: 'kiosks', label: 'Self-order kiosks' },
   { key: 'loyalty', label: 'Loyalty' },
   { key: 'purchasing', label: 'Purchasing' },
+  { key: 'recipes', label: 'Recipes and costing' },
   { key: 'safety', label: 'Food safety and H&S' },
   { key: 'guests', label: 'Customers' },
   { key: 'menus', label: 'Menus' },

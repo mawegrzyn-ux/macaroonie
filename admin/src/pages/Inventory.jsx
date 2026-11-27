@@ -10,6 +10,8 @@
 // migration 287 (Pepper-first 8B3): a barcode (GTIN) on items and supplier
 // prices, found by the search and the Office app's scanner, and the Stock tab
 // (?tab=stock: stock on hand per venue and stock counts, stockOnHand.jsx).
+// Since migration 298 (inventory phase 1): an item's yield, usual units and
+// own units, which recipes cost it by (UnitsCard, units.jsx).
 // API: routes/inventory.js, routes/stock.js.
 
 import { useMemo, useState } from 'react'
@@ -33,6 +35,7 @@ import { CatalogueCheckModal, SwitchItemsModal, PriceUpdateModal } from '@/compo
 import { StockBadge, StockControl } from '@/components/purchasing/stock'
 import { CustomFieldsCard, CustomFieldInputs, newRowCustom, useCustomFields } from '@/components/forms/CustomFields'
 import { StockOnHand } from '@/components/purchasing/stockOnHand'
+import { UnitsCard } from '@/components/purchasing/units'
 import { canScan, scanBarcode } from '@/lib/officeApp'
 import { barcodeProblem } from '@shared/catalogue.js'
 
@@ -328,6 +331,8 @@ function ItemDrawer({ itemId, canEdit, onCreated, onClose, onOpenItem }) {
         <>
           <CustomFieldsCard objectKey="purchasing.items" values={item.custom} canEdit={canEdit}
             onSave={async custom => refresh(await api.patch('/inventory/items/' + item.id, { custom }))} />
+          {/* Kept across the drawer's other saves: its parts follow the stored item themselves. */}
+          <UnitsCard key={item.id} item={item} canEdit={canEdit} onSaved={refresh} />
           <Card title="Supplier prices"
             actions={canEdit && <button type="button" className={btn.outline} onClick={() => setQuoteEdit({})}><Plus className="w-4 h-4" />Add price</button>}
             bodyClass="p-0">
@@ -372,8 +377,8 @@ function ItemDrawer({ itemId, canEdit, onCreated, onClose, onOpenItem }) {
           {canEdit && (
             <div className="flex items-center justify-between gap-2 pt-2">
               {deleted?.archived
-                ? <p className="text-sm text-amber-800">This item is on orders, so it was switched off instead of deleted.</p>
-                : <span className="text-xs text-muted-foreground">Deleting an item that has been ordered switches it off instead.</span>}
+                ? <p className="text-sm text-amber-800">This item is on orders or in recipes, so it was switched off instead of deleted.</p>
+                : <span className="text-xs text-muted-foreground">Deleting an item that has been ordered or is in a recipe switches it off instead.</span>}
               <ConfirmDelete label="Delete item" onConfirm={() => del.mutate()} disabled={del.isPending} />
             </div>
           )}
@@ -403,6 +408,8 @@ function ItemForm({ item, canEdit, onSaved, onOpenItem }) {
   const dirty = ['name', 'category_id', 'base_unit', 'storage', 'code', 'barcode', 'notes', 'is_active'].some(k => (form[k] ?? '') !== (initial[k] ?? ''))
   const barcodeWrong = form.barcode.trim() ? barcodeProblem(form.barcode) : null
   const hasQuotes = !!item?.quotes?.length
+  // Its own units are so many of its base unit, and recipes give it in units of that kind.
+  const inRecipes = !!(item?.units?.length || item?.recipe_count)
   // Another item with this name (case and spaces at the ends don't count):
   // staff can't tell the two apart on an order.
   const nameKey = form.name.trim().toLowerCase()
@@ -459,8 +466,8 @@ function ItemForm({ item, canEdit, onSaved, onOpenItem }) {
             </div>
           </Field>
         </div>
-        <Field label="Counted in" hint={hasQuotes ? 'Fixed while it has supplier prices' : 'How pack sizes and pars are measured'}>
-          <Segmented value={form.base_unit} disabled={!canEdit || hasQuotes} onChange={v => set('base_unit', v)}
+        <Field label="Counted in" hint={hasQuotes ? 'Fixed while it has supplier prices' : inRecipes ? 'Fixed while it has its own units or is in a recipe' : 'How pack sizes and pars are measured'}>
+          <Segmented value={form.base_unit} disabled={!canEdit || hasQuotes || inRecipes} onChange={v => set('base_unit', v)}
             options={BASE_UNITS.map(b => ({ value: b.key, label: b.label }))} className="flex-wrap" />
         </Field>
         <Field label="Storage" hint="Chilled and frozen items ask for a temperature when a delivery is booked in">
