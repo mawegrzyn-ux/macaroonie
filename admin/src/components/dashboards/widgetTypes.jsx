@@ -7,8 +7,9 @@
 // CHECK.
 //
 // Each type adds to its own definition (CASH_WIDGET_TYPES in
-// cashRecon/widgets.jsx, ROTA_WIDGET_TYPES in staff/rotaWidgets.jsx, the H&S
-// and Menus ones below):
+// cashRecon/widgets.jsx, ROTA_WIDGET_TYPES in staff/rotaWidgets.jsx,
+// STOCK_WIDGET_TYPES in stock/widgetTypes.js with its bodies lazy in
+// stock/widgets.jsx, the H&S and Menus ones below):
 //   group   which heading it sits under in Add widget (WIDGET_GROUPS)
 //   module  the module whose data it shows; without view on it the widget
 //           isn't offered and shows "no access" instead of its body
@@ -32,9 +33,12 @@ import { HSActionLogPanel } from '@/components/hsActionLog/shared'
 import { AllergenLookup } from '@/components/menus/AllergenMatrix'
 import { CASH_WIDGET_TYPES, renderCashWidget } from '@/components/cashRecon/widgets'
 import { ROTA_WIDGET_TYPES, renderRotaWidget } from '@/components/staff/rotaWidgets'
+import { STOCK_WIDGET_TYPES } from '@/components/stock/widgetTypes'
 
 // The report widget draws charts and tables: its code loads only on a dashboard that has one.
 const ReportWidget = lazy(() => import('@/components/reports/ReportWidget').then(m => ({ default: m.ReportWidget })))
+// The stock and costing widgets (inventory phase 6b): their bodies load only on a dashboard that has one.
+const StockWidget = lazy(() => import('@/components/stock/widgets'))
 
 export const WIDGET_GROUPS = [
   { key: 'hs',    label: 'Health & safety' },
@@ -43,6 +47,7 @@ export const WIDGET_GROUPS = [
   { key: 'rota',  label: 'Rota' },
   { key: 'local', label: 'Local info' },
   { key: 'reports', label: 'Reports' },
+  { key: 'stock', label: 'Stock and costing' },
 ]
 
 const HS_TYPES = [
@@ -92,6 +97,7 @@ export const WIDGET_TYPES = [
     module: t.key === 'cash_tips_payout' ? 'rota_tips' : 'cash_recon',
   })),
   ...ROTA_WIDGET_TYPES.map(t => ({ ...t, group: 'rota', nav: 'week', module: ROTA_MODULE[t.key] })),
+  ...STOCK_WIDGET_TYPES,
 ]
 
 export const WIDGET_TYPE_BY_KEY = Object.fromEntries(WIDGET_TYPES.map(w => [w.key, w]))
@@ -133,6 +139,9 @@ export function renderWidget(props) {
   if (!meta) return null
   if (meta.group === 'cash') return renderCashWidget(props)
   if (meta.group === 'rota') return renderRotaWidget(props)
+  if (meta.group === 'stock') {
+    return <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}><StockWidget widget={props.widget} venueId={props.venueId} ctx={props.ctx} /></Suspense>
+  }
   return renderHsWidget(props)
 }
 
@@ -141,6 +150,7 @@ export const MODULE_LABEL = {
   checklists: 'Checklists', food_safety: 'Food safety', hs_action_log: 'the H&S Action Log',
   menus: 'Menus', cash_recon: 'Cash reconciliation', rota: 'the Rota',
   rota_pay: 'Rota pay', rota_tips: 'Rota tips', local_info: 'Local info', reports: 'Reports',
+  stock: 'Stock', costing: 'Costing',
 }
 
 /** Shown in place of a widget's body when the viewer lacks its module. */

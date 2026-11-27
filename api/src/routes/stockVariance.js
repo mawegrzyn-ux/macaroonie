@@ -9,7 +9,8 @@
 // period's are the ones frozen when it was closed.
 //
 //   GET  /venues/:venueId/periods                  the venue's periods and the current one
-//   GET  /venues/:venueId/variance?period=<id|current>   a period's variance: every item with
+//   GET  /venues/:venueId/variance?period=<id|current|latest>   a period's variance (latest: the
+//        newest stored period, phase 6b's widget): every item with
 //        opening, received, transfers, closing, actual, theoretical (late sales
 //        landed in it marked), waste, adjusted, variance and unexplained, ranked
 //        by pounds of unexplained loss, flagged by the group's band, reviewed;
@@ -21,7 +22,8 @@
 //   GET  /variance/by-venue?item=&which=latest|current   one item at every venue of the
 //        group: the latest period at each (closed or open), or the current one
 //   POST /periods/:id/close                        Stock manage: its figures frozen, its days closed
-//        (under the venue's usage lease: 409 running while the usage job works the venue out)
+//        (under the venue's usage lease: 409 running while the usage job works the venue out);
+//        phase 6b: then offered to the group's rules when over the band (variance_over_band)
 //   POST /periods/:id/reopen    { note }           Stock manage: open again (not while a later
 //        period at the venue is closed), its days worked out again from the sales (the lease too)
 //   POST /periods/:id/items/:itemId/review   { reviewed, note? }   Stock manage
@@ -43,6 +45,8 @@ import {
 } from '../services/stockVarianceSvc.js'
 import { computeDays, claimVenue, releaseVenue, venueToday, daysBetween } from '../services/stockUsageSvc.js'
 import { stockAccess, who, venueProblem } from './stock.js'
+import { fireRulesLater } from '../ai/ruleRunner.js'
+import { varianceEvent } from '../../../shared/foodCost.js'
 
 const canView = requirePermission('stock', 'view')
 const canManage = requirePermission('stock', 'manage')
@@ -103,6 +107,12 @@ function shaped(view, access, reviewsOf = new Map()) {
 
 /** The period asked for at a venue: a stored one (the venue's), the current one, or by default the current else the newest. */
 async function pickPeriod(tx, tenantId, venueId, asked) {
+  // Phase 6b: the newest stored period (closed or open), for the top variance items widget.
+  if (asked === 'latest') {
+    const [newest] = await venuePeriods(tx, tenantId, venueId, { limit: 1 })
+    if (!newest) throw httpError(404, 'This venue has no stock period yet: a period runs between two approved full counts', { code: 'no_period' })
+    return newest
+  }
   if (asked && asked !== 'current') {
     if (!Id.safeParse(asked).success) throw httpError(400, 'A period is an id, or current')
     const p = await loadPeriod(tx, tenantId, asked)
@@ -250,7 +260,8 @@ export default async function stockVarianceRoutes(app) {
   app.post('/periods/:id/close', { preHandler: canManage }, async req => {
     const access = await stockAccess(req)
     const me = await who(req)
-    return withTenant(req.tenantId, async tx => {
+    let event = null
+    const out = await withTenant(req.tenantId, async tx => {
       const p = await loadPeriod(tx, req.tenantId, req.params.id, { lock: true })
       if (!p) throw httpError(404, 'Stock period not found')
       const problem = venueProblem(req, p.venue_id)
@@ -271,8 +282,12 @@ export default async function stockVarianceRoutes(app) {
         RETURNING id`
       await releaseVenue(tx, req.tenantId, p.venue_id, { ran: false })
       const closed = await loadPeriod(tx, req.tenantId, row.id)
+      event = varianceEvent(closed, frozen, (await tx`SELECT name FROM venues WHERE id = ${p.venue_id} AND tenant_id = ${req.tenantId}`)[0]?.name)
       return { period: periodMeta(closed, new Map()), frozen: true, ...shaped(frozen, access) }
     })
+    // Phase 6b: the group's rules on a period closed over the band, once it is saved; never waited for.
+    if (event) fireRulesLater(app, req.tenantId, event, req.log)
+    return out
   })
 
   app.post('/periods/:id/reopen', { preHandler: canManage }, async req => {

@@ -38,7 +38,7 @@ import { permissionAtLeast } from '../config/modules.js'
 import { askForJson, obj, str, bool, oneOf, clip } from './aiJson.js'
 import {
   TRIGGERS, TRIGGER_KEYS, RULE_ACTIONS, RULE_ACTION_KEYS, NEVER_WORDS, DEFAULT_PER_DAY, MAX_PER_DAY,
-  ruleProblem, ruleLines, fillInput,
+  ruleProblem, ruleLines, fillInput, ruleNeeds, MODULE_WORDS,
 } from '../../../shared/rules.js'
 import { TASK_AREAS } from '../../../shared/todayTasks.js'
 
@@ -56,6 +56,8 @@ export const RuleSchema = z.object({
 // ── Reading a sentence ───────────────────────────────────────────
 
 const CONDITION_KEYS = [...new Set(Object.values(TRIGGERS).flatMap(t => Object.keys(t.conditions)))]
+// The yes / no conditions (a fridge out of its range, a dish over the limit, over the venue's band).
+const YESNO_KEYS = new Set(Object.values(TRIGGERS).flatMap(t => Object.entries(t.conditions).filter(([, d]) => d.type === 'yesno').map(([k]) => k)))
 const INPUT_KEYS = [...new Set(Object.values(RULE_ACTIONS).flatMap(a => Object.keys(a.fields)))]
 
 export const ANSWER_SCHEMA = obj({
@@ -65,7 +67,7 @@ export const ANSWER_SCHEMA = obj({
   trigger: oneOf([...TRIGGER_KEYS, 'none']),
   venue: str,
   conditions: obj(Object.fromEntries(CONDITION_KEYS.map(k => [k,
-    k === 'out_of_range' ? oneOf(['', 'yes', 'no']) : k === 'area' ? oneOf(['', ...Object.keys(TASK_AREAS)]) : str]))),
+    YESNO_KEYS.has(k) ? oneOf(['', 'yes', 'no']) : k === 'area' ? oneOf(['', ...Object.keys(TASK_AREAS)]) : str]))),
   action: str,
   action_input: obj(Object.fromEntries(INPUT_KEYS.map(k => [k, k === 'priority' ? oneOf(['', 'low', 'medium', 'high', 'critical']) : str]))),
   per_day: str,
@@ -79,7 +81,10 @@ const SYSTEM = [
     Object.entries(t.conditions).map(([c, d]) => c + ' (' + d.label + (d.type === 'choice' ? ': ' + Object.keys(d.choices).join(' | ') : '') + ')').join(', ') +
     '. Words usable in the action\'s text: ' + t.fields.map(f => '{' + f + '}').join(', ')).join('\n') +
   '\nA fridge reading "above 8" is conditions.above = "8". "Over £500" is conditions.over = "500". "Below 3 stars" means ' +
-  'stars_at_most = "2"; "3 stars or less" = "3". Leave a condition "" when the sentence doesn\'t set it.',
+  'stars_at_most = "2"; "3 stars or less" = "3". "When a dish goes over 35%" is dish_over_target with over = "35"; "over its ' +
+  'target" sets no condition, "over its limit" sets limit = "yes". "Waste over £50" is waste_logged with over = "50". "When a ' +
+  'period\'s variance is over the band" is variance_over_band (venue_band = "yes" only when the sentence means the venue\'s own ' +
+  'band, not flagged items). Leave a condition "" when the sentence doesn\'t set it.',
   'Actions (action), the only ones a rule may run:\n' + Object.entries(RULE_ACTIONS).map(([k, a]) => '- ' + k + ': ' + a.label +
     '. Its text (action_input): ' + Object.entries(a.fields).map(([f, d]) => f + (d.required ? ' (needed)' : '') + (d.choices ? ': ' + d.choices.join(' | ') : '')).join(', ')).join('\n') +
   '\nsend_notice\'s "to" is a role (owner, admin, operator) or a person\'s name, as the sentence says it: "ask the owner to approve" ' +
@@ -116,7 +121,8 @@ export function toRule(answer, venues) {
     const v = clip(answer.conditions?.[k], 80)
     if (!v) continue
     if (d.type === 'number') {
-      const n = Number(v.replace(/[£°c\s,]/gi, ''))
+      // "£500", "8°C", "35%": the figure only (a cost % is a number like any other).
+      const n = Number(v.replace(/[£°c%\s,]/gi, ''))
       if (Number.isFinite(n)) conditions[k] = n
     } else if (d.type === 'yesno') conditions[k] = v === 'yes'
     else conditions[k] = v
@@ -191,6 +197,18 @@ export async function checkRule(req, raw) {
   const sample = fillInput(rule, { venue_id: rule.venue_id || '00000000-0000-0000-0000-000000000000' })
   if (!tool || classFor(tool, sample) !== 'reversible') {
     throw httpError(422, 'A rule can\'t run that: rules never change ' + NEVER_WORDS + '.', { code: 'never_list' })
+  }
+  // Phase 6b's triggers: the person must see what the trigger is about (Stock, Costing), and the
+  // costs or share of sales a rule's text or condition uses (ruleNeeds()), or a rule would tell them.
+  const needs = ruleNeeds(rule)
+  if (needs.length) {
+    const lv = await permissionLevels(req, needs)
+    const missing = needs.filter(m => !permissionAtLeast(lv[m], 'view'))
+    if (missing.length) {
+      throw httpError(403, 'A rule on "' + TRIGGERS[rule.trigger].label.replace(/^./, c => c.toLowerCase()) + '" needs ' +
+        missing.map(m => MODULE_WORDS[m] || m).join(' and ') + ' view, which your role doesn\'t have' +
+        (rule.trigger !== 'dish_over_target' && missing.every(m => m !== 'stock') ? ': leave the amounts out of it' : '') + '.', { code: 'trigger_access' })
+    }
   }
   const mods = toolModules(tool)
   const levels = await permissionLevels(req, mods)

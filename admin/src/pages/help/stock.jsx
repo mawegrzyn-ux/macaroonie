@@ -6,7 +6,10 @@
 // till voids marked wasted, transfers between venues, the phone's waste page;
 // phase 5: usage from sales, the Usage tab, Recompute, ordering up to par;
 // phase 6a: variance by period, food cost actual and theoretical, closing and
-// reopening a period, why an item is out, reviewing, the variance band).
+// reopening a period, why an item is out, reviewing, the variance band;
+// phase 6b: food cost week by week on Cash Recon, the stock and costing
+// widgets and the Overview tile, dishes over their cost target on Today,
+// Home's set-up gaps, rules on food cost and waste).
 // Help.jsx gathers every file in this folder
 // (except parts.jsx) and shows them by order, then id.
 import { H2, H3, P, InfoBox, DataTable } from './parts.jsx'
@@ -383,6 +386,61 @@ export function Section() {
         actual food cost by week</strong>. A period whose counts left out an item sales used has no actual food
         cost there either, and the actual food cost % over several periods counts only the sales of the periods
         that have one.
+      </P>
+      <H3>Food cost week by week</H3>
+      <P>
+        Cash Recon&apos;s week has a <strong>Food cost</strong> card, below the grid and under the wages in the card view
+        (for people with Costing view and Till reports view). <strong>Theoretical, this week</strong> is what the week&apos;s sales should have used
+        by their recipes, as a share of its net food sales; dishes sold without a full recipe make it read low, and so
+        do open items and dishes no longer on a menu (their sales count, with nothing to cost them by): the card says
+        how many of each. <strong>Actual</strong> needs a full count at both ends, and a week rarely starts and
+        ends on a count, so the week never gets an actual of its own: the card shows the actual of the stock period
+        that covers the whole week (and says it is the period&apos;s figure, not the week&apos;s), else the latest
+        closed period, named with its dates. With neither, it says actual needs a full count at both ends.
+      </P>
+      <H3>On dashboards and the Overview</H3>
+      <P>
+        <strong>Add widget</strong> on any dashboard has a <strong>Stock and costing</strong> group:
+      </P>
+      <DataTable
+        head={['Widget', 'Shows', 'Needs']}
+        rows={[
+          ['Food cost % actual and theoretical', 'The week\'s food cost card, and the latest closed periods\' actual against theoretical', 'Costing view and Till reports view'],
+          ['Waste this week by reason', 'The dashboard week\'s waste by reason, till voids included', 'Stock view (values with Costing view)'],
+          ['Top variance items', 'The newest stock period\'s flagged items and biggest unexplained losses', 'Stock view (pounds with Costing view)'],
+          ['Margin by menu', 'What sold in the week by menu: net sales, gross profit and cost % at what was paid', 'Costing view (sales with Till reports view)'],
+        ]}
+      />
+      <P>
+        The Overview has a <strong>Stock</strong> tile (Customise layout, Add tile): each venue in a line with what
+        waits (counts to approve, transfers to receive, flagged items to review), when it was last fully counted and,
+        with Costing view and Till reports view, this week&apos;s theoretical food cost and the latest actual.
+      </P>
+      <H3>Dishes over their cost target, and set-up gaps</H3>
+      <P>
+        Today shows <strong>Dishes over the cost target</strong> to people with Costing view when dishes on a
+        venue&apos;s live menus cost more than the target on Menu margins (at today&apos;s supplier prices, at the order
+        type where each is worst): the dearest first, and how many are over the limit. It opens Menu margins at the
+        venue. Home suggests the set-up still missing to whoever manages it: no storage areas at a venue (Stock, opening
+        Stock&apos;s Settings), best sellers with no recipe (Recipes, opening the Recipes page on what isn&apos;t costed),
+        and inventory items used in recipes with no supplier price (Purchasing setup, opening Inventory). An item counts
+        as having no price when it has no supplier price that is switched on from a supplier that is switched on, and
+        no delivery booked in: the same test Menu margins costs by.
+      </P>
+      <H3>Rules on food cost and waste</H3>
+      <P>
+        Rules (Settings, Rules, or say it to Pepper) can start from three more things: <em>When a dish goes over 35%,
+        tell the owner</em>; <em>When a stock period closes over the band, add an H&amp;S action for the manager</em>;
+        <em> When waste over £50 is logged, tell the owner</em>. A dish going over its target is looked for every hour
+        and tells once: it tells again only after the dish has come back under and gone over again (or from over the
+        target to over the limit). A rule with a percentage of its own (<em>over 35%</em>) tells once as the dish passes
+        that figure, whether that is the step that takes it over the target or a price rise after it, and not again
+        while it stays above. A period tells when it is closed with its unexplained loss over the venue&apos;s band
+        or with flagged items. Costs and shares of sales are left out of a notice for people who can&apos;t see them, and
+        can&apos;t go into an H&amp;S action at all (everyone who reads the action log would see them). Making a rule on a
+        dish&apos;s cost needs Costing view; on waste, Stock view (and Costing view to use an amount); on a period, Stock
+        view (and Costing view and Till reports view to use an amount, or to put the unexplained loss in its text: the
+        points over the band are a share of sales).
       </P>
     </section>
   )

@@ -65,6 +65,8 @@ export const decisions = {
   out: {
     // Usage from sales (phase 5): each worked-out day's fingerprint, and each venue's run (its lease, the days marked).
     'how the usage job keeps track of what it has worked out, not figures': ['stock_usage_marks', 'stock_usage_venues'],
+    // Phase 6b (migration 313): the dishes the cost targets sweep last found over target, so a rule fires once per crossing.
+    'what the cost targets sweep last found, so a rule fires once a crossing: Dish margins has the figures': ['cost_target_states'],
   },
 }
 

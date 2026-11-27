@@ -29,6 +29,6 @@ What is not built, known limits and follow-ups now live in one file per area, `d
 | [`rota`](outstanding/rota.md) | - |
 | [`screens`](outstanding/screens.md) | 22 |
 | [`shell`](outstanding/shell.md) | 9, 10, 11, 37, 13, 49, 50, 52, 55, 59, 60, 64, 67, 74 |
-| [`stock`](outstanding/stock.md) | 72, 73 |
+| [`stock`](outstanding/stock.md) | 72, 73, 75, 76, 77 |
 | [`till`](outstanding/till.md) | 18, 24, 27, 30, 39 |
 | [`website`](outstanding/website.md) | 3, 5 |

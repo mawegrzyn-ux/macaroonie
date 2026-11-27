@@ -17,10 +17,13 @@
 // make sense with nobody there (RULE_ACTIONS): never a reading or a count
 // (only a person measures), never a menu or an order.
 //
-//   TRIGGERS          { key: { label, conditions: { name: { type, label } }, fields, money? } }
+//   TRIGGERS          { key: { label, conditions: { name: { type, label, money? } }, fields, money?, needs?, money_needs? } }
 //                     fields: what the event says, usable as {name} in the action's text;
 //                     money: the fields that are a price (an order's total), kept
 //                     out of what people who can't see purchasing prices are sent
+//                     (or, with money_needs, who lack view on any of those modules:
+//                     costs need Costing, a share of sales Till reports too);
+//                     needs: modules the person making the rule must view (phase 6b)
 //   RULE_ACTIONS      { tool: { label, venue, fields: { name: { label, max, choices? } } } }
 //                     venue: how the event's venue reaches the tool ('venue_id' | 'venue')
 //   NEVER_WORDS       the never-list, in words (refusals)
@@ -32,6 +35,8 @@
 //                     (templates filled, the venue added); prices: false puts
 //                     MONEY_HIDDEN where a money field was (and drops its £)
 //   usesMoney(rule)   does the action's text carry a price ({total})
+//   ruleNeeds(rule)   the modules the person making the rule must view (needs, and
+//                     money_needs when a money field or condition is used)
 //   editableRule(rule) the parts a person may change in place (everything but
 //                     who it runs as and its runs), for the Settings panel
 //   ruleLines(rule, { venueName })  the rule in words, for a card and the list
@@ -73,6 +78,50 @@ export const TRIGGERS = {
       platform:      { type: 'text', label: 'Site' },
     },
     fields: ['venue', 'stars', 'platform', 'reviewer'],
+  },
+  // Inventory phase 6b (migration 313). A dish newly over its cost target at
+  // a venue (the cost targets sweep, services/stockFoodCostSvc.js: once per
+  // crossing, at the dish's worst order type; with `over`, once as its cost %
+  // passes that figure, a rise within its band included), a stock period closed with
+  // its variance over the band (the venue's unexplained loss over its band,
+  // or items flagged by the item rule: POST /api/stock/periods/:id/close),
+  // and waste logged (POST /api/stock/venues/:id/waste, Pepper's log_waste).
+  dish_over_target: {
+    label: 'A dish goes over its cost target',
+    conditions: {
+      over:  { type: 'number', label: 'Cost % over', money: true },
+      limit: { type: 'yesno', label: 'Over the limit, not only the target' },
+      dish:  { type: 'text', label: 'Dish name has' },
+      menu:  { type: 'text', label: 'Menu name has' },
+    },
+    fields: ['venue', 'dish', 'menu', 'order_type', 'cost_pct', 'target_pct', 'limit_pct', 'band_words'],
+    money: ['cost_pct'],
+    needs: ['costing'],
+    money_needs: ['costing'],
+  },
+  variance_over_band: {
+    label: 'A stock period closes with its variance over the band',
+    conditions: {
+      venue_band:       { type: 'yesno', label: 'Unexplained over the venue\'s band' },
+      pounds_over:      { type: 'number', label: 'Unexplained loss over (£)', money: true },
+      flagged_at_least: { type: 'number', label: 'Flagged items at least' },
+    },
+    fields: ['venue', 'period', 'flagged', 'unexplained', 'unexplained_pts', 'band_pts', 'top_item'],
+    money: ['unexplained', 'unexplained_pts'],
+    needs: ['stock'],
+    money_needs: ['costing', 'pos_reports'],
+  },
+  waste_logged: {
+    label: 'Waste is logged',
+    conditions: {
+      over:   { type: 'number', label: 'Worth over (£)', money: true },
+      reason: { type: 'text', label: 'Reason has' },
+      what:   { type: 'text', label: 'What was wasted has' },
+    },
+    fields: ['venue', 'what', 'quantity', 'reason', 'value', 'by'],
+    money: ['value'],
+    needs: ['stock'],
+    money_needs: ['costing'],
   },
 }
 export const TRIGGER_KEYS = Object.keys(TRIGGERS)
@@ -139,6 +188,11 @@ export function ruleProblem(rule) {
   for (const [k, f] of Object.entries(a.fields)) {
     if (f.required && !String(input[k] ?? '').trim()) return a.label + ' needs its ' + f.label.replace(/^./, c => c.toLowerCase())
   }
+  // A cost or a share of sales (phase 6b's triggers) never goes into an H&S action: everyone who
+  // reads the action log would see it. A notice leaves it out for people who can't see it.
+  if (t.money_needs && rule.action_tool !== 'send_notice' && usesMoney(rule)) {
+    return a.label + ': its text is read by everyone who can see the action log, so it can\'t carry ' + t.money.map(x => '{' + x + '}').join(' or ') + '. Send a notice instead (it leaves the figure out for people who can\'t see it).'
+  }
   const perDay = rule.per_day ?? DEFAULT_PER_DAY
   if (!Number.isInteger(perDay) || perDay < 1 || perDay > MAX_PER_DAY) return 'A rule runs 1 to ' + MAX_PER_DAY + ' times a day'
   return null
@@ -170,6 +224,31 @@ export function matches(rule, event) {
       if (c.stars_at_most != null && !(event.stars != null && event.stars <= c.stars_at_most)) return false
       if (c.platform && !lower(event.platform).includes(lower(c.platform))) return false
       return true
+    case 'dish_over_target': {
+      // A crossing (newly over the target, or from it to over the limit) is for every rule; a
+      // rise within the same band (kind 'rose') only for a rule with a percentage of its own.
+      // Such a rule fires when its conditions hold now and didn't at the last look (prev_band,
+      // prev_cost_pct; none for a dish newly over): "over 33%" tells as the dish passes 33%,
+      // whether that is the step that took it over the target or a rise after it.
+      const holds = (p, band) => (c.over == null || (p != null && p > c.over)) && (c.limit == null || c.limit === (band === 'over'))
+      if (!holds(event.cost_pct, event.band)) return false
+      if (c.over != null) {
+        if (event.prev_band && holds(event.prev_cost_pct, event.prev_band)) return false
+      } else if (event.kind === 'rose') return false
+      if (c.dish && !lower(event.dish).includes(lower(c.dish))) return false
+      if (c.menu && !lower(event.menu).includes(lower(c.menu))) return false
+      return true
+    }
+    case 'variance_over_band':
+      if (c.venue_band != null && c.venue_band !== !!event.over_band) return false
+      if (c.pounds_over != null && !(event.unexplained_value != null && event.unexplained_value > c.pounds_over)) return false
+      if (c.flagged_at_least != null && !(event.flagged >= c.flagged_at_least)) return false
+      return true
+    case 'waste_logged':
+      if (c.over != null && !(event.value_num != null && event.value_num > c.over)) return false
+      if (c.reason && !lower(event.reason).includes(lower(c.reason))) return false
+      if (c.what && !lower(event.what).includes(lower(c.what))) return false
+      return true
     default:
       return false
   }
@@ -184,6 +263,22 @@ export function usesMoney(rule) {
   return Object.values(rule?.action_input || {}).some(v => [...String(v).matchAll(PLACEHOLDER)].some(([, p]) => money.includes(p)))
 }
 
+// The modules' names in a refusal (the triggers' needs and money_needs).
+export const MODULE_WORDS = { stock: 'Stock', costing: 'Costing', pos_reports: 'Till reports' }
+
+/**
+ * The modules a person needs view on to make (or change) this rule: its
+ * trigger's `needs`, and its `money_needs` when the rule's text carries a
+ * money field or a condition is on one (waste worth over £50). Empty for the
+ * first four triggers (as before phase 6b). The API checks them (checkRule()).
+ */
+export function ruleNeeds(rule) {
+  const t = TRIGGERS[rule?.trigger]
+  if (!t) return []
+  const moneyCond = Object.keys(rule?.conditions || {}).some(k => t.conditions[k]?.money)
+  return [...new Set([...(t.needs || []), ...((usesMoney(rule) || moneyCond) ? (t.money_needs || []) : [])])]
+}
+
 /**
  * The action's input for this event: {field} filled from the event, the event's venue added.
  * prices: false fills a money field with MONEY_HIDDEN (and drops the currency sign before it),
@@ -196,7 +291,7 @@ export function fillInput(rule, event, { prices = true } = {}) {
   for (const [k, v] of Object.entries(rule.action_input || {})) {
     const f = a.fields[k]
     out[k] = String(v)
-      .replace(/([£$€]\s*)?\{([a-z_]+)\}/g, (all, sign, p) => (!prices && money.includes(p) ? MONEY_HIDDEN : (sign || '') + '{' + p + '}'))
+      .replace(/([£$€]\s*)?\{([a-z_]+)\}(%)?/g, (all, sign, p, pc) => (!prices && money.includes(p) ? MONEY_HIDDEN : (sign || '') + '{' + p + '}' + (pc || '')))
       .replace(PLACEHOLDER, (_, p) => (event[p] == null ? '' : String(event[p]))).slice(0, f?.max || 100)
   }
   if (a.venue === 'venue_id') out.venue_id = event.venue_id

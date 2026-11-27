@@ -735,6 +735,9 @@ export function Section() {
           ['A supplier order is placed', 'The order\'s total over an amount, the supplier'],
           ['A task on Today is late', 'The kind of task, words in its name'],
           ['A review is recorded', 'Stars at most, the site it came from'],
+          ['A dish goes over its cost target', 'Its cost % over a figure (tells as the dish passes it), over the limit and not only the target, words in the dish\'s or menu\'s name (needs Costing view)'],
+          ['A stock period closes with its variance over the band', 'Over the venue\'s own band, unexplained loss over an amount (needs Costing and Till reports view), how many items flagged (needs Stock view)'],
+          ['Waste is logged', 'Worth over an amount (needs Costing view), the reason, words in what was wasted (needs Stock view)'],
         ]}
       />
       <P>

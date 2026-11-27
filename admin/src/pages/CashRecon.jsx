@@ -8,7 +8,7 @@
 //   'wages'    — weekly wages form
 //   'settings' — config management (income sources, payment channels, SC, staff)
 
-import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext, lazy, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   format, addWeeks, subWeeks, startOfISOWeek, addDays, parseISO,
@@ -35,6 +35,8 @@ import { reconSetup, cashDay, cashWeek } from '@shared/cashRecon.js'
 import { usePepperPage } from '@/lib/pepperPage'
 import { useDeepLink } from '@/lib/deepLink'
 import { photoCapture } from '../lib/officeApp'
+// The week's food cost line (stock's, inventory phase 6b): its code loads with the week view only.
+const FoodCostWeek = lazy(() => import('@/components/stock/FoodCostWeek'))
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1025,6 +1027,16 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
             </tr>
           </tbody>
         </table>
+        {/* Food cost (stock's, read only), below the grid and held at its left edge while the grid scrolls.
+            On the page only: the dashboards' Reconciliation grid widget draws this view with hideHeader,
+            and food cost has its own widget there (stock_food_cost). */}
+        {!hideHeader && (
+          <div className="sticky left-0 p-3 max-w-3xl">
+            <Suspense fallback={null}>
+              <FoodCostWeek venueId={venueId} weekStart={weekStart} />
+            </Suspense>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1179,6 +1191,11 @@ function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSele
             </button>
           )
         })()}
+
+        {/* Food cost (stock's, read only): theoretical for the week, actual only from a stock period that covers it */}
+        <Suspense fallback={null}>
+          <FoodCostWeek venueId={venueId} weekStart={weekStart} />
+        </Suspense>
       </div>
     </div>
   )

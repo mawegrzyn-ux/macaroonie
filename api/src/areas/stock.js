@@ -12,6 +12,7 @@ import stockWasteRoutes from '../routes/stockWaste.js'
 import stockTransferRoutes from '../routes/stockTransfers.js'
 import stockUsageRoutes from '../routes/stockUsage.js'
 import stockVarianceRoutes from '../routes/stockVariance.js'
+import stockFoodCostRoutes from '../routes/stockFoodCost.js'
 
 export const routes = [
   // Stock on hand and each item's ledger (migration 287; inventory phase 4a, migrations 305 to 307)
@@ -28,4 +29,6 @@ export const routes = [
   [stockUsageRoutes, { prefix: '/api/stock' }],
   // Periods between full counts and their variance: close, reopen, review, the band (phase 6a, migration 312)
   [stockVarianceRoutes, { prefix: '/api/stock' }],
+  // Food cost beyond the period: Cash Recon's week line, the widgets, Today's dishes over target, the Overview tile (phase 6b, migration 313)
+  [stockFoodCostRoutes, { prefix: '/api/stock' }],
 ]

@@ -28,6 +28,8 @@
 //          'cash_tips_payout', 'cash_import' (components/cashRecon/widgets.jsx)
 //   Rota:  'rota_grid', 'rota_today', 'rota_week_pay', 'rota_tips'
 //          (components/staff/rotaWidgets.jsx)
+//   Stock: 'stock_food_cost', 'stock_menu_margins' (Costing), 'stock_waste_week',
+//          'stock_variance_items' (Stock) (components/stock/widgetTypes.js, inventory phase 6b)
 // Only 'checklist' carries a checklist_template_id: every other type is
 // venue-wide and carries no reference.
 //
@@ -96,6 +98,11 @@ export const WIDGET_MODULE = {
   rota_today:             'rota',
   rota_week_pay:          'rota_pay',
   rota_tips:              'rota_tips',
+  // Inventory phase 6b (migration 313; admin components/stock/widgetTypes.js).
+  stock_food_cost:        'costing',
+  stock_waste_week:       'stock',
+  stock_variance_items:   'stock',
+  stock_menu_margins:     'costing',
 }
 export const WIDGET_TYPES = Object.keys(WIDGET_MODULE)
 
@@ -103,6 +110,7 @@ const MODULE_LABEL = {
   checklists: 'Checklists', food_safety: 'Food safety', hs_action_log: 'the H&S Action Log',
   menus: 'Menus', cash_recon: 'Cash reconciliation', rota: 'the Rota',
   rota_pay: 'Rota pay', rota_tips: 'Rota tips', local_info: 'Local info', reports: 'Reports',
+  stock: 'Stock', costing: 'Costing',
 }
 
 const DashboardBody = z.object({

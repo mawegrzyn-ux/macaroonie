@@ -97,6 +97,8 @@ export const AREAS = {
   rota: 'rota',
   // Inventory phase 4a: a count due on the count day, counts to approve; 4b: transfers to receive.
   stock: 'stock',
+  // Inventory phase 6b: dishes over their cost target.
+  costing: 'costing',
 }
 
 /** The module a task belongs to: its area's, or Purchasing approval for orders to approve. */
@@ -574,6 +576,24 @@ const SOURCES = {
     }
     return tasks
   },
+
+  // Costing (inventory phase 6b): the venue's dishes over their cost target now (its live menus at
+  // each order type, at today's standard prices, each at its worst), for Costing view; one card a
+  // day, opening Menu margins at the venue. From /api/stock/venues/:id/cost-targets as the person.
+  async costing(ctx, v, s) {
+    const r = await callApi(ctx, 'GET', `/api/stock/venues/${v.id}/cost-targets`)
+    const list = r.dishes || []
+    if (!list.length) return []
+    const over = list.filter(d => d.band === 'over').length
+    return [{
+      key: 'costing_over_target:' + v.id + ':' + s.date, area: 'costing', kind: 'dishes_over_target', compliance: false,
+      title: plural(list.length, 'dish', 'dishes') + ' over the cost target',
+      detail: list.slice(0, 3).map(d => d.name + ' ' + d.cost_pct + '%').join(' · ') + (list.length > 3 ? ' · and ' + (list.length - 3) + ' more' : '') +
+        (over ? ' · ' + over + ' over the limit' : ''),
+      due: null, group: 'later',
+      action: { path: '/menu-margins?venue=' + v.id, label: 'See the margins' },
+    }]
+  },
 }
 
 /**
@@ -656,7 +676,13 @@ export async function opsToday(ctx, venue, { date, time, levels }) {
   const tasks = []
   const notIncluded = []
   const errors = []
-  await Promise.all(Object.entries(SOURCES).map(async ([area, fn]) => {
+  // Inventory phase 6b: the stock and costing set-up gaps (no storage areas, best sellers with no
+  // recipe, items in recipes with no price), for whoever manages any of their modules whatever
+  // their Stock level; the route sends only the gaps of the modules the person manages.
+  const stockGaps = STOCK_GAP_MODULES.some(m => permissionAtLeast(levels[m], 'manage'))
+    ? callApi(ctx, 'GET', `/api/stock/venues/${venue.id}/setup-gaps`).then(r => { for (const g of r.gaps || []) s.gaps.push(g) }).catch(() => {})
+    : null
+  await Promise.all([stockGaps, ...Object.entries(SOURCES).map(async ([area, fn]) => {
     if ((levels[AREAS[area]] || 'none') === 'none') { notIncluded.push(area); return }
     try {
       for (const t of await fn(ctx, venue, s)) {
@@ -671,7 +697,7 @@ export async function opsToday(ctx, venue, { date, time, levels }) {
       if (err instanceof ToolError && err.status === 403) notIncluded.push(area)
       else errors.push({ area, message: err instanceof ToolError ? err.message : 'Couldn\'t load this part' })
     }
-  }))
+  })])
 
   // C6: one card per key, whichever source found it.
   const byKey = new Map()
@@ -697,3 +723,14 @@ export async function opsToday(ctx, venue, { date, time, levels }) {
 
 /** The modules the feed reads, for permissionLevels(). */
 export const OPS_MODULES = [...new Set([...Object.values(AREAS), 'purchasing_approve', 'bookings', 'rota', 'local_info', 'pos_reports'])]
+
+// The modules the stock and costing set-up gaps are for (setupGaps() in services/stockFoodCostSvc.js,
+// read through GET /api/stock/venues/:id/setup-gaps): Home offers each to whoever manages its own.
+export const STOCK_GAP_MODULES = ['stock', 'recipes', 'purchasing_setup']
+
+/**
+ * What Home (GET /api/ops/today) asks permissionLevels() for: the feed's modules and every module a
+ * set-up gap is for, since Home's suggestions offer a gap only to whoever manages its module (a level
+ * not asked for reads as none). Not OPS_MODULES itself: Pepper lists its task tools by that.
+ */
+export const HOME_MODULES = [...new Set([...OPS_MODULES, ...STOCK_GAP_MODULES])]

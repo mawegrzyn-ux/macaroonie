@@ -8,7 +8,7 @@
 // the Nav Designer's per-role hiding, respectively — see
 // dashboardTiles.js for the API side.
 
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays } from 'date-fns'
@@ -23,6 +23,9 @@ import { TitleRename } from '@/components/dashboards/TitleRename'
 import { RoleVisibilityModal } from '@/components/dashboards/RoleVisibilityModal'
 import { AllergenLookup } from '@/components/menus/AllergenMatrix'
 import PinStrip from '@/components/home/Pins'
+
+// The stock tile (inventory phase 6b, stock's): its code loads only when the Overview has it.
+const StockOverviewTile = lazy(() => import('@/components/stock/OverviewTile'))
 
 function resolveIcon(name) {
   return LucideIcons[name] || LucideIcons.Circle
@@ -40,6 +43,7 @@ const TILE_META = {
   hs_today_status:   { label: 'H&S checks today',       icon: 'ShieldCheck',  default_col_span: 2, default_height_px: 240 },
   hs_week_status:    { label: "Week's H&S status",      icon: 'CalendarCheck', default_col_span: 2, default_height_px: 240 },
   allergen_lookup:   { label: 'Allergen lookup',        icon: 'Grid3x3',      default_col_span: 2, default_height_px: 480 },
+  stock_status:      { label: 'Stock',                  icon: 'Boxes',        default_col_span: 2, default_height_px: 320 },
 }
 
 // ── Stat card ─────────────────────────────────────────────────────────────────
@@ -451,6 +455,7 @@ export default function Dashboard() {
       case 'hs_today_status':   return <HsTodayStatusBody api={api} />
       case 'hs_week_status':    return <HsWeekStatusBody api={api} />
       case 'allergen_lookup':   return <AllergenLookup storeKey="maca_allergen_lookup_overview" />
+      case 'stock_status':      return <Suspense fallback={null}><StockOverviewTile /></Suspense>
       default:                  return null
     }
   }

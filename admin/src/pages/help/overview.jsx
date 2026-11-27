@@ -30,6 +30,7 @@ export function Section() {
           ['H&S checks today', 'Combined Checklists + Food safety status for today. Below the overall badge, every checklist is listed by name (done/not done), plus one line each for fridge/freezer checks, hot/cold hold checks, and cooking checks (only the categories you actually have configured), and a delivery checks line showing how many deliveries were logged that day — grouped by venue if you have more than one. A delivery that failed a check with no corrective action noted turns the day red.'],
           ['Week\'s H&S status', 'The same status as a Monday-to-Sunday strip for the current week — one coloured cell per day.'],
           ['Allergen lookup', 'Pick a menu, search a dish, or press Allergens & diet and tap tags in the grid to list dishes that have them or are free from them. Shows Contains, May contain and Can be removed apart (see Menus, Allergen matrix).'],
+          ['Stock', 'Each venue in a line: counts to approve, transfers to receive, flagged items to review, the last full count and, with Costing view and Till reports view, this week\'s theoretical food cost and the latest actual. Needs Stock view; tap a venue for its Stock page.'],
         ]}
       />
       <H3>H&amp;S status colours</H3>

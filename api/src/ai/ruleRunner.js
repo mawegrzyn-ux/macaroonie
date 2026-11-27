@@ -9,6 +9,9 @@
 //   supplier_order   POST /api/purchasing/orders/:id/submit (routes/purchasing.js)
 //   task_late        the task notices sweep                 (services/notices.js)
 //   review_low       POST /api/reviews and /reviews/record  (routes/reviews.js)
+//   dish_over_target the cost targets sweep                 (services/stockFoodCostSvc.js, phase 6b)
+//   variance_over_band POST /api/stock/periods/:id/close     (routes/stockVariance.js, phase 6b)
+//   waste_logged     POST /api/stock/venues/:id/waste       (routes/stockWaste.js, phase 6b)
 //
 //   fireRulesLater(app, tenantId, event, log)   the same, not waited for (routes)
 //   fireRules(app, tenantId, event, log)
@@ -22,7 +25,9 @@
 //     as the page), named in the audit (ai_actions.rule_id, actor "Rule: ...").
 //     Only a reversible tool ever runs (checked again here). A text that
 //     carries a price ({total}) is also filled without it (ctx.withoutPrices),
-//     for the people who can't see purchasing prices. -> [{ rule, status }]
+//     for the people who can't see purchasing prices (or, for a trigger with
+//     money_needs, a cost or a share of sales: ctx.moneyNeeds, the modules a
+//     person must view to be sent the figure). -> [{ rule, status }]
 //
 // It loads Pepper's tools when it runs (tools/index.js): nothing here is
 // imported by a tool file.
@@ -30,7 +35,7 @@
 import { withTenant } from '../config/db.js'
 import { INTERNAL_AS_PREFIX } from '../middleware/auth.js'
 import { makeContext } from './context.js'
-import { matches, fillInput, usesMoney, RULE_ACTIONS } from '../../../shared/rules.js'
+import { matches, fillInput, usesMoney, RULE_ACTIONS, TRIGGERS } from '../../../shared/rules.js'
 
 const quiet = { info() {}, warn() {}, error() {}, debug() {} }
 
@@ -110,7 +115,11 @@ async function fireOne(app, tenantId, rule, event, log) {
   })
   // A notice whose text carries an order's total: send_notice sends this version, the money
   // left out, to people who can't see purchasing prices (step 9a).
-  if (usesMoney(rule)) ctx.withoutPrices = fillInput(rule, event, { prices: false })
+  if (usesMoney(rule)) {
+    ctx.withoutPrices = fillInput(rule, event, { prices: false })
+    // Phase 6b: a cost or a share of sales goes to people with view on these modules only.
+    ctx.moneyNeeds = TRIGGERS[rule.trigger]?.money_needs || null
+  }
   try {
     const result = await tool.run(ctx, parseInput(tool, input))
     const { _undo, ...shown } = result || {}

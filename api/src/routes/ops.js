@@ -36,7 +36,7 @@ import { httpError } from '../middleware/error.js'
 import { tenantSql, withTenant } from '../config/db.js'
 import { permissionAtLeast, workLevel } from '../config/modules.js'
 import { makeContext, staffAuthOf, staffPrincipalOf } from '../ai/context.js'
-import { opsToday, OPS_MODULES, AREAS, moduleOf } from '../services/opsToday.js'
+import { opsToday, OPS_MODULES, HOME_MODULES, AREAS, moduleOf } from '../services/opsToday.js'
 import { changeTask, taskHistory, canChange, personName, localParts, TaskError } from '../services/opsTasks.js'
 import { REASON_MAX, SNOOZE_MAX_MINUTES } from '../../../shared/todayTasks.js'
 import { gatherFacts, suggestionsFor } from '../services/suggestions.js'
@@ -101,7 +101,8 @@ export default async function opsRoutes(app) {
     const venues = await activeVenues(req)
     const venue = q.venue_id ? venues.find(v => v.id === q.venue_id) : venues[0]
     if (!venue) throw httpError(404, q.venue_id ? 'Venue not found' : 'No venues yet')
-    const levels = await permissionLevels(req, OPS_MODULES)
+    // The feed's modules and those its set-up gaps are for (Home's suggestions check each gap's).
+    const levels = await permissionLevels(req, HOME_MODULES)
     const ctx = contextFor(req)
     // Home's suggestions (step 7a): their own reads run beside the feed's;
     // the rules then see the feed's tasks. A failure there never costs the feed.
