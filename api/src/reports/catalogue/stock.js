@@ -431,7 +431,7 @@ export const subjects = [
       uncosted_units: number('uncosted_qty', { label: 'Units not costed', adds: true, decimals: 0 }),
       typical_units: number('typical_qty', { label: 'Units at typical meal deal picks', adds: true, decimals: 0, about: 'Meal deals from other tills, whose picks aren\'t known: costed at the dishes guests pick most.' }),
       costed: yesno({ sql: '({t}.uncosted_qty = 0 AND {t}.left_out IS NULL)' }, { label: 'Fully costed' }),
-      left_out: choice('left_out', { open: 'An open item (no dish)', service: 'A service', gone: 'No longer on a menu' }, { label: 'Left out' }),
+      left_out: choice('left_out', { open: 'An open item (no dish)', service: 'A service', gone: 'No longer on a menu, no recipe known' }, { label: 'Left out' }),
       why: text({ sql: "({t}.gaps->0->>'text')" }, { label: 'Why not costed' }),
       fix: text({ sql: "({t}.gaps->0->>'fix')" }, { label: 'How to fix' }),
       worked_out_at: moment('computed_at', { label: 'Worked out at' }),

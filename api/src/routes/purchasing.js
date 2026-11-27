@@ -310,6 +310,10 @@ async function loadOrder(tx, tenantId, order, who) {
   ` : []
   const lastBy = new Map(last.map(l => [l.item_id, l]))
   const stock = await orderStock(tx, tenantId, venue, order, ids, now.date)
+  // Up to par takes what is on hand off the par, and on hand needs Stock view: without it this form orders
+  // the par as it is (par_mode 'order'), so par_packs, Fill to par, the Par button and Pepper's fill_to_par
+  // all fill the one figure, and none of them tells what is on hand. par_mode_venue is the venue's own.
+  const parMode = who.stock ? stock.mode : 'order'
   const supplierIds = [...new Set([...quotes.values()].flat().map(q => q.supplier_id))]
   const suppliers = supplierIds.length ? await loadSuppliersForVenue(tx, tenantId, venue, supplierIds) : {}
   const [list] = order.list_id ? await tx`SELECT name FROM order_lists WHERE id = ${order.list_id} AND tenant_id = ${tenantId}` : []
@@ -341,7 +345,7 @@ async function loadOrder(tx, tenantId, order, who) {
       category_name: r.category_name ?? null, category_sort: r.category_sort ?? 9999,
       on_list: r.on_list, is_active: r.is_active, list_sort: r.sort_order ?? 9999,
       par_base: par,
-      par_packs: chosen && par != null ? packsToPar(par, chosen, parStock(stock.mode, stock.of(r.item_id))) : null,
+      par_packs: chosen && par != null ? packsToPar(par, chosen, parStock(parMode, stock.of(r.item_id))) : null,
       ...(who.stock ? { stock: stock.of(r.item_id) } : {}),
       quote: quoteView(chosen, venue.id, prices),
       default_quote_id: pick?.quote?.id ?? null,
@@ -364,7 +368,7 @@ async function loadOrder(tx, tenantId, order, who) {
     ...orderActions(order, who),
     suppliers: Object.fromEntries(Object.entries(suppliers).map(([id, s]) => [id, supplierView(s, prices)])),
     open_pos: openPos,
-    par_mode: stock.mode, par_mode_setting: stock.setting, stock_counted: stock.counted,
+    par_mode: parMode, par_mode_venue: stock.mode, par_mode_setting: stock.setting, stock_counted: stock.counted, sees_stock: who.stock,
     items,
   }
 }

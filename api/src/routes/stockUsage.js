@@ -142,7 +142,8 @@ export default async function stockUsageRoutes(app) {
       const lease = await claimVenue(tx, req.tenantId, venueId)
       if (!lease) throw httpError(409, 'Usage is being worked out for this venue right now: try again in a minute', { code: 'running' })
       const r = await runVenueUsage(tx, req.tenantId, venueId, { days: daysBetween(b.from, b.to), force: true })
-      await releaseVenue(tx, req.tenantId, venueId)
+      // Only the lease: the days asked for are worked out (today's mark says when), the job's last run stays its own.
+      await releaseVenue(tx, req.tenantId, venueId, { ran: false })
       return { from: b.from, to: b.to, days: r.days, lines: r.lines, items: r.items, dishes: r.dishes, worked: r.worked }
     })
   })

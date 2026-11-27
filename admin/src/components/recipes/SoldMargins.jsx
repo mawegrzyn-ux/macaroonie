@@ -6,7 +6,9 @@
 // revenue stream and order type used, with its options and a meal deal's
 // picks), by section and dish: units, net of VAT, theoretical cost, GP and
 // cost %, coloured against the targets only where every unit was costed.
-// Worked out by soldMargins() in shared/costing.js on the server.
+// Worked out by soldMargins() in shared/costing.js on the server. Net, GP,
+// cost % and the colours are sales, so they need till reports view too: the
+// server leaves them out without it (sees_sales false) and so do the tables.
 //
 //   SoldMargins({ venues })   API GET /api/menu-margins/sold?venue_id=&from=&to=
 
@@ -42,6 +44,7 @@ export default function SoldMargins({ venues = [] }) {
     return (data?.sections || []).map(s => ({ ...s, dishes: m.get(s.section_id || 'none') || [] }))
   }, [data])
   const t = data?.total
+  const sales = !!data?.sees_sales
   return (
     <div className="space-y-4" data-testid="margins-sold">
       <Card title="What sold">
@@ -67,7 +70,9 @@ export default function SoldMargins({ venues = [] }) {
         <p className="text-xs text-muted-foreground mt-3">
           Each dish sold is costed by the recipe its venue, revenue stream and order type used, with its options and a meal deal&apos;s
           picks, at what was paid for its items then (usage from sales, worked out every few minutes{data?.worked_out_at ? ', last ' + new Date(data.worked_out_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}).
-          Net is after discounts, VAT out. A dish with units that couldn&apos;t be costed is coloured only once every unit is.
+          {sales
+            ? ' Net is after discounts, VAT out. A dish with units that couldn\'t be costed is coloured only once every unit is.'
+            : ' Sales, GP and cost % are the till\'s figures: they need till reports view as well, so only units and costs show here.'}
         </p>
       </Card>
       <ErrorNote error={error} />
@@ -76,20 +81,20 @@ export default function SoldMargins({ venues = [] }) {
           {t && (
             <div className="flex flex-wrap gap-2" data-testid="sold-total">
               <Chip label="Units" value={qtyText(t.qty)} />
-              <Chip label="Net" value={penceText(t.net_pence)} />
+              {sales && <Chip label="Net" value={penceText(t.net_pence)} />}
               <Chip label="Theoretical cost" value={t.cost_pence == null ? '-' : penceText(t.cost_pence)} />
-              <Chip label="GP" value={t.gp_pence == null ? '-' : penceText(t.gp_pence)} />
-              <Chip label="Cost %" value={t.cost_pct == null ? '-' : pctText(t.cost_pct)} />
+              {sales && <Chip label="GP" value={t.gp_pence == null ? '-' : penceText(t.gp_pence)} />}
+              {sales && <Chip label="Cost %" value={t.cost_pct == null ? '-' : pctText(t.cost_pct)} />}
               {t.uncosted_qty > 0 && <Chip label="Not costed" value={qtyText(t.uncosted_qty) + ' units'} cls="bg-amber-50 border-amber-200 text-amber-900" />}
             </div>
           )}
           <Segmented value={by} onChange={setBy} options={[{ value: 'dish', label: 'By dish' }, { value: 'section', label: 'By section' }]} className="[&>button]:h-12" testid="sold-by" />
           {by === 'section' ? (
-            <SoldTable rows={data.sections.map(s => ({ ...s, key: s.section_id || 'none', name: s.section || 'No section' }))} first="Section" />
+            <SoldTable rows={data.sections.map(s => ({ ...s, key: s.section_id || 'none', name: s.section || 'No section' }))} first="Section" sales={sales} />
           ) : (
             <div className="space-y-4">
               {sections.map(s => (
-                <SoldTable key={s.section_id || 'none'} title={(s.section || 'No section') + ' · ' + qtyText(s.qty) + ' sold'} first="Dish"
+                <SoldTable key={s.section_id || 'none'} title={(s.section || 'No section') + ' · ' + qtyText(s.qty) + ' sold'} first="Dish" sales={sales}
                   rows={s.dishes.map(d => ({ ...d, key: d.dish_id || d.name }))} />
               ))}
               {!sections.length && <Card title="Nothing sold"><p className="text-sm text-muted-foreground">No sales were worked out for these days{venueId ? ' here' : ''} yet.</p></Card>}
@@ -105,19 +110,19 @@ function Chip({ label, value, cls }) {
   return <span className={cn('inline-flex items-center gap-1 h-10 px-3 rounded-full border text-sm bg-background', cls)}>{label} <strong className="tabular-nums">{value}</strong></span>
 }
 
-function SoldTable({ rows, title, first }) {
+function SoldTable({ rows, title, first, sales = true }) {
   return (
     <Card title={title || 'Every section'} bodyClass="p-0">
       <div className="overflow-x-auto" data-testid="sold-table">
-        <table className="w-full text-sm min-w-[640px]">
+        <table className={cn('w-full text-sm', sales ? 'min-w-[640px]' : 'min-w-[400px]')}>
           <thead className="text-xs text-muted-foreground">
             <tr className="border-b">
               <th className="text-left font-medium px-4 py-2">{first}</th>
               <th className="text-right font-medium px-2 py-2">Units</th>
-              <th className="text-right font-medium px-2 py-2">Net</th>
-              <th className="text-right font-medium px-2 py-2">Cost</th>
-              <th className="text-right font-medium px-2 py-2">GP</th>
-              <th className="text-right font-medium px-4 py-2">Cost %</th>
+              {sales && <th className="text-right font-medium px-2 py-2">Net</th>}
+              <th className={cn('text-right font-medium py-2', sales ? 'px-2' : 'px-4')}>Cost</th>
+              {sales && <th className="text-right font-medium px-2 py-2">GP</th>}
+              {sales && <th className="text-right font-medium px-4 py-2">Cost %</th>}
             </tr>
           </thead>
           <tbody>
@@ -134,12 +139,14 @@ function SoldTable({ rows, title, first }) {
                   )}
                 </td>
                 <td className="px-2 py-2 text-right tabular-nums">{qtyText(r.qty)}</td>
-                <td className="px-2 py-2 text-right tabular-nums">{penceText(r.net_pence)}</td>
-                <td className="px-2 py-2 text-right tabular-nums">{r.cost_pence == null ? '-' : penceText(r.cost_pence)}</td>
-                <td className="px-2 py-2 text-right tabular-nums">{r.gp_pence == null ? '-' : penceText(r.gp_pence)}</td>
-                <td className="px-4 py-2 text-right">
-                  {r.band ? <BandBadge band={r.band} pct={r.cost_pct} /> : <span className="tabular-nums text-muted-foreground">{r.cost_pct == null ? '-' : pctText(r.cost_pct)}</span>}
-                </td>
+                {sales && <td className="px-2 py-2 text-right tabular-nums">{penceText(r.net_pence)}</td>}
+                <td className={cn('py-2 text-right tabular-nums', sales ? 'px-2' : 'px-4')}>{r.cost_pence == null ? '-' : penceText(r.cost_pence)}</td>
+                {sales && <td className="px-2 py-2 text-right tabular-nums">{r.gp_pence == null ? '-' : penceText(r.gp_pence)}</td>}
+                {sales && (
+                  <td className="px-4 py-2 text-right">
+                    {r.band ? <BandBadge band={r.band} pct={r.cost_pct} /> : <span className="tabular-nums text-muted-foreground">{r.cost_pct == null ? '-' : pctText(r.cost_pct)}</span>}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

@@ -239,10 +239,14 @@ async function usageMoves(tx, tenantId, cut) {
  */
 export async function salesTakenOff(tx, tenantId, venueIds) {
   if (!venueIds?.length) return {}
+  // Up to the last run: a run that found no sales changed works nothing out again but has still read them
+  // (stock_usage_venues.last_run_at, when it didn't fail), so it is the later of that and the last day worked out.
   const rows = await tx`
-    SELECT m.venue_id, max(m.computed_at) AS up_to, max(m.last_sale_at) AS last_sale_at, count(*)::int AS days,
-           sum(m.uncosted_lines)::int AS uncosted_lines
+    SELECT m.venue_id,
+           GREATEST(max(m.computed_at), max(CASE WHEN u.last_error IS NULL THEN u.last_run_at END)) AS up_to,
+           max(m.last_sale_at) AS last_sale_at, count(*)::int AS days, sum(m.uncosted_lines)::int AS uncosted_lines
       FROM stock_usage_marks m
+      LEFT JOIN stock_usage_venues u ON u.venue_id = m.venue_id AND u.tenant_id = m.tenant_id
      WHERE m.tenant_id = ${tenantId} AND m.venue_id = ANY(${venueIds}::uuid[]) AND m.day >= current_date - 15
      GROUP BY m.venue_id`
   return Object.fromEntries(rows.map(r => [r.venue_id, { up_to: r.up_to, last_sale_at: r.last_sale_at, days: r.days, uncosted_lines: r.uncosted_lines }]))

@@ -67,7 +67,9 @@ export const starters = [
       subject: 'stock.dish_sales',
       rows: ['dish', 'venue.name', 'why', 'fix'],
       values: [{ measure: 'uncosted' }, { measure: 'units_sold' }, { measure: 'net_sales' }],
-      filters: [{ field: 'costed', op: 'is', value: false }],
+      // Units not costed, not "not fully costed": open items, services and dishes gone from every menu are left
+      // out (left_out, with no units uncosted), never listed as dishes to cost.
+      filters: [{ field: 'uncosted_units', op: 'gt', value: 0 }],
       sort: [{ by: 'uncosted', dir: 'desc' }],
     },
   }),

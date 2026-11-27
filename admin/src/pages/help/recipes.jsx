@@ -205,7 +205,10 @@ export function Section() {
         the items then), GP and cost %, and totals at the top. It comes from usage from sales, worked out every few
         minutes (the Stock page&apos;s Usage tab). A dish with units that couldn&apos;t be costed says how many and
         isn&apos;t coloured until every unit is; the total&apos;s cost % reads low while some dishes have no recipe.
-        Tap a dish to open it on the Recipes page. <strong>By section</strong> sums each section.
+        Tap a dish to open it on the Recipes page. <strong>By section</strong> sums each section. Net sales, GP and
+        cost % are the till&apos;s figures, so they need till reports view as well as Costing view: without it the tab
+        shows the units and the theoretical cost only. A dish none of whose items has a price shows no cost (a dash),
+        never £0.00.
       </P>
       <H3>Cost targets</H3>
       <P>

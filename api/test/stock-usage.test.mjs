@@ -10,7 +10,11 @@
 // split); late sales worked out again, a day nothing changed left alone, a
 // recipe saved marking the days; the closed-day hook asked; the usage route
 // and its uncosted dishes; Recompute (Manage, at most 31 days, never
-// another group's venue); two processes claiming one run.
+// another group's venue); two processes claiming one run. Review fixes: up
+// to par only with Stock view (the par as it is without it, the same figure
+// in the form and Pepper); the Sold tab's sales only with till reports view;
+// "up to the last run" moving with a run that found nothing changed; a dish
+// taken off every menu (or its menu deleted) still taking its sales off.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
@@ -253,8 +257,13 @@ test('on hand takes sales off, one ledger move per item per day with the channel
 })
 
 test('late sales are worked out again; a day nothing changed is left alone', async () => {
+  const [{ at: worked }] = await sql`SELECT max(computed_at) AS at FROM stock_usage_marks WHERE tenant_id = ${ids.a} AND venue_id = ${soho}`
   const still = await usage.sweepStockUsage(null, { again: 0 })
   assert.equal(still.days, 0, 'no sales changed: nothing worked out again')
+  // ...but the run read the sales, so "taken off up to the last run" moves on to it.
+  const { salesTakenOff } = await import('../src/services/stockSvc.js')
+  const taken = await salesTakenOff(sql, ids.a, [soho])
+  assert.ok(new Date(taken[soho].up_to) > new Date(worked), 'up to the last run, not the last day worked out')
   // A burger rung up late (the hub synced it later).
   await tillCheck(soho, [{ item_id: burger, name: 'Burger', qty: 1 }], { orderType: eatIn })
   const again = await usage.sweepStockUsage(null, { again: 0 })
@@ -356,6 +365,19 @@ test('order up to par: the par less what is on hand and already on order; the ve
   const { card } = await pepper(A.owner, 'update_order', { venue_id: soho, list: 'Burger bits', fill_to_par: true }, { run: false })
   assert.match(JSON.stringify(card), /Beef patty/)
   assert.match(JSON.stringify(card), new RegExp('Beef patty: ' + Math.ceil((300 - oh - 30) / 10) + ' '), 'the card fills the patties up to par')
+  // Without Stock view the form orders the par as it is: par_packs, Fill to par and Pepper fill one figure, and nothing tells what is on hand.
+  const role = await ok(owner.post('/api/access/roles', { key: 'usebuyer', label: 'Buyer', permissions: { purchasing: 'manage', stock: 'none' } }))
+  await sql`INSERT INTO users (tenant_id, email, role, auth0_user_id, custom_role_id) VALUES (${ids.a}, 'use-buyer@test.local', 'viewer', 'a-use-buyer', ${role.id})`
+  const buyer = as('a-use-buyer', ids.a)
+  const bf = await ok(buyer.get('/api/purchasing/orders/' + draft.id))
+  assert.deepEqual([bf.par_mode, bf.par_mode_venue, bf.sees_stock], ['order', 'up_to', false], 'the venue orders up to par; this form the par as it is')
+  const bb = bf.items.find(i => i.item_id === beef.id)
+  assert.equal(bb.stock, undefined, 'no on hand without Stock view')
+  assert.equal(bb.par_packs, 30, 'the par as it is: nothing of what is on hand in it')
+  const seen = await pepper('a-use-buyer', 'order_form', { venue_id: soho, list: 'Burger bits' })
+  assert.equal(seen.out.items.find(i => i.item === 'Beef patty').par, 30, 'Pepper shows the par it fills')
+  const filled = await pepper('a-use-buyer', 'update_order', { venue_id: soho, list: 'Burger bits', fill_to_par: true }, { run: false })
+  assert.match(JSON.stringify(filled.card), /Beef patty: 30 /, 'and fills the same figure')
 })
 
 test('the Sold tab: what sold at a venue with its theoretical cost, by dish and section', async () => {
@@ -367,6 +389,17 @@ test('the Sold tab: what sold at a venue with its theoretical cost, by dish and 
   assert.equal(s.uncosted_qty, 1)
   assert.equal(s.band, null, 'not coloured while a unit is uncosted')
   assert.equal(sold.total.net_pence, sold.sections.reduce((n, x) => n + x.net_pence, 0))
+  assert.equal(sold.sees_sales, true)
+  // Costing view without till reports view: units and theoretical costs, never the till's sales or what comes of them.
+  const role = await ok(owner.post('/api/access/roles', { key: 'usecoster', label: 'Costing only', permissions: { costing: 'view', pos_reports: 'none' } }))
+  await sql`INSERT INTO users (tenant_id, email, role, auth0_user_id, custom_role_id) VALUES (${ids.a}, 'use-coster@test.local', 'viewer', 'a-use-coster', ${role.id})`
+  const cs = await ok(as('a-use-coster', ids.a).get(`/api/menu-margins/sold?venue_id=${soho}&from=${today}&to=${today}`))
+  assert.equal(cs.sees_sales, false)
+  const cb = cs.dishes.find(d => d.dish_id === burger)
+  assert.deepEqual([cb.qty, cb.cost_pence], [b.qty, b.cost_pence], 'units and cost as the owner sees them')
+  for (const row of [cb, cs.total, ...cs.sections]) {
+    for (const k of ['sales_pence', 'net_pence', 'gp_pence', 'cost_pct', 'gp_pct', 'band']) assert.equal(row[k], undefined, k + ' needs till reports view')
+  }
   assert.equal((await bOwner.get(`/api/menu-margins/sold?venue_id=${soho}`)).status, 404, 'another group\'s venue')
   assert.equal((await owner.get(`/api/menu-margins/sold?from=${today}&to=2027-12-31`)).status, 422, 'too many days')
 })
@@ -403,4 +436,62 @@ test('the report subjects: usage by day and channel, dish sales with theoretical
   assert.ok(week.rows.length >= 1, 'this week has sales')
   const unc = await ok(owner.post('/api/reports/starter:uncosted_dishes_by_sales/run', {}))
   assert.ok(unc.rows.some(r => r.cells.includes('Soup')), 'the soup sold with no recipe')
+})
+
+test('a dish taken off every menu since it sold still takes its sales off when its day is worked out again', async () => {
+  // Specials: a pie (its recipe linked), a tart with no recipe and a pie deal, sold today; then taken off and published.
+  const pastry = await ok(owner.post('/api/inventory/items', { name: 'Pastry', base_unit: 'g' }))
+  const pieR = await ok(owner.post('/api/recipes', { name: 'Pie', kind: 'dish', status: 'live', lines: [{ item_id: pastry.id, qty: 200, unit: 'g' }] }))
+  let specials = await makeMenu(owner, 'Specials', [{ title: 'Specials', items: [
+    { name: 'Pie', price_pence: 900, is_orderable: true, variant_groups: [], variants: [] },
+    { name: 'Tart', price_pence: 500, is_orderable: true, variant_groups: [], variants: [] },
+  ] }])
+  const pie = dishIn(specials, 'Pie').id
+  const tart = dishIn(specials, 'Tart').id
+  const step = randomUUID()
+  const body = menuSaveBody(specials)
+  body.sections.push({ title: 'Deals', items: [{
+    name: 'Pie deal', kind: 'combo', price_pence: 1000, is_orderable: true, variant_groups: [], variants: [],
+    combo: { mode: 'manual', steps: [{ id: step, name: 'Main', min: 1, max: 1, options: [{ id: randomUUID(), type: 'item', item_id: pie }] }] },
+  }] })
+  await ok(owner.patch('/api/menus/' + specials.id, body), 'the pie deal')
+  specials = await ok(owner.get('/api/menus/' + specials.id))
+  const pieDeal = dishIn(specials, 'Pie deal').id
+  await ok(owner.post(`/api/menus/${specials.id}/publish`, {}))
+  await ok(owner.put(`/api/recipe-links/dishes/${pie}/cell`, { recipe_id: pieR.id }))
+  await tillCheck(soho, [
+    { item_id: pie, name: 'Pie', qty: 2 }, { item_id: tart, name: 'Tart', qty: 1 },
+    { item_id: pieDeal, name: 'Pie deal', qty: 1, combo: [{ step_id: step, item_id: pie, modifiers: [] }] },
+  ], { orderType: eatIn })
+  await usage.sweepStockUsage(null, { again: 0 })
+  const pastryToday = async () => (await sql`
+    SELECT qty_base::float8 AS q FROM stock_usage_days WHERE tenant_id = ${ids.a} AND venue_id = ${soho} AND day = ${today}::date AND item_id = ${pastry.id}`)[0]?.q ?? 0
+  const rowsOf = async () => sql`
+    SELECT dish_id, left_out, recipe_name, section, uncosted_qty::float8 AS uncosted, gaps FROM dish_cost_days
+     WHERE tenant_id = ${ids.a} AND venue_id = ${soho} AND day = ${today}::date AND dish_id = ANY(${[pie, tart, pieDeal]}::uuid[])`
+  assert.equal(await pastryToday(), 600, 'two pies and the deal\'s pie')
+  assert.equal((await rowsOf()).find(r => r.dish_id === tart).left_out, null, 'on a menu: the tart is uncosted, not left out')
+
+  // Taken off every menu and published; the day is worked out again (a recipe saved, a late sale, Recompute).
+  const off = menuSaveBody(specials)
+  off.sections = off.sections.map(s => ({ ...s, items: [] }))
+  await ok(owner.patch('/api/menus/' + specials.id, off), 'taken off')
+  await ok(owner.post(`/api/menus/${specials.id}/publish`, {}))
+  await ok(owner.post(`/api/stock/venues/${soho}/usage/recompute`, { from: today, to: today }))
+  assert.equal(await pastryToday(), 600, 'still taken off: the pie as it was last released')
+  let rows = await rowsOf()
+  const p = rows.find(r => r.dish_id === pie)
+  assert.deepEqual([p.left_out, p.recipe_name, p.section], [null, 'Pie', 'Specials'], 'the pie from the release that last had it')
+  assert.deepEqual([rows.find(r => r.dish_id === pieDeal).left_out, rows.find(r => r.dish_id === pieDeal).section], [null, 'Deals'], 'the deal by its picks')
+  const t = rows.find(r => r.dish_id === tart)
+  assert.deepEqual([t.left_out, t.uncosted, t.gaps[0].reason], ['gone', 0, 'gone'], 'no recipe known for a dish on no menu: left out')
+
+  // Its menu deleted too (its releases go with it): the link still kept costs the pie, the deal's picks name it.
+  await ok(owner.delete('/api/menus/' + specials.id))
+  await ok(owner.post(`/api/stock/venues/${soho}/usage/recompute`, { from: today, to: today }))
+  assert.equal(await pastryToday(), 600, 'the link outlives the menu for a while')
+  rows = await rowsOf()
+  assert.deepEqual([rows.find(r => r.dish_id === pie).left_out, rows.find(r => r.dish_id === pie).section], [null, null], 'a stand-in: by its link, no section known')
+  assert.equal(rows.find(r => r.dish_id === pieDeal).left_out, null, 'a deal sold with its picks')
+  assert.equal(rows.find(r => r.dish_id === tart).left_out, 'gone')
 })

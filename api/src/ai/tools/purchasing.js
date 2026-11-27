@@ -911,7 +911,8 @@ async function planOrder(ctx, input) {
   if (input.fill_to_par) {
     for (const e of eff.values()) {
       if (e.qty > 0 || !e.quote || e.item.par_base == null || e.item.is_active === false) continue
-      // Up to par (phase 5): what is on hand and on order comes off, as on the order form.
+      // Up to par (phase 5): what is on hand and on order comes off, as on the order form. The form's par_mode is
+      // 'order' for someone without Stock view, so this fills the same figure order_form shows as par (par_packs).
       const p = packsToPar(e.item.par_base, e.quote, parStock(order.par_mode, e.item.stock))
       if (p > 0) e.qty = p
     }
@@ -2088,7 +2089,7 @@ export const purchasingTools = [
     description:
       'Sets quantities on a venue\'s draft order for a list without sending anything: lines (packs; 0 takes a line ' +
       'off; an item not on the list is added; supplier switches where it comes from), fill_to_par (every empty line ' +
-      'with a par gets its par: at a venue ordering up to par, the par less what is on hand and already on order), clear_all. With order_id it changes that order, e.g. an approver changing a request ' +
+      'with a par gets its par: at a venue ordering up to par, the par less what is on hand and already on order, for someone with Stock view; the par as order_form shows it), clear_all. With order_id it changes that order, e.g. an approver changing a request ' +
       'waiting for approval. Then place_order, or request_order without Purchasing approval.',
     input: z.object({
       ...OrderTarget,

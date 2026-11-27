@@ -17,6 +17,10 @@
 //     by name; test till sales and voids left out: a void marked wasted is
 //     waste by itself). Each sold dish is broken in by usageOf() in
 //     shared/costing.js at its venue, revenue stream and order type.
+//   - A dish taken off every menu since it sold is costed as the newest
+//     release that went live with it had it (goneDishes()), so working its
+//     day out again later still takes its sales off; it is left out as
+//     'gone' only when no recipe is known for it.
 //   - A day is replaced whole, in one transaction (computeDays()).
 //   - The job (jobs/stock-usage.js, every few minutes) claims each venue with
 //     a lease (stock_usage_venues.running_until, FOR UPDATE SKIP LOCKED), so
@@ -38,6 +42,7 @@
 //   markUsageDirty(tx, tenantId, { venueIds, from })   a recipe, link, rule or
 //                         setting changed: work the open days out again
 //   venueToday(tx, tenantId, venueId, now)   the venue's trading day and zone
+//   goneDishes(tx, tenantId, ids, { lines, links })   sold dishes on no menu now, as last released
 //   dayFingerprints(tx, tenantId, venueId, from, to, { refunds })
 //   computeDays(tx, tenantId, venueId, days, { fingerprints, now })
 //   runVenueUsage(tx, tenantId, venueId, { days, force, now })
@@ -45,7 +50,7 @@
 //   sweepStockUsage(log, { now })   the job
 
 import { systemSql, withSystem, withTenant } from '../config/db.js'
-import { usageOf, pickMix, itemCost, COVERAGE_DAYS } from '../../../shared/costing.js'
+import { usageOf, pickMix, itemCost, dishMap, COVERAGE_DAYS } from '../../../shared/costing.js'
 import { isCombo } from '../../../shared/combos.js'
 import { businessDate } from '../../../shared/pos/reports.js'
 import { loadSoldLines, loadPickMix, coverageCtx, SOLD_FROM, gloriaDayRows } from './recipeCoverageSvc.js'
@@ -171,12 +176,59 @@ async function loadSettings(tx, tenantId) {
   return { refunds: !!s?.refunds_return_stock }
 }
 
+/**
+ * Dishes sold that are on no menu now (taken off since, or their menu
+ * deleted), so a day worked out again later still takes their sales off: each
+ * as the newest release that went live with it had it (its type, options and
+ * a meal deal's steps), in dishMap()'s shape. One no release holds becomes a
+ * stand-in when the sale says enough: a meal deal sold with its picks, or a
+ * dish whose recipe link is still kept (links outlive a dish for a while:
+ * sweepTenantLinks()). Map id -> dish.
+ */
+export async function goneDishes(tx, tenantId, ids, { lines = [], links = [] } = {}) {
+  const out = new Map()
+  if (!ids.length) return out
+  const rows = await tx`
+    SELECT DISTINCT ON (i.item->>'id') i.item->>'id' AS dish_id, i.item, s.sec->>'id' AS section_id, s.sec->>'title' AS section,
+           s.sec->>'item_type' AS section_type, r.menu_id, r.snapshot->>'name' AS menu, r.snapshot->>'item_type' AS menu_type
+      FROM menu_releases r
+     CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(r.snapshot->'sections') = 'array' THEN r.snapshot->'sections' ELSE '[]'::jsonb END) AS s(sec)
+     CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(s.sec->'items') = 'array' THEN s.sec->'items' ELSE '[]'::jsonb END) AS i(item)
+     WHERE r.tenant_id = ${tenantId} AND r.cancelled_at IS NULL AND r.goes_live_at <= now()
+       AND i.item->>'id' = ANY(${ids}::text[])
+     ORDER BY i.item->>'id', r.goes_live_at DESC, r.created_at DESC`
+  const found = dishMap(rows.map(r => ({
+    id: r.menu_id, name: r.menu, item_type: r.menu_type ?? null,
+    sections: [{ id: r.section_id, title: r.section, item_type: r.section_type ?? null, items: [r.item] }],
+  })))
+  for (const [id, d] of found) out.set(id, d)
+  const linked = new Set(links.map(k => k.dish_id))
+  for (const id of ids) {
+    if (out.has(id)) continue
+    const sold = lines.find(l => l.dish_id === id)
+    const stub = { id, name: sold?.name || 'A dish no longer on a menu', item_type: 'food', section_id: null, section: null }
+    if (sold && Array.isArray(sold.picks) && sold.picks.length) out.set(id, { ...stub, kind: 'combo', combo: null })
+    else if (linked.has(id)) out.set(id, stub)
+  }
+  return out
+}
+
+/** A dish costing ctx with the dishes no longer on a menu added (goneDishes()), leaving the menus' own as they are. */
+function withGone(ctx, gone) {
+  if (!gone.size) return ctx
+  const dishes = new Map(ctx.dishes)
+  for (const [id, d] of gone) if (!dishes.has(id)) dishes.set(id, d)
+  const combo = ctx.combo ? { ...ctx.combo, itemsById: { ...Object.fromEntries(gone), ...ctx.combo.itemsById } } : ctx.combo
+  return { ...ctx, dishes, combo }
+}
+
 const gapOf = g => ({ reason: g.reason, text: g.text, fix: g.fix ?? null, ...(g.recipe_id ? { recipe_id: g.recipe_id } : {}), ...(g.option_id ? { option_id: g.option_id } : {}) })
 const NO_DISH = {
   open: { reason: 'open', text: 'An open item typed in on the till: not a menu dish, so it has no recipe', fix: null },
   online: { reason: 'open', text: 'An online line with no menu dish: nothing to cost', fix: null },
   map: m => ({ reason: 'map', text: m === 'kept' ? 'Another till\'s line kept as sold, not on a menu dish' : m === 'bucket' ? 'Another till\'s line counted under a section, not on a menu dish' : 'Another till\'s line not mapped to a menu dish', fix: 'Map it to a menu dish on the Item mapping page, then link the dish to its recipe.' }),
   gloriafood: { reason: 'gloriafood', text: 'A GloriaFood order names its dishes only, so no recipe can be found for it', fix: 'GloriaFood orders aren\'t mapped to menu dishes yet: their sales take nothing off stock.' },
+  gone: { reason: 'gone', text: 'No longer on a menu, and no recipe is linked to it: its sales take nothing off stock', fix: null },
 }
 const NO_COST = name => ({ reason: 'no_cost', text: name + ' has no price here: nothing paid at this venue and no supplier price', fix: 'Add a supplier price for ' + name + ' on the Inventory page, or book a delivery in.' })
 
@@ -197,7 +249,16 @@ export async function computeDays(tx, tenantId, venueId, days, { fingerprints = 
     coverageCtx(tx, tenantId),
   ])
   const lines = sold.filter(l => want.has(l.day))
-  const ctx = ctxFor(venueId)
+  const menuCtx = ctxFor(venueId)
+  // A dish taken off every menu since it sold still takes its sales off when its day is worked out again.
+  const onMenu = menuCtx.dishes
+  const soldIds = new Set()
+  for (const l of lines) {
+    if (l.dish_id) soldIds.add(l.dish_id)
+    for (const p of Array.isArray(l.picks) ? l.picks : []) if (p && (p.dish_id || p.item_id)) soldIds.add(p.dish_id || p.item_id)
+  }
+  const goneIds = [...soldIds].filter(id => !onMenu.has(id))
+  const ctx = goneIds.length ? withGone(menuCtx, await goneDishes(tx, tenantId, goneIds, { lines, links: menuCtx.links || [] })) : menuCtx
   // A meal deal sold with no picks (another till's) takes its typical picks: what guests picked in the last 30 days.
   const dealIds = [...new Set(lines.filter(l => l.dish_id && l.picks == null && isCombo(ctx.dishes.get(l.dish_id))).map(l => l.dish_id))]
   if (dealIds.length) {
@@ -226,7 +287,8 @@ export async function computeDays(tx, tenantId, venueId, days, { fingerprints = 
       u = usageOf({ dish_id: l.dish_id, qty: l.qty, options: l.options || [], picks: l.picks ?? null }, scope, ctx)
       gaps = u.uncosted.map(gapOf)
       if (u.kind === 'service') leftOut = 'service'
-      else if (!ctx.dishes.get(l.dish_id)) leftOut = 'gone'
+      // Gone: on no menu now and no recipe known for it (its link went too), so nothing can be taken off or fixed.
+      else if (!onMenu.has(l.dish_id) && !u.recipe) { leftOut = 'gone'; gaps = [NO_DISH.gone] }
     }
     if (gaps.length && !leftOut) c.uncosted++
     for (const i of u?.items || []) {
@@ -281,6 +343,7 @@ export async function computeDays(tx, tenantId, venueId, days, { fingerprints = 
   })
   const dishRows = [...dishes.values()].map(d => {
     let cost = 0
+    let priced = 0
     let missing = false
     for (const [itemId, q] of d.items) {
       const c = costOf(d.day, itemId)
@@ -289,7 +352,10 @@ export async function computeDays(tx, tenantId, venueId, days, { fingerprints = 
         const item = ctx.items?.get ? ctx.items.get(itemId) : null
         const g = NO_COST(item?.name || 'An item')
         if (d.gaps.length < MAX_GAPS && !d.gaps.some(x => x.text === g.text)) d.gaps.push(g)
-      } else cost += q * c.per_base
+      } else {
+        cost += q * c.per_base
+        priced++
+      }
     }
     // An item with no price at all leaves the dish uncosted too.
     if (missing && !d.left_out) d.uncosted_qty = d.qty
@@ -297,7 +363,8 @@ export async function computeDays(tx, tenantId, venueId, days, { fingerprints = 
       tenant_id: tenantId, venue_id: venueId, day: d.day, channel: d.channel, dish_id: d.dish_id, name: String(d.name).slice(0, 300),
       section_id: d.section_id, section: d.section, revenue_stream_id: d.revenue_stream_id, order_type_id: d.order_type_id,
       recipe_id: d.recipe_id, recipe_name: d.recipe_name, qty: round4(d.qty), sales_pence: Math.round(d.sales_pence),
-      net_pence: Math.round(d.net_pence), cost: d.items.size ? round6(cost) : null, uncosted_qty: round4(d.uncosted_qty),
+      // The theoretical cost of the items that had a price; null when none had one (nothing could be costed), never 0.
+      net_pence: Math.round(d.net_pence), cost: priced ? round6(cost) : null, uncosted_qty: round4(d.uncosted_qty),
       typical_qty: round4(d.typical_qty), left_out: d.left_out, gaps: d.gaps,
     }
   })
@@ -368,8 +435,18 @@ export async function claimVenue(tx, tenantId, venueId) {
   return row || null
 }
 
-/** A lease let go after a run: when, any error, and the mark cleared when nothing marked it again meanwhile. */
-export async function releaseVenue(tx, tenantId, venueId, { error = null, dirtyAt = null, clearDirty = false } = {}) {
+/**
+ * A lease let go after a run: when, any error, and the mark cleared when
+ * nothing marked it again meanwhile. ran false (a manual Recompute of some
+ * days): only the lease goes. last_run_at is the job's whole-window run, so
+ * "taken off up to the last run" (salesTakenOff()) never moves for days a
+ * Recompute didn't look at.
+ */
+export async function releaseVenue(tx, tenantId, venueId, { error = null, dirtyAt = null, clearDirty = false, ran = true } = {}) {
+  if (!ran) {
+    await tx`UPDATE stock_usage_venues SET running_until = NULL WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
+    return
+  }
   await tx`
     UPDATE stock_usage_venues
        SET running_until = NULL, last_run_at = now(), last_error = ${error ? String(error).slice(0, 500) : null},

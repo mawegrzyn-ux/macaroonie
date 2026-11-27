@@ -17,7 +17,6 @@
 //   Settings      storage areas, key-item lists, approval and blind counts,
 //                 the count day, waste reasons (Stock manage; read only below it)
 // The address says where it opens: ?venue= &tab= (on-hand | usage | counts |
-// adjustments| counts |
 // adjustments | waste | transfers | settings) &count= (a count) &item= (an
 // item's history) &transfer= (a transfer to receive) &date= (the Waste tab's
 // trading day) &waste= (an entry on it: a Waste report's row).

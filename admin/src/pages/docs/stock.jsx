@@ -339,7 +339,18 @@ export function Section() {
         hook; the refunds setting) or were never worked out; <Mono>usageHooks.isDayClosed()</Mono> (false until
         phase 6) keeps closed days. <Mono>sweepStockUsage()</Mono> (job <Mono>jobs/stock-usage.js</Mono>, every 5
         minutes) registers the venues of groups with recipes, claims due ones with a lease
-        (<Mono>running_until</Mono>, <Mono>FOR UPDATE SKIP LOCKED</Mono>), runs each in system mode and lets go.
+        (<Mono>running_until</Mono>, <Mono>FOR UPDATE SKIP LOCKED</Mono>), runs each in system mode and lets go
+        (<Mono>releaseVenue()</Mono> sets <Mono>last_run_at</Mono>; a Recompute lets go of its lease only, with{' '}
+        <Mono>ran: false</Mono>). <Mono>salesTakenOff()</Mono>&apos;s <Mono>up_to</Mono> is the later of the last day
+        worked out and the job&apos;s last run without an error, so a run that found nothing changed still moves it.
+      </P>
+      <P>
+        A dish sold that is on no menu now (taken off since, or its menu deleted) is costed by{' '}
+        <Mono>goneDishes()</Mono>: the newest live release holding it (<Mono>menu_releases.snapshot</Mono>, through{' '}
+        <Mono>dishMap()</Mono>), else a stand-in when the sale says enough (a meal deal sold with its picks, or a dish
+        whose <Mono>recipe_links</Mono> row is still kept). It is <Mono>left_out = 'gone'</Mono> only when no recipe is
+        known for it. <Mono>dish_cost_days.cost</Mono> is the cost of the items that had a price, and null (never 0)
+        when none had one.
       </P>
       <P>
         Routes (<Mono>routes/stockUsage.js</Mono>): <Mono>GET /api/stock/venues/:venueId/usage?from=&amp;to=</Mono>{' '}
@@ -349,8 +360,12 @@ export function Section() {
         <Mono>refunds_return_stock</Mono> and the venue&apos;s settings <Mono>par_mode</Mono> (whole saves). The order
         form (purchasing&apos;s <Mono>orderStock()</Mono>) shows on hand, on order and usage over 7 days with Stock view,
         and fills pars by <Mono>packsToPar(par, quote, parStock(mode, stock))</Mono> with <Mono>parModeOf()</Mono>.
+        Without Stock view its <Mono>par_mode</Mono> is <Mono>order</Mono> (<Mono>par_mode_venue</Mono> the
+        venue&apos;s, <Mono>sees_stock</Mono> false), so <Mono>par_packs</Mono>, Fill to par, the Par button and
+        Pepper&apos;s <Mono>fill_to_par</Mono> fill the one figure and none tells what is on hand.
         Menu margins&apos; <Mono>GET /api/menu-margins/sold</Mono> sums <Mono>dish_cost_days</Mono> by{' '}
-        <Mono>soldMargins()</Mono>. Pepper: <Mono>usage_summary</Mono> (read). Reports: <Mono>stock.usage</Mono>,{' '}
+        <Mono>soldMargins()</Mono>; without till reports view it leaves out <Mono>SALES_FIELDS</Mono> (sales, net,
+        GP, cost %, GP %, band) and says <Mono>sees_sales: false</Mono>. Pepper: <Mono>usage_summary</Mono> (read). Reports: <Mono>stock.usage</Mono>,{' '}
         <Mono>stock.dish_sales</Mono> (module costing; sales need till reports), starters{' '}
         <Mono>stock_theoretical_food_cost_week</Mono> and <Mono>uncosted_dishes_by_sales</Mono> (now on{' '}
         <Mono>dish_cost_days</Mono>); <Mono>stock_usage_marks</Mono> and <Mono>stock_usage_venues</Mono> are decided

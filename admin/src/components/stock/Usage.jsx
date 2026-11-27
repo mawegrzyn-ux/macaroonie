@@ -25,7 +25,7 @@ import { SALE_CHANNELS } from '@shared/costing.js'
 
 const CHANNELS = { ...SALE_CHANNELS, gloriafood: 'GloriaFood' }
 const CHANNEL_KEYS = ['till', 'kiosk', 'online', 'imported']
-const LEFT_OUT = { open: 'Typed in on the till (no dish)', service: 'A service: no recipe needed', gone: 'No longer on a menu' }
+const LEFT_OUT = { open: 'Typed in on the till (no dish)', service: 'A service: no recipe needed', gone: 'No longer on a menu, and no recipe known' }
 const day = d => (d ? dayWords(d + 'T12:00:00Z') : '')
 
 /** Each channel's part of a quantity, in words: "till 4 each, online 1 each". */
@@ -171,7 +171,7 @@ export default function Usage({ venueId, canManage }) {
                     <p key={g.text} className="text-xs"><span className="text-amber-800">{g.text}.</span>{g.fix ? ' ' + g.fix : ''}</p>
                   ))}
                   {u.dish_id && (
-                    <Link to={'/recipes?tab=dishes&dish=' + u.dish_id} className="text-xs text-primary underline underline-offset-2 inline-flex items-center min-h-[32px]">Open it on the Recipes page</Link>
+                    <Link to={'/recipes?tab=dishes&dish=' + u.dish_id} className="text-xs text-primary underline underline-offset-2 inline-flex items-center min-h-[48px] touch-manipulation">Open it on the Recipes page</Link>
                   )}
                 </div>
               ))}

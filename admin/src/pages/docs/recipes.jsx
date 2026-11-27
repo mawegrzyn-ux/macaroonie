@@ -297,7 +297,8 @@ export function Section() {
         <Mono>matchOptions()</Mono>, <Mono>typicalPicks()</Mono>, <Mono>pickMix()</Mono> and <Mono>soldMargins()</Mono> in{' '}
         <Mono>shared/costing.js</Mono>; <Mono>dishCost()</Mono>&apos;s lines carry <Mono>bought</Mono>; the recipe, link
         and option rule routes mark usage days on change (<Mono>marksUsageOnChange()</Mono>); Menu margins&apos; Sold
-        tab (<Mono>GET /api/menu-margins/sold</Mono>, <Mono>components/recipes/SoldMargins.jsx</Mono>); the Stock
+        tab (<Mono>GET /api/menu-margins/sold</Mono>, <Mono>components/recipes/SoldMargins.jsx</Mono>; its sales, GP and
+        cost % need till reports view, as coverage&apos;s pounds do); the Stock
         section has the rest. Not yet: engineering and scenarios. They are the later phases of <Mono>docs/INVENTORY.md</Mono>; what is left is in{' '}
         <Mono>docs/claude/outstanding/recipes.md</Mono>.
       </InfoBox>

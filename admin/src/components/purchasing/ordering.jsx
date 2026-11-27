@@ -538,8 +538,10 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
         {hasPars && order.par_mode && (
           <p className="text-xs text-muted-foreground mt-2" data-testid="order-par-mode">
             {PAR_MODES[order.par_mode]?.label}: {PAR_MODES[order.par_mode]?.hint}
-            {order.par_mode === 'order' && !order.stock_counted ? ' (this venue has no approved stock count yet)' : ''}
-            {' '}Change it on the Stock page, Settings.
+            {order.par_mode === 'order' && order.par_mode_venue === 'up_to'
+              ? ' This venue orders up to par, but what is on hand needs Stock view, so Fill to par and Par order the par as it is here.'
+              : order.par_mode === 'order' && !order.stock_counted ? ' (this venue has no approved stock count yet)' : ''}
+            {order.sees_stock ? ' Change it on the Stock page, Settings.' : ''}
           </p>
         )}
         <ErrorNote error={save.error} />

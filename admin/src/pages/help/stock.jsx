@@ -55,8 +55,10 @@ export function Section() {
         day</strong> shows each day on its own. Under them, <strong>Sold without a full recipe</strong> lists the
         dishes that took nothing off (or not all they should), with why and how to fix each: no recipe linked, an
         option with no rule, an online order&apos;s option renamed since, a unit with no size, a draft Pepper read
-        in that nobody has checked (its items are taken off, but marked). <strong>Left out</strong> lists open items
-        typed in on the till and services, which need no recipe.
+        in that nobody has checked (its items are taken off, but marked), an item with no price (its items are taken
+        off, the cost isn&apos;t known). <strong>Left out</strong> lists open items typed in on the till, services,
+        which need no recipe, and dishes no longer on any menu whose recipe isn&apos;t known. A dish taken off the
+        menus since it sold still takes its recipe off when its day is worked out again (as the menu last had it).
       </P>
       <P>
         What counts: closed till and kiosk checks on the till&apos;s trading day, online orders on their day,
@@ -123,7 +125,8 @@ export function Section() {
       <H3>Expected against counted, and approval</H3>
       <P>
         A submitted count shows, for each item, what was <strong>expected</strong> at the moment of the count (the
-        last approved count plus what came in and was adjusted since), what was <strong>counted</strong> and the
+        last approved count, plus deliveries and transfers in since, less waste, transfers out and what sales used by
+        their recipes, with adjustments either way), what was <strong>counted</strong> and the
         <strong> difference</strong>, biggest first; with Costing view the value of each difference and the total
         missing, found and net. On hand doesn&apos;t change until the count is <strong>approved</strong>; then the
         counted figures are the new starting point. An approved count is never changed: if it was wrong, count
@@ -168,7 +171,9 @@ export function Section() {
         and what is already on order (orders placed and not yet received), in whole packs. <strong>Order the
         par</strong>: the par is ordered as it is. Left on its own it is up to par once the venue has an approved count,
         and the par as it is before. On the order form each line shows on hand, on order and what sales used in the
-        last 7 days, and the form says which way its pars read.
+        last 7 days, and the form says which way its pars read. Up to par needs <strong>Stock view</strong>, since it
+        uses what is on hand: for someone without it the order form, and Pepper, order the par as it is, and the form
+        says so.
       </P>
       <H3>Adjustments</H3>
       <P>

@@ -241,7 +241,12 @@ test('the report subject Recipe coverage and the starter Uncosted dishes by sale
   const starter = await ok(owner.post('/api/reports/starter:uncosted_dishes_by_sales/run', {}))
   assert.ok(starter.rows.length >= 1)
   assert.ok(starter.rows.some(r => r.cells[0] === 'Salad'), 'the salad, whose lettuce has no price')
+  // Its only item has no price, so nothing of it could be costed: its theoretical cost is unknown, never £0.
+  const salads = await sql`SELECT cost, uncosted_qty::float8 AS uncosted, qty::float8 AS qty FROM dish_cost_days WHERE tenant_id = ${ids.a} AND dish_id = ${salad}`
+  assert.ok(salads.length && salads.every(r => r.cost == null && r.uncosted === r.qty), 'the salad is not costed, not free')
   assert.ok(starter.rows.every(r => r.cells[0] !== 'Burger'), 'costed dishes are not in it')
+  // Left out is not uncosted: an open item and a service have no units to cost, so they are not dishes to fix.
+  for (const name of ['Item not on menu', 'Corkage']) assert.ok(!starter.rows.some(r => r.cells[0] === name), name + ' is left out of the starter')
   // Without till reports view, no pounds in the report.
   const cookRep = await cook.post('/api/reports/preview', { spec: { subject: 'recipes.coverage', kind: 'list', rows: ['dish', 'sales'] } })
   assert.notEqual(cookRep.status, 200, 'the sales field needs till reports view')
