@@ -18,16 +18,27 @@
 //                     moment (stockOnHand() without the count itself), the
 //                     difference and its value (countReview()'s rule); latest:
 //                     from the venue's latest approved count, in any period
+//   stock_waste       (phase 4b) one row per item of each waste entry not
+//                     undone and of each till void marked wasted (broken into
+//                     items by loadWastedVoids(), test sales left out), on its
+//                     trading day; an entry with no items is one row
+//   stock_transfer_lines  (phase 4b) one row per transfer line at each end:
+//                     out at the sender on the day sent, in at the receiver on
+//                     the day received (sent, while in transit); lost in transit
+//                     by lostInTransit()
 //
 // A report's venues narrow the rows; its period picks the days (moves and
 // count lines). Values are filled for everyone; the catalogue's `needs:
 // 'costing'` leaves them out for a role without Costing view.
 
-import { loadStockOnHand, loadStockMoves, costLookup } from '../../services/stockSvc.js'
-import { runningBalance, stockOnHand, countReview } from '../../../../shared/stock.js'
+import { loadStockOnHand, loadStockMoves, costLookup, loadWastedVoids } from '../../services/stockSvc.js'
+import { runningBalance, stockOnHand, countReview, lostInTransit } from '../../../../shared/stock.js'
 
-// The tables each work reads (the catalogue's from.tables).
-export const STOCK_TABLES = ['stock_counts', 'stock_count_lines', 'stock_adjustments']
+// The tables each work reads (the catalogue's from.tables). On hand and the ledger read waste
+// (the till's voids marked wasted too) and transfers since phase 4b.
+export const WASTE_TABLES = ['stock_waste', 'stock_waste_items', 'waste_reasons', 'pos_check_lines', 'pos_checks']
+export const TRANSFER_TABLES = ['stock_transfers', 'stock_transfer_lines']
+export const STOCK_TABLES = ['stock_counts', 'stock_count_lines', 'stock_adjustments', ...WASTE_TABLES, ...TRANSFER_TABLES]
 export const MOVE_TABLES = [...STOCK_TABLES, 'purchase_order_lines', 'purchase_orders']
 export const COUNT_LINE_TABLES = [...STOCK_TABLES, 'stock_areas']
 
@@ -179,6 +190,115 @@ export const STOCK_WORKS = {
           off: !!row.diff, latest: latestOf.get(c.venue_id)?.id === c.id,
         }
       })
+    },
+  },
+
+  // Phase 4b: waste, a row per item of each entry (logged, not undone; and each till void marked
+  // wasted, broken into items through its dish's recipe, test sales left out); an entry that
+  // couldn't be broken into items is one row with no item, so it still counts.
+  stock_waste: {
+    columns: [
+      ['tenant_id', 'uuid'], ['id', 'text'], ['entry_id', 'text'], ['venue_id', 'uuid'], ['at', 'timestamptz'], ['date', 'date'],
+      ['source', 'text'], ['what', 'text'], ['name', 'text'], ['dish_id', 'uuid'], ['entry_qty', 'numeric'], ['entry_unit', 'text'],
+      ['item_id', 'uuid'], ['item_name', 'text'], ['base_unit', 'text'], ['qty', 'numeric'],
+      ['reason', 'text'], ['kind', 'text'], ['by', 'text'], ['value', 'numeric'], ['gaps', 'text'], ['reverses', 'boolean'], ['check_id', 'text'],
+    ],
+    async fill(tx, { tenantId, venueIds, ranges }) {
+      const days = ranges?.length && ranges.every(r => r.from && r.to)
+        ? { from: ranges.map(r => r.from).sort()[0], to: ranges.map(r => r.to).sort().at(-1) } : null
+      const [logged, voids] = await Promise.all([
+        tx`
+          SELECT w.id, w.venue_id, w.wasted_at AS at, w.day::text AS day, w.what, w.name, w.dish_id, w.qty::float8 AS qty, w.unit,
+                 w.reason, w.reason_kind, w.wasted_by AS by, w.gaps, (w.reverses_id IS NOT NULL) AS reverses,
+                 wi.item_id, wi.qty_base::float8 AS item_qty, wi.cost_per_base::float8 AS cost_per_base
+            FROM stock_waste w
+            LEFT JOIN stock_waste_items wi ON wi.waste_id = w.id AND wi.tenant_id = w.tenant_id
+           WHERE w.tenant_id = ${tenantId} AND w.undone_at IS NULL
+             ${venueIds ? tx`AND w.venue_id = ANY(${venueIds}::uuid[])` : tx``}
+             ${days ? tx`AND w.day BETWEEN ${days.from}::date AND ${days.to}::date` : tx``}`,
+        loadWastedVoids(tx, tenantId, { venueIds, days }),
+      ])
+      const itemIds = [...new Set([...logged.map(r => r.item_id), ...voids.flatMap(v => v.items.map(i => i.item_id))].filter(Boolean))]
+      const latest = voids.length ? new Date(Math.max(...voids.map(v => new Date(v.at).getTime()))) : null
+      const [{ itemOf }, costOf] = await Promise.all([
+        itemsAndZones(tx, tenantId, itemIds),
+        voids.length ? costLookup(tx, tenantId, [...new Set(voids.map(v => v.venue_id))], itemIds, latest) : () => null,
+      ])
+      const out = []
+      for (const r of logged) {
+        if (!inRanges(r.day, ranges)) continue
+        const i = r.item_id ? itemOf.get(r.item_id) : null
+        out.push({
+          tenant_id: tenantId, id: r.id + '|' + (r.item_id || '-'), entry_id: r.id, venue_id: r.venue_id, at: r.at, date: r.day,
+          source: 'logged', what: r.what, name: r.name, dish_id: r.dish_id, entry_qty: r.qty, entry_unit: r.unit,
+          item_id: r.item_id, item_name: i?.name ?? null, base_unit: i?.base_unit ?? null, qty: r.item_qty,
+          reason: r.reason, kind: r.reason_kind, by: r.by,
+          value: r.item_qty == null || r.cost_per_base == null ? null : r2(r.item_qty * r.cost_per_base),
+          gaps: (r.gaps || []).join(' ') || null, reverses: r.reverses, check_id: null,
+        })
+      }
+      for (const v of voids) {
+        if (!inRanges(v.day, ranges)) continue
+        const base = {
+          tenant_id: tenantId, entry_id: v.id, venue_id: v.venue_id, at: v.at, date: v.day, source: 'till_void', what: 'dish',
+          name: v.name, dish_id: v.dish_id, entry_qty: v.qty, entry_unit: 'each', reason: v.reason, kind: v.reason_kind, by: v.by,
+          gaps: v.gaps.join(' ') || null, reverses: false, check_id: v.check_id,
+        }
+        if (!v.items.length) out.push({ ...base, id: v.id + '|-', item_id: null, item_name: null, base_unit: null, qty: null, value: null })
+        for (const it of v.items) {
+          const i = itemOf.get(it.item_id)
+          const per = costOf(v.venue_id, it.item_id, v.at)
+          out.push({ ...base, id: v.id + '|' + it.item_id, item_id: it.item_id, item_name: i?.name ?? null, base_unit: i?.base_unit ?? null, qty: it.qty_base, value: per == null ? null : r2(it.qty_base * per) })
+        }
+      }
+      return out
+    },
+  },
+
+  // Phase 4b: transfers, a row per line at each end: sent from the sending venue (out) and
+  // received at the other (in), with what was sent, what arrived and what was lost in transit
+  // (lostInTransit()), valued at the sender's average when it was sent.
+  stock_transfer_lines: {
+    columns: [
+      ['tenant_id', 'uuid'], ['id', 'text'], ['transfer_id', 'uuid'], ['number', 'int'], ['venue_id', 'uuid'], ['other_venue_id', 'uuid'],
+      ['direction', 'text'], ['status', 'text'], ['date', 'date'], ['sent_at', 'timestamptz'], ['received_at', 'timestamptz'],
+      ['item_id', 'uuid'], ['item_name', 'text'], ['base_unit', 'text'], ['sent', 'numeric'], ['received', 'numeric'], ['lost', 'numeric'],
+      ['value', 'numeric'], ['received_value', 'numeric'], ['lost_value', 'numeric'], ['sent_by', 'text'], ['received_by', 'text'], ['note', 'text'],
+    ],
+    async fill(tx, { tenantId, venueIds, ranges }) {
+      const rows = await tx`
+        SELECT l.id, l.transfer_id, t.number, t.from_venue_id, t.to_venue_id, t.status, t.sent_at, t.received_at, t.cancelled_at,
+               t.sent_by, t.received_by, t.note, l.item_id, i.name AS item_name, i.base_unit,
+               l.qty_base::float8 AS sent, l.received_base::float8 AS received, l.cost_per_base::float8 AS cost_per_base
+          FROM stock_transfer_lines l
+          JOIN stock_transfers t ON t.id = l.transfer_id AND t.tenant_id = l.tenant_id
+          JOIN inv_items i ON i.id = l.item_id AND i.tenant_id = l.tenant_id
+         WHERE l.tenant_id = ${tenantId}
+           ${venueIds ? tx`AND (t.from_venue_id = ANY(${venueIds}::uuid[]) OR t.to_venue_id = ANY(${venueIds}::uuid[]))` : tx``}`
+      if (!rows.length) return []
+      const { tzOf } = await itemsAndZones(tx, tenantId, [])
+      const want = venueIds ? new Set(venueIds) : null
+      const out = []
+      for (const r of rows) {
+        const lost = r.status === 'received' ? lostInTransit(r.sent, r.received) : null
+        const money = q => (q == null || r.cost_per_base == null ? null : r2(q * r.cost_per_base))
+        const shared = {
+          tenant_id: tenantId, transfer_id: r.transfer_id, number: r.number, status: r.status, sent_at: r.sent_at, received_at: r.received_at,
+          item_id: r.item_id, item_name: r.item_name, base_unit: r.base_unit, sent: r.sent, received: r.received, lost,
+          value: money(r.sent), received_value: money(r.received), lost_value: money(lost), sent_by: r.sent_by, received_by: r.received_by, note: r.note,
+        }
+        const sides = [
+          { direction: 'out', venue_id: r.from_venue_id, other_venue_id: r.to_venue_id, at: r.sent_at },
+          { direction: 'in', venue_id: r.to_venue_id, other_venue_id: r.from_venue_id, at: r.received_at || r.sent_at },
+        ]
+        for (const s of sides) {
+          if (want && !want.has(s.venue_id)) continue
+          const day = dayIn(s.at, tzOf.get(s.venue_id))
+          if (!inRanges(day, ranges)) continue
+          out.push({ ...shared, id: r.id + '|' + s.direction, direction: s.direction, venue_id: s.venue_id, other_venue_id: s.other_venue_id, date: day })
+        }
+      }
+      return out
     },
   },
 }
