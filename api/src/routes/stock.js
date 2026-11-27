@@ -80,6 +80,25 @@ export async function stockPerson(req) {
 export const who = async req => (await stockPerson(req)).by
 
 /**
+ * Whether the person may act at a venue (inventory phase 4b: a transfer is
+ * sent at one venue and received at another). The app holds people to
+ * venues in two ways: a venue must be the group's (requireOwnVenue() on a
+ * URL, refuseOtherTenantsVenues on a body: no group's person reaches another
+ * group's venue), and a shared device belongs to one venue
+ * (shared_devices.venue_id), so whoever is switched in on it acts there and
+ * nowhere else. There is no list of venues per person: within the group,
+ * module levels apply at every venue (docs/claude/outstanding/stock.md).
+ * -> null, or why not.
+ */
+export function venueProblem(req, venueId) {
+  const device = req.sharedDevice
+  if (device?.venue_id && device.venue_id !== venueId) {
+    return 'This shared device is ' + (device.venue_name || 'another venue') + '\'s: do this on a device at the venue, or signed in as yourself'
+  }
+  return null
+}
+
+/**
  * The person's stock levels: count (Use), approve and set up (Manage),
  * values (Costing view) and, on top, a delivery's price from its supplier
  * (purchasing prices too: `sees_prices`).

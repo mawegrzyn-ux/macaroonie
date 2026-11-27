@@ -41,7 +41,9 @@
 //   GET  /venues/:venueId/today?date=   Today's stock tasks: the count due on the venue's
 //                                       count day (until a count of the kind it counts is
 //                                       submitted: a full count, or its key-item list's;
-//                                       never a quick count) and counts waiting for approval
+//                                       never a quick count), counts waiting for approval,
+//                                       and (phase 4b) transfers sent to the venue waiting
+//                                       to be received
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
@@ -457,11 +459,18 @@ export default async function stockCountRoutes(app) {
       const waiting = open.filter(c => c.status === 'submitted').map((c, i) => ({
         ...c, can_approve: access.can_manage && !approvalProblem(c, lines[i], ids, stock),
       }))
+      // Transfers on their way here (phase 4b): sent, not received or cancelled yet.
+      const incoming = await tx`
+        SELECT t.id, t.number, t.sent_at, t.sent_by, v.name AS from_name,
+               (SELECT count(*)::int FROM stock_transfer_lines l WHERE l.transfer_id = t.id AND l.tenant_id = t.tenant_id) AS lines
+          FROM stock_transfers t JOIN venues v ON v.id = t.from_venue_id AND v.tenant_id = t.tenant_id
+         WHERE t.tenant_id = ${req.tenantId} AND t.to_venue_id = ${venueId} AND t.status = 'sent'
+         ORDER BY t.sent_at`
       return {
         settings, weekday,
         count_due: countDueOn(settings, weekday) && done.n === 0,
         draft: open.find(c => c.status === 'draft') || null,
-        waiting,
+        waiting, incoming,
         can_count: access.can_count, can_manage: access.can_manage,
       }
     })

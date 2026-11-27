@@ -866,6 +866,8 @@ export default async function inventoryRoutes(app) {
       UNION ALL
       SELECT 1 FROM stock_waste_items WHERE item_id = ${item.id} AND tenant_id = ${req.tenantId}
       UNION ALL
+      SELECT 1 FROM stock_transfer_lines WHERE item_id = ${item.id} AND tenant_id = ${req.tenantId}
+      UNION ALL
       SELECT 1 FROM supply_order_lines sl
         JOIN supply_orders o ON o.id = sl.order_id AND o.tenant_id = ${req.tenantId} AND o.status IN ('draft', 'requested')
        WHERE sl.item_id = ${item.id} AND sl.tenant_id = ${req.tenantId} AND sl.qty > 0

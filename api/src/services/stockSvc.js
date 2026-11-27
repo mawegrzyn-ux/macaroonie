@@ -22,7 +22,11 @@
 // 308) added waste: each logged entry's items taken off at its moment, and
 // each till void marked wasted (pos_check_lines.void_waste, generated test
 // sales left out: D10) broken into items through the recipe its dish uses
-// there, read from the till each time (loadWastedVoids()), never copied.
+// there, read from the till each time (loadWastedVoids()), never copied;
+// and transfers between venues (migration 309): each line's moves by
+// transferLineMoves() in shared/stock.js (out of the sender when sent, what
+// didn't arrive lost in transit, in at the receiver when received, back at
+// the sender when cancelled), valued at the sender's average when sent.
 // Usage from sales is phase 5 (SALES_COUNTED).
 //
 //   MOVE_SOURCES, SALES_COUNTED, NO_SALES_NOTE
@@ -44,7 +48,7 @@
 //   batches into items), loadWastedVoids(tx, tenantId, { venueIds, from, to,
 //   days, ctx }) (the till's voids marked wasted, with their items)
 
-import { stockOnHand, countUnits, defaultCountUnit, voidReason, WASTE_REASON_SEEDS } from '../../../shared/stock.js'
+import { stockOnHand, countUnits, defaultCountUnit, voidReason, transferLineMoves, WASTE_REASON_SEEDS } from '../../../shared/stock.js'
 import { itemsOf } from '../../../shared/stockItems.js'
 import { poNumberLabel } from '../../../shared/procurement.js'
 import { itemCost, AVERAGE_DAYS } from '../../../shared/costing.js'
@@ -160,13 +164,43 @@ async function voidWasteMoves(tx, tenantId, cut) {
   return out
 }
 
-// Where moves come from. Phase 4b added waste (logged, and the till's voids marked wasted).
+/**
+ * Transfers between venues (migration 309): every line of a transfer that
+ * touches these venues, as its moves at either end (transferLineMoves()),
+ * kept where the venue and the moment are asked for. Each move carries the
+ * line's cost: the sender's average when it was sent.
+ */
+async function transferMoves(tx, tenantId, cut) {
+  const rows = await tx`
+    SELECT t.id, t.number, t.from_venue_id, t.to_venue_id, t.status, t.sent_at, t.received_at, t.cancelled_at,
+           t.sent_by, t.received_by, t.cancelled_by, fv.name AS from_name, tv.name AS to_name,
+           l.item_id, l.qty_base::float8 AS qty_base, l.received_base::float8 AS received_base, l.cost_per_base::float8 AS cost_per_base
+      FROM stock_transfer_lines l
+      JOIN stock_transfers t ON t.id = l.transfer_id AND t.tenant_id = l.tenant_id
+      JOIN venues fv ON fv.id = t.from_venue_id AND fv.tenant_id = t.tenant_id
+      JOIN venues tv ON tv.id = t.to_venue_id AND tv.tenant_id = t.tenant_id
+     WHERE l.tenant_id = ${tenantId}
+       ${cut.venueIds ? tx`AND (t.from_venue_id = ANY(${cut.venueIds}::uuid[]) OR t.to_venue_id = ANY(${cut.venueIds}::uuid[]))` : tx``}
+       ${cut.itemIds ? tx`AND l.item_id = ANY(${cut.itemIds}::uuid[])` : tx``}
+       ${cut.to ? tx`AND t.sent_at <= ${ts(cut.to)}` : tx``}
+     ORDER BY t.sent_at, t.number, l.sort_order`
+  const venues = cut.venueIds ? new Set(cut.venueIds) : null
+  const from = cut.from ? ts(cut.from).getTime() : null
+  const to = cut.to ? ts(cut.to).getTime() : null
+  return rows.flatMap(r => transferLineMoves(r, r)).filter(m => {
+    const t = ts(m.at).getTime()
+    return (!venues || venues.has(m.venue_id)) && (from == null || t >= from) && (to == null || t <= to)
+  })
+}
+
+// Where moves come from. Phase 4b added waste (logged, and the till's voids marked wasted) and transfers.
 export const MOVE_SOURCES = [
   { kind: 'delivery', load: deliveryMoves },
   { kind: 'count', load: countMoves },
   { kind: 'adjustment', load: adjustmentMoves },
   { kind: 'waste', load: wasteMoves },
   { kind: 'waste', load: voidWasteMoves },
+  { kind: 'transfer', load: transferMoves },
 ]
 
 /**
@@ -312,7 +346,8 @@ export async function loadVenueSettings(tx, tenantId, venueId) {
  * The items a count covers, in sheet order: each of the venue's areas with
  * its items (shelf order), then `other` (covered, in no area). A full count
  * covers the active items in the venue's areas and every active item with a
- * move at the venue (counted or delivered there before); a key-item count
+ * move at the venue (counted, delivered, adjusted or received by transfer
+ * there before); a key-item count
  * its list's items. Items counted outside that (found on a shelf) are lines
  * all the same.
  */
@@ -340,6 +375,9 @@ export async function countScope(tx, tenantId, count) {
          WHERE pl.tenant_id = ${tenantId} AND po.venue_id = ${count.venue_id} AND pl.item_id IS NOT NULL AND pl.received_qty > 0 AND po.received_at IS NOT NULL
         UNION
         SELECT a.item_id FROM stock_adjustments a WHERE a.tenant_id = ${tenantId} AND a.venue_id = ${count.venue_id}
+        UNION
+        SELECT l.item_id FROM stock_transfer_lines l JOIN stock_transfers t ON t.id = l.transfer_id AND t.tenant_id = l.tenant_id
+         WHERE l.tenant_id = ${tenantId} AND t.to_venue_id = ${count.venue_id} AND t.status = 'received' AND l.received_base > 0
       ) x JOIN inv_items i ON i.id = x.item_id AND i.tenant_id = ${tenantId} AND i.is_active`
     covered = [...new Set([...areas.flatMap(a => a.item_ids), ...seen.map(r => r.item_id)])]
   }

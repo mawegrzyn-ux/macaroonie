@@ -9,6 +9,7 @@ import stockRoutes from '../routes/stock.js'
 import stockCountRoutes from '../routes/stockCounts.js'
 import stockSetupRoutes from '../routes/stockSetup.js'
 import stockWasteRoutes from '../routes/stockWaste.js'
+import stockTransferRoutes from '../routes/stockTransfers.js'
 
 export const routes = [
   // Stock on hand and each item's ledger (migration 287; inventory phase 4a, migrations 305 to 307)
@@ -19,4 +20,6 @@ export const routes = [
   [stockSetupRoutes, { prefix: '/api/stock' }],
   // Waste and its reasons, the till's voids marked wasted (phase 4b, migration 308)
   [stockWasteRoutes, { prefix: '/api/stock' }],
+  // Transfers between venues: sent, received, cancelled (phase 4b, migration 309)
+  [stockTransferRoutes, { prefix: '/api/stock' }],
 ]
