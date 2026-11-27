@@ -22,8 +22,9 @@ export const queue = new Queue(name, { connection, prefix })
 // menus costed at today's standard prices (menuMargins() in shared/costing.js
 // at each order type); a dish newly over its cost target (or moved from over
 // the target to over the limit) is kept in cost_target_states and offered to
-// the group's rules once (the trigger dish_over_target); a dish back under is
-// forgotten, so going over again is a new event. Each group is one
+// the group's rules once (the trigger dish_over_target), and so is a kept dish
+// whose cost % went up (for a rule with a % of its own, as the rise passes it);
+// a dish back under is forgotten, so going over again is a new event. Each group is one
 // transaction under an advisory lock, so two processes never sweep one group
 // at once, and a rule claims each event once (pepper_rule_firings). `app` runs
 // the rules' actions through the routes, as the person who made each rule.
@@ -32,7 +33,7 @@ export function start(log, { app } = {}) {
   const worker = new Worker(name, async () => {
     const { sweepCostTargets } = await import('../services/stockFoodCostSvc.js')
     const r = await sweepCostTargets(app, log)
-    if (r.crossed || r.failed) log.info(r, 'Dishes over their cost target swept')
+    if (r.crossed || r.rose || r.failed) log.info(r, 'Dishes over their cost target swept')
   }, { connection, prefix })
 
   worker.on('failed', (job, err) => {

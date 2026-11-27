@@ -472,20 +472,30 @@ export function Section() {
         only from a stock period&apos;s <Mono>food_cost</Mono> when <Mono>complete</Mono>, the covering one said to be
         the period&apos;s figure, else the latest closed one named; never one made up for the week),{' '}
         <Mono>overTarget(rows)</Mono> (dishes over target from <Mono>menuMargins()</Mono> rows, one per dish at its worst
-        order type, a deal at <Mono>cost_pct_max</Mono>), <Mono>targetCrossings(states, now)</Mono>,{' '}
+        order type, a deal at <Mono>cost_pct_max</Mono>), <Mono>targetCrossings(states, now)</Mono> (crossed, kept,
+        cleared, and <Mono>rose</Mono>: kept dishes whose cost % went up; every row carries the last look&apos;s{' '}
+        <Mono>prev_band</Mono> and <Mono>prev_cost_pct</Mono>),{' '}
         <Mono>marginsByMenu(rows, settings)</Mono> (<Mono>soldMargins()</Mono> per menu), <Mono>overviewWords()</Mono>,{' '}
-        <Mono>varianceEvent()</Mono>. Tests <Mono>shared/test/foodCost.test.mjs</Mono>.
+        <Mono>varianceEvent()</Mono>. <Mono>daysFoodCost()</Mono> counts <Mono>uncosted_units</Mono> and{' '}
+        <Mono>left_out_units</Mono> (open items, dishes no longer on a menu: in the net with no cost), and the week&apos;s
+        line says the % reads low for either. Tests <Mono>shared/test/foodCost.test.mjs</Mono>.
       </P>
       <P>
         Service <Mono>services/stockFoodCostSvc.js</Mono> (public): <Mono>weekFigures()</Mono> (a stored period covers
         the week when its trading days, frozen or <Mono>periodDays()</Mono>, hold all seven; its food cost frozen when
         closed, else <Mono>periodFigures()</Mono>), <Mono>venueOverTarget()</Mono> (every live menu for the venue at
         every active order type, standard prices), <Mono>menuMarginsWeek()</Mono> (a dish&apos;s menu through its
-        section), <Mono>setupGaps()</Mono>, <Mono>stockOverview()</Mono>, <Mono>trackCostTargets()</Mono>,{' '}
+        section), <Mono>setupGaps(tx, tenantId, venueId, {'{ modules }'})</Mono> (only the gaps of{' '}
+        <Mono>GAP_MODULES</Mono> asked for; &quot;no price&quot; as the cost engine prices: an active quote of an active
+        supplier, or a delivery received in the item&apos;s base unit), <Mono>stockOverview()</Mono>,{' '}
+        <Mono>trackCostTargets()</Mono> (events of kind <Mono>crossed</Mono>, keyed by venue, dish, band and{' '}
+        <Mono>since</Mono>, and <Mono>rose</Mono>, keyed by the new cost % too),{' '}
         <Mono>sweepCostTargets(app, log, {'{ tenantIds }'})</Mono> (the job <Mono>jobs/cost-targets.js</Mono>, hourly; a
         group per transaction under an advisory lock). Table <Mono>cost_target_states</Mono> (tenant, venue, plain{' '}
         <Mono>dish_id</Mono>, band, cost %, <Mono>since</Mono>; RLS forced): the dishes the sweep last found over target,
-        so the rule trigger fires once per crossing.
+        so the rule trigger fires once per crossing. A rule without its own % takes crossings only; one with{' '}
+        <Mono>over</Mono> fires when its conditions hold now and didn&apos;t at the last look (<Mono>matches()</Mono>),
+        so it tells as the dish passes its %, a rise within the band included.
       </P>
       <P>
         Routes (<Mono>routes/stockFoodCost.js</Mono>, under <Mono>/api/stock</Mono>): <Mono>GET
@@ -493,13 +503,18 @@ export function Section() {
         <Mono>sales</Mono>), <Mono>GET /venues/:venueId/margins-by-menu?start=</Mono> (Costing view; sales fields need
         till reports view), <Mono>GET /venues/:venueId/cost-targets</Mono> (Costing view), <Mono>GET /overview</Mono>{' '}
         (Stock view; food cost with <Mono>sees_sales</Mono>). <Mono>GET /venues/:venueId/variance?period=latest</Mono>{' '}
-        is the newest stored period. <Mono>GET /venues/:venueId/today</Mono> adds <Mono>gaps</Mono> (no storage areas,
-        best sellers with no recipe, items in recipes with no price), which the stock source passes to Home&apos;s
-        suggestions; a <Mono>costing</Mono> source on Today (<Mono>dishes_over_target</Mono>, one card a day).
+        is the newest stored period. <Mono>GET /venues/:venueId/setup-gaps</Mono> (any signed-in person: only the gaps
+        whose module they manage, Stock, Recipes or Purchasing setup) is read by the Today feed for whoever manages one
+        of them (<Mono>STOCK_GAP_MODULES</Mono> in <Mono>services/opsToday.js</Mono>), whatever their Stock level, into
+        the feed&apos;s <Mono>gaps</Mono>; Home asks for those modules&apos; levels (<Mono>HOME_MODULES</Mono>) and
+        matches each gap&apos;s bare path (<Mono>/stock</Mono> with tab <Mono>settings</Mono>, <Mono>/recipes</Mono>,{' '}
+        <Mono>/inventory</Mono>) against the person&apos;s menu. A <Mono>costing</Mono> source on Today
+        (<Mono>dishes_over_target</Mono>, one card a day).
       </P>
       <P>
         Admin: <Mono>components/stock/FoodCostWeek.jsx</Mono> (lazy in Cash Recon&apos;s week view and the food cost
-        widget), <Mono>widgetTypes.js</Mono> (<Mono>STOCK_WIDGET_TYPES</Mono>: <Mono>stock_food_cost</Mono>,{' '}
+        widget; on the page only, not in the dashboards&apos; Reconciliation grid widget), <Mono>widgetTypes.js</Mono>{' '}
+        (<Mono>STOCK_WIDGET_TYPES</Mono>: <Mono>stock_food_cost</Mono>,{' '}
         <Mono>stock_menu_margins</Mono> on costing; <Mono>stock_waste_week</Mono>, <Mono>stock_variance_items</Mono> on
         stock), <Mono>widgets.jsx</Mono> (the bodies, lazy), <Mono>OverviewTile.jsx</Mono> (the tile{' '}
         <Mono>stock_status</Mono>, <Mono>TILE_MODULE</Mono> stock). Rule triggers in <Mono>shared/rules.js</Mono>:{' '}

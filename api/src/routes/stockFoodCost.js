@@ -17,13 +17,18 @@
 //       at their worst order type (Today's task): Costing view
 //   GET /overview                                 each venue's stock in a line (the Overview
 //       tile): Stock view; food cost with Costing view and till reports view
+//   GET /venues/:venueId/setup-gaps               Home's stock and costing set-up gaps at the venue
+//       (no storage areas, best sellers with no recipe, items in recipes with no price; the Today
+//       feed reads it as the person, services/opsToday.js): only the gaps whose module the person
+//       manages (Stock, Recipes, Purchasing setup), so needs no one module; none for the rest
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
-import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { requireAuth, requirePermission, permissionLevels } from '../middleware/auth.js'
+import { permissionAtLeast } from '../config/modules.js'
 import { httpError } from '../middleware/error.js'
 import { requireOwnVenue } from '../middleware/venue.js'
-import { weekFigures, weekStart, localDay, menuMarginsWeek, venueOverTarget, stockOverview } from '../services/stockFoodCostSvc.js'
+import { weekFigures, weekStart, localDay, menuMarginsWeek, venueOverTarget, stockOverview, setupGaps, GAP_MODULES } from '../services/stockFoodCostSvc.js'
 import { stockAccess } from './stock.js'
 
 const canCost = requirePermission('costing', 'view')
@@ -71,6 +76,13 @@ export default async function stockFoodCostRoutes(app) {
     const r = await venueOverTarget(tx, req.tenantId, req.params.venueId)
     return { venue_id: req.params.venueId, dishes: r.dishes, menus: r.menus, target_pct: r.settings?.target_pct ?? null, limit_pct: r.settings?.limit_pct ?? null }
   }))
+
+  app.get('/venues/:venueId/setup-gaps', async req => {
+    const levels = await permissionLevels(req, GAP_MODULES)
+    const modules = GAP_MODULES.filter(m => permissionAtLeast(levels[m], 'manage'))
+    const gaps = modules.length ? await withTenant(req.tenantId, tx => setupGaps(tx, req.tenantId, req.params.venueId, { modules })) : []
+    return { venue_id: req.params.venueId, gaps }
+  })
 
   app.get('/overview', { preHandler: canView }, async req => {
     const access = await stockAccess(req)

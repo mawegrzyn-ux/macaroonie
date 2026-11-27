@@ -81,7 +81,8 @@ export const TRIGGERS = {
   },
   // Inventory phase 6b (migration 313). A dish newly over its cost target at
   // a venue (the cost targets sweep, services/stockFoodCostSvc.js: once per
-  // crossing, at the dish's worst order type), a stock period closed with
+  // crossing, at the dish's worst order type; with `over`, once as its cost %
+  // passes that figure, a rise within its band included), a stock period closed with
   // its variance over the band (the venue's unexplained loss over its band,
   // or items flagged by the item rule: POST /api/stock/periods/:id/close),
   // and waste logged (POST /api/stock/venues/:id/waste, Pepper's log_waste).
@@ -223,12 +224,21 @@ export function matches(rule, event) {
       if (c.stars_at_most != null && !(event.stars != null && event.stars <= c.stars_at_most)) return false
       if (c.platform && !lower(event.platform).includes(lower(c.platform))) return false
       return true
-    case 'dish_over_target':
-      if (c.over != null && !(event.cost_pct != null && event.cost_pct > c.over)) return false
-      if (c.limit != null && c.limit !== (event.band === 'over')) return false
+    case 'dish_over_target': {
+      // A crossing (newly over the target, or from it to over the limit) is for every rule; a
+      // rise within the same band (kind 'rose') only for a rule with a percentage of its own.
+      // Such a rule fires when its conditions hold now and didn't at the last look (prev_band,
+      // prev_cost_pct; none for a dish newly over): "over 33%" tells as the dish passes 33%,
+      // whether that is the step that took it over the target or a rise after it.
+      const holds = (p, band) => (c.over == null || (p != null && p > c.over)) && (c.limit == null || c.limit === (band === 'over'))
+      if (!holds(event.cost_pct, event.band)) return false
+      if (c.over != null) {
+        if (event.prev_band && holds(event.prev_cost_pct, event.prev_band)) return false
+      } else if (event.kind === 'rose') return false
       if (c.dish && !lower(event.dish).includes(lower(c.dish))) return false
       if (c.menu && !lower(event.menu).includes(lower(c.menu))) return false
       return true
+    }
     case 'variance_over_band':
       if (c.venue_band != null && c.venue_band !== !!event.over_band) return false
       if (c.pounds_over != null && !(event.unexplained_value != null && event.unexplained_value > c.pounds_over)) return false

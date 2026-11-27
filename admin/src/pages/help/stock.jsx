@@ -391,8 +391,9 @@ export function Section() {
       <P>
         Cash Recon&apos;s week has a <strong>Food cost</strong> card, below the grid and under the wages in the card view
         (for people with Costing view and Till reports view). <strong>Theoretical, this week</strong> is what the week&apos;s sales should have used
-        by their recipes, as a share of its net food sales; dishes sold without a full recipe make it read low, and
-        the card says how many. <strong>Actual</strong> needs a full count at both ends, and a week rarely starts and
+        by their recipes, as a share of its net food sales; dishes sold without a full recipe make it read low, and so
+        do open items and dishes no longer on a menu (their sales count, with nothing to cost them by): the card says
+        how many of each. <strong>Actual</strong> needs a full count at both ends, and a week rarely starts and
         ends on a count, so the week never gets an actual of its own: the card shows the actual of the stock period
         that covers the whole week (and says it is the period&apos;s figure, not the week&apos;s), else the latest
         closed period, named with its dates. With neither, it says actual needs a full count at both ends.
@@ -420,8 +421,11 @@ export function Section() {
         Today shows <strong>Dishes over the cost target</strong> to people with Costing view when dishes on a
         venue&apos;s live menus cost more than the target on Menu margins (at today&apos;s supplier prices, at the order
         type where each is worst): the dearest first, and how many are over the limit. It opens Menu margins at the
-        venue. Home suggests the set-up still missing to whoever manages it: no storage areas at a venue (Stock), best
-        sellers with no recipe (Recipes), and inventory items used in recipes with no supplier price (Purchasing setup).
+        venue. Home suggests the set-up still missing to whoever manages it: no storage areas at a venue (Stock, opening
+        Stock&apos;s Settings), best sellers with no recipe (Recipes, opening the Recipes page on what isn&apos;t costed),
+        and inventory items used in recipes with no supplier price (Purchasing setup, opening Inventory). An item counts
+        as having no price when it has no supplier price that is switched on from a supplier that is switched on, and
+        no delivery booked in: the same test Menu margins costs by.
       </P>
       <H3>Rules on food cost and waste</H3>
       <P>
@@ -429,10 +433,14 @@ export function Section() {
         tell the owner</em>; <em>When a stock period closes over the band, add an H&amp;S action for the manager</em>;
         <em> When waste over £50 is logged, tell the owner</em>. A dish going over its target is looked for every hour
         and tells once: it tells again only after the dish has come back under and gone over again (or from over the
-        target to over the limit). A period tells when it is closed with its unexplained loss over the venue&apos;s band
+        target to over the limit). A rule with a percentage of its own (<em>over 35%</em>) tells once as the dish passes
+        that figure, whether that is the step that takes it over the target or a price rise after it, and not again
+        while it stays above. A period tells when it is closed with its unexplained loss over the venue&apos;s band
         or with flagged items. Costs and shares of sales are left out of a notice for people who can&apos;t see them, and
         can&apos;t go into an H&amp;S action at all (everyone who reads the action log would see them). Making a rule on a
-        dish&apos;s cost needs Costing view; on waste or a period, Stock view (and Costing view to use an amount).
+        dish&apos;s cost needs Costing view; on waste, Stock view (and Costing view to use an amount); on a period, Stock
+        view (and Costing view and Till reports view to use an amount, or to put the unexplained loss in its text: the
+        points over the band are a share of sales).
       </P>
     </section>
   )

@@ -140,7 +140,7 @@ export function Section() {
         rows={[
           ['due', 'Pages the feed\'s late tasks and skipped (aside) tasks point at: TASK_PAGES by area, KIND_TABS for holds, cooking and wages. Score: late x 2 + skipped.', 'N tasks late here, N tasks skipped today'],
           ['team', 'team_suggestions for the person\'s role (effectiveRoleId()), newest first (step 7b).', 'Suggested by <by_label>: <note>'],
-          ['setup', 'The feed\'s gaps (food_safety source: no active fridges, or fridges with no active check times) where the person has Manage on the gap\'s module.', 'No fridges set up at <venue> yet'],
+          ['setup', 'The feed\'s gaps (food_safety source: no active fridges, or fridges with no active check times; since inventory phase 6b the stock and costing gaps: no storage areas, best sellers with no recipe, items in recipes with no price) where the person has Manage on the gap\'s module (levels from HOME_MODULES), the gap\'s path matched against their menu.', 'No fridges set up at <venue> yet'],
           ['habit', 'A page opened within HABIT.hoursEitherSide 1 of this hour on HABIT.minDays 3 of the last HABIT.weeks 6 same weekdays (today not counted).', 'You open this most <weekday>s around now'],
           ['often', 'A page opened on OFTEN.minDays 5 of the last OFTEN.days 14 days (today not counted).', 'You open this most days'],
           ['weekly_report', 'A saved report or starter the person ran in WEEKLY.minWeeks 3 of the last WEEKLY.weeks 4 weeks (Monday to Sunday, this one included), still in their GET /api/reports list (asked only when one qualifies). Opens /reports/<ref>.', 'You run this most weeks'],

@@ -4,9 +4,10 @@
 // closed one, named; never one made up for the week), the dashboard widgets'
 // figures against the shared rules (food cost, waste by reason, top variance
 // items, margin by menu) and the Overview's stock tile; Today's dishes over
-// their cost target and Home's set-up gaps; the three rule triggers (a dish
-// over its cost target, a period closed over the band, waste logged over a
-// value), each firing once and not again for the same event, with costs left
+// their cost target and Home's set-up gaps (on Home for whoever manages each
+// gap's module); the three rule triggers (a dish over its cost target, with a
+// % of its own as the dish passes it; a period closed over the band; waste
+// logged over a value), each firing once and not again for the same event, with costs left
 // out of a notice for people who can't see them; make_rule offering them;
 // another group's ids refused; Costing view, till reports view and Stock view.
 import test from 'node:test'
@@ -337,6 +338,40 @@ test('Today: the dishes over their cost target (the Menu margins figure, at the 
   // Each offered only to whoever manages its module (Home's suggestions): the operator manages none of them.
   assert.equal(setupRule({ gaps: feed.gaps, levels: { stock: 'use', recipes: 'view', purchasing_setup: 'none' } }).length, 0)
   assert.equal(setupRule({ gaps: feed.gaps, levels: { stock: 'manage', recipes: 'manage', purchasing_setup: 'manage' } }).length, 3)
+  // A gap's path is a menu page, its tab apart (Home matches the page against the person's menu).
+  assert.deepEqual(feed.gaps.filter(g => g.module !== 'food_safety').map(g => [g.module, g.path, g.tab || null]).sort(),
+    [['purchasing_setup', '/inventory', null], ['recipes', '/recipes', null], ['stock', '/stock', 'settings']])
+  // Home shows them (review fixes: the levels Home filters by hold Recipes and Purchasing setup, and the
+  // paths are the menu's), to someone who manages the three, with links that open the page at the venue
+  // (Inventory sits under Purchasing in the menu, so Purchasing view is needed to reach it at all).
+  const stockKeys = ['setup:items_no_price', 'setup:no_stock_areas:' + soho, 'setup:top_sellers_no_recipe:' + soho]
+  await asRole({ stock: 'manage', recipes: 'manage', purchasing_setup: 'manage', purchasing: 'view' }, async () => {
+    const home = await ok(viewer.get(`/api/ops/today?venue_id=${soho}`))
+    const mine = home.suggestions.filter(x => x.rule === 'setup')
+    assert.deepEqual(mine.map(x => x.key).sort(), stockKeys, JSON.stringify(home.suggestions))
+    assert.equal(mine.find(x => x.key.startsWith('setup:no_stock_areas')).link, `/stock?venue=${soho}&tab=settings`)
+    assert.equal(mine.find(x => x.key.startsWith('setup:top_sellers')).link, '/recipes')
+    assert.equal(mine.find(x => x.key === 'setup:items_no_price').link, '/inventory')
+  })
+  // Someone who manages Recipes and has no Stock view still gets theirs; only theirs reach the feed.
+  await asRole({ recipes: 'manage' }, async () => {
+    const home = await ok(viewer.get(`/api/ops/today?venue_id=${soho}`))
+    assert.deepEqual((home.gaps || []).map(g => g.key), ['top_sellers_no_recipe:' + soho])
+    assert.ok(home.suggestions.some(x => x.key === 'setup:top_sellers_no_recipe:' + soho), JSON.stringify(home.suggestions))
+  })
+  // Stock view and use without managing Recipes: the best sellers' names never reach them.
+  const opGaps = (await ok(operator.get(`/api/ops/today?venue_id=${soho}`))).gaps || []
+  assert.ok(!opGaps.some(g => ['stock', 'recipes', 'purchasing_setup'].includes(g.module)), JSON.stringify(opGaps))
+  assert.ok(!JSON.stringify(opGaps).includes('Chicken wrap'))
+  assert.deepEqual((await ok(operator.get(`/api/stock/venues/${soho}/setup-gaps`))).gaps, [])
+  // "No price" as the cost engine prices: a switched-off supplier price is none (rice's, for a moment).
+  assert.match((await ok(owner.get(`/api/stock/venues/${soho}/setup-gaps`))).gaps.find(g => g.key === 'items_no_price').reason, /^1 inventory item used/)
+  await ok(owner.patch('/api/inventory/quotes/' + rice.quote.id, { is_active: false }))
+  try {
+    assert.match((await ok(owner.get(`/api/stock/venues/${soho}/setup-gaps`))).gaps.find(g => g.key === 'items_no_price').reason, /^2 inventory items used/)
+  } finally {
+    await ok(owner.patch('/api/inventory/quotes/' + rice.quote.id, { is_active: true }))
+  }
   // An area made: that gap goes.
   await ok(owner.post(`/api/stock/venues/${soho}/areas`, { name: 'Walk-in' }))
   assert.ok(!((await ok(owner.get(`/api/ops/today?venue_id=${soho}`))).gaps || []).some(g => g.key === 'no_stock_areas:' + soho))
@@ -381,6 +416,66 @@ test('the rule trigger "a dish goes over its cost target": once per crossing, th
     assert.match(res.body, /trigger_access/)
   })
   await ok(owner.delete('/api/ai/rules/' + rule.id))
+})
+
+test('a rule with a cost % of its own tells as a dish passes it, a rise in the same band included, and only once', async () => {
+  const app = await getApp()
+  const sweep = () => sweepCostTargets(app, quiet, { tenantIds: [ids.a] })
+  const platterNow = async () => (await sql`
+    SELECT band, cost_pct::float8 AS cost_pct FROM cost_target_states WHERE tenant_id = ${ids.a} AND venue_id = ${soho} AND dish_id = ${platter}`)[0] || null
+  const was = await ok(owner.get('/api/menu-margins/settings'))
+  const targets = (target_pct, limit_pct) => ok(owner.put('/api/menu-margins/settings', { target_pct, limit_pct, sections: [] }))
+  const chickenAt = price => ok(owner.patch('/api/inventory/quotes/' + chicken.quote.id, { price }))
+  // The platter's cost % with chicken at £6 a kg, as the last sweep kept it; the rule's % a little above it,
+  // the target under it and the limit well above, so dearer chicken moves it within its band first.
+  const p0 = (await platterNow())?.cost_pct
+  assert.ok(p0 > 0, 'the platter is kept as over')
+  const over = Math.round(p0 * 1.05)
+  await targets(98, 99)
+  await sweep()
+  assert.equal(await platterNow(), null, 'everything back under: forgotten')
+  const pct = await ok(owner.post('/api/ai/rules', { rule: {
+    name: 'Platter past its %', trigger: 'dish_over_target', conditions: { over, dish: 'platter' }, venue_id: soho,
+    action_tool: 'send_notice', action_input: { to: 'owner', title: '{dish} at {cost_pct}%' },
+  } }))
+  const atLimit = await ok(owner.post('/api/ai/rules', { rule: {
+    name: 'Platter over the limit and its %', trigger: 'dish_over_target', conditions: { over, limit: true, dish: 'platter' }, venue_id: soho,
+    action_tool: 'send_notice', action_input: { to: 'owner', title: '{dish} is {band_words}' },
+  } }))
+  try {
+    await targets(Math.floor(p0 * 0.8), Math.ceil(p0 * 1.3))
+    await sweep()
+    assert.deepEqual(await platterNow(), { band: 'watch', cost_pct: p0 })
+    assert.equal((await firings(pct.id)).length, 0, 'over the target at ' + p0 + '%, not over ' + over + '% yet')
+    // Chicken dearer: the platter rises in its band past the rule's %, which tells (the finding: it never did).
+    await chickenAt(6.6)
+    const rose = await sweep()
+    assert.ok(rose.rose >= 1, JSON.stringify(rose))
+    const p1 = await platterNow()
+    assert.equal(p1.band, 'watch')
+    assert.ok(p1.cost_pct > over, p1.cost_pct + ' over ' + over)
+    const runs = await firings(pct.id)
+    assert.deepEqual(runs.map(r => r.status), ['done'], JSON.stringify(runs))
+    assert.match(runs[0].event_key, /:rose:/)
+    // The same look again, then dearer still in the same band: past its % already, so not again.
+    await sweep()
+    await chickenAt(7.2)
+    await sweep()
+    assert.equal((await firings(pct.id)).length, 1)
+    assert.equal((await firings(atLimit.id)).length, 0, 'not over the limit yet')
+    // Over the limit: a crossing. The limit rule holds now and didn't at the last look; the % rule passed its % before.
+    await chickenAt(8.4)
+    await sweep()
+    assert.equal((await platterNow()).band, 'over')
+    assert.equal((await firings(pct.id)).length, 1)
+    assert.deepEqual((await firings(atLimit.id)).map(r => r.status), ['done'])
+  } finally {
+    await chickenAt(6)
+    await ok(owner.put('/api/menu-margins/settings', { target_pct: was.target_pct, limit_pct: was.limit_pct, sections: was.sections.map(x => ({ section_id: x.section_id, target_pct: x.target_pct, limit_pct: x.limit_pct })) }))
+    await sweep()
+    await ok(owner.delete('/api/ai/rules/' + pct.id))
+    await ok(owner.delete('/api/ai/rules/' + atLimit.id))
+  }
 })
 
 test('the rule trigger "waste is logged": over the value only, once per entry; an amount never in an H&S action', async () => {
@@ -435,10 +530,23 @@ test('make_rule offers the new triggers: the model is told of them and the card 
   for (const k of ['dish_over_target', 'variance_over_band', 'waste_logged']) assert.ok(system.includes(k), k + ' in what the model is told')
   assert.deepEqual(card.lines.slice(0, 2), ['When waste is logged at any venue', 'If worth over (£) 50'])
   assert.equal(card.pin.rule.conditions.over, 50)
+  // A percentage written with its sign is still the figure (review fixes: it was dropped, widening the rule).
+  claude.script.push(() => ({ stop_reason: 'end_turn', usage: { input_tokens: 900, output_tokens: 200 }, content: [{ type: 'text', text: JSON.stringify({
+    understood: true, why_not: '', name: 'Dishes over 35%', trigger: 'dish_over_target', venue: '', per_day: '', action: 'send_notice',
+    conditions: { ...conditions, over: '35%' }, action_input: { ...input, to: 'owner', title: '{dish} is over 35%' },
+  }) }] }))
+  const pctCard = await t.describe(ctx, parseInput(t, { sentence: 'tell the owner when a dish goes over 35%' }))
+  assert.equal(pctCard.pin.rule.conditions.over, 35)
+  assert.deepEqual(pctCard.lines.slice(0, 2), ['When a dish goes over its cost target at any venue', 'If cost % over 35'])
+  // The chat model is told of the new triggers before any sentence reaches the reader.
+  assert.match(t.description, /a dish goes over its cost target/)
+  assert.match(t.description, /waste is logged/)
+  const { promptLines } = await import('../src/ai/tools/rules.js')
+  assert.match(promptLines.join(' '), /cost target/)
 })
 
 test('another group\'s venues are refused, and its ids never reach this group\'s figures', async () => {
-  for (const path of ['food-cost/week', 'margins-by-menu', 'cost-targets']) {
+  for (const path of ['food-cost/week', 'margins-by-menu', 'cost-targets', 'setup-gaps']) {
     assert.ok([403, 404].includes((await bOwner.get(`/api/stock/venues/${soho}/${path}`)).status), 'their ' + path)
     assert.ok([403, 404].includes((await owner.get(`/api/stock/venues/${bVenue}/${path}`)).status), 'our ' + path + ' at their venue')
   }

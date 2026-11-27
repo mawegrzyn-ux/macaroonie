@@ -31,6 +31,7 @@
 //                                             revenue streams, order types, the active reasons
 //   POST   /venues/:venueId/waste/preview     WasteBody: what it would take off (items, value, gaps), nothing saved
 //   POST   /venues/:venueId/waste             WasteBody: logged                                Use
+//                                             (phase 6b: then offered to the group's rules, waste_logged)
 //   GET    /venues/:venueId/waste?day=&from=&to=
 //                                             the entries of those trading days (today when none) with the
 //                                             till's voids marked wasted (read only), newest first, each
@@ -39,7 +40,6 @@
 //                                             waste added up (wasteTotals()) by reason | kind | item |
 //                                             dish | person | day | what, voids included; the last
 //                                             `days` trading days (7) up to `to` (today there) by default
-//                                             (phase 6b: then offered to the group's rules, waste_logged)
 //   POST   /waste/:wasteId/undo               on its trading day: whoever logged it, or Manage
 //   POST   /waste/:wasteId/reverse            after its trading day: a reversing entry      Manage
 //   POST   /waste/:wasteId/photo              multipart: a photo of it (whoever logged it, or Manage)

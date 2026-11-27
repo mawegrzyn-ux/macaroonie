@@ -47,9 +47,7 @@
 //                                       never a quick count), counts waiting for approval,
 //                                       and (phase 4b) transfers sent to the venue waiting
 //                                       to be received, and (phase 6a, Stock manage) closed
-//                                       periods with flagged items not reviewed yet; (phase 6b)
-//                                       Home's set-up gaps (no storage areas, best sellers with
-//                                       no recipe, items in recipes with no price)
+//                                       periods with flagged items not reviewed yet
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
@@ -64,7 +62,6 @@ import {
 } from '../services/stockSvc.js'
 import { stockAccess, stockPerson, who } from './stock.js'
 import { periodsForCount, toReview } from '../services/stockVarianceSvc.js'
-import { setupGaps } from '../services/stockFoodCostSvc.js'
 
 const canView = requirePermission('stock', 'view')
 const canCount = requirePermission('stock', 'use')
@@ -478,13 +475,11 @@ export default async function stockCountRoutes(app) {
          ORDER BY t.sent_at`
       // Phase 6a: closed periods with flagged items nobody has reviewed yet (reviewing is Stock manage).
       const variance = access.can_manage ? await toReview(tx, req.tenantId, venueId) : []
-      // Phase 6b: gaps in the set-up for Home (each offered only to whoever manages its module).
-      const gaps = await setupGaps(tx, req.tenantId, venueId)
       return {
         settings, weekday,
         count_due: countDueOn(settings, weekday) && done.n === 0,
         draft: open.find(c => c.status === 'draft') || null,
-        waiting, incoming, variance, gaps,
+        waiting, incoming, variance,
         can_count: access.can_count, can_manage: access.can_manage,
       }
     })

@@ -22,7 +22,7 @@
 // as api/test/stock-variance.test.mjs does) read back through the current
 // period's variance and the item's ledger. Phase 6b (migration 313), late:
 // the week's food cost line, margin by menu, the newest period's variance,
-// the dishes over target, the Overview tile, a stock widget, and the cost
+// the dishes over target, Home's set-up gaps, the Overview tile, a stock widget, and the cost
 // targets sweep with the targets low for a moment (cost_target_states).
 import { sql, getApp } from '../app.mjs'
 
@@ -205,6 +205,7 @@ async function fillFoodCost(ctx) {
   await step('stock margins by menu', () => get(`/api/stock/venues/${V}/margins-by-menu`))
   await step('stock variance latest', () => get(`/api/stock/venues/${V}/variance?period=latest`))
   await step('stock cost targets', () => get(`/api/stock/venues/${V}/cost-targets`))
+  await step('stock setup gaps', () => get(`/api/stock/venues/${V}/setup-gaps`))
   await step('stock overview', () => get('/api/stock/overview'))
   const dash = await step('stock widget dashboard', () => post('/api/custom-dashboards/dashboards', { venue_id: V, name: ctx.mark + ' Food cost' }))
   if (dash) await step('stock widget', () => post(`/api/custom-dashboards/dashboards/${dash.id}/widgets`, { widget_type: 'stock_food_cost' }))

@@ -72,6 +72,16 @@ test('weekFoodCost: actual only from a stock period, the covering one said so, e
   // Uncosted sales say the theoretical figure reads low; no sales say so.
   assert.match(weekFoodCost({ week: daysFoodCost([row({ uncosted_qty: 4 })]) }).lines[0], /4 units sold without a full recipe, so it reads low/)
   assert.match(weekFoodCost({ week: daysFoodCost([]) }).lines[0], /No food sales worked out/)
+  // Sales left out of usage (an open item, a dish no longer on a menu) are in the net with no cost and no
+  // uncosted units: the % reads low for them too, and the line says so (review fixes).
+  const open = daysFoodCost([row(), row({ left_out: 'open', cost: null, qty: 3 }), row({ left_out: 'gone', cost: null, qty: 1 })])
+  assert.equal(open.left_out_units, 4)
+  assert.equal(open.uncosted_units, 0)
+  assert.equal(open.net_food_pence, 3000)
+  assert.match(weekFoodCost({ week: open }).lines[0], /\(4 units left out of usage \(open items, dishes no longer on a menu\), so it reads low\)/)
+  assert.match(weekFoodCost({ week: daysFoodCost([row({ uncosted_qty: 2 }), row({ left_out: 'open', cost: null, qty: 1 })]) }).lines[0],
+    /2 units sold without a full recipe, 1 unit left out of usage .*, so it reads low/)
+  assert.doesNotMatch(weekFoodCost({ week: daysFoodCost([row()]) }).lines[0], /reads low/)
 })
 
 test('weekFoodCost reads periodVariance()\'s food cost as it is (rule 12): the same figures as the Variance tab', () => {
@@ -114,6 +124,51 @@ test('targetCrossings: a dish newly over (or worse) crosses once; back under is 
   assert.equal(again.crossed.length, 0)
   // Easing back from the limit to the target is no new event.
   assert.equal(targetCrossings([{ dish_id: 'b', band: 'over', since: 't1' }], [{ dish_id: 'b', band: 'watch' }]).crossed.length, 0)
+})
+
+test('targetCrossings: a kept dish whose cost % went up has risen; every row carries the last look', () => {
+  // cost_pct as the states table gives it (numeric, maybe a string).
+  const states = [
+    { dish_id: 'a', band: 'watch', since: 't0', cost_pct: '31.00' }, { dish_id: 'b', band: 'watch', since: 't0', cost_pct: 33 },
+    { dish_id: 'c', band: 'over', since: 't0', cost_pct: 36 }, { dish_id: 'e', band: 'watch', since: 't0', cost_pct: 34 },
+  ]
+  const now = [
+    { dish_id: 'a', band: 'watch', cost_pct: 34 }, { dish_id: 'b', band: 'watch', cost_pct: 32 }, { dish_id: 'c', band: 'over', cost_pct: 45 },
+    { dish_id: 'd', band: 'watch', cost_pct: 31 }, { dish_id: 'e', band: 'over', cost_pct: 36 },
+  ]
+  const r = targetCrossings(states, now)
+  assert.deepEqual(r.rose.map(d => [d.dish_id, d.prev_cost_pct, d.cost_pct, d.since]), [['a', 31, 34, 't0'], ['c', 36, 45, 't0']])
+  assert.ok(r.rose.every(d => r.kept.includes(d)), 'a rise is kept: its since stays')
+  assert.deepEqual(r.crossed.map(d => [d.dish_id, d.prev_band, d.prev_cost_pct]), [['d', null, null], ['e', 'watch', 34]])
+  assert.deepEqual(r.kept.map(d => d.dish_id), ['a', 'b', 'c'])
+  assert.equal(r.kept.find(d => d.dish_id === 'b').prev_cost_pct, 33, 'a fall is kept, and no event')
+  // The same look again: no rise.
+  assert.equal(targetCrossings(now.map(d => ({ ...d, since: 't1' })), now).rose.length, 0)
+})
+
+test('dish_over_target with a % of its own tells as the dish passes it, a rise within its band included, once', () => {
+  // Target 30, limit 35 (the defaults). The events as the sweep makes them (services/stockFoodCostSvc.js).
+  const rule = conditions => ({ name: 'r', trigger: 'dish_over_target', conditions, action_tool: 'send_notice', action_input: { to: 'owner', title: 'x' }, per_day: 5 })
+  const ev = (kind, prev_band, prev_cost_pct, band, cost_pct) => ({ trigger: 'dish_over_target', kind, prev_band, prev_cost_pct, band, cost_pct, dish: 'Burger', menu: 'Lunch' })
+  const r33 = rule({ over: 33 })
+  assert.equal(matches(r33, ev('crossed', null, null, 'watch', 31)), false, 'over the target at 31%: not over 33% yet')
+  assert.equal(matches(r33, ev('rose', 'watch', 31, 'watch', 34)), true, 'drifts to 34% in the same band: it passes 33%')
+  assert.equal(matches(r33, ev('rose', 'watch', 34, 'watch', 34.5)), false, 'past 33% already: not again')
+  assert.equal(matches(r33, ev('crossed', 'watch', 34.5, 'over', 36)), false, 'over the limit, but 33% was passed before')
+  assert.equal(matches(r33, ev('crossed', null, null, 'over', 36)), true, 'straight over 33% as it goes over')
+  const r40 = rule({ over: 40 })
+  assert.equal(matches(r40, ev('crossed', 'watch', 34, 'over', 36)), false)
+  assert.equal(matches(r40, ev('rose', 'over', 36, 'over', 45)), true, 'over the limit at 36%, then climbing past 40%')
+  // A rule without a % of its own never takes a rise: it told when the dish went over.
+  assert.equal(matches(rule({}), ev('rose', 'watch', 31, 'watch', 34)), false)
+  assert.equal(matches(rule({ limit: true }), ev('rose', 'over', 36, 'over', 45)), false)
+  assert.equal(matches(rule({}), ev('crossed', 'watch', 34, 'over', 36)), true, 'from the target to over the limit is still a crossing')
+  assert.equal(matches(rule({ limit: true }), ev('crossed', 'watch', 34, 'over', 36)), true)
+  // Over the limit and over 33%: it holds once the limit is passed, though 33% was passed before.
+  assert.equal(matches(rule({ over: 33, limit: true }), ev('crossed', 'watch', 34, 'over', 36)), true)
+  assert.equal(matches(rule({ over: 33, limit: true }), ev('rose', 'over', 36, 'over', 40)), false)
+  // A sentence's dish words still narrow it.
+  assert.equal(matches(rule({ over: 33, dish: 'salad' }), ev('rose', 'watch', 31, 'watch', 34)), false)
 })
 
 test('marginsByMenu: soldMargins() per menu, the same total as the Sold tab\'s for one menu', () => {

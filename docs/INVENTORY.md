@@ -813,9 +813,12 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
 - **Dashboards** (10.3): `stock_food_cost`, `stock_waste_week`, `stock_variance_items`, `stock_menu_margins` in a Stock and
   costing group (`components/stock/widgetTypes.js`, bodies lazy in `widgets.jsx`), on the waste summary, the variance route's
   `period=latest` and `GET /venues/:id/margins-by-menu`; the Overview tile `stock_status` (`GET /api/stock/overview`).
-- **Today and Home** (10.3): a `costing` source (`dishes_over_target`, from `GET /venues/:id/cost-targets`), and the stock
-  source's set-up gaps (no storage areas, best sellers with no recipe, items in recipes with no price).
-- **Rule triggers** (10.4): `dish_over_target` (the job `jobs/cost-targets.js`, hourly, `sweepCostTargets()`),
+- **Today and Home** (10.3): a `costing` source (`dishes_over_target`, from `GET /venues/:id/cost-targets`), and the
+  stock and costing set-up gaps (no storage areas, best sellers with no recipe, items in recipes with no price) read from
+  `GET /venues/:id/setup-gaps` for whoever manages Stock, Recipes or Purchasing setup (review fixes: each only to whoever
+  manages its module, whatever their Stock level).
+- **Rule triggers** (10.4): `dish_over_target` (the job `jobs/cost-targets.js`, hourly, `sweepCostTargets()`; a rule with
+  its own % tells as the dish passes it, a rise within the band included),
   `variance_over_band` (closing a period), `waste_logged` (logging waste) in `shared/rules.js`; `money_needs` keeps costs
   and shares of sales out of notices for people without those views (`ctx.moneyNeeds`), `ruleProblem()` keeps them out of
   H&S actions, `ruleNeeds()` is what the person making the rule must view; make_rule's prompt reads the triggers.

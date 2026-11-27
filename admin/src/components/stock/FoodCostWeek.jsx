@@ -63,7 +63,7 @@ export function FoodCostWeek({ venueId, weekStart, compact = false }) {
         <div className="space-y-2">
           <div className="flex flex-wrap gap-2">
             <Tile label="Theoretical, this week" value={pct(data.theoretical.theoretical_pct)} testid="food-cost-week-theoretical"
-              sub={data.theoretical.uncosted_units > 0 ? 'reads low: dishes without a recipe' : 'by the recipes of what sold'} />
+              sub={data.theoretical.uncosted_units > 0 || data.theoretical.left_out_units > 0 ? 'reads low: sales with no recipe' : 'by the recipes of what sold'} />
             <Tile label={a?.covers ? 'Actual, the period covering it' : 'Actual, latest closed period'} value={pct(a?.pct)} testid="food-cost-week-actual"
               sub={a ? a.period.words + (pts(a.gap_pts) ? ' · gap ' + pts(a.gap_pts) : '') : 'needs a full count at both ends'} />
           </div>

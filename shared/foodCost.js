@@ -17,7 +17,7 @@
 //   daysFoodCost(rows)                          theoretical food cost of some trading days
 //   weekFoodCost({ week, period, covers, currency })   the week's line: theoretical, actual from a period, words
 //   overTarget(rows)                            dishes over their cost target, one per dish at its worst
-//   targetCrossings(states, now)                what went over (or worse) since the last look, what came back
+//   targetCrossings(states, now)                what went over (or worse) or rose since the last look, what came back
 //   marginsByMenu(rows, settings)               sold margins by menu (soldMargins() per menu)
 //   overviewWords(row)                          a venue's stock in a line, for the Overview tile
 //   varianceEvent(period, frozen, venue)         the rule event for a period closed over the band
@@ -48,10 +48,13 @@ export function penceWords(pence, currency = 'GBP') {
  * qty, uncosted_qty, day). Food is isFoodSale()'s (food and drink; retail
  * goods and services out), as a period's net food sales are. A dish with no
  * recipe has no cost, so its sales make the % read low: uncosted_units says
- * how many. -> { net_food_pence, theoretical_value, theoretical_pct, units, uncosted_units, days }
+ * how many. So do sales left out of usage (left_out: an open item typed in on
+ * the till, a line on no menu dish, a dish no longer on a menu): their net is
+ * in the food sales with no cost and no uncosted units; left_out_units says
+ * how many. -> { net_food_pence, theoretical_value, theoretical_pct, units, uncosted_units, left_out_units, days }
  */
 export function daysFoodCost(rows = []) {
-  let net = 0, cost = 0, costed = false, units = 0, uncosted = 0
+  let net = 0, cost = 0, costed = false, units = 0, uncosted = 0, leftOut = 0
   const days = new Set()
   for (const r of rows || []) {
     if (!isFoodSale(r)) continue
@@ -60,12 +63,21 @@ export function daysFoodCost(rows = []) {
     if (r.cost != null) { cost += num(r.cost); costed = true }
     units += num(r.qty)
     uncosted += num(r.uncosted_qty)
+    if (r.left_out) leftOut += num(r.qty)
   }
   const value = costed ? round2(cost) : null
   return {
     net_food_pence: net, theoretical_value: value, theoretical_pct: costShare(value, net),
-    units: round4(units), uncosted_units: round4(uncosted), days: days.size,
+    units: round4(units), uncosted_units: round4(uncosted), left_out_units: round4(leftOut), days: days.size,
   }
+}
+
+/** Why a theoretical % reads low, in words ('' when nothing does): units without a full recipe, units left out of usage. */
+function readsLow(w) {
+  const why = []
+  if (w.uncosted_units > 0) why.push(plural(Math.round(w.uncosted_units), 'unit') + ' sold without a full recipe')
+  if (w.left_out_units > 0) why.push(plural(Math.round(w.left_out_units), 'unit') + ' left out of usage (open items, dishes no longer on a menu)')
+  return why.length ? ' (' + why.join(', ') + ', so it reads low)' : ''
 }
 
 /**
@@ -86,8 +98,7 @@ export function weekFoodCost({ week = null, period = null, covers = false, curre
   } else if (w.theoretical_pct == null) {
     lines.push('Net food sales ' + penceWords(w.net_food_pence, currency) + ', but nothing sold has a recipe yet, so there is no theoretical food cost.')
   } else {
-    lines.push('Theoretical food cost ' + pct(w.theoretical_pct) + ' of ' + penceWords(w.net_food_pence, currency) + ' net food sales' +
-      (w.uncosted_units > 0 ? ' (' + plural(Math.round(w.uncosted_units), 'unit') + ' sold without a full recipe, so it reads low)' : '') + '.')
+    lines.push('Theoretical food cost ' + pct(w.theoretical_pct) + ' of ' + penceWords(w.net_food_pence, currency) + ' net food sales' + readsLow(w) + '.')
   }
   let actual = null
   if (!period) {
@@ -152,25 +163,33 @@ const RANK = { watch: 1, over: 2 }
 /**
  * What changed since the last look (the rule trigger "a dish goes over its
  * cost target"): states are the dishes kept as over last time ({ dish_id,
- * band, since }), now is overTarget()'s. A dish newly over, or moved from
- * over the target to over the limit, has crossed (an event of its own);
- * one no longer over is cleared (a later crossing is a new event); the rest
- * are kept with their `since`.
- * -> { crossed: [now rows], cleared: [dish ids], kept: [now rows with since] }
+ * band, since, cost_pct }), now is overTarget()'s. A dish newly over, or
+ * moved from over the target to over the limit, has crossed (an event of
+ * its own); one no longer over is cleared (a later crossing is a new event);
+ * the rest are kept with their `since`, and of those the ones whose cost %
+ * went up have risen (an event too, but only for a rule with a percentage of
+ * its own, which it may just have passed: matches() in shared/rules.js).
+ * Every crossed and kept row carries the last look's prev_band and
+ * prev_cost_pct (null for a dish new to the states).
+ * -> { crossed: [now rows], cleared: [dish ids], kept: [now rows with since], rose: [the kept rows that rose] }
  */
 export function targetCrossings(states = [], now = []) {
   const was = new Map((states || []).map(s => [s.dish_id, s]))
   const crossed = []
   const kept = []
+  const rose = []
   for (const r of now || []) {
     if (!r.dish_id) continue
     const s = was.get(r.dish_id)
-    if (!s || (RANK[r.band] || 0) > (RANK[s.band] || 0)) crossed.push(r)
-    else kept.push({ ...r, since: s.since })
+    const prev = { prev_band: s?.band ?? null, prev_cost_pct: s?.cost_pct == null ? null : Number(s.cost_pct) }
+    if (!s || (RANK[r.band] || 0) > (RANK[s.band] || 0)) { crossed.push({ ...r, ...prev }); continue }
+    const k = { ...r, ...prev, since: s.since }
+    kept.push(k)
+    if (r.cost_pct != null && prev.prev_cost_pct != null && Number(r.cost_pct) > prev.prev_cost_pct) rose.push(k)
   }
   const here = new Set((now || []).map(r => r.dish_id))
   const cleared = (states || []).filter(s => !here.has(s.dish_id)).map(s => s.dish_id)
-  return { crossed, cleared, kept }
+  return { crossed, cleared, kept, rose }
 }
 
 /**

@@ -13,11 +13,12 @@
 //                                                 closed one, named), the recent closed periods
 //   venueOverTarget(tx, tenantId, venueId, pre)   the venue's dishes over their cost target now
 //   menuMarginsWeek(tx, tenantId, venueId, from, to)   sold margins by menu (the widget)
-//   setupGaps(tx, tenantId, venueId)              Home's set-up gaps for stock and costing
+//   setupGaps(tx, tenantId, venueId, { modules }) Home's set-up gaps for stock and costing (GAP_MODULES)
 //   stockOverview(tx, tenantId, access)           each venue's stock in a line (the Overview tile)
 //   sweepCostTargets(app, log, { tenantIds })     the job (jobs/cost-targets.js): each venue's dishes
 //                                                 over target kept in cost_target_states, and the rule
-//                                                 trigger dish_over_target fired once per crossing
+//                                                 trigger dish_over_target fired once per crossing (and
+//                                                 per rise in a band, for rules with a % of their own)
 
 import { systemSql, withTenant } from '../config/db.js'
 import { daysFoodCost, weekFoodCost, overTarget, targetCrossings, marginsByMenu, overviewWords } from '../../../shared/foodCost.js'
@@ -171,42 +172,61 @@ export async function menuMarginsWeek(tx, tenantId, venueId, from, to) {
   return marginsByMenu(rows, settings)
 }
 
+// The modules Home's stock and costing set-up gaps are for (each gap is offered to whoever manages its own).
+export const GAP_MODULES = ['stock', 'recipes', 'purchasing_setup']
+
 /**
  * Home's set-up gaps for stock and costing at a venue (services/suggestions.js
- * offers each to whoever manages its module): no storage areas (once the group
- * has inventory items), best sellers of the last TOP_SELLER_DAYS days with no
- * recipe (from usage from sales), inventory items used in recipes with no price.
- * -> [{ key, module, path, reason }]
+ * offers each to whoever manages its module): no storage areas (Stock, once
+ * the group has inventory items), best sellers of the last TOP_SELLER_DAYS days
+ * with no recipe (Recipes, from usage from sales), inventory items used in
+ * recipes with no price (Purchasing setup: as the cost engine prices them, an
+ * active supplier price from an active supplier, or a delivery received in
+ * the item's base unit). modules: only the gaps of these (the caller's, by the
+ * route), so a best seller's name reaches only someone who manages Recipes.
+ * A gap's path is a menu page and its tab separate (Home matches the page
+ * against the person's menu, then pageLink() adds the venue and tab).
+ * -> [{ key, module, path, tab?, reason }]
  */
-export async function setupGaps(tx, tenantId, venueId) {
+export async function setupGaps(tx, tenantId, venueId, { modules = GAP_MODULES } = {}) {
+  const wants = m => modules.includes(m)
   const [[v], [areas], top, [unpriced]] = await Promise.all([
     tx`SELECT name FROM venues WHERE id = ${venueId} AND tenant_id = ${tenantId}`,
-    tx`SELECT (SELECT count(*)::int FROM stock_areas WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}) AS areas,
-              EXISTS (SELECT 1 FROM inv_items WHERE tenant_id = ${tenantId} AND is_active) AS has_items`,
-    tx`
+    wants('stock') ? tx`
+      SELECT (SELECT count(*)::int FROM stock_areas WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}) AS areas,
+             EXISTS (SELECT 1 FROM inv_items WHERE tenant_id = ${tenantId} AND is_active) AS has_items` : [null],
+    wants('recipes') ? tx`
       SELECT d.dish_id, d.name, sum(d.qty)::float8 AS qty, bool_and(d.recipe_id IS NULL) AS no_recipe
         FROM dish_cost_days d
        WHERE d.tenant_id = ${tenantId} AND d.venue_id = ${venueId} AND d.left_out IS NULL AND d.dish_id IS NOT NULL
          AND d.day >= current_date - ${TOP_SELLER_DAYS}::int
        GROUP BY d.dish_id, d.name
-       ORDER BY sum(d.qty) DESC, d.name LIMIT ${TOP_SELLERS}`,
-    tx`
+       ORDER BY sum(d.qty) DESC, d.name LIMIT ${TOP_SELLERS}` : [],
+    // Priced as the cost engine prices (loadItemQuotes() and loadReceipts()): a switched-off quote,
+    // or one from a switched-off supplier, is no price; nor is a delivery booked in another unit.
+    wants('purchasing_setup') ? tx`
       SELECT count(DISTINCT i.id)::int AS n FROM inv_items i
         JOIN recipe_lines l ON l.item_id = i.id AND l.tenant_id = i.tenant_id
        WHERE i.tenant_id = ${tenantId} AND i.is_active
-         AND NOT EXISTS (SELECT 1 FROM inv_quotes q WHERE q.item_id = i.id AND q.tenant_id = i.tenant_id)
-         AND NOT EXISTS (SELECT 1 FROM purchase_order_lines pl WHERE pl.item_id = i.id AND pl.tenant_id = i.tenant_id AND pl.received_qty > 0)`,
+         AND NOT EXISTS (
+           SELECT 1 FROM inv_quotes q JOIN suppliers s ON s.id = q.supplier_id AND s.tenant_id = q.tenant_id
+            WHERE q.item_id = i.id AND q.tenant_id = i.tenant_id AND q.is_active AND s.is_active)
+         AND NOT EXISTS (
+           SELECT 1 FROM purchase_order_lines pl JOIN purchase_orders po ON po.id = pl.po_id AND po.tenant_id = pl.tenant_id
+            WHERE pl.item_id = i.id AND pl.tenant_id = i.tenant_id AND pl.received_qty > 0 AND pl.pack_base_qty > 0
+              AND pl.base_unit = i.base_unit AND po.received_at IS NOT NULL AND po.status <> 'cancelled')` : [null],
   ])
   const at = v?.name ? ' at ' + v.name : ''
   const gaps = []
   if (areas?.has_items && !areas.areas) {
-    gaps.push({ key: 'no_stock_areas:' + venueId, module: 'stock', path: '/stock?tab=settings', reason: 'No storage areas' + at + ' yet: the count sheet follows them shelf by shelf' })
+    gaps.push({ key: 'no_stock_areas:' + venueId, module: 'stock', path: '/stock', tab: 'settings', reason: 'No storage areas' + at + ' yet: the count sheet follows them shelf by shelf' })
   }
   const missing = top.filter(d => d.no_recipe)
   if (missing.length) {
     const names = missing.slice(0, 3).map(d => d.name).join(', ')
+    // The Recipes page opens on coverage by sales: the dishes not costed, by sales value, with how to fix each.
     gaps.push({
-      key: 'top_sellers_no_recipe:' + venueId, module: 'recipes', path: '/recipes?tab=dishes',
+      key: 'top_sellers_no_recipe:' + venueId, module: 'recipes', path: '/recipes',
       reason: missing.length + ' of the ' + top.length + ' best sellers' + at + ' have no recipe (' + names + (missing.length > 3 ? ' and more' : '') + '), so their cost isn\'t known',
     })
   }
@@ -256,7 +276,11 @@ export async function stockOverview(tx, tenantId, access) {
 /**
  * One group: each active venue's dishes over target now against the ones kept
  * (cost_target_states). Crossings are written with `since` now and returned as
- * rule events; dishes back under are deleted; the rest keep their `since`.
+ * rule events (kind 'crossed'); dishes back under are deleted; the rest keep
+ * their `since`, and those whose cost % went up are events too (kind 'rose',
+ * keyed by their new cost %), which only a rule with a percentage of its own
+ * takes, when the rise passes it (matches() in shared/rules.js). Each event
+ * carries the last look's prev_band and prev_cost_pct (null when new).
  * In the caller's transaction (withTenant). -> [event]
  */
 export async function trackCostTargets(tx, tenantId) {
@@ -274,11 +298,12 @@ export async function trackCostTargets(tx, tenantId) {
   const events = []
   for (const v of venues) {
     const { dishes } = await venueOverTarget(tx, tenantId, v.id, pre)
-    const states = await tx`SELECT dish_id, band, since FROM cost_target_states WHERE tenant_id = ${tenantId} AND venue_id = ${v.id}`
-    const { crossed, cleared, kept } = targetCrossings(states, dishes)
+    const states = await tx`SELECT dish_id, band, since, cost_pct::float8 AS cost_pct FROM cost_target_states WHERE tenant_id = ${tenantId} AND venue_id = ${v.id}`
+    const { crossed, cleared, kept, rose } = targetCrossings(states, dishes)
     if (cleared.length) await tx`DELETE FROM cost_target_states WHERE tenant_id = ${tenantId} AND venue_id = ${v.id} AND dish_id = ANY(${cleared}::uuid[])`
     for (const d of [...crossed, ...kept]) {
       const isNew = crossed.includes(d)
+      const risen = !isNew && rose.includes(d)
       const [row] = await tx`
         INSERT INTO cost_target_states (tenant_id, venue_id, dish_id, name, menu_id, menu, order_type_id, band, cost_pct, target_pct, limit_pct, since, seen_at)
         VALUES (${tenantId}, ${v.id}, ${d.dish_id}, ${String(d.name).slice(0, 200)}, ${d.menu_id}, ${d.menu}, ${d.order_type_id}, ${d.band},
@@ -287,12 +312,15 @@ export async function trackCostTargets(tx, tenantId) {
           order_type_id = EXCLUDED.order_type_id, band = EXCLUDED.band, cost_pct = EXCLUDED.cost_pct, target_pct = EXCLUDED.target_pct,
           limit_pct = EXCLUDED.limit_pct, since = EXCLUDED.since, seen_at = now()
         RETURNING since`
-      if (isNew) {
+      if (isNew || risen) {
         const day = new Date().toISOString().slice(0, 10)
+        // A crossing by venue, dish, band and `since`; a rise by its new cost % too (within one time over).
+        const key = v.id + ':' + d.dish_id + ':' + d.band + ':' + new Date(row.since).getTime() + (risen ? ':rose:' + d.cost_pct : '')
         events.push({
-          trigger: 'dish_over_target', key: v.id + ':' + d.dish_id + ':' + d.band + ':' + new Date(row.since).getTime(), day,
+          trigger: 'dish_over_target', kind: isNew ? 'crossed' : 'rose', key, day,
           venue_id: v.id, venue: v.name, dish: d.name, menu: d.menu || '', section: d.section || '', order_type: d.order_type || '',
           cost_pct: d.cost_pct, target_pct: d.target_pct, limit_pct: d.limit_pct, band: d.band,
+          prev_band: d.prev_band ?? null, prev_cost_pct: d.prev_cost_pct ?? null,
           band_words: d.band === 'over' ? 'over the limit' : 'over the target',
         })
       }
@@ -304,14 +332,14 @@ export async function trackCostTargets(tx, tenantId) {
 /**
  * Every group with live menus and recipe links (system mode to find them; each
  * group then in its own withTenant()): trackCostTargets(), then each crossing
- * offered to the group's rules (fireRules(): once per rule and event, capped per
- * day). tenantIds narrows the groups (a test). -> { tenants, crossed, fired, failed }
+ * and rise offered to the group's rules (fireRules(): once per rule and event,
+ * capped per day). tenantIds narrows the groups (a test). -> { tenants, crossed, rose, fired, failed }
  */
 export async function sweepCostTargets(app, log = null, { tenantIds = null } = {}) {
   const tenants = tenantIds
     ? tenantIds.map(id => ({ tenant_id: id }))
     : await systemSql`SELECT DISTINCT tenant_id FROM recipe_links UNION SELECT DISTINCT tenant_id FROM cost_target_states`
-  const out = { tenants: 0, crossed: 0, fired: 0, failed: 0 }
+  const out = { tenants: 0, crossed: 0, rose: 0, fired: 0, failed: 0 }
   for (const { tenant_id: tenantId } of tenants) {
     try {
       const events = await withTenant(tenantId, async tx => {
@@ -319,7 +347,8 @@ export async function sweepCostTargets(app, log = null, { tenantIds = null } = {
         return trackCostTargets(tx, tenantId)
       })
       out.tenants++
-      out.crossed += events.length
+      out.crossed += events.filter(e => e.kind === 'crossed').length
+      out.rose += events.filter(e => e.kind === 'rose').length
       for (const e of events) {
         const r = await fireRules(app, tenantId, e, log || undefined)
         out.fired += r.filter(x => x.status === 'done').length

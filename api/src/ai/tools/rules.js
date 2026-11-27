@@ -128,7 +128,8 @@ export const sections = {
 }
 export const promptLines = [
   'Rules: make_rule turns the person\'s sentence into a rule the app runs by itself ("when a fridge reads above 8, add ' +
-    'an H&S action for the manager", "when a supplier order is over 500, ask the owner to approve"): pass their words as ' +
+    'an H&S action for the manager", "when a supplier order is over 500, ask the owner to approve", "tell me when a dish ' +
+    'goes over its cost target", "when waste over £50 is logged, tell the owner"): pass their words as ' +
     'they said them; the card shows the rule and it is kept only on Confirm. A rule can only add an H&S action or send a ' +
     'notice, never ' + NEVER_WORDS + '. list_rules lists them; change_rule changes one in place (name, venue, conditions, ' +
     'the action\'s text, how often), switch_rule switches one off or on, delete_rule deletes one. send_notice sends a short ' +
@@ -145,8 +146,9 @@ export const ruleTools = [
     activity: 'Read the rule',
     description:
       'Makes a rule the app runs by itself, from the person\'s sentence: when something happens (a fridge or freezer ' +
-      'reading is logged, a supplier order is placed, a task on Today is late, a review is recorded), if conditions hold ' +
-      '(reads above 8, over £500, at a venue, 2 stars or fewer), then add an H&S action or send a notice to a role or a ' +
+      'reading is logged, a supplier order is placed, a task on Today is late, a review is recorded, a dish goes over its ' +
+      'cost target, a stock period closes with its variance over the band, waste is logged), if conditions hold ' +
+      '(reads above 8, over £500, over 35%, at a venue, 2 stars or fewer), then add an H&S action or send a notice to a role or a ' +
       'person (at most a few times a day). sentence: their words, as they said them. Never for ' + NEVER_WORDS + ': ' +
       'those are refused. The card shows the rule as read; it is saved only when they confirm.',
     input: z.object({

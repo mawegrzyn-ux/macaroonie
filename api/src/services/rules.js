@@ -121,7 +121,8 @@ export function toRule(answer, venues) {
     const v = clip(answer.conditions?.[k], 80)
     if (!v) continue
     if (d.type === 'number') {
-      const n = Number(v.replace(/[£°c\s,]/gi, ''))
+      // "£500", "8°C", "35%": the figure only (a cost % is a number like any other).
+      const n = Number(v.replace(/[£°c%\s,]/gi, ''))
       if (Number.isFinite(n)) conditions[k] = n
     } else if (d.type === 'yesno') conditions[k] = v === 'yes'
     else conditions[k] = v

@@ -59,6 +59,7 @@ export function Section() {
           ['sold_out (web_orders)', 'sold_out per dish sold out (one per name across menus; later), action the sold out window', '/api/orders/availability/:venueId'],
           ['rota (rota)', 'rota_not_ready when next week has staff but no entries, from Thursday (now; late Saturday and Sunday), action the rota at that venue and week', '/api/rota/venues/:id/weeks/:monday'],
           ['stock (stock)', 'stock_count_due on the venue\'s count day (stock_venue_settings.count_weekday) for Stock use, until a count of the kind it counts (a full count, or its key-item list\'s; never a quick count) dated that day is submitted, action the Counts tab (the phone\'s count page on ops.); stock_count_to_approve per submitted count the person may approve (Stock manage, not the counter when a second person must approve); stock_transfer_to_receive per transfer sent to the venue and not received (Stock use; the office\'s Stock page on ops.); stock_variance_to_review per closed stock period with flagged items not reviewed yet (Stock manage, closed in the last 60 days), action the Variance tab at that period', '/api/stock/venues/:id/today?date='],
+          ['costing (costing)', 'dishes_over_target, one card a day per venue (later), when dishes on the venue\'s live menus cost more than the Menu margins target at today\'s standard prices (each at its worst order type; venueOverTarget() in services/stockFoodCostSvc.js), the dearest three named and how many are over the limit, action Menu margins at the venue (inventory phase 6b)', '/api/stock/venues/:id/cost-targets'],
         ]}
       />
       <P>
@@ -85,8 +86,15 @@ export function Section() {
         <Mono>GET /api/integrations/venues/:id/day</Mono> as the person, giving{' '}
         <Mono>{'{ total_pence, currency, sources: [{ key, label, net_pence, synced }] }'}</Mono>; Glance shows it as one chip), <Mono>counts</Mono> and the <Mono>venues</Mono>{' '}
         for the switch. Since Pepper-first step 7: <Mono>gaps</Mono> (only when there are any: a source&apos;s note of
-        a set-up gap it can see, <Mono>{'{ key, module, path, reason }'}</Mono>; the food safety source notes no
-        fridges, or fridges with no check times) and, from the route rather than <Mono>opsToday()</Mono>,{' '}
+        a set-up gap it can see, <Mono>{'{ key, module, path, tab?, reason }'}</Mono>, the path a menu page and the tab
+        apart so Home can match it; the food safety source notes no fridges, or fridges with no check times). Since
+        inventory phase 6b the feed also reads <Mono>GET /api/stock/venues/:id/setup-gaps</Mono> as the person when
+        they manage any of <Mono>STOCK_GAP_MODULES</Mono> (Stock, Recipes, Purchasing setup), whatever their Stock
+        level: no storage areas, best sellers with no recipe, items in recipes with no price, only those whose module
+        they manage (the route checks). <Mono>GET /today</Mono> asks <Mono>permissionLevels()</Mono> for{' '}
+        <Mono>HOME_MODULES</Mono> (<Mono>OPS_MODULES</Mono> and those gap modules: a level not asked for reads as none,
+        so a gap for it would never show; Pepper&apos;s task tools list by <Mono>OPS_MODULES</Mono>, which stays the
+        feed&apos;s). From the route rather than <Mono>opsToday()</Mono>,{' '}
         <Mono>suggestions</Mono> for Home (see Home, pins and the ask bar: Suggestions).
       </P>
       <H3>The task store (migration 278)</H3>
