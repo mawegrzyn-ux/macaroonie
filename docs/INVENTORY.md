@@ -11,7 +11,9 @@ order up to par; migration 311; see "Phase 5 as built"). Phase 6 built on 27 Nov
 period, food cost actual and theoretical, the Variance tab, explain_variance, Today's variance to review; migration 312;
 see "Phase 6a as built") and 6b (the Cash Recon week line, the stock and costing dashboard widgets and the Overview tile,
 Today's dishes over their cost target and Home's set-up gaps, the rule triggers; migration 313; see "Phase 6b as built").
-Phases 7 to 10 are a plan. The decisions in section 12 are taken as
+Phase 7a built on 27 Nov 2026 (menu engineering from real sales, cost scenarios at the real mix, Push prices into a
+menu's draft; migration 314; see "Phase 7a as built"); 7b (price creep, cost alerts, `why_cost_changed`) is next.
+Phases 8 to 10 are a plan. The decisions in section 12 are taken as
 recommended, D1 to D12.** The owner's ask when building started: "recipes variations, per revenue stream/order type
 matrix, and per location (or ability to link a different recipe to menu items in different locations)",
 "stock take module" and "reports". The variation matrix is part of phase 2's links (5.4).
@@ -468,6 +470,14 @@ unexplained       = variance - logged waste
   a section or all; see the weighted cost % and GP at the real mix; save, reopen, export. **Push
   prices** writes the new prices into the menu's draft through `menuSaveBody()`; publishing stays
   a separate, deliberate step.
+- *As built (phase 7a): engineering is `engineer()` in `shared/engineering.js` over `dish_cost_days` (usage from sales);
+  a section's dishes are those that sold in the period; a day's row with any unit not costed is left out of GP and
+  counted for popularity; a meal deal is one dish of its own section (its picks add no units to theirs). Scenarios
+  (`shared/scenarios.js`) work on the menu's draft at today's standard prices, weigh by the units sold at the scope
+  over the last 1 to 93 days, cost a meal deal at its typical picks (a cost change reaches it through its picks) and
+  leave a dish with no cost out of both sides. A dish has one price on a menu (no venue, stream or order type price),
+  so Push prices writes the dish's own price, and a dish priced by its options gets those options' prices as its own;
+  it goes through the menus routes as the person (Costing and Menus manage), after a preview, and never publishes.*
 - **Price creep**: when a price changes (a price list, an invoice applied), the dishes whose cost %
   crosses a threshold are listed, on the page and as a Today item; a rule trigger lets a group ask
   to be told ("when a dish goes over 35%, tell the owner").
@@ -551,7 +561,9 @@ cost, GP, plate cost, shrinkage, wastage, stocktake) and re-run the smart builde
   `explain_variance`, `why_cost_changed`, `waste_summary`, `suggested_order`.
 - Change: `log_waste` (reversible, with Undo), `count_stock` (extended to areas and units),
   `send_transfer` / `receive_transfer`, `read_recipes` (drafts only), `link_recipes`,
-  `save_scenario`. Every change tool gets its Activity words and its place in the registry.
+  `save_scenario`. Every change tool gets its Activity words and its place in the registry. *As built (phase 7a):
+  `menu_engineering` (read) and `save_scenario` (consequential, confirms with the figures at the mix; pushing
+  prices and publishing stay on the pages).*
 - Forms through `open_form`: waste, a key-item count, a transfer.
 - Rule triggers: a dish over its cost target, a period's variance over the band, waste logged over
   a value. Actions stay the two a rule may run (a notice, an H&S action). *As built (phase 6b):
@@ -579,7 +591,7 @@ scale; steps that follow the same day run nearer half.
 | 4 | **Built 27 Nov 2026.** 4a: the `stock` module; storage areas; stocktake (drafts, units, approval, key items, phone and scanner); adjustments; `loadStockMoves()`. 4b: waste (reasons in WRAP's kinds, till voids marked wasted, the phone's waste page); transfers in two steps | Stock run from documents | 90 to 110 |
 | 5 | **Built 27 Nov 2026.** Usage from sales (till, kiosk, online, imported); on hand with sales taken off; order to par minus stock | Stock on hand that follows trading | 70 to 90 |
 | 6 | **Built 27 Nov 2026.** 6a: periods and variance; actual and theoretical food cost; `explain_variance`; variance to review on Today. 6b: the Cash Recon line; widgets and the Overview tile; dishes over target on Today, Home's set-up gaps; rule triggers | A pound figure on the gap, per item and venue | 70 to 90 |
-| 7 | Engineering from real sales; scenarios; what-if; push prices; price creep and its rule trigger | Pricing decisions made in the app | 60 to 80 |
+| 7 | 7a **built 27 Nov 2026**: engineering from real sales; scenarios; what-if; push prices. 7b: price creep and its rule trigger, cost alerts, `why_cost_changed` | Pricing decisions made in the app | 60 to 80 |
 | 8 | Allergens on supplier products; the roll-up check and its Today item; suggested calories | Declared allergens checked against recipes | 50 to 65 |
 | 9 | Suggested orders from usage and bookings; returns and credit notes | Orders proposed, not just listed | 60 to 80 |
 | 10 | Later, not estimated: production of prep batches held as stock, labels, a central kitchen, recipe packs passed from a franchisor to its franchisees, GloriaFood through the mapping tool, remakes with dish ids | | |
@@ -827,6 +839,29 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
   tells once per crossing, which is the hook phase 7's price creep can use; the variance trigger fires on closing a period,
   not when its closing count is approved (the figures are final then); till voids marked wasted don't fire the waste
   trigger. Limits: `docs/claude/outstanding/stock.md` item 77.
+
+### Phase 7a as built (27 Nov 2026)
+
+- **Migration** 314: `cost_scenarios` (a menu at a venue, revenue stream and order type, the days of its mix, changes in order
+  as jsonb with plain section and dish ids, who saved and pushed it and when; RLS forced).
+- **Engineering** (8.2): `shared/engineering.js` `engineer()` by Kasavana and Smith (popular at 70% of an equal share of the
+  section's units, profitable at the section's GP per unit sold, weighted by units; stars, plough-horses, puzzles, dogs, a
+  suggestion each), read by `services/menuEngineeringSvc.js` `engineeringFor()`; `GET /api/menu-margins/engineering` (Costing
+  view; GP, net, cost % and the classes with till reports view too); Menu margins' Engineering tab with a four-box SVG chart per
+  section and the table.
+- **Scenarios**: `shared/scenarios.js` (`changedPrice()` also rounds Pepper's `change_prices`, `applyPrices()`,
+  `scenarioFigures()`, `pushPrices()`), `dealTypical()` in `shared/costing.js`; `/api/cost-scenarios` (preview, save whole, copy,
+  delete; Costing view to look, Manage to save); the Scenarios tab (builder with drag order, the figures at the mix, dish by dish
+  before and after, Export CSV).
+- **Push prices**: a preview of every price on the draft (with where the menu is sold and what the draft holds that isn't live),
+  then the push through `GET` / `PATCH /api/menus/:id` as the person with `menuSaveBody()`, only what the preview showed (a stamp);
+  Costing manage and Menus manage; never publishes.
+- **Pepper** `menu_engineering`, `save_scenario`; **reports** Menu engineering (a work), Cost scenarios, starter Menu engineering
+  this month, synonyms (menu engineering, stars and dogs, plough horse, puzzle, scenario, what if).
+- **What the build changed in the plan**: a dish's price has one place, its menu's dish, so "the scope the price lives at" is that
+  dish (its own sizes as its own prices), never a venue, stream or order type price, which don't exist; a meal deal counts in its own
+  section; a scenario's "before" is the menu's draft (what a push changes); the report subject has no venue (a section is judged
+  across the venues together). Limits: `docs/claude/outstanding/recipes.md` item 78.
 
 ## 12. Decisions for the owner
 

@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { Field, inputCls, ErrorNote, Segmented, ConfirmDelete, SortableRows, Modal } from '@/components/staff/shared'
-import { Card, NumInput, btn } from '@/components/purchasing/shared'
+import { Card, NumInput, btn, fmtDate } from '@/components/purchasing/shared'
 import { penceText, pctText, pounds, BandBadge } from '@/components/recipes/shared'
 import { CHANGE_HOW, MIX_DAY_CHOICES, MIX_DAYS, ROUND_TO, changeProblem, scenarioCsvRows } from '@shared/scenarios.js'
 
@@ -218,7 +218,7 @@ function Builder({ id, draft, setDraft, dirty, choices, canManage, canPush, push
         <p className="text-xs text-muted-foreground mt-3">
           Prices are the menu&apos;s draft (what Push prices changes). A dish has one price on a menu wherever it is sold; the venue, revenue
           stream and order type decide the VAT, the recipe and which sales make the mix.
-          {preview.data?.mix ? ' The mix is what sold from ' + preview.data.mix.from + ' to ' + preview.data.mix.to + (preview.data.where ? ' (' + preview.data.where + ')' : '') + '.' : ''}
+          {preview.data?.mix ? ' The mix is what sold from ' + fmtDate(preview.data.mix.from) + ' to ' + fmtDate(preview.data.mix.to) + (preview.data.where ? ' (' + preview.data.where + ')' : '') + '.' : ''}
         </p>
         <ErrorNote error={save.error} />
       </Card>

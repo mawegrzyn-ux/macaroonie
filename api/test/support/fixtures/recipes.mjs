@@ -9,6 +9,9 @@
 // Phase 3 (migration 304): drafts Pepper read in (a prep recipe of the same
 // request inside a dish, a group's prep recipe, a line kept in the notes), a
 // recipe made for the menu's dish, and coverage by sales at the venue.
+// Phase 7a (migration 314, in fillLate): menu engineering read, a cost
+// scenario at the stream and order type saved whole, previewed and copied,
+// and its prices previewed and pushed into the menu's draft.
 export const order = 85
 // After the till (140): its order type.
 export const lateOrder = 150
@@ -98,4 +101,27 @@ export async function fillLate(ctx) {
   if (stream && made.orderType) {
     await step('recipe link for a stream and order type', () => put(`/api/recipe-links/dishes/${menuDish.id}/cell`, { venue_id: V, revenue_stream_id: stream.id, order_type_id: made.orderType.id, recipe_id: recipe.id, portions: 1.5 }))
   }
+  // Phase 7a (migration 314): menu engineering, and a cost scenario at the stream and order type with a
+  // price change for the menu's dish and a cost change for its section, saved whole, copied, its prices
+  // previewed and pushed into the menu's draft.
+  await step('menu engineering', () => ctx.get('/api/menu-margins/engineering?venue_id=' + V + '&days=28'))
+  const menu = made.menu
+  const section = made.menuSection
+  if (!menu) return
+  const scenarioBody = {
+    name: mark + ' Spring prices', menu_id: menu.id, venue_id: V, revenue_stream_id: stream?.id ?? null, order_type_id: made.orderType?.id ?? null,
+    mix_days: 28, notes: mark + ' what if',
+    changes: [
+      { what: 'price', applies: 'dish', section_id: null, dish_id: menuDish.id, how: 'percent', value: 5, round_to: 10, round: 'up' },
+      ...(section ? [{ what: 'cost', applies: 'section', section_id: section.id, dish_id: null, how: 'amount', value: 0.1, round_to: null, round: null }] : []),
+    ],
+  }
+  const scenario = await step('cost scenario', () => post('/api/cost-scenarios', scenarioBody))
+  if (!scenario) return
+  made.scenario = scenario
+  await step('cost scenario save', () => put('/api/cost-scenarios/' + scenario.id, { ...scenarioBody, name: mark + ' Spring prices, saved' }))
+  await step('cost scenario preview', () => post('/api/cost-scenarios/preview', scenarioBody))
+  await step('cost scenario copy', () => post(`/api/cost-scenarios/${scenario.id}/copy`, {}))
+  const plan = await step('push prices preview', () => post(`/api/cost-scenarios/${scenario.id}/push/preview`, {}))
+  if (plan?.prices?.length) await step('push prices', () => post(`/api/cost-scenarios/${scenario.id}/push`, { stamp: plan.stamp }))
 }
