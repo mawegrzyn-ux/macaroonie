@@ -238,7 +238,8 @@ export default async function stockSetupRoutes(app) {
   app.get('/settings', { preHandler: canView }, async req => withTenant(req.tenantId, async tx => {
     const settings = await loadStockSettings(tx, req.tenantId)
     const venues = await tx`
-      SELECT v.id AS venue_id, v.name, s.count_weekday, COALESCE(s.count_kind, 'full') AS count_kind, s.key_list_id, s.par_mode
+      SELECT v.id AS venue_id, v.name, s.count_weekday, COALESCE(s.count_kind, 'full') AS count_kind, s.key_list_id, s.par_mode,
+             EXISTS (SELECT 1 FROM stock_counts c WHERE c.tenant_id = v.tenant_id AND c.venue_id = v.id AND c.status = 'approved') AS counted
         FROM venues v LEFT JOIN stock_venue_settings s ON s.venue_id = v.id AND s.tenant_id = v.tenant_id
        WHERE v.tenant_id = ${req.tenantId} ORDER BY lower(v.name)`
     return { ...settings, venues }

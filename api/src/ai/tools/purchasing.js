@@ -68,7 +68,7 @@ import {
 import {
   UNITS, PO_STATUSES, RECEIVE_STATUSES, DAY_LABELS, DELIVERY_TEMP_MAX,
   packBaseQty, packLabel, fmtNum, formatBase, perUnitLabel, unitPrice, quotePrice, chooseQuote,
-  fitQty, qtyProblem, packsToPar, lineAmounts, orderTotals, supplierForVenue, nextDeliveryDate,
+  fitQty, qtyProblem, packsToPar, parStock, lineAmounts, orderTotals, supplierForVenue, nextDeliveryDate,
   minutesToCutoff, deliveryTempOk, receiveStatusFor, poNumberLabel, convertQty, splitProblem,
   deliveryDayProblem, deadlineText, slotText, deadlinePassed, quickOrder, outOfStock,
 } from '../../../../shared/procurement.js'
@@ -911,7 +911,8 @@ async function planOrder(ctx, input) {
   if (input.fill_to_par) {
     for (const e of eff.values()) {
       if (e.qty > 0 || !e.quote || e.item.par_base == null || e.item.is_active === false) continue
-      const p = packsToPar(e.item.par_base, e.quote)
+      // Up to par (phase 5): what is on hand and on order comes off, as on the order form.
+      const p = packsToPar(e.item.par_base, e.quote, parStock(order.par_mode, e.item.stock))
       if (p > 0) e.qty = p
     }
   }
@@ -2087,7 +2088,7 @@ export const purchasingTools = [
     description:
       'Sets quantities on a venue\'s draft order for a list without sending anything: lines (packs; 0 takes a line ' +
       'off; an item not on the list is added; supplier switches where it comes from), fill_to_par (every empty line ' +
-      'with a par gets its par), clear_all. With order_id it changes that order, e.g. an approver changing a request ' +
+      'with a par gets its par: at a venue ordering up to par, the par less what is on hand and already on order), clear_all. With order_id it changes that order, e.g. an approver changing a request ' +
       'waiting for approval. Then place_order, or request_order without Purchasing approval.',
     input: z.object({
       ...OrderTarget,

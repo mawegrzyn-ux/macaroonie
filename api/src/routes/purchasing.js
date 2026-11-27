@@ -38,6 +38,7 @@
 
 import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
+import { permissionAtLeast } from '../config/modules.js'
 import { requireAuth, requirePermission, requireAnyPermission, permissionLevel, permissionLevels } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 import { readSheet, fileText } from '../services/sheetRead.js'
@@ -46,8 +47,9 @@ import {
   fitQty, packsToPar, packLabel, quotePrice, orderTotals, receiveStatusFor, deliveryTempOk, poNumberLabel, fmtNum,
   DELIVERY_TEMP_MAX, RECEIVE_STATUSES, deliveryDateChoices, packBaseQty, UNITS, splitProblem, deliveryDayProblem,
   basketFromText, basketFromSheet, mergeBasket, basketDiff, BASKET_MAX_ROWS, nowAt, addDays,
-  PRICES_MODULE, seesPurchasingPrices,
+  PRICES_MODULE, seesPurchasingPrices, parModeOf, parStock,
 } from '../../../shared/procurement.js'
+import { loadStockOnHand } from '../services/stockSvc.js'
 import {
   resolveQuotes, loadItemQuotes, loadQuotesById, quoteView, loadVenue, venueNow, loadSuppliersForVenue, createPurchaseOrder,
   loadPo, loadPoLines, poFile, emailPo, nextPoNumber, judgeFirstSend,
@@ -81,9 +83,11 @@ const by = req => req.user?.email ?? null
 
 /** What the caller may do with orders: fill them in, approve them, see prices. */
 async function accessOf(req) {
-  const lv = await permissionLevels(req, ['purchasing', 'purchasing_approve', 'purchasing_setup'])
+  const lv = await permissionLevels(req, ['purchasing', 'purchasing_approve', 'purchasing_setup', 'stock'])
   return {
     order: lv.purchasing === 'manage',
+    // On hand, on order and usage beside each line (inventory phase 5) need Stock view.
+    stock: permissionAtLeast(lv.stock, 'view'),
     approve: lv.purchasing_approve === 'manage',
     prices: seesPurchasingPrices(lv[PRICES_MODULE]),
     email: by(req),
@@ -305,6 +309,7 @@ async function loadOrder(tx, tenantId, order, who) {
      ORDER BY l.item_id, po.created_at DESC
   ` : []
   const lastBy = new Map(last.map(l => [l.item_id, l]))
+  const stock = await orderStock(tx, tenantId, venue, order, ids, now.date)
   const supplierIds = [...new Set([...quotes.values()].flat().map(q => q.supplier_id))]
   const suppliers = supplierIds.length ? await loadSuppliersForVenue(tx, tenantId, venue, supplierIds) : {}
   const [list] = order.list_id ? await tx`SELECT name FROM order_lists WHERE id = ${order.list_id} AND tenant_id = ${tenantId}` : []
@@ -336,7 +341,8 @@ async function loadOrder(tx, tenantId, order, who) {
       category_name: r.category_name ?? null, category_sort: r.category_sort ?? 9999,
       on_list: r.on_list, is_active: r.is_active, list_sort: r.sort_order ?? 9999,
       par_base: par,
-      par_packs: chosen && par != null ? packsToPar(par, chosen) : null,
+      par_packs: chosen && par != null ? packsToPar(par, chosen, parStock(stock.mode, stock.of(r.item_id))) : null,
+      ...(who.stock ? { stock: stock.of(r.item_id) } : {}),
       quote: quoteView(chosen, venue.id, prices),
       default_quote_id: pick?.quote?.id ?? null,
       quotes: all.map(q => quoteView(q, venue.id, prices)),
@@ -358,7 +364,52 @@ async function loadOrder(tx, tenantId, order, who) {
     ...orderActions(order, who),
     suppliers: Object.fromEntries(Object.entries(suppliers).map(([id, s]) => [id, supplierView(s, prices)])),
     open_pos: openPos,
+    par_mode: stock.mode, par_mode_setting: stock.setting, stock_counted: stock.counted,
     items,
+  }
+}
+
+/**
+ * The stock beside each line of an order (inventory phase 5, docs/INVENTORY.md
+ * 9): on hand at the venue now (stockOnHand() through the stock area's
+ * loadStockOnHand(): the last approved count, deliveries, waste, transfers
+ * and sales since), on order (placed purchase orders not yet received there,
+ * to_send or sent, this order's own left out), used by sales over the last 7
+ * days (stock_usage_days), all in the item's base unit; and the venue's par
+ * mode (parModeOf(): its setting, else up to par once it has an approved
+ * count). { mode, setting, counted, of(itemId) -> { on_hand, counted_at,
+ * on_order, used_7d } }.
+ */
+async function orderStock(tx, tenantId, venue, order, ids, today) {
+  const [hand, onOrder, used, [setting], [counted]] = await Promise.all([
+    ids.length ? loadStockOnHand(tx, tenantId, { venueIds: [venue.id], itemIds: ids }) : [],
+    ids.length ? tx`
+      SELECT pl.item_id, sum(pl.qty * pl.pack_base_qty)::float8 AS qty
+        FROM purchase_order_lines pl
+        JOIN purchase_orders po ON po.id = pl.po_id AND po.tenant_id = pl.tenant_id
+        JOIN inv_items i ON i.id = pl.item_id AND i.tenant_id = pl.tenant_id
+       WHERE pl.tenant_id = ${tenantId} AND po.venue_id = ${venue.id} AND po.status IN ('to_send', 'sent') AND NOT po.no_order
+         AND pl.item_id = ANY(${ids}::uuid[]) AND pl.qty > 0 AND pl.pack_base_qty > 0 AND pl.base_unit = i.base_unit
+         AND po.supply_order_id IS DISTINCT FROM ${order.id}
+       GROUP BY pl.item_id` : [],
+    ids.length ? tx`
+      SELECT item_id, sum(qty_base)::float8 AS qty FROM stock_usage_days
+       WHERE tenant_id = ${tenantId} AND venue_id = ${venue.id} AND item_id = ANY(${ids}::uuid[])
+         AND day BETWEEN ${today}::date - 6 AND ${today}::date
+       GROUP BY item_id` : [],
+    tx`SELECT par_mode FROM stock_venue_settings WHERE tenant_id = ${tenantId} AND venue_id = ${venue.id}`,
+    tx`SELECT EXISTS (SELECT 1 FROM stock_counts WHERE tenant_id = ${tenantId} AND venue_id = ${venue.id} AND status = 'approved') AS yes`,
+  ])
+  const handOf = new Map(hand.map(h => [h.item_id, h]))
+  const orderOf = new Map(onOrder.map(r => [r.item_id, r.qty]))
+  const usedOf = new Map(used.map(r => [r.item_id, r.qty]))
+  const mode = parModeOf(setting?.par_mode ?? null, !!counted?.yes)
+  return {
+    mode, setting: setting?.par_mode ?? null, counted: !!counted?.yes,
+    of: id => ({
+      on_hand: handOf.get(id)?.on_hand ?? null, counted_at: handOf.get(id)?.counted_at ?? null,
+      on_order: Math.round((orderOf.get(id) || 0) * 10000) / 10000, used_7d: Math.round((usedOf.get(id) || 0) * 10000) / 10000,
+    }),
   }
 }
 
