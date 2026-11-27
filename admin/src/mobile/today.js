@@ -31,9 +31,20 @@ const PHONE_PAGES = {
   '/stock': '/mobile/stock-count',
 }
 
+// A tab of an office page with a phone page of its own, or (null) none: the office opens it.
+// Stock's transfers are received on the Stock page (inventory phase 4b); its waste has a phone page.
+const PHONE_TABS = { '/stock': { waste: '/mobile/stock-waste', transfers: null } }
+
 /** Where a task's page opens on the phone: { to } in this app, or { href } on the office site. */
 export function opsLink(path) {
   const [base, query] = String(path || '/').split('?')
+  const tab = new URLSearchParams(query || '').get('tab')
+  const tabs = PHONE_TABS[base]
+  if (tabs && tab && tab in tabs) {
+    if (tabs[tab]) return { to: tabs[tab] + (query ? '?' + query : '') }
+    const far = standardHref(path)
+    return far ? { href: far } : { to: path }
+  }
   if (PHONE_PAGES[base]) return { to: PHONE_PAGES[base] + (query ? '?' + query : '') }
   // A report (a Today alert) opens on the phone's own report page.
   if (/^\/reports\/[^/]+$/.test(base)) return { to: '/mobile' + base }

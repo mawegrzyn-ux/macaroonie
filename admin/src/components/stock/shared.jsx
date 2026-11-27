@@ -14,10 +14,36 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { NumInput } from '@/components/purchasing/shared'
 import { formatBase } from '@shared/procurement.js'
-import { entriesToBase, signedBase, MAX_ENTRIES, COUNT_STATUSES, COUNT_KINDS } from '@shared/stock.js'
+import { entriesToBase, signedBase, MAX_ENTRIES, COUNT_STATUSES, COUNT_KINDS, WASTE_KINDS, TRANSFER_STATUSES } from '@shared/stock.js'
 import { pounds } from '@shared/costing.js'
 
-export { formatBase, signedBase, pounds, COUNT_STATUSES, COUNT_KINDS }
+export { formatBase, signedBase, pounds, COUNT_STATUSES, COUNT_KINDS, WASTE_KINDS, TRANSFER_STATUSES }
+
+const KIND_CLS = {
+  spoilage: 'border-amber-300 bg-amber-50 text-amber-900',
+  preparation: 'border-sky-300 bg-sky-50 text-sky-900',
+  plate: 'border-violet-300 bg-violet-50 text-violet-900',
+}
+
+/** A waste reason's WRAP kind as a small badge (phase 4b). */
+export function KindBadge({ kind }) {
+  return (
+    <span className={cn('inline-block rounded border px-1.5 py-0.5 text-[11px] font-medium', KIND_CLS[kind])} data-testid="waste-kind" data-kind={kind}>
+      {WASTE_KINDS[kind]?.label || kind}
+    </span>
+  )
+}
+
+const TRANSFER_CLS = { sent: 'bg-sky-100 text-sky-900', received: 'bg-emerald-100 text-emerald-900', cancelled: 'bg-muted text-muted-foreground' }
+
+/** A transfer's status as a small badge (phase 4b). */
+export function TransferStatus({ status }) {
+  return (
+    <span className={cn('inline-block rounded px-2 py-0.5 text-xs font-medium', TRANSFER_CLS[status])} data-testid="transfer-status" data-status={status}>
+      {TRANSFER_STATUSES[status] || status}
+    </span>
+  )
+}
 
 export function useStockMeta() {
   const api = useApi()

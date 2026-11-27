@@ -3,7 +3,7 @@
 // The Stock page's On hand tab (inventory phase 4a; moved from the Inventory
 // page's Stock tab, purchasing/stockOnHand.jsx, migration 287): each active
 // item at the venue with what is on hand (the last approved count plus the
-// deliveries and adjustments since: stockOnHand() in shared/stock.js, worked
+// deliveries, adjustments, waste and transfers since: stockOnHand() in shared/stock.js, worked
 // out by the API), its last count, what came in since, its storage areas,
 // below par, and with Costing view its value. Tapping an item opens its
 // history (ItemHistory: the ledger with the running balance). Sales aren't
@@ -59,7 +59,7 @@ export default function OnHand({ venueId, openItem, onOpenItem }) {
         <div className="bg-background border rounded-xl overflow-hidden">
           <div className={cn('grid grid-cols-[1fr_auto] gap-2 px-4 py-2 section-head text-xs font-semibold', cols)}>
             <span>Item</span><span className="text-right">On hand</span>
-            <span className="text-right hidden sm:block">In since the count</span><span className="text-right hidden sm:block">Last count</span>
+            <span className="text-right hidden sm:block">Moved since the count</span><span className="text-right hidden sm:block">Last count</span>
             {values && <span className="text-right hidden sm:block">Value</span>}
           </div>
           <div className="divide-y" data-testid="stock-rows">
@@ -75,7 +75,12 @@ export default function OnHand({ venueId, openItem, onOpenItem }) {
                   {i.on_hand == null ? <span className="text-muted-foreground font-normal">Not counted</span> : qty(i.on_hand, i.base_unit)}
                 </span>
                 <span className="text-right tabular-nums hidden sm:block text-muted-foreground">
-                  {[i.received_since ? '+' + qty(i.received_since, i.base_unit) : null, i.adjusted_since ? (i.adjusted_since > 0 ? '+' : '-') + qty(Math.abs(i.adjusted_since), i.base_unit) + ' adj.' : null].filter(Boolean).join(' ') || '–'}
+                  {[
+                    i.received_since ? '+' + qty(i.received_since, i.base_unit) : null,
+                    i.adjusted_since ? (i.adjusted_since > 0 ? '+' : '-') + qty(Math.abs(i.adjusted_since), i.base_unit) + ' adj.' : null,
+                    i.wasted_since ? '-' + qty(Math.abs(i.wasted_since), i.base_unit) + ' waste' : null,
+                    i.transferred_since ? (i.transferred_since > 0 ? '+' : '-') + qty(Math.abs(i.transferred_since), i.base_unit) + ' moved' : null,
+                  ].filter(Boolean).join(' ') || '–'}
                 </span>
                 <span className="text-right text-xs text-muted-foreground hidden sm:block">{i.counted_at ? qty(i.counted, i.base_unit) + ', ' + when(i.counted_at) : 'Never'}</span>
                 {values && <span className="text-right tabular-nums hidden sm:block">{i.value == null ? '–' : pounds(i.value)}</span>}

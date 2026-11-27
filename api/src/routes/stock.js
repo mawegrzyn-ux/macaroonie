@@ -10,8 +10,9 @@
 //
 //   GET  /meta                      the person's stock levels and the group's settings
 //   GET  /venues/:venueId           every active item at the venue with its
-//                                   stock on hand, last count, received and
-//                                   adjusted since, the units it is counted
+//                                   stock on hand, last count, received,
+//                                   adjusted, wasted and moved between venues
+//                                   since (phase 4b), the units it is counted
 //                                   in, its areas, its par there (the highest
 //                                   on the venue's active order lists), low
 //                                   (stockLow()), its supplier products'
@@ -168,6 +169,7 @@ export default async function stockRoutes(app) {
           units: i.count_units, default_unit: i.default_unit, areas: areasOf.get(i.id) || [],
           on_hand: r.on_hand, counted: r.counted, counted_at: r.counted_at,
           received_since: r.received_since, adjusted_since: r.adjusted_since, used_since: r.used_since,
+          wasted_since: r.wasted_since, transferred_since: r.transferred_since,
           sales_counted: r.sales_counted, par_base: par, low: stockLow(r.on_hand, par),
           ...(access.sees_values ? { cost_per_base: per, value: per != null && r.on_hand != null ? Math.round(r.on_hand * per * 100) / 100 : null } : {}),
         }
