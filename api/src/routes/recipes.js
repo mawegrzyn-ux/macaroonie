@@ -9,8 +9,9 @@
 //                            with its coverage (fully, partly, not costed) and,
 //                            for costing View, its cost at the venue (null venue
 //                            = the group's own prices)
-//   GET    /pickers          inventory items (names and units, no prices) and
-//                            prep recipes, for the editor's line pickers
+//   GET    /pickers          inventory items (names and units, no prices), prep
+//                            recipes (the editor's line pickers) and dish recipes
+//                            (linking dishes and options, phase 2)
 //   GET    /:recipeId        ?venue_id &basis   one recipe: its lines, gaps,
 //                            where it is used, its variations; for costing View
 //                            its cost on each basis and the step by step
@@ -110,7 +111,7 @@ const canView = requirePermission('recipes', 'view')
 const canManage = requirePermission('recipes', 'manage')
 
 /** Who sees what: costs (Costing View), supplier prices in the explanation, changes. */
-async function access(req) {
+export async function access(req) {
   const lv = await permissionLevels(req, ['recipes', 'costing', PRICES_MODULE])
   return {
     manage: permissionAtLeast(lv.recipes, 'manage'),
@@ -126,7 +127,7 @@ const who = req => req.user?.email ?? req.user?.sub ?? null
  * recipe's lines, so two saves at once (A into B, B into A) could each pass
  * against the other's old lines and write a loop. Held to the transaction's end.
  */
-const lockRecipes = (tx, tenantId) => tx`SELECT pg_advisory_xact_lock(hashtext(${'recipes:' + tenantId}))`
+export const lockRecipes = (tx, tenantId) => tx`SELECT pg_advisory_xact_lock(hashtext(${'recipes:' + tenantId}))`
 
 async function ownRecipe(tx, tenantId, id) {
   const [r] = await tx`SELECT id, name, kind, variant_of FROM recipes WHERE id = ${id} AND tenant_id = ${tenantId}`
@@ -279,7 +280,7 @@ export default async function recipeRoutes(app) {
   app.get('/pickers', { preHandler: canView }, async req => withTenant(req.tenantId, async tx => {
     const items = await loadCostItems(tx, req.tenantId)
     const recipes = await tx`
-      SELECT id, name, kind, yield_unit, is_active, variant_of, category FROM recipes
+      SELECT id, name, kind, yield_unit, is_active, variant_of, category, status, code FROM recipes
        WHERE tenant_id = ${req.tenantId} ORDER BY lower(name)`
     return {
       items: [...items.values()].map(i => ({ ...i, unit_choices: unitChoices(i) })),
@@ -289,6 +290,10 @@ export default async function recipeRoutes(app) {
         unit_choices: recipeUnitChoices({ kind: 'prep', yield_unit: r.yield_unit }),
       })),
       heads: recipes.filter(r => !r.variant_of).map(r => ({ id: r.id, name: r.name, kind: r.kind })),
+      // Dish recipes, for linking menu dishes and options to (phase 2): a variation names the recipe it varies.
+      dishes: recipes.filter(r => r.kind === 'dish').map(r => ({
+        id: r.id, name: r.name, variant_of: r.variant_of, status: r.status, is_active: r.is_active, category: r.category, code: r.code,
+      })),
       categories: [...new Set(recipes.map(r => r.category).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
       yield_units: YIELD_UNITS,
     }

@@ -9,8 +9,10 @@
 // Read as the tenant and filtered by tenant_id, as every query is.
 //
 //   loadRecipes(tx, tenantId)            Map id -> recipe with its lines
-//   loadCosting(tx, tenantId, venueId, { basis, recipes })
-//                                        the ctx recipeCost() / explain() take:
+//   loadCosting(tx, tenantId, venueId, { basis, recipes, itemIds })
+//                                        the ctx recipeCost() / explain() take
+//                                        (itemIds: items no recipe line uses
+//                                        to price too, as option rules' items):
 //                                        { items, recipes, quotes, preferred,
 //                                        receipts, since, venueId, basis }
 //   recipeView(recipe, ctx, { costs, prices })   a recipe with its cost, lines,
@@ -99,9 +101,10 @@ export async function loadReceipts(tx, tenantId, itemIds, venueId = null) {
  * basis: every recipe (passed in when already loaded), the items their lines
  * use, those items' prices and what was received of them.
  */
-export async function loadCosting(tx, tenantId, venueId = null, { basis = 'standard', recipes = null } = {}) {
+export async function loadCosting(tx, tenantId, venueId = null, { basis = 'standard', recipes = null, itemIds: more = [] } = {}) {
   const all = recipes || await loadRecipes(tx, tenantId)
-  const itemIds = [...new Set([...all.values()].flatMap(r => r.lines.map(l => l.item_id).filter(Boolean)))]
+  // The items the recipes' lines use, and any more asked for (the items option rules add or swap in).
+  const itemIds = [...new Set([...[...all.values()].flatMap(r => r.lines.map(l => l.item_id).filter(Boolean)), ...more.filter(Boolean)])]
   const [items, quotes, preferred, got] = await Promise.all([
     loadCostItems(tx, tenantId, itemIds),
     loadItemQuotes(tx, tenantId, itemIds),

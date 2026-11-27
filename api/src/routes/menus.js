@@ -45,6 +45,8 @@ import { translationSources, saveTranslations, aiTranslate, checkLang, AI_BATCH 
 import { chatConfigured } from '../ai/apiKey.js'
 import { KIOSK_LANGUAGES, ALLERGEN_NAMES, TK, normaliseDesign, uiText, TILE_STYLES, ENTRANCE_KEYS } from '../../../shared/kiosk.js'
 import { VARIATION_TYPE_KEYS } from '../../../shared/procurement.js'
+// The recipes area's: a copied menu's dishes keep their recipe links (inventory phase 2).
+import { copyRecipeLinks } from '../services/dishCostSvc.js'
 
 // Changes need Menus manage. Reads stay open to every member of the tenant:
 // the website builder, ordering setup, Deliveroo and dashboards read menus.
@@ -1414,8 +1416,9 @@ export default async function menusRoutes(app) {
   })
 
   // ── Duplicate — full copy (meta + sections/items/variants/dietary/
-  // callouts) under a new menu row in the same scope. Unpublished by
-  // default so a copy doesn't go live before the operator reviews it.
+  // callouts, print designs, and the dishes' recipe links) under a new menu
+  // row in the same scope. Unpublished by default so a copy doesn't go live
+  // before the operator reviews it.
   app.post('/:id/duplicate', { preHandler: PERM.manage}, async (req, reply) => {
     if (!z.string().uuid().safeParse(req.params.id).success) throw httpError(404, 'Menu not found')
     const created = await withTenant(req.tenantId, async tx => {
@@ -1462,6 +1465,10 @@ export default async function menusRoutes(app) {
       }
 
       await upsertMenuTree(tx, req.tenantId, row.id, { sections, callouts })
+
+      // The dishes' recipe links, their own option rules and the sections'
+      // cost % targets come along onto the copy's ids (migration 302).
+      await copyRecipeLinks(tx, req.tenantId, newId, req.user?.email ?? req.user?.sub ?? null)
 
       // Every print design comes along, pointed at the copy's rows, and the
       // copy prints with the same design as the original.
