@@ -23,6 +23,12 @@
 //                     items by loadWastedVoids(), which keeps them the first
 //                     time: migration 310; test sales left out), on its
 //                     trading day; an entry with no items is one row
+//   stock_variance    (phase 6a) one row per item of each stock period (between
+//                     two approved full counts) ending on a day of the report:
+//                     a closed period's figures as frozen, an open one's worked
+//                     out now (shared/variance.js through periodFigures())
+//   stock_food_cost   (phase 6a) one row per stock period ending on a day of the
+//                     report: net food sales, actual and theoretical food cost
 //   stock_transfer_lines  (phase 4b) one row per transfer line at each end:
 //                     out at the sender on the day sent, in at the receiver on
 //                     the day received (sent, while in transit); lost in transit
@@ -33,13 +39,18 @@
 // 'costing'` leaves them out for a role without Costing view.
 
 import { loadStockOnHand, loadStockMoves, costLookup, loadWastedVoids } from '../../services/stockSvc.js'
+import { periodFigures, loadReviews, PERIOD_COLS } from '../../services/stockVarianceSvc.js'
 import { runningBalance, stockOnHand, countReview, lostInTransit } from '../../../../shared/stock.js'
 
 // The tables each work reads (the catalogue's from.tables). On hand and the ledger read waste
 // (the till's voids marked wasted too) and transfers since phase 4b.
 export const WASTE_TABLES = ['stock_waste', 'stock_waste_items', 'waste_reasons', 'pos_check_lines', 'pos_checks', 'stock_void_waste', 'stock_void_waste_items']
 export const TRANSFER_TABLES = ['stock_transfers', 'stock_transfer_lines']
-export const STOCK_TABLES = ['stock_counts', 'stock_count_lines', 'stock_adjustments', ...WASTE_TABLES, ...TRANSFER_TABLES, 'stock_usage_days']
+export const STOCK_TABLES = ['stock_counts', 'stock_count_lines', 'stock_adjustments', ...WASTE_TABLES, ...TRANSFER_TABLES, 'stock_usage_days',
+  // Phase 6a: late sales on a closed day are moves too.
+  'stock_usage_late', 'stock_usage_late_items']
+// Phase 6a: variance by period reads the periods, their reviews, the ledger and the days' sales.
+export const VARIANCE_TABLES = [...STOCK_TABLES, 'stock_periods', 'stock_variance_reviews', 'purchase_order_lines', 'purchase_orders', 'dish_cost_days']
 export const MOVE_TABLES = [...STOCK_TABLES, 'purchase_order_lines', 'purchase_orders']
 export const COUNT_LINE_TABLES = [...STOCK_TABLES, 'stock_areas']
 
@@ -301,3 +312,90 @@ export const STOCK_WORKS = {
     },
   },
 }
+
+/** The stored periods at these venues ending on a day of the report (at each venue's own day). */
+async function periodsIn(tx, tenantId, venueIds, ranges) {
+  const rows = await tx`
+    SELECT ${tx.unsafe(PERIOD_COLS)} FROM stock_periods
+     WHERE tenant_id = ${tenantId} ${venueIds ? tx`AND venue_id = ANY(${venueIds}::uuid[])` : tx``}
+       ${lastDay(ranges) ? tx`AND to_at <= ${endOf(lastDay(ranges))}` : tx``}
+     ORDER BY to_at`
+  const { tzOf } = await itemsAndZones(tx, tenantId, [])
+  return rows.map(p => ({ ...p, date: dayIn(p.to_at, tzOf.get(p.venue_id)) })).filter(p => inRanges(p.date, ranges))
+}
+
+/** A period's figures: as frozen when closed, else worked out now (one memo per run). */
+async function figuresFor(tx, tenantId, p, memo) {
+  const key = 'stock_period:' + p.id
+  if (memo?.has?.(key)) return memo.get(key)
+  const f = p.status === 'closed' && p.figures ? p.figures : await periodFigures(tx, tenantId, p)
+  memo?.set?.(key, f)
+  return f
+}
+
+export const VARIANCE_WORKS = {
+  stock_variance: {
+    columns: [
+      ['tenant_id', 'uuid'], ['id', 'text'], ['period_id', 'uuid'], ['venue_id', 'uuid'], ['date', 'date'],
+      ['from_at', 'timestamptz'], ['to_at', 'timestamptz'], ['status', 'text'],
+      ['item_id', 'uuid'], ['item_name', 'text'], ['base_unit', 'text'], ['category', 'text'],
+      ['opening', 'numeric'], ['received', 'numeric'], ['transfers_in', 'numeric'], ['transfers_out', 'numeric'], ['closing', 'numeric'],
+      ['actual', 'numeric'], ['theoretical', 'numeric'], ['late', 'numeric'], ['waste', 'numeric'], ['adjusted', 'numeric'],
+      ['variance', 'numeric'], ['unexplained', 'numeric'], ['unexplained_pct', 'numeric'],
+      ['price', 'numeric'], ['actual_value', 'numeric'], ['theoretical_value', 'numeric'], ['waste_value', 'numeric'],
+      ['variance_value', 'numeric'], ['unexplained_value', 'numeric'], ['share_pct', 'numeric'],
+      ['flagged', 'boolean'], ['reviewed', 'boolean'],
+    ],
+    async fill(tx, { tenantId, venueIds, ranges, memo }) {
+      const periods = await periodsIn(tx, tenantId, venueIds, ranges)
+      if (!periods.length) return []
+      const reviews = await loadReviews(tx, tenantId, periods.map(p => p.id))
+      const out = []
+      for (const p of periods) {
+        const f = await figuresFor(tx, tenantId, p, memo)
+        const seen = reviews.get(p.id) || new Map()
+        for (const r of f.rows || []) {
+          out.push({
+            tenant_id: tenantId, id: p.id + '|' + r.item_id, period_id: p.id, venue_id: p.venue_id, date: p.date,
+            from_at: p.from_at, to_at: p.to_at, status: p.status,
+            item_id: r.item_id, item_name: r.name, base_unit: r.base_unit, category: r.category ?? null,
+            opening: r.opening, received: r.received, transfers_in: r.transfers_in, transfers_out: r.transfers_out, closing: r.closing,
+            actual: r.actual, theoretical: r.theoretical, late: r.late || 0, waste: r.waste, adjusted: r.adjusted,
+            variance: r.variance, unexplained: r.unexplained, unexplained_pct: r.unexplained_pct,
+            price: r.price, actual_value: r.actual_value, theoretical_value: r.theoretical_value, waste_value: r.waste_value,
+            variance_value: r.variance_value, unexplained_value: r.unexplained_value, share_pct: r.share_pct ?? null,
+            flagged: !!r.flagged, reviewed: seen.has(r.item_id),
+          })
+        }
+      }
+      return out
+    },
+  },
+
+  stock_food_cost: {
+    columns: [
+      ['tenant_id', 'uuid'], ['id', 'text'], ['venue_id', 'uuid'], ['date', 'date'], ['from_at', 'timestamptz'], ['to_at', 'timestamptz'],
+      ['status', 'text'], ['net_food_pence', 'numeric'], ['actual_cost', 'numeric'], ['theoretical_cost', 'numeric'],
+      ['actual_pct', 'numeric'], ['theoretical_pct', 'numeric'], ['gap_pts', 'numeric'], ['unexplained_value', 'numeric'],
+      ['items', 'int'], ['flagged', 'int'], ['over_band', 'boolean'],
+    ],
+    async fill(tx, { tenantId, venueIds, ranges, memo }) {
+      const periods = await periodsIn(tx, tenantId, venueIds, ranges)
+      const out = []
+      for (const p of periods) {
+        const f = await figuresFor(tx, tenantId, p, memo)
+        const fc = f.food_cost || {}
+        out.push({
+          tenant_id: tenantId, id: p.id, venue_id: p.venue_id, date: p.date, from_at: p.from_at, to_at: p.to_at, status: p.status,
+          net_food_pence: fc.net_food_pence ?? null, actual_cost: fc.actual_value ?? null, theoretical_cost: fc.theoretical_value ?? null,
+          actual_pct: fc.actual_pct ?? null, theoretical_pct: fc.theoretical_pct ?? null, gap_pts: fc.gap_pts ?? null,
+          unexplained_value: f.totals?.unexplained_value ?? null, items: (f.rows || []).length, flagged: f.flagged ?? 0, over_band: !!f.band?.over,
+        })
+      }
+      return out
+    },
+  },
+}
+
+// The variance works are stock works (work/index.js gathers STOCK_WORKS).
+Object.assign(STOCK_WORKS, VARIANCE_WORKS)
