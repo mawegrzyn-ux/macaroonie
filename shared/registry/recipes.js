@@ -27,9 +27,17 @@ export const objects = [
     table: 'costing_settings', subjects: ['recipes.margins'],
     page: '/menu-margins',
   },
+  // Phase 7a (migration 314): a what-if on a menu's prices and costs; Push prices writes its prices into the menu's draft.
+  {
+    key: 'recipes.scenarios', label: 'Cost scenario', plural: 'Cost scenarios', words: ['scenario', 'what if', 'price change', 'push prices'],
+    table: 'cost_scenarios', subjects: ['recipes.scenarios'],
+    page: '/menu-margins',
+    actions: ['save_scenario'],
+  },
 ]
 
 export const notObjects = {
   'What a recipe costs at each venue, worked out from its lines and the supplier prices each time: a figure, never kept or changed by hand.': ['recipes.costs'],
   'Whether each dish sold can be costed, worked out from the sales and the recipes each time (coverage by sales): a figure, never kept.': ['recipes.coverage'],
+  'Each dish\'s menu engineering class (star, plough-horse, puzzle, dog), worked out from what sold each time: a figure, never kept.': ['recipes.engineering'],
 }

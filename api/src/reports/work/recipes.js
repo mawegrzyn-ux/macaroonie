@@ -22,6 +22,13 @@
 // imported sales, test till sales left out) and judged by its rule
 // (salesCoverage() in shared/costing.js): costed or not, and why, at
 // today's recipes and prices.
+//
+// Menu engineering (phase 7a): one row per dish sold in each menu section
+// over the report's period (the last 28 days to yesterday when it has none;
+// a comparison period is left out), the report's venues together, by the
+// Engineering tab's own rule (engineer() in shared/engineering.js over
+// dish_cost_days, read by services/menuEngineeringSvc.js): its class, units,
+// share, GP per unit against the section's average, total GP and cost %.
 
 import { loadRecipes, loadCosting } from '../../services/costingSvc.js'
 import { recipeCost } from '../../../../shared/costing.js'
@@ -82,6 +89,37 @@ export const RECIPE_WORKS = {
         why: st.state === 'left_out' ? LEFT_OUT_WHY[st.reason] : st.fixes.map(f => f.text).join(' ') || null,
         recipe: st.recipe?.name ?? null,
       }))
+    },
+  },
+
+  menu_engineering: {
+    columns: [
+      ['tenant_id', 'uuid'], ['id', 'text'], ['date', 'date'], ['menu_id', 'uuid'], ['section_id', 'uuid'], ['dish_id', 'uuid'],
+      ['dish', 'text'], ['section', 'text'], ['menu', 'text'], ['kind', 'text'], ['class', 'text'], ['popular', 'boolean'], ['profitable', 'boolean'],
+      ['units', 'numeric'], ['share_pct', 'numeric'], ['popular_pct', 'numeric'], ['costed_units', 'numeric'], ['uncosted_units', 'numeric'],
+      ['net_pence', 'bigint'], ['cost_pence', 'bigint'], ['gp_pence', 'bigint'], ['gp_per_unit_pence', 'numeric'], ['avg_gp_per_unit_pence', 'numeric'],
+      ['cost_pct', 'numeric'], ['suggestion', 'text'],
+    ],
+    async fill(tx, { tenantId, venueIds, ranges }) {
+      // Loaded when a run asks for it: the reading of usage from sales sits with the recipes area's services.
+      const { engineeringFor } = await import('../../services/menuEngineeringSvc.js')
+      const { classWords } = await import('../../../../shared/engineering.js')
+      const [last] = await tx`SELECT (current_date - 28)::text AS from, (current_date - 1)::text AS to`
+      const span = ranges?.length ? ranges[0] : last
+      const e = await engineeringFor(tx, tenantId, { venueIds, from: span.from, to: span.to })
+      const rows = []
+      for (const s of e.sections) {
+        for (const d of s.dishes) {
+          rows.push({
+            tenant_id: tenantId, id: s.section_id + '|' + d.dish_id, date: span.to, menu_id: s.menu_id, section_id: s.section_id, dish_id: d.dish_id,
+            dish: d.name, section: s.section, menu: s.menu, kind: d.kind || 'dish', class: d.class || 'not_costed', popular: d.popular, profitable: d.profitable,
+            units: d.units, share_pct: d.share_pct, popular_pct: s.popular_pct, costed_units: d.costed_units, uncosted_units: d.uncosted_units,
+            net_pence: d.net_pence, cost_pence: d.cost_pence, gp_pence: d.gp_pence, gp_per_unit_pence: d.gp_per_unit_pence,
+            avg_gp_per_unit_pence: s.avg_gp_per_unit_pence, cost_pct: d.cost_pct, suggestion: classWords(d.class).suggestion,
+          })
+        }
+      }
+      return rows
     },
   },
 

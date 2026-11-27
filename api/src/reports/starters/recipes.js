@@ -7,6 +7,7 @@
 // Phase 2: dishes over the target cost % and dishes with no recipe, from
 // Dish margins (Costing view), today's prices too. Phase 3: uncosted dishes
 // by sales, from Recipe coverage (sales in pounds need till reports view).
+// Phase 7a: menu engineering this month, from Menu engineering.
 
 import { starter } from './define.js'
 
@@ -71,6 +72,22 @@ export const starters = [
       // out (left_out, with no units uncosted), never listed as dishes to cost.
       filters: [{ field: 'uncosted_units', op: 'gt', value: 0 }],
       sort: [{ by: 'uncosted', dir: 'desc' }],
+    },
+  }),
+
+  // Phase 7a: menu engineering from what sold this month (GP and classes need till reports view too).
+  starter({
+    key: 'menu_engineering_month',
+    name: 'Menu engineering this month',
+    about: 'Each dish sold this month in each menu section as a star (sells well and earns at least the section\'s average gross profit per unit), plough-horse (sells well, earns less), puzzle (earns more, sells little) or dog (neither), with its units, share of the section, GP per unit, total GP, cost % and what to do with it. From usage from sales; a meal deal is one dish of its own section.',
+    period: { relative: 'this_month' },
+    // Engineering is over every venue together (the subject has no venue: a section's dishes are compared across them).
+    venues: false,
+    spec: {
+      subject: 'recipes.engineering',
+      kind: 'list',
+      rows: ['section', 'dish', 'class', 'units', 'share', 'gp_per_unit', 'section_gp_per_unit', 'gp', 'cost_pct', 'suggestion'],
+      sort: [{ by: 'section', dir: 'asc' }, { by: 'units', dir: 'desc' }],
     },
   }),
 
