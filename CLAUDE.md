@@ -72,6 +72,7 @@ The areas:
 | `docs/claude/areas/hs.md` | Food safety logs, checklists, the H&S action log, H&S settings, H&S test data |
 | `docs/claude/areas/dashboards.md` | The dashboards engine and its widgets, the Overview tiles |
 | `docs/claude/areas/purchasing.md` | Inventory, suppliers and prices, order lists, restaurant and purchase orders, receiving, invoices |
+| `docs/claude/areas/recipes.md` | Recipes and prep recipes, the cost engine (`shared/costing.js`), item units and yield as costs read them, the Recipes page, the recipes and costing modules (`docs/INVENTORY.md`) |
 | `docs/claude/areas/pepper.md` | The staff AI assistant, its tools and chat loop, the MCP connectors, the AI readers (menus, invoices, receipts), new locations with Pepper and the venue wizard |
 | `docs/claude/areas/reports.md` | The report definition, catalogue, engine, builder, drill-downs, charts, print, files, schedules, data links, the smart builder and Pepper report tools |
 | `docs/claude/areas/local-info.md` | Weather, traffic, events and incidents around each venue: captures, flags and learning, merging, bulk delete |
