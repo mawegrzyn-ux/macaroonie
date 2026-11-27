@@ -7,8 +7,9 @@ export const pages = [
   {
     path: '/recipes', label: 'Recipes', icon: 'ChefHat', module: 'recipes',
     section: 'Stock', order: 20, catalogOrder: 165,
-    keywords: 'recipes recipe book prep batch sub-recipe ingredients method dish cost plate cost food cost costing portion yield gp margin',
-    description: 'What goes into each dish and prep batch, the method and photo, and what each costs at every venue\'s supplier prices, with what is not costed yet.',
+    keywords: 'recipes recipe book prep batch sub-recipe ingredients method dish cost plate cost food cost costing portion yield gp margin allergen allergens allergen check may contain declared allergens',
+    description: 'What goes into each dish and prep batch, the method and photo, what each costs at every venue\'s supplier prices, and where a dish\'s declared allergens differ from its recipes.',
+    accepts: ['tab'], tabs: ['recipes', 'dishes', 'options', 'allergens'],
   },
   {
     path: '/menu-margins', label: 'Menu margins', icon: 'BadgePercent', module: 'costing',

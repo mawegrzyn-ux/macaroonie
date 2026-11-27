@@ -182,7 +182,8 @@ export async function copyRecipeLinks(tx, tenantId, newId, by = null) {
 /**
  * One tenant's links and dish rules against its menus: a dish on no menu
  * (draft or live) is marked missing (missing_since), one that is back is
- * cleared, and what has been missing for MISSING_DAYS days is deleted.
+ * cleared, and what has been missing for MISSING_DAYS days is deleted; an
+ * allergen check of a dish on no menu is deleted (phase 8a).
  * Runs in a system-mode transaction (tx), filtered by the tenant.
  */
 export async function sweepTenantLinks(tx, tenantId) {
@@ -198,6 +199,9 @@ export async function sweepTenantLinks(tx, tenantId) {
       DELETE FROM ${tx(table)} WHERE tenant_id = ${tenantId} AND missing_since < now() - make_interval(days => ${MISSING_DAYS})
       RETURNING id`).length
   }
+  // Allergen checks (inventory phase 8a, migration 316) of dishes on no menu go at once: a check is worked out again on asking.
+  out.allergen_checks = (await tx`
+    DELETE FROM allergen_checks WHERE tenant_id = ${tenantId} AND NOT (dish_id = ANY(${[...on]}::uuid[])) RETURNING id`).length
   return out
 }
 

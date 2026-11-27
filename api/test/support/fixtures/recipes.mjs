@@ -16,6 +16,9 @@
 // the menu's dish crosses its cost limit (a cost alert, through the price
 // change hook), the alerts read, one marked seen, why its cost changed read,
 // and the price put back (the dish back under: its state cleared).
+// Phase 8a (migration 316): the cheese's allergens on its supplier price, the
+// allergen checks, one dish's check dismissed, opened again and accepted
+// into the menu's draft, the draft put back, and a recipe's suggestion.
 export const order = 85
 // After the till (140): its order type.
 export const lateOrder = 150
@@ -101,6 +104,25 @@ export async function fill(ctx) {
     if (alerts?.alerts?.[0]) await step('cost alert seen', () => post('/api/cost-alerts/seen', { ids: [alerts.alerts[0].id] }))
     await step('why cost changed', () => get('/api/cost-alerts/why?dish_id=' + menuDish.id + '&venue_id=' + V))
     await step('price creep put back', () => patch('/api/inventory/quotes/' + quote.id, { price: 40 }))
+  }
+  // Phase 8a (migration 316): the cheddar's allergens on its supplier price; the allergen checks worked out (the
+  // menu's dish declares gluten as may contain, its recipe holds milk); one dish's check read, dismissed with a note,
+  // opened again, accepted into the menu's draft and the draft put back (Discard changes: the live release copied
+  // back), so the menu stays as published for later files; and the recipe's own suggestion.
+  if (quote) await step('product allergens', () => put(`/api/inventory/quotes/${quote.id}/allergens`, { known: true, contains: ['milk'], may_contain: ['mustard'], source: mark + ' spec sheet' }))
+  await step('allergen checks', () => get('/api/allergen-checks?venue_id=' + V))
+  await step('recipe allergens', () => get('/api/allergen-checks/recipes/' + dish.id))
+  const menu = ctx.made.menu
+  if (menuDish && menu) {
+    await step('standard allergens', () => post('/api/menus/dietary/standard-allergens', {}))
+    const check = await step('allergen check', () => get('/api/allergen-checks/dishes/' + menuDish.id))
+    if (check?.differences?.length) {
+      const dismissed = await step('allergen check dismissed', () => post(`/api/allergen-checks/dishes/${menuDish.id}/dismiss`, { fingerprint: check.fingerprint, note: mark + ' checked by hand' }))
+      if (dismissed) await step('allergen check opened again', () => post(`/api/allergen-checks/dishes/${menuDish.id}/reopen`, {}))
+      const accepted = await step('allergen check accepted', () => post(`/api/allergen-checks/dishes/${menuDish.id}/accept`, { fingerprint: check.fingerprint, allergens: check.differences.map(d => d.allergen) }))
+      const live = accepted && (await step('menu publish status after allergens', () => get(`/api/menus/${menu.id}/publish`)))?.live
+      if (live?.release_id) await step('discard accepted allergens', () => post(`/api/menus/${menu.id}/releases/${live.release_id}/restore`, {}))
+    }
   }
 }
 

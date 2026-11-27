@@ -11,8 +11,10 @@
 // Each part has its own Save; a save sends the whole recipe (PUT, rule 13):
 // that part as changed, the rest as stored, so another part's changes not
 // yet saved stay where they are. A new recipe starts with its details only.
+// Phase 8a: the recipe's suggested allergens at each venue (RecipeSuggestion,
+// Allergens.jsx, lazy), from its saved lines.
 
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Loader2, Plus, Copy, Layers, AlertTriangle, Search, X, Package, ChefHat } from 'lucide-react'
@@ -27,6 +29,8 @@ import {
   saveBody, sameLines, sameObj, BASES,
 } from './shared'
 import { StateBadge } from './OptionRules'
+
+const RecipeSuggestion = lazy(() => import('./Allergens').then(m => ({ default: m.RecipeSuggestion })))
 
 const NEW_DETAILS = {
   name: '', kind: 'dish', category: '', code: '', status: 'draft', yield_qty: null, yield_unit: '', portions: 1, loss_pct: 0,
@@ -134,6 +138,8 @@ export function RecipeEditor({ id, venueId, basis, onVenue, onBasis, onOpen, onC
         <div className="space-y-4 lg:sticky lg:top-4">
           <CostCard recipe={server} live={live} costs={costs} changed={!!draftBody} venueId={venueId} basis={basis} />
           <UsedCard recipe={server} onOpen={onOpen} />
+          {/* Phase 8a: the recipe's own suggested allergens, as saved, at each venue's supplier products (lazy). */}
+          <Suspense fallback={null}><RecipeSuggestion recipeId={server.id} stamp={server.updated_at} /></Suspense>
           {server.kind === 'dish' && <MenusCard recipe={server} edit={edit} onOpenDish={onOpenDish} />}
           {edit && <EndCard recipe={server} onClose={onClose} />}
         </div>

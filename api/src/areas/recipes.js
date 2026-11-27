@@ -12,6 +12,8 @@ import menuMarginRoutes from '../routes/menuMargins.js'
 import recipeReadRoutes from '../routes/recipeRead.js'
 import costScenarioRoutes from '../routes/costScenarios.js'
 import costAlertRoutes from '../routes/costAlerts.js'
+import allergenReadRoutes from '../routes/allergenRead.js'
+import allergenCheckRoutes from '../routes/allergenChecks.js'
 
 export const routes = [
   // Recipes and prep recipes, costed by shared/costing.js (inventory phase 1, migration 300)
@@ -28,4 +30,8 @@ export const routes = [
   [costScenarioRoutes, { prefix: '/api/cost-scenarios' }],
   // Cost alerts: dishes a supplier price change took over their cost target (inventory phase 7b, migration 315)
   [costAlertRoutes, { prefix: '/api/cost-alerts' }],
+  // Pepper reads a supplier product's allergens off its spec sheet, under /api/ai (inventory phase 8a, migration 316)
+  [allergenReadRoutes, { prefix: '/api/ai/allergens' }],
+  // Each dish's declared allergens checked against its recipes: accept or dismiss (phase 8a, migration 316)
+  [allergenCheckRoutes, { prefix: '/api/allergen-checks' }],
 ]

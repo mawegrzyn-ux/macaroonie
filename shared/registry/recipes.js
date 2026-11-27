@@ -41,6 +41,13 @@ export const objects = [
     table: 'cost_alerts', subjects: ['recipes.cost_alerts'],
     page: '/menu-margins',
   },
+  // Phase 8a (migration 316): a dish's declared allergens against what its recipes suggest, worked out on asking and
+  // kept so a decision holds; accepted or dismissed on the Recipes page's Allergens tab.
+  {
+    key: 'recipes.allergen_checks', label: 'Allergen check', plural: 'Allergen checks', words: ['allergen check', 'allergen difference', 'declared allergens', 'may contain'],
+    table: 'allergen_checks', subjects: ['recipes.allergen_checks'],
+    page: '/recipes',
+  },
 ]
 
 export const notObjects = {

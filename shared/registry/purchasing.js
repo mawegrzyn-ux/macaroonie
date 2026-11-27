@@ -16,10 +16,11 @@ export const objects = [
     actions: ['add_inventory_item', 'update_inventory_item', 'switch_items'],
   },
   {
-    key: 'purchasing.prices', label: 'Supplier price', plural: 'Supplier prices', words: ['price list', 'product code', 'out of stock'],
+    key: 'purchasing.prices', label: 'Supplier price', plural: 'Supplier prices', words: ['price list', 'product code', 'out of stock', 'product allergens', 'spec sheet'],
     table: 'inv_quotes', subjects: ['purchasing.prices', 'purchasing.price_changes'],
     page: '/suppliers',
-    actions: ['add_supplier_price', 'update_supplier_price', 'set_preferred_supplier', 'import_price_list', 'update_prices_by_code', 'set_out_of_stock'],
+    // read_product_allergens (inventory phase 8a, the recipes area's tool): its allergens off its spec sheet.
+    actions: ['add_supplier_price', 'update_supplier_price', 'set_preferred_supplier', 'import_price_list', 'update_prices_by_code', 'set_out_of_stock', 'read_product_allergens'],
   },
   // Stock on hand and counts are the stock area's since inventory phase 4a (shared/registry/stock.js).
   {

@@ -50,6 +50,19 @@
 //                  it; supplier names and pack prices with purchasing prices
 //                                                                    costing, view
 //
+// Phase 8a (allergens, migration 316):
+//   allergen_check  a dish's declared allergens (the menu's draft, and what is
+//                  live) against what its recipes suggest at each venue's
+//                  supplier products, the differences in words with the
+//                  evidence, the unknowns (GET /api/allergen-checks); never
+//                  an answer for a guest (find_dishes reads the declaration)
+//                                                                    recipes, view
+//   read_product_allergens  a supplier product's allergens read off its spec
+//                  sheet attached in the chat (POST /api/ai/allergens/read),
+//                  shown on the card and saved on Confirm (PUT
+//                  /api/inventory/quotes/:id/allergens); no dish changes
+//                                                  consequential, purchasing setup manage
+//
 // The model is given names, never ids (rule 19): a recipe is picked by its
 // name, and its page link searches the Recipes page for that name.
 
@@ -62,6 +75,8 @@ import { pounds, perWord, perBaseText, BASIS_KEYS, COVERAGE, BANDS, sameScope, t
 import { moveWords, dayWords } from '../../../../shared/priceCreep.js'
 import { matchIndex, matchThing, normName } from '../../../../shared/itemMatch.js'
 import { averageText } from '../../../../shared/engineering.js'
+import { ALLERGEN_KEYS, ALLERGEN_LABELS, evidenceWords, checkState } from '../../../../shared/allergenCheck.js'
+import { ASSISTANT_NAME } from '../../../../shared/assistant.js'
 
 const MAX_LIST = 40
 const METHOD_MAX = 2000
@@ -103,6 +118,11 @@ export const promptLines = [
     'puzzles and dogs, with GP per unit and what to do with each), save_scenario (price or cost changes on a menu with ' +
     'the cost % and GP at what really sold before and after, saved for the Scenarios tab; pushing prices into a menu and ' +
     'publishing are the person\'s steps on the pages).',
+  'Allergens from recipes: allergen_check (a dish\'s declared allergens against what its recipes and the supplier ' +
+    'products each venue orders suggest, with the evidence and what is unknown; a check for staff, never an answer for ' +
+    'a guest: allergy questions are find_dishes, from what the menu declares), read_product_allergens (a supplier ' +
+    'product\'s allergens read off its spec sheet attached in the chat, saved on the supplier price once the person ' +
+    'confirms). Accepting or dismissing a difference is the person\'s step on the Recipes page, Allergens tab.',
 ]
 
 export const recipeTools = [
@@ -1061,5 +1081,193 @@ export const creepTools = [
   },
 ]
 
+// ── Allergens (phase 8a, migration 316) ──────────────────────
+
+const levelWord = l => (l === 'may_contain' ? 'may contain' : l === 'removable' ? 'can be removed' : 'contains')
+/** Allergens by level in words: "contains gluten, soya; may contain sesame", or none. */
+function levelsText(levels = {}) {
+  const by = lvl => ALLERGEN_KEYS.filter(k => (lvl === 'contains' ? ['contains', 'removable'].includes(levels[k]) : levels[k] === lvl)).map(k => ALLERGEN_LABELS[k].toLowerCase())
+  const has = by('contains'), may = by('may_contain')
+  if (!has.length && !may.length) return 'none of the 14 allergens'
+  return [has.length ? 'contains ' + has.join(', ') : null, may.length ? 'may contain ' + may.join(', ') : null].filter(Boolean).join('; ')
+}
+/**
+ * A scope group's suggestion in words. Unknown is never "none": a group with
+ * no recipe, or with nothing known, is "not known"; one with gaps says what
+ * is known so far.
+ */
+function suggestionText(g) {
+  if (!g.recipe) return 'not known: no recipe linked there'
+  if (g.complete) return levelsText(g.levels)
+  const n = (g.gaps || []).length + (g.more_gaps || 0)
+  const unknown = n === 1 ? '1 thing not known yet' : n + ' things not known yet'
+  return Object.keys(g.levels || {}).length ? levelsText(g.levels) + ' so far (' + unknown + ')' : 'not known yet (' + unknown + ')'
+}
+const STATUS_WORDS = {
+  open: 'open: nobody has decided yet', accepted: 'accepted into the declaration', dismissed: 'dismissed: kept as declared',
+  incomplete: 'not all known: nothing differs among the ingredients whose allergens are known, but some aren\'t known yet, so the declaration can\'t be confirmed',
+  agree: 'agrees: every ingredient\'s allergens are known and match the declaration',
+}
+const LIABILITY = 'The declaration on the menu is what guests are told, and the food business is responsible for it: this is a check, only as good as the supplier data under it. Accepting or dismissing is the person\'s step on the Recipes page, Allergens tab.'
+
+/** A supplier product of an item by name (and its supplier's), through the Inventory page's routes. */
+async function productFor(ctx, itemText, supplierText) {
+  const items = await callApi(ctx, 'GET', '/api/inventory/items')
+  const item = pickByName(items, itemText, i => i.name, 'inventory item', 'The inventory is empty.')
+  const quotes = (item.quotes || []).filter(q => q.is_active)
+  if (!quotes.length) throw new ToolError(item.name + ' has no supplier price yet: add one first, then its allergens.', 404)
+  let pool = quotes
+  if (supplierText) {
+    const sups = [...new Map(quotes.map(q => [q.supplier_id, { id: q.supplier_id, name: q.supplier_name }])).values()]
+    const s = pickByName(sups, supplierText, x => x.name, 'supplier of ' + item.name)
+    pool = quotes.filter(q => q.supplier_id === s.id)
+  }
+  if (pool.length > 1) {
+    throw new ToolError(item.name + ' has several supplier prices: ' + pool.map(q => q.supplier_name + (q.product_name ? ' (' + q.product_name + ')' : '')).join('; ') + '. Say which supplier.', 409)
+  }
+  return { item, quote: pool[0] }
+}
+
+/** What the spec reader read, as the PUT saves it, and the card's lines. */
+function specPlan(read) {
+  const of = lvl => ALLERGEN_KEYS.filter(k => read.allergens[k]?.level === lvl)
+  const contains = of('contains'), may = of('may_contain'), free = of('free'), notSaid = of('not_said')
+  const names = keys => keys.map(k => ALLERGEN_LABELS[k].toLowerCase()).join(', ')
+  return {
+    body: { contains, may_contain: may },
+    lines: [
+      contains.length ? 'Contains ' + names(contains) : 'Contains none of the 14',
+      ...(may.length ? ['May contain ' + names(may)] : []),
+      ...(free.length ? ['Free from ' + names(free)] : []),
+      ...ALLERGEN_KEYS.filter(k => read.allergens[k]?.words && ['contains', 'may_contain'].includes(read.allergens[k].level)).map(k => ALLERGEN_LABELS[k] + ': "' + read.allergens[k].words + '"'),
+    ],
+    warnings: [
+      ...(notSaid.length ? ['The sheet doesn\'t say about ' + names(notSaid) + ': saved as not containing them. Check the sheet, or change them on the Inventory page.'] : []),
+      ...(read.notes ? [read.notes] : []),
+    ],
+  }
+}
+
+const ReadingPin = z.object({
+  contains: z.array(z.enum(ALLERGEN_KEYS)).max(14),
+  may_contain: z.array(z.enum(ALLERGEN_KEYS)).max(14),
+  source: z.string().max(300),
+})
+
+export const allergenTools = [
+  {
+    name: 'allergen_check',
+    activity: 'Checked a dish\'s allergens against its recipe',
+    section: 'recipes',
+    modules: ['recipes'],
+    title: 'A dish\'s allergens against its recipe',
+    description:
+      'A menu dish\'s declared allergens (the menu\'s draft, and whether that is live) against what its recipes suggest: ' +
+      'the allergens of the supplier products each venue orders for its ingredients, through its prep recipes and what its ' +
+      'options add. Says what differs ("the recipe has sesame; the dish does not say so"), the evidence (which ingredient ' +
+      'and which supplier\'s product), the ingredients whose allergens are unknown, and whether someone accepted or ' +
+      'dismissed it. Read only: never answer a guest\'s allergy question from this; find_dishes answers from what the ' +
+      'menu declares. Recipes view.',
+    input: z.object({
+      dish: z.string().trim().min(1).max(200).describe('The dish\'s name on the menu'),
+      menu: z.string().trim().max(120).optional().describe('The menu, when dishes on two menus share the name'),
+      venue: VenueText.describe('Only what this venue\'s products suggest'),
+    }),
+    readOnly: true,
+    async run(ctx, input) {
+      await requireStaffPermission(ctx, 'recipes', 'view')
+      const venue = input.venue ? await venueFor(ctx, input.venue) : null
+      const list = await callApi(ctx, 'GET', '/api/allergen-checks' + (venue ? '?venue_id=' + venue.id : ''))
+      const menus = [...new Map(list.rows.map(r => [r.menu_id, { id: r.menu_id, name: r.menu }])).values()]
+      const menu = input.menu ? pickByName(menus, input.menu, m => m.name, 'menu', 'No menus yet.') : null
+      const rows = menu ? list.rows.filter(r => r.menu_id === menu.id) : list.rows
+      const r = pickByName(rows, input.dish, x => x.dish, 'food dish', 'No food dishes on the menus yet.')
+      const groups = venue ? r.groups.filter(g => g.scopes.some(s => s.venue_id === venue.id)) : r.groups
+      const evidence = r.differences.flatMap(d => (d.evidence || []).slice(0, 4).map(e => ALLERGEN_LABELS[d.allergen] + ': ' + evidenceWords(e) + (e.where?.length ? ' at ' + e.where.join(', ') : '')))
+      return {
+        dish: r.dish, menu: r.menu,
+        ...(r.section ? { section: r.section } : {}),
+        declared: levelsText(r.declared) + (r.live_declared == null ? ' (the menu isn\'t live yet)' : r.published ? '' : ' in the menu\'s draft; what guests are served is ' + levelsText(r.live_declared) + ' until it is published'),
+        ...(r.checkable ? {
+          suggested: groups.length > 1
+            ? groups.map(g => g.where.join(', ') + ': ' + suggestionText(g))
+            : suggestionText(groups[0] || { recipe: true, levels: r.suggested, complete: r.complete, gaps: r.gaps }),
+        } : { suggested: 'not known: ' + (r.gaps[0]?.text || 'no recipe linked') }),
+        differences: r.differences.length
+          ? r.differences.map(d => d.text + (d.where?.length && d.kind !== 'not_found' ? ' (' + d.where.join(', ') + ')' : ''))
+          : [!r.checkable ? 'Can\'t be checked yet.'
+            : r.complete ? 'None: the recipe and the declaration agree.'
+              : 'None found so far, but not everything is known: the declaration can\'t be confirmed until the unknown ingredients\' allergens are put in.'],
+        ...(evidence.length ? { evidence } : {}),
+        ...(r.gaps.length ? { unknown: r.gaps.slice(0, 10).map(g => g.text + '. ' + g.fix), complete: false } : { complete: r.checkable }),
+        ...(STATUS_WORDS[checkState(r)] ? { status: STATUS_WORDS[checkState(r)] + (r.status && r.decided_by ? ' (' + r.decided_by + (r.note ? ': "' + r.note + '"' : '') + ')' : '') } : {}),
+        note: LIABILITY,
+        page: '/recipes?tab=allergens&q=' + encodeURIComponent(r.dish),
+      }
+    },
+  },
+]
+
+export const allergenChangeTools = [
+  {
+    name: 'read_product_allergens',
+    class: 'consequential',
+    title: 'Read a product\'s allergens',
+    activity: 'Read a product\'s allergens off its spec sheet',
+    section: 'recipes',
+    // It saves on a supplier price: Purchasing setup manage, which its run checks (never its area's Recipes).
+    modules: ['purchasing_setup'],
+    description:
+      'Reads a supplier product\'s allergens off its spec sheet or label attached in this chat (a PDF or photos): which ' +
+      'of the 14 allergens it contains and may contain, with the words read. The card shows the reading; confirming saves ' +
+      'them on that supplier price (the Inventory page), where the Recipes page\'s allergen check reads them. It never ' +
+      'changes what a dish declares. item: the inventory item; supplier: whose product it is, when the item has several ' +
+      'prices; attached_files: the files\' names as attached (leave out with from_chat true for every file attached). ' +
+      'Purchasing setup manage.',
+    input: z.object({
+      item: z.string().trim().min(1).max(200).describe('The inventory item'),
+      supplier: z.string().trim().max(200).optional().describe('The supplier, when the item has several prices'),
+      attached_files: z.array(z.string().trim().min(1).max(200)).max(4).optional().describe('Names of files attached in this chat'),
+      from_chat: z.boolean().optional().describe('true: read every photo and PDF attached in this chat'),
+      reading: ReadingPin.optional().describe('Never set: the card pins what was read'),
+    }),
+    confirm: true,
+    async describe(ctx, input) {
+      await requireStaffPermission(ctx, 'purchasing_setup', 'manage')
+      const { item, quote } = await productFor(ctx, input.item, input.supplier)
+      const got = await chatFiles(ctx, input.attached_files)
+      if (!got.files.length) throw new ToolError('Attach the product\'s spec sheet as a PDF or a photo.', 422)
+      const read = await callApi(ctx, 'POST', '/api/ai/allergens/read', { body: { quote_id: quote.id, files: got.files.slice(0, 4) } })
+      const plan = specPlan(read)
+      const product = quote.supplier_name + '\'s ' + (quote.product_name || item.name)
+      return {
+        title: 'Save the allergens of ' + product + '?',
+        lines: [...(read.product_name ? ['The sheet is for ' + read.product_name] : []), ...plan.lines,
+          'Saved on the supplier price; the Recipes page\'s allergen check then shows any dish whose declaration differs. No dish changes.'],
+        ...(plan.warnings.length ? { warningTitle: 'Check', warnings: plan.warnings } : {}),
+        confirmLabel: 'Save allergens',
+        pin: { reading: { ...plan.body, source: (ASSISTANT_NAME + ' read ' + got.files.map(f => f.name).join(', ')).slice(0, 300) } },
+      }
+    },
+    async run(ctx, input) {
+      await requireStaffPermission(ctx, 'purchasing_setup', 'manage')
+      const { item, quote } = await productFor(ctx, input.item, input.supplier)
+      if (!input.reading) throw new ToolError('Show the reading on a card first.', 422)
+      return audited(ctx, 'read_product_allergens', { item: input.item, supplier: input.supplier, attached_files: input.attached_files }, async () => {
+        await callApi(ctx, 'PUT', '/api/inventory/quotes/' + quote.id + '/allergens', {
+          body: { known: true, contains: input.reading.contains, may_contain: input.reading.may_contain, source: input.reading.source },
+        })
+        return {
+          message: 'Saved the allergens of ' + quote.supplier_name + '\'s ' + (quote.product_name || item.name) + ': ' + levelsText(Object.fromEntries([
+            ...input.reading.may_contain.map(k => [k, 'may_contain']), ...input.reading.contains.map(k => [k, 'contains']),
+          ])) + '. The Recipes page\'s Allergens tab shows any dish whose declaration differs.',
+          // The Inventory page searched by the item's name (?q=): never an id (rule 19).
+          page: '/inventory?q=' + encodeURIComponent(item.name),
+        }
+      })
+    },
+  },
+]
+
 // What Pepper is told about this file's tools, gathered by tools/index.js.
-export const tools = [...recipeTools, ...marginTools, ...changeTools, ...engineeringTools, ...creepTools]
+export const tools = [...recipeTools, ...marginTools, ...changeTools, ...engineeringTools, ...creepTools, ...allergenTools, ...allergenChangeTools]
