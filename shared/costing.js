@@ -1784,3 +1784,61 @@ export function salesCoverage(rows, ctxFor, { judged = null } = {}) {
     left_out: [...leftOut.values()].sort((a, b) => b.sales_pence - a.sales_pence),
   }
 }
+
+// ── Margins from what sold (phase 5) ─────────────────────────────
+
+/**
+ * Dish margins from what sold (inventory phase 5, dish_cost_days: Menu
+ * margins' Sold tab, the report subject, Pepper): rows [{ dish_id, name,
+ * section_id, section, qty, sales_pence, net_pence (VAT out), cost (the
+ * theoretical cost, pounds; null when nothing could be costed),
+ * uncosted_qty, typical_qty, left_out }] summed by dish and by section,
+ * each with margin() on its net (pence meet pounds only here): { dishes:
+ * [{ dish_id, name, section_id, section, qty, sales_pence, net_pence,
+ * cost_pence, gp_pence, cost_pct, gp_pct, band, uncosted_qty, typical_qty }]
+ * (most sold by net first), sections: [the same per section], total }. A
+ * dish whose sold units were partly uncosted has its cost from the units
+ * that were; band (against settings' targets, the section's own) only when
+ * every unit was costed. Left out rows (open items, services) are not dishes.
+ */
+export function soldMargins(rows = [], settings = null) {
+  const sums = () => ({ qty: 0, sales_pence: 0, net_pence: 0, cost: 0, costed: false, uncosted_qty: 0, typical_qty: 0 })
+  const into = (s, r) => {
+    s.qty += num(r.qty)
+    s.sales_pence += Math.round(num(r.sales_pence))
+    s.net_pence += Math.round(num(r.net_pence))
+    if (r.cost != null) { s.cost += num(r.cost); s.costed = true }
+    s.uncosted_qty += num(r.uncosted_qty)
+    s.typical_qty += num(r.typical_qty)
+  }
+  const done = (s, sectionId = null) => {
+    const m = margin({ gross_pence: s.net_pence, vat_rate: 0, cost: s.costed ? round6(s.cost) : null })
+    const full = s.costed && !(s.uncosted_qty > 0)
+    return {
+      qty: round6(s.qty), sales_pence: s.sales_pence, net_pence: s.net_pence,
+      cost_pence: m.cost_pence, gp_pence: m.gp_pence, cost_pct: m.cost_pct, gp_pct: m.gp_pct,
+      band: full ? costBand(m.cost_pct, thresholdsFor(settings, sectionId)) : null,
+      uncosted_qty: round6(s.uncosted_qty), typical_qty: round6(s.typical_qty),
+    }
+  }
+  const dishes = new Map()
+  const sections = new Map()
+  const total = sums()
+  for (const r of rows || []) {
+    if (r.left_out) continue
+    const key = r.dish_id || 'name:' + lower(r.name)
+    const d = dishes.get(key) || dishes.set(key, { dish_id: r.dish_id ?? null, name: r.name, section_id: r.section_id ?? null, section: r.section ?? null, s: sums() }).get(key)
+    into(d.s, r)
+    const sk = r.section_id || 'none'
+    const sec = sections.get(sk) || sections.set(sk, { section_id: r.section_id ?? null, section: r.section ?? null, s: sums() }).get(sk)
+    into(sec.s, r)
+    into(total, r)
+  }
+  return {
+    dishes: [...dishes.values()].map(d => ({ dish_id: d.dish_id, name: d.name, section_id: d.section_id, section: d.section, ...done(d.s, d.section_id) }))
+      .sort((a, b) => b.net_pence - a.net_pence || a.name.localeCompare(b.name)),
+    sections: [...sections.values()].map(x => ({ section_id: x.section_id, section: x.section, ...done(x.s, x.section_id) }))
+      .sort((a, b) => b.net_pence - a.net_pence),
+    total: done(total),
+  }
+}

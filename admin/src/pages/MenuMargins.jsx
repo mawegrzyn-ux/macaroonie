@@ -13,10 +13,12 @@
 // card of their own with its Save. Export CSV. Everything is worked out on
 // the server by menuMargins() in shared/costing.js; the page shows it.
 // The choices are in the address (?menu= &venue= &stream= &type= &version=;
-// ?dish= opens one dish's explanation).
+// ?dish= opens one dish's explanation). The Sold tab (?tab=sold, inventory
+// phase 5: components/recipes/SoldMargins.jsx, lazy) is what really sold at a
+// venue over some days, from usage from sales (dish_cost_days).
 // API: routes/menuMargins.js, routes/recipeLinks.js (a dish's steps).
 
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { BadgePercent, Loader2, Download, AlertTriangle, ChevronRight, Layers, Plus } from 'lucide-react'
@@ -27,6 +29,10 @@ import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { PageHeader, Segmented, Field, inputCls, ErrorNote, ConfirmDelete } from '@/components/staff/shared'
 import { Card, NumInput, Drawer, btn } from '@/components/purchasing/shared'
 import { pounds, penceText, pctText, BandBadge, bandWord, CoverageBadge } from '@/components/recipes/shared'
+
+// The Sold tab (inventory phase 5): what really sold, from usage from sales. Loaded on demand.
+const SoldMargins = lazy(() => import('@/components/recipes/SoldMargins'))
+const TABS = [{ value: 'margins', label: 'Margins' }, { value: 'sold', label: 'Sold' }]
 
 const SORTS = [
   { value: 'cost_pct', label: 'Cost %' }, { value: 'gp', label: 'GP' }, { value: 'name', label: 'Name' }, { value: 'section', label: 'Section' },
@@ -47,6 +53,7 @@ export default function MenuMargins() {
   const streamId = params.get('stream') || ''
   const typeId = params.get('type') || ''
   const version = params.get('version') === 'draft' ? 'draft' : 'live'
+  const tab = params.get('tab') === 'sold' ? 'sold' : 'margins'
   const [sort, setSort] = useState('cost_pct')
   const [open, setOpen] = useState(null)
   const choices = useQuery({ queryKey: ['menu-margins', 'choices'], queryFn: () => api.get('/menu-margins'), enabled: !!canView })
@@ -91,6 +98,12 @@ export default function MenuMargins() {
         )}
       </PageHeader>
       <div className="max-w-6xl mx-auto p-4 space-y-4">
+        <Segmented value={tab} onChange={v => set({ tab: v === 'margins' ? '' : v })} options={TABS} className="[&>button]:h-12" testid="margins-tabs" />
+        {tab === 'sold' ? (
+          <Suspense fallback={<div className="py-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" /></div>}>
+            <SoldMargins venues={c?.venues || []} />
+          </Suspense>
+        ) : (<>
         {loaded && !canManage && <ReadOnlyNotice what="the cost targets" />}
         <Card title="What and where">
           {!c ? <Loader2 className="w-5 h-5 animate-spin" /> : (
@@ -145,6 +158,7 @@ export default function MenuMargins() {
           </>
         )}
         {c && <TargetsCard settings={choices.data.settings} sections={data?.sections || []} canManage={canManage} />}
+        </>)}
       </div>
       {open && <DishExplain row={open} q={{ venue_id: data?.scope?.venue_id, revenue_stream_id: data?.scope?.revenue_stream_id, order_type_id: data?.scope?.order_type_id, version }}
         where={data?.where} onClose={() => setOpen(null)} />}

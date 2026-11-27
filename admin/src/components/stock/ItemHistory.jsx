@@ -1,8 +1,9 @@
 // src/components/stock/ItemHistory.jsx
 //
 // One item's history at a venue (inventory phase 4a): its ledger from
-// loadStockMoves(), newest first, each delivery, approved count and
-// adjustment with the change it made and the balance after it
+// loadStockMoves(), newest first, each delivery, approved count,
+// adjustment, waste, transfer and day of sales (phase 5: with each channel's
+// part) with the change it made and the balance after it
 // (runningBalance() in shared/stock.js, worked out by the API), and with
 // Costing view each move's value (a delivery's, its supplier's price, with
 // purchasing prices as well: the API leaves it out otherwise). A count's
@@ -21,7 +22,10 @@ import { DateButton, ErrorNote } from '@/components/staff/shared'
 import { Drawer, btn } from '@/components/purchasing/shared'
 import { qty, signedBase, when, pounds } from '@/components/stock/shared'
 
-const KIND_CLS = { delivery: 'bg-emerald-100 text-emerald-900', count: 'bg-sky-100 text-sky-900', adjustment: 'bg-amber-100 text-amber-900' }
+const KIND_CLS = { delivery: 'bg-emerald-100 text-emerald-900', count: 'bg-sky-100 text-sky-900', adjustment: 'bg-amber-100 text-amber-900', usage: 'bg-violet-100 text-violet-900' }
+// A day's sales (phase 5): how much came from each channel.
+const CHANNEL_WORDS = { till: 'till', kiosk: 'kiosk', online: 'online', imported: 'other tills' }
+const splitText = (channels, unit) => Object.entries(channels || {}).filter(([, v]) => Number(v)).map(([k, v]) => (CHANNEL_WORDS[k] || k) + ' ' + qty(v, unit)).join(', ')
 
 export default function ItemHistory({ venueId, item, onClose }) {
   const api = useApi()
@@ -49,6 +53,7 @@ export default function ItemHistory({ venueId, item, onClose }) {
                 <span className={cn('mr-2 rounded px-1.5 py-0.5 text-[11px] font-medium', KIND_CLS[m.kind])}>{m.kind_label}</span>
                 <span className="text-muted-foreground">{when(m.at)}</span>
                 <span className="block truncate">{m.source?.label}{m.by ? <span className="text-muted-foreground"> · {m.by}</span> : null}</span>
+                {m.kind === 'usage' && <span className="block text-xs text-muted-foreground" data-testid="stock-history-channels">{splitText(m.channels, unit)}</span>}
               </span>
               <span className="text-right tabular-nums">
                 <span className="block font-medium" data-testid="stock-history-change">
