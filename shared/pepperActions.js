@@ -31,6 +31,7 @@ export const USE_LABELS = {
   item_mapping: 'Mapping another till\'s items',
   recipe_reader: 'Reading recipes',
   yield_suggestion: 'Suggesting a typical yield',
+  allergen_reader: 'Reading a product\'s allergens',
   other: 'Something else',
 }
 
@@ -83,4 +84,5 @@ export const ACTION_LABELS = {
   snooze_task: 'Snoozed a task', skip_task: 'Skipped a task', assign_task: 'Assigned a task',
   read_recipes: 'Read recipes in as drafts', make_recipe: 'Wrote a draft recipe', link_recipes: 'Linked dishes to recipes',
   save_scenario: 'Saved a cost scenario',
+  read_product_allergens: 'Saved a product\'s allergens from its spec sheet',
 }
