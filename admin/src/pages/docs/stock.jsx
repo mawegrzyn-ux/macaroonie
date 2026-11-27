@@ -1,7 +1,7 @@
 // src/pages/docs/stock.jsx
 // The Docs page's "Stock" section (inventory phase 4a: the ledger, storage
 // areas, stocktakes, adjustments; phase 4b: waste and its reasons, till voids
-// marked wasted, transfers between venues). Docs.jsx gathers every file in this
+// marked wasted, transfers between venues; phase 5: usage from sales). Docs.jsx gathers every file in this
 // folder (except parts.jsx) and shows them by order, then id.
 import { H2, H3, P, Mono, InfoBox } from './parts.jsx'
 
@@ -20,7 +20,7 @@ export function Section() {
         phone&apos;s <Mono>/mobile/stock-count</Mono>. Stock on hand and counts (migration 287) moved here from
         purchasing. Phase 4b (migrations 308 and 309) added waste (with the till&apos;s voids marked wasted) and
         transfers between venues as further move sources, the Waste and Transfers tabs and the phone&apos;s{' '}
-        <Mono>/mobile/stock-waste</Mono>; usage from sales is phase 5.
+        <Mono>/mobile/stock-waste</Mono>; phase 5 (migration 311) usage from sales, below.
       </P>
       <H3>The rule: documents are the truth</H3>
       <P>
@@ -44,8 +44,9 @@ export function Section() {
         <Mono>costAt()</Mono>: the average paid at the venue over the 90 days before the move, else the last price
         paid before it (<Mono>itemCost()</Mono> in <Mono>shared/costing.js</Mono>). <Mono>loadStockOnHand()</Mono>,{' '}
         <Mono>itemCostsAt()</Mono>, <Mono>costLookup()</Mono>, <Mono>countScope()</Mono>,{' '}
-        <Mono>loadCountItems()</Mono> sit beside it. <Mono>SALES_COUNTED</Mono> is false and every answer carries{' '}
-        <Mono>NO_SALES_NOTE</Mono>.
+        <Mono>loadCountItems()</Mono> sit beside it. Since phase 5 <Mono>SALES_COUNTED</Mono> is true: usage from
+        sales is a source too (kind <Mono>usage</Mono>), and every answer carries <Mono>salesNote()</Mono> (up to when
+        sales are taken off: the last run, <Mono>salesTakenOff()</Mono>).
       </P>
       <H3>Tables</H3>
       <P>
@@ -298,6 +299,63 @@ export function Section() {
         <Mono>shared/test/stock.test.mjs</Mono>, <Mono>shared/test/stockWaste.test.mjs</Mono>; fixtures{' '}
         <Mono>api/test/support/fixtures/stock.mjs</Mono> (kinds <Mono>areaId</Mono>, <Mono>reasonId</Mono>,{' '}
         <Mono>wasteId</Mono>, <Mono>transferId</Mono>).
+      </P>
+      <H3>Usage from sales (phase 5)</H3>
+      <P>
+        Migration 311 (<Mono>docs/INVENTORY.md</Mono> 7 and 9, decisions D9 and D10). The walk is the cost
+        engine&apos;s: <Mono>usageOf(sold, scope, ctx)</Mono> in <Mono>shared/costing.js</Mono> turns one sold dish
+        (options by id or, for an online order, by their words through <Mono>matchOptions()</Mono>; a meal deal&apos;s
+        picks, or with none its <Mono>typicalPicks()</Mono> from <Mono>ctx.pickMix</Mono>) into{' '}
+        <Mono>{'{ items: [{ item_id, qty_base }], uncosted: [{ reason, text, fix }] }'}</Mono> on{' '}
+        <Mono>dishCost()</Mono>&apos;s lines (each carries <Mono>bought</Mono>: recipeCost()&apos;s{' '}
+        <Mono>bought_qty</Mono>, as bought after its yield) and, for a prep recipe inside, on <Mono>recipeCost()</Mono>&apos;s
+        own lines by its yield and loss. So <Mono>cost = sum(qty_base x per_base)</Mono> by construction.{' '}
+        <Mono>itemsOf()</Mono> (waste) is built on it (<Mono>recipeUsage()</Mono> for a batch).
+      </P>
+      <P>
+        Sold lines are read once: <Mono>loadSoldLines()</Mono> beside <Mono>loadSold()</Mono> in{' '}
+        <Mono>services/recipeCoverageSvc.js</Mono> on the channel fragments <Mono>SOLD_FROM</Mono> (till and kiosk:
+        closed checks, lines not voided, test sales left out, on <Mono>pos_days.business_date</Mono>, options and
+        combo from <Mono>pos_checks.state</Mono>; online: the counted statuses on <Mono>service_date</Mono>, the order
+        type the order&apos;s, else Ordering setup&apos;s for its fulfilment, else the type of that name; imported:{' '}
+        <Mono>ext_line_parts</Mono> main, options and extra dishes, VAT out by the line&apos;s tax share, refunds only
+        with <Mono>stock_settings.refunds_return_stock</Mono>; GloriaFood by name, <Mono>gloriaDayRows()</Mono> on
+        the link&apos;s day basis). <Mono>loadPickMix()</Mono> reads the last 30 days&apos; picks of the deals that
+        need them.
+      </P>
+      <P>
+        <Mono>services/stockUsageSvc.js</Mono>: <Mono>computeDays()</Mono> replaces the days&apos; rows in one
+        transaction: <Mono>stock_usage_days</Mono> (tenant, venue, day, item; <Mono>qty_base</Mono>,{' '}
+        <Mono>cost_per_base</Mono> and <Mono>cost_how</Mono> average | last | standard at the day&apos;s last sale,{' '}
+        <Mono>channels</Mono> jsonb, <Mono>at</Mono> the day&apos;s last sale) and <Mono>dish_cost_days</Mono> (venue,
+        day, channel, dish and section by id and name, stream, order type, recipe, <Mono>qty</Mono>,{' '}
+        <Mono>sales_pence</Mono>, <Mono>net_pence</Mono> VAT out, <Mono>cost</Mono> pounds, <Mono>uncosted_qty</Mono>,{' '}
+        <Mono>typical_qty</Mono>, <Mono>left_out</Mono>, <Mono>gaps</Mono>), and <Mono>stock_usage_marks</Mono> (each
+        day&apos;s fingerprint from <Mono>dayFingerprints()</Mono>: per channel lines, quantity, last change, and the
+        imported parts&apos; hash). <Mono>runVenueUsage()</Mono> works out the venue&apos;s last{' '}
+        <Mono>USAGE_DAYS</Mono> (14) trading days (<Mono>venueToday()</Mono>: the till&apos;s day start, else 04:00)
+        that changed, were marked (<Mono>stock_usage_venues.dirty_from</Mono>, set by <Mono>markUsageDirty()</Mono>:
+        the recipe, link and option rule plugins call <Mono>marksUsageOnChange(app)</Mono>, an <Mono>onSend</Mono>{' '}
+        hook; the refunds setting) or were never worked out; <Mono>usageHooks.isDayClosed()</Mono> (false until
+        phase 6) keeps closed days. <Mono>sweepStockUsage()</Mono> (job <Mono>jobs/stock-usage.js</Mono>, every 5
+        minutes) registers the venues of groups with recipes, claims due ones with a lease
+        (<Mono>running_until</Mono>, <Mono>FOR UPDATE SKIP LOCKED</Mono>), runs each in system mode and lets go.
+      </P>
+      <P>
+        Routes (<Mono>routes/stockUsage.js</Mono>): <Mono>GET /api/stock/venues/:venueId/usage?from=&amp;to=</Mono>{' '}
+        (Stock view; values with Costing view; at most 31 days) and <Mono>POST .../usage/recompute</Mono>{' '}
+        <Mono>{'{ from, to }'}</Mono> (Stock manage; up to 31 days, none after today; 409 while the job holds the
+        venue). On hand, the ledger and count scopes read the usage moves; <Mono>/settings</Mono> takes{' '}
+        <Mono>refunds_return_stock</Mono> and the venue&apos;s settings <Mono>par_mode</Mono> (whole saves). The order
+        form (purchasing&apos;s <Mono>orderStock()</Mono>) shows on hand, on order and usage over 7 days with Stock view,
+        and fills pars by <Mono>packsToPar(par, quote, parStock(mode, stock))</Mono> with <Mono>parModeOf()</Mono>.
+        Menu margins&apos; <Mono>GET /api/menu-margins/sold</Mono> sums <Mono>dish_cost_days</Mono> by{' '}
+        <Mono>soldMargins()</Mono>. Pepper: <Mono>usage_summary</Mono> (read). Reports: <Mono>stock.usage</Mono>,{' '}
+        <Mono>stock.dish_sales</Mono> (module costing; sales need till reports), starters{' '}
+        <Mono>stock_theoretical_food_cost_week</Mono> and <Mono>uncosted_dishes_by_sales</Mono> (now on{' '}
+        <Mono>dish_cost_days</Mono>); <Mono>stock_usage_marks</Mono> and <Mono>stock_usage_venues</Mono> are decided
+        out. Tests: <Mono>shared/test/stockUsage.test.mjs</Mono>, <Mono>api/test/stock-usage.test.mjs</Mono>; the
+        fixtures recompute late (<Mono>fillLate</Mono>, after the till&apos;s sales).
       </P>
     </section>
   )

@@ -164,8 +164,9 @@ export function Section() {
         the cost route sends <Mono>plain</Mono> to people without Costing view. A meal deal sums its picks (a list,
         a till line&apos;s combo parts with <Mono>modifiers</Mono>, or a basket&apos;s <Mono>combo</Mono> with{' '}
         <Mono>choices</Mono>), or gives <Mono>min</Mono> / <Mono>max</Mono> over its steps&apos; choices
-        (<Mono>stepChoices()</Mono>; a step with a condition adds nothing to the least); <Mono>typical</Mono> stays
-        null until sales (phase 5). Goods with no link offer the inventory item with the same barcode
+        (<Mono>stepChoices()</Mono>; a step with a condition adds nothing to the least); <Mono>typical</Mono> is the cost at
+        <Mono>typicalPicks()</Mono> (phase 5: each step&apos;s most sold dish from <Mono>ctx.pickMix</Mono>, else its first
+        choice; <Mono>typical_picks</Mono>). Goods with no link offer the inventory item with the same barcode
         (<Mono>goods_item</Mono>); a service is <Mono>not_needed</Mono>, never a gap.{' '}
         <Mono>dishMargin()</Mono> / <Mono>menuMargins(menu, scope, ctx, {'{ rates, settings }'})</Mono>: price by{' '}
         <Mono>fromPrice()</Mono> (the till and online price: one price per dish on a menu), VAT by{' '}
@@ -292,8 +293,12 @@ export function Section() {
         <Mono>--only=recipes</Mono>).
       </P>
       <InfoBox type="info">
-        Not yet: stock, usage from sales, the typical cost of a meal deal from what guests pick, engineering and
-        scenarios. They are the later phases of <Mono>docs/INVENTORY.md</Mono>; what is left is in{' '}
+        Phase 5 (27 Nov 2026) built usage from sales on the same walk: <Mono>usageOf()</Mono>, <Mono>recipeUsage()</Mono>,
+        <Mono>matchOptions()</Mono>, <Mono>typicalPicks()</Mono>, <Mono>pickMix()</Mono> and <Mono>soldMargins()</Mono> in{' '}
+        <Mono>shared/costing.js</Mono>; <Mono>dishCost()</Mono>&apos;s lines carry <Mono>bought</Mono>; the recipe, link
+        and option rule routes mark usage days on change (<Mono>marksUsageOnChange()</Mono>); Menu margins&apos; Sold
+        tab (<Mono>GET /api/menu-margins/sold</Mono>, <Mono>components/recipes/SoldMargins.jsx</Mono>); the Stock
+        section has the rest. Not yet: engineering and scenarios. They are the later phases of <Mono>docs/INVENTORY.md</Mono>; what is left is in{' '}
         <Mono>docs/claude/outstanding/recipes.md</Mono>.
       </InfoBox>
     </section>

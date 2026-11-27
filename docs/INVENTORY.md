@@ -6,7 +6,8 @@ Pepper, drafts, recipes from dishes and coverage by sales, migration 304; see "P
 built" and "Phase 3 as built" under section 11). Phase 4 built on 27 Nov 2026: 4a (stocktake, the ledger, adjustments:
 the stock module, storage areas, counts by area with approval, migrations 305 to 307; see "Phase 4a as built") and 4b
 (waste with its reasons and the till's voids marked wasted, transfers between venues, migrations 308 and 309; see "Phase
-4b as built"). Phases 5 to 10 are a plan. The decisions in section 12 are taken as
+4b as built"). Phase 5 built on 27 Nov 2026 (usage from sales: stock on hand takes sales off, dish margins as sold,
+order up to par; migration 311; see "Phase 5 as built"). Phases 6 to 10 are a plan. The decisions in section 12 are taken as
 recommended, D1 to D12.** The owner's ask when building started: "recipes variations, per revenue stream/order type
 matrix, and per location (or ability to link a different recipe to menu items in different locations)",
 "stock take module" and "reports". The variation matrix is part of phase 2's links (5.4).
@@ -388,7 +389,7 @@ venue's trading day:
 
 | Channel | Read from | Notes |
 |---|---|---|
-| Till and kiosk | `pos_checks.state` of closed checks on the day | Lines not voided, plus voids marked wasted. Options and deal picks come from the state; generated test sales are left out. |
+| Till and kiosk | `pos_checks.state` of closed checks on the day | Lines not voided. *As built: voids marked wasted are left out too: they are waste already (phase 4b), so variance counts them in waste, not usage.* Options and deal picks come from the state; generated test sales are left out. |
 | Online orders | `order_items` with the counted statuses | Dish by id; options by label matched within the dish's groups; deal parts as stored. |
 | Loyverse, Square | `ext_line_parts` of sales not cancelled | Dish and option ids from the mapping. A mapped deal uses its typical picks. Refund receipts give stock back only when a rule says the goods came back (off by default). |
 | GloriaFood | - | By name only today. Counted as "sold without a recipe" until its orders go through the item mapping tool (a follow-up). |
@@ -474,7 +475,8 @@ unexplained       = variance - logged waste
 
 ## 9. Ordering from stock
 
-- **Order to par takes stock off**: `packsToPar()` receives on hand and what is already on order.
+- **Order to par takes stock off**: `packsToPar()` receives on hand and what is already on order. *Built in phase 5,
+  with a venue setting (up to par once the venue has an approved count, else the par as it is).*
 - **Suggested order** per supplier: `forecast usage until the delivery after next + a buffer -
   on hand - on order`, rounded up to packs and minimums by the existing `fitQty()`.
 - **Forecast, first version**: the average usage on the same weekday over the last four weeks,
@@ -551,7 +553,7 @@ scale; steps that follow the same day run nearer half.
 | 2 | **Built 27 Nov 2026.** Links to dishes with the variation matrix, option rules, meal deals, goods; the Menu margins page with the order type switch and thresholds; report subjects; Pepper's read tools | Every costed dish shows its margin | 80 to 100 |
 | 3 | **Built 27 Nov 2026.** Pepper reads recipes (sheet, PDF, photo, text) into drafts; match dishes to recipes; coverage by sales value | Most of a menu costed in a sitting | 50 to 65 |
 | 4 | **Built 27 Nov 2026.** 4a: the `stock` module; storage areas; stocktake (drafts, units, approval, key items, phone and scanner); adjustments; `loadStockMoves()`. 4b: waste (reasons in WRAP's kinds, till voids marked wasted, the phone's waste page); transfers in two steps | Stock run from documents | 90 to 110 |
-| 5 | Usage from sales (till, kiosk, online, imported); on hand with sales taken off; order to par minus stock | Stock on hand that follows trading | 70 to 90 |
+| 5 | **Built 27 Nov 2026.** Usage from sales (till, kiosk, online, imported); on hand with sales taken off; order to par minus stock | Stock on hand that follows trading | 70 to 90 |
 | 6 | Periods and variance; actual and theoretical food cost; the Cash Recon line; widgets; Today tasks; `explain_variance` | A pound figure on the gap, per item and venue | 70 to 90 |
 | 7 | Engineering from real sales; scenarios; what-if; push prices; price creep and its rule trigger | Pricing decisions made in the app | 60 to 80 |
 | 8 | Allergens on supplier products; the roll-up check and its Today item; suggested calories | Declared allergens checked against recipes | 50 to 65 |
@@ -705,6 +707,37 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
   the device's venue: the app has no list of venues per person (`docs/claude/outstanding/stock.md` item 73); a
   cancelled transfer comes back when it is cancelled, not as if never sent; the receiver's average paid doesn't take
   in what arrived by transfer (deliveries only).
+
+### Phase 5 as built (27 Nov 2026)
+
+- **Migration** 311: `stock_usage_days` (venue, day, item; quantity, cost per base unit at the day's last sale and where
+  it came from, each channel's part, the move's moment), `dish_cost_days` (venue, day, channel, dish, stream, order type;
+  units, sales, net, theoretical cost, units uncosted and at typical picks, what was missing), `stock_usage_marks` (each
+  day's fingerprint), `stock_usage_venues` (each venue's lease and `dirty_from`), all RLS forced;
+  `stock_settings.refunds_return_stock` (off) and `stock_venue_settings.par_mode`.
+- **One walk** (5.5): `usageOf()` in `shared/costing.js` reads `dishCost()`'s lines, which now carry what each line is as
+  bought, and walks a prep recipe inside on `recipeCost()`'s lines, so cost = the items taken off times their cost per
+  base unit by construction; waste's `itemsOf()` is built on it. `typicalPicks()` gives a deal with no picks the dishes
+  guests pick most (from the last 30 days, else each step's first), and `dishCost().typical` is their cost (the phase 2
+  hook). `matchOptions()` turns an online order's option words into the dish's options.
+- **The job** `jobs/stock-usage.js` (every 5 minutes, `services/stockUsageSvc.js`): each venue of a group with recipes,
+  claimed with a lease (`FOR UPDATE SKIP LOCKED`); its last 14 trading days (the till's day start, else 04:00) worked out
+  again when a day's fingerprint changed (late sales, a re-map), a recipe, link, option rule or setting marked it, or it
+  never was; a day replaced whole in one transaction; `isDayClosed()` is phase 6's hook. Sold lines are read once
+  (`loadSoldLines()` beside coverage's `loadSold()`, on shared channel fragments). Recompute on the Usage tab (Stock
+  manage, up to 31 days).
+- **On hand** takes sales off (`SALES_COUNTED`): one move per item per day at the day's last sale, today's up to the last
+  run (said on the page); the ledger shows the day with its channel split.
+- **Pages**: the Stock page's Usage tab (by item or day, uncosted sold dishes with why and how to fix, left out,
+  Recompute); Menu margins' Sold tab (units, net, theoretical cost, GP, cost % by dish and section); the order form's on
+  hand, on order and usage over 7 days, pars up to par. Pepper `usage_summary`; reports Usage from sales and Dish sales
+  and theoretical cost, starter Theoretical food cost by week; Uncosted dishes by sales reads `dish_cost_days`.
+- **What the build changed in the plan**: voids marked wasted are not usage (they are waste since 4b); a day's usage sits at
+  its last sale, so a count mid-trading has the day after it (outstanding item 75); the cost is the average paid, else
+  the last paid, else the standard price, and the same figure prices both tables so theoretical food cost adds up across
+  them; GloriaFood orders are listed as sold without a recipe; a recipe change marks every venue (a venue link only its
+  venue); the order form counts every placed order not received as on order, and pars stay "the par as it is" until a
+  venue's first approved count unless the venue says otherwise.
 
 ## 12. Decisions for the owner
 

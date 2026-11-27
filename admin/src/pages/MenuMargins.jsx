@@ -91,7 +91,7 @@ export default function MenuMargins() {
   return (
     <div className="h-full overflow-y-auto bg-page" data-testid="margins-page">
       <PageHeader icon={BadgePercent} title="Menu margins">
-        {data?.rows?.length > 0 && (
+        {tab === 'margins' && data?.rows?.length > 0 && (
           <button type="button" className={cn(btn.outline, 'h-12')} onClick={() => downloadCsv(data, rows)} data-testid="margins-csv">
             <Download className="w-4 h-4" />Export CSV
           </button>
