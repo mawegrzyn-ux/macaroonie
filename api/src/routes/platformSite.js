@@ -8,7 +8,8 @@
 //   GET /             the platform page with the register-interest form
 //                     (views/platform/landing.eta)
 //   GET the site's    /features, /features/<group>, /architecture,
-//   other pages       /screenshots, /try, /try/<sandbox>: one record each in
+//   other pages       /screenshots, /try, /try/<sandbox>, /terms, /privacy:
+//                     one record each in
 //                     services/platformSite/pages.js, views in
 //                     views/platform/site/
 //   GET /site/<file>  the site's CSS, JS and screenshots (api/platform-site/)
@@ -41,7 +42,8 @@ import { sql } from '../config/db.js'
 import { env } from '../config/env.js'
 import { sendEmail } from '../services/emailSvc.js'
 import { platformHostKind, officeOrigin, opsOrigin } from '../services/platformHost.js'
-import { sitePage, sitemapXml, NAV, TRY_PAGES } from '../services/platformSite/pages.js'
+import { sitePage, sitemapXml, NAV, TRY_PAGES, LEGAL_LINKS } from '../services/platformSite/pages.js'
+import { COMPANY } from '../services/platformSite/company.js'
 import { assetUrl, serveAsset } from '../services/platformSite/assets.js'
 import { sharedBase, sharedPreloads, serveShared } from '../services/platformSite/sharedModules.js'
 import { serveDemo, DEMO_PAGES } from '../services/platformSite/demoBuilds.js'
@@ -117,7 +119,7 @@ async function platformSite(app) {
       await reply.view(page.view, {
         officeUrl: officeOrigin(), opsUrl: opsOrigin(),
         rootDomain: env.PUBLIC_ROOT_DOMAIN, origin: siteOrigin(), year: new Date().getFullYear(),
-        page, nav: NAV, tryPages: TRY_PAGES, groups: FEATURE_GROUPS, layers: ARCH_LAYERS,
+        page, nav: NAV, legal: LEGAL_LINKS, company: COMPANY, tryPages: TRY_PAGES, groups: FEATURE_GROUPS, layers: ARCH_LAYERS,
         shots: SHOTS, gallery: GALLERY, asset: assetUrl, sharedBase, sharedPreloads, demoPages: DEMO_PAGES,
         group: page.group ? FEATURE_GROUPS.find(g => g.slug === page.group) : null,
       })

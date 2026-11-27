@@ -46,6 +46,7 @@ function MacaroonIcon({ className = 'w-5 h-5' }) {
 import { cn } from '@/lib/utils'
 import { useApi, setSelectedTenant } from '@/lib/api'
 import { usePageUse } from '@/lib/usage'
+import { privacyHref } from '@/lib/hosts'
 import TenantSwitcherModal from '@/components/TenantSwitcherModal'
 import MobileSuggestModal from '@/components/MobileSuggestModal'
 import MobileViewToggle from '@/components/MobileViewToggle'
@@ -614,6 +615,7 @@ export default function AppShell() {
         )}
         <div className="shrink-0 p-2 border-t">
           {open ? (
+            <>
             <div className="flex items-center gap-2 px-1 py-1">
               <img
                 src={user?.picture}
@@ -636,6 +638,17 @@ export default function AppShell() {
                 <LogOut className="w-4 h-4" />
               </button>
             </div>
+            {/* The Privacy policy for staff (Article 13): opens macaroonie.com in a new tab. */}
+            <a
+              href={privacyHref()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center min-h-[48px] px-1 text-xs text-muted-foreground hover:text-foreground hover:underline touch-manipulation"
+              data-testid="shell-privacy-link"
+            >
+              Privacy policy
+            </a>
+            </>
           ) : (
             <button
               onClick={handleLogout}

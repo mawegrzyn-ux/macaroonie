@@ -112,7 +112,8 @@
           </label>
           <label class="f">Anything we should know?<textarea name="message" maxlength="4000" placeholder="What you'd like to use, which systems you use today…"></textarea></label>
           <div class="hp" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>
-          <label class="check"><input type="checkbox" name="consent"><span>I agree that Macaroonie may store these details and contact me about the platform. We won't share them or use them for anything else.</span></label>
+          <label class="check"><input type="checkbox" name="consent"><span>I agree that Macaroonie may store these details and contact me about the platform. We won't use them for anything else, and we won't sell them or pass them on for anyone else to use.</span></label>
+          <p class="fine" id="interest-privacy">We use your details only to reply and to talk to you about Macaroonie. We don't send newsletters or other marketing. The <a href="/privacy#register-interest">privacy policy</a> says how we keep them, for how long, and your rights.</p>
           <button class="btn btn-primary" type="submit" id="interest-submit" style="width:100%">Register interest</button>
           <p class="msg" id="interest-msg" role="status" aria-live="polite"></p>
         </div>

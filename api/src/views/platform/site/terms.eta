@@ -1,0 +1,402 @@
+<%
+/* The Terms and conditions (macaroonie.com/terms): website use, and the
+   terms for business customers with the data processing schedule (UK GDPR
+   Article 28(3)) at the end. English law, business to business. Clauses
+   are numbered by hand (span.sn for a clause, span.cn for its parts; the
+   schedule's span.sp and span.pn): platform-site.test.mjs checks they run
+   in order and that every contents link matches a heading's id. The
+   company's details come from company.js (it.company). When an outside
+   service that receives personal data is added or dropped, change the
+   Privacy policy's section 7 (privacy.eta) and the date on both page
+   records (pages.js, updated). */
+const co = it.company
+%>
+<%~ include('./_head', it) %>
+<section class="page-hero legal-hero">
+  <div class="wrap">
+    <h1>Terms and conditions</h1>
+    <p class="lead">The terms for using our website, and for businesses that use Macaroonie.</p>
+    <p class="updated">Last updated <%= it.page.updated %></p>
+  </div>
+</section>
+<section class="tight">
+  <div class="wrap legal">
+    <nav class="legal-toc" aria-labelledby="toc-title">
+      <h2 id="toc-title">Contents</h2>
+      <ol>
+        <li><a href="#about">1. About these terms</a></li>
+        <li><a href="#definitions">2. Definitions</a></li>
+        <li><a href="#website">3. Using our website</a></li>
+        <li><a href="#service">4. The service</a></li>
+        <li><a href="#accounts">5. Accounts and users</a></li>
+        <li><a href="#acceptable-use">6. Acceptable use</a></li>
+        <li><a href="#customer-data">7. Customer data</a></li>
+        <li><a href="#data-protection">8. Data protection</a></li>
+        <li><a href="#ai">9. AI features</a></li>
+        <li><a href="#third-party">10. Third-party services</a></li>
+        <li><a href="#fees">11. Fees and payment</a></li>
+        <li><a href="#availability">12. Availability, support and changes</a></li>
+        <li><a href="#ip">13. Intellectual property</a></li>
+        <li><a href="#feedback">14. Feedback</a></li>
+        <li><a href="#confidentiality">15. Confidentiality</a></li>
+        <li><a href="#warranties">16. Warranties</a></li>
+        <li><a href="#liability">17. Liability</a></li>
+        <li><a href="#termination">18. Suspension and termination</a></li>
+        <li><a href="#data-on-exit">19. Your data when the agreement ends</a></li>
+        <li><a href="#changes">20. Changes to these terms</a></li>
+        <li><a href="#force-majeure">21. Events beyond our control</a></li>
+        <li><a href="#assignment">22. Assignment and subcontracting</a></li>
+        <li><a href="#entire-agreement">23. Entire agreement</a></li>
+        <li><a href="#notices">24. Notices</a></li>
+        <li><a href="#third-party-rights">25. Third party rights</a></li>
+        <li><a href="#general">26. General</a></li>
+        <li><a href="#law">27. Governing law and courts</a></li>
+        <li><a href="#dps">Schedule: Data processing</a></li>
+      </ol>
+    </nav>
+    <article class="legal-doc">
+
+      <h2 id="about"><span class="sn">1.</span> About these terms</h2>
+      <ol class="clauses">
+        <li><span class="cn">1.1</span><div>These terms are from <%= co.name %>, which trades as <%= co.tradingName %> ("we", "us", "our"). We are a company registered in <%= co.registeredIn %>, company number <%= co.number %>, and our registered office is <%= co.office %>. You can contact us at <a href="mailto:<%= co.email %>"><%= co.email %></a>.</div></li>
+        <li><span class="cn">1.2</span><div>They cover two things:
+          <ol class="sub">
+            <li><span class="sl">(a)</span>anyone using our website, macaroonie.com (<a href="#website">clause 3</a>); and</li>
+            <li><span class="sl">(b)</span>businesses that use the Macaroonie service under an Order with us (clauses 4 to 27 and the <a href="#dps">Data processing schedule</a>).</li>
+          </ol></div></li>
+        <li><span class="cn">1.3</span><div>Macaroonie is in active development. We are taking on our first customers, who join by written agreement with us; there is no online sign-up. Features may change as we build them (<a href="#availability">clause 12</a>).</div></li>
+        <li><span class="cn">1.4</span><div>The service is for businesses only. By agreeing an Order, the Customer confirms that it is acting for the purposes of its trade, business or profession, and not as a consumer.</div></li>
+        <li><span class="cn">1.5</span><div>Please read these terms carefully. You can print this page or save it for your records.</div></li>
+      </ol>
+
+      <h2 id="definitions"><span class="sn">2.</span> Definitions</h2>
+      <ol class="clauses">
+        <li><span class="cn">2.1</span><div>In these terms:
+          <dl class="defs">
+            <dt>"Agreement"</dt><dd>means an Order, these terms and the Data processing schedule.</dd>
+            <dt>"Business Day"</dt><dd>means a day other than a Saturday, a Sunday or a public holiday in England.</dd>
+            <dt>"Customer"</dt><dd>means the business named in an Order.</dd>
+            <dt>"Customer Data"</dt><dd>means the data, text, pictures and other content that the Customer or its Users put into the Service, or that the Service collects for the Customer (for example from its Guests), including Customer Personal Data.</dd>
+            <dt>"Customer Personal Data"</dt><dd>means the personal data in Customer Data that we process for the Customer as its processor.</dd>
+            <dt>"Data Protection Law"</dt><dd>means the UK GDPR, the Data Protection Act 2018, the Privacy and Electronic Communications (EC Directive) Regulations 2003, and any other UK law about personal data that applies.</dd>
+            <dt>"Fees"</dt><dd>means the fees set out in an Order.</dd>
+            <dt>"Guest"</dt><dd>means a customer of the Customer, such as someone who books, orders, pays or joins a loyalty scheme through the Service.</dd>
+            <dt>"Order"</dt><dd>means an order form, proposal or other document, including an email, that we and the Customer agree in writing and that refers to these terms. It sets out the plan, the venues, the Fees and the term.</dd>
+            <dt>"Service"</dt><dd>means the Macaroonie platform as we provide it to the Customer under an Order: the office and the phone app, the till, kitchen screen, kiosk and menu screen apps, the venue hub software, websites, the booking widget, online ordering, loyalty, Pepper and the other features, with their updates.</dd>
+            <dt>"Users"</dt><dd>means the people the Customer allows to use the Service, such as its staff.</dd>
+            <dt>"Website"</dt><dd>means macaroonie.com and its pages.</dd>
+          </dl></div></li>
+        <li><span class="cn">2.2</span><div>Words such as "including" and "for example" do not limit the words before them. "Writing" includes email. Headings do not affect the meaning.</div></li>
+      </ol>
+
+      <h2 id="website"><span class="sn">3.</span> Using our website</h2>
+      <ol class="clauses">
+        <li><span class="cn">3.1</span><div>You may use the Website to find out about Macaroonie, try the demos and register interest. You don't need an account.</div></li>
+        <li><span class="cn">3.2</span><div>The Website is for general information. We try to keep it accurate and up to date, but it describes features as we build them, and they may change. We don't promise that the Website is complete, accurate or always available. Nothing on it is an offer that binds us.</div></li>
+        <li><span class="cn">3.3</span><div>The demos under Try it use invented businesses, menus and orders, and run in your browser. Please don't use them to try to break, overload or get into any part of our systems, or put anything unlawful or offensive into them.</div></li>
+        <li><span class="cn">3.4</span><div>You must not use the Website in a way that breaks the law, try to get unauthorised access to it or to our systems, attack it (for example with harmful code or a denial-of-service attack), or copy it for commercial use, except as the law allows.</div></li>
+        <li><span class="cn">3.5</span><div>Links to other websites are for your convenience. We don't control those websites and are not responsible for them.</div></li>
+        <li><span class="cn">3.6</span><div>The Website and its content, including the words and screenshots, belong to us or our licensors. You may view, print and share it for your own information.</div></li>
+        <li><span class="cn">3.7</span><div>We provide the Website free of charge. As far as the law allows, we are not liable for any loss arising from your use of it. Nothing in these terms limits or excludes our liability for death or personal injury caused by our negligence, for fraud or fraudulent misrepresentation, or for anything else the law does not allow us to limit or exclude. If you use the Website as a consumer, nothing in these terms affects your legal rights.</div></li>
+        <li><span class="cn">3.8</span><div>Our <a href="/privacy">Privacy policy</a> explains how we use personal data, including on the Website.</div></li>
+      </ol>
+
+      <h2 id="service"><span class="sn">4.</span> The service</h2>
+      <ol class="clauses">
+        <li><span class="cn">4.1</span><div>Each Order is a contract between us and the Customer, made up of the Order, these terms and the Data processing schedule. If they conflict, the Order wins on the plan, the Fees, the term and anything it expressly says replaces part of these terms; the Data processing schedule wins on Customer Personal Data; otherwise these terms win.</div></li>
+        <li><span class="cn">4.2</span><div>We will provide the Service to the Customer for the term of the Order with reasonable skill and care.</div></li>
+        <li><span class="cn">4.3</span><div>The Customer may use the Service, and let its Users use it, during the term, for the business of the venues the Order covers.</div></li>
+        <li><span class="cn">4.4</span><div>An Order runs from its start date for the term it sets out. If it sets no term, it continues until either party ends it by giving the other at least one month's written notice.</div></li>
+        <li><span class="cn">4.5</span><div>While Macaroonie is in development, some features are offered as early access. They may be incomplete, may change and may be withdrawn.</div></li>
+      </ol>
+
+      <h2 id="accounts"><span class="sn">5.</span> Accounts and users</h2>
+      <ol class="clauses">
+        <li><span class="cn">5.1</span><div>The Customer chooses its Users and what each may do, through the roles and permissions in the Service. It is responsible for:
+          <ol class="sub">
+            <li><span class="sl">(a)</span>giving accounts only to people it authorises, and closing them when those people leave;</li>
+            <li><span class="sl">(b)</span>the roles, permissions and venues it gives each User;</li>
+            <li><span class="sl">(c)</span>the till and device PINs that it and its Users set, and the devices it links to the Service;</li>
+            <li><span class="sl">(d)</span>everything done through its Users' accounts, PINs and devices; and</li>
+            <li><span class="sl">(e)</span>making sure its Users follow these terms.</li>
+          </ol></div></li>
+        <li><span class="cn">5.2</span><div>Users sign in through our sign-in provider, Auth0. The Customer must make sure its Users keep their sign-in details and PINs secret, don't share accounts, and use shared devices only as the Service allows.</div></li>
+        <li><span class="cn">5.3</span><div>The Customer must tell us without delay at <a href="mailto:<%= co.email %>"><%= co.email %></a> if it suspects that anyone has used an account, a PIN or a device without permission.</div></li>
+        <li><span class="cn">5.4</span><div>We may access the Customer's account to give support, fix problems or keep the Service secure, or where the law requires it, and only as the Data processing schedule allows.</div></li>
+      </ol>
+
+      <h2 id="acceptable-use"><span class="sn">6.</span> Acceptable use</h2>
+      <ol class="clauses">
+        <li><span class="cn">6.1</span><div>The Customer must not, and must make sure its Users do not:
+          <ol class="sub">
+            <li><span class="sl">(a)</span>use the Service in breach of any law, including Data Protection Law, consumer law, food information law and the law on electronic marketing;</li>
+            <li><span class="sl">(b)</span>put into the Service anything unlawful, defamatory, offensive or that infringes anyone's rights, or any harmful code;</li>
+            <li><span class="sl">(c)</span>try to get unauthorised access to the Service, to another customer's data or to our systems, or test their security without our written agreement;</li>
+            <li><span class="sl">(d)</span>overload or disrupt the Service, or reverse engineer it, except as the law allows;</li>
+            <li><span class="sl">(e)</span>copy, resell or rent the Service, make it available to anyone other than its Users, or use it to build a competing product;</li>
+            <li><span class="sl">(f)</span>send marketing through the Service to people who have not agreed to receive it, where the law requires their agreement; or</li>
+            <li><span class="sl">(g)</span>use Pepper or the Service's connectors to do anything this clause forbids.</li>
+          </ol></div></li>
+        <li><span class="cn">6.2</span><div>We may remove content, or suspend access, that breaks this clause (<a href="#termination">clause 18</a>).</div></li>
+      </ol>
+
+      <h2 id="customer-data"><span class="sn">7.</span> Customer data</h2>
+      <ol class="clauses">
+        <li><span class="cn">7.1</span><div>The Customer owns its Customer Data. We claim no ownership of it.</div></li>
+        <li><span class="cn">7.2</span><div>The Customer gives us a non-exclusive, royalty-free licence to host, copy, process, send and display Customer Data during the term, only as needed to provide, secure and support the Service and as the Agreement otherwise allows.</div></li>
+        <li><span class="cn">7.3</span><div>The Customer is responsible for its Customer Data: that it has the right to put it in the Service, that it is accurate, and that collecting and using it is lawful. This includes giving its Guests and Users the privacy information the law requires, and getting any consent the law requires, for example for marketing emails and for the cookies and tracking tools it adds to its websites.</div></li>
+        <li><span class="cn">7.4</span><div>We may use information about how the Service is used, combined so that it identifies no customer and no person, to run and improve the Service.</div></li>
+        <li><span class="cn">7.5</span><div>The Customer can export much of its Customer Data through the Service at any time, for example reports as CSV, Excel or PDF files, and a guest's data on request. We will help with other exports if asked, and may charge a reasonable fee if the work is significant.</div></li>
+      </ol>
+
+      <h2 id="data-protection"><span class="sn">8.</span> Data protection</h2>
+      <ol class="clauses">
+        <li><span class="cn">8.1</span><div>Each party will comply with Data Protection Law.</div></li>
+        <li><span class="cn">8.2</span><div>For Customer Personal Data, such as the Customer's Guests' details and its staff records, the Customer is the controller and we are its processor. The <a href="#dps">Data processing schedule</a> applies to that processing.</div></li>
+        <li><span class="cn">8.3</span><div>For the personal data of the Customer's contacts and Users that we use to run our business and the Service (accounts, sign-in, security, support, billing and improving the Service), we are a controller. Our <a href="/privacy">Privacy policy</a> explains how we use it, and the office and the phone app link to it from their menus. The Customer will also point its Users to it when it gives them access, in particular staff who use only the venues' devices, such as the tills.</div></li>
+      </ol>
+
+      <h2 id="ai"><span class="sn">9.</span> AI features</h2>
+      <ol class="clauses">
+        <li><span class="cn">9.1</span><div>The Service includes Pepper, an assistant, and readers that turn menus, invoices, receipts and other documents into drafts. They use AI models provided by Anthropic.</div></li>
+        <li><span class="cn">9.2</span><div>AI output can be wrong, incomplete or out of date. Pepper suggests, and a change it offers to make waits until a User confirms it. The Customer must make sure that a person checks AI output before relying on it, publishing it or acting on it.</div></li>
+        <li><span class="cn">9.3</span><div>The Customer stays responsible for what it publishes and does with the Service, whether or not AI helped, including:
+          <ol class="sub">
+            <li><span class="sl">(a)</span>its menus, prices and offers;</li>
+            <li><span class="sl">(b)</span>allergen, ingredient, dietary and calorie information, which it must check against its own recipes and its suppliers' specifications before Guests see it. The Service shows the information the Customer gives it;</li>
+            <li><span class="sl">(c)</span>its food safety, temperature, cleaning and other health and safety records, which must reflect checks actually carried out;</li>
+            <li><span class="sl">(d)</span>its bookings, rota, pay, tips and cash figures; and</li>
+            <li><span class="sl">(e)</span>the messages it sends to Guests and staff.</li>
+          </ol></div></li>
+        <li><span class="cn">9.4</span><div>The Customer must not use the AI features to make decisions about people that have legal or similarly significant effects on them without meaningful review by a person.</div></li>
+        <li><span class="cn">9.5</span><div>If the Customer turns on the AI chat on its website, it must tell its Guests about it in its own privacy notice.</div></li>
+        <li><span class="cn">9.6</span><div>We don't use Customer Data to train AI models.</div></li>
+      </ol>
+
+      <h2 id="third-party"><span class="sn">10.</span> Third-party services</h2>
+      <ol class="clauses">
+        <li><span class="cn">10.1</span><div>Online card payments through the Service are provided by Stripe, through Stripe Connect, on the Customer's own Stripe account. When the Customer connects Stripe, we ask Stripe to open the account and give Stripe the Customer's name and the email address of the person connecting it; the Customer then sets the account up on Stripe's own pages and holds it under its own agreement with Stripe, which it accepts there. Stripe processes data under its own privacy policy. We are not a payment service provider, we don't hold the Customer's money, and we are not responsible for Stripe's service. Any fee we take on payments is set out in the Order.</div></li>
+        <li><span class="cn">10.2</span><div>Card machines are provided by the provider the Customer chooses (Dojo, SumUp or Stripe Terminal), under the Customer's own agreement with that provider.</div></li>
+        <li><span class="cn">10.3</span><div>The Customer may connect other services, such as its till or ordering system (for example Loyverse, Square or GloriaFood), its own email provider, its own Apple or Google account for wallet passes, outside AI apps through the Service's connectors, analytics, advertising and booking tools on its websites, web addresses it has reports posted to, and outside tools it lets fetch report figures through a data link. Others provide these under their own terms, which the Customer is responsible for accepting and following. We don't control them, and we are not responsible for them, for whether they are available, or for what they do with data the Customer sends them.</div></li>
+        <li><span class="cn">10.4</span><div>If a third party changes or withdraws its service, we may have to change or withdraw the part of the Service that uses it. We will tell the Customer as soon as we reasonably can.</div></li>
+      </ol>
+
+      <h2 id="fees"><span class="sn">11.</span> Fees and payment</h2>
+      <ol class="clauses">
+        <li><span class="cn">11.1</span><div>The Customer will pay the Fees set out in the Order. If the Order says that the Service is free for a period, no Fees are due for that period.</div></li>
+        <li><span class="cn">11.2</span><div>We will invoice as the Order sets out. Unless it says otherwise, invoices are due within 30 days of their date.</div></li>
+        <li><span class="cn">11.3</span><div>Fees do not include VAT. The Customer will pay VAT on top where it applies.</div></li>
+        <li><span class="cn">11.4</span><div>If an invoice is not paid on time, we may charge interest under the Late Payment of Commercial Debts (Interest) Act 1998 and, after giving at least 14 days' written notice, suspend the Service until it is paid.</div></li>
+        <li><span class="cn">11.5</span><div>We may change the Fees from the start of a new term or, where an Order has no fixed term, by giving at least 60 days' written notice. If the Customer doesn't accept a change, it may end the Agreement by notice before the change takes effect.</div></li>
+        <li><span class="cn">11.6</span><div>Charges made by third parties, such as Stripe's or a card machine provider's fees, are between the Customer and them.</div></li>
+      </ol>
+
+      <h2 id="availability"><span class="sn">12.</span> Availability, support and changes</h2>
+      <ol class="clauses">
+        <li><span class="cn">12.1</span><div>We will use reasonable efforts to keep the Service available at all times, apart from maintenance and events beyond our control. We don't promise that the Service will be uninterrupted or free of errors, and we don't commit to a level of availability unless an Order says so.</div></li>
+        <li><span class="cn">12.2</span><div>We will try to carry out maintenance at quiet times, and to give notice of planned work that will interrupt the Service.</div></li>
+        <li><span class="cn">12.3</span><div>Some parts of the Service keep working for a time when a venue's internet connection drops (for example through the venue hub). The Customer should still have a fallback plan for taking orders and payments if the Service, its network or its devices are not available.</div></li>
+        <li><span class="cn">12.4</span><div>We give support by email at <a href="mailto:<%= co.email %>"><%= co.email %></a>, and as the Order describes, and use reasonable efforts to reply promptly.</div></li>
+        <li><span class="cn">12.5</span><div>We improve the Service often, and may add, change or remove features. During a paid term we will not make a change that substantially reduces the core features the Customer uses without giving it reasonable notice. If such a change is to the Customer's material disadvantage, it may end the Agreement by notice before the change takes effect and get back any Fees it paid in advance for the time after the end.</div></li>
+        <li><span class="cn">12.6</span><div>The Customer is responsible for its own internet connection, network, devices, printers and card machines, and for setting them up as we reasonably advise.</div></li>
+        <li><span class="cn">12.7</span><div>The Service keeps on the venues' tills, kitchen screens, kiosks and menu screens what they need to keep working when the internet drops, and on each till a count of the buttons each person taps each day, which the till sends to us for the Customer's heat maps and reports. The Customer, which provides those devices, agrees to this storage on them, and will tell its staff about it. Our <a href="/privacy#cookies">Privacy policy</a> describes it.</div></li>
+      </ol>
+
+      <h2 id="ip"><span class="sn">13.</span> Intellectual property</h2>
+      <ol class="clauses">
+        <li><span class="cn">13.1</span><div>We and our licensors own the Service and the Website, and all intellectual property rights in them, including the software, designs, documentation and templates. The Agreement does not transfer any of them to the Customer.</div></li>
+        <li><span class="cn">13.2</span><div>The Customer may use the Service only as the Agreement allows. It must not copy or change the Service, or make works based on it, except as the law allows.</div></li>
+        <li><span class="cn">13.3</span><div>The Customer may use the templates, themes and starter designs we provide in its venues and on its websites during the term.</div></li>
+        <li><span class="cn">13.4</span><div>The Customer's names, logos, menus, pictures and other content remain its own (<a href="#customer-data">clause 7</a>).</div></li>
+      </ol>
+
+      <h2 id="feedback"><span class="sn">14.</span> Feedback</h2>
+      <ol class="clauses">
+        <li><span class="cn">14.1</span><div>If the Customer or its Users give us ideas, suggestions or feature requests, we may use them freely, without payment or any other obligation. Feedback does not include Customer Data.</div></li>
+        <li><span class="cn">14.2</span><div>The Service's feature request board is shared by all our customers: a request the Customer's Users post there, with its title, its description and the Customer's name, is shown to every customer of the Service, who can vote for it. Feature requests are feedback, not Customer Data or confidential information, and the Customer will make sure that its Users don't put personal data or confidential information in them.</div></li>
+      </ol>
+
+      <h2 id="confidentiality"><span class="sn">15.</span> Confidentiality</h2>
+      <ol class="clauses">
+        <li><span class="cn">15.1</span><div>Each party will keep the other's confidential information secret, use it only for the Agreement, and share it only with its staff, contractors and advisers who need to know it and are bound to keep it confidential. Confidential information includes Customer Data, the terms of an Order and any information about a party's business that is not public.</div></li>
+        <li><span class="cn">15.2</span><div>This does not apply to information that is or becomes public other than through the receiving party's fault, that the receiving party already had or lawfully gets from someone else, or that it develops independently. A party may disclose confidential information where the law, a court or a regulator requires it, telling the other party first where it lawfully can.</div></li>
+        <li><span class="cn">15.3</span><div>This clause continues for five years after the Agreement ends, and for Customer Data and trade secrets for as long as they stay confidential.</div></li>
+      </ol>
+
+      <h2 id="warranties"><span class="sn">16.</span> Warranties</h2>
+      <ol class="clauses">
+        <li><span class="cn">16.1</span><div>Each party confirms that it has the power to enter into the Agreement.</div></li>
+        <li><span class="cn">16.2</span><div>If the Service does not work as the Agreement describes, the Customer should tell us, and we will use reasonable efforts to put it right promptly.</div></li>
+        <li><span class="cn">16.3</span><div>Except as the Agreement expressly says, all warranties, conditions and other terms, whether implied by statute, common law or otherwise, are excluded as far as the law allows. In particular, we don't promise that the Service will meet all of the Customer's needs, or that AI output, imported data or information from third parties will be accurate.</div></li>
+        <li><span class="cn">16.4</span><div>The Customer is responsible for checking that the Service suits its business and its legal obligations, such as those on food information and allergens, health and safety, employment and pay, and tax.</div></li>
+      </ol>
+
+      <h2 id="liability"><span class="sn">17.</span> Liability</h2>
+      <ol class="clauses">
+        <li><span class="cn">17.1</span><div>Nothing in the Agreement limits or excludes either party's liability for:
+          <ol class="sub">
+            <li><span class="sl">(a)</span>death or personal injury caused by its negligence;</li>
+            <li><span class="sl">(b)</span>fraud or fraudulent misrepresentation; or</li>
+            <li><span class="sl">(c)</span>anything else that the law does not allow to be limited or excluded.</li>
+          </ol>
+          Nothing in this clause limits the Customer's obligation to pay the Fees.</div></li>
+        <li><span class="cn">17.2</span><div>Subject to clause 17.1, neither party is liable to the other, whether in contract, tort (including negligence), breach of statutory duty or otherwise, for:
+          <ol class="sub">
+            <li><span class="sl">(a)</span>loss of profits, revenue, sales or business;</li>
+            <li><span class="sl">(b)</span>loss of anticipated savings;</li>
+            <li><span class="sl">(c)</span>loss of goodwill or reputation; or</li>
+            <li><span class="sl">(d)</span>any indirect or consequential loss.</li>
+          </ol></div></li>
+        <li><span class="cn">17.3</span><div>If Customer Data is lost or corrupted, we will first use reasonable efforts to restore it, for example from a backup where we hold one. This does not limit the Customer's other remedies where the loss or corruption was caused by our breach of the Agreement, including of the Data processing schedule; those remedies are subject to clauses 17.2 and 17.4.</div></li>
+        <li><span class="cn">17.4</span><div>Subject to clause 17.1, each party's total liability to the other arising under or in connection with the Agreement is limited to the total Fees paid and payable by the Customer under the Agreement in the 12 months before the event that gave rise to the claim. An Order may set a different limit.</div></li>
+        <li><span class="cn">17.5</span><div>Subject to clause 17.1, we are not liable for losses caused by the Customer's Customer Data or by what it publishes or does with the Service (<a href="#ai">clause 9</a>), by services provided by third parties (<a href="#third-party">clause 10</a>), by the Customer's network or devices, or by the Customer's breach of the Agreement.</div></li>
+        <li><span class="cn">17.6</span><div>The parties agree that these limits are reasonable for the purposes of the Unfair Contract Terms Act 1977, considering the Fees, the nature of the Service (including that it is in active development), the Customer's ability to check AI output and its own data, and the insurance each party can obtain.</div></li>
+      </ol>
+
+      <h2 id="termination"><span class="sn">18.</span> Suspension and termination</h2>
+      <ol class="clauses">
+        <li><span class="cn">18.1</span><div>We may suspend all or part of the Service, or a User's access, if:
+          <ol class="sub">
+            <li><span class="sl">(a)</span>we reasonably believe that it is being used in breach of <a href="#acceptable-use">clause 6</a>, or in a way that puts the Service, other customers or anyone else at risk;</li>
+            <li><span class="sl">(b)</span>the Customer has not paid an invoice after the notice in clause 11.4; or</li>
+            <li><span class="sl">(c)</span>the law, a court or a regulator requires it.</li>
+          </ol>
+          We will give notice before suspending where we reasonably can, keep the suspension as short and as narrow as we can, and restore access once the reason has gone.</div></li>
+        <li><span class="cn">18.2</span><div>Either party may end the Agreement at once by written notice if the other:
+          <ol class="sub">
+            <li><span class="sl">(a)</span>commits a material breach that cannot be put right, or that it does not put right within 30 days of being asked in writing to do so; or</li>
+            <li><span class="sl">(b)</span>becomes insolvent, enters administration, liquidation or an arrangement with its creditors, or stops trading.</li>
+          </ol></div></li>
+        <li><span class="cn">18.3</span><div>We may end the Agreement by giving at least 90 days' written notice if we stop providing the Service to all our customers. We will refund any Fees paid in advance for the time after the end.</div></li>
+        <li><span class="cn">18.4</span><div>When the Agreement ends, the Customer's right to use the Service stops, the Customer pays the Fees due up to the end, and <a href="#data-on-exit">clause 19</a> applies to Customer Data. Clauses meant to continue after the end do so, including clauses 7.4, 13 to 17, 19 and 24 to 27, and the Data processing schedule for as long as we hold Customer Personal Data.</div></li>
+      </ol>
+
+      <h2 id="data-on-exit"><span class="sn">19.</span> Your data when the agreement ends</h2>
+      <ol class="clauses">
+        <li><span class="cn">19.1</span><div>For 30 days after the Agreement ends, we will, if the Customer asks, give it a copy of its Customer Data in a common machine-readable format, or let it export the data through the Service.</div></li>
+        <li><span class="cn">19.2</span><div>After those 30 days, we will delete Customer Data from the Service within a further 30 days, unless the law requires us to keep it. Where Customer Data is also in our backups, it is deleted as those backups are replaced, and in any case within 90 days of the end of the Agreement.</div></li>
+        <li><span class="cn">19.3</span><div>We will confirm the deletion in writing if the Customer asks.</div></li>
+        <li><span class="cn">19.4</span><div>The Customer's websites, booking widget, online ordering and loyalty pages served by the Service stop when the Agreement ends. The Customer should tell its Guests, and point any domain of its own elsewhere.</div></li>
+      </ol>
+
+      <h2 id="changes"><span class="sn">20.</span> Changes to these terms</h2>
+      <ol class="clauses">
+        <li><span class="cn">20.1</span><div>We may update these terms. The version on the Website, with its date, applies to the use of the Website.</div></li>
+        <li><span class="cn">20.2</span><div>We will give a Customer at least 30 days' notice of a change by email. If a change is to the Customer's material disadvantage, it may end the Agreement by notice before the change takes effect; otherwise the change applies from the date in the notice. A change needed to comply with the law or to keep the Service secure may take effect sooner.</div></li>
+        <li><span class="cn">20.3</span><div>Any other change to the Agreement must be in writing and agreed by both parties.</div></li>
+      </ol>
+
+      <h2 id="force-majeure"><span class="sn">21.</span> Events beyond our control</h2>
+      <ol class="clauses">
+        <li><span class="cn">21.1</span><div>Neither party is liable for a delay or failure to perform caused by an event beyond its reasonable control, such as a failure of the internet or the power supply, the failure of a hosting or other provider, fire, flood, epidemic, war, terrorism, a strike (other than of its own staff) or an act of government. The affected party will tell the other promptly and do what it reasonably can to limit the effect. This clause does not excuse a failure to pay.</div></li>
+        <li><span class="cn">21.2</span><div>If such an event stops a party performing for more than 30 days, the other party may end the Agreement by written notice.</div></li>
+      </ol>
+
+      <h2 id="assignment"><span class="sn">22.</span> Assignment and subcontracting</h2>
+      <ol class="clauses">
+        <li><span class="cn">22.1</span><div>The Customer may not assign or transfer the Agreement without our written consent, which we will not unreasonably withhold.</div></li>
+        <li><span class="cn">22.2</span><div>We may assign or transfer the Agreement to a company in our group or to a buyer of all or part of our business, by telling the Customer in writing.</div></li>
+        <li><span class="cn">22.3</span><div>We may use subcontractors, including the providers listed in our <a href="/privacy#sharing">Privacy policy</a>. We stay responsible for what they do under the Agreement, and the Data processing schedule applies to those that process Customer Personal Data.</div></li>
+      </ol>
+
+      <h2 id="entire-agreement"><span class="sn">23.</span> Entire agreement</h2>
+      <ol class="clauses">
+        <li><span class="cn">23.1</span><div>The Agreement is the whole agreement between the parties about its subject, and replaces any earlier agreement, proposal or understanding about it.</div></li>
+        <li><span class="cn">23.2</span><div>Each party confirms that it has not relied on any statement, promise or representation that is not in the Agreement, and has no remedy for one. Nothing in this clause limits liability for fraud.</div></li>
+        <li><span class="cn">23.3</span><div>Terms in the Customer's purchase orders or other documents do not apply.</div></li>
+      </ol>
+
+      <h2 id="notices"><span class="sn">24.</span> Notices</h2>
+      <ol class="clauses">
+        <li><span class="cn">24.1</span><div>Notices under the Agreement must be in writing, by email or by post. Notices to us go to <a href="mailto:<%= co.email %>"><%= co.email %></a>, or by post to <%= co.name %>, <%= co.office %>. Notices to the Customer go to the email or postal address in the Order, or another that it gives us in writing.</div></li>
+        <li><span class="cn">24.2</span><div>An email is treated as received when it is sent, or at 9am on the next Business Day if it is sent outside 9am to 5pm on a Business Day. A letter sent by first class post or recorded delivery is treated as received on the second Business Day after posting.</div></li>
+        <li><span class="cn">24.3</span><div>This clause does not apply to serving legal proceedings.</div></li>
+      </ol>
+
+      <h2 id="third-party-rights"><span class="sn">25.</span> Third party rights</h2>
+      <ol class="clauses">
+        <li><span class="cn">25.1</span><div>No one other than a party to the Agreement has any right under the Contracts (Rights of Third Parties) Act 1999 to enforce any of its terms.</div></li>
+      </ol>
+
+      <h2 id="general"><span class="sn">26.</span> General</h2>
+      <ol class="clauses">
+        <li><span class="cn">26.1</span><div>If a court finds part of the Agreement invalid or unenforceable, the rest continues, and that part is changed as little as needed to make it valid.</div></li>
+        <li><span class="cn">26.2</span><div>A delay or failure to use a right or remedy is not a waiver of it.</div></li>
+        <li><span class="cn">26.3</span><div>Nothing in the Agreement makes the parties partners or joint venturers, or either the agent of the other.</div></li>
+        <li><span class="cn">26.4</span><div>An Order may be signed electronically, and in separate copies that together make one document.</div></li>
+      </ol>
+
+      <h2 id="law"><span class="sn">27.</span> Governing law and courts</h2>
+      <ol class="clauses">
+        <li><span class="cn">27.1</span><div>The Agreement, these terms and any dispute or claim arising out of or in connection with them, including non-contractual disputes or claims, are governed by the law of England and Wales.</div></li>
+        <li><span class="cn">27.2</span><div>Before going to court, the parties will try in good faith to settle a dispute by discussion between senior people for at least 30 days, unless one of them needs urgent relief.</div></li>
+        <li><span class="cn">27.3</span><div>The courts of England and Wales have exclusive jurisdiction. If you use the Website as a consumer and live in Scotland or Northern Ireland, you may also bring proceedings in your local courts.</div></li>
+      </ol>
+
+      <div class="schedule">
+        <h2 id="dps">Schedule: Data processing</h2>
+        <p>This schedule sets out the terms on which we process Customer Personal Data for the Customer.</p>
+
+        <h3 id="dps-about"><span class="sp">1.</span> About this schedule</h3>
+        <ol class="clauses">
+          <li><span class="pn">1.1</span><div>This schedule forms part of the Agreement. It applies whenever we process Customer Personal Data as the Customer's processor, and sets out the terms that Article 28(3) of the UK GDPR requires. Words defined in the terms have the same meaning here; "controller", "processor", "personal data", "personal data breach", "data subject" and "processing" have the meanings in Data Protection Law.</div></li>
+          <li><span class="pn">1.2</span><div>If this schedule and the rest of the Agreement conflict about Customer Personal Data, this schedule wins.</div></li>
+        </ol>
+
+        <h3 id="dps-details"><span class="sp">2.</span> Details of the processing</h3>
+        <ol class="clauses">
+          <li><span class="pn">2.1</span><div><strong>Subject matter:</strong> providing the Service to the Customer.</div></li>
+          <li><span class="pn">2.2</span><div><strong>Duration:</strong> the term of the Agreement, and after it until we have returned or deleted the Customer Personal Data under clause 19 of the terms.</div></li>
+          <li><span class="pn">2.3</span><div><strong>Nature and purpose:</strong> hosting, storing, organising, retrieving, showing, sending, analysing, exporting and deleting Customer Personal Data, so as to provide, support and secure the Service as the Customer uses it and sets it up. This covers bookings and tables, websites, online ordering and payments, the till and kitchen screens, kiosks and menu screens, loyalty and wallet passes, emails to Guests, staff records, the rota, pay and tips, cash reconciliation, health and safety records, purchasing, reports, Pepper and its readers, and the connections the Customer sets up.</div></li>
+          <li><span class="pn">2.4</span><div><strong>Types of personal data:</strong> names and contact details (email addresses, phone numbers and, for deliveries, postal addresses); booking, order and visit details; notes and preferences; loyalty membership, points and visits; marketing choices and records of consent; payment records (never full card details); emails sent and whether they arrived; messages in website chats and to Pepper; public reviews with reviewers' names and pictures; staff records, including role, pay rates, how pay is split between bank and cash, rota, shifts and absences, tips and PIN hashes; suppliers' contact details; records of who did what in the Service; device and usage information; and any other personal data the Customer puts into the Service.</div></li>
+          <li><span class="pn">2.5</span><div><strong>Special categories of data:</strong> health information that Guests or the Customer give, such as allergies, dietary needs and access needs in booking and order notes, and staff absence through sickness in the rota. The Customer decides whether to collect these, and must have a lawful condition for doing so.</div></li>
+          <li><span class="pn">2.6</span><div><strong>Data subjects:</strong> the Customer's Guests (people who book, order, pay, join a loyalty scheme, receive its emails, chat on its websites or review its venues); its staff and other Users; its suppliers' contacts; and anyone else whose personal data the Customer puts into the Service.</div></li>
+        </ol>
+
+        <h3 id="dps-obligations"><span class="sp">3.</span> Our obligations</h3>
+        <ol class="clauses">
+          <li><span class="pn">3.1</span><div><strong>Instructions.</strong> We will process Customer Personal Data only on the Customer's documented instructions, including on transfers to other countries, unless UK law requires us to do otherwise. In that case we will tell the Customer before processing, unless that law forbids it. The Agreement and the Customer's use and settings of the Service are its instructions; further instructions must be in writing and consistent with the Agreement. We will tell the Customer at once if we think an instruction breaks Data Protection Law.</div></li>
+          <li><span class="pn">3.2</span><div><strong>Confidentiality.</strong> We will make sure that everyone we authorise to process Customer Personal Data is bound to keep it confidential.</div></li>
+          <li><span class="pn">3.3</span><div><strong>Security.</strong> We will take the technical and organisational measures that Article 32 of the UK GDPR requires, including those in paragraph 6.</div></li>
+          <li><span class="pn">3.4</span><div><strong>Sub-processors.</strong> The Customer gives us general written authorisation to use sub-processors. Those we use now are listed in <a href="/privacy#sharing">section 7 of our Privacy policy</a>. We will tell the Customer by email at least 30 days before we add or replace one, and the Customer may object within that time on reasonable data protection grounds. If we can't resolve an objection, the Customer may end the affected part of the Service by notice and get back any Fees it paid in advance for it. We will impose the same data protection obligations as this schedule on each sub-processor by contract, and we remain fully responsible to the Customer for each sub-processor's performance of them.</div></li>
+          <li><span class="pn">3.5</span><div><strong>Data subjects' rights.</strong> Taking into account the nature of the processing, we will help the Customer, by appropriate technical and organisational measures and as far as possible, to respond to requests from data subjects to exercise their rights. The Service has tools for this, such as exporting a guest's data, anonymising a guest and unsubscribing them from marketing. If we receive such a request about Customer Personal Data, we will pass it to the Customer without undue delay, and will not answer it ourselves unless the Customer asks us to.</div></li>
+          <li><span class="pn">3.6</span><div><strong>Other help.</strong> Taking into account the nature of the processing and the information available to us, we will help the Customer meet its obligations on security, personal data breaches, data protection impact assessments and prior consultation with the Information Commission (Articles 32 to 36 of the UK GDPR). We may charge a reasonable fee for help beyond what the Service itself provides, unless the help is needed because of our breach.</div></li>
+          <li><span class="pn">3.7</span><div><strong>Personal data breaches.</strong> We will tell the Customer without undue delay after becoming aware of a personal data breach affecting Customer Personal Data. We will give the information we have about its nature, the data and the people concerned, its likely consequences and the steps taken or proposed, and update it as we learn more. We will take reasonable steps to contain the breach and limit its effects.</div></li>
+          <li><span class="pn">3.8</span><div><strong>Deletion or return.</strong> When the Agreement ends we will, at the Customer's choice, return or delete the Customer Personal Data as clause 19 of the terms sets out, and delete existing copies unless UK law requires us to keep them.</div></li>
+          <li><span class="pn">3.9</span><div><strong>Information and audits.</strong> We will make available to the Customer all the information needed to show that we meet Article 28 of the UK GDPR, and allow for and contribute to audits, including inspections, by the Customer or an auditor it appoints. The Customer will first ask for the information in writing. An inspection needs at least 30 days' notice, takes place in business hours under a duty of confidentiality, and at the Customer's cost, and no more than once a year unless a regulator requires it or it follows a personal data breach.</div></li>
+          <li><span class="pn">3.10</span><div><strong>Transfers.</strong> We will transfer Customer Personal Data outside the UK only where Data Protection Law allows it, with the safeguards described in <a href="/privacy#transfers">section 8 of our Privacy policy</a>.</div></li>
+          <li><span class="pn">3.11</span><div><strong>Records.</strong> We will keep the records of processing that Article 30(2) of the UK GDPR requires.</div></li>
+          <li><span class="pn">3.12</span><div><strong>Our own purposes.</strong> We will not process Customer Personal Data for our own purposes, sell it, or combine it with other customers' data, except as the Agreement allows (clause 7.4 of the terms concerns only information that identifies no person).</div></li>
+        </ol>
+
+        <h3 id="dps-customer"><span class="sp">4.</span> The Customer's obligations</h3>
+        <ol class="clauses">
+          <li><span class="pn">4.1</span><div>The Customer is responsible for having a lawful basis for the processing it asks of us, including a lawful condition for any special category data; for giving data subjects the privacy information the law requires, including about the Service's AI features where it uses them; for making sure its instructions are lawful; and for setting the Service up to suit its data protection obligations, for example its chat retention period, who may see what, and when to anonymise a guest.</div></li>
+          <li><span class="pn">4.2</span><div>The Customer is responsible for the cookies and tracking tools it adds to its websites, and for getting any consent they need.</div></li>
+        </ol>
+
+        <h3 id="dps-liability"><span class="sp">5.</span> Liability</h3>
+        <ol class="clauses">
+          <li><span class="pn">5.1</span><div>Clause 17 of the terms applies to this schedule. Nothing in this schedule limits either party's liability to data subjects or to the Information Commission under Data Protection Law.</div></li>
+        </ol>
+
+        <h3 id="dps-security"><span class="sp">6.</span> Security measures</h3>
+        <ol class="clauses">
+          <li><span class="pn">6.1</span><div>The measures we take include:
+            <ol class="sub">
+              <li><span class="sl">(a)</span>encryption of data in transit: HTTPS on every address of the Service on the internet. On a venue's own network, a venue hub, where the Customer uses one, talks to the venue's tills, kiosks, kitchen screens and order ready boards, and sends tickets to its network printers, without encryption; each device proves itself to the hub with a key of its own;</li>
+              <li><span class="sl">(b)</span>each customer's data held apart in the database, with row-level security on every table that holds it, and each request checked against the customer it belongs to. The one exception is the feature request board, which every customer can read (clause 14.2 of the terms);</li>
+              <li><span class="sl">(c)</span>access by role and permission, set by the Customer, with records of changes made on shared devices and of the actions Pepper takes;</li>
+              <li><span class="sl">(d)</span>passwords held by our sign-in provider, and till and device PINs and personal access tokens stored only as hashes;</li>
+              <li><span class="sl">(e)</span>keys for connected services, and some personal tokens, sealed with AES-256-GCM encryption;</li>
+              <li><span class="sl">(f)</span>a firewall that lets through only web and administration traffic, limits on requests from each address, and automatic blocking of addresses that abuse the Service;</li>
+              <li><span class="sl">(g)</span>automatic deletion of data that is no longer needed, as <a href="/privacy#retention">section 9 of our Privacy policy</a> describes; and</li>
+              <li><span class="sl">(h)</span>access to our production systems only for the people who need it, under a duty of confidentiality.</li>
+            </ol></div></li>
+        </ol>
+      </div>
+      <p class="legal-end">See also our <a href="/privacy">Privacy policy</a>.</p>
+    </article>
+  </div>
+</section>
+<%~ include('./_foot', it) %>

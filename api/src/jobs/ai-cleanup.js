@@ -23,7 +23,8 @@ export const queue = new Queue(name, { connection, prefix })
 // per-person usage; and kiosk visits' playbacks after 90 days (the visits
 // after 400, services/kioskJourneySvc.js). Idempotent, so a run that
 // overlaps another is harmless. Also the usage record and each of Pepper's
-// model requests after 90 days (migrations 270, 271).
+// model requests after 90 days (migrations 270, 271), and till tap counts
+// after 90 days (migration 266, services/tillLayoutSvc.js).
 
 export function start(log) {
   const worker = new Worker(name, async () => {
@@ -56,6 +57,10 @@ export function start(log) {
     // The usage record (migration 270) after 90 days.
     const { cleanUpUsage } = await import('../services/usageRecord.js')
     await cleanUpUsage()
+    // Till tap counts (migration 266) after 90 days, also at venues whose tills send none.
+    const { cleanUpTillTaps } = await import('../services/tillLayoutSvc.js')
+    const tt = await cleanUpTillTaps()
+    if (tt.removed) log.info(tt, 'Till tap clean-up')
   }, { connection, prefix })
 
   worker.on('failed', (job, err) => {

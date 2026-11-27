@@ -1,7 +1,8 @@
 // Taps on till layout buttons (migration 266, OUTSTANDING 44.8): a till
 // sends its counts (POST /pos-api/till-taps), they add up per day, till,
 // person and button, rows naming another venue's person or a layout that
-// isn't the tenant's are left out, old rows go; the designer's heat map
+// isn't the tenant's are left out, old rows go (also at a venue whose tills
+// send nothing, by the hourly clean-up); the designer's heat map
 // (GET /api/pos/till-layouts/:id/taps) and who sees taps by person; the
 // report builder's Till buttons tapped and the activity starters.
 import { test, before, after } from 'node:test'
@@ -11,6 +12,7 @@ import { resetAndSeed, A, B } from './support/seed.mjs'
 import { fillTenant } from './support/fixtures.mjs'
 import { linkDevice } from './support/devices.mjs'
 import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from '../src/middleware/auth.js'
+import { cleanUpTillTaps } from '../src/services/tillLayoutSvc.js'
 
 let ids, owner, V, layout, till, till2, kds, staff, setupOnly
 const SETUP_ONLY = 'a-setup-only'
@@ -86,6 +88,22 @@ test('a till\'s taps add up per day, till, person and button; what isn\'t right 
   assert.equal((await device(till, 'POST', '/pos-api/till-taps', { taps: [tap({ day: daysAgo(100) }), tap({ n: 0 })] })).json.kept, 0, 'a day past the 90 days isn\'t kept')
   assert.equal((await device(till, 'POST', '/pos-api/till-taps', { taps: [tap({ cell: 'dish-b' })] })).json.kept, 1)
   assert.equal((await sql`SELECT count(*)::int AS n FROM pos_till_taps WHERE cell = 'old'`)[0].n, 0)
+})
+
+test('the hourly clean-up: counts past the 90 days go also where no till sends any', async () => {
+  // Rows only the clean-up can reach: no till sends after them.
+  const row = (cell, day, staffId = null) => sql`
+    INSERT INTO pos_till_taps (tenant_id, venue_id, device_id, staff_id, layout_id, zone_id, zone_type, cell, day, taps)
+    VALUES (${ids.a}, ${V}, ${till2.id}, ${staffId}, ${layout.id}, 'dishes', 'items', ${cell}, ${day}, 3)`
+  await row('sweep-old', daysAgo(95), staff)
+  await row('sweep-older', daysAgo(400))
+  await row('sweep-new', daysAgo(85), staff)
+  const { removed } = await cleanUpTillTaps()
+  assert.ok(removed >= 2, 'the old rows went')
+  const left = await sql`SELECT cell FROM pos_till_taps WHERE cell LIKE 'sweep-%' ORDER BY cell`
+  assert.deepEqual(left.map(r => r.cell), ['sweep-new'], 'only the row inside the 90 days stays')
+  assert.equal((await cleanUpTillTaps()).removed, 0, 'a second run finds nothing')
+  await sql`DELETE FROM pos_till_taps WHERE cell = 'sweep-new'`
 })
 
 test('the heat map: per zone and button, the most tapped, by till, and by person only for Till reports', async () => {
