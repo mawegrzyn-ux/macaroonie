@@ -10,7 +10,11 @@
 // group's menu, venue, order type, stream, scenario, section and dish
 // refused; Costing view to look, Manage to save, till reports for sales;
 // Pepper's menu_engineering and save_scenario (names, never ids); the report
-// subjects Menu engineering and Cost scenarios and the starter.
+// subjects Menu engineering and Cost scenarios and the starter. Review fixes:
+// an automatic deal found among dishes rung up one by one counts as those
+// dishes (through the usage job), a section with no costed unit has no
+// average (never £0.00), save_scenario's replace keeping what wasn't named,
+// and the report work beside a weekly subject over the period as asked.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
@@ -20,12 +24,14 @@ const claude = await startFakeClaude()
 const { as, ok, sql, closeApp } = await import('./support/app.mjs')
 const { resetAndSeed, A, B } = await import('./support/seed.mjs')
 const { menuSaveBody } = await import('../../shared/menuSave.js')
+const { withSystem } = await import('../src/config/db.js')
+const usage = await import('../src/services/stockUsageSvc.js')
 
 const VIEWER = 'a-costview', MANAGER = 'a-costmgr'
 let ids, owner, bOwner, costView, costManager
 let soho, leeds, bar, eatIn, takeOut, standard, zero, bVenue, bType, bBar, bMenu, bDish
 let menu, sohoMenu, burger, pizza, fries, coke, deal, extras, size, small, large, sohoBurger
-let yesterday, twoDaysAgo, scenario
+let yesterday, twoDaysAgo, scenario, burgerR, cokeR, dinner, threeDaysAgo
 
 async function makeMenu(who, name, sections, extra = {}) {
   const m = await ok(who.post('/api/menus', { name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Math.random().toString(36).slice(2, 6) }))
@@ -86,9 +92,9 @@ test.before(async () => {
   const bun = await item('Bun', 'each', { pack_qty: 24, pack_unit: 'each' }, 7.2)
   const potato = await item('Potato', 'g', { pack_qty: 1, pack_unit: 'kg' }, 1)
   const can = await item('Coke can', 'each', { pack_qty: 24, pack_unit: 'each' }, 12)
-  const burgerR = await ok(owner.post('/api/recipes', { name: 'Burger', kind: 'dish', status: 'live', lines: [{ item_id: beef.id, qty: 1, unit: 'each' }, { item_id: bun.id, qty: 1, unit: 'each' }] }))
+  burgerR = await ok(owner.post('/api/recipes', { name: 'Burger', kind: 'dish', status: 'live', lines: [{ item_id: beef.id, qty: 1, unit: 'each' }, { item_id: bun.id, qty: 1, unit: 'each' }] }))
   const friesR = await ok(owner.post('/api/recipes', { name: 'Fries', kind: 'dish', status: 'live', lines: [{ item_id: potato.id, qty: 200, unit: 'g' }] }))
-  const cokeR = await ok(owner.post('/api/recipes', { name: 'Coke', kind: 'dish', status: 'live', lines: [{ item_id: can.id, qty: 1, unit: 'each' }] }))
+  cokeR = await ok(owner.post('/api/recipes', { name: 'Coke', kind: 'dish', status: 'live', lines: [{ item_id: can.id, qty: 1, unit: 'each' }] }))
   extras = await ok(owner.post('/api/menus/variant-groups', { name: 'Extras', price_mode: 'extra', min_select: 0, max_select: 2, options: [{ label: 'Cheese', price_pence: 80 }] }))
   size = await ok(owner.post('/api/menus/variant-groups', { name: 'Size', price_mode: 'base', min_select: 1, max_select: 1, options: [{ label: 'Small', price_pence: 900 }, { label: 'Large', price_pence: 1200 }] }))
   small = size.options.find(o => o.label === 'Small')
@@ -213,6 +219,100 @@ test('engineering: Costing view without till reports sees units and shares, no G
   assert.equal('avg_gp_per_unit_pence' in mains, false)
   const operator = as(A.operator, ids.a)
   assert.equal((await operator.get('/api/menu-margins/engineering')).status, 403, 'operators have no Costing by default')
+})
+
+/** A closed till check at a venue on a day, as the till keeps it: lines [{ item_id, name, qty, gross, discount, net, vat, combo }], promotions. */
+async function tillCheck(venueId, day, lines, { promotions = [] } = {}) {
+  const [d] = await sql`
+    INSERT INTO pos_days (tenant_id, venue_id, business_date, opened_at, closed_at)
+    VALUES (${ids.a}, ${venueId}, ${day}::date, now() - interval '3 hours', now()) RETURNING id`
+  const id = 'c-' + randomUUID()
+  const withIds = lines.map(l => ({ ...l, id: l.id || 'l-' + randomUUID() }))
+  const state = {
+    id, lines: withIds.map(l => ({ id: l.id, item_id: l.item_id, name: l.name, qty: l.qty, modifiers: [], combo: l.combo || null })),
+    promotions: promotions.map(p => ({ ...p, lines: Object.fromEntries(Object.entries(p.lines).map(([i, pence]) => [withIds[Number(i)].id, pence])) })),
+  }
+  await sql`
+    INSERT INTO pos_checks (id, tenant_id, venue_id, day_id, mode, status, opened_at, closed_at, subtotal, total, state, last_seq, is_generated, order_type_id)
+    VALUES (${id}, ${ids.a}, ${venueId}, ${d.id}, 'counter', 'closed', now() - interval '1 hour', now(), 0, 0, ${sql.json(state)}, 1, false, ${eatIn})`
+  for (const l of withIds) {
+    await sql`
+      INSERT INTO pos_check_lines (id, tenant_id, venue_id, check_id, day_id, item_id, name, qty, gross, discount, net, vat, status)
+      VALUES (${l.id}, ${ids.a}, ${venueId}, ${id}, ${d.id}, ${l.item_id}, ${l.name}, ${l.qty}, ${l.gross}, ${l.discount || 0}, ${l.net}, ${l.vat}, 'sent')`
+  }
+}
+
+test('engineering: an automatic deal found among dishes rung up one by one counts as those dishes; a section with no costed unit has no average (7a review)', async () => {
+  // A dinner menu: a steak (the burger's recipe, £1.80) and a lemonade (the coke's, £0.50), a stew with no recipe,
+  // and the automatic Steak meal (a steak and a lemonade for £17, £2 less than the two).
+  dinner = await makeMenu(owner, 'Dinner', [
+    { title: 'Mains', items: [{ name: 'Steak', price_pence: 1600, is_orderable: true, variant_groups: [], variants: [] }] },
+    { title: 'Drinks', items: [{ name: 'Lemonade', price_pence: 300, is_orderable: true, variant_groups: [], variants: [] }] },
+    { title: 'Specials', items: [{ name: 'Stew', price_pence: 900, is_orderable: true, variant_groups: [], variants: [] }] },
+  ], { tax: { rate: standard, rules: [] } })
+  const steak = dishIn(dinner, 'Steak'), lemonade = dishIn(dinner, 'Lemonade'), stew = dishIn(dinner, 'Stew')
+  const main = randomUUID(), drink = randomUUID()
+  const b = menuSaveBody(dinner)
+  b.sections.push({ title: 'Deals', items: [{
+    name: 'Steak meal', kind: 'combo', price_pence: 1700, is_orderable: true, variant_groups: [], variants: [],
+    combo: { mode: 'auto', steps: [
+      { id: main, name: 'Main', min: 1, max: 1, options: [{ id: randomUUID(), type: 'item', item_id: steak.id, price_pence: 0 }] },
+      { id: drink, name: 'Drink', min: 1, max: 1, options: [{ id: randomUUID(), type: 'item', item_id: lemonade.id, price_pence: 0 }] },
+    ] },
+  }] })
+  await ok(owner.patch('/api/menus/' + dinner.id, b), 'the automatic deal')
+  dinner = await ok(owner.get('/api/menus/' + dinner.id))
+  const meal = dishIn(dinner, 'Steak meal')
+  assert.equal(meal.combo.mode, 'auto')
+  await ok(owner.post(`/api/menus/${dinner.id}/publish`, {}), 'publish dinner')
+  for (const [d, r] of [[steak, burgerR], [lemonade, cokeR]]) await ok(owner.put(`/api/recipe-links/dishes/${d.id}/cell`, { recipe_id: r.id }))
+  const [d3] = await sql`SELECT (current_date - 3)::text AS d`
+  threeDaysAgo = d3.d
+  // At Leeds three days ago: a steak and a lemonade rung up one by one, in which the till found the Steak meal
+  // (a promotion of kind combo over the two lines, £1.60 and 40p off them); a steak on its own; a Steak meal
+  // from its own button; two stews.
+  await tillCheck(leeds, threeDaysAgo, [
+    { item_id: steak.id, name: 'Steak', qty: 1, gross: 1600, discount: 160, net: 1440, vat: 240 },
+    { item_id: lemonade.id, name: 'Lemonade', qty: 1, gross: 300, discount: 40, net: 260, vat: 43 },
+  ], { promotions: [{ promotion_id: meal.id, name: 'Steak meal', kind: 'combo', count: 1, lines: { 0: 160, 1: 40 } }] })
+  await tillCheck(leeds, threeDaysAgo, [{ item_id: steak.id, name: 'Steak', qty: 1, gross: 1600, net: 1600, vat: 267 }])
+  await tillCheck(leeds, threeDaysAgo, [{
+    item_id: meal.id, name: 'Steak meal', qty: 1, gross: 1700, net: 1700, vat: 283,
+    combo: [{ step_id: main, item_id: steak.id, modifiers: [] }, { step_id: drink, item_id: lemonade.id, modifiers: [] }],
+  }])
+  await tillCheck(leeds, threeDaysAgo, [{ item_id: stew.id, name: 'Stew', qty: 2, gross: 1800, net: 1800, vat: 300 }])
+  // Usage from sales for that day at Leeds only (the rows above it are written by hand).
+  await withSystem(tx => usage.runVenueUsage(tx, ids.a, leeds, { days: [threeDaysAgo], force: true }))
+
+  const e = await ok(owner.get(`/api/menu-margins/engineering?venue_id=${leeds}&menu_id=${dinner.id}&from=${threeDaysAgo}&to=${threeDaysAgo}`))
+  const sec = Object.fromEntries(e.sections.map(s => [s.section, s]))
+  // Both steaks in Mains, the one in the automatic deal at what it took after the saving: (1440 - 240) + (1600 - 267) net.
+  assert.equal(sec.Mains.units, 2)
+  const s = sec.Mains.dishes[0]
+  assert.equal(s.name, 'Steak')
+  assert.equal(s.net_pence, 1200 + 1333)
+  assert.equal(s.gp_pence, 2533 - 360)
+  assert.equal(sec.Drinks.units, 1, 'the lemonade rung up on its own; the one picked in the Steak meal from its button adds nothing')
+  // The deal has units only for the one rung up from its own button.
+  assert.equal(sec.Deals.units, 1)
+  assert.equal(sec.Deals.dishes[0].kind, 'deal')
+  assert.deepEqual(e.auto_deals, [{ name: 'Steak meal', menu: 'Dinner' }])
+  // Specials: two stews sold, none could be costed: no average, never £0.00.
+  assert.equal(sec.Specials.units, 2)
+  assert.equal(sec.Specials.avg_gp_per_unit_pence, null)
+  assert.equal(sec.Specials.dishes[0].class, null)
+
+  // Pepper says the same: the automatic deal and its words; the uncosted section's average is a gap.
+  const r = await call(owner, 'menu_engineering', { venue: 'Leeds', menu: 'Dinner', days: 7 })
+  assert.equal(r.error, false, r.result)
+  const out = JSON.parse(r.result)
+  const sp = out.sections.find(x => x.section === 'Specials')
+  assert.match(sp.average_gp_per_unit, /^not costed/)
+  assert.doesNotMatch(r.result, /£0\.00/)
+  assert.deepEqual(sp.not_costed, ['Stew'])
+  assert.deepEqual(out.automatic_deals, ['Steak meal'])
+  assert.match(out.automatic_deals_note, /discount over those dishes/)
+  assert.equal(out.sections.find(x => x.section === 'Mains').average_gp_per_unit, '£10.87')
 })
 
 // ── Scenarios ────────────────────────────────────────────────
@@ -440,6 +540,44 @@ test('Pepper: save_scenario shows the figures at the mix on its card and saves o
   assert.equal(wrong.card, undefined, 'no card for it')
 })
 
+test('Pepper: changing a saved scenario starts from it, keeping its notes, days, venue and order type unless named (7a review, rule 13)', async () => {
+  const saved = await ok(owner.post('/api/cost-scenarios', body({ name: 'Spring', notes: 'For spring', mix_days: 56 })))
+  const read = async () => (await sql`
+    SELECT name, venue_id, revenue_stream_id, order_type_id, mix_days, notes, changes FROM cost_scenarios WHERE id = ${saved.id}`)[0]
+  // Only the prices named: everything else stays as it was saved.
+  const r = await call(owner, 'save_scenario', { name: 'Spring', menu: 'Lunch', replace: true, changes: [{ what: 'price', section: 'Mains', how: 'percent', value: 6 }] })
+  assert.ok(r.card, r.result)
+  assert.match(r.card.title, /^Change the scenario Spring on Lunch\?$/)
+  assert.equal(r.card.lines[0], 'Eat in at Soho, the menu\'s draft')
+  assert.ok(r.card.lines.includes('Its 3 changes replaced by this one'), JSON.stringify(r.card.lines))
+  assert.ok(!r.card.lines.some(l => /^(Where|The mix|Notes):/.test(l)), 'nothing else changes: ' + JSON.stringify(r.card.lines))
+  assert.ok(r.card.lines.some(l => /^Cost % at what sold \(.+\)/.test(l)))
+  await ok(owner.post(`/api/ai/actions/${r.card.id}/confirm`, {}))
+  let row = await read()
+  assert.deepEqual([row.name, row.venue_id, row.revenue_stream_id, row.order_type_id, row.mix_days, row.notes], ['Spring', soho, null, eatIn, 56, 'For spring'])
+  assert.equal(row.changes.length, 1)
+  assert.equal(row.changes[0].section_id, sectionOf(menu, 'Mains').id)
+  // What is named changes, and the card says so; the saved name stays as it was written.
+  const again = await call(owner, 'save_scenario', {
+    name: 'spring', menu: 'Lunch', replace: true, venue: 'Leeds', days: 14, notes: 'Leeds too', changes: [{ what: 'cost', dish: 'Fries', how: 'amount', value: 0.05 }],
+  })
+  assert.ok(again.card, again.result)
+  for (const l of ['Where: Eat in at Soho to Eat in at Leeds', 'The mix: the last 56 days to the last 14 days', 'Notes: For spring to Leeds too', 'Its 1 change replaced by this one']) {
+    assert.ok(again.card.lines.includes(l), l + ' in ' + JSON.stringify(again.card.lines))
+  }
+  await ok(owner.post(`/api/ai/actions/${again.card.id}/confirm`, {}))
+  row = await read()
+  assert.deepEqual([row.name, row.venue_id, row.order_type_id, row.mix_days, row.notes], ['Spring', leeds, eatIn, 14, 'Leeds too'])
+  // A scenario at Soho's bar moved to Leeds leaves the bar behind (it is Soho's), and says so.
+  const atBar = await ok(owner.post('/api/cost-scenarios', body({ name: 'Bar spring', revenue_stream_id: bar, order_type_id: takeOut })))
+  const moved = await call(owner, 'save_scenario', { name: 'Bar spring', menu: 'Lunch', replace: true, venue: 'Leeds', changes: [{ what: 'price', how: 'percent', value: 1 }] })
+  assert.ok(moved.card.lines.includes('Where: Take out at Bar (Soho) to Take out at Leeds'), JSON.stringify(moved.card.lines))
+  await ok(owner.post(`/api/ai/actions/${moved.card.id}/confirm`, {}))
+  const [b2] = await sql`SELECT venue_id, revenue_stream_id, order_type_id, mix_days FROM cost_scenarios WHERE id = ${atBar.id}`
+  assert.deepEqual([b2.venue_id, b2.revenue_stream_id, b2.order_type_id, b2.mix_days], [leeds, null, takeOut, 7])
+  for (const id of [saved.id, atBar.id]) await ok(owner.delete('/api/cost-scenarios/' + id))
+})
+
 // ── Reports ──────────────────────────────────────────────────
 
 test('reports: Menu engineering and Cost scenarios, the starter, and sales kept from Costing view alone', async () => {
@@ -456,4 +594,24 @@ test('reports: Menu engineering and Cost scenarios, the starter, and sales kept 
   assert.ok(noSales.status >= 400 || !/plough_horse/.test(JSON.stringify(noSales.body)), 'the class needs till reports view')
   const operator = as(A.operator, ids.a)
   assert.ok((await operator.post('/api/reports/preview', { spec: { kind: 'list', subject: 'recipes.scenarios', rows: ['name'] } })).status >= 400, 'Costing view to report on scenarios')
+})
+
+test('reports: Menu engineering beside a weekly subject is worked out over the period as asked, dated inside it (7a review)', async () => {
+  const { runner, rowsOf } = await import('./support/reports.mjs')
+  // Two whole weeks to the Sunday after yesterday: a weekly main subject widens the daily ranges by six days.
+  const [w] = await sql`SELECT (date_trunc('week', current_date - 1)::date - 7)::text AS from, (date_trunc('week', current_date - 1)::date + 6)::text AS to`
+  const res = await runner(ids.a)({
+    subject: 'rota.staff_weeks', rows: [{ field: 'date', bucket: 'week' }],
+    filters: [{ field: 'date', op: 'in_period', value: { from: w.from, to: w.to } }],
+    also: [{ key: 'eng', subject: 'recipes.engineering' }],
+    values: [{ key: 'pay', measure: 'pay_total' }, { key: 'units', measure: 'units_sold', from: 'eng' }],
+  })
+  const rows = rowsOf(res)
+  const units = rows.reduce((s, r) => s + Number(r.units || 0), 0)
+  // The same as the Engineering tab over those days, every venue: none dropped, none from days after them.
+  const e = await ok(owner.get(`/api/menu-margins/engineering?from=${w.from}&to=${w.to}`))
+  assert.ok(e.total.units > 0)
+  assert.equal(units, e.total.units, JSON.stringify({ rows, notes: res.meta?.notes }))
+  // One snapshot, in the period's last week (dated at the period's last day).
+  assert.deepEqual(rows.filter(r => Number(r.units) > 0).map(r => r['date:week']), [new Date(Date.parse(w.to) - 6 * 86400000).toISOString().slice(0, 10)])
 })

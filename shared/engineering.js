@@ -25,11 +25,21 @@
 //     item with no price) is left out of GP, never priced at nil: its units
 //     count for popularity (they sold), not for profitability. A dish none of
 //     whose units were costed has no class, named as not costed.
-//   - A meal deal is one dish of the section it sits in, counted by the deals
+//   - A meal deal rung up as a deal (from its own button, manual or
+//     automatic) is one dish of the section it sits in, counted by the deals
 //     sold; its GP is what the deal took net less the cost of the dishes
 //     picked in it (dish_cost_days keeps the picks' cost on the deal's row).
-//     The dishes picked inside a deal add no units to their own sections: the
+//     The dishes picked inside it add no units to their own sections: the
 //     till sold a deal, not a burger.
+//   - An automatic deal (combo mode 'auto') that the till, a kiosk or online
+//     ordering found among dishes rung up one by one is a discount over those
+//     dishes, like a promotion (shared/pos/offers.js autoCombosFor(),
+//     shared/orderPricing.js): the check keeps each dish as its own line and
+//     the deal only as a promotion. So those dishes count in their own
+//     sections, each at what it took after the deal's saving (its net is
+//     lower, so its GP per unit is too), and the deal has no units for them.
+//     engineeringFor() names a menu's automatic deals (auto_deals) so the
+//     page and Pepper can say so.
 //   - Open items, services and dishes on no menu (left_out), and rows with no
 //     dish or no section are not engineered: they are counted in left_out.
 //
@@ -39,6 +49,9 @@
 //                               typical_qty, left_out }); names: { sectionId:
 //                               words } to show (the menu's name beside it).
 //                               { sections: [...], total, left_out }
+//   averageText(section, fmt, none)
+//                               a section's average GP per unit in words,
+//                               `none` when it has no costed unit
 
 import { margin } from './costing.js'
 
@@ -187,6 +200,17 @@ export function engineer(rows = [], { names = {} } = {}) {
 
 function emptyClasses() {
   return { star: 0, plough_horse: 0, puzzle: 0, dog: 0, not_costed: 0 }
+}
+
+/**
+ * A section's average GP per unit in words: fmt(pence, rounded), or `none`
+ * when none of its units could be costed (avg_gp_per_unit_pence null). An
+ * unknown average is a gap, never £0.00 (the page's chart and drawer,
+ * Pepper's menu_engineering).
+ */
+export function averageText(section, fmt, none = '-') {
+  const v = section?.avg_gp_per_unit_pence
+  return v == null ? none : fmt(Math.round(v))
 }
 
 /** A dish's class in words, with what to do: { label, hint, suggestion }, or the not costed words. */

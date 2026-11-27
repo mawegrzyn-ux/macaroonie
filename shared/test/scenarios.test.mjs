@@ -7,7 +7,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  changedPrice, changedCost, changeProblem, changeApplies, changeWords, applyPrices, scenarioFigures, pushPrices, priceStamp, scenarioCsvRows,
+  changedPrice, changedCost, changeProblem, changeApplies, changeWords, applyPrices, scenarioFigures, pushPrices, priceStamp, scenarioCsvRows, scenarioCsv,
 } from '../scenarios.js'
 import { dishMap } from '../costing.js'
 import { menuSaveBody } from '../menuSave.js'
@@ -173,6 +173,37 @@ test('a cost change for a meal deal itself is said to reach it through its picks
   assert.match(deal.skipped[0], /meal deal/)
   const none = scenarioFigures(menu, SCOPE, ctx, { rates, changes: [], units: UNITS })
   assert.deepEqual(none.total.change, { gp_pence: 0, cost_pct_pts: 0 })
+})
+
+test('a cost change for a meal deal\'s own section changes nothing on the deal, and says so (7a review)', () => {
+  const fig = scenarioFigures(menu, SCOPE, ctx, { rates, changes: [{ what: 'cost', applies: 'section', section_id: 'sec-deals', how: 'percent', value: 10 }], units: UNITS })
+  const deal = fig.dishes.find(d => d.dish_id === 'deal')
+  assert.equal(deal.after.cost, deal.before.cost, 'its picks sit in Mains and Drinks')
+  assert.equal(deal.skipped.length, 1)
+  assert.match(deal.skipped[0], /^Lunch deal is a meal deal: .+ a cost change for Deals reaches it only through those dishes$/)
+  // A change for another section reaches it through its picks, with nothing said.
+  const mains = scenarioFigures(menu, SCOPE, ctx, { rates, changes: [{ what: 'cost', applies: 'section', section_id: 'sec-mains', how: 'amount', value: 0.2 }], units: UNITS })
+  const d2 = mains.dishes.find(d => d.dish_id === 'deal')
+  assert.equal(d2.after.cost, 2.5, 'the burger picked in it, 20p more')
+  assert.deepEqual(d2.skipped, [])
+})
+
+test('Export CSV: a dish or section named like a formula never runs as one; numbers stay numbers (7a review)', () => {
+  const odd = JSON.parse(JSON.stringify(menu))
+  odd.sections[0].title = '+Specials'
+  odd.sections[0].items[2].name = '=HYPERLINK("http://example.com","Fries")'
+  odd.sections[1].items[0].name = '@Coke'
+  const fig = scenarioFigures(odd, SCOPE, { ...ctx, dishes: dishMap([odd]) }, { rates, changes: [{ what: 'price', applies: 'all', how: 'amount', value: -20 }], units: UNITS })
+  const text = scenarioCsv(fig)
+  const lines = text.split('\r\n')
+  assert.equal(lines.at(-1), '', 'ends with a line break')
+  const fries = lines.find(l => l.includes('HYPERLINK'))
+  assert.ok(fries.startsWith('\'+Specials,"\'=HYPERLINK(""http://example.com"",""Fries"")",'), fries)
+  assert.ok(lines.some(l => l.startsWith('Drinks,\'@Coke,')), text)
+  // A negative GP after every price drops to nothing is a number, not text made harmless.
+  const burger = lines.find(l => l.startsWith('\'+Specials,Burger,'))
+  assert.match(burger, /,-\d+\.\d\d,/, burger)
+  assert.doesNotMatch(burger, /'-/)
 })
 
 test('Push prices: a copy of the menu with the new prices, saved whole with every other field kept', () => {

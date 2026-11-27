@@ -100,12 +100,15 @@ export const RECIPE_WORKS = {
       ['net_pence', 'bigint'], ['cost_pence', 'bigint'], ['gp_pence', 'bigint'], ['gp_per_unit_pence', 'numeric'], ['avg_gp_per_unit_pence', 'numeric'],
       ['cost_pct', 'numeric'], ['suggestion', 'text'],
     ],
-    async fill(tx, { tenantId, venueIds, ranges }) {
+    async fill(tx, { tenantId, venueIds, ranges, periods }) {
       // Loaded when a run asks for it: the reading of usage from sales sits with the recipes area's services.
       const { engineeringFor } = await import('../../services/menuEngineeringSvc.js')
       const { classWords } = await import('../../../../shared/engineering.js')
       const [last] = await tx`SELECT (current_date - 28)::text AS from, (current_date - 1)::text AS to`
-      const span = ranges?.length ? ranges[0] : last
+      // One figure over the period as asked (periods): the ranges a weekly report widens by up to six days
+      // would engineer days past it and date every row after it, where the period's filter drops them.
+      const asked = periods !== undefined ? periods : ranges
+      const span = asked?.length ? asked[0] : last
       const e = await engineeringFor(tx, tenantId, { venueIds, from: span.from, to: span.to })
       const rows = []
       for (const s of e.sections) {

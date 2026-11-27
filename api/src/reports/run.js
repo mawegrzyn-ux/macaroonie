@@ -115,13 +115,20 @@ const statementsOf = plan => (plan.kind === 'list'
   ? [plan.rows, plan.totals]
   : [plan.main, plan.compare?.run, ...(plan.parts || []).flatMap(p => [p.run, p.compare?.run])]).filter(Boolean)
 
-// The days the run's rows sit on: the period and the one it is compared
-// with. Null when the report covers every day. A daily subject beside a
-// weekly report reads every day of the weeks the period picks: up to six
-// days past the period's last.
-function rangesOf(plan) {
+// The period and the one it is compared with, as the report asks for them.
+// Null when the report covers every day.
+function periodsOf(plan) {
   if (!plan.period) return null
-  const ranges = [plan.period.range, ...(plan.compare ? [{ from: plan.compare.from, to: plan.compare.to }] : [])]
+  return [plan.period.range, ...(plan.compare ? [{ from: plan.compare.from, to: plan.compare.to }] : [])]
+}
+
+// The days the run's rows sit on: the periods, except that a daily subject
+// beside a weekly report reads every day of the weeks the period picks: up
+// to six days past the period's last. A work that is one figure over the
+// period (menu engineering) reads periodsOf() instead.
+function rangesOf(plan) {
+  const ranges = periodsOf(plan)
+  if (!ranges) return null
   return (plan.parts || []).some(p => p.widen) ? ranges.map(r => ({ from: r.from, to: addDays(r.to, 6) })) : ranges
 }
 
@@ -191,7 +198,7 @@ async function prepare(tx, ctx, spec0, params, { listLimit, costFactor = 1, open
     }
   }
   const filled = await fillWorks(tx, statementsOf(plan).flatMap(st => st.works || []), {
-    tenantId: ctx.tenantId, venueIds: scope.venueIds, ranges: rangesOf(plan), levels: ctx.levels,
+    tenantId: ctx.tenantId, venueIds: scope.venueIds, ranges: rangesOf(plan), periods: periodsOf(plan), levels: ctx.levels,
   })
   const max = env.REPORT_MAX_COST * costFactor
   const check = async stmt => {

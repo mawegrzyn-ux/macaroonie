@@ -472,7 +472,7 @@ unexplained       = variance - logged waste
   a separate, deliberate step.
 - *As built (phase 7a): engineering is `engineer()` in `shared/engineering.js` over `dish_cost_days` (usage from sales);
   a section's dishes are those that sold in the period; a day's row with any unit not costed is left out of GP and
-  counted for popularity; a meal deal is one dish of its own section (its picks add no units to theirs). Scenarios
+  counted for popularity; a meal deal rung up as a deal is one dish of its own section (its picks add no units to theirs; an automatic deal found among dishes rung up one by one is a discount over them, which count in their own sections). Scenarios
   (`shared/scenarios.js`) work on the menu's draft at today's standard prices, weigh by the units sold at the scope
   over the last 1 to 93 days, cost a meal deal at its typical picks (a cost change reaches it through its picks) and
   leave a dish with no cost out of both sides. A dish has one price on a menu (no venue, stream or order type price),
@@ -860,7 +860,7 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
   this month, synonyms (menu engineering, stars and dogs, plough horse, puzzle, scenario, what if).
 - **What the build changed in the plan**: a dish's price has one place, its menu's dish, so "the scope the price lives at" is that
   dish (its own sizes as its own prices), never a venue, stream or order type price, which don't exist; a meal deal counts in its own
-  section; a scenario's "before" is the menu's draft (what a push changes); the report subject has no venue (a section is judged
+  section when rung up as a deal (an automatic deal found among separate dishes is a discount over them); a scenario's "before" is the menu's draft (what a push changes); the report subject has no venue (a section is judged
   across the venues together). Limits: `docs/claude/outstanding/recipes.md` item 78.
 
 ## 12. Decisions for the owner

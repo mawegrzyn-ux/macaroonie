@@ -13,8 +13,12 @@ import { engineer, withoutSales } from '../../../shared/engineering.js'
  * by dish, section and whether every unit was costed, the dishes' kinds (a
  * meal deal) and their sections' menus, then engineer(). Shared by the route,
  * the report work and Pepper (through the route). { sections (each with
- * menu_id and menu), total, left_out, worked_out_at }; with sales: false,
- * withoutSales() of it.
+ * menu_id and menu), total, left_out, auto_deals, worked_out_at }; with
+ * sales: false, withoutSales() of it. auto_deals: [{ name, menu }] the
+ * automatic meal deals on the menus engineered (the menu named, else the
+ * menus of the sections that sold): found among dishes rung up one by one,
+ * they are a discount over those dishes, which count in their own sections
+ * (see shared/engineering.js), so the page and Pepper say so.
  */
 export async function engineeringFor(tx, tenantId, { venueIds = null, from, to, menuId = null, sales = true } = {}) {
   const rows = await tx`
@@ -50,6 +54,14 @@ export async function engineeringFor(tx, tenantId, { venueIds = null, from, to, 
     s.menu_id = m?.menu_id ?? null
     s.menu = m?.menu ?? null
   }
-  const out = { ...result, worked_out_at: run?.at ?? null }
+  const menuIds = menuId ? [menuId] : [...new Set(result.sections.map(s => s.menu_id).filter(Boolean))]
+  const autoDeals = menuIds.length ? await tx`
+    SELECT i.name, m.name AS menu
+      FROM menu_items i
+      JOIN menu_sections s ON s.id = i.section_id AND s.tenant_id = i.tenant_id
+      JOIN menus m ON m.id = s.menu_id AND m.tenant_id = s.tenant_id
+     WHERE i.tenant_id = ${tenantId} AND i.kind = 'combo' AND i.combo->>'mode' = 'auto' AND s.menu_id = ANY(${menuIds}::uuid[])
+     ORDER BY m.name, s.sort_order, i.sort_order, i.name` : []
+  const out = { ...result, auto_deals: autoDeals.map(d => ({ name: d.name, menu: d.menu })), worked_out_at: run?.at ?? null }
   return sales ? out : withoutSales(out)
 }

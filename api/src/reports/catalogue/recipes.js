@@ -325,7 +325,7 @@ export const subjects = [
     one: 'dish sold in a menu section',
     area: 'recipes',
     module: COSTING,
-    about: 'Each dish sold in each menu section over the period (the venues the report covers, together), by Kasavana and Smith: popular when its share of the section\'s units is at least 70% of an equal share, profitable when its gross profit per unit is at least the section\'s average per unit sold; stars, plough-horses, puzzles and dogs, with what to do with each. From usage from sales: units that couldn\'t be costed count for popularity, never for gross profit. A meal deal is one dish of its own section.',
+    about: 'Each dish sold in each menu section over the period (the venues the report covers, together), by Kasavana and Smith: popular when its share of the section\'s units is at least 70% of an equal share, profitable when its gross profit per unit is at least the section\'s average per unit sold; stars, plough-horses, puzzles and dogs, with what to do with each. From usage from sales: units that couldn\'t be costed count for popularity, never for gross profit. A meal deal rung up as a deal is one dish of its own section; an automatic deal the till found among dishes rung up one by one is a discount over them, which count in their own sections at what they took.',
     from: { work: 'menu_engineering', tables: ENGINEERING_TABLES },
     idType: 'text',
     date: { sql: '{t}.date', label: 'Period ends' },

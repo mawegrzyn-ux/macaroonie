@@ -30,7 +30,7 @@ import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { Field, inputCls, ErrorNote, Segmented, ConfirmDelete, SortableRows, Modal } from '@/components/staff/shared'
 import { Card, NumInput, btn, fmtDate } from '@/components/purchasing/shared'
 import { penceText, pctText, pounds, BandBadge } from '@/components/recipes/shared'
-import { CHANGE_HOW, MIX_DAY_CHOICES, MIX_DAYS, ROUND_TO, changeProblem, scenarioCsvRows } from '@shared/scenarios.js'
+import { CHANGE_HOW, MIX_DAY_CHOICES, MIX_DAYS, ROUND_TO, changeProblem, scenarioCsv } from '@shared/scenarios.js'
 
 let keySeq = 0
 const newKey = () => 'c' + (++keySeq)
@@ -492,9 +492,8 @@ function PushModal({ id, onClose }) {
 }
 
 function downloadCsv(name, fig, sales) {
-  const cell = v => (v == null ? '' : /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v))
-  const rows = scenarioCsvRows(fig, { sales })
-  const blob = new Blob([rows.map(r => r.map(cell).join(',')).join('\n') + '\n'], { type: 'text/csv;charset=utf-8' })
+  // A dish or section named =... or +... never runs as a formula in a spreadsheet (scenarioCsv()).
+  const blob = new Blob([scenarioCsv(fig, { sales })], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

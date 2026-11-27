@@ -4,7 +4,7 @@
 // and the sales figures stripped for people without till reports view.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { engineer, classOf, popularPct, withoutSales, classWords, CLASS_KEYS, ENGINEERING_SALES_FIELDS } from '../engineering.js'
+import { engineer, classOf, popularPct, withoutSales, classWords, averageText, CLASS_KEYS, ENGINEERING_SALES_FIELDS } from '../engineering.js'
 
 const MAINS = 'sec-mains'
 const DEALS = 'sec-deals'
@@ -143,4 +143,40 @@ test('nothing sold, nothing to engineer', () => {
   // A dish sold and refunded to nothing in the period isn't one of the section's dishes.
   const s = engineer([...worked(), row('pie', 'Pie', 0, 0, 0)]).sections[0]
   assert.equal(s.dish_count, 4)
+})
+
+test('a section none of whose units could be costed has no average: a gap in words, never £0.00 (7a review)', () => {
+  const r = engineer([...worked(), row('stew', 'Stew', 12, 9600, null, { section_id: 'sec-specials', section: 'Specials', uncosted_qty: 12 })])
+  const sp = r.sections.find(s => s.section === 'Specials')
+  assert.equal(sp.avg_gp_per_unit_pence, null)
+  assert.equal(sp.dishes[0].class, null)
+  const pence = p => '£' + (p / 100).toFixed(2)
+  assert.equal(averageText(sp, pence), '-')
+  assert.equal(averageText(sp, pence, 'not costed'), 'not costed')
+  assert.equal(averageText(r.sections.find(s => s.section === 'Mains'), pence), '£6.85')
+  assert.equal(averageText(null, pence), '-')
+})
+
+test('an automatic deal found among separate dishes: they count in their own sections at what they took, the deal has no units (7a review)', () => {
+  // The till rang up 10 burgers and 10 cokes one by one and found the automatic Burger meal in 4 of each, taking
+  // £2.00 off each burger and £0.50 off each coke there: dish_cost_days has one row per dish, its net after the
+  // saving, and none for the deal. 2 Burger meals were rung up from the deal's own button: the deal's own row.
+  const drinks = { section_id: 'sec-drinks', section: 'Drinks' }
+  const rows = [
+    row('burger', 'Burger', 10, 10 * 1000 - 4 * 200, 30),
+    row('chips', 'Chips', 10, 10 * 300, 5),
+    row('coke', 'Coke', 10, 10 * 250 - 4 * 50, 5, drinks),
+    row('water', 'Water', 10, 10 * 150, 1, drinks),
+    row('meal', 'Burger meal', 2, 2 * 1100, 7, { section_id: DEALS, section: 'Deals', kind: 'deal' }),
+  ]
+  const r = engineer(rows)
+  const mains = r.sections.find(s => s.section === 'Mains')
+  const burger = mains.dishes.find(d => d.dish_id === 'burger')
+  assert.equal(burger.units, 10, 'every burger counts in Mains, the four in deals too')
+  assert.equal(burger.net_pence, 9200, 'at what they took after the saving')
+  assert.equal(burger.gp_per_unit_pence, 620)
+  const deals = r.sections.find(s => s.section === 'Deals')
+  assert.equal(deals.units, 2, 'only the deals rung up as deals')
+  assert.equal(deals.dishes[0].kind, 'deal')
+  assert.equal(r.sections.find(s => s.section === 'Drinks').units, 20)
 })

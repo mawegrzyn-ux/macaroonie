@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils'
 import { Field, inputCls, ErrorNote, addDay } from '@/components/staff/shared'
 import { Card, DateButton, Drawer, btn } from '@/components/purchasing/shared'
 import { penceText, pctText } from '@/components/recipes/shared'
-import { CLASSES, NOT_COSTED } from '@shared/engineering.js'
+import { CLASSES, NOT_COSTED, averageText } from '@shared/engineering.js'
 
 const qtyText = n => (Number.isInteger(n) ? String(n) : Number(n).toFixed(1))
 const ICONS = { star: Star, plough_horse: Tractor, puzzle: Puzzle, dog: Dog }
@@ -102,8 +102,8 @@ export default function Engineering({ venues = [], menus = [] }) {
         <p className="text-xs text-muted-foreground mt-3">
           Each section&apos;s dishes from what really sold (usage from sales{data?.worked_out_at ? ', worked out ' + new Date(data.worked_out_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}).
           A dish is popular when its share of the section&apos;s units is at least 70% of an equal share, and profitable when its gross profit per
-          unit is at least the section&apos;s average per unit sold. A meal deal is one dish of its own section, counted by deals sold; the dishes
-          picked in it add nothing to their sections. Units that couldn&apos;t be costed count for popularity but are left out of GP.
+          unit is at least the section&apos;s average per unit sold. A meal deal rung up as a deal is one dish of its own section, counted by deals
+          sold; the dishes picked in it add nothing to their sections. Units that couldn&apos;t be costed count for popularity but are left out of GP.
           {!sales && ' GP, cost % and the classes come from what the till took: they need till reports view as well, so only units and shares show here.'}
         </p>
       </Card>
@@ -134,6 +134,13 @@ export default function Engineering({ venues = [], menus = [] }) {
               {sales && <Suggestions />}
               {sections.map(s => <SectionTable key={s.section_id} section={s} sales={sales} onOpen={setOpen} />)}
             </>
+          )}
+          {data.auto_deals?.length > 0 && (
+            <p className="text-xs text-muted-foreground" data-testid="eng-auto-deals">
+              Automatic meal deals ({data.auto_deals.map(d => d.name + (menuId ? '' : ' on ' + d.menu)).join(', ')}): when the till, a kiosk or online
+              ordering finds one among dishes rung up one by one, it is a discount over those dishes. They count in their own sections, each at what it
+              took after the deal&apos;s saving, and the deal has no units for them; only a deal rung up from its own button counts as a deal.
+            </p>
           )}
           {data.left_out?.units > 0 && (
             <p className="text-xs text-muted-foreground" data-testid="eng-left-out">
@@ -205,7 +212,9 @@ export function FourBoxes({ section, onOpen }) {
   const X = v => PAD.l + (v / xMax) * iw
   const Y = v => PAD.t + ih - ((v - yMin) / (yHi - yMin)) * ih
   const lineX = X(section.popular_pct)
-  const lineY = Y(section.avg_gp_per_unit_pence ?? 0)
+  // No costed unit in the section: no average to draw (never a line at £0.00).
+  const avgKnown = section.avg_gp_per_unit_pence != null
+  const lineY = avgKnown ? Y(section.avg_gp_per_unit_pence) : null
   const ticksX = [0, xMax / 4, xMax / 2, (3 * xMax) / 4, xMax]
   const ticksY = [yMin, yMin + (yHi - yMin) / 4, yMin + (yHi - yMin) / 2, yMin + (3 * (yHi - yMin)) / 4, yHi]
   const label = pts.length <= 14
@@ -217,7 +226,7 @@ export function FourBoxes({ section, onOpen }) {
         aria-label={'Four boxes for ' + sectionName(section) + ': share of units across, gross profit per unit up'}>
         <rect x="0" y="0" width={W} height={H} fill="var(--eng-surface)" />
         {/* The stars' box, faintly tinted: popular and profitable. */}
-        <rect x={lineX} y={PAD.t} width={Math.max(0, W - PAD.r - lineX)} height={Math.max(0, lineY - PAD.t)} fill="var(--eng-tint)" />
+        {avgKnown && <rect x={lineX} y={PAD.t} width={Math.max(0, W - PAD.r - lineX)} height={Math.max(0, lineY - PAD.t)} fill="var(--eng-tint)" />}
         {ticksY.map((v, i) => (
           <g key={'y' + i}>
             <line x1={PAD.l} x2={W - PAD.r} y1={Y(v)} y2={Y(v)} stroke="var(--eng-grid)" strokeWidth="1" />
@@ -229,13 +238,13 @@ export function FourBoxes({ section, onOpen }) {
         ))}
         <line x1={PAD.l} x2={W - PAD.r} y1={PAD.t + ih} y2={PAD.t + ih} stroke="var(--eng-rule)" strokeWidth="1" />
         <line x1={lineX} x2={lineX} y1={PAD.t} y2={PAD.t + ih} stroke="var(--eng-rule)" strokeWidth="1.5" strokeDasharray="5 4" />
-        <line x1={PAD.l} x2={W - PAD.r} y1={lineY} y2={lineY} stroke="var(--eng-rule)" strokeWidth="1.5" strokeDasharray="5 4" />
+        {avgKnown && <line x1={PAD.l} x2={W - PAD.r} y1={lineY} y2={lineY} stroke="var(--eng-rule)" strokeWidth="1.5" strokeDasharray="5 4" />}
         {corner(W - PAD.r - 6, PAD.t + 16, 'end', 'Stars')}
         {corner(PAD.l + 6, PAD.t + 16, 'start', 'Puzzles')}
         {corner(W - PAD.r - 6, PAD.t + ih - 8, 'end', 'Plough-horses')}
         {corner(PAD.l + 6, PAD.t + ih - 8, 'start', 'Dogs')}
         <text x={PAD.l + iw / 2} y={H - 8} textAnchor="middle" className="text-[12px]" fill="var(--eng-ink-2)">Share of the section&apos;s units (popular from {pctText(section.popular_pct)})</text>
-        <text transform={`translate(14 ${PAD.t + ih / 2}) rotate(-90)`} textAnchor="middle" className="text-[12px]" fill="var(--eng-ink-2)">GP per unit (average {penceText(Math.round(section.avg_gp_per_unit_pence ?? 0))})</text>
+        <text transform={`translate(14 ${PAD.t + ih / 2}) rotate(-90)`} textAnchor="middle" className="text-[12px]" fill="var(--eng-ink-2)">GP per unit (average {averageText(section, penceText)})</text>
         {pts.map(d => {
           const cx = X(d.share_pct), cy = Y(d.gp_per_unit_pence)
           const right = cx < W - 160
@@ -336,7 +345,7 @@ function DishDrawer({ dish, section, sales, onClose }) {
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
             <dt className="text-muted-foreground">Units sold</dt><dd className="tabular-nums text-right">{qtyText(dish.units)}</dd>
             <dt className="text-muted-foreground">Share of the section</dt><dd className="tabular-nums text-right">{pctText(dish.share_pct)} (popular from {pctText(section.popular_pct)})</dd>
-            {sales && <><dt className="text-muted-foreground">GP a unit</dt><dd className="tabular-nums text-right">{dish.gp_per_unit_pence == null ? '-' : penceText(Math.round(dish.gp_per_unit_pence))} (average {penceText(Math.round(section.avg_gp_per_unit_pence ?? 0))})</dd></>}
+            {sales && <><dt className="text-muted-foreground">GP a unit</dt><dd className="tabular-nums text-right">{dish.gp_per_unit_pence == null ? '-' : penceText(Math.round(dish.gp_per_unit_pence))} (average {averageText(section, penceText)})</dd></>}
             {sales && <><dt className="text-muted-foreground">Total GP</dt><dd className="tabular-nums text-right">{dish.gp_pence == null ? '-' : penceText(dish.gp_pence)}</dd></>}
             {sales && <><dt className="text-muted-foreground">Net sales</dt><dd className="tabular-nums text-right">{dish.net_pence == null ? '-' : penceText(dish.net_pence)}</dd></>}
             <dt className="text-muted-foreground">Theoretical cost</dt><dd className="tabular-nums text-right">{dish.cost_pence == null ? '-' : penceText(dish.cost_pence)}</dd>

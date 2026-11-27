@@ -31,6 +31,8 @@
 //                                  prices, and every price that changes: the
 //                                  caller saves it whole through
 //                                  menuSaveBody() (shared/menuSave.js)
+//   scenarioCsv(fig, { sales })    the figures as CSV text, a cell that would
+//                                  run as a spreadsheet formula made harmless
 //
 // Where a price lives: a dish has one price on a menu, at every venue,
 // revenue stream and order type (only its VAT changes with them, taxFor());
@@ -43,8 +45,14 @@
 // The weighted figures compare the same dishes on both sides: a dish with no
 // cost before or after is left out of both, with its units, never counted at
 // nothing. A meal deal is costed at its typical picks (dealTypical() in
-// shared/costing.js) and priced at what those picks sell for. Pence meet
-// pounds only in margin() (shared/costing.js).
+// shared/costing.js) and priced at what those picks sell for; a cost change
+// reaches it through its picks only (one naming the deal, or its own
+// section, is said in `skipped`). Its units are the deals rung up as deals:
+// an automatic deal the till found among dishes rung up one by one is a
+// discount over them (like a promotion, left out as the Margins tab leaves
+// promotions out), so those dishes count at their own menu prices and the
+// deal has no units for them (shared/engineering.js says the same for
+// engineering). Pence meet pounds only in margin() (shared/costing.js).
 
 import { margin, dishMargin, dealTypical, typicalPicks, costBand, thresholdsFor, dishMap, pounds } from './costing.js'
 import { itemChoices, variantRules, fromPrice, basePrice } from './orderPricing.js'
@@ -250,6 +258,10 @@ export function scenarioFigures(menu, scope, ctx, { rates = [], settings = null,
         costAfter = costBefore
         if (costChanges.some(c => c.applies === 'dish' && c.dish_id === i.id)) {
           skipped.push(i.name + ' is a meal deal: its cost is the dishes picked in it, so change their costs instead')
+        } else if (costChanges.some(c => c.applies === 'section' && c.section_id === s.id)) {
+          // A cost change for the deal's own section changes its picks (when they sit there), never the deal on top.
+          skipped.push(i.name + ' is a meal deal: its cost is the dishes picked in it, so a cost change for ' + (s.title || 'its section')
+            + ' reaches it only through those dishes')
         }
       } else {
         for (const c of costChanges) if (changeApplies(c, { dish_id: i.id, section_id: s.id })) costAfter = changedCost(costAfter, c)
@@ -384,4 +396,19 @@ export function scenarioCsvRows(fig, { sales = true } = {}) {
       sales ? money(t.before.gp_pence) : '', sales ? money(t.after.gp_pence) : '', t.before.cost_pct ?? '', t.after.cost_pct ?? '', ''])
   }
   return rows
+}
+
+// One CSV cell: quoted when needed; text starting with = + - @ (a dish or
+// section named so) made harmless for spreadsheets with a leading quote, a
+// plain number (-1.50) left as it is.
+function csvText(v) {
+  if (v == null) return ''
+  let t = String(v)
+  if (/^[=+\-@\t\r]/.test(t) && !/^-?\d+(\.\d+)?$/.test(t)) t = "'" + t
+  return /[",\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t
+}
+
+/** A scenario's figures as CSV text (the Scenarios tab's Export CSV): scenarioCsvRows() through csvText(). */
+export function scenarioCsv(fig, opts = {}) {
+  return scenarioCsvRows(fig, opts).map(r => r.map(csvText).join(',')).join('\r\n') + '\r\n'
 }
