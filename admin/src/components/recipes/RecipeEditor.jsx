@@ -18,7 +18,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Loader2, Plus, Copy, Layers, AlertTriangle, Search, X, Package, ChefHat } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { Field, inputCls, ErrorNote, ConfirmDelete, Segmented, SortableRows } from '@/components/staff/shared'
+import { Field, inputCls, ErrorNote, ConfirmDelete, Segmented, SortableRows, Modal } from '@/components/staff/shared'
 import { Card, NumInput, Toggle, btn } from '@/components/purchasing/shared'
 import { PicturePick } from '@/components/media/PicturePick'
 import { KINDS, YIELD_UNITS, AVERAGE_DAYS } from '@shared/costing.js'
@@ -32,7 +32,7 @@ const NEW_DETAILS = {
   shelf_life_hours: null, variant_of: '', notes: '', is_active: true,
 }
 
-export function RecipeEditor({ id, venueId, basis, onVenue, onBasis, onOpen, onClose, canManage }) {
+export function RecipeEditor({ id, venueId, basis, onVenue, onBasis, onOpen, onClose, onOpenDish, canManage }) {
   const api = useApi()
   const qc = useQueryClient()
   const query = new URLSearchParams({ ...(venueId ? { venue_id: venueId } : {}), ...(basis !== 'standard' ? { basis } : {}) }).toString()
@@ -125,6 +125,7 @@ export function RecipeEditor({ id, venueId, basis, onVenue, onBasis, onOpen, onC
         <div className="space-y-4 lg:sticky lg:top-4">
           <CostCard recipe={server} live={live} costs={costs} changed={!!draftBody} venueId={venueId} basis={basis} />
           <UsedCard recipe={server} onOpen={onOpen} />
+          {server.kind === 'dish' && <MenusCard recipe={server} edit={edit} onOpenDish={onOpenDish} />}
           {edit && <EndCard recipe={server} onClose={onClose} />}
         </div>
       </div>
@@ -492,6 +493,94 @@ function UsedCard({ recipe, onOpen }) {
         {recipe.variations?.length > 0 && <div><p className="text-xs text-muted-foreground mb-1">{recipe.variant_of ? 'Its group' : 'Its variations'}</p><div className="flex flex-wrap gap-2">{recipe.variations.map(link)}</div></div>}
       </div>
     </Card>
+  )
+}
+
+// ── Used on menus (phase 2) ───────────────────────────────────
+
+/** The menu dishes linked to this recipe, and where; Link a dish links one for every venue. */
+function MenusCard({ recipe, edit, onOpenDish }) {
+  const api = useApi()
+  const { data } = useQuery({ queryKey: ['recipe-dish-links', recipe.id], queryFn: () => api.get('/recipe-links/recipes/' + recipe.id) })
+  const [linking, setLinking] = useState(false)
+  const links = data?.links || []
+  return (
+    <Card title="Used on menus" actions={edit && (
+      <button type="button" className={cn(btn.outline, 'h-12')} onClick={() => setLinking(true)} data-testid="recipe-link-dish"><Plus className="w-4 h-4" />Link a dish</button>
+    )}>
+      {!links.length ? (
+        <p className="text-sm text-muted-foreground">No menu dish uses this recipe yet. Link a dish, or open one from the Dishes tab to use this recipe at some venues or order types only.</p>
+      ) : (
+        <ul className="space-y-1" data-testid="recipe-menu-dishes">
+          {links.map(l => (
+            <li key={l.link_id}>
+              <button type="button" onClick={() => onOpenDish?.(l.dish_id)} disabled={!l.on_menu}
+                className="w-full text-left rounded-lg border px-3 py-2 min-h-[48px] hover:bg-muted touch-manipulation disabled:opacity-70">
+                <span className="text-sm font-medium">{l.dish_name || 'A dish no longer on a menu'}</span>
+                <span className="block text-xs text-muted-foreground">{[l.menu, l.default ? 'every venue' : l.where, Number(l.portions) !== 1 ? 'x ' + l.portions : null].filter(Boolean).join(' · ')}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {linking && <LinkDish recipe={recipe} onClose={() => setLinking(false)} onOpenDish={onOpenDish} />}
+    </Card>
+  )
+}
+
+function LinkDish({ recipe, onClose, onOpenDish }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { data } = useQuery({ queryKey: ['recipe-dishes'], queryFn: () => api.get('/recipe-links/dishes') })
+  const [q, setQ] = useState('')
+  const [dish, setDish] = useState(null)
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const hits = (data?.dishes || []).filter(d => d.kind === 'dish' || d.kind === 'goods')
+    .filter(d => words.every(w => (d.name + ' ' + d.menu + ' ' + (d.section || '')).toLowerCase().includes(w))).slice(0, 12)
+  const link = useMutation({
+    mutationFn: () => api.put('/recipe-links/dishes/' + dish.id + '/cell', { recipe_id: recipe.id }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['recipe-dish-links', recipe.id] })
+      qc.invalidateQueries({ queryKey: ['recipe-dishes'] })
+      qc.invalidateQueries({ queryKey: ['recipe-dish', dish.id] })
+      onClose()
+    },
+  })
+  return (
+    <Modal title={'Link a dish to ' + recipe.name} onClose={onClose}
+      footer={dish && (
+        <>
+          <button type="button" className={cn(btn.primary, 'h-12')} disabled={link.isPending} onClick={() => link.mutate()} data-testid="link-dish-save">
+            {link.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Link for every venue
+          </button>
+          <button type="button" className={cn(btn.outline, 'h-12')} onClick={() => { onClose(); onOpenDish?.(dish.id) }}>Open its matrix instead</button>
+        </>
+      )}>
+      {!dish ? (
+        <>
+          <input className={cn(inputCls, 'h-12')} value={q} onChange={e => setQ(e.target.value)} placeholder="Search dishes on your menus" aria-label="Search dishes" data-testid="link-dish-search" />
+          <div className="rounded-lg border divide-y overflow-hidden">
+            {hits.map(d => (
+              <button key={d.id} type="button" onClick={() => setDish(d)} data-testid="link-dish-row"
+                className="w-full text-left px-3 min-h-[48px] py-1 hover:bg-muted touch-manipulation">
+                <span className="text-sm">{d.name}</span>
+                <span className="block text-xs text-muted-foreground">{[d.menu, d.section, d.default ? 'uses ' + d.default.recipe_name : 'no recipe yet'].filter(Boolean).join(' · ')}</span>
+              </button>
+            ))}
+            {!hits.length && <p className="p-3 text-sm text-muted-foreground">{words.length ? 'No dish matches.' : 'Type a dish\'s name.'}</p>}
+          </div>
+        </>
+      ) : (
+        <div className="space-y-2 text-sm">
+          <p><strong>{dish.name}</strong> on {dish.menu}.</p>
+          {dish.default && dish.default.recipe_id !== recipe.id
+            ? <p className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-amber-900">It uses {dish.default.recipe_name} for every venue now: this replaces it. To use {recipe.name} at some venues or order types only, open its matrix.</p>
+            : <p className="text-muted-foreground">{recipe.name} becomes its recipe for every venue and order type, unless a cell of its matrix says otherwise.</p>}
+          <button type="button" className={cn(btn.ghost, 'h-12')} onClick={() => setDish(null)}>Pick another dish</button>
+          <ErrorNote error={link.error} />
+        </div>
+      )}
+    </Modal>
   )
 }
 
