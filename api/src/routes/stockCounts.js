@@ -26,7 +26,9 @@
 //                                       isn't counted (a full count), and once it may be
 //                                       seen (not while a blind count is being counted)
 //                                       expected against counted (countReview()), values
-//                                       with Costing view
+//                                       with Costing view; later_count: an approved count
+//                                       at the venue dated after it (what that one counted
+//                                       keeps its figures)
 //   PATCH /counts/:id                   { note?, counted_at? } while counting
 //   PUT  /counts/:id/lines              { item_id, area_id, entries }: one line, as typed
 //                                       (no entries: the line goes)
@@ -37,7 +39,9 @@
 //   POST /counts/:id/reopen             Manage: a submitted count back to counting
 //   POST /counts/:id/cancel             a draft (Use), a submitted count (Manage); never an approved one
 //   GET  /venues/:venueId/today?date=   Today's stock tasks: the count due on the venue's
-//                                       count day and counts waiting for approval
+//                                       count day (until a count of the kind it counts is
+//                                       submitted: a full count, or its key-item list's;
+//                                       never a quick count) and counts waiting for approval
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
@@ -50,7 +54,7 @@ import {
 import {
   loadStockOnHand, loadCountItems, loadStockSettings, loadVenueSettings, countScope, itemCostsAt,
 } from '../services/stockSvc.js'
-import { stockAccess, who } from './stock.js'
+import { stockAccess, stockPerson, who } from './stock.js'
 
 const canView = requirePermission('stock', 'view')
 const canCount = requirePermission('stock', 'use')
@@ -138,7 +142,7 @@ function quickEntries(l, item) {
 }
 
 /** The count with its sheet, lines and (when it may be seen) expected against counted. */
-async function countView(tx, req, c, access) {
+async function countView(tx, req, c, access, mine) {
   const tenantId = req.tenantId
   const [scope, lines, settings] = await Promise.all([countScope(tx, tenantId, c), countLines(tx, tenantId, c.id), loadStockSettings(tx, tenantId)])
   const ids = [...new Set([...scope.item_ids, ...lines.map(l => l.item_id)])]
@@ -162,6 +166,12 @@ async function countView(tx, req, c, access) {
     }
   }
   const missing = c.kind === 'full' ? notCounted(scope.item_ids, lines) : []
+  // A count dated before an approved one at the venue changes nothing the later one counted
+  // (on hand starts from each item's last count): said on the sheet and the review.
+  const [later] = c.status === 'draft' || c.status === 'submitted' ? await tx`
+    SELECT id, kind, key_list_name, counted_at FROM stock_counts
+     WHERE tenant_id = ${tenantId} AND venue_id = ${c.venue_id} AND status = 'approved' AND id <> ${c.id} AND counted_at > ${c.counted_at}
+     ORDER BY counted_at DESC LIMIT 1` : []
   return {
     ...c,
     kind_label: COUNT_KINDS[c.kind]?.label,
@@ -169,8 +179,8 @@ async function countView(tx, req, c, access) {
     settings,
     can_count: access.can_count && c.status === 'draft',
     can_manage: access.can_manage,
-    can_approve: access.can_manage && c.status === 'submitted' && !approvalProblem(c, lines, who(req), settings),
-    approve_problem: c.status === 'submitted' ? approvalProblem(c, lines, who(req), settings)?.message ?? null : null,
+    can_approve: access.can_manage && c.status === 'submitted' && !approvalProblem(c, lines, mine, settings),
+    approve_problem: c.status === 'submitted' ? approvalProblem(c, lines, mine, settings)?.message ?? null : null,
     areas: scope.areas.map(a => ({ ...a, done: c.areas_done?.[a.id] || null })),
     other: scope.other,
     items: Object.fromEntries([...items.values()].map(i => [i.id, {
@@ -179,6 +189,7 @@ async function countView(tx, req, c, access) {
     }])),
     lines,
     not_counted: missing,
+    later_count: later || null,
     expected,
     review,
   }
@@ -203,7 +214,8 @@ export default async function stockCountRoutes(app) {
   app.post('/venues/:venueId/counts', { preHandler: canCount }, async (req, reply) => {
     const body = req.body || {}
     const access = await stockAccess(req)
-    const me = who(req)
+    const person = await stockPerson(req)
+    const me = person.by
     if (Array.isArray(body.lines)) {
       // A quick count: these items only, submitted at once, approved when the person may.
       const b = QuickBody.parse(body)
@@ -234,7 +246,7 @@ export default async function stockCountRoutes(app) {
           RETURNING ${tx.unsafe(COUNT_COLS)}`
         await tx`INSERT INTO stock_count_lines ${tx(lines.map(l => ({ ...l, entries: tx.json(l.entries), tenant_id: req.tenantId, count_id: c.id, counted_by: me })), 'tenant_id', 'count_id', 'item_id', 'area_id', 'entries', 'qty_base', 'counted_by')}`
         let status = 'submitted'
-        if (access.can_manage && !approvalProblem(c, lines.map(l => ({ counted_by: me })), me, settings)) {
+        if (access.can_manage && !approvalProblem(c, lines.map(l => ({ counted_by: me })), person.ids, settings)) {
           await tx`UPDATE stock_counts SET status = 'approved', approved_by = ${me}, approved_at = now(), updated_at = now() WHERE id = ${c.id} AND tenant_id = ${req.tenantId}`
           status = 'approved'
         }
@@ -254,7 +266,7 @@ export default async function stockCountRoutes(app) {
 
   async function startCount(req, b) {
     const at = checkAt(b.counted_at)
-    const me = who(req)
+    const me = await who(req)
     return withTenant(req.tenantId, async tx => {
       let list = null
       if (b.kind === 'key') {
@@ -276,7 +288,8 @@ export default async function stockCountRoutes(app) {
 
   app.get('/counts/:id', { preHandler: canView }, async req => {
     const access = await stockAccess(req)
-    return withTenant(req.tenantId, async tx => countView(tx, req, await loadCount(tx, req.tenantId, req.params.id), access))
+    const { ids } = await stockPerson(req)
+    return withTenant(req.tenantId, async tx => countView(tx, req, await loadCount(tx, req.tenantId, req.params.id), access, ids))
   })
 
   app.patch('/counts/:id', { preHandler: canCount }, async req => {
@@ -294,7 +307,7 @@ export default async function stockCountRoutes(app) {
 
   app.put('/counts/:id/lines', { preHandler: canCount }, async req => {
     const b = LineBody.parse(req.body || {})
-    const me = who(req)
+    const me = await who(req)
     return withTenant(req.tenantId, async tx => {
       // FOR SHARE: lines of one count are written side by side; a submit (FOR UPDATE) waits for them.
       const c = await loadCount(tx, req.tenantId, req.params.id, 'share')
@@ -325,6 +338,7 @@ export default async function stockCountRoutes(app) {
 
   app.post('/counts/:id/areas/:areaId', { preHandler: canCount }, async req => {
     const b = z.object({ done: z.boolean() }).strict().parse(req.body || {})
+    const me = await who(req)
     return withTenant(req.tenantId, async tx => {
       // FOR UPDATE: this writes the count's own row (two people finishing two areas wait for each other, briefly).
       const c = await loadCount(tx, req.tenantId, req.params.id, 'update')
@@ -333,7 +347,7 @@ export default async function stockCountRoutes(app) {
       if (!a) throw httpError(404, 'Storage area not found')
       // One key merged or taken out: two people finishing two areas never write over each other.
       const [row] = b.done
-        ? await tx`UPDATE stock_counts SET areas_done = areas_done || jsonb_build_object(${a.id}::text, jsonb_build_object('by', ${who(req)}::text, 'at', now())), updated_at = now()
+        ? await tx`UPDATE stock_counts SET areas_done = areas_done || jsonb_build_object(${a.id}::text, jsonb_build_object('by', ${me}::text, 'at', now())), updated_at = now()
                     WHERE id = ${c.id} AND tenant_id = ${req.tenantId} RETURNING areas_done`
         : await tx`UPDATE stock_counts SET areas_done = areas_done - ${a.id}::text, updated_at = now()
                     WHERE id = ${c.id} AND tenant_id = ${req.tenantId} RETURNING areas_done`
@@ -343,7 +357,7 @@ export default async function stockCountRoutes(app) {
 
   app.post('/counts/:id/submit', { preHandler: canCount }, async req => {
     const b = z.object({ zero_item_ids: z.array(Id).max(5000).optional(), all_zero: z.boolean().optional() }).strict().parse(req.body || {})
-    const me = who(req)
+    const { by: me, ids } = await stockPerson(req)
     const access = await stockAccess(req)
     return withTenant(req.tenantId, async tx => {
       const c = await loadCount(tx, req.tenantId, req.params.id, 'update')
@@ -368,27 +382,28 @@ export default async function stockCountRoutes(app) {
       }
       const [row] = await tx`UPDATE stock_counts SET status = 'submitted', submitted_by = ${me}, submitted_at = now(), updated_at = now()
                               WHERE id = ${c.id} AND tenant_id = ${req.tenantId} RETURNING ${tx.unsafe(COUNT_COLS)}`
-      return countView(tx, req, row, access)
+      return countView(tx, req, row, access, ids)
     })
   })
 
   app.post('/counts/:id/approve', { preHandler: canManage }, async req => {
-    const me = who(req)
+    const { by: me, ids } = await stockPerson(req)
     const access = await stockAccess(req)
     return withTenant(req.tenantId, async tx => {
       const c = await loadCount(tx, req.tenantId, req.params.id, 'update')
       mustBe(c, 'submitted', 'only a submitted count can be approved')
       const [lines, settings] = await Promise.all([countLines(tx, req.tenantId, c.id), loadStockSettings(tx, req.tenantId)])
-      const problem = approvalProblem(c, lines, me, settings)
+      const problem = approvalProblem(c, lines, ids, settings)
       if (problem) throw httpError(403, problem.message, { code: problem.code })
       const [row] = await tx`UPDATE stock_counts SET status = 'approved', approved_by = ${me}, approved_at = now(), updated_at = now()
                               WHERE id = ${c.id} AND tenant_id = ${req.tenantId} RETURNING ${tx.unsafe(COUNT_COLS)}`
-      return countView(tx, req, row, access)
+      return countView(tx, req, row, access, ids)
     })
   })
 
   app.post('/counts/:id/reopen', { preHandler: canManage }, async req => {
     const access = await stockAccess(req)
+    const { ids } = await stockPerson(req)
     return withTenant(req.tenantId, async tx => {
       const c = await loadCount(tx, req.tenantId, req.params.id, 'update')
       mustBe(c, 'submitted', 'only a submitted count can go back to counting')
@@ -396,18 +411,19 @@ export default async function stockCountRoutes(app) {
       await tx`DELETE FROM stock_count_lines WHERE tenant_id = ${req.tenantId} AND count_id = ${c.id} AND confirmed_zero`
       const [row] = await tx`UPDATE stock_counts SET status = 'draft', submitted_by = NULL, submitted_at = NULL, updated_at = now()
                               WHERE id = ${c.id} AND tenant_id = ${req.tenantId} RETURNING ${tx.unsafe(COUNT_COLS)}`
-      return countView(tx, req, row, access)
+      return countView(tx, req, row, access, ids)
     })
   })
 
   app.post('/counts/:id/cancel', { preHandler: canCount }, async req => {
     const access = await stockAccess(req)
+    const me = await who(req)
     return withTenant(req.tenantId, async tx => {
       const c = await loadCount(tx, req.tenantId, req.params.id, 'update')
       if (c.status === 'approved') throw httpError(409, 'An approved count can\'t be cancelled: count again, and the newer count replaces it', { code: 'count_status', status: c.status })
       if (c.status === 'cancelled') return c
       if (c.status === 'submitted' && !access.can_manage) throw httpError(403, 'Cancelling a submitted count needs Stock manage')
-      const [row] = await tx`UPDATE stock_counts SET status = 'cancelled', cancelled_by = ${who(req)}, cancelled_at = now(), updated_at = now()
+      const [row] = await tx`UPDATE stock_counts SET status = 'cancelled', cancelled_by = ${me}, cancelled_at = now(), updated_at = now()
                               WHERE id = ${c.id} AND tenant_id = ${req.tenantId} RETURNING ${tx.unsafe(COUNT_COLS)}`
       return row
     })
@@ -417,6 +433,7 @@ export default async function stockCountRoutes(app) {
   app.get('/venues/:venueId/today', { preHandler: canView }, async req => {
     const q = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).parse(req.query || {})
     const access = await stockAccess(req)
+    const { ids } = await stockPerson(req)
     return withTenant(req.tenantId, async tx => {
       const venueId = req.params.venueId
       const settings = await loadVenueSettings(tx, req.tenantId, venueId)
@@ -425,15 +442,20 @@ export default async function stockCountRoutes(app) {
         SELECT c.id, c.kind, c.status, c.key_list_name, c.counted_at, c.submitted_by, c.submitted_at
           FROM stock_counts c WHERE c.tenant_id = ${req.tenantId} AND c.venue_id = ${venueId} AND c.status IN ('draft', 'submitted')
          ORDER BY c.counted_at`
-      // Counted on the day at the venue (any count that isn't cancelled) means the day's count is done.
+      // The day's count is done by a count of the kind the venue counts, submitted or approved, dated
+      // that day at the venue: a full count (which also covers a key-item day), or a count of the
+      // venue's key-item list. A quick count (a few items, Pepper's count_stock: a key count with no
+      // list) is neither.
       const [done] = await tx`
         SELECT count(*)::int AS n FROM stock_counts c JOIN venues v ON v.id = c.venue_id AND v.tenant_id = c.tenant_id
          WHERE c.tenant_id = ${req.tenantId} AND c.venue_id = ${venueId} AND c.status IN ('submitted', 'approved')
-           AND (c.counted_at AT TIME ZONE COALESCE(v.timezone, 'Europe/London'))::date = ${q.date}::date`
+           AND (c.counted_at AT TIME ZONE COALESCE(v.timezone, 'Europe/London'))::date = ${q.date}::date
+           AND (c.kind = 'full' OR (${settings.count_kind} = 'key' AND c.kind = 'key' AND c.key_list_id IS NOT NULL
+                AND c.key_list_id = ${settings.key_list_id}::uuid))`
       const lines = await Promise.all(open.filter(c => c.status === 'submitted').map(c => countLines(tx, req.tenantId, c.id)))
       const stock = await loadStockSettings(tx, req.tenantId)
       const waiting = open.filter(c => c.status === 'submitted').map((c, i) => ({
-        ...c, can_approve: access.can_manage && !approvalProblem(c, lines[i], who(req), stock),
+        ...c, can_approve: access.can_manage && !approvalProblem(c, lines[i], ids, stock),
       }))
       return {
         settings, weekday,

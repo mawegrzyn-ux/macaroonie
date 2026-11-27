@@ -6,7 +6,12 @@
 // (Manage, the second person setting); blind counts; old counts as approved
 // full counts (migration 306); two people counting one count; Today's
 // tasks; Pepper's count_stock with areas and units and stock_moves; the
-// report subjects; cross-tenant ids and View / Use / Manage.
+// report subjects; cross-tenant ids and View / Use / Manage. Review fixes:
+// Today's count day cleared only by the venue's kind of count, blind counts
+// on Pepper's card, a reversal dated with what it reverses (a count between
+// keeps its figure), a later approved count warned of, a delivery's price
+// only with purchasing prices, the shared tablet's PIN person as who
+// counted, and items stock recorded switched off rather than deleted.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -281,14 +286,40 @@ test('Today: a count due on the count day, and a count to approve for whoever ma
   await ok(owner.put(`/api/stock/venues/${V}/settings`, { count_weekday: null, count_kind: 'full', key_list_id: null }))
 })
 
+test('Today: only the venue\'s own kind of count clears its count day, never a quick count of a few items', async () => {
+  // A day ten days back, which no other count in this file is dated on (counts may be dated up to 14 days back).
+  const at = ago(10)
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(at))
+  const weekday = new Date(today + 'T12:00:00Z').getUTCDay()
+  const due = async () => (await ok(operator.get(`/api/stock/venues/${V}/today?date=${today}`))).count_due
+  await ok(owner.put(`/api/stock/venues/${V}/settings`, { count_weekday: weekday, count_kind: 'full', key_list_id: null }))
+  assert.equal(await due(), true)
+  // Pepper's count_stock and a quick count are a key count with no list: never the day's count.
+  const quick = await ok(operator.post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: rice.id, qty: 1, unit: 'kg' }], counted_at: at }))
+  assert.equal(quick.status, 'submitted')
+  assert.equal(await due(), true, 'one item counted isn\'t the weekly full count')
+  await ok(owner.put(`/api/stock/venues/${V}/settings`, { count_weekday: weekday, count_kind: 'key', key_list_id: list.id }))
+  assert.equal(await due(), true, 'nor the key-item list\'s count')
+  const k = await ok(operator.post(`/api/stock/venues/${V}/counts`, { kind: 'key', key_list_id: list.id, counted_at: at }))
+  await ok(operator.put(`/api/stock/counts/${k.id}/lines`, { item_id: chicken.id, area_id: null, entries: [{ qty: 1, unit: 'kg' }] }))
+  await ok(operator.post(`/api/stock/counts/${k.id}/submit`, {}))
+  assert.equal(await due(), false, 'the list\'s own count, submitted, is the day\'s count')
+  for (const id of [quick.id, k.id]) await ok(owner.post(`/api/stock/counts/${id}/cancel`, {}))
+  assert.equal(await due(), true, 'a cancelled count isn\'t')
+  await ok(owner.put(`/api/stock/venues/${V}/settings`, { count_weekday: null, count_kind: 'full', key_list_id: null }))
+})
+
 test('the report subjects: on hand, moves, counts, count lines with their value, adjustments; the starter', async () => {
   const run = spec => ok(owner.post('/api/reports/preview', { spec: { kind: 'list', ...spec } }))
   const onHand = await run({ subject: 'stock.on_hand', rows: ['item_name', 'on_hand', 'value'] })
   const tab = venueRow((await ok(owner.get('/api/stock/venues/' + V))).items)
   const byName = Object.fromEntries(onHand.rows.map(r => [r.cells[0], r.cells.slice(1)]))
   assert.equal(byName['Chicken thighs'][0], tab['Chicken thighs'].on_hand, 'the Stock tab\'s figure')
-  const moves = await run({ subject: 'stock.moves', rows: ['item_name', 'kind', 'change', 'balance'], params: [{ key: 'period', type: 'period', default: { relative: 'this_year' } }], filters: [{ field: 'date', op: 'in_period', param: 'period' }] })
-  assert.ok(moves.rows.some(r => r.cells[1] === 'Delivery' || r.cells[1] === 'delivery'), JSON.stringify(moves.rows.slice(0, 3)))
+  const moves = await run({ subject: 'stock.moves', rows: ['item_name', 'kind', 'change', 'balance', 'value', 'paid'], params: [{ key: 'period', type: 'period', default: { relative: 'this_year' } }], filters: [{ field: 'date', op: 'in_period', param: 'period' }] })
+  const delivery = moves.rows.find(r => r.cells[0] === 'Chicken thighs' && (r.cells[1] === 'Delivery' || r.cells[1] === 'delivery'))
+  assert.ok(delivery, JSON.stringify(moves.rows.slice(0, 3)))
+  assert.deepEqual(delivery.cells.slice(4), [null, 80], 'a delivery\'s money is Paid (its supplier\'s price), not Value')
+  assert.ok(moves.rows.some(r => (r.cells[1] === 'Adjustment' || r.cells[1] === 'adjustment') && r.cells[4] != null && r.cells[5] == null), 'an adjustment\'s is Value')
   const lines = await run({ subject: 'stock.count_lines', rows: ['item_name', 'counted', 'expected', 'difference', 'value', 'latest'] })
   const full = lines.rows.find(r => r.cells[0] === 'Chicken thighs' && r.cells[1] === 15400)
   assert.deepEqual(full.cells.slice(1, 5), [15400, 17500, -2100, -8.4], 'the review\'s figures')
@@ -402,6 +433,16 @@ test('Pepper: count_stock in several units by area, waiting for approval from Us
   assert.doesNotMatch(JSON.stringify(moves.out), /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/, 'names, never ids')
 })
 
+test('Pepper: with blind counts on, the count card shows no expected figure beside the counter\'s', async () => {
+  await ok(owner.put('/api/stock/settings', { second_person_approves: false, blind_count: true }))
+  const blind = await pepper(A.operator, 'count_stock', { venue: 'Larder', counts: [{ item: 'chicken', qty: 2, unit: 'kg' }] }, { run: false })
+  assert.equal(blind.card.lines.length, 1)
+  assert.doesNotMatch(blind.card.lines[0], /\(was /, blind.card.lines[0])
+  await ok(owner.put('/api/stock/settings', { second_person_approves: false, blind_count: false }))
+  const open = await pepper(A.operator, 'count_stock', { venue: 'Larder', counts: [{ item: 'chicken', qty: 2, unit: 'kg' }] }, { run: false })
+  assert.match(open.card.lines[0], /\(was /, 'shown when counts aren\'t blind')
+})
+
 test('View, Use and Manage: who reads, counts, approves and sets up', async () => {
   const meta = async c => ok(c.get('/api/stock/meta'))
   const [o, op, v] = await Promise.all([meta(owner), meta(operator), meta(viewer)])
@@ -413,10 +454,117 @@ test('View, Use and Manage: who reads, counts, approves and sets up', async () =
     assert.equal((await viewer.get(path)).status, 200, path)
   }
   assert.equal((await viewer.post(`/api/stock/venues/${V}/counts`, { kind: 'full' })).status, 403)
+  // A draft opened by a viewer reads as not theirs to count (the sheet then shows it read only).
+  const draft = await ok(operator.post(`/api/stock/venues/${V}/counts`, { kind: 'key', key_list_id: list.id }))
+  assert.deepEqual([(await ok(viewer.get('/api/stock/counts/' + draft.id))).can_count, (await ok(operator.get('/api/stock/counts/' + draft.id))).can_count], [false, true])
+  assert.equal((await viewer.put(`/api/stock/counts/${draft.id}/lines`, { item_id: chicken.id, area_id: null, entries: [{ qty: 1, unit: 'kg' }] })).status, 403)
+  await ok(operator.post(`/api/stock/counts/${draft.id}/cancel`, {}))
   assert.equal((await viewer.post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: rice.id, qty: 1 }] })).status, 403)
   // A role with no stock level sees nothing.
   const [role] = await sql`INSERT INTO tenant_roles (tenant_id, key, label, permissions, is_builtin) VALUES (${ids.a}, 'no_stock', 'No stock', ${sql.json({ purchasing: 'manage' })}, false) RETURNING id`
   await sql`UPDATE users SET custom_role_id = ${role.id} WHERE auth0_user_id = ${A.viewer} AND tenant_id = ${ids.a}`
   assert.equal((await viewer.get('/api/stock/venues/' + V)).status, 403)
   await sql`UPDATE users SET custom_role_id = NULL WHERE auth0_user_id = ${A.viewer} AND tenant_id = ${ids.a}`
+})
+
+test('a reversal is dated at the adjustment it reverses: a count since keeps what it found', async () => {
+  const beef = await ok(owner.post('/api/inventory/items', { name: 'Beef mince', base_unit: 'g' }))
+  const onHand = async () => venueRow((await ok(owner.get('/api/stock/venues/' + V))).items)['Beef mince'].on_hand
+  await ok(owner.post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: beef.id, qty: 20, unit: 'kg' }], counted_at: ago(3) }))
+  // 2.5 kg taken off by mistake, then a count finds what is really there (17.5 kg): the count takes the mistake in.
+  const adj = await ok(owner.post(`/api/stock/venues/${V}/adjustments`, { item_id: beef.id, qty: -2500, unit: 'g', reason: 'Typed against the wrong item', adjusted_at: ago(2) }))
+  const later = await ok(owner.post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: beef.id, qty: 17500, unit: 'g' }], counted_at: ago(1) }))
+  assert.equal(later.status, 'approved')
+  assert.equal(await onHand(), 17500)
+  const rev = await ok(owner.post(`/api/stock/adjustments/${adj.id}/reverse`, {}))
+  assert.equal(new Date(rev.adjusted_at).toISOString(), new Date(adj.adjusted_at).toISOString(), 'dated with what it reverses')
+  assert.ok(new Date(rev.created_at) > new Date(adj.adjusted_at), 'and says when it was done')
+  assert.equal(await onHand(), 17500, 'the count since keeps its figure (dated now, the reversal read 20 kg)')
+  const h = await ok(owner.get(`/api/stock/venues/${V}/items/${beef.id}/moves`))
+  assert.deepEqual(h.moves.map(m => [m.kind, m.change, m.balance]), [
+    ['count', -2500, 17500], ['adjustment', 2500, 20000], ['adjustment', -2500, 17500], ['count', null, 20000],
+  ], 'the pair cancels out before the count, which then shows the 2.5 kg as missing')
+  // A count dated before an approved one says so: what the later one counted keeps its figures.
+  const early = await ok(operator.post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: beef.id, qty: 1, unit: 'kg' }], counted_at: ago(1.5) }))
+  const view = await ok(owner.get('/api/stock/counts/' + early.id))
+  assert.ok(view.later_count && new Date(view.later_count.counted_at) >= new Date(later.counted_at), JSON.stringify(view.later_count))
+  assert.equal((await ok(owner.get('/api/stock/counts/' + later.id))).later_count, null, 'an approved count isn\'t warned about')
+  await ok(owner.post(`/api/stock/counts/${early.id}/cancel`, {}))
+})
+
+test('a delivery\'s value is its supplier\'s price: Costing view without purchasing prices sees the averages only', async () => {
+  const [role] = await sql`INSERT INTO tenant_roles (tenant_id, key, label, permissions, is_builtin)
+    VALUES (${ids.a}, 'costs_no_prices', 'Costs, no prices', ${sql.json({ stock: 'view', costing: 'view', reports: 'use' })}, false) RETURNING id`
+  await sql`UPDATE users SET custom_role_id = ${role.id} WHERE auth0_user_id = ${A.viewer} AND tenant_id = ${ids.a}`
+  try {
+    const meta = await ok(viewer.get('/api/stock/meta'))
+    assert.deepEqual([meta.sees_values, meta.sees_prices], [true, false])
+    const h = await ok(viewer.get(`/api/stock/venues/${V}/items/${chicken.id}/moves`))
+    const delivery = h.moves.find(m => m.kind === 'delivery')
+    assert.deepEqual([delivery.cost_per_base, delivery.value], [null, null], 'no supplier price, no line total')
+    assert.equal(delivery.change, 20000, 'the quantity still shows')
+    assert.ok(h.moves.some(m => m.kind !== 'delivery' && m.value != null), 'counts and adjustments keep their value at the average paid')
+    assert.equal((await ok(owner.get(`/api/stock/venues/${V}/items/${chicken.id}/moves`))).moves.find(m => m.kind === 'delivery').value, 80, 'with purchasing prices')
+    const period = { params: [{ key: 'period', type: 'period', default: { relative: 'this_year' } }], filters: [{ field: 'date', op: 'in_period', param: 'period' }] }
+    const paid = await ok(viewer.post('/api/reports/preview', { spec: { kind: 'list', subject: 'stock.moves', rows: ['item_name', 'kind', 'paid'], ...period } }))
+    assert.match(JSON.stringify(paid.notes || paid), /Paid is left out/, 'Paid needs purchasing prices')
+    assert.ok(paid.rows.every(r => r.cells.length === 2), 'the column isn\'t there')
+    const received = await viewer.post('/api/reports/preview', { spec: { subject: 'stock.moves', rows: ['kind'], values: [{ measure: 'received_value' }], ...period } })
+    assert.ok(received.status >= 400, received.body.slice(0, 200))
+    const valued = await ok(viewer.post('/api/reports/preview', { spec: { kind: 'list', subject: 'stock.moves', rows: ['item_name', 'kind', 'value'], ...period } }))
+    assert.ok(valued.rows.length > 0)
+  } finally {
+    await sql`UPDATE users SET custom_role_id = NULL WHERE auth0_user_id = ${A.viewer} AND tenant_id = ${ids.a}`
+  }
+})
+
+test('on a shared tablet the person who switched in is who counted: the second person rule follows them, not the account', async () => {
+  const { DEVICE_HEADER, ACT_HEADER } = await import('../src/middleware/sharedDevice.js')
+  await ok(owner.put('/api/stock/settings', { second_person_approves: true, blind_count: false }))
+  await ok(admin.put('/api/shared-devices/my-pin', { pin: '5928' }))
+  await ok(owner.put('/api/shared-devices/my-pin', { pin: '6274' }))
+  // The venue's tablet is signed in as the owner.
+  const device = await ok(owner.post('/api/shared-devices', { venue_id: V, name: 'Walk-in tablet' }))
+  const [adminRow] = await sql`SELECT id, email FROM users WHERE tenant_id = ${ids.a} AND auth0_user_id = ${A.admin}`
+  const [ownerRow] = await sql`SELECT id, email FROM users WHERE tenant_id = ${ids.a} AND auth0_user_id = ${A.owner}`
+  const on = act => ({ [DEVICE_HEADER]: device.token, ...(act ? { [ACT_HEADER]: act } : {}) })
+  const switchIn = async (row, pin) => on((await ok(owner.post('/api/shared-devices/act', { person: 'user:' + row.id, pin }, on()))).token)
+  try {
+    // The admin switches in with their PIN, counts and submits.
+    const asAdmin = await switchIn(adminRow, '5928')
+    const c = await ok(owner.post(`/api/stock/venues/${V}/counts`, { kind: 'key', key_list_id: list.id }, asAdmin))
+    await ok(owner.put(`/api/stock/counts/${c.id}/lines`, { item_id: chicken.id, area_id: null, entries: [{ qty: 3, unit: 'kg' }] }, asAdmin))
+    const sent = await ok(owner.post(`/api/stock/counts/${c.id}/submit`, {}, asAdmin))
+    assert.deepEqual([sent.started_by, sent.submitted_by, sent.lines.map(l => l.counted_by)], [adminRow.email, adminRow.email, [adminRow.email]], 'the person, not the tablet\'s account')
+    assert.equal(sent.can_approve, false, 'the counter, on the tablet')
+    // From their own login the admin is still the one who counted.
+    const own = await admin.post(`/api/stock/counts/${c.id}/approve`, {})
+    assert.equal(own.status, 403)
+    assert.equal(own.json.code, 'second_person')
+    // The owner, switched in on the same tablet, is a second person.
+    const asOwner = await switchIn(ownerRow, '6274')
+    assert.equal((await ok(owner.get('/api/stock/counts/' + c.id, undefined, asOwner))).can_approve, true)
+    const done = await ok(owner.post(`/api/stock/counts/${c.id}/approve`, {}, asOwner))
+    assert.deepEqual([done.status, done.approved_by], ['approved', ownerRow.email])
+    // An adjustment on the tablet is the person's too.
+    const adj = await ok(owner.post(`/api/stock/venues/${V}/adjustments`, { item_id: rice.id, qty: 100, unit: 'g', reason: 'Found a bag' }, await switchIn(adminRow, '5928')))
+    assert.equal(adj.adjusted_by, adminRow.email)
+  } finally {
+    await ok(owner.put('/api/stock/settings', { second_person_approves: false, blind_count: false }))
+    await ok(owner.delete('/api/shared-devices/' + device.device.id))
+  }
+})
+
+test('an item stock has counted or adjusted is switched off, not deleted, so its counts and adjustments stay', async () => {
+  const salt = await ok(owner.post('/api/inventory/items', { name: 'Sea salt', base_unit: 'g' }))
+  await ok(owner.post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: salt.id, qty: 2, unit: 'kg' }] }))
+  assert.deepEqual(await ok(owner.delete('/api/inventory/items/' + salt.id)), { archived: true }, 'counted')
+  const spice = await ok(owner.post('/api/inventory/items', { name: 'Black pepper', base_unit: 'g' }))
+  await ok(owner.post(`/api/stock/venues/${V}/adjustments`, { item_id: spice.id, qty: 500, unit: 'g', reason: 'Found in the dry store' }))
+  assert.deepEqual(await ok(owner.delete('/api/inventory/items/' + spice.id)), { archived: true }, 'adjusted')
+  const [n] = await sql`SELECT (SELECT count(*) FROM stock_count_lines WHERE item_id = ${salt.id} AND tenant_id = ${ids.a})::int AS lines,
+                               (SELECT count(*) FROM stock_adjustments WHERE item_id = ${spice.id} AND tenant_id = ${ids.a})::int AS adjustments`
+  assert.deepEqual([n.lines, n.adjustments], [1, 1], 'nothing stock recorded went with it')
+  const fresh = await ok(owner.post('/api/inventory/items', { name: 'Never stocked', base_unit: 'g' }))
+  assert.deepEqual(await ok(owner.delete('/api/inventory/items/' + fresh.id)), { deleted: true }, 'an item nothing records still goes')
 })

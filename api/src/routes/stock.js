@@ -21,10 +21,14 @@
 //                                   the item's ledger at the venue: every move
 //                                   (runningBalance()) with its change and the
 //                                   balance after it; from / to are days at
-//                                   the venue (YYYY-MM-DD); values with Costing view
+//                                   the venue (YYYY-MM-DD); values with Costing
+//                                   view, a delivery's (the price paid to a named
+//                                   supplier) with purchasing prices as well
 //
 // Stock View reads (no values: a value tells what was paid, so it needs
-// Costing view as well).
+// Costing view as well; a delivery's price per base unit and line total are a
+// supplier's price, so they also need purchasing prices, seesPurchasingPrices()
+// on Purchasing setup, as on the purchasing pages and in recipes' explanation).
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
@@ -32,7 +36,7 @@ import { requireAuth, requirePermission, permissionLevels } from '../middleware/
 import { httpError } from '../middleware/error.js'
 import { requireOwnVenue } from '../middleware/venue.js'
 import { permissionAtLeast } from '../config/modules.js'
-import { stockLow } from '../../../shared/procurement.js'
+import { stockLow, PRICES_MODULE, seesPurchasingPrices } from '../../../shared/procurement.js'
 import { runningBalance, stockOnHand, MOVE_KINDS } from '../../../shared/stock.js'
 import {
   loadStockOnHand, loadStockMoves, loadCountItems, loadStockSettings, itemCostsAt, SALES_COUNTED, NO_SALES_NOTE,
@@ -42,17 +46,53 @@ const canView = requirePermission('stock', 'view')
 const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const MAX_MOVES = 500
 
-/** Who did it, as the stock documents keep it. */
-export const who = req => req.user?.email ?? req.user?.sub ?? null
+/**
+ * The person who does it, as the stock documents keep them (counted_by,
+ * submitted_by, approved_by, adjusted_by, an area's done by): the person,
+ * never only the account (core's rule for shared devices). On a shared
+ * device that is the office PIN person switched in, kept by their own
+ * sign-in email (users.email), so what they do there and from their own
+ * login reads the same and the second person rule compares like with like;
+ * else the signed-in account's email (its sub when the token has none).
+ * { by, ids }: `by` is what is written, `ids` every form this person's name
+ * takes in what was written before (email and sub), for approvalProblem().
+ * Read once a request.
+ */
+export async function stockPerson(req) {
+  if (req.stockPerson) return req.stockPerson
+  let by
+  let ids
+  if (req.acting) {
+    const [u] = req.acting.userId
+      ? await withTenant(req.tenantId, tx => tx`SELECT email FROM users WHERE id = ${req.acting.userId} AND tenant_id = ${req.tenantId} LIMIT 1`)
+      : []
+    by = u?.email || req.acting.sub || req.acting.name || null
+    ids = [u?.email, req.acting.sub, by]
+  } else {
+    by = req.user?.email ?? req.user?.sub ?? null
+    ids = [req.user?.email, req.user?.sub]
+  }
+  req.stockPerson = { by, ids: [...new Set(ids.filter(Boolean))] }
+  return req.stockPerson
+}
 
-/** The person's stock levels: count (Use), approve and set up (Manage), and values (Costing view). */
+/** Who did it, as the stock documents keep it (stockPerson()'s `by`). */
+export const who = async req => (await stockPerson(req)).by
+
+/**
+ * The person's stock levels: count (Use), approve and set up (Manage),
+ * values (Costing view) and, on top, a delivery's price from its supplier
+ * (purchasing prices too: `sees_prices`).
+ */
 export async function stockAccess(req) {
-  const lv = await permissionLevels(req, ['stock', 'costing'])
+  const lv = await permissionLevels(req, ['stock', 'costing', PRICES_MODULE])
+  const values = permissionAtLeast(lv.costing, 'view')
   return {
     level: lv.stock || 'none',
     can_count: permissionAtLeast(lv.stock, 'use'),
     can_manage: permissionAtLeast(lv.stock, 'manage'),
-    sees_values: permissionAtLeast(lv.costing, 'view'),
+    sees_values: values,
+    sees_prices: values && seesPurchasingPrices(lv[PRICES_MODULE]),
   }
 }
 
@@ -71,7 +111,7 @@ export default async function stockRoutes(app) {
   app.get('/meta', { preHandler: canView }, async req => {
     const access = await stockAccess(req)
     const settings = await withTenant(req.tenantId, tx => loadStockSettings(tx, req.tenantId))
-    return { ...access, can_approve: access.can_manage, settings, me: who(req), sales_counted: SALES_COUNTED, note: NO_SALES_NOTE }
+    return { ...access, can_approve: access.can_manage, settings, me: await who(req), sales_counted: SALES_COUNTED, note: NO_SALES_NOTE }
   })
 
   app.get('/venues/:venueId', { preHandler: canView }, async req => {
@@ -134,19 +174,21 @@ export default async function stockRoutes(app) {
       const moves = await loadStockMoves(tx, req.tenantId, { venueIds: [venueId], itemIds: [itemId], to, costs: access.sees_values })
       const ledger = runningBalance(moves)
       const shown = (from ? ledger.filter(m => new Date(m.at) >= new Date(from)) : ledger)
+      // A delivery is valued at what its supplier charged: shown only with purchasing prices as well.
+      const priced = m => m.kind !== 'delivery' || access.sees_prices
       const rows = shown.slice(-MAX_MOVES).reverse().map(m => ({
         at: m.at, kind: m.kind, kind_label: MOVE_KINDS[m.kind]?.label ?? m.kind,
         qty_base: m.qty_base, change: m.change, balance: m.balance, sets: !!MOVE_KINDS[m.kind]?.sets,
         source: m.source, by: m.by,
         ...(access.sees_values ? {
-          cost_per_base: m.cost_per_base,
-          value: m.change == null || m.cost_per_base == null ? null : Math.round(m.change * m.cost_per_base * 100) / 100,
+          cost_per_base: priced(m) ? m.cost_per_base : null,
+          value: !priced(m) || m.change == null || m.cost_per_base == null ? null : Math.round(m.change * m.cost_per_base * 100) / 100,
         } : {}),
       }))
       return {
         item: { id: item.id, name: item.name, base_unit: item.base_unit, code: item.code },
         on_hand: stockOnHand({ moves }),
-        sees_values: access.sees_values, note: NO_SALES_NOTE,
+        sees_values: access.sees_values, sees_prices: access.sees_prices, note: NO_SALES_NOTE,
         moves: rows, ...(shown.length > MAX_MOVES ? { showing: MAX_MOVES, of: shown.length } : {}),
       }
     })

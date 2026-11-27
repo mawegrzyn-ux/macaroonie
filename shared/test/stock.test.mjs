@@ -7,7 +7,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   stockOnHand, runningBalance, countUnits, defaultCountUnit, unitChoice, entriesToBase, entriesText, countReview,
-  notCounted, approvalProblem, countDueOn, signedBase, MAX_ENTRIES, MOVE_KINDS,
+  notCounted, approvalProblem, countDueOn, signedBase, lineSaves, MAX_ENTRIES, MOVE_KINDS,
 } from '../stock.js'
 import { stockOnHand as reExported } from '../procurement.js'
 
@@ -101,8 +101,45 @@ test('notCounted, approvalProblem and countDueOn', () => {
   assert.equal(approvalProblem(c, [{ counted_by: 'jo@x' }], 'SAM@X', { second_person_approves: true }).code, 'second_person', 'the submitter, in any case')
   assert.equal(approvalProblem(c, [{ counted_by: 'jo@x' }], 'jo@x', { second_person_approves: true }).code, 'second_person', 'a counter')
   assert.equal(approvalProblem(c, [{ counted_by: 'jo@x' }], 'max@x', { second_person_approves: true }), null)
+  // Every form of the approver's name: a line kept under their sub still makes them a counter.
+  assert.equal(approvalProblem(c, [{ counted_by: 'auth0|jo' }], ['jo@x', 'auth0|jo'], { second_person_approves: true }).code, 'second_person')
+  assert.equal(approvalProblem(c, [{ counted_by: 'jo@x' }], ['max@x', 'auth0|max'], { second_person_approves: true }), null)
+  assert.equal(approvalProblem(c, [{ counted_by: 'jo@x' }], [], { second_person_approves: true }), null, 'nobody named: nothing to compare')
   assert.equal(countDueOn({ count_weekday: 0 }, 0), true)
   assert.equal(countDueOn({ count_weekday: '3' }, 3), true)
   assert.equal(countDueOn({}, 3), false)
   assert.deepEqual([signedBase(2500, 'g'), signedBase(-500, 'g'), signedBase(0, 'each')], ['+2.5 kg', '-500 g', '0 each'])
+})
+
+test('lineSaves: a line goes a moment after it is typed; flush() waits for every save and says whether all saved', async () => {
+  const timers = []
+  const fake = { setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length - 1 }, clearTimer: i => { if (timers[i]) timers[i].fn = null } }
+  const sent = []
+  const answers = []
+  const send = (key, body) => new Promise((resolve, reject) => { sent.push([key, body]); answers.push({ resolve, reject }) })
+  const saves = lineSaves(send, { delay: 900, ...fake })
+  saves.save('a|', { qty: 1 })
+  saves.save('a|', { qty: 2 })
+  assert.equal(sent.length, 0, 'nothing is sent while the line is being typed')
+  assert.equal(timers.at(-1).ms, 900)
+  // Submit: flush sends the waiting line at once and doesn't resolve before its answer.
+  let done = null
+  const flushed = saves.flush().then(v => { done = v })
+  await new Promise(r => setTimeout(r, 0))
+  assert.deepEqual(sent, [['a|', { qty: 2 }]], 'the last thing typed, once')
+  assert.equal(done, null, 'still waiting for the line to save')
+  answers[0].resolve()
+  await flushed
+  assert.equal(done, true)
+  assert.ok(timers.every(t => t.fn === null), 'the line\'s wait was cleared, so it isn\'t sent twice')
+  // A save already on its way is waited for too, and one that fails makes flush() false.
+  saves.save('b|', { qty: 3 })
+  timers.at(-1).fn()
+  await new Promise(r => setTimeout(r, 0))
+  assert.equal(sent.length, 2)
+  const second = saves.flush()
+  answers[1].reject(new Error('This count is waiting for approval: lines can\'t change'))
+  assert.equal(await second, false, 'a line that didn\'t save stops the submit')
+  assert.equal(saves.pending(), 0)
+  assert.equal(await saves.flush(), true, 'nothing waiting: nothing to wait for')
 })

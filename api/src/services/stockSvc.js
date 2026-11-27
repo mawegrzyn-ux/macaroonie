@@ -95,12 +95,13 @@ async function countMoves(tx, tenantId, cut) {
   }))
 }
 
-/** Adjustments: signed, with their reason. */
+/** Adjustments: signed, with their reason; a reversal (dated with what it reverses) after the original. */
 async function adjustmentMoves(tx, tenantId, cut) {
   const rows = await tx`
     SELECT a.venue_id, a.item_id, a.adjusted_at AS at, a.qty_base::float8 AS qty_base, a.id AS source_id, a.reason, a.adjusted_by AS by
       FROM stock_adjustments a
-     WHERE a.tenant_id = ${tenantId} ${cutOf(tx, cut, 'a.venue_id', 'a.item_id', 'a.adjusted_at')}`
+     WHERE a.tenant_id = ${tenantId} ${cutOf(tx, cut, 'a.venue_id', 'a.item_id', 'a.adjusted_at')}
+     ORDER BY a.adjusted_at, a.created_at`
   return rows.map(r => ({
     venue_id: r.venue_id, item_id: r.item_id, at: r.at, kind: 'adjustment', qty_base: r.qty_base, cost_per_base: null,
     source: { type: 'adjustment', id: r.source_id, label: r.reason }, by: r.by,

@@ -522,9 +522,11 @@ const SOURCES = {
   },
 
   // Stock (inventory phase 4a): the count due on the venue's count day (a
-  // stock setting) until a count of that day is submitted, and counts waiting
-  // for approval, for whoever may approve them (Stock manage, and not the
-  // counter when a second person must approve). From /api/stock as the person.
+  // stock setting) until that day's count, of the kind the venue counts, is
+  // submitted (never a quick count of a few items), and counts waiting for
+  // approval, for whoever may approve them (Stock manage, and not the counter
+  // when a second person must approve). From /api/stock as the person. The
+  // phone opens /stock links on its count page (admin/src/mobile/today.js).
   async stock(ctx, v, s) {
     const t = await callApi(ctx, 'GET', `/api/stock/venues/${v.id}/today?date=${s.date}`)
     const tasks = []

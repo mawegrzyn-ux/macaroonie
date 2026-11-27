@@ -10,12 +10,16 @@
 // Quantities are in each item's base unit (grams, millilitres or each), so
 // only add up items kept in the same unit. Values are in pounds, at what
 // the item cost at the venue then (the average paid, else the last price
-// paid), and need Costing view: a value tells what suppliers charge.
+// paid), and need Costing view: a value tells what suppliers charge. A
+// delivery's own value (Paid: what was received at its supplier's price)
+// is that supplier's price and line total, so it needs purchasing prices
+// (Purchasing setup), as the purchasing subjects' money does.
 
 import { subject, text, number, money, yesno, choice, moment, sum, count, countDistinct, one } from './define.js'
 import { STOCK_TABLES, MOVE_TABLES, COUNT_LINE_TABLES } from '../work/stock.js'
 
 const COSTING = 'costing'
+const PRICES = 'purchasing_setup'
 const pounds = (src, opts = {}) => money(src, { unit: 'pounds', needs: COSTING, ...opts })
 const value = (src, opts = {}) => sum(src, { type: 'money', unit: 'pounds', needs: COSTING, ...opts })
 
@@ -107,14 +111,15 @@ export const subjects = [
       balance: number('balance', { label: 'Balance after', about: 'What the ledger says was there after the move; empty before the item\'s first count.' }),
       source: text('source', { label: 'From', about: 'The supplier order, the count or the adjustment\'s reason.' }),
       by: text('by', { label: 'By' }),
-      value: pounds('value', { label: 'Value', about: 'The change at what the item cost then: the price paid for a delivery, else the average paid at the venue.' }),
+      value: pounds('value', { label: 'Value', about: 'A count\'s or an adjustment\'s change at what the item cost at the venue then (the average paid, else the last price paid). Empty for a delivery: its value is Paid.' }),
+      paid: pounds('paid', { label: 'Paid', needs: PRICES, about: 'A delivery: what was received at the price its supplier charged (the invoice\'s, else the price ordered at). Needs purchasing prices, as supplier orders do.' }),
     },
     measures: {
       moves: count({ label: 'Moves' }),
       received: sum('change', { label: 'Received', where: "{t}.kind = 'delivery'", about: 'In each item\'s own unit.' }),
       adjusted: sum('change', { label: 'Adjusted', where: "{t}.kind = 'adjustment'", about: 'In each item\'s own unit.' }),
       count_difference: sum('change', { label: 'Count differences', where: "{t}.kind = 'count'", about: 'What counts found over what was expected, in each item\'s own unit.' }),
-      received_value: value('value', { label: 'Value received', where: "{t}.kind = 'delivery'" }),
+      received_value: value('paid', { label: 'Value received', needs: PRICES, where: "{t}.kind = 'delivery'" }),
       count_value: value('value', { label: 'Value of count differences', where: "{t}.kind = 'count'", synonyms: ['shrinkage', 'stock loss'] }),
       adjusted_value: value('value', { label: 'Value adjusted', where: "{t}.kind = 'adjustment'" }),
     },
@@ -135,7 +140,7 @@ export const subjects = [
     from: 'stock_counts',
     venue: 'venue_id',
     date: { sql: '({t}.counted_at AT TIME ZONE {tz})::date', bound: '{t}.counted_at', label: 'Day counted' },
-    open: { page: '/stock?tab=counts&count=:id', module: 'stock' },
+    open: { page: '/stock?tab=counts&venue=:venue&count=:id', module: 'stock', with: { venue: 'venue_id' } },
     fields: {
       kind: choice('kind', KINDS, { label: 'Kind of count' }),
       status: choice('status', STATUSES, { label: 'Status' }),
@@ -175,7 +180,7 @@ export const subjects = [
     venue: 'venue_id',
     date: { sql: '{t}.date', label: 'Day counted' },
     name: 'item_name',
-    open: { page: '/stock?tab=counts&count=:id', module: 'stock', id: 'count_id' },
+    open: { page: '/stock?tab=counts&venue=:venue&count=:id', module: 'stock', id: 'count_id', with: { venue: 'venue_id' } },
     fields: {
       ...itemFields(),
       counted_at: moment('counted_at', { label: 'Counted at' }),
@@ -200,7 +205,7 @@ export const subjects = [
       counts: countDistinct('count_id', { label: 'Counts' }),
     },
     list: ['date', 'item_name', 'venue.name', 'counted', 'expected', 'difference', 'value'],
-    sort: [{ by: 'value', dir: 'asc' }],
+    sort: [{ by: 'value', dir: 'asc' }, { by: 'item_name', dir: 'asc' }],
   }),
 
   subject({

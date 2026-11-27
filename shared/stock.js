@@ -30,9 +30,14 @@
 //                          item, with each difference's value and the totals
 //   notCounted(scope, lines)      a full count's items with no line yet (to
 //                          confirm as zero before it is submitted)
-//   approvalProblem(count, lines, who, settings)  why this person may not
-//                          approve the count (the second person setting), or null
+//   approvalProblem(count, lines, who, settings)  why this person (a name, or
+//                          every form of it) may not approve the count (the
+//                          second person setting), or null
 //   countDueOn(settings, weekday)  the venue counts on this weekday (Today)
+//   lineSaves(send, { delay })   a count sheet's line saves: each line sent a
+//                          moment after it is typed; flush() sends what is
+//                          waiting and resolves once every save has its answer
+//                          (a submit awaits it)
 //   COUNT_KINDS, COUNT_STATUSES, MAX_ENTRIES, signedBase()
 //
 // Never import from procurement.js at the top level here (it re-exports
@@ -240,13 +245,16 @@ export function notCounted(scope, lines) {
 /**
  * Why `who` may not approve a submitted count, or null. With the group's
  * second person setting on, the approver must be someone who neither
- * counted a line nor submitted it.
+ * counted a line nor submitted it. `who`: the approver as the documents
+ * keep people (the API's stockPerson(): their email), or a list of every
+ * form their name takes (email and sub), any of which matching is them.
  */
 export function approvalProblem(count, lines, who, { second_person_approves = false } = {}) {
   if (!count || count.status !== 'submitted') return { code: 'not_submitted', message: 'Only a submitted count can be approved' }
   if (second_person_approves) {
     const counters = new Set([count.submitted_by, ...(lines || []).map(l => l.counted_by)].filter(Boolean).map(lower))
-    if (who && counters.has(lower(who))) {
+    const mine = [].concat(who ?? []).filter(Boolean).map(lower)
+    if (mine.some(m => counters.has(m))) {
       return { code: 'second_person', message: 'Someone who didn\'t count or submit it has to approve this count (the second person setting is on)' }
     }
   }
@@ -259,3 +267,45 @@ export function countDueOn(settings, weekday) {
 }
 
 export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+// ── Saving a count's lines as they are typed ────────────────────────────
+
+/**
+ * A count sheet's line saves (the one place a count saves itself, line by
+ * line). save(key, body) sends the line `delay` ms after its last change (a
+ * newer change of the same line starts the wait again). flush() sends every
+ * waiting line at once and resolves, once every line sent or already being
+ * sent has its answer, to true when all of them saved. A submit awaits
+ * flush() and stops on false: sent after a fixed pause instead, it could
+ * reach the server before a line typed just before it, and the late line
+ * was then refused (the count no longer a draft), dropped from a key count
+ * or confirmed as zero on a full one.
+ *   send(key, body) -> a promise that rejects when the line didn't save
+ */
+export function lineSaves(send, { delay = 900, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+  const timers = new Map()
+  const waiting = new Map()
+  const sending = new Set()
+  const go = (key, body) => {
+    waiting.delete(key)
+    clearTimer(timers.get(key))
+    timers.delete(key)
+    const p = Promise.resolve().then(() => send(key, body)).then(() => true, () => false)
+    sending.add(p)
+    p.then(() => sending.delete(p))
+    return p
+  }
+  return {
+    save(key, body) {
+      waiting.set(key, body)
+      clearTimer(timers.get(key))
+      timers.set(key, setTimer(() => go(key, body), delay))
+    },
+    async flush() {
+      for (const [key, body] of [...waiting]) go(key, body)
+      return (await Promise.all([...sending])).every(Boolean)
+    },
+    /** Lines typed and not sent yet, and lines being sent. */
+    pending: () => waiting.size + sending.size,
+  }
+}

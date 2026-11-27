@@ -73,7 +73,8 @@ export const promptLines = [
 export const promptNotes = [
   'Stock: on hand is the last approved count plus the deliveries and adjustments since; sales aren\'t taken off yet, ' +
     'so say so. count_stock records only what the person counted, in their numbers and units (2 cases and 400 g is ' +
-    'one item in two units): never work a count out. A count someone who can approve makes is approved at once; ' +
+    'one item in two units): never work a count out, and with blind counts on never tell the counter what is ' +
+    'expected (stock_on_hand) before their count is in. A count someone who can approve makes is approved at once; ' +
     'anyone else\'s waits for approval on the Stock page. A full count of the venue, by area, is done on the Stock ' +
     'page or the phone\'s count page (open_form stock_key_count starts a key-item count from a list).',
 ]
@@ -197,10 +198,12 @@ export const tools = [
       const warnings = []
       if (!p.approves) warnings.push('This count waits for someone who approves counts before on hand changes.')
       if (input.note) warnings.push('Note: ' + input.note)
+      // Blind counts (a stock setting): what is expected stays hidden until the count is in, here
+      // as on the counting sheet, so the card never shows today's figure beside the counter's.
       return {
         title: 'Record this count at ' + p.venue.name + '?',
         lines: p.lines.map(l => l.item.name + ': ' + l.text + (l.area ? ' in ' + l.area.name : '') +
-          (l.item.on_hand != null ? ' (was ' + formatBase(l.item.on_hand, l.item.base_unit) + ')' : '')),
+          (!p.blind && l.item.on_hand != null ? ' (was ' + formatBase(l.item.on_hand, l.item.base_unit) + ')' : '')),
         ...(warnings.length ? { warningTitle: p.approves ? 'Note' : 'Approval', warnings } : {}),
         confirmLabel: p.approves ? 'Record count' : 'Submit count',
       }
@@ -256,5 +259,5 @@ async function countPlan(ctx, input) {
   })
   // Approved at once only for someone who may (Manage), and not when a second person must approve.
   const approves = !!meta.can_approve && !meta.settings?.second_person_approves
-  return { venue, lines, approves }
+  return { venue, lines, approves, blind: !!meta.settings?.blind_count }
 }

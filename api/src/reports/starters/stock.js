@@ -22,7 +22,9 @@ export const starters = [
       kind: 'list',
       rows: ['item_name', 'venue.name', 'counted', 'expected', 'difference', 'base_unit', 'value', 'areas'],
       filters: [{ field: 'latest', op: 'is', value: true }, { field: 'off', op: 'is', value: true }],
-      sort: [{ by: 'value', dir: 'asc' }, { by: 'item_name', dir: 'asc' }],
+      // No sort of its own: the subject's usual order (biggest loss first, then by name) is a
+      // default the engine leaves out where the role can't see values, where a sort asked for
+      // would refuse the run (a role with Stock but not Costing).
     },
   }),
 ]

@@ -23,7 +23,10 @@
 //   POST   /venues/:venueId/adjustments   { item_id, qty, unit, reason, note?, adjusted_at? }:
 //                                         qty signed (minus takes stock off), in a unit the
 //                                         item is counted in
-//   POST   /adjustments/:id/reverse       { reason? }: the same quantity the other way, once
+//   POST   /adjustments/:id/reverse       { reason? }: the same quantity the other way, once,
+//                                         dated at the adjustment it reverses (adjusted_at; when
+//                                         it was done is created_at), so a count since then keeps
+//                                         its figure: that count already found what was there
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
@@ -239,10 +242,11 @@ export default async function stockSetupRoutes(app) {
 
   app.put('/settings', { preHandler: canManage }, async req => {
     const b = SettingsBody.parse(req.body || {})
+    const me = await who(req)
     return withTenant(req.tenantId, async tx => {
       await tx`
         INSERT INTO stock_settings (tenant_id, second_person_approves, blind_count, updated_at, updated_by)
-        VALUES (${req.tenantId}, ${b.second_person_approves}, ${b.blind_count}, now(), ${who(req)})
+        VALUES (${req.tenantId}, ${b.second_person_approves}, ${b.blind_count}, now(), ${me})
         ON CONFLICT (tenant_id) DO UPDATE SET second_person_approves = EXCLUDED.second_person_approves,
           blind_count = EXCLUDED.blind_count, updated_at = now(), updated_by = EXCLUDED.updated_by`
       return loadStockSettings(tx, req.tenantId)
@@ -273,7 +277,7 @@ export default async function stockSetupRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       const rows = await tx`
         SELECT a.id, a.item_id, i.name AS item_name, i.base_unit, a.qty::float8 AS qty, a.unit, a.qty_base::float8 AS qty_base,
-               a.reason, a.note, a.adjusted_at, a.adjusted_by, a.reverses_id,
+               a.reason, a.note, a.adjusted_at, a.adjusted_by, a.reverses_id, a.created_at,
                EXISTS (SELECT 1 FROM stock_adjustments r WHERE r.reverses_id = a.id AND r.tenant_id = a.tenant_id) AS reversed
           FROM stock_adjustments a JOIN inv_items i ON i.id = a.item_id AND i.tenant_id = a.tenant_id
          WHERE a.tenant_id = ${req.tenantId} AND a.venue_id = ${req.params.venueId}
@@ -291,6 +295,7 @@ export default async function stockSetupRoutes(app) {
 
   app.post('/venues/:venueId/adjustments', { preHandler: canManage }, async (req, reply) => {
     const b = AdjustmentBody.parse(req.body || {})
+    const me = await who(req)
     const at = b.adjusted_at ? new Date(b.adjusted_at) : new Date()
     if (at.getTime() > Date.now() + 5 * 60_000 || at.getTime() < Date.now() - COUNT_BACK_DAYS * 86400_000) {
       throw httpError(422, 'An adjustment is for now or up to ' + COUNT_BACK_DAYS + ' days back', { code: 'adjusted_at' })
@@ -305,8 +310,8 @@ export default async function stockSetupRoutes(app) {
       if (!qtyBase) throw httpError(422, 'An adjustment isn\'t zero', { code: 'qty' })
       const [a] = await tx`
         INSERT INTO stock_adjustments (tenant_id, venue_id, item_id, qty, unit, qty_base, reason, note, adjusted_at, adjusted_by)
-        VALUES (${req.tenantId}, ${req.params.venueId}, ${item.id}, ${b.qty}, ${r.entries[0].label}, ${qtyBase}, ${b.reason}, ${b.note || null}, ${at}, ${who(req)})
-        RETURNING id, item_id, qty::float8 AS qty, unit, qty_base::float8 AS qty_base, reason, note, adjusted_at, adjusted_by, reverses_id`
+        VALUES (${req.tenantId}, ${req.params.venueId}, ${item.id}, ${b.qty}, ${r.entries[0].label}, ${qtyBase}, ${b.reason}, ${b.note || null}, ${at}, ${me})
+        RETURNING id, item_id, qty::float8 AS qty, unit, qty_base::float8 AS qty_base, reason, note, adjusted_at, adjusted_by, reverses_id, created_at`
       return { ...a, item_name: item.name, base_unit: item.base_unit, typed: (sign < 0 ? '-' : '') + entriesText(r.entries) }
     })
     return reply.code(201).send(row)
@@ -314,17 +319,22 @@ export default async function stockSetupRoutes(app) {
 
   app.post('/adjustments/:id/reverse', { preHandler: canManage }, async (req, reply) => {
     const b = z.object({ reason: z.string().trim().min(1).max(300).optional() }).strict().parse(req.body || {})
+    const me = await who(req)
     const row = await withTenant(req.tenantId, async tx => {
-      const [a] = await tx`SELECT id, venue_id, item_id, qty, unit, qty_base, reason, reverses_id FROM stock_adjustments WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId} FOR UPDATE`
+      const [a] = await tx`SELECT id, venue_id, item_id, qty, unit, qty_base, reason, reverses_id, adjusted_at FROM stock_adjustments WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId} FOR UPDATE`
       if (!a) throw httpError(404, 'Adjustment not found')
       if (a.reverses_id) throw httpError(409, 'This adjustment reverses another: adjust again instead', { code: 'is_reversal' })
       const [done] = await tx`SELECT id FROM stock_adjustments WHERE reverses_id = ${a.id} AND tenant_id = ${req.tenantId}`
       if (done) throw httpError(409, 'This adjustment is reversed already', { code: 'reversed' })
+      // At the original's moment, not now: on hand starts from the last approved count, so a
+      // reversal dated after a count would be added on top of what that count found (which
+      // already had the mistake in it). Dated with the original, the two cancel out wherever a
+      // count falls, as if neither had been made.
       const [r] = await tx`
         INSERT INTO stock_adjustments (tenant_id, venue_id, item_id, qty, unit, qty_base, reason, adjusted_at, adjusted_by, reverses_id)
         VALUES (${req.tenantId}, ${a.venue_id}, ${a.item_id}, ${-Number(a.qty)}, ${a.unit}, ${-Number(a.qty_base)},
-                ${b.reason || ('Reversed: ' + a.reason).slice(0, 300)}, now(), ${who(req)}, ${a.id})
-        RETURNING id, item_id, qty::float8 AS qty, unit, qty_base::float8 AS qty_base, reason, adjusted_at, adjusted_by, reverses_id`
+                ${b.reason || ('Reversed: ' + a.reason).slice(0, 300)}, ${a.adjusted_at}, ${me}, ${a.id})
+        RETURNING id, item_id, qty::float8 AS qty, unit, qty_base::float8 AS qty_base, reason, adjusted_at, adjusted_by, reverses_id, created_at`
       return r
     })
     return reply.code(201).send(row)

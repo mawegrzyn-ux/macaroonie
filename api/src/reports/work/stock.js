@@ -10,7 +10,9 @@
 //                     by period); value at what the item cost there lately
 //   stock_moves       one row per move (delivery, approved count, adjustment)
 //                     on a day at the venue, with the change and the balance
-//                     after it (runningBalance()); value at the cost then
+//                     after it (runningBalance()); value at the cost then,
+//                     except a delivery's, which is `paid` (its supplier's
+//                     price: the catalogue asks for purchasing prices too)
 //   stock_count_lines one row per item of a submitted or approved count:
 //                     counted (its areas added), expected at the count's
 //                     moment (stockOnHand() without the count itself), the
@@ -81,7 +83,7 @@ export const STOCK_WORKS = {
     columns: [
       ['tenant_id', 'uuid'], ['id', 'text'], ['venue_id', 'uuid'], ['item_id', 'uuid'], ['item_name', 'text'], ['base_unit', 'text'],
       ['at', 'timestamptz'], ['date', 'date'], ['kind', 'text'], ['change', 'numeric'], ['counted', 'numeric'],
-      ['balance', 'numeric'], ['source', 'text'], ['by', 'text'], ['value', 'numeric'],
+      ['balance', 'numeric'], ['source', 'text'], ['by', 'text'], ['value', 'numeric'], ['paid', 'numeric'],
     ],
     async fill(tx, { tenantId, venueIds, ranges }) {
       // Every move up to the period's end: the balance runs from the first one.
@@ -100,12 +102,14 @@ export const STOCK_WORKS = {
           const day = dayIn(m.at, tzOf.get(m.venue_id))
           if (!inRanges(day, ranges) || !itemOf.has(m.item_id)) continue
           const i = itemOf.get(m.item_id)
+          const money = m.change == null || m.cost_per_base == null ? null : r2(m.change * m.cost_per_base)
           out.push({
             tenant_id: tenantId, id: [m.venue_id, m.item_id, m.source.type, m.source.id, n].join('|'),
             venue_id: m.venue_id, item_id: m.item_id, item_name: i.name, base_unit: i.base_unit,
             at: m.at, date: day, kind: m.kind, change: m.change, counted: m.kind === 'count' ? m.qty_base : null,
             balance: m.balance, source: m.source.label, by: m.by,
-            value: m.change == null || m.cost_per_base == null ? null : r2(m.change * m.cost_per_base),
+            value: m.kind === 'delivery' ? null : money,
+            paid: m.kind === 'delivery' ? money : null,
           })
         }
       }
