@@ -2,11 +2,18 @@
 // every page answers on macaroonie.com with its own title, the files it links
 // to load with cache headers, the placeholders stay out of the sitemap, other
 // GETs still go to office, the register-interest form still works, and tenant
-// and office addresses are left alone.
+// and office addresses are left alone. The legal pages (Terms and
+// conditions, Privacy policy) are dated, their contents lists and clause
+// numbers hold together, every page's footer carries them and the
+// company's details, and what they say about the code holds: the browser
+// storage the demo and the till keep, the venue hub's plain connection, the
+// shared feature request board, the providers that work for us, the
+// regulator's name.
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { getApp, closeApp, sql } from './support/app.mjs'
-import { PAGES } from '../src/services/platformSite/pages.js'
+import { PAGES, LEGAL_LINKS } from '../src/services/platformSite/pages.js'
+import { COMPANY } from '../src/services/platformSite/company.js'
 import { FEATURE_GROUPS } from '../src/services/platformSite/features.js'
 import { ARCH_LAYERS } from '../src/services/platformSite/architecture.js'
 import { SHOTS, GALLERY } from '../src/services/platformSite/screenshots.js'
@@ -227,6 +234,158 @@ test('the shared rules are served from an allowlist only', async () => {
     assert.notEqual(r.statusCode, 200, bad)
     assert.ok(!r.body.includes('"dependencies"') && !r.body.includes('export '), bad + ' serves nothing')
   }
+})
+
+test('the legal pages: dated, a contents list that matches their headings, clauses numbered in order', async () => {
+  const legal = PAGES.filter(p => p.foot)
+  assert.deepEqual(legal.map(p => p.path).sort(), ['/privacy', '/terms'], 'both legal pages are page records')
+  const idsOf = {}
+  for (const p of legal) {
+    assert.ok(!p.nav && !p.soon, p.path + ' is a real page, not in the header')
+    assert.match(p.updated, /^\d{1,2} [A-Z][a-z]+ \d{4}$/, p.path + ' has a date')
+    const html = (await get(p.path)).body
+    assert.ok(html.includes('<p class="updated">Last updated ' + p.updated + '</p>'), p.path + ' shows its date')
+    assert.ok(!html.includes('class="cta-band"'), p.path + ' has no register-interest band')
+    const toc = /<nav class="legal-toc"[\s\S]*?<\/nav>/.exec(html)
+    assert.ok(toc, p.path + ' has a contents list')
+    const article = html.slice(html.indexOf('<article class="legal-doc">'), html.indexOf('</article>'))
+    const links = [...toc[0].matchAll(/href="#([^"]+)"/g)].map(m => m[1])
+    const heads = [...article.matchAll(/<h2 id="([^"]+)"/g)].map(m => m[1])
+    assert.ok(heads.length >= 10, p.path + ' has its sections')
+    assert.deepEqual(links, heads, p.path + ' contents list = its headings, in order')
+    const all = [...html.matchAll(/ id="([^"]+)"/g)].map(m => m[1])
+    const ids = new Set(all)
+    assert.equal(ids.size, all.length, p.path + ' ids are unique')
+    for (const m of html.matchAll(/href="#([^"]+)"/g)) assert.ok(ids.has(m[1]), p.path + ' #' + m[1] + ' has a target')
+    idsOf[p.path] = ids
+    const text = unescape(article)
+    for (const bit of [COMPANY.name, COMPANY.tradingName, 'registered in ' + COMPANY.registeredIn, 'company number ' + COMPANY.number, COMPANY.office, 'href="mailto:' + COMPANY.email + '"']) {
+      assert.ok(text.includes(bit), p.path + ' names ' + bit)
+    }
+    // Sections 1, 2, 3 ... and within section n its parts n.1, n.2 ...; the
+    // schedule's paragraphs the same way, on numbers of their own.
+    for (const [sec, part] of [['sn', 'cn'], ['sp', 'pn']]) {
+      const chunks = article.split('<span class="' + sec + '">').slice(1)
+      chunks.forEach((chunk, i) => {
+        assert.ok(chunk.startsWith((i + 1) + '.</span>'), p.path + ' ' + sec + ' ' + (i + 1) + ' in order')
+        const parts = [...chunk.matchAll(new RegExp('<span class="' + part + '">([0-9.]+)</span>', 'g'))].map(m => m[1])
+        assert.deepEqual(parts, parts.map((_, k) => (i + 1) + '.' + (k + 1)), p.path + ' ' + sec + ' ' + (i + 1) + ' parts in order')
+      })
+    }
+  }
+  const terms = unescape((await get('/terms')).body)
+  assert.equal((terms.match(/<span class="sn">/g) || []).length, 27, 'the terms have 27 clauses')
+  assert.ok(terms.includes('<h2 id="dps">') && (terms.match(/<span class="sp">/g) || []).length === 6, 'and the data processing schedule')
+  for (const words of ['Article 28(3)', 'Contracts (Rights of Third Parties) Act 1999', 'Unfair Contract Terms Act 1977', 'law of England and Wales', 'death or personal injury caused by its negligence']) {
+    assert.ok(terms.includes(words), 'the terms say ' + words)
+  }
+  const privacy = unescape((await get('/privacy')).body)
+  for (const words of ['ico.org.uk/make-a-complaint', '0303 123 1113', 'within one month', 'legitimate interests', 'id="cookies"', 'id="register-interest"']) {
+    assert.ok(privacy.includes(words), 'the privacy policy has ' + words)
+  }
+  // A link into a legal page, from any page, lands on a heading that is there.
+  for (const path of PAGES.map(p => p.path)) {
+    for (const m of (await get(path)).body.matchAll(/href="(\/terms|\/privacy)#([^"]+)"/g)) {
+      assert.ok(idsOf[m[1]].has(m[2]), path + ' links ' + m[1] + '#' + m[2])
+    }
+  }
+})
+
+test('the legal pages say what the code does', async () => {
+  const terms = unescape((await get('/terms')).body)
+  const privacy = unescape((await get('/privacy')).body)
+  const section = (html, id) => {
+    const at = html.indexOf('<h2 id="' + id + '">')
+    assert.ok(at > 0, id)
+    const end = html.indexOf('<h2 ', at + 1)
+    return html.slice(at, end > 0 ? end : undefined)
+  }
+  const repo = new URL('../../', import.meta.url)
+  const read = rel => fs.readFileSync(new URL(rel, repo), 'utf8')
+
+  // Website use: death and personal injury by negligence, and fraud, stay with
+  // every user (UCTA s.2(1)), not only consumers.
+  const carve = section(terms, 'website').split(/(?<=\.)\s+/).filter(t => t.includes('death or personal injury'))
+  assert.equal(carve.length, 1, 'clause 3.7 has one sentence on death and personal injury')
+  assert.ok(carve[0].startsWith('Nothing in these terms limits or excludes our liability for death or personal injury') && carve[0].includes('fraud') && !carve[0].includes('consumer'),
+    'clause 3.7 keeps it for every user: ' + carve[0])
+
+  // The regulator has been the Information Commission (still "the ICO")
+  // since 30 September 2026; the office of the Information Commissioner is gone.
+  for (const [path, html] of [['/terms', terms], ['/privacy', privacy]]) {
+    assert.ok(!html.includes('Information Commissioner'), path + ' names the Information Commission')
+  }
+  assert.ok(privacy.includes('the Information Commission') && !privacy.includes('Wycliffe House'), 'the privacy policy: the Information Commission, its address from its own site')
+
+  // The venue hub serves the venue's devices over plain http (hub/src/lan.js):
+  // neither page may promise HTTPS everywhere.
+  if (/\bhttp\.createServer\(/.test(read('hub/src/lan.js'))) {
+    for (const [path, html, where] of [['/terms', terms, 'dps'], ['/privacy', privacy, 'security']]) {
+      const part = section(html, where)
+      assert.ok(part.includes('on the internet') && part.includes('without encryption'), path + ' says the hub talks to the venue\'s devices without encryption')
+    }
+  }
+
+  // Browser storage: every key the kiosk designer demo (its own files, the
+  // designer, the theme maker) and the till's tap counter keep is in the
+  // cookies part. A new key in one of these files is a new row there.
+  const cookies = section(privacy, 'cookies')
+  const stores = ['admin/src/pages/KioskDesigner.jsx', 'admin/src/components/themes/ThemeMaker.jsx', 'pos/src/lib/taps.js',
+    ...fs.readdirSync(new URL('admin/src/demo/kiosk/', repo)).filter(f => /\.jsx?$/.test(f)).map(f => 'admin/src/demo/kiosk/' + f)]
+  let keys = 0
+  for (const file of stores) {
+    for (const m of read(file).matchAll(/['"`](maca_[a-z0-9_]+|kiosk-demo-[a-z-]+)['"`]/g)) {
+      keys++
+      assert.ok(cookies.includes('<code>' + m[1] + '</code>'), file + ' keeps ' + m[1] + ': the cookies part lists it')
+    }
+  }
+  assert.ok(keys >= 7, 'the keys were found')
+  assert.ok(!cookies.includes('Until you sign out or clear them'), 'signing out of the office leaves the choices in the browser')
+
+  // The tables every customer can read (a SELECT policy USING (true)): the
+  // feature request board, which both pages say is shared. A new one needs
+  // the same words in both pages, then its name here.
+  const open = new Set()
+  for (const f of fs.readdirSync(new URL('migrations/', repo)).filter(f => f.endsWith('.sql'))) {
+    for (const m of read('migrations/' + f).matchAll(/CREATE POLICY \w+ ON (\w+) FOR SELECT USING \(true\)/g)) open.add(m[1])
+  }
+  assert.deepEqual([...open].sort(), ['feature_request_upvotes', 'feature_requests'], 'the tables every customer can read')
+  assert.ok(section(privacy, 'sharing').includes('feature request board') && section(terms, 'feedback').includes('feature request board'), 'both pages say the board is shared')
+  assert.ok(section(terms, 'dps').includes('feature request board'), 'and the security measures make it the exception')
+
+  // A provider that works for us (Privacy section 7, not under its own terms
+  // or agreement) is not a third-party service under its own terms (Terms 10).
+  const clause10 = section(terms, 'third-party')
+  let ours = 0
+  for (const m of section(privacy, 'sharing').matchAll(/<td data-label="Provider">([^<]+)<\/td><td data-label="What they receive">([\s\S]*?)<\/td>/g)) {
+    if (/own (terms|agreement)/.test(m[2])) continue
+    const name = m[1].split(/,| \(| and /)[0].trim()
+    ours++
+    assert.ok(!clause10.includes(name), name + ' works for us, so Terms clause 10 does not name it')
+  }
+  assert.ok(ours >= 5, 'the providers that work for us were found')
+})
+
+test('every page: the footer links the legal pages and gives the company details; the form links the privacy policy', async () => {
+  assert.ok(LEGAL_LINKS.some(l => l.path === '/privacy#cookies'), 'the footer links the cookies part')
+  for (const path of PAGES.map(p => p.path)) {
+    const html = unescape((await get(path)).body)
+    const foot = html.slice(html.indexOf('<footer class="site-foot">'))
+    for (const l of LEGAL_LINKS) assert.ok(foot.includes('href="' + l.path + '"'), path + ' footer links ' + l.path)
+    assert.ok(foot.includes(COMPANY.tradingName + ' is a trading name of ' + COMPANY.name + ', a company registered in ' + COMPANY.registeredIn + ', company number ' + COMPANY.number + '.'), path + ' trading disclosure')
+    assert.ok(foot.includes('Registered office: ' + COMPANY.office + '.'), path + ' registered office')
+    assert.ok(foot.includes('<a href="mailto:' + COMPANY.email + '">' + COMPANY.email + '</a>'), path + ' contact email')
+    assert.match(foot, new RegExp('<p class="copy">&copy; \\d{4} ' + COMPANY.name + '</p>'), path + ' copyright names the company')
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'))
+    assert.ok(!header.includes('href="/terms"') && !header.includes('href="/privacy"'), path + ' legal pages are not in the header')
+  }
+  const home = (await get('/')).body
+  const form = home.slice(home.indexOf('id="interest-form"'), home.indexOf('</form>'))
+  const consent = form.indexOf('name="consent"')
+  const link = form.indexOf('<a href="/privacy#register-interest">')
+  const submit = form.indexOf('id="interest-submit"')
+  assert.ok(consent > 0 && link > consent && link < submit, 'the privacy link sits after the consent box, before the button')
+  assert.ok(!/<label class="check">(?:(?!<\/label>)[\s\S])*<a /.test(form), 'the link is not inside the tick box label')
 })
 
 test('sitemap and robots', async () => {

@@ -20,7 +20,12 @@
 //   short, open  a /try page's name on the Try it cards and its button
 //   shared       the shared modules the script imports (sharedModules.js),
 //                preloaded by the head
-//   cta          the heading of the register-interest band at the foot
+//   cta          the heading of the register-interest band at the foot;
+//                false: no band (the legal pages)
+//   foot         the label in the footer's legal links (LEGAL_LINKS): the
+//                Terms and conditions and the Privacy policy, never in the
+//                header's navigation
+//   updated      the "Last updated" date a legal page shows
 
 import { FEATURE_GROUPS } from './features.js'
 
@@ -85,6 +90,22 @@ export const PAGES = [
     open: 'Open the designer',
     cta: 'Like what you see?',
   },
+  {
+    // The legal pages: linked from every page's footer, not the header.
+    // Their words are in the views; the company details in company.js.
+    path: '/terms', view: 'platform/site/terms.eta', foot: 'Terms and conditions',
+    title: 'Terms and conditions | ' + BASE,
+    description: 'The terms for using macaroonie.com and the Macaroonie platform, with the data processing schedule for business customers.',
+    updated: '27 November 2026',
+    cta: false,
+  },
+  {
+    path: '/privacy', view: 'platform/site/privacy.eta', foot: 'Privacy policy',
+    title: 'Privacy policy | ' + BASE,
+    description: 'How Macaroonie uses personal data: visitors to this site, people who register interest, our customers and their staff, and guests of restaurants that use Macaroonie. Cookies included.',
+    updated: '27 November 2026',
+    cta: false,
+  },
 ]
 
 const BY_PATH = new Map(PAGES.map(p => [p.path, p]))
@@ -97,6 +118,10 @@ export function sitePage(path) {
 
 /** The header's navigation: [{ path, label }] in page order. */
 export const NAV = PAGES.filter(p => p.nav).map(p => ({ path: p.path, label: p.nav }))
+
+/** The footer's legal links: the pages with a foot label, then the Privacy policy's cookies part. */
+export const LEGAL_LINKS = PAGES.filter(p => p.foot).map(p => ({ path: p.path, label: p.foot }))
+  .concat([{ path: '/privacy#cookies', label: 'Cookies' }])
 
 /** The sandboxes under /try, for the Try it page. */
 export const TRY_PAGES = PAGES.filter(p => p.path.startsWith('/try/'))

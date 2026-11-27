@@ -1145,7 +1145,10 @@ export function Section() {
         saved layouts count (the built-in screen has no id). <Mono>POST /pos-api/till-taps</Mono> (tills only, 403
         otherwise) adds each row to its day&apos;s count, leaves out rows naming a person who isn&apos;t the
         venue&apos;s or a layout that isn&apos;t the tenant&apos;s and days past 90, and deletes the venue&apos;s rows
-        past 90 days; a refused upload (4xx) is dropped by the till, an offline one kept. The designer&apos;s{' '}
+        past 90 days; a refused upload (4xx) is dropped by the till, an offline one kept. The hourly clean-up
+        (<Mono>jobs/ai-cleanup.js</Mono>) runs <Mono>cleanUpTillTaps()</Mono> (<Mono>services/tillLayoutSvc.js</Mono>,
+        system mode) for every venue, so a venue whose tills stop sending keeps nothing past 90 days either (the
+        Privacy policy promises it). The designer&apos;s{' '}
         <Mono>GET /api/pos/till-layouts/:id/taps?days=&amp;venue_id=&amp;device_id=&amp;staff_id=</Mono> (Store tech
         view) returns <Mono>heatOf()</Mono>&apos;s zones, max and total, the 15 most tapped with their words, the
         tills, and the people only for those with Till reports view (a <Mono>staff_id</Mono> without it is 403).

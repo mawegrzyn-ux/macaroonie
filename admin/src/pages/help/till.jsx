@@ -416,7 +416,8 @@ export function Section() {
         plain preview.
       </P>
       <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-        <li>What is counted: one number per day, till, person signed in, and button. Not what was on the order and not the time of a tap. Counts are kept for 90 days.</li>
+        <li>What is counted: one number per day, till, person signed in, and button. Not what was on the order and not the time of a tap. Counts are kept for 90 days, then deleted.</li>
+        <li>Tell your staff that the tills count their taps: our Privacy policy describes it (macaroonie.com/privacy, Cookies), and under the Terms and conditions (clause 12.7) your business agrees to the count on its tills and tells its staff about it.</li>
         <li>The till keeps its counts while it is offline and sends them when it can (every minute, and when it is put away).</li>
         <li>The preview shows each zone&apos;s first page, and a Dishes zone the first category&apos;s dishes; the list of most tapped has the rest.</li>
         <li>Reports: <strong>Till buttons tapped</strong> (by layout and button, then by till, person or day), <strong>Till activity by person</strong> and <strong>by till</strong> (orders opened, dishes added, taken off and voided, sends, discounts, bills, payments, refunds and the drawer opened with no sale, from the till&apos;s own record) and <strong>Kitchen screens: taps by screen</strong> (dishes done and ticked off, bumps, tickets brought back, remakes, rushes, collected). Figures about people need Till reports.</li>

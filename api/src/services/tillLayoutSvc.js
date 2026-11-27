@@ -2,9 +2,12 @@
 //
 // Till layouts (migration 228; shared/pos/tillLayout.js): the layouts a
 // venue's tills use, for their config, and the company's own ids check a
-// saved layout goes through (sections, menus, dishes, discounts).
+// saved layout goes through (sections, menus, dishes, discounts). And the
+// clean-up of the taps counted on them (cleanUpTillTaps(), migration 266).
 
 import { normaliseTillLayout, ownLayout, layoutIds } from '../../../shared/pos/tillLayout.js'
+import { TAPS_KEEP_DAYS } from '../../../shared/pos/tillTaps.js'
+import { systemSql } from '../config/db.js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -73,4 +76,19 @@ export async function layoutUses(tx, tenantId) {
   for (const v of venues) at(v.layout_id).venues.push({ id: v.id, name: v.name, phone: v.phone })
   for (const t of tills) at(t.layout_id).tills.push({ id: t.id, name: t.name, venue_id: t.venue_id, venue_name: t.venue_name })
   return out
+}
+
+/**
+ * The hourly clean-up (jobs/ai-cleanup.js): till tap counts (pos_till_taps,
+ * migration 266) older than TAPS_KEEP_DAYS go, at every venue. POST
+ * /pos-api/till-taps also clears its own venue's as it adds, but a venue whose
+ * tills stop sending (closed, the till not used, the layout taken off) would
+ * otherwise keep its counts by person for good. Across tenants on purpose
+ * (system mode). Returns { removed }.
+ */
+export async function cleanUpTillTaps() {
+  const gone = await systemSql`
+    DELETE FROM pos_till_taps WHERE day < current_date - ${TAPS_KEEP_DAYS}::int
+  `
+  return { removed: gone.count }
 }
