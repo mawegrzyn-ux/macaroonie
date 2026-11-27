@@ -97,6 +97,8 @@ export const AREAS = {
   rota: 'rota',
   // Inventory phase 4a: a count due on the count day, counts to approve; 4b: transfers to receive.
   stock: 'stock',
+  // Inventory phase 6b: dishes over their cost target.
+  costing: 'costing',
 }
 
 /** The module a task belongs to: its area's, or Purchasing approval for orders to approve. */
@@ -563,6 +565,9 @@ const SOURCES = {
         action: { path: '/stock?tab=variance&venue=' + v.id + '&period=' + p.id, label: 'Review it' },
       })
     }
+    // Phase 6b: gaps in the set-up Home offers to whoever manages each (no storage areas, best sellers
+    // with no recipe, items in recipes with no price); services/suggestions.js checks the module.
+    for (const g of t.gaps || []) s.gaps.push(g)
     for (const x of t.can_count ? t.incoming || [] : []) {
       tasks.push({
         key: 'stock_transfer:' + x.id, area: 'stock', kind: 'stock_transfer_to_receive', compliance: false,
@@ -573,6 +578,24 @@ const SOURCES = {
       })
     }
     return tasks
+  },
+
+  // Costing (inventory phase 6b): the venue's dishes over their cost target now (its live menus at
+  // each order type, at today's standard prices, each at its worst), for Costing view; one card a
+  // day, opening Menu margins at the venue. From /api/stock/venues/:id/cost-targets as the person.
+  async costing(ctx, v, s) {
+    const r = await callApi(ctx, 'GET', `/api/stock/venues/${v.id}/cost-targets`)
+    const list = r.dishes || []
+    if (!list.length) return []
+    const over = list.filter(d => d.band === 'over').length
+    return [{
+      key: 'costing_over_target:' + v.id + ':' + s.date, area: 'costing', kind: 'dishes_over_target', compliance: false,
+      title: plural(list.length, 'dish', 'dishes') + ' over the cost target',
+      detail: list.slice(0, 3).map(d => d.name + ' ' + d.cost_pct + '%').join(' · ') + (list.length > 3 ? ' · and ' + (list.length - 3) + ' more' : '') +
+        (over ? ' · ' + over + ' over the limit' : ''),
+      due: null, group: 'later',
+      action: { path: '/menu-margins?venue=' + v.id, label: 'See the margins' },
+    }]
   },
 }
 
