@@ -82,7 +82,8 @@ export function Section() {
         the module that may report on it, its built-in <Mono>venue</Mono> link and <Mono>date</Mono> field,
         fields (<Mono>text</Mono>, <Mono>number</Mono>, <Mono>money</Mono>, <Mono>percent</Mono>,{' '}
         <Mono>yesno</Mono>, <Mono>choice</Mono>, <Mono>moment</Mono>, <Mono>duration</Mono>; options{' '}
-        <Mono>pii</Mono>, <Mono>needs</Mono>, <Mono>adds</Mono>), measures (<Mono>sum</Mono>,{' '}
+        <Mono>pii</Mono>, <Mono>needs</Mono> (a module, or a list of modules the person must view every one of),{' '}
+        <Mono>adds</Mono>), measures (<Mono>sum</Mono>,{' '}
         <Mono>avg</Mono>, <Mono>count</Mono>, <Mono>countDistinct</Mono>, <Mono>ratio</Mono>, each with an
         optional <Mono>where</Mono>) and links (<Mono>one</Mono>, <Mono>many</Mono>). SQL is written as
         templates: <Mono>{'{t}'}</Mono> the subject&apos;s row, <Mono>{'{linkname}'}</Mono> a joined row,{' '}

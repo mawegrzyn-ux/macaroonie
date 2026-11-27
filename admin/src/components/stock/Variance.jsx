@@ -25,8 +25,13 @@ import { AlertTriangle, CheckCircle2, ChevronRight, Info, Loader2, Lock, LockOpe
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ErrorNote, Segmented, inputCls } from '@/components/staff/shared'
-import { Card, Drawer, btn } from '@/components/purchasing/shared'
+import { Card, Drawer, btn as baseBtn } from '@/components/purchasing/shared'
 import { qty, pounds, dayWords, when } from '@/components/stock/shared'
+import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
+
+// The tab's buttons and fields at 48 px (design rule 1; the shared ones are 44 px).
+const btn = { primary: cn(baseBtn.primary, 'h-12'), outline: cn(baseBtn.outline, 'h-12') }
+const fieldCls = cn(inputCls, 'h-12')
 
 const VIEWS = [{ value: 'items', label: 'By item' }, { value: 'venues', label: 'By venue' }, { value: 'key', label: 'Key items' }]
 const pct = n => (n == null ? '–' : (Math.round(n * 10) / 10).toFixed(1) + '%')
@@ -106,13 +111,23 @@ function FoodCost({ data }) {
       {sub && <span className="block text-xs text-muted-foreground">{sub}</span>}
     </div>
   )
+  // Actual food cost only once every item sales used has an actual: until then it would be a few items against all of them.
+  const partial = fc.complete === false
   return (
-    <div className="flex flex-wrap gap-2" data-testid="variance-food-cost">
-      {tile('Actual food cost', pct(fc.actual_pct), fc.actual_value != null ? pounds(fc.actual_value) + ' used' : null, 'variance-actual-pct')}
-      {tile('Theoretical', pct(fc.theoretical_pct), fc.theoretical_value != null ? pounds(fc.theoretical_value) + ' by recipes' : null, 'variance-theoretical-pct')}
-      {tile('Gap', pts(fc.gap_pts), null, 'variance-gap')}
-      {tile('Net food sales', fc.net_food_pence == null ? '–' : pounds(fc.net_food_pence / 100), data.late_food_pence ? pounds(data.late_food_pence / 100) + ' of it late' : null, 'variance-net')}
-      {data.band?.unexplained_pct != null && tile('Unexplained', pts(data.band.unexplained_pct), data.band.over ? 'over the ' + data.band.band_pct + ' point band' : 'inside the ' + data.band.band_pct + ' point band', 'variance-band')}
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2" data-testid="variance-food-cost">
+        {tile('Actual food cost', pct(fc.actual_pct), partial ? 'not known yet' : fc.actual_value != null ? pounds(fc.actual_value) + ' used' : null, 'variance-actual-pct')}
+        {tile('Theoretical', pct(fc.theoretical_pct), fc.theoretical_value != null ? pounds(fc.theoretical_value) + ' by recipes' : null, 'variance-theoretical-pct')}
+        {tile('Gap', pts(fc.gap_pts), null, 'variance-gap')}
+        {tile('Net food sales', fc.net_food_pence == null ? '–' : pounds(fc.net_food_pence / 100), data.late_food_pence ? pounds(data.late_food_pence / 100) + ' of it late' : null, 'variance-net')}
+        {data.band?.unexplained_pct != null && tile('Unexplained', pts(data.band.unexplained_pct), data.band.over ? 'over the ' + data.band.band_pct + ' point band' : 'inside the ' + data.band.band_pct + ' point band', 'variance-band')}
+      </div>
+      {partial && (
+        <p className="text-xs text-muted-foreground" data-testid="variance-food-cost-partial">
+          Actual food cost and the gap need every item sales used counted at both ends: {fc.uncounted_used === 1 ? '1 item isn\'t' : fc.uncounted_used + ' items aren\'t'} yet.
+          {data.period?.current ? ' They show once the next full count is approved.' : ' Count every item sales use in the full counts, so the next period has them.'}
+        </p>
+      )}
     </div>
   )
 }
@@ -126,7 +141,7 @@ function ItemList({ data, onOpen }) {
     <div className="bg-background border rounded-xl overflow-hidden" data-testid="variance-items">
       <div className="flex flex-wrap items-center gap-2 px-4 py-2 section-head text-xs font-semibold">
         <span className="flex-1">Item</span>
-        <button type="button" className="h-11 px-3 rounded-lg border bg-background text-xs touch-manipulation" onClick={() => setOnly(!only)} data-testid="variance-only-flagged">
+        <button type="button" className="h-12 px-3 rounded-lg border bg-background text-xs touch-manipulation" onClick={() => setOnly(!only)} data-testid="variance-only-flagged">
           {only ? 'Show every item' : 'Only flagged (' + data.flagged + ')'}
         </button>
       </div>
@@ -166,9 +181,11 @@ function ItemDrawer({ venueId, periodId, row, onClose }) {
     queryFn: () => api.get(`/stock/venues/${venueId}/variance/items/${row.item_id}${q}`),
   })
   const [note, setNote] = useState('')
+  // Taking a review back deletes it and its note: asked first (design rule 6).
+  const [undoAsk, setUndoAsk] = useState(false)
   const review = useMutation({
     mutationFn: reviewed => api.post(`/stock/periods/${periodId}/items/${row.item_id}/review`, { reviewed, note: note.trim() || null }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['stock', venueId] }) },
+    onSuccess: () => { setUndoAsk(false); qc.invalidateQueries({ queryKey: ['stock', venueId] }) },
   })
   const r = data?.row || row
   const u = r.base_unit
@@ -225,11 +242,21 @@ function ItemDrawer({ venueId, periodId, row, onClose }) {
           {reviewed ? (
             <>
               <p className="text-sm" data-testid="variance-reviewed-by">Reviewed by {reviewed.by} {when(reviewed.at)}{reviewed.note ? ': ' + reviewed.note : ''}</p>
-              <button type="button" className={btn.outline} disabled={review.isPending} onClick={() => review.mutate(false)}>Not reviewed after all</button>
+              {undoAsk ? (
+                <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm flex flex-wrap items-center gap-2" data-testid="variance-unreview-ask">
+                  <span className="flex-1 min-w-[12rem]">Take the review back? {reviewed.note ? 'Its note goes too, and the' : 'The'} item shows as flagged and not reviewed again.</span>
+                  <button type="button" className={btn.primary} disabled={review.isPending} onClick={() => review.mutate(false)} data-testid="variance-unreview-yes">
+                    {review.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Take it back
+                  </button>
+                  <button type="button" className={btn.outline} onClick={() => setUndoAsk(false)}>Keep the review</button>
+                </div>
+              ) : (
+                <button type="button" className={btn.outline} disabled={review.isPending} onClick={() => setUndoAsk(true)} data-testid="variance-unreview">Not reviewed after all</button>
+              )}
             </>
           ) : (
             <>
-              <input className={inputCls} value={note} maxLength={500} onChange={e => setNote(e.target.value)} placeholder="What you found (optional)" data-testid="variance-review-note" />
+              <input className={fieldCls} value={note} maxLength={500} onChange={e => setNote(e.target.value)} placeholder="What you found (optional)" data-testid="variance-review-note" />
               <button type="button" className={btn.primary} disabled={review.isPending} onClick={() => review.mutate(true)} data-testid="variance-review">
                 {review.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Mark as reviewed
               </button>
@@ -256,7 +283,7 @@ function ByVenue({ items, sees }) {
   return (
     <div className="space-y-3" data-testid="variance-by-venue">
       <div className="flex flex-wrap items-center gap-2">
-        <select className={cn(inputCls, 'w-auto min-w-[12rem]')} value={itemId} onChange={e => setItemId(e.target.value)} aria-label="Item" data-testid="variance-by-venue-item">
+        <select className={cn(fieldCls, 'w-auto min-w-[12rem]')} value={itemId} onChange={e => setItemId(e.target.value)} aria-label="Item" data-testid="variance-by-venue-item">
           {items.map(i => <option key={i.item_id} value={i.item_id}>{i.name}</option>)}
         </select>
         <Segmented value={which} onChange={setWhich} options={[{ value: 'latest', label: 'Latest period' }, { value: 'current', label: 'Since the last full count' }]} />
@@ -333,7 +360,7 @@ export default function Variance({ venueId, askedPeriod = null, canManage }) {
           Actual usage (opening count, plus what came in, less what went out and the closing count) against what sales took by their recipes. Waste and adjustments explain their part; the rest is unexplained.
         </p>
         {choices.length > 0 && (
-          <select className={cn(inputCls, 'w-full sm:w-auto sm:min-w-[22rem]')} value={periodId || (p && !p.current ? p.id : '')} onChange={e => { setPeriodId(e.target.value || null); setOpen(null) }} aria-label="Period" data-testid="variance-period">
+          <select className={cn(fieldCls, 'w-full sm:w-auto sm:min-w-[22rem]')} value={periodId || (p && !p.current ? p.id : '')} onChange={e => { setPeriodId(e.target.value || null); setOpen(null) }} aria-label="Period" data-testid="variance-period">
             {choices.map(c => <option key={c.id || 'current'} value={c.id}>{c.label}</option>)}
           </select>
         )}
@@ -346,6 +373,7 @@ export default function Variance({ venueId, askedPeriod = null, canManage }) {
           </p>
         )}
         {data && canManage && <PeriodActions data={data} venueId={venueId} />}
+        {data && !canManage && <ReadOnlyNotice what="the stock periods" />}
         {!none && <ErrorNote error={error} />}
       </Card>
 

@@ -36,7 +36,10 @@
 //     read once per run) is never worked out again. When its sales change
 //     after all (a late sale), what it would be now less what was kept is
 //     kept apart (keepLateUsage(): stock_usage_late) and lands in the next
-//     open period, marked.
+//     open period, marked. A closed day is compared, and its late sales worked
+//     out, under the refunds setting it was kept with (its mark says it), so
+//     switching the setting never makes late sales of days whose sales are
+//     the same.
 //   - Costs are pounds per base unit at the day's last sale: the average paid
 //     at the venue over the 90 days before, else the last paid (costLookup()),
 //     else the standard price (chooseQuote()); none is a gap, the dish is
@@ -48,6 +51,7 @@
 //   venueToday(tx, tenantId, venueId, now)   the venue's trading day and zone
 //   goneDishes(tx, tenantId, ids, { lines, links })   sold dishes on no menu now, as last released
 //   dayFingerprints(tx, tenantId, venueId, from, to, { refunds })
+//   keptRefunds(fingerprint, fallback)   the refunds setting a day's mark was worked out with
 //   workDays(tx, tenantId, venueId, days, { settings, now })   the days worked out, nothing written
 //   computeDays(tx, tenantId, venueId, days, { fingerprints, now })
 //   keepLateUsage(tx, tenantId, venueId, days, { fingerprints })   closed days' late sales
@@ -182,6 +186,19 @@ export async function dayFingerprints(tx, tenantId, venueId, from, to, { refunds
   const out = new Map()
   for (const day of daysBetween(from, to)) out.set(day, JSON.stringify({ refunds: !!refunds, ...(by.get(day) || {}) }))
   return out
+}
+
+/**
+ * The refunds setting a day was worked out with, from its mark's fingerprint
+ * (dayFingerprints() keeps it there), else `fallback` (the group's now).
+ */
+export function keptRefunds(fingerprint, fallback = false) {
+  try {
+    const f = JSON.parse(fingerprint || '{}')
+    return typeof f?.refunds === 'boolean' ? f.refunds : !!fallback
+  } catch {
+    return !!fallback
+  }
 }
 
 async function loadSettings(tx, tenantId) {
@@ -450,9 +467,21 @@ export async function runVenueUsage(tx, tenantId, venueId, { days = null, force 
   const todo = force ? open : open.filter(d => !markOf.has(d) || markOf.get(d) !== fps.get(d) || (dirty && d >= dirty))
   const r = await computeDays(tx, tenantId, venueId, todo, { fingerprints: fps, settings, now })
   // A closed day whose sales changed since it was kept (a recipe change marks nothing there: D9).
-  const none = JSON.stringify({ refunds: !!settings.refunds })
-  const lateDue = closed.filter(d => (markOf.has(d) ? markOf.get(d) !== fps.get(d) : fps.get(d) !== none))
-  const late = lateDue.length ? await keepLateUsage(tx, tenantId, venueId, lateDue, { fingerprints: fps, settings, now }) : { days: 0, batches: 0 }
+  // Each is compared, and its late sales worked out, under the refunds setting it was kept with
+  // (keptRefunds(), from its mark): the setting changed since is no change of its sales, so it
+  // never makes late sales (the setting reaches the day again only if its period is reopened).
+  const late = { days: 0, batches: 0 }
+  for (const refunds of [false, true]) {
+    const group = closed.filter(d => (markOf.has(d) ? keptRefunds(markOf.get(d), settings.refunds) : !!settings.refunds) === refunds)
+    if (!group.length) continue
+    const fpsAs = refunds === !!settings.refunds ? fps : await dayFingerprints(tx, tenantId, venueId, group[0], group[group.length - 1], { refunds })
+    const none = JSON.stringify({ refunds })
+    const due = group.filter(d => (markOf.has(d) ? markOf.get(d) !== fpsAs.get(d) : fpsAs.get(d) !== none))
+    if (!due.length) continue
+    const k = await keepLateUsage(tx, tenantId, venueId, due, { fingerprints: fpsAs, settings: { ...settings, refunds }, now })
+    late.days += k.days
+    late.batches += k.batches
+  }
   return { venue_id: venueId, today, ...r, worked: todo, late }
 }
 

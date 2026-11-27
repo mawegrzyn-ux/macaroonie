@@ -443,7 +443,9 @@ unexplained       = variance - logged waste
   transfers out include what was lost in transit; one price per item for the period (the average
   paid, else the last paid, else the standard price); net food sales are food and drink by the
   catalogue's type (goods and services out), so "food cost" is food and drink cost. Both band
-  rules flag gains as well as losses.*
+  rules flag gains as well as losses. The actual food cost % is given only when every item sales
+  used has actual usage, so both sides cover the same items: the period running since the latest
+  full count shows theoretical only until the next full count (review fixes).*
 
 ### 8.2 Menu margins and engineering
 

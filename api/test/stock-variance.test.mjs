@@ -10,7 +10,10 @@
 // is closed) and works the days out again; the reviewed flag and Today's
 // variance to review; ids of another group or venue refused (venue, period,
 // count, item); Stock view, Use and Manage, Costing view for pounds and till
-// reports view for sales.
+// reports view for sales (in reports too: an item's share of food sales needs
+// both). Review fixes: closing waits for the usage job's lease, a refunds
+// setting switched makes no late sales of closed days, and food cost has no
+// actual or gap while an item sales used isn't counted.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
@@ -207,7 +210,21 @@ test('pounds need Costing view, sales need till reports view too; closing needs 
 })
 
 test('closing freezes the figures and closes the days; Today asks for a review until it is done', async () => {
+  // The usage job working the venue out now: closing waits (what the run writes would be missing from the
+  // frozen figures and, the day closed, never come back as a late sale), as reopening does.
+  await sql`
+    INSERT INTO stock_usage_venues (venue_id, tenant_id, running_until) VALUES (${soho}, ${ids.a}, now() + interval '5 minutes')
+    ON CONFLICT (venue_id) DO UPDATE SET running_until = EXCLUDED.running_until`
+  const busy = await owner.post(`/api/stock/periods/${p1}/close`, {})
+  assert.equal(busy.status, 409, 'refused while the job holds the venue')
+  assert.match(busy.body, /running/)
+  assert.equal((await sql`SELECT status FROM stock_periods WHERE id = ${p1}`)[0].status, 'open')
+  await sql`UPDATE stock_usage_venues SET running_until = NULL WHERE venue_id = ${soho}`
+  const [runBefore] = await sql`SELECT last_run_at FROM stock_usage_venues WHERE venue_id = ${soho}`
   const closed = await ok(owner.post(`/api/stock/periods/${p1}/close`, {}))
+  const [lease] = await sql`SELECT running_until, last_run_at FROM stock_usage_venues WHERE venue_id = ${soho}`
+  assert.equal(lease.running_until, null, 'the lease is let go')
+  assert.deepEqual(lease.last_run_at, runBefore.last_run_at, 'the job\'s last run stays its own')
   assert.equal(closed.period.status, 'closed')
   assert.equal(closed.period.days_to, today, 'today\'s sales are inside it')
   assert.equal((await owner.post(`/api/stock/periods/${p1}/close`, {})).status, 409, 'once')
@@ -230,6 +247,37 @@ test('closing freezes the figures and closes the days; Today asks for a review u
   assert.ok(!(await ok(owner.get(`/api/ops/today?venue_id=${soho}`))).tasks.some(t => t.kind === 'stock_variance_to_review'), 'reviewed: off Today')
   const seen = rowOf(await ok(owner.get(`/api/stock/venues/${soho}/variance?period=${p1}`)), chicken).reviewed
   assert.ok(seen?.by && seen.note, 'the row says who reviewed it')
+})
+
+test('switching the refunds setting makes no late sales on a closed day whose sales are the same', async () => {
+  // Another till's refund of a bowl on the closed day: left out while refunds give nothing back.
+  const [c] = await sql`INSERT INTO pos_connections (tenant_id, name, access_token, token_hint) VALUES (${ids.a}, 'Loyverse', 'sealed-stand-in', 'abcd') RETURNING id`
+  const [e] = await sql`
+    INSERT INTO ext_checks (tenant_id, connection_id, venue_id, external_id, kind, business_date, closed_at)
+    VALUES (${ids.a}, ${c.id}, ${soho}, ${'r-' + randomUUID()}, 'refund', ${today}::date, now() - interval '2 hours') RETURNING id`
+  const [l] = await sql`
+    INSERT INTO ext_check_lines (tenant_id, check_id, line_no, line_kind, name, qty, net_pence, gross_pence, tax_pence, map_state)
+    VALUES (${ids.a}, ${e.id}, 0, 'item', 'LV Chicken bowl', 1, 1000, 1200, 200, 'mapped') RETURNING id`
+  await sql`
+    INSERT INTO ext_line_parts (tenant_id, check_id, line_id, part_no, role, item_id, qty, net_pence)
+    VALUES (${ids.a}, ${e.id}, ${l.id}, 0, 'main', ${bowl}, 1, 1000)`
+  const refunds = on => ok(owner.put('/api/stock/settings', { second_person_approves: false, blind_count: false, refunds_return_stock: on }), 'refunds ' + on)
+  const lateRows = async () => (await sql`SELECT count(*)::int AS n FROM stock_usage_late WHERE tenant_id = ${ids.a}`)[0].n
+  await recompute()
+  assert.equal(await lateRows(), 0, 'nothing the closed day counts changed')
+  await refunds(true)
+  try {
+    await recompute()
+    assert.equal(await lateRows(), 0, 'the setting changed, not the day\'s sales: no late sales')
+    const [mark] = await sql`SELECT fingerprint FROM stock_usage_marks WHERE tenant_id = ${ids.a} AND venue_id = ${soho} AND day = ${today}::date`
+    assert.equal(JSON.parse(mark.fingerprint).refunds, false, 'the closed day keeps the setting it was worked out with')
+    const [kept] = await sql`SELECT qty_base::float8 AS q FROM stock_usage_days WHERE tenant_id = ${ids.a} AND venue_id = ${soho} AND day = ${today}::date AND item_id = ${chicken.id}`
+    assert.equal(kept.q, 2000, 'the closed day keeps what it had')
+  } finally {
+    await refunds(false)
+  }
+  await recompute()
+  assert.equal(await lateRows(), 0, 'and switching it back makes none either')
 })
 
 test('a late sale on a closed day is kept apart and lands in the next period, marked; on hand stays as counted', async () => {
@@ -260,6 +308,18 @@ test('a late sale on a closed day is kept apart and lands in the next period, ma
   const cur = await ok(owner.get(`/api/stock/venues/${soho}/variance?period=current`))
   assert.equal(rowOf(cur, chicken).late, 1000, 'marked')
   assert.equal(rowOf(cur, chicken).theoretical, 1000)
+  // Food cost over the same items on both sides: the chicken and rice the late bowls took aren't counted since,
+  // so no actual and no gap (the period running since the last full count opens by default).
+  assert.equal(rowOf(cur, chicken).actual, null)
+  assert.equal(cur.food_cost.complete, false)
+  assert.equal(cur.food_cost.uncounted_used, 2)
+  assert.equal(cur.food_cost.actual_pct, null)
+  assert.equal(cur.food_cost.actual_value, null)
+  assert.equal(cur.food_cost.gap_pts, null)
+  assert.ok(cur.food_cost.theoretical_pct > 0, 'theoretical stands')
+  const words = await pepper(A.owner, 'variance_summary', { venue: 'Soho', period: 'current' })
+  assert.match(words.out.food_cost.actual, /^not known yet: 2 items sales used haven't been counted/)
+  assert.ok(!('gap' in words.out.food_cost), 'no gap')
   const [lateNet] = await sql`SELECT net_food_pence::int AS n FROM stock_usage_late WHERE tenant_id = ${ids.a}`
   assert.ok(lateNet.n > 0, 'the late sales add to net food sales')
   assert.equal(cur.late_food_pence, lateNet.n)
@@ -320,6 +380,30 @@ test('the report subjects: variance by period, food cost by period, periods; the
   assert.ok(JSON.stringify(chick[0]).includes('900'), 'the frozen 900 g')
   const fc = await ok(owner.post('/api/reports/preview', { spec: { subject: 'stock.food_cost', rows: [{ field: 'date', bucket: 'week' }], values: [{ measure: 'actual_food_cost_pct' }, { measure: 'theoretical_food_cost_pct' }], ...period } }))
   assert.ok(fc.rows.length >= 1)
+  // A period with no actual food cost (an item sales used not counted) takes no part in the actual food cost %:
+  // its sales are left out with it, so the % over several periods is the counted ones' own.
+  const pcts = async () => {
+    const res = await ok(owner.post('/api/reports/preview', { spec: { subject: 'stock.food_cost', rows: ['status'], values: [{ measure: 'actual_food_cost' }, { measure: 'net_food_sales_counted' }, { measure: 'net_food_sales' }, { measure: 'actual_food_cost_pct' }], ...period } }))
+    return res.totals?.cells || []
+  }
+  // Two periods: the first with no actual food cost, the second (frozen here) with £10 used of £50 food sales.
+  const { forgetReportResults } = await import('../src/reports/run.js')
+  const [{ figures }] = await sql`SELECT figures FROM stock_periods WHERE id = ${p1}`
+  const [second] = await sql`SELECT status, figures FROM stock_periods WHERE id = ${p2}`
+  await sql`UPDATE stock_periods SET figures = jsonb_set(figures, '{food_cost,actual_value}', 'null'::jsonb) WHERE id = ${p1}`
+  await sql`UPDATE stock_periods SET status = 'closed', figures = ${sql.json({ rows: [], totals: {}, food_cost: { net_food_pence: 5000, actual_value: 10, theoretical_value: 8 }, band: {}, flagged: 0 })} WHERE id = ${p2}`
+  forgetReportResults()
+  try {
+    const [cost, counted, net, pct] = (await pcts()).slice(-4)
+    near(net, figures.food_cost.net_food_pence / 100 + 50, 'net food sales of both periods')
+    near(counted, 50, 'the period with no actual food cost is left out of the sales the actual is over')
+    near(cost, 10)
+    near(pct, 0.2, '£10 of £50, not of both periods\' sales')
+  } finally {
+    await sql`UPDATE stock_periods SET figures = ${sql.json(figures)} WHERE id = ${p1}`
+    await sql`UPDATE stock_periods SET status = ${second.status}, figures = ${second.figures ? sql.json(second.figures) : null} WHERE id = ${p2}`
+    forgetReportResults()
+  }
   const ps = await ok(owner.post('/api/reports/preview', { spec: { kind: 'list', subject: 'stock.periods', rows: ['status', 'closed_by', 'flagged_items'], ...period } }))
   assert.ok(ps.rows.length >= 2, 'both periods')
   for (const key of ['stock_variance_by_item', 'stock_food_cost_actual_theoretical_week']) {
@@ -327,6 +411,36 @@ test('the report subjects: variance by period, food cost by period, periods; the
   }
   const noCost = await viewer.post('/api/reports/preview', { spec: { subject: 'stock.variance', rows: ['item_name'], values: [{ measure: 'unexplained_total' }], ...period } })
   assert.ok(noCost.status >= 400 || /left out/i.test(String(noCost.body)), 'pounds need Costing view')
+})
+
+test('in reports, a share of food sales needs Costing view as well as till reports view, and over the band till reports view', async () => {
+  const period = { params: [{ key: 'period', type: 'period', default: { relative: 'this_year' } }], filters: [{ field: 'date', op: 'in_period', param: 'period' }] }
+  const asRole = async (permissions, fn) => {
+    const [role] = await sql`INSERT INTO tenant_roles (tenant_id, key, label, permissions, is_builtin)
+      VALUES (${ids.a}, ${'var_' + randomUUID().slice(0, 8)}, 'Variance reports', ${sql.json(permissions)}, false) RETURNING id`
+    await sql`UPDATE users SET custom_role_id = ${role.id} WHERE auth0_user_id = ${A.viewer} AND tenant_id = ${ids.a}`
+    try {
+      return await fn()
+    } finally {
+      await sql`UPDATE users SET custom_role_id = NULL WHERE auth0_user_id = ${A.viewer} AND tenant_id = ${ids.a}`
+    }
+  }
+  const list = (subject, rows) => ok(viewer.post('/api/reports/preview', { spec: { kind: 'list', subject, rows, ...period } }), subject)
+  // Stock and till reports without Costing view: the share is pounds over sales, left out as the Variance tab leaves it out.
+  await asRole({ stock: 'view', pos_reports: 'view', reports: 'use' }, async () => {
+    const res = await list('stock.variance', ['item_name', 'unexplained', 'share_pct'])
+    assert.deepEqual(res.columns.map(c => c.key), ['item_name', 'unexplained'])
+    assert.match(JSON.stringify(res.meta?.notes || []), /left out/)
+  })
+  await asRole({ stock: 'view', pos_reports: 'view', costing: 'view', reports: 'use' }, async () => {
+    const res = await list('stock.variance', ['item_name', 'unexplained', 'share_pct'])
+    assert.deepEqual(res.columns.map(c => c.key), ['item_name', 'unexplained', 'share_pct'], 'Costing and till reports view: the share')
+  })
+  // Costing view without till reports view: whether a period was over the band (unexplained over food sales) is left out.
+  await asRole({ costing: 'view', reports: 'use' }, async () => {
+    const res = await list('stock.food_cost', ['status', 'over_band'])
+    assert.deepEqual(res.columns.map(c => c.key), ['status'])
+  })
 })
 
 test('reopening needs Manage and a note, is refused while a later period is closed, and works the days out again', async () => {
@@ -352,6 +466,21 @@ test('By venue: the item at every venue of the group', async () => {
   assert.equal(by.venues[0].venue, 'Soho', 'the venue with a period first')
   assert.equal(by.venues.find(v => v.venue === 'Leeds').period, null, 'no full count at Leeds')
   assert.equal((await viewer.get(`/api/stock/variance/by-venue?item=${chicken.id}`)).status, 200)
+  // A closed period's row is as it was frozen, flagged by the band then: a band changed since doesn't flag it again.
+  await ok(owner.post(`/api/stock/periods/${p2}/close`, {}))
+  const [{ row: frozen }] = await sql`SELECT r AS row FROM stock_periods, jsonb_array_elements(figures->'rows') r WHERE id = ${p2} AND r->>'item_id' = ${chicken.id}`
+  assert.ok(frozen && frozen.unexplained_value, 'the chicken has an unexplained value in the period')
+  const flip = frozen.flagged ? { band_pct: 1, item_pct: 1000, item_pounds: 1000000 } : { band_pct: 1, item_pct: 0, item_pounds: 0 }
+  await ok(owner.put('/api/stock/variance-settings', flip))
+  try {
+    const again = await ok(owner.get(`/api/stock/variance/by-venue?item=${chicken.id}&which=latest`))
+    const soho_ = again.venues.find(v => v.venue === 'Soho')
+    assert.equal(soho_.period.id, p2)
+    assert.equal(soho_.row.flagged, frozen.flagged, 'flagged as frozen')
+    assert.equal(soho_.row.flag_why, frozen.flag_why)
+  } finally {
+    await ok(owner.put('/api/stock/variance-settings', { band_pct: 1, item_pct: 3, item_pounds: 5 }))
+  }
 })
 
 test('another group\'s venue, period, count and item are refused, and another venue\'s period', async () => {

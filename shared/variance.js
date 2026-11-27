@@ -35,7 +35,8 @@
 //   itemVariance({ moves, from, to, price, late })       one item between two moments
 //   keyIntervals({ moves, from, to, price })              an item between each pair of its counts
 //   itemFlag(row, settings)                               flagged by the item rule
-//   periodVariance({ items, net_food_pence, settings })   every item, the totals, food cost, the band
+//   periodVariance({ items, net_food_pence, settings })   every item, the totals, food cost (actual
+//                                                         only once every item sales used is counted), the band
 //   isFoodSale(row)                                       a dish_cost_days row counted in net food sales
 //   explainVariance(facts)                                the evidence for an item, each with its fix
 //   EVIDENCE_KINDS, PERIOD_STATUSES, periodWords(period)
@@ -188,7 +189,9 @@ export function itemFlag(row, settings = VARIANCE_DEFAULTS) {
  * be shown); settings: the group's band. Items with nothing in the period
  * (no stock either end, no moves) are left out. Rows are ranked by pounds of
  * unexplained loss (the biggest loss first, gains last), then by quantity.
- * -> { rows: [{ ...row, flagged, flag_why, share_pct }], totals, food_cost, band, flagged }
+ * -> { rows: [{ ...row, flagged, flag_why, share_pct }], totals,
+ *      food_cost: { net_food_pence, complete, uncounted_used, actual_value, theoretical_value, actual_pct, theoretical_pct, gap_pts },
+ *      band, flagged }
  */
 export function periodVariance({ items = [], net_food_pence = null, settings = VARIANCE_DEFAULTS } = {}) {
   const s = varianceSettings(settings)
@@ -214,13 +217,22 @@ export function periodVariance({ items = [], net_food_pence = null, settings = V
     gain_value: round2(rows.reduce((t, r) => t + Math.min(0, num(r.unexplained_value)), 0)),
     late_items: rows.filter(r => num(r.late)).length,
   }
-  // Food cost: actual over the items counted at both ends; theoretical over every item sales used.
-  const actualCost = round2(counted.reduce((t, r) => t + num(r.actual_value), 0))
+  // Food cost over the same items on both sides. Actual is known only for
+  // items counted at both ends, theoretical for every item sales used, so
+  // while an item sales used has no actual (not counted since: the period
+  // running since the latest full count shows key items only), the actual
+  // food cost and the gap aren't known and aren't given (complete false,
+  // uncounted_used says how many). An item sales didn't use and nobody
+  // counted is in neither side.
+  const uncountedUsed = rows.filter(r => r.actual == null && num(r.theoretical) !== 0).length
+  const complete = uncountedUsed === 0
+  const actualCost = complete ? round2(counted.reduce((t, r) => t + num(r.actual_value), 0)) : null
   const food_cost = {
     net_food_pence: net,
+    complete, uncounted_used: uncountedUsed,
     actual_value: actualCost,
     theoretical_value: totals.theoretical_value,
-    actual_pct: net == null ? null : costShare(actualCost, net),
+    actual_pct: net == null || actualCost == null ? null : costShare(actualCost, net),
     theoretical_pct: net == null ? null : costShare(totals.theoretical_value, net),
   }
   food_cost.gap_pts = food_cost.actual_pct == null || food_cost.theoretical_pct == null ? null : round2(food_cost.actual_pct - food_cost.theoretical_pct)

@@ -80,7 +80,8 @@ const field = (type, src, opts = {}) => ({ ...opts, type, ...source(src) })
 
 // ── Fields ────────────────────────────────────────────────────
 // Options: label, title (the heading when it stands alone), about, pii
-// (personal data), needs (a module the person must also be able to view),
+// (personal data), needs (a module the person must also be able to view, or
+// a list of modules, every one of them: a share of sales worked out from pounds),
 // adds (a number that makes sense to add up), empty (what an empty value
 // reads as), decimals.
 
@@ -142,7 +143,7 @@ export const ratio = (numerator, denominator, opts = {}) => ({ type: 'number', .
 //         the other side when it isn't that subject's id.
 // many(): the other subject's rows point at this one (a check's lines).
 //         `theirSrc` is the column on their side.
-// Options: label, about, needs (a module), hidden.
+// Options: label, about, needs (a module, or a list of them), hidden.
 
 export const one = (to, src, opts = {}) => ({ ...opts, to, many: false, ...source(src) })
 export const many = (to, theirSrc, opts = {}) => ({ ...opts, to, many: true, ...source(theirSrc) })

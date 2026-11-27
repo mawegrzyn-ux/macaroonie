@@ -126,6 +126,32 @@ test('a period: ranked by pounds of unexplained loss, share of food sales, food 
   const quiet = periodVariance({ items: rows, net_food_pence: 50000, settings: { band_pct: 2 } })
   assert.equal(quiet.band.over, false)
   assert.equal(periodVariance({ items: rows, net_food_pence: null }).food_cost.actual_pct, null, 'no sales known: no food cost %')
+  assert.equal(v.food_cost.complete, true)
+  assert.equal(v.food_cost.uncounted_used, 0)
+})
+
+test('food cost is over the same items on both sides: no actual or gap while an item sales used is not counted', () => {
+  // The period running since the last full count: chicken key-counted since, rice used by sales and not counted.
+  const rows = [
+    { item_id: 'a', name: 'Chicken', ...itemVariance({ moves: chicken, from: T(0), to: null, price: 0.006 }) },
+    { item_id: 'b', name: 'Rice', ...itemVariance({ moves: [count(0, 5000), move('usage', 5, -3000)], from: T(0), to: null, price: 0.002 }) },
+  ]
+  assert.equal(rows[1].actual, null, 'rice: no actual')
+  const v = periodVariance({ items: rows, net_food_pence: 50000 })
+  assert.equal(v.food_cost.complete, false)
+  assert.equal(v.food_cost.uncounted_used, 1)
+  assert.equal(v.food_cost.actual_value, null, 'the counted chicken alone is not the actual food cost')
+  assert.equal(v.food_cost.actual_pct, null)
+  assert.equal(v.food_cost.gap_pts, null, 'no gap between different sets of items')
+  assert.equal(v.food_cost.theoretical_pct, costShare(132 + 6, 50000), 'theoretical over every item sales used')
+  // An item nobody counted and sales didn't use is in neither side: the food cost stands.
+  const shelf = { item_id: 'c', name: 'Napkins', ...itemVariance({ moves: [count(0, 300), move('delivery', 5, 200)], from: T(0), to: null, price: 0.01 }) }
+  const withCount = [rows[0], { item_id: 'b', name: 'Rice', ...itemVariance({ moves: [count(0, 5000), move('usage', 5, -3000), count(100, 2000)], from: T(0), to: null, price: 0.002 }) }, shelf]
+  const w = periodVariance({ items: withCount, net_food_pence: 50000 })
+  assert.equal(shelf.actual, null)
+  assert.equal(w.food_cost.complete, true)
+  assert.equal(w.food_cost.actual_pct, costShare(147 + 6, 50000))
+  assert.equal(w.food_cost.gap_pts, round2(w.food_cost.actual_pct - w.food_cost.theoretical_pct))
 })
 
 const round2 = n => Math.round(n * 100) / 100

@@ -317,11 +317,16 @@ export function Section() {
         the top, <strong>Food cost</strong> shows the actual food cost % (what was used, over net food sales) beside
         the theoretical (what sales took), the gap between them in points, and whether the unexplained loss is over
         the venue band. Net food sales are food and drink, VAT out: retail goods and services are left out.
-        Pounds need Costing view; the food cost % and shares of sales need Till reports view as well.
+        Pounds need Costing view; the food cost % and shares of sales need Till reports view as well, in reports
+        too (an item&apos;s share of food sales needs both, and whether a period was over the band needs Till
+        reports view).
       </P>
       <P>
         In the period running since the last full count, an item has actual usage only once it is counted again: a
-        key-item count of the item is enough. <strong>Key items</strong> shows what each key-item count found
+        key-item count of the item is enough. The actual food cost % and the gap are shown only when every item
+        sales used has actual usage (both sides then cover the same items), so in that period they wait for the next
+        full count: the tile says <em>not known yet</em> and how many items aren&apos;t counted; the theoretical food
+        cost shows all the time. <strong>Key items</strong> shows what each key-item count found
         against the documents since the count before it, for the last two weeks, so a daily count of proteins gives
         a daily figure. <strong>By venue</strong> shows one item at every venue (<em>which site loses most on
         chicken</em>), at each venue&apos;s latest period or since its last full count.
@@ -344,7 +349,10 @@ export function Section() {
         it</em>, which makes that period look a little better and the closed one a little worse.
         <strong> Reopen</strong> needs a note saying why; it works the period&apos;s days out again from the sales,
         late ones in them, and its figures follow the documents until it is closed again. A period can&apos;t be
-        reopened while a later period at the venue is closed: reopen that one first.
+        reopened while a later period at the venue is closed: reopen that one first. While usage from sales is being
+        worked out for the venue (every few minutes, for a moment), closing and reopening say so: try again in a
+        minute. Changing whether refunds give stock back (Settings) changes open days only: a closed period&apos;s
+        days keep the setting they were closed with, so switching it makes no late sales.
       </P>
       <InfoBox type="info">
         A day&apos;s sales count at the day&apos;s last sale. Count before opening or after closing: a count taken in
@@ -354,7 +362,10 @@ export function Section() {
       <P>
         When a closed period has flagged items nobody has looked at, Today shows <strong>Variance to review</strong>
         to people with Stock manage. Open the item, see why it may be, and tap <strong>Mark as reviewed</strong>
-        (with what you found, if you like). Once every flagged item is reviewed it leaves Today.
+        (with what you found, if you like). Once every flagged item is reviewed it leaves Today.{' '}
+        <strong>Not reviewed after all</strong> asks first, as it takes the review and its note away. Without Stock
+        manage the tab is view only (it says so): the figures show, but closing, reopening and reviewing don&apos;t.
+        <strong> By venue</strong> shows a closed period&apos;s items as they were flagged when it was closed.
       </P>
       <H3>The variance band</H3>
       <P>
@@ -369,7 +380,9 @@ export function Section() {
         one item&apos;s figures and evidence. Closing and reopening are done on the Variance tab. Reports have
         <strong> Stock variance by period</strong>, <strong>Food cost by period</strong> and <strong>Stock
         periods</strong>, with the starters <strong>Variance by item</strong> and <strong>Theoretical against
-        actual food cost by week</strong>.
+        actual food cost by week</strong>. A period whose counts left out an item sales used has no actual food
+        cost there either, and the actual food cost % over several periods counts only the sales of the periods
+        that have one.
       </P>
     </section>
   )

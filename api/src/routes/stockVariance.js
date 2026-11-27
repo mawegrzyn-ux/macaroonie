@@ -21,8 +21,9 @@
 //   GET  /variance/by-venue?item=&which=latest|current   one item at every venue of the
 //        group: the latest period at each (closed or open), or the current one
 //   POST /periods/:id/close                        Stock manage: its figures frozen, its days closed
+//        (under the venue's usage lease: 409 running while the usage job works the venue out)
 //   POST /periods/:id/reopen    { note }           Stock manage: open again (not while a later
-//        period at the venue is closed), its days worked out again from the sales
+//        period at the venue is closed), its days worked out again from the sales (the lease too)
 //   POST /periods/:id/items/:itemId/review   { reviewed, note? }   Stock manage
 //   PUT  /variance-settings     { band_pct, item_pct, item_pounds }   Stock manage (whole)
 //
@@ -36,7 +37,6 @@ import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { requireOwnVenue } from '../middleware/venue.js'
 import { explainVariance, keyIntervals, settingsProblem, itemFlag, varianceSettings, periodWords } from '../../../shared/variance.js'
-import { costShare } from '../../../shared/costing.js'
 import { loadStockMoves } from '../services/stockSvc.js'
 import {
   loadPeriod, venuePeriods, currentPeriod, periodFigures, periodDays, itemFacts, keyFigures, loadReviews, loadBand,
@@ -230,17 +230,11 @@ export default async function stockVarianceRoutes(app) {
           ? await currentPeriod(tx, req.tenantId, v.id)
           : (await venuePeriods(tx, req.tenantId, v.id, { limit: 1 }))[0] || null
         if (!p) { out.push({ venue_id: v.id, venue: v.name, period: null, row: null }); continue }
-        let row = null
-        let net = null
-        if (p.status === 'closed' && p.figures) {
-          row = (p.figures.rows || []).find(r => r.item_id === item.id) || null
-          net = p.figures.food_cost?.net_food_pence ?? null
-        } else {
-          const f = await periodFigures(tx, req.tenantId, p, { itemIds: [item.id], settings, sales: access.sees_sales })
-          row = f.rows[0] || null
-          net = f.food_cost?.net_food_pence ?? null
-        }
-        if (row) row = { ...row, flagged: itemFlag(row, settings).flagged, share_pct: net == null ? null : costShare(row.unexplained_value, net) }
+        // A closed period's row as it was frozen (flagged by the band then, as the Variance tab and Today
+        // show it); an open one's worked out now, flagged by today's band, its share of the period's food sales.
+        const row = p.status === 'closed' && p.figures
+          ? (p.figures.rows || []).find(r => r.item_id === item.id) || null
+          : (await periodFigures(tx, req.tenantId, p, { itemIds: [item.id], settings, sales: access.sees_sales })).rows[0] || null
         let shown = row
         if (shown && !access.sees_values) shown = strip(shown, MONEY)
         if (shown && !access.sees_sales) shown = strip(shown, ['share_pct'])
@@ -262,6 +256,10 @@ export default async function stockVarianceRoutes(app) {
       const problem = venueProblem(req, p.venue_id)
       if (problem) throw httpError(403, problem)
       if (p.status === 'closed') throw httpError(409, 'This period is closed already', { code: 'period_status', status: p.status })
+      // The usage lease, as reopen takes it: a run working one of its days out now would write usage
+      // the frozen figures don't hold, and once the day is closed it would never come back as a late sale.
+      const lease = await claimVenue(tx, req.tenantId, p.venue_id)
+      if (!lease) throw httpError(409, 'Usage is being worked out for this venue right now: try again in a minute', { code: 'running' })
       const view = await periodFigures(tx, req.tenantId, p)
       const days = await periodDays(tx, req.tenantId, p)
       const frozen = { rows: view.rows, totals: view.totals, food_cost: view.food_cost, band: view.band, flagged: view.flagged, settings: view.settings, sales: view.sales, worked_at: view.worked_at }
@@ -271,6 +269,7 @@ export default async function stockVarianceRoutes(app) {
                closed_by = ${me}, closed_at = now(), history = history || ${tx.json([entry])}, updated_at = now()
          WHERE id = ${p.id} AND tenant_id = ${req.tenantId}
         RETURNING id`
+      await releaseVenue(tx, req.tenantId, p.venue_id, { ran: false })
       const closed = await loadPeriod(tx, req.tenantId, row.id)
       return { period: periodMeta(closed, new Map()), frozen: true, ...shaped(frozen, access) }
     })

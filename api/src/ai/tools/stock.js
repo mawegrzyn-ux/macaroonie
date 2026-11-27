@@ -115,7 +115,11 @@ function varianceWords(venue, v) {
     venue: venue.name, period: periodText(v.period), closed: v.period?.status === 'closed',
     ...(fc ? {
       food_cost: {
-        actual: pctText(fc.actual_pct), theoretical: pctText(fc.theoretical_pct), gap: ptsText(fc.gap_pts),
+        // Actual (and the gap) only over the same items as theoretical: not while an item sales used is uncounted.
+        ...(fc.complete === false
+          ? { actual: 'not known yet: ' + plural(fc.uncounted_used, 'item') + ' sales used ' + (fc.uncounted_used === 1 ? 'hasn\'t' : 'haven\'t') + ' been counted at both ends' }
+          : { actual: pctText(fc.actual_pct), gap: ptsText(fc.gap_pts) }),
+        theoretical: pctText(fc.theoretical_pct),
         net_food_sales: fc.net_food_pence == null ? null : pounds(fc.net_food_pence / 100),
       },
       ...(v.band?.unexplained_pct != null ? { unexplained_of_food_sales: ptsText(v.band.unexplained_pct), over_the_band: !!v.band.over } : {}),
@@ -330,7 +334,8 @@ export const tools = [
       '(what the counts say was used against what sales took by their recipes, over net food sales), the items ' +
       'flagged by the group\'s band with their unexplained loss, and the biggest losses. A period runs between two ' +
       'approved full counts; period: latest (the newest one, open or closed; the default), last_closed, or current ' +
-      '(running since the last full count: actual usage only for items counted since). For "what was our food cost ' +
+      '(running since the last full count: actual usage only for items counted since, so no actual food cost until every ' +
+      'item sales used is counted). For "what was our food cost ' +
       'last week against theoretical?" or "where are we losing stock?". To ask why one item lost, use explain_variance.',
     input: z.object({
       venue: VenueText,

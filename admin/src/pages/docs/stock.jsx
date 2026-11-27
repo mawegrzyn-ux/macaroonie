@@ -400,8 +400,11 @@ export function Section() {
         standard). <Mono>itemFlag()</Mono>: |unexplained £| over <Mono>item_pounds</Mono> and over{' '}
         <Mono>item_pct</Mono> of theoretical (any, with none). <Mono>periodVariance()</Mono> ranks by unexplained
         pounds, adds <Mono>share_pct</Mono> (<Mono>costShare()</Mono> in <Mono>shared/costing.js</Mono>, where pounds
-        meet pence), the totals, the food cost (actual over the items counted at both ends, theoretical over all) and
-        the band. <Mono>keyIntervals()</Mono>: the figures between each pair of an item&apos;s counts.{' '}
+        meet pence), the totals, the food cost and the band. Food cost is over the same items on both sides: actual
+        over the items counted at both ends, theoretical over every item sales used, so while an item sales used has
+        no actual (<Mono>uncounted_used</Mono>, the period running since the latest full count) <Mono>complete</Mono>{' '}
+        is false and <Mono>actual_value</Mono>, <Mono>actual_pct</Mono> and <Mono>gap_pts</Mono> are null; an item
+        nobody counted that sales didn&apos;t use is in neither side. <Mono>keyIntervals()</Mono>: the figures between each pair of an item&apos;s counts.{' '}
         <Mono>isFoodSale()</Mono>: food (<Mono>itemType()</Mono> food, which is food and drink) and lines with no dish;
         never goods or services. <Mono>explainVariance(facts)</Mono> words the evidence with <Mono>EVIDENCE_KINDS</Mono>{' '}
         (label, fix, a page with no ids).
@@ -421,7 +424,9 @@ export function Section() {
         Late sales: <Mono>runVenueUsage()</Mono> gives a closed day whose fingerprint changed to{' '}
         <Mono>keepLateUsage()</Mono>, which works it out (<Mono>workDays()</Mono>, nothing written) and keeps the
         difference from what was kept and landed before, items and net sales, never rewriting the day; the
-        day&apos;s mark takes the new fingerprint and keeps its last sale. On the ledger the late items are usage
+        day&apos;s mark takes the new fingerprint and keeps its last sale. A closed day is compared, and worked out,
+        under the refunds setting its mark was made with (<Mono>keptRefunds()</Mono>: the fingerprint holds it), so
+        switching <Mono>refunds_return_stock</Mono> makes no late sales. On the ledger the late items are usage
         moves at the day&apos;s last sale (<Mono>lateUsageMoves</Mono>, <Mono>late: true</Mono>), before the
         period&apos;s closing count.
       </P>
@@ -430,7 +435,10 @@ export function Section() {
         /venues/:venueId/periods</Mono>, <Mono>GET /venues/:venueId/variance?period=&lt;id|current&gt;</Mono>,{' '}
         <Mono>GET /venues/:venueId/variance/items/:itemId?period=</Mono> (row, evidence, intervals),{' '}
         <Mono>GET /venues/:venueId/variance/key?from=&amp;to=</Mono> (at most 62 days),{' '}
-        <Mono>GET /variance/by-venue?item=&amp;which=latest|current</Mono>, <Mono>POST /periods/:id/close</Mono>,{' '}
+        <Mono>GET /variance/by-venue?item=&amp;which=latest|current</Mono> (a closed period&apos;s row as frozen, flagged
+        then), <Mono>POST /periods/:id/close</Mono> (takes the venue&apos;s usage lease, <Mono>claimVenue()</Mono>, 409{' '}
+        <Mono>running</Mono> while the job holds it, so a run can&apos;t write a day&apos;s usage the frozen figures
+        miss),{' '}
         <Mono>POST /periods/:id/reopen</Mono> <Mono>{'{ note }'}</Mono> (409 <Mono>later_closed</Mono> while a later
         period at the venue is closed; takes the usage lease, deletes the period&apos;s days&apos; late sales and works
         the days out again with <Mono>computeDays()</Mono>), <Mono>POST /periods/:id/items/:itemId/review</Mono>{' '}
@@ -446,10 +454,15 @@ export function Section() {
         the period as latest, last_closed or current). Registry: <Mono>stock.periods</Mono>; variance and food cost are
         figures. Reports: <Mono>stock.variance</Mono> (work <Mono>stock_variance</Mono>, a row per item per period
         ending in the report&apos;s days, frozen figures for closed ones), <Mono>stock.food_cost</Mono> (work{' '}
-        <Mono>stock_food_cost</Mono>, module costing, sales fields need till reports), <Mono>stock.periods</Mono>{' '}
+        <Mono>stock_food_cost</Mono>, module costing, sales fields and <Mono>over_band</Mono> need till reports; a
+        period with no actual food cost has a null <Mono>actual_cost</Mono>, and <Mono>actual_food_cost_pct</Mono> is
+        over <Mono>net_food_sales_counted</Mono>, the sales of the periods that have one),{' '}
+        <Mono>stock.variance</Mono>&apos;s <Mono>share_pct</Mono> needs <Mono>{"['costing', 'pos_reports']"}</Mono>{' '}
+        (a field&apos;s <Mono>needs</Mono> may be a list: every module in it), <Mono>stock.periods</Mono>{' '}
         (the table); starters <Mono>stock_variance_by_item</Mono>, <Mono>stock_food_cost_actual_theoretical_week</Mono>.
         Tests: <Mono>shared/test/variance.test.mjs</Mono> (with the property check of 14),{' '}
-        <Mono>api/test/stock-variance.test.mjs</Mono>; fixtures (late) close, review and reopen a period.
+        <Mono>api/test/stock-variance.test.mjs</Mono>; fixtures (late) close, review and reopen a period, and write a
+        late sale (<Mono>stock_usage_late</Mono> and its items) for the tenant sweep.
       </P>
     </section>
   )

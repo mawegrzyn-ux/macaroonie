@@ -21,7 +21,7 @@ import { resetAndSeed, A } from './support/seed.mjs'
 import { fillTenant } from './support/fixtures.mjs'
 import { sellTwoDays } from './support/tillDays.mjs'
 import { runner } from './support/reports.mjs'
-import { CATALOGUE, CATALOGUE_MODULES, AREAS, catalogueView } from '../src/reports/catalogue/index.js'
+import { CATALOGUE, CATALOGUE_MODULES, AREAS, catalogueView, canSee } from '../src/reports/catalogue/index.js'
 import { PLANNED, SETTINGS, LEFT_OUT, checkDecisions, tableDecisions, catalogueTables } from '../src/reports/catalogue/decisions.js'
 import { tableCoverage, secretsRead, columnUse } from '../src/reports/catalogue/coverage.js'
 import { MODULE_KEYS } from '../src/config/modules.js'
@@ -239,6 +239,20 @@ test('nothing secret is read, every module asked for exists, and no SQL leaves t
   assert.equal(view.subjects['bookings.bookings'].fields.guest_notes.pii, true)
   assert.equal(view.subjects['online.orders'].fields.allergy_note.pii, true)
   assert.equal(view.subjects['guests.customers'].fields.notes.pii, true)
+
+  // A field can need several modules, every one of them (an item's share of food sales: pounds over sales).
+  assert.equal(canSee({ needs: ['costing', 'pos_reports'] }, { costing: 'view', pos_reports: 'view' }), true)
+  assert.equal(canSee({ needs: ['costing', 'pos_reports'] }, { pos_reports: 'view' }), false, 'till reports alone')
+  assert.equal(canSee({ needs: ['costing', 'pos_reports'] }, { costing: 'manage' }), false, 'Costing alone')
+  assert.equal(canSee({ needs: 'costing' }, { costing: 'view' }), true)
+  assert.equal(canSee({}, {}), true)
+  const share = CATALOGUE.subjects['stock.variance'].fields.share_pct
+  assert.deepEqual(share.needs, ['costing', 'pos_reports'])
+  const stockAndTill = catalogueView({ stock: 'view', pos_reports: 'view', reports: 'use' })
+  assert.ok(!stockAndTill.subjects['stock.variance'].fields.share_pct, 'not offered without Costing view')
+  assert.ok(stockAndTill.subjects['stock.variance'].fields.unexplained, 'the quantities are')
+  assert.ok(catalogueView({ stock: 'view', pos_reports: 'view', costing: 'view' }).subjects['stock.variance'].fields.share_pct)
+  assert.ok(!catalogueView({ costing: 'view' }).subjects['stock.food_cost'].fields.over_band, 'over the band needs till reports view')
 })
 
 test('what was said to Pepper and a new location\'s plan are never read', () => {
