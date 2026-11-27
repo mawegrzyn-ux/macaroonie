@@ -272,7 +272,8 @@ function OptionsCard({ data, edit, onRule }) {
                 {o.rule ? o.rule.text + (o.rule_from === 'dish' ? ' (this dish\'s own)' : ' (the option\'s rule)') : o.default_text}
               </span>
             </span>
-            <StateBadge state={o.rule ? 'rule' : ['addition', 'side'].includes(o.variation_type) ? 'gap' : 'default'} />
+            {/* The API's state (optionDefault() in shared/costing.js), as dishCost() costs the option. */}
+            <StateBadge state={o.state} />
             {edit && <button type="button" className={cn(btn.outline, 'h-12')} onClick={() => onRule(o)} data-testid="dish-option-rule">{o.rule_from === 'dish' ? 'Change this dish\'s rule' : 'Rule for this dish'}</button>}
           </li>
         ))}

@@ -229,17 +229,17 @@ export const marginTools = [
     readOnly: true,
     async run(ctx, input) {
       await requireStaffPermission(ctx, 'recipes', 'view').catch(async () => requireStaffPermission(ctx, 'costing', 'view'))
-      const list = await callApi(ctx, 'GET', '/api/recipe-links/dishes')
+      // Found by name through a route that takes Recipes or Costing view, as the cost route does.
+      const list = await callApi(ctx, 'GET', '/api/recipe-links/names')
       const menu = input.menu ? pickByName(list.menus, input.menu, m => m.name, 'menu', 'No menus yet.') : null
       const rows = menu ? list.dishes.filter(d => d.menu_id === menu.id) : list.dishes
       const dish = pickByName(rows, input.dish, d => d.name, 'dish', 'No dishes on the menus yet.')
       const { scope, where } = await scopeFor(ctx, input)
       const q = new URLSearchParams({ ...scope, version: input.draft ? 'draft' : 'live' })
       if (input.options?.length) {
-        const m = await callApi(ctx, 'GET', '/api/recipe-links/dishes/' + dish.id)
         const picks = input.options.map(o => {
-          const hit = pickByName(m.options.map(x => ({ ...x, id: x.option_id || 'v:' + x.label })), o.option, x => x.label, 'option of ' + dish.name, dish.name + ' has no options.')
-          return { option_id: hit.option_id || 'v:' + hit.label, ...(o.prefix ? { prefix: o.prefix } : {}) }
+          const hit = pickByName(dish.options, o.option, x => x.label, 'option of ' + dish.name, dish.name + ' has no options.')
+          return { option_id: hit.option_id, ...(o.prefix ? { prefix: o.prefix } : {}) }
         })
         q.set('options', JSON.stringify(picks))
       }

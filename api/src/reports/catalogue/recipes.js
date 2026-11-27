@@ -232,7 +232,8 @@ export const subjects = [
     idType: 'text',
     venue: 'venue_id',
     name: 'dish',
-    open: { page: '/menu-margins?menu=:menu&venue=:venue&dish=:id', module: COSTING, id: 'dish_id', with: { menu: 'menu_id', venue: 'venue_id' } },
+    // A row is one dish at a venue and order type: the page opens at that order type (its VAT, its recipe).
+    open: { page: '/menu-margins?menu=:menu&venue=:venue&type=:type&dish=:id', module: COSTING, id: 'dish_id', with: { menu: 'menu_id', venue: 'venue_id', type: 'order_type_id' } },
     fields: {
       dish: text('dish', { label: 'Dish' }),
       menu: text('menu', { label: 'Menu' }),
@@ -249,7 +250,7 @@ export const subjects = [
       cost_low: pounds('cost_low', { label: 'Meal deal cost from', adds: false }),
       cost_high: pounds('cost_high', { label: 'Meal deal cost up to', adds: false }),
       gp: money('gp_pence', { label: 'Gross profit', adds: false, needs: COSTING, synonyms: ['gp', 'gross profit', 'margin'], about: 'The price net of VAT less the dish cost.' }),
-      cost_pct: percent('cost_pct', { label: 'Cost %', needs: COSTING, synonyms: ['food cost percent', 'cost percentage'], about: 'The dish cost as a share of the price net of VAT (for a meal deal, at its dearest picks).' }),
+      cost_pct: percent('cost_pct', { label: 'Cost %', needs: COSTING, synonyms: ['food cost percent', 'cost percentage'], about: 'The dish cost as a share of the price net of VAT (for a meal deal, its highest: the picks that cost most for what they sell for, extra charges included).' }),
       band: choice('band', BANDS, { label: 'Against the target', needs: COSTING, about: 'On target (at or below the target cost %), over target (up to the limit) or over the limit.' }),
       target_pct: percent('target_pct', { label: 'Target cost %' }),
       coverage: choice('coverage', DISH_COVERAGE, { label: 'Costed' }),

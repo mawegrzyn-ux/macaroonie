@@ -33,7 +33,10 @@
 // (a cost tells what suppliers charge). Every id in a body is checked to be
 // this group's (rule 4): items, prep recipes, the recipe a variation varies.
 // A recipe inside itself, or nested deeper than five levels, is refused (422
-// recipe_cycle / recipe_depth, nestingProblem() in shared/costing.js).
+// recipe_cycle / recipe_depth, nestingProblem() in shared/costing.js). A
+// recipe menu dishes or "is a recipe" options use stays a dish recipe (422
+// linked); one inside another recipe or added by an option stays prep (422
+// in_use).
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
@@ -157,6 +160,24 @@ async function checkRecipe(tx, tenantId, id, b, all) {
   }
   if (b.kind === 'dish' && all && id && [...all.values()].some(r => r.id !== id && r.lines.some(l => l.sub_recipe_id === id))) {
     throw httpError(422, 'Other recipes use this one inside them: it stays a prep recipe', { code: 'in_use' })
+  }
+  // What is sold names a recipe by its kind (phase 2): menu dishes and "is a
+  // recipe" options are portions of a dish recipe; an option adds a prep one.
+  if (id && b.kind === 'dish') {
+    const [added] = await tx`SELECT 1 FROM recipe_option_rules WHERE tenant_id = ${tenantId} AND sub_recipe_id = ${id} LIMIT 1`
+    if (added) throw httpError(422, 'An option adds this recipe to dishes: it stays a prep recipe', { code: 'in_use' })
+  }
+  if (id && b.kind === 'prep') {
+    const [linked] = await tx`
+      SELECT (SELECT count(DISTINCT dish_id) FROM recipe_links WHERE tenant_id = ${tenantId} AND recipe_id = ${id})::int AS dishes,
+             (SELECT count(*) FROM recipe_option_rules WHERE tenant_id = ${tenantId} AND recipe_id = ${id})::int AS rules`
+    if (linked.dishes || linked.rules) {
+      const what = [linked.dishes ? linked.dishes + (linked.dishes === 1 ? ' menu dish' : ' menu dishes') : null,
+        linked.rules ? linked.rules + (linked.rules === 1 ? ' option' : ' options') : null].filter(Boolean).join(' and ')
+      const one = linked.dishes + linked.rules === 1
+      throw httpError(422, what + (one ? ' uses' : ' use') + ' this recipe as a dish: it stays a dish recipe (link ' + (one ? 'it' : 'them') + ' to another recipe first)',
+        { code: 'linked', dishes: linked.dishes, rules: linked.rules })
+    }
   }
   if (b.variant_of) {
     const head = all.get(b.variant_of)

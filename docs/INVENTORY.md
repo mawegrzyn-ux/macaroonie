@@ -580,7 +580,8 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
   option adds; an option with no rule finds its lines by the words of its name.
 - **Engine** `dishCost()`, `dishMargin()`, `menuMargins()`, `costBand()`, `thresholdsFor()` in `shared/costing.js`;
   loaders in `api/src/services/dishCostSvc.js`. A meal deal is its picks' sum, or a range where picks aren't known
-  (`typical` waits for phase 5). Goods with a barcode matching a stock item are offered a one-line recipe; services
+  (`typical` waits for phase 5); each end of its cost % range is over what its own picks sell for, extra charges
+  included (`dealRange()`), and it is banded at the highest. Goods with a barcode matching a stock item are offered a one-line recipe; services
   need none.
 - **Menu margins** (`/menu-margins`, costing View): a menu, venue, stream, order type, live or draft; targets 30 and
   35 by default with a section's own (costing Manage).
@@ -591,7 +592,7 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
   recipe. **Pepper** `dish_cost`, `menu_margins` (read only).
 - **What the build changed in the plan**: a dish has one price on a menu at every venue, stream and order type;
   only its VAT changes (`fromPrice()` and `taxFor()`), so the margins page has no price level of its own (5.5, 8.2).
-  Links name dish recipes only (a prep recipe goes inside one). A rule adds one line. "On a menu" counts the draft
+  Links name dish recipes only (a prep recipe goes inside one), and a linked recipe stays a dish recipe. A rule adds one line. "On a menu" counts the draft
   and what is live, so a dish leaving the draft keeps its link until it is published away. Costs on the matrix and
   margins are at standard prices only. The cost targets are a `costing_settings` row per group with section
   overrides in it (no table per section).

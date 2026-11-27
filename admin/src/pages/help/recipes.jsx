@@ -44,7 +44,8 @@ export function Section() {
         method and photo each have their own Save. A <strong>draft</strong> is still being worked on;
         <strong> live</strong> is the one the kitchen follows. Switch a recipe off to keep it out of the list
         without deleting it; a prep recipe used inside other recipes can&apos;t be deleted until it is taken out
-        of them. Deleting asks twice.
+        of them. Deleting a recipe that menu dishes or options use also unlinks them (the page says how many
+        first, and they then have no recipe there). Deleting asks twice.
       </P>
       <H3>Variations</H3>
       <P>
@@ -113,7 +114,13 @@ export function Section() {
         uses, how many venues or ways of selling use another one, and whether that recipe can be costed. Filter
         by menu, or tap <strong>No recipe</strong> to see only the dishes still to link. Tap a dish to open its
         matrix (below). A recipe can also be linked from its own page: <strong>Used on menus</strong> lists the
-        dishes that use it, and <strong>Link a dish</strong> links one for every venue.
+        dishes that use it, and <strong>Link a dish</strong> links one for every venue (a dish that already uses
+        it keeps its portions).
+      </P>
+      <P>
+        Dishes link to <strong>dish</strong> recipes, which are costed by the portion. A recipe that menu dishes
+        use, or that an option is (a side), stays a dish recipe: to make it a prep recipe, link those dishes to
+        another recipe first. A prep recipe that an option adds stays prep in the same way.
       </P>
       <P>
         To save typing, Macaroonie matches dishes with no recipe to recipes by product code, then by name, and
@@ -163,7 +170,9 @@ export function Section() {
       <P>
         An option with no rule follows its group&apos;s type (set on the option group): an option that{' '}
         <strong>adds to the recipe</strong> or is a <strong>side</strong> needs a rule and is marked{' '}
-        <strong>Needs a rule</strong> until it has one; one that changes the dish changes nothing. The till&apos;s
+        <strong>Needs a rule</strong> until it has one, and so does an option that costs extra in a group with
+        no type; one that changes the dish changes nothing. The Options tab, a dish&apos;s matrix and its margin
+        all agree on which. The till&apos;s
         No, Light and Extra act on the option&apos;s own ingredient: No onion takes the recipe&apos;s onion out (found
         by name when the option has no rule), Light halves it, Extra doubles it; On the side changes nothing.
       </P>
@@ -179,7 +188,10 @@ export function Section() {
       <P>
         Dishes that can&apos;t be costed are listed first with how to fix each: they are never hidden. Options
         that cost extra show their own margin under their dish (extra cheese sells at 80p and costs 24p). A meal
-        deal shows the range of its cost by what is picked in it. Sort by cost %, GP, name or section. Tap a dish
+        deal shows the range of its cost, GP and cost % by what is picked in it. Each end of the range is over
+        what those picks sell for: a premium main at +£4 or a dessert at +£3 adds to the price as well as
+        to the cost. A deal is coloured and sorted by its highest cost %, and tapping it names the picks that give
+        the lowest and the highest. Sort by cost %, GP, name or section. Tap a dish
         to see why: which recipe and why, each step of its cost, the price and VAT, and a link to its matrix.{' '}
         <strong>Export CSV</strong> downloads the list.
       </P>

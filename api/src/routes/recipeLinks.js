@@ -30,7 +30,11 @@
 //   POST   /goods             { dishes: [{ dish_id, item_id }] } a one-line
 //                             recipe of the stock item for each goods dish,
 //                             linked by default
-//   GET    /recipes/:recipeId the dishes a recipe is linked to, with where
+//   GET    /names             every dish on a menu (draft or live) by name with
+//                             its options, no recipes or money (Recipes or
+//                             Costing view: Pepper's dish_cost)
+//   GET    /recipes/:recipeId the dishes a recipe is linked to, with where, and
+//                             how many option rules name it
 //   GET    /dishes/:dishId/cost   ?venue_id &revenue_stream_id &order_type_id
 //                             &version (live | draft) &options (JSON)   what the
 //                             dish costs there and why: the recipe and the
@@ -58,7 +62,7 @@ import {
 import { loadTaxRates } from '../services/taxSvc.js'
 import {
   recipeFor, recipeCost, dishCost, dishMargin, marginSteps, explain, scopeText, sameScope, ruleFor, ruleText,
-  OPTION_DEFAULTS, dishMap,
+  optionDefault, dishMap,
 } from '../../../shared/costing.js'
 import { matchIndex, matchThing } from '../../../shared/itemMatch.js'
 import { isCombo, menuCtx } from '../../../shared/combos.js'
@@ -161,7 +165,11 @@ async function loadDish(tx, tenantId, dishId, version = 'draft') {
   return { ...found, menus }
 }
 
-/** A dish's options (the library's on its groups, and its own) with the rule each follows. */
+/**
+ * A dish's options (the library's on its groups, and its own) with the rule
+ * each follows; with none, what optionDefault() says it does (state: rule,
+ * gap or default), as dishCost() costs it.
+ */
 function dishOptions(item, ctx) {
   const out = []
   for (const c of itemChoices(item, {})) {
@@ -169,11 +177,12 @@ function dishOptions(item, ctx) {
       const own = c.key === 'variants'
       const lib = own ? null : ctx.options.get(o.id)
       const hit = ruleFor(item.id, { id: o.id }, ctx.rules)
+      const d = optionDefault(own ? { own: true } : lib || {})
       out.push({
         option_id: own ? null : o.id, label: o.label, own, group: own ? 'Its own options' : c.name, group_id: own ? null : c.key,
         variation_type: lib?.variation_type ?? null, price_pence: o.price_pence ?? null, mode: c.mode,
         rule: hit ? { ...hit.rule, text: ruleText(hit.rule, ctx) } : null, rule_from: hit?.from ?? null,
-        default_text: hit ? null : OPTION_DEFAULTS[(lib?.variation_type) || (own ? 'modification' : 'none')],
+        state: hit ? 'rule' : d.state, default_text: hit ? null : d.text,
       })
     }
   }
@@ -254,6 +263,24 @@ export default async function recipeLinkRoutes(app) {
       }
     })
   })
+
+  // ── Dishes by name (Pepper's dish_cost finds one here) ──────
+  // Recipes or Costing view, as the cost route: names only, no recipes or
+  // money. Every dish on a menu, the draft's and what is live (the draft's
+  // name when both have it), with its options as dishCost() takes them.
+  app.get('/names', { preHandler: canSeeCost }, async req => withTenant(req.tenantId, async tx => {
+    const [draft, live] = await Promise.all([menusFor(tx, req.tenantId, 'draft'), menusFor(tx, req.tenantId, 'live')])
+    const dishes = dishMap([...live, ...draft])
+    const menus = new Map([...live, ...draft].map(m => [m.id, { id: m.id, name: m.name }]))
+    return {
+      menus: [...menus.values()],
+      dishes: [...dishes.values()].map(d => ({
+        id: d.id, name: d.name, menu_id: d.menu_id, menu: d.menu, section: d.section,
+        // A dish's own option is named 'v:<label>', as sales name it (variantOptionId()).
+        options: isCombo(d) ? [] : itemChoices(d, {}).flatMap(c => c.options.map(o => ({ option_id: o.id, label: o.label, group: c.key === 'variants' ? null : c.name }))),
+      })),
+    }
+  }))
 
   // ── The matrix ──────────────────────────────────────────────
   app.get('/dishes/:dishId', { preHandler: canView }, async req => {
@@ -419,12 +446,15 @@ export default async function recipeLinkRoutes(app) {
     const id = uuid.safeParse(req.params.recipeId).success ? req.params.recipeId : null
     const [r] = id ? await tx`SELECT id FROM recipes WHERE id = ${id} AND tenant_id = ${req.tenantId}` : []
     if (!r) throw httpError(404, 'Recipe not found')
-    const [links, scopes, draft, live] = await Promise.all([
+    const [links, scopes, draft, live, [rules]] = await Promise.all([
       loadLinks(tx, req.tenantId, { recipeId: r.id }), loadScopes(tx, req.tenantId),
       menusFor(tx, req.tenantId, 'draft'), menusFor(tx, req.tenantId, 'live'),
+      tx`SELECT count(*)::int AS n FROM recipe_option_rules WHERE tenant_id = ${req.tenantId} AND (recipe_id = ${r.id} OR sub_recipe_id = ${r.id})`,
     ])
     const dishes = dishMap([...live, ...draft])
     return {
+      // Option rules that name it (is it, or add it): deleting the recipe takes them too.
+      rules: rules.n,
       links: links.map(l => {
         const d = dishes.get(l.dish_id)
         return {
@@ -464,7 +494,7 @@ export default async function recipeLinkRoutes(app) {
       }
       if (a.costs) {
         Object.assign(out, {
-          cost: dc.cost, min: dc.min, max: dc.max, typical: dc.typical, steps: dc.steps, lines: dc.lines,
+          cost: dc.cost, min: dc.min, max: dc.max, typical: dc.typical, steps: dc.steps.map(({ plain, ...s }) => s), lines: dc.lines,
           recipe_explanation: recipe ? explain(recipe, here, { prices: a.prices }) : null,
           margin: {
             price_pence: row.price_pence, price_varies: row.price_varies, vat_rate: row.vat_rate, net_pence: row.net_pence,
@@ -475,7 +505,8 @@ export default async function recipeLinkRoutes(app) {
           },
         })
       } else {
-        out.steps = dc.steps.map(s => ({ ...s, amount: undefined, text: s.kind === 'recipe' ? 'for ' + dc.why : s.text }))
+        // Each step's words without money (plain, where its text has some: a recipe's cost a portion, a deal step's range).
+        out.steps = dc.steps.map(({ plain, ...s }) => ({ ...s, amount: undefined, text: plain ?? s.text }))
       }
       return out
     })

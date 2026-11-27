@@ -11,8 +11,9 @@
 //   GET    /                    the library's options by group, each with its
 //                                rule, its exceptions and how many dishes have
 //                                its group: covered (a rule), following its
-//                                group's default, or a gap (an addition or a
-//                                side with no rule)
+//                                group's default, or a gap (an addition, a
+//                                side, or a priced extra of a group with no
+//                                type, with no rule: optionDefault())
 //   GET    /options/:optionId   one option: its rule, the dishes with its group
 //                                and which rule each follows, the exceptions
 //   PUT    /rules               the whole rule (every field, rule 13), made or
@@ -30,7 +31,7 @@ import { httpError } from '../middleware/error.js'
 import { loadRecipes, loadCostItems } from '../services/costingSvc.js'
 import { loadOptionRules, loadOptionLibrary, menusFor, dishIdsOnMenus } from '../services/dishCostSvc.js'
 import {
-  ruleFor, ruleText, ruleProblem, dishMap, unitChoices, recipeUnitChoices, OPTION_DEFAULTS, RULE_ACTION_KEYS,
+  ruleFor, ruleText, ruleProblem, dishMap, unitChoices, recipeUnitChoices, optionDefault, RULE_ACTION_KEYS,
 } from '../../../shared/costing.js'
 
 const uuid = z.string().uuid()
@@ -55,13 +56,8 @@ const canView = requirePermission('recipes', 'view')
 const canManage = requirePermission('recipes', 'manage')
 const who = req => req.user?.email ?? req.user?.sub ?? null
 
-/** Gap, rule or default: how an option's own rule stands (a dish exception aside). */
-function stateOf(option, rule) {
-  if (rule) return 'rule'
-  const t = option.variation_type
-  if (t === 'addition' || t === 'side' || (!t && option.price_mode === 'extra' && Number(option.price_pence) > 0)) return 'gap'
-  return 'default'
-}
+/** Rule, gap or default: how an option's own rule stands (a dish exception aside); with no rule, optionDefault() says. */
+const stateOf = (option, rule) => (rule ? 'rule' : optionDefault(option).state)
 
 /** The dishes with each library group attached (draft menus): Map group id -> [dish]. */
 function dishesByGroup(menus) {
@@ -102,7 +98,7 @@ export default async function recipeOptionRoutes(app) {
         id: o.id, label: o.label, price_pence: o.price_pence,
         rule: own ? { ...own, text: ruleText(own, ctx) } : null,
         exceptions: rules.filter(r => r.option_id === o.id && r.dish_id).length,
-        state: stateOf(o, own), default_text: own ? null : OPTION_DEFAULTS[o.variation_type || 'none'],
+        state: stateOf(o, own), default_text: own ? null : optionDefault(o).text,
       })
     }
     const all = groups.flatMap(g => g.options)
@@ -124,7 +120,7 @@ export default async function recipeOptionRoutes(app) {
     const textOf = r => (r ? { ...r, text: ruleText(r, ctx), item_name: items.get(r.item_id)?.name ?? null, swap_item_name: items.get(r.swap_item_id)?.name ?? null, recipe_name: recipes.get(r.recipe_id || r.sub_recipe_id)?.name ?? null } : null)
     return {
       option: { id: o.id, label: o.label, price_pence: o.price_pence, group_id: o.group_id, group: o.group_name, variation_type: o.variation_type, price_mode: o.price_mode },
-      rule: textOf(own), state: stateOf(o, own), default_text: OPTION_DEFAULTS[o.variation_type || 'none'],
+      rule: textOf(own), state: stateOf(o, own), default_text: optionDefault(o).text,
       exceptions: rules.filter(r => r.dish_id).map(r => ({ ...textOf(r), dish_name: dishes.get(r.dish_id)?.name ?? null, menu: dishes.get(r.dish_id)?.menu ?? null, on_menu: dishes.has(r.dish_id) })),
       dishes: (dishesByGroup(menus).get(o.group_id) || []).map(d => {
         const hit = ruleFor(d.id, { id: o.id }, rules)

@@ -92,7 +92,9 @@ export function Section() {
         <Mono>{'{ name?, variant? }'}</Mono> (a draft; a variation goes on the original&apos;s group);{' '}
         <Mono>PATCH /:recipeId/active</Mono>; <Mono>DELETE /:recipeId</Mono> (409 <Mono>in_use</Mono> while inside
         another recipe). Saves check every item, prep recipe and variation is the group&apos;s (404), only prep recipes
-        go inside others (422 <Mono>not_prep</Mono>), a dish used inside another stays prep, and{' '}
+        go inside others (422 <Mono>not_prep</Mono>), a recipe used inside another or added by an option rule
+        stays prep (422 <Mono>in_use</Mono>), one that <Mono>recipe_links</Mono> or an &ldquo;is a recipe&rdquo;
+        rule names stays a dish (422 <Mono>linked</Mono>, with <Mono>dishes</Mono> and <Mono>rules</Mono>), and{' '}
         <Mono>nestingProblem()</Mono> (422 <Mono>recipe_cycle</Mono> / <Mono>recipe_depth</Mono> with{' '}
         <Mono>path</Mono>). Create, save and copy take <Mono>lockRecipes()</Mono> first (a transaction advisory lock
         per group), so two saves at once can&apos;t each pass the check against the other&apos;s old lines and write a
@@ -154,8 +156,14 @@ export function Section() {
         recipe), nothing; prefixes (<Mono>PREFIX_FACTORS</Mono>: No 0, Light 0.5, Extra 2, On the side 1) act on the
         recipe&apos;s lines of the option&apos;s item when it has them, else on what the option adds; an option with no rule
         finds its lines by name for a prefix, and otherwise follows its group&apos;s <Mono>variation_type</Mono>{' '}
-        (addition and side: a gap; modification: nothing; no type: nothing unless it is a priced extra). A meal deal
-        sums its picks, or gives <Mono>min</Mono> / <Mono>max</Mono> over its steps&apos; choices
+        through <Mono>optionDefault(option)</Mono> (<Mono>{'{ state, type, text }'}</Mono>: addition and side a gap;
+        modification nothing; no type nothing unless it is a priced extra; a dish&apos;s own option nothing), the one
+        rule the Options tab&apos;s <Mono>state</Mono>, the matrix&apos;s and the cost all read. A link or an
+        &ldquo;is a recipe&rdquo; rule naming a prep recipe is a <Mono>not_dish</Mono> gap, never a unit of the batch
+        as a portion. Steps carry <Mono>plain</Mono> (the words without money) where <Mono>text</Mono> has some;
+        the cost route sends <Mono>plain</Mono> to people without Costing view. A meal deal sums its picks (a list,
+        a till line&apos;s combo parts with <Mono>modifiers</Mono>, or a basket&apos;s <Mono>combo</Mono> with{' '}
+        <Mono>choices</Mono>), or gives <Mono>min</Mono> / <Mono>max</Mono> over its steps&apos; choices
         (<Mono>stepChoices()</Mono>; a step with a condition adds nothing to the least); <Mono>typical</Mono> stays
         null until sales (phase 5). Goods with no link offer the inventory item with the same barcode
         (<Mono>goods_item</Mono>); a service is <Mono>not_needed</Mono>, never a gap.{' '}
@@ -163,7 +171,11 @@ export function Section() {
         <Mono>fromPrice()</Mono> (the till and online price: one price per dish on a menu), VAT by{' '}
         <Mono>taxFor([dish, section, menu], scope)</Mono>, <Mono>margin()</Mono>, band by <Mono>costBand()</Mono> against{' '}
         <Mono>thresholdsFor(settings, sectionId)</Mono>; priced options (an extra&apos;s added cost; a base option&apos;s
-        whole dish); deals at their dearest picks. <Mono>marginSteps()</Mono> words the price and VAT. Tests:{' '}
+        whole dish); a deal&apos;s range by <Mono>dealRange(parts, basePence, vat)</Mono>: each end over what its own
+        picks sell for (the deal&apos;s price before extra charges plus those picks&apos; <Mono>price_pence</Mono>), the
+        cost % extremes by Dinkelbach&apos;s method over the steps&apos; picks, GP by the picks that do least and most;
+        banded at its highest cost % (<Mono>range</Mono> names the picks). <Mono>marginSteps()</Mono> words the
+        price and VAT. Tests:{' '}
         <Mono>shared/test/dishCost.test.mjs</Mono>.
       </P>
       <H3>Phase 2 routes</H3>
@@ -179,7 +191,9 @@ export function Section() {
         menu), <Mono>GET /dishes/:dishId</Mono> (rows, columns, each cell&apos;s recipe set or inherited with{' '}
         <Mono>from</Mono>, cost and margin, the dish&apos;s options), <Mono>PUT /dishes/:dishId/cell</Mono>,{' '}
         <Mono>DELETE /links/:recipeLinkId</Mono>, <Mono>POST /bulk</Mono>, <Mono>POST /goods</Mono> (a one-line recipe of
-        the item, 1 each, under <Mono>lockRecipes()</Mono>), <Mono>GET /recipes/:recipeId</Mono>,{' '}
+        the item, 1 each, under <Mono>lockRecipes()</Mono>), <Mono>GET /recipes/:recipeId</Mono> (its links, and{' '}
+        <Mono>rules</Mono>: how many option rules name it), <Mono>GET /names</Mono> (every dish on a menu, draft or
+        live, by name with its options as <Mono>dishCost()</Mono> takes them; Recipes or Costing view, for Pepper),{' '}
         <Mono>GET /dishes/:dishId/cost</Mono> <Mono>?venue_id &amp;revenue_stream_id &amp;order_type_id &amp;version &amp;options</Mono>{' '}
         (Recipes or Costing view). <Mono>/api/recipe-options</Mono> (<Mono>routes/recipeOptions.js</Mono>):{' '}
         <Mono>GET /</Mono>, <Mono>GET /options/:optionId</Mono>, <Mono>PUT /rules</Mono> (strict: every field, rule
@@ -200,8 +214,10 @@ export function Section() {
         lazy; <Mono>?menu= &amp;venue= &amp;stream= &amp;type= &amp;version= &amp;dish=</Mono>; CSV made in the page from the
         rows). Reports: <Mono>recipes.links</Mono> (module recipes) and <Mono>recipes.margins</Mono> (the work{' '}
         <Mono>dish_margins</Mono>: each live menu dish at each venue and active order type by <Mono>menuMargins()</Mono>;
-        module costing), starters Dishes over the target cost % and Dishes with no recipe. Pepper:{' '}
-        <Mono>dish_cost</Mono> and <Mono>menu_margins</Mono> (read, through the routes, by names). Registry:{' '}
+        module costing; a row opens <Mono>/menu-margins</Mono> at its menu, venue and order type), starters Dishes
+        over the target cost % and Dishes with no recipe. Pepper: <Mono>dish_cost</Mono> (Recipes or Costing view:
+        finds the dish through <Mono>GET /names</Mono>, then the cost route) and <Mono>menu_margins</Mono> (read,
+        through the routes, by names). Registry:{' '}
         <Mono>recipes.links</Mono>, <Mono>recipes.option_rules</Mono>, <Mono>recipes.margins</Mono>.
       </P>
       <InfoBox type="info">

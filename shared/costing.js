@@ -45,9 +45,13 @@
 //                                 meal deal's picked dishes (or its range
 //                                 when the picks aren't known), gaps with
 //                                 how to fix each
+//   optionDefault(option)         what an option with no rule does: a gap
+//                                 or nothing, and the words for it
 //   menuMargins(menu, scope, ctx, { rates, settings })
 //                                 every dish of a menu with its price, net
-//                                 of VAT, cost, GP and cost %, banded
+//                                 of VAT, cost, GP and cost %, banded; a
+//                                 meal deal's range by dealRange(), each end
+//                                 over what its own picks sell for
 //   costBand() / thresholdsFor()  the target and limit cost % colours
 //
 // ctx / data: { items, recipes, quotes, preferred, receipts, since, venueId,
@@ -62,7 +66,7 @@
 import { UNITS, chooseQuote, quotePrice, packLabel, fmtNum, perUnitLabel } from './procurement.js'
 import { vatIncluded, itemChoices, variantRules, fromPrice, priceVaries, basePrice } from './orderPricing.js'
 import { RULE_WEIGHTS, taxFor } from './tax.js'
-import { isCombo, comboOf, stepChoices, menuCtx } from './combos.js'
+import { isCombo, comboOf, stepChoices, menuCtx, comboFromPrice } from './combos.js'
 import { nameScore, normName, AUTO_MATCH } from './itemMatch.js'
 import { itemType } from './catalogue.js'
 
@@ -642,17 +646,34 @@ export const RULE_ACTION_KEYS = RULE_ACTIONS.map(a => a.key)
 /** What a prefix does to the option's own lines (the till's prefix keys). */
 export const PREFIX_FACTORS = { no: 0, light: 0.5, extra: 2, side: 1 }
 export const PREFIX_WORDS = { no: 'No', light: 'Light', extra: 'Extra', side: 'On the side' }
-/** What an option with no rule does, by its group's variation_type. */
+/** What an option with no rule does, by its group's variation_type (extra: no type, but it costs extra). */
 export const OPTION_DEFAULTS = {
   addition: 'Adds to the recipe: nothing is added until it has a rule',
   side: 'A side: its own recipe, once a rule links it',
   modification: 'Changes nothing until it has a rule',
   none: 'Changes nothing until it has a rule (its group has no type)',
+  extra: 'Costs extra, so it adds something: nothing is added until it has a rule (its group has no type)',
 }
 const OPTION_ID_PREFIX = 'v:'
 
 /** A dish's own one-off option as sales name it ('v:<label>'), or null for a library option id. */
 export const ownOptionLabel = id => (typeof id === 'string' && id.startsWith(OPTION_ID_PREFIX) ? id.slice(OPTION_ID_PREFIX.length) : null)
+
+/**
+ * What an option with no rule does (decision D3), the one rule dishCost(),
+ * the Options tab and a dish's matrix all show: { state: 'gap' | 'default',
+ * type, text }. An addition or a side is a gap until a rule says what it
+ * adds; an option of a group with no type that costs extra is a gap too; a
+ * modification, any other option of a group with no type and a dish's own
+ * option change nothing. option: { variation_type, price_mode, price_pence }
+ * (the library's), or { own: true } for a dish's own option.
+ */
+export function optionDefault(option = {}) {
+  const type = option?.own ? 'modification' : option?.variation_type || null
+  if (type === 'addition' || type === 'side') return { state: 'gap', type, text: OPTION_DEFAULTS[type] }
+  if (!type && option?.price_mode === 'extra' && num(option?.price_pence) > 0) return { state: 'gap', type: 'extra', text: OPTION_DEFAULTS.extra }
+  return { state: 'default', type: type || 'none', text: OPTION_DEFAULTS[type] || OPTION_DEFAULTS.none }
+}
 
 /**
  * The rule for an option on a dish: { rule, from: 'dish' | 'option' } or
@@ -812,13 +833,12 @@ function applyOption(work, sel, dish, ctx, gaps) {
       gaps.push(dishGap('no_rule', label + ': nothing in the recipe is called ' + opt.label, fix + ' Say which item it is.', { option_id: opt.id }))
       return done('no rule')
     }
-    const type = opt.variation_type || null
-    const pricedExtra = opt.price_mode === 'extra' && num(opt.price_pence) > 0
-    if (type === 'addition' || type === 'side' || (!type && pricedExtra)) {
-      gaps.push(dishGap('no_rule', type === 'side' ? opt.label + ' is a side with no recipe linked' : opt.label + ' adds to the dish, but has no rule saying what', fix, { option_id: opt.id }))
+    const d = optionDefault(opt)
+    if (d.state === 'gap') {
+      gaps.push(dishGap('no_rule', d.type === 'side' ? opt.label + ' is a side with no recipe linked' : opt.label + ' adds to the dish, but has no rule saying what', fix, { option_id: opt.id }))
       return done('no rule')
     }
-    return done(OPTION_DEFAULTS[type || 'none'])
+    return done(d.text)
   }
   const fromRule = { rule: words, from: hit.from }
   if (prefix === 'no' && rule.action !== 'remove') return done('nothing: ' + words.toLowerCase() + ', but No', fromRule)
@@ -863,6 +883,11 @@ function applyOption(work, sel, dish, ctx, gaps) {
         gaps.push(dishGap('missing', label + ': its recipe is gone', fix, { option_id: opt.id }))
         return done('its recipe is gone', fromRule)
       }
+      // A portion is a dish recipe's: a prep recipe's unit is a litre or a kilo of the batch.
+      if (side.kind !== 'dish') {
+        gaps.push(dishGap('not_dish', label + ': ' + side.name + ' is a prep recipe, so it has no portion', 'Make the rule another dish recipe, or Adds ' + side.name + ' with how much.', { option_id: opt.id, recipe_id: side.id }))
+        return done(side.name + ' is a prep recipe: nothing added', fromRule)
+      }
       const rc = recipeCost(side, ctx)
       if (rc.per_unit == null) gaps.push(dishGap('option_recipe', label + ': ' + side.name + ' can\'t be costed yet', 'Open ' + side.name + ' and fix its gaps.', { option_id: opt.id, recipe_id: side.id }))
       else if (rc.gaps.length) gaps.push(dishGap('option_recipe', label + ': ' + side.name + ' is only partly costed', 'Open ' + side.name + ' and fix its gaps.', { option_id: opt.id, recipe_id: side.id }))
@@ -874,10 +899,28 @@ function applyOption(work, sel, dish, ctx, gaps) {
   }
 }
 
-/** Meal deal picks as a flat list: [{ dish_id, options }] from a list, or the till's { stepId: [{ item_id, ... }] }. */
+/**
+ * A picked dish's options as dishCost() takes them: its own list
+ * ([{ option_id, prefix, qty }]), a till line's combo part's modifiers
+ * ([{ option_id, prefix }], shared/pos/pricing.js), or a basket's choices
+ * ({ groupKey: [optionId, ...] }, an id once per pick; shared/orderPricing.js).
+ */
+function pickOptions(p) {
+  if (Array.isArray(p.options)) return p.options
+  if (Array.isArray(p.modifiers)) return p.modifiers.filter(m => m && m.option_id).map(m => ({ option_id: m.option_id, prefix: m.prefix || null }))
+  if (p.choices && typeof p.choices === 'object') return Object.values(p.choices).flat().filter(Boolean).map(id => ({ option_id: String(id) }))
+  return []
+}
+
+/**
+ * Meal deal picks as a flat list [{ dish_id, options }]: from a list
+ * ([{ dish_id, options }], or a till line's combo parts [{ item_id,
+ * modifiers }]), or a basket's / the till's selection { stepId: [{ item_id,
+ * choices }] }. A typed-in choice (no dish) is left out.
+ */
 function flatPicks(picks) {
-  if (Array.isArray(picks)) return picks.filter(p => p && (p.dish_id || p.item_id)).map(p => ({ dish_id: p.dish_id || p.item_id, options: p.options || [] }))
-  if (picks && typeof picks === 'object') return Object.values(picks).flat().filter(p => p && p.item_id).map(p => ({ dish_id: p.item_id, options: p.options || [] }))
+  if (Array.isArray(picks)) return picks.filter(p => p && (p.dish_id || p.item_id)).map(p => ({ dish_id: p.dish_id || p.item_id, options: pickOptions(p) }))
+  if (picks && typeof picks === 'object') return Object.values(picks).flat().filter(p => p && p.item_id).map(p => ({ dish_id: p.item_id, options: pickOptions(p) }))
   return []
 }
 
@@ -922,7 +965,8 @@ function dealCost(dish, selection, scope, ctx, out) {
         continue
       }
       if (d.gaps.length) out.gaps.push(dishGap('part_partial', step.name + ': ' + d.name + ' is only partly costed', d.gaps[0]?.fix || 'Fix its gaps.', { dish_id: c.item_id }))
-      costs.push({ name: d.name, cost: d.cost })
+      // What the guest pays on top for this choice in the deal (0 = included).
+      costs.push({ dish_id: c.item_id, name: d.name, cost: d.cost, upcharge_pence: Math.max(0, Math.round(num(c.price_pence))) })
     }
     costs.sort((a, b) => a.cost - b.cost)
     const take = (n, dearest) => {
@@ -931,13 +975,24 @@ function dealCost(dish, selection, scope, ctx, out) {
       return step.repeat ? list[0].cost * n : list.slice(0, n).reduce((s, x) => s + x.cost, 0)
     }
     // A step shown only after another's pick, or one a guest may skip, adds nothing to the least.
-    const stepLo = step.when ? 0 : take(step.min, false)
+    const pickMin = step.when ? 0 : step.min
+    const stepLo = take(pickMin, false)
     const stepHi = take(step.max, true)
     if (costs.length) any = true
     lo += stepLo
     hi += stepHi
-    out.parts.push({ step: step.name, min: round6(stepLo), max: round6(stepHi), choices: choices.length, costed: costs.length })
-    out.steps.push({ kind: 'part', label: step.name, text: costs.length ? pounds(stepLo) + ' to ' + pounds(stepHi) + ' (' + costs.length + ' of ' + choices.length + ' choices costed)' : 'no choice costed', amount: null })
+    // costs, pick_min, pick_max, repeat: what dealRange() needs to pair each pick's cost with its extra charge.
+    out.parts.push({
+      step: step.name, min: round6(stepLo), max: round6(stepHi), choices: choices.length, costed: costs.length,
+      pick_min: pickMin, pick_max: step.max, repeat: !!step.repeat, costs,
+    })
+    const counted = costs.length + ' of ' + choices.length + ' choices costed'
+    // plain: the step without money, for people without Costing view.
+    out.steps.push({
+      kind: 'part', label: step.name, amount: null,
+      text: costs.length ? pounds(stepLo) + ' to ' + pounds(stepHi) + ' (' + counted + ')' : 'no choice costed',
+      plain: costs.length ? counted : 'no choice costed',
+    })
   }
   out.min = any ? round6(lo) : null
   out.max = any ? round6(hi) : null
@@ -953,12 +1008,15 @@ function dealCost(dish, selection, scope, ctx, out) {
  * 'goods' | 'service', recipe: { id, name, kind, variant_of, status } |
  * null, why, link_id, portions, cost, min, max (a deal without its picks),
  * typical (null until phase 5), recipe_per_portion, lines (as served, with
- * the options applied), steps: [{ kind, label, text, amount }], gaps:
- * [{ reason, text, fix }], coverage: 'full' | 'partial' | 'none' |
- * 'not_needed' (a service), parts (a deal), goods_item (a goods dish with no
- * recipe whose barcode is an inventory item's: { id, name }) }.
+ * the options applied), steps: [{ kind, label, text, plain?, amount }]
+ * (plain: the text without money, where text has some), gaps: [{ reason,
+ * text, fix }], coverage: 'full' | 'partial' | 'none' | 'not_needed' (a
+ * service), parts (a deal), goods_item (a goods dish with no recipe whose
+ * barcode is an inventory item's: { id, name }) }. A link to a prep recipe
+ * (one made prep after it was linked) is a gap, never a portion of the batch.
  * selection: { options: [{ option_id, prefix, qty }], picks } (picks: a
- * deal's dishes, [{ dish_id, options }], or the till's combo picks).
+ * deal's dishes, [{ dish_id, options }], a till line's combo parts [{ item_id,
+ * modifiers }], or a basket's selection.combo { stepId: [{ item_id, choices }] }).
  * Costs are at ctx.venueId's prices on ctx.basis: load the ctx for the
  * scope's venue.
  */
@@ -1001,6 +1059,15 @@ export function dishCost(dishId, selection = {}, scope = {}, ctx = {}) {
     return out
   }
   out.recipe = { id: recipe.id, name: recipe.name, kind: recipe.kind, variant_of: recipe.variant_of ?? null, status: recipe.status ?? null }
+  // A dish is portions of a dish recipe. A prep recipe's unit is a litre or a
+  // kilo of the batch, not a serving: one linked as a dish (made prep since)
+  // can't be costed per portion.
+  if (recipe.kind !== 'dish') {
+    out.gaps.push(dishGap('not_dish', recipe.name + ' is a prep recipe, so it has no portion: a dish links to a dish recipe',
+      'Link ' + dish.name + ' to a dish recipe on the Recipes page, Dishes tab (a prep recipe goes inside one).', { recipe_id: recipe.id }))
+    out.steps.push({ kind: 'gap', label: recipe.name, text: 'a prep recipe, not a dish recipe', amount: null })
+    return out
+  }
   const rc = recipeCost(recipe, ctx)
   out.recipe_per_portion = rc.per_unit
   const f = portions / (recipeMakes(recipe) || 1)
@@ -1010,10 +1077,12 @@ export function dishCost(dishId, selection = {}, scope = {}, ctx = {}) {
     qty: num(l.qty) * f, unit: l.unit, cost: l.cost == null ? null : l.cost * f, mult: 1,
   }))
   for (const g of rc.gaps) out.gaps.push(dishGap(g.reason, recipe.name + ': ' + g.text, g.fix, { recipe_id: recipe.id }))
+  const partly = rc.coverage === 'partial' ? ' (partly costed)' : ''
   out.steps.push({
     kind: 'recipe', label: recipe.name,
-    text: (rc.per_unit != null ? pounds(rc.per_unit) + ' a portion' + (portions !== 1 ? ' x ' + fmtNum(portions) : '') : 'not costed') + ', for ' + pick.why
-      + (rc.coverage === 'partial' ? ' (partly costed)' : ''),
+    text: (rc.per_unit != null ? pounds(rc.per_unit) + ' a portion' + (portions !== 1 ? ' x ' + fmtNum(portions) : '') : 'not costed') + ', for ' + pick.why + partly,
+    // plain: the step without money, for people without Costing view.
+    plain: (portions !== 1 ? fmtNum(portions) + ' portions, ' : '') + 'for ' + pick.why + partly,
     amount: rc.per_unit == null ? null : round6(rc.per_unit * portions),
   })
   for (const sel of (selection?.options || []).filter(Boolean)) out.steps.push(applyOption(work, sel, dish, ctx, out.gaps))
@@ -1067,6 +1136,70 @@ export function thresholdProblem(t) {
 
 export const DISH_KINDS = { dish: 'Dish', deal: 'Meal deal', goods: 'Goods', service: 'Service' }
 
+// ── A meal deal's range (phase 2 review) ──────────────────────
+//
+// A choice can cost the guest extra in a deal (a premium main +£4) and an
+// optional step adds to the bill when picked (a dessert +£3). The cost % of
+// some picks is their cost over what the guest pays for them: the deal's own
+// price and those picks' extra charges. The figures below are each over the
+// picks that give it, never the dearest picks' cost over the cheapest price.
+
+/** For each step the picks that make sum(score) largest: pick_min of them, then more while one adds (repeat: the best one n times). */
+function bestPicks(parts, score) {
+  const out = []
+  for (const p of parts || []) {
+    const list = [...(p.costs || [])].sort((a, b) => score(b) - score(a))
+    for (let i = 0; i < num(p.pick_max) && list.length; i++) {
+      const c = p.repeat ? list[0] : list[i]
+      if (!c || (i >= num(p.pick_min) && !(score(c) > 1e-9))) break
+      out.push(c)
+    }
+  }
+  return out
+}
+
+const pickTotals = (picks, basePence) => ({
+  cost: round6(picks.reduce((s, c) => s + c.cost, 0)),
+  gross: Math.round(num(basePence) + picks.reduce((s, c) => s + num(c.upcharge_pence), 0)),
+  picks: picks.map(c => c.name),
+})
+
+/**
+ * The picks with the highest (most) or lowest cost over what they sell for,
+ * by Dinkelbach's method: each round takes the picks that do best at the
+ * last round's ratio, until no picks do better. Exact over the steps' picks.
+ */
+function ratioPicks(parts, basePence, most) {
+  const sign = most ? 1 : -1
+  let t = pickTotals(bestPicks(parts, c => sign * c.cost), basePence)
+  for (let i = 0; i < 50 && t.gross > 0; i++) {
+    const ratio = t.cost * 100 / t.gross
+    const next = pickTotals(bestPicks(parts, c => sign * (c.cost * 100 - ratio * num(c.upcharge_pence))), basePence)
+    if (!(sign * (next.cost * 100 - ratio * next.gross) > 1e-9)) break
+    t = next
+  }
+  return t
+}
+
+/**
+ * A meal deal's margin range from dishCost()'s parts (the range: no picks):
+ * the lowest and highest cost %, and the least and most gross profit, each at
+ * the picks that give it with what the guest pays for them. basePence: the
+ * deal's price before any pick's extra charge. { pct_low, pct_high, gp_low,
+ * gp_high }: margin() at those picks, each with `picks` (the dishes' names).
+ */
+export function dealRange(parts, basePence, vatRate = 0) {
+  const at = t => ({ ...margin({ gross_pence: t.gross, vat_rate: vatRate, cost: t.cost }), cost: t.cost, picks: t.picks })
+  // Gross profit is the net (the price less its VAT: 100 / (100 + VAT) of it) less the cost.
+  const k = 100 / (100 + num(vatRate))
+  return {
+    pct_low: at(ratioPicks(parts, basePence, false)),
+    pct_high: at(ratioPicks(parts, basePence, true)),
+    gp_low: at(pickTotals(bestPicks(parts, c => c.cost * 100 - k * num(c.upcharge_pence)), basePence)),
+    gp_high: at(pickTotals(bestPicks(parts, c => k * num(c.upcharge_pence) - c.cost * 100), basePence)),
+  }
+}
+
 /**
  * One dish's margin at a scope: its price there (the menu's price, as the
  * till and online price it: fromPrice(); a dish has one price on a menu, and
@@ -1089,12 +1222,17 @@ export function dishMargin(item, section, menu, scope, ctx, { rates = [], settin
     steps: dc.steps, thresholds: t, options: [],
   }
   if (dc.kind === 'deal') {
-    const lo = margin({ gross_pence: price ?? 0, vat_rate: tax.vat_rate, cost: dc.min })
-    const hi = margin({ gross_pence: price ?? 0, vat_rate: tax.vat_rate, cost: dc.max })
+    // The price shown is the cheapest (fromPrice()); each end of the range is
+    // over what its own picks sell for: the deal's price before extra
+    // charges, plus those picks' charges. Banded at its highest cost %.
+    const from = margin({ gross_pence: price ?? 0, vat_rate: tax.vat_rate })
+    const base = Math.max(0, (price ?? 0) - comboFromPrice(item, 0, m).pence)
+    const r = dc.min == null ? null : dealRange(dc.parts, base, tax.vat_rate)
     Object.assign(row, {
-      net_pence: lo.net_pence, vat_pence: lo.vat_pence, cost: null, cost_pence: null, cost_min: dc.min, cost_max: dc.max,
-      gp_pence: null, gp_min_pence: hi.gp_pence, gp_max_pence: lo.gp_pence, cost_pct: null, gp_pct: null,
-      cost_pct_min: lo.cost_pct, cost_pct_max: hi.cost_pct, band: costBand(hi.cost_pct, t), parts: dc.parts,
+      net_pence: from.net_pence, vat_pence: from.vat_pence, cost: null, cost_pence: null, cost_min: dc.min, cost_max: dc.max,
+      gp_pence: null, gp_min_pence: r?.gp_low.gp_pence ?? null, gp_max_pence: r?.gp_high.gp_pence ?? null, cost_pct: null, gp_pct: null,
+      cost_pct_min: r?.pct_low.cost_pct ?? null, cost_pct_max: r?.pct_high.cost_pct ?? null, band: costBand(r?.pct_high.cost_pct, t),
+      range: r ? { cost_pct_min_picks: r.pct_low.picks, cost_pct_max_picks: r.pct_high.picks } : null, parts: dc.parts,
     })
     return row
   }
@@ -1160,7 +1298,14 @@ export function marginSteps(row) {
   ]
   if (row.kind === 'deal') {
     if (row.cost_min != null) out.push({ label: 'Cost', text: pounds(row.cost_min) + ' to ' + pounds(row.cost_max) + ', by what is picked', amount_pence: null })
-    if (row.cost_pct_min != null) out.push({ label: 'Cost %', text: fmtNum(row.cost_pct_min, 1) + '% to ' + fmtNum(row.cost_pct_max, 1) + '%', amount_pence: null })
+    if (row.cost_pct_min != null) {
+      const at = names => (names?.length ? ' (' + names.join(', ') + ')' : '')
+      out.push({
+        label: 'Cost %', amount_pence: null,
+        text: fmtNum(row.cost_pct_min, 1) + '%' + at(row.range?.cost_pct_min_picks) + ' to ' + fmtNum(row.cost_pct_max, 1) + '%' + at(row.range?.cost_pct_max_picks)
+          + ', each over what its picks sell for, extra charges included',
+      })
+    }
     return out
   }
   if (row.cost == null) return [...out, { label: 'Cost', text: row.coverage === 'not_needed' ? 'none: a service' : 'not costed', amount_pence: null }]

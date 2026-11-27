@@ -538,7 +538,10 @@ function LinkDish({ recipe, onClose, onOpenDish }) {
   const hits = (data?.dishes || []).filter(d => d.kind === 'dish' || d.kind === 'goods')
     .filter(d => words.every(w => (d.name + ' ' + d.menu + ' ' + (d.section || '')).toLowerCase().includes(w))).slice(0, 12)
   const link = useMutation({
-    mutationFn: () => api.put('/recipe-links/dishes/' + dish.id + '/cell', { recipe_id: recipe.id }),
+    // A dish that already uses this recipe keeps its portions (a double stays 2); a cell save without them is 1.
+    mutationFn: () => api.put('/recipe-links/dishes/' + dish.id + '/cell', {
+      recipe_id: recipe.id, portions: dish.default?.recipe_id === recipe.id ? Number(dish.default.portions) || 1 : 1,
+    }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['recipe-dish-links', recipe.id] })
       qc.invalidateQueries({ queryKey: ['recipe-dishes'] })
@@ -587,13 +590,26 @@ function LinkDish({ recipe, onClose, onOpenDish }) {
 function EndCard({ recipe, onClose }) {
   const api = useApi()
   const qc = useQueryClient()
+  // The same query as Used on menus: deleting a recipe takes its dish links and option rules with it.
+  const { data: used } = useQuery({ queryKey: ['recipe-dish-links', recipe.id], queryFn: () => api.get('/recipe-links/recipes/' + recipe.id) })
   const del = useMutation({
     mutationFn: () => api.delete('/recipes/' + recipe.id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['recipes'] }); qc.invalidateQueries({ queryKey: ['recipe-pickers'] }); onClose() },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['recipes'] }); qc.invalidateQueries({ queryKey: ['recipe-pickers'] })
+      qc.invalidateQueries({ queryKey: ['recipe-dishes'] }); qc.invalidateQueries({ queryKey: ['recipe-options'] })
+      onClose()
+    },
   })
+  const dishes = new Set((used?.links || []).map(l => l.dish_id)).size
+  const rules = used?.rules || 0
+  const sold = [dishes ? dishes + (dishes === 1 ? ' menu dish' : ' menu dishes') : null, rules ? rules + (rules === 1 ? ' option rule' : ' option rules') : null].filter(Boolean)
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-      <span className="text-xs text-muted-foreground">{recipe.used_in?.length ? 'Used inside other recipes: switch it off instead.' : 'Delete the recipe and its lines.'}</span>
+      <span className="text-xs text-muted-foreground" data-testid="recipe-delete-note">
+        {recipe.used_in?.length ? 'Used inside other recipes: switch it off instead.'
+          : sold.length ? 'Deleting it also unlinks ' + sold.join(' and ') + ' (they then have no recipe there): switch it off to keep them.'
+            : 'Delete the recipe and its lines.'}
+      </span>
       <ConfirmDelete label="Delete recipe" onConfirm={() => del.mutate()} disabled={del.isPending} big />
       <ErrorNote error={del.error} />
     </div>

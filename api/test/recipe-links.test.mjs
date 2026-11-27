@@ -185,6 +185,10 @@ test('links at every scope, and the closest one is used, as taxFor picks a tax r
   assert.equal(barEat.margin.net_pence, 1000, '20% VAT eating in')
   assert.equal(m.links.length, 5)
   assert.ok(m.links.some(l => l.where === 'Take out at Bar (Soho)'))
+  // The options with no rule yet, as dishCost() costs them (optionDefault()): an addition is a gap, a modification changes nothing.
+  const states = Object.fromEntries(m.options.map(o => [o.label, o.state]))
+  assert.deepEqual(states, { Cheese: 'gap', Bacon: 'gap', 'Oat milk': 'gap', Large: 'default' })
+  assert.equal(m.options.find(o => o.label === 'Large').default_text, 'Changes nothing until it has a rule')
   // The recipe's own dishes: the editor's Used on menus card.
   const used = await ok(owner.get('/api/recipe-links/recipes/' + burgerToGo.id))
   assert.deepEqual(used.links.map(l => [l.dish_name, l.where, l.menu]), [['Burger', 'Take out at every venue', 'Lunch']])
@@ -289,6 +293,56 @@ test('option rules add, remove, swap and scale whichever recipe the matrix picke
   assert.equal((await owner.put('/api/recipe-options/rules', { option_id: cheese.id, action: 'nothing' })).status, 400)
 })
 
+test('remove rules cost, a recipe dishes or options use as a dish stays one, and one an option adds stays prep', async () => {
+  const rule = body => owner.put('/api/recipe-options/rules', {
+    option_id: null, dish_id: null, option_label: null, item_id: null, sub_recipe_id: null, swap_item_id: null,
+    qty: null, unit: null, factor: null, recipe_id: null, note: null, ...body,
+  })
+  // Mayo: a litre of milk makes a litre (£1 a litre); an option adds 50 ml of it.
+  const mayo = await ok(owner.post('/api/recipes', { name: 'Mayo', kind: 'prep', yield_qty: 1, yield_unit: 'l', status: 'live', lines: [{ item_id: milk.id, qty: 1, unit: 'l' }] }))
+  const hold = await ok(owner.post('/api/menus/variant-groups', { name: 'Hold', price_mode: 'extra', min_select: 0, max_select: 3, pos_prefixes: true, variation_type: 'modification', options: [{ label: 'Hold milk', price_pence: 0 }, { label: 'Mayo', price_pence: 50 }] }))
+  const holdMilk = hold.options.find(o => o.label === 'Hold milk')
+  const mayoOpt = hold.options.find(o => o.label === 'Mayo')
+  await ok(rule({ option_id: holdMilk.id, action: 'remove', item_id: milk.id }), 'hold milk takes it out')
+  await ok(rule({ option_id: mayoOpt.id, action: 'add', sub_recipe_id: mayo.id, qty: 50, unit: 'ml' }), 'mayo adds 50 ml')
+  const leedsEat = { venue_id: leeds, order_type_id: eatIn }
+  const held = await costAt(leedsEat, optionsQ([{ option_id: holdMilk.id }]))
+  close(held.cost, 2.22 - 0.1, 'an explicit remove rule')
+  assert.match(held.options[0].text, /Milk taken out/)
+  close((await costAt(leedsEat, optionsQ([{ option_id: holdMilk.id, prefix: 'light' }]))).cost, 2.22 - 0.05, 'Light on a remove rule halves it')
+  close((await costAt(leedsEat, optionsQ([{ option_id: mayoOpt.id }]))).cost, 2.22 + 0.05, 'adds a prep recipe')
+
+  // The burger is linked to menu dishes; fries is what Bacon is on the burger: neither can become prep.
+  const prepBody = r => ({ ...saveBody(r), kind: 'prep', yield_qty: 1, yield_unit: 'kg', portions: null })
+  const asPrep = await owner.put('/api/recipes/' + burger.id, prepBody(await ok(owner.get('/api/recipes/' + burger.id))))
+  assert.equal(asPrep.status, 422)
+  assert.equal(asPrep.json.code, 'linked')
+  assert.equal(asPrep.json.error, '1 menu dish uses this recipe as a dish: it stays a dish recipe (link it to another recipe first)')
+  const friesPrep = await owner.put('/api/recipes/' + fries.id, prepBody(await ok(owner.get('/api/recipes/' + fries.id))))
+  assert.equal(friesPrep.json.code, 'linked')
+  assert.deepEqual([friesPrep.json.dishes, friesPrep.json.rules], [0, 1])
+  // Mayo is added by an option: it stays prep.
+  const mayoNow = await ok(owner.get('/api/recipes/' + mayo.id))
+  const asDish = await owner.put('/api/recipes/' + mayo.id, { ...saveBody(mayoNow), kind: 'dish', portions: 1, yield_qty: null, yield_unit: null })
+  assert.equal(asDish.json.code, 'in_use')
+  assert.equal((await ok(owner.get('/api/recipes/' + burger.id))).kind, 'dish', 'nothing was saved')
+  // Used on menus counts the option rules naming a recipe: deleting it takes them (the editor says so).
+  assert.equal((await ok(owner.get('/api/recipe-links/recipes/' + mayo.id))).rules, 1)
+  assert.equal((await ok(owner.get('/api/recipe-links/recipes/' + fries.id))).rules, 1)
+
+  // An option of a group with no type that costs extra needs a rule: the Options tab says gap, in the words dishCost() uses.
+  const sauces = await ok(owner.post('/api/menus/variant-groups', { name: 'Sauces', price_mode: 'extra', min_select: 0, max_select: 2, options: [{ label: 'Hot sauce', price_pence: 50 }, { label: 'Ketchup', price_pence: 0 }] }))
+  const lib = await ok(owner.get('/api/recipe-options'))
+  const sauceGroup = lib.groups.find(g => g.id === sauces.id)
+  const hot = sauceGroup.options.find(o => o.label === 'Hot sauce')
+  assert.equal(hot.state, 'gap')
+  assert.match(hot.default_text, /Costs extra/)
+  assert.equal(sauceGroup.options.find(o => o.label === 'Ketchup').state, 'default')
+  assert.match((await ok(owner.get('/api/recipe-options/options/' + hot.id))).default_text, /Costs extra/)
+  const hotCost = await costAt(leedsEat, optionsQ([{ option_id: hot.id }]))
+  assert.equal(hotCost.coverage, 'partial', 'the cost agrees: a gap')
+})
+
 test('menu margins: net of VAT by order type, uncosted dishes listed, a meal deal\'s range, and the targets', async () => {
   const q = scope => ok(owner.get('/api/menu-margins?' + new URLSearchParams({ menu_id: menu.id, ...scope }).toString()))
   const eat = await q({ venue_id: leeds, order_type_id: eatIn })
@@ -343,6 +397,14 @@ test('costs are kept from people without Costing view', async () => {
   assert.equal(c.recipe.name, 'Burger')
   for (const k of ['"cost":', '"margin":', '"recipe_explanation":', '"min":', '"lines":']) assert.ok(!JSON.stringify(c).includes(k), k)
   assert.ok(c.steps.every(s => s.amount === undefined))
+  assert.doesNotMatch(JSON.stringify(c), /£/, 'no pounds in any step\'s words')
+  // A meal deal's steps carry each step's range in pounds for Costing view: none of it for a cook.
+  const d = await ok(cook.get(`/api/recipe-links/dishes/${deal}/cost?venue_id=${leeds}`))
+  assert.equal(d.dish.kind, 'deal')
+  assert.ok(d.steps.some(s => s.kind === 'part' && /choices costed/.test(s.text)), 'the steps are there, without money')
+  assert.doesNotMatch(JSON.stringify(d), /£/)
+  for (const k of ['"min":', '"max":', '"margin":', '"amount":']) assert.ok(!JSON.stringify(d).includes(k), k)
+  assert.match(JSON.stringify(await ok(owner.get(`/api/recipe-links/dishes/${deal}/cost?venue_id=${leeds}`))), /£/, 'the owner sees the range')
   assert.equal((await cook.get('/api/menu-margins?menu_id=' + menu.id)).status, 403)
   // A cook can still link (Recipes manage).
   await ok(cook.put(`/api/recipe-links/dishes/${dishSalad}/cell`, { recipe_id: burger.id, portions: 2 }))
@@ -418,12 +480,23 @@ test('Pepper\'s dish_cost and menu_margins: names never ids, costs only with Cos
   const cheesy = await call(A.owner, 'dish_cost', { dish: 'Burger', menu: 'Lunch', venue: 'Leeds', order_type: 'Eat in', options: [{ option: 'cheese' }] })
   assert.equal(cheesy.cost, '£2.46')
   assert.ok(cheesy.options.some(o => /Cheese: adds 30 g Cheddar/.test(o)))
+  // Someone with Costing view and no Recipes access: dish_cost finds the dish and its options by name and costs it.
+  const ACCT = 'a-acct2'
+  const acctRole = await ok(owner.post('/api/access/roles', { key: 'acct2', label: 'Accounts', permissions: { costing: 'view', recipes: 'none' } }), 'costing only role')
+  await sql`INSERT INTO users (tenant_id, email, role, auth0_user_id, custom_role_id) VALUES (${ids.a}, ${ACCT + '@test.local'}, 'operator', ${ACCT}, ${acctRole.id})`
+  assert.equal((await as(ACCT, ids.a).get('/api/recipe-links/dishes')).status, 403, 'the Dishes tab is Recipes view')
+  const acct = await call(ACCT, 'dish_cost', { dish: 'Burger', menu: 'Lunch', venue: 'Leeds', order_type: 'Eat in', options: [{ option: 'cheese' }] })
+  assert.equal(acct.cost, '£2.46')
+  assert.equal(acct.recipe, 'Burger')
+  const acctDeal = await call(ACCT, 'dish_cost', { dish: 'Lunch deal', menu: 'Lunch', venue: 'Leeds', order_type: 'Eat in' })
+  assert.equal(acctDeal.kind, 'meal deal')
+  assert.match(acctDeal.cost, / to .* by what is picked/)
   const menuView = await call(A.owner, 'menu_margins', { menu: 'Lunch', venue: 'Leeds', order_type: 'Eat in' })
   assert.ok(menuView.dishes.length > 2)
-  // A meal deal is placed by its dearest picks ("21.8% to 28.0%").
+  // A meal deal is placed by its highest cost % ("21.8% to 28.0%").
   const pcts = menuView.dishes.map(d => parseFloat(String(d.cost_pct).split(' to ').pop()))
   assert.deepEqual(pcts, [...pcts].sort((a, b) => b - a), 'worst first')
-  assert.doesNotMatch(JSON.stringify(one) + JSON.stringify(cheesy) + JSON.stringify(menuView), /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/, 'no uuid in what the model reads')
+  assert.doesNotMatch(JSON.stringify(one) + JSON.stringify(cheesy) + JSON.stringify(menuView) + JSON.stringify(acct) + JSON.stringify(acctDeal), /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/, 'no uuid in what the model reads')
   // A cook reads which recipe, not its money; menu margins are Costing view.
   const cooks = await call(COOK, 'dish_cost', { dish: 'Burger', menu: 'Lunch', venue: 'Leeds', order_type: 'Take out' })
   assert.equal(cooks.recipe, 'Burger to go')
@@ -461,6 +534,12 @@ test('the report subjects: recipe links in words, dish margins as the page works
   close(r[6], p.gp_pence / 100, 'GP')
   close(r[7], p.cost_pct / 100, 'cost %, as a fraction')
   assert.equal(r[9], 'Burger to go')
+  // A row opens the page at its own order type (its VAT and recipe), not the first one.
+  const { runner } = await import('./support/reports.mjs')
+  const opened = await runner(ids.a)({ subject: 'recipes.margins', kind: 'list', rows: ['dish', 'menu', 'venue.name', 'order_type'] })
+  assert.equal(opened.meta.open.page, '/menu-margins?menu=:menu&venue=:venue&type=:type&dish=:id')
+  const takeRow = opened.rows.find(x => x.cells[0] === 'Burger' && x.cells[1] === 'Lunch' && x.cells[2] === 'Leeds' && x.cells[3] === 'Take out')
+  assert.deepEqual(takeRow.open, { id: dish, menu: menu.id, venue: leeds, type: takeOut })
   // The starters run, for Costing view.
   const over = await ok(owner.post('/api/reports/starter:dishes_over_target/run', {}))
   assert.ok(over.rows.length > 0, 'the targets are 20% and 22%: the burger is over')

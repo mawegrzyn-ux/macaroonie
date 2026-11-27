@@ -149,7 +149,7 @@ export function SearchPick({ options, value, onChange, placeholder = 'Search', t
       {picked && (
         <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 min-h-[48px]">
           <span className="flex-1 text-sm font-medium">{picked.name}</span>
-          {!disabled && <button type="button" onClick={() => onChange(null)} className="h-11 px-3 text-xs rounded-lg hover:bg-muted touch-manipulation">Change</button>}
+          {!disabled && <button type="button" onClick={() => onChange(null)} className="h-12 px-3 text-xs rounded-lg hover:bg-muted touch-manipulation">Change</button>}
         </div>
       )}
       {!picked && !disabled && (

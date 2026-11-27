@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   recipeFor, linkScore, linkMatches, scopeText, sameScope, ruleFor, ruleText, ruleProblem, dishCost, dishMap,
-  menuMargins, marginSteps, costBand, thresholdsFor, thresholdProblem, PREFIX_FACTORS, recipeCost,
+  menuMargins, marginSteps, costBand, thresholdsFor, thresholdProblem, PREFIX_FACTORS, recipeCost, optionDefault,
 } from '../costing.js'
 import { RULE_WEIGHTS, taxFor } from '../tax.js'
 import { PREFIXES } from '../pos/pricing.js'
@@ -293,7 +293,7 @@ test('a meal deal is the sum of its picks, or the range over its choices', () =>
   assert.equal(range.cost, null)
   close(range.cost_pct_min, Math.round(276 / 1250 * 1000) / 10, 'cost % at the cheapest picks: £2.76 of £12.50 net')
   close(range.cost_pct_max, Math.round(502 / 1250 * 1000) / 10)
-  assert.equal(range.band, 'over', 'banded at the dearest picks')
+  assert.equal(range.band, 'over', 'banded at the highest cost %')
   const deal = dishCost('deal', {}, EATING, ctx())
   assert.equal(deal.typical, null, 'typical waits for sales (phase 5)')
 })
@@ -351,4 +351,117 @@ test('bands and thresholds', () => {
   assert.equal(thresholdProblem({ target_pct: 40, limit_pct: 35 }), 'The target can\'t be above the limit')
   assert.equal(thresholdProblem({ target_pct: 0, limit_pct: 35 }), 'A cost % is more than 0 and less than 100')
   assert.equal(thresholdProblem({ target_pct: 30, limit_pct: 30 }), null)
+})
+
+// ── Review fixes (phase 2) ───────────────────────────────────────
+
+test('a dish linked to a recipe that is now prep is a gap, never one unit of the batch as a portion', () => {
+  // 4 l of milk at £1 a litre makes 2 l: £2 a litre, which is no portion.
+  const base = { id: 'base', name: 'Milk base', kind: 'prep', portions: null, yield_qty: 2, yield_unit: 'l', loss_pct: 0, status: 'live', variant_of: null, lines: [{ id: 'b0', sort_order: 0, yield_pct: null, item_id: 'milk', qty: 4, unit: 'l' }] }
+  const here = ctx({
+    recipes: new Map([...recipes, ['base', base]]),
+    links: [...links, { id: 'ls', dish_id: 'salad', recipe_id: 'base', portions: 1, venue_id: null, revenue_stream_id: null, order_type_id: null }],
+  })
+  const c = dishCost('salad', {}, EATING, here)
+  assert.equal(c.cost, null)
+  assert.equal(c.coverage, 'none')
+  assert.equal(c.gaps[0].reason, 'not_dish')
+  assert.match(c.gaps[0].text, /Milk base is a prep recipe/)
+  assert.ok(!c.steps.some(s => /a portion/.test(s.text)), 'no portion of the batch')
+  const row = menuMargins(menu, EATING, here, { rates }).find(r => r.dish_id === 'salad')
+  assert.equal(row.cost_pct, null)
+  assert.equal(row.band, null)
+  // An option that "is a recipe" now prep: a gap, nothing added.
+  const side = dishCost('burger-dish', { options: [{ option_id: 'o-fries' }] }, EATING, { ...here, rules: [rule('o-fries', 'recipe', { recipe_id: 'base' })] })
+  close(side.cost, 2.26, 'nothing added for the prep recipe')
+  assert.equal(side.coverage, 'partial')
+  assert.ok(side.gaps.some(g => g.reason === 'not_dish' && g.option_id === 'o-fries'))
+})
+
+test('a meal deal\'s cost % range pairs each end\'s picks with what they sell for, extra charges included', () => {
+  // A £10 deal: a burger (£3.00), or a premium burger (£6.00) at +£4; an optional brownie (£0.80) at +£3.
+  const dealMenu = {
+    id: 'm-deal', name: 'Deals', item_type: null, tax: { rate: 'standard', rules: [] },
+    sections: [
+      { id: 'dm-mains', title: 'Mains', tax: null, items: [
+        { id: 'dm-main', name: 'Burger', price_pence: 900, kind: null, tax: null, variants: [], variant_groups: [] },
+        { id: 'dm-prem', name: 'Premium burger', price_pence: 1400, kind: null, tax: null, variants: [], variant_groups: [] },
+      ] },
+      { id: 'dm-desserts', title: 'Desserts', tax: null, items: [{ id: 'dm-brownie', name: 'Brownie', price_pence: 400, kind: null, tax: null, variants: [], variant_groups: [] }] },
+      { id: 'dm-deals', title: 'Deals', tax: null, items: [
+        { id: 'dm-deal', name: 'Big deal', kind: 'combo', price_pence: 1000, tax: null, variants: [], variant_groups: [], combo: { mode: 'manual', steps: [
+          { id: 'ds-main', name: 'Main', min: 1, max: 1, options: [{ id: 'dc1', type: 'item', item_id: 'dm-main', price_pence: 0 }, { id: 'dc2', type: 'item', item_id: 'dm-prem', price_pence: 400 }] },
+          { id: 'ds-sweet', name: 'Dessert', min: 0, max: 1, options: [{ id: 'dc3', type: 'item', item_id: 'dm-brownie', price_pence: 300 }] },
+        ] } },
+      ] },
+    ],
+  }
+  const here = ctx({
+    recipes: new Map([...recipes,
+      ['r-main', recipe('r-main', 'Burger', [{ item_id: 'beef', qty: 2, unit: 'each' }])],
+      ['r-prem', recipe('r-prem', 'Premium burger', [{ item_id: 'beef', qty: 4, unit: 'each' }])],
+      ['r-brownie', recipe('r-brownie', 'Brownie', [{ item_id: 'cheddar', qty: 100, unit: 'g' }])]]),
+    links: [
+      { id: 'dl1', dish_id: 'dm-main', recipe_id: 'r-main', portions: 1 }, { id: 'dl2', dish_id: 'dm-prem', recipe_id: 'r-prem', portions: 1 },
+      { id: 'dl3', dish_id: 'dm-brownie', recipe_id: 'r-brownie', portions: 1 },
+    ],
+  })
+  const row = menuMargins(dealMenu, EATING, here, { rates }).find(r => r.dish_id === 'dm-deal')
+  assert.equal(row.price_pence, 1000, 'the price shown is the cheapest')
+  close(row.cost_min, 3, 'the least the food costs')
+  close(row.cost_max, 6.8, 'the most')
+  // Burger alone £3.00 of £8.33 net 36.0%; with the brownie £3.80 of £10.83 35.1%;
+  // premium £6.00 of £11.67 51.4%; premium and brownie £6.80 of £14.17 48.0%.
+  assert.equal(row.cost_pct_min, 35.1)
+  assert.equal(row.cost_pct_max, 51.4, 'not £6.80 over the £10 price (81.6%)')
+  assert.deepEqual(row.range.cost_pct_max_picks, ['Premium burger'])
+  assert.deepEqual(row.range.cost_pct_min_picks, ['Burger', 'Brownie'])
+  // GP: least £5.33 (the burger alone), most £7.37 (premium and brownie).
+  assert.equal(row.gp_min_pence, 833 - 300)
+  assert.equal(row.gp_max_pence, 1417 - 680)
+  assert.equal(row.band, 'over')
+  const loose = menuMargins(dealMenu, EATING, here, { rates, settings: { target_pct: 50, limit_pct: 55, sections: [] } }).find(r => r.dish_id === 'dm-deal')
+  assert.equal(loose.band, 'watch', 'banded at the highest cost %, 51.4%')
+  assert.match(marginSteps(row).at(-1).text, /^35\.1% \(Burger, Brownie\) to 51\.4% \(Premium burger\)/)
+  // With no extra charges the range is the old one: the cheapest and dearest picks over the price.
+  const plain = menuMargins(menu, EATING, ctx(), { rates }).find(r => r.dish_id === 'deal')
+  assert.equal(plain.cost_pct_max, Math.round(502 / 1250 * 1000) / 10)
+})
+
+test('one rule for an option with no rule: optionDefault() agrees with dishCost()', () => {
+  const all = new Map([...options, ['o-sauce', { id: 'o-sauce', label: 'Hot sauce', group_id: 'g-top', group_name: 'Toppings', variation_type: null, price_mode: 'extra', price_pence: 50 }]])
+  for (const o of all.values()) {
+    const c = dishCost('salad', { options: [{ option_id: o.id }] }, EATING, ctx({ options: all, rules: [], links: [...links, { id: 'ls', dish_id: 'salad', recipe_id: 'fries', portions: 1 }] }))
+    const gap = c.gaps.some(g => g.reason === 'no_rule' && g.option_id === o.id)
+    assert.equal(optionDefault(o).state === 'gap', gap, o.label)
+    if (!gap) assert.equal(c.steps.find(s => s.option_id === o.id).text, optionDefault(o).text, o.label + '\'s words')
+  }
+  assert.deepEqual([optionDefault(all.get('o-sauce')).state, optionDefault(all.get('o-sauce')).type], ['gap', 'extra'], 'a priced extra with no type')
+  assert.match(optionDefault(all.get('o-sauce')).text, /Costs extra/)
+  assert.equal(optionDefault(all.get('o-pickles')).state, 'default', 'no type, no charge')
+  assert.deepEqual(optionDefault({ own: true }), { state: 'default', type: 'modification', text: 'Changes nothing until it has a rule' })
+})
+
+test('meal deal picks from the till and from a basket keep their options', () => {
+  const c = ctx({ combo: undefined })
+  // A till line's combo parts: [{ item_id, modifiers: [{ option_id, prefix }] }].
+  const till = dishCost('deal', { picks: [{ item_id: 'burger-dish', modifiers: [{ option_id: 'o-cheese', prefix: null }] }, { item_id: 'coke-dish', modifiers: [] }] }, EATING, c)
+  close(till.cost, 2.26 + 0.24 + 0.5, 'the cheese on the till\'s burger')
+  const noOnion = dishCost('deal', { picks: [{ item_id: 'burger-dish', modifiers: [{ option_id: 'o-onion', prefix: 'no' }] }] }, EATING, c)
+  close(noOnion.cost, 2.22, 'a prefix comes through')
+  // A basket's selection.combo: { stepId: [{ option_id, item_id, choices: { groupKey: [optionId, ...] } }] }.
+  const basket = dishCost('deal', { picks: { 'st-main': [{ option_id: 'c1', item_id: 'burger-dish', choices: { 'g-extras': ['o-cheese', 'o-cheese'] } }], 'st-drink': [{ option_id: 'c4', item_id: 'coke-dish', choices: {} }] } }, EATING, c)
+  close(basket.cost, 2.26 + 0.48 + 0.5, 'cheese picked twice')
+})
+
+test('steps carry their words without money for people without Costing view', () => {
+  const double = dishCost('double', {}, EATING, ctx())
+  const step = double.steps.find(s => s.kind === 'recipe')
+  assert.match(step.text, /£/)
+  assert.equal(step.plain, '2 portions, for every venue')
+  const deal = dishCost('deal', {}, EATING, ctx())
+  const parts = deal.steps.filter(s => s.kind === 'part')
+  assert.ok(parts.some(s => /£/.test(s.text)), 'the mains step has its range in pounds')
+  assert.ok(parts.every(s => typeof s.plain === 'string' && !/£/.test(s.plain)))
+  for (const s of [...double.steps, ...deal.steps]) assert.doesNotMatch(s.plain ?? s.text, /£/, s.kind)
 })

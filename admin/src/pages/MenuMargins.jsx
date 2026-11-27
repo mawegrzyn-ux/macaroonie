@@ -231,7 +231,7 @@ function MarginRow({ r, onOpen }) {
     <>
       <tr className="border-b hover:bg-muted/40 cursor-pointer" onClick={() => onOpen(r)} data-testid="margins-row" data-name={r.name} data-band={r.band || 'none'}>
         <td className="px-4 py-2">
-          <button type="button" className="text-left min-h-[44px] touch-manipulation" onClick={e => { e.stopPropagation(); onOpen(r) }}>
+          <button type="button" className="text-left min-h-[48px] touch-manipulation" onClick={e => { e.stopPropagation(); onOpen(r) }}>
             <span className="font-medium">{r.name}</span>
             {KIND_WORDS[r.kind] && <span className="ml-2 text-xs rounded-full bg-muted px-2 py-0.5">{KIND_WORDS[r.kind]}</span>}
             <span className="block text-xs text-muted-foreground">

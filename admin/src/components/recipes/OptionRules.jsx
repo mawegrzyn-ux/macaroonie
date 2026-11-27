@@ -18,7 +18,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Field, inputCls, ErrorNote, ConfirmDelete, Segmented } from '@/components/staff/shared'
 import { Card, NumInput, btn } from '@/components/purchasing/shared'
-import { RULE_ACTIONS, OPTION_DEFAULTS } from '@shared/costing.js'
+import { RULE_ACTIONS } from '@shared/costing.js'
 import { usePickers, SearchPick, penceText, unitLabel } from './shared'
 
 const STATE_LOOK = {
@@ -111,7 +111,7 @@ export function OptionEditor({ optionId, onClose, onOpenDish, canManage }) {
       </div>
       <p className="text-sm text-muted-foreground">
         In {o.group}{o.variation_type ? ' (' + TYPE_WORDS[o.variation_type].toLowerCase() + ')' : ''}{o.price_pence > 0 ? ', ' + penceText(o.price_pence) : ''}.
-        {' '}With no rule: {OPTION_DEFAULTS[o.variation_type || 'none'].toLowerCase()}.
+        {' '}With no rule: {String(data.default_text || '').toLowerCase()}.
       </p>
       <Card title="What it does to every dish">
         <RuleForm target={{ option_id: o.id, dish_id: null, option_label: null }} rule={data.rule} canManage={canManage}

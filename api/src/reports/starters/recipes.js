@@ -31,7 +31,7 @@ export const starters = [
   starter({
     key: 'dishes_over_target',
     name: 'Dishes over the target cost %',
-    about: 'Dishes on your live menus whose cost % is above the target at a venue and order type (over target, or over the limit), dearest first: the menu price, the price net of VAT, what the dish costs there, its gross profit and cost %. A meal deal is judged at its dearest picks.',
+    about: 'Dishes on your live menus whose cost % is above the target at a venue and order type (over target, or over the limit), dearest first: the menu price, the price net of VAT, what the dish costs there, its gross profit and cost %. A meal deal is judged at its highest cost %: the picks that cost most for what they sell for, extra charges included.',
     period: false,
     spec: {
       subject: 'recipes.margins',
