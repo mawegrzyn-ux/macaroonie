@@ -1027,6 +1027,12 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
             </tr>
           </tbody>
         </table>
+        {/* Food cost (stock's, read only), below the grid and held at its left edge while the grid scrolls */}
+        <div className="sticky left-0 p-3 max-w-3xl">
+          <Suspense fallback={null}>
+            <FoodCostWeek venueId={venueId} weekStart={weekStart} />
+          </Suspense>
+        </div>
       </div>
     </div>
   )

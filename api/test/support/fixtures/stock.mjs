@@ -20,8 +20,11 @@
 // then a late sale on its last day (stock_usage_late and its items: written
 // here, only the usage job makes them when a sale reaches a closed day late,
 // as api/test/stock-variance.test.mjs does) read back through the current
-// period's variance and the item's ledger.
-import { sql } from '../app.mjs'
+// period's variance and the item's ledger. Phase 6b (migration 313), late:
+// the week's food cost line, margin by menu, the newest period's variance,
+// the dishes over target, the Overview tile, a stock widget, and the cost
+// targets sweep with the targets low for a moment (cost_target_states).
+import { sql, getApp } from '../app.mjs'
 
 export const order = 87
 // Phase 5: usage from sales is worked out after the till's and online orders' sales (fillLate).
@@ -131,6 +134,11 @@ export async function fill(ctx) {
 }
 
 export async function fillLate(ctx) {
+  await fillUsageAndVariance(ctx)
+  await fillFoodCost(ctx)
+}
+
+async function fillUsageAndVariance(ctx) {
   const { V, step, post, get } = ctx
   // Usage from sales (phase 5): the venue's last days worked out now from what the fixtures sold, then read.
   const u = await step('stock usage', () => get(`/api/stock/venues/${V}/usage`))
@@ -185,4 +193,30 @@ export async function fillLate(ctx) {
       await step('stock ledger late sales', () => get(`/api/stock/venues/${V}/items/${itemId}/moves`))
     }
   }
+}
+
+// Food cost beyond the period (phase 6b, migration 313): Cash Recon's week line, the widgets' reads
+// (margin by menu, the newest period's variance), Today's dishes over target, the Overview tile, a
+// stock widget on a dashboard; the cost targets sweep run with the targets set low for a moment, so
+// cost_target_states has a row (only the sweep writes it), then the targets put back as they were.
+async function fillFoodCost(ctx) {
+  const { V, step, get, post, put } = ctx
+  await step('stock food cost week', () => get(`/api/stock/venues/${V}/food-cost/week`))
+  await step('stock margins by menu', () => get(`/api/stock/venues/${V}/margins-by-menu`))
+  await step('stock variance latest', () => get(`/api/stock/venues/${V}/variance?period=latest`))
+  await step('stock cost targets', () => get(`/api/stock/venues/${V}/cost-targets`))
+  await step('stock overview', () => get('/api/stock/overview'))
+  const dash = await step('stock widget dashboard', () => post('/api/custom-dashboards/dashboards', { venue_id: V, name: ctx.mark + ' Food cost' }))
+  if (dash) await step('stock widget', () => post(`/api/custom-dashboards/dashboards/${dash.id}/widgets`, { widget_type: 'stock_food_cost' }))
+  const was = await step('costing targets read', () => get('/api/menu-margins/settings'))
+  if (!was) return
+  await step('costing targets low', () => put('/api/menu-margins/settings', { target_pct: 1, limit_pct: 2, sections: [] }))
+  await step('stock cost targets sweep', async () => {
+    const { sweepCostTargets } = await import('../../../src/services/stockFoodCostSvc.js')
+    return sweepCostTargets(await getApp(), null, { tenantIds: [ctx.tenantId] })
+  })
+  await step('costing targets back', () => put('/api/menu-margins/settings', {
+    target_pct: was.target_pct, limit_pct: was.limit_pct,
+    sections: (was.sections || []).map(x => ({ section_id: x.section_id, target_pct: x.target_pct, limit_pct: x.limit_pct })),
+  }))
 }

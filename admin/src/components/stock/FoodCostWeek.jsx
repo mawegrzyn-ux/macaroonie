@@ -5,8 +5,9 @@
 // stock period that covers the week (else the latest closed one, named with
 // its dates), said in words. Actual needs a full count at both ends, so a week
 // never gets an actual of its own. Read only; every figure and word is the
-// API's (shared/foodCost.js). Lazy-loaded by the Cash Recon week view (cash's
-// pages/CashRecon.jsx) and by the food cost dashboard widget.
+// API's (shared/foodCost.js). Lazy-loaded by Cash Recon's week (cash's
+// pages/CashRecon.jsx: below the spreadsheet grid and in the card view under
+// the wages) and by the food cost dashboard widget.
 //
 //   FoodCostWeek({ venueId, weekStart, compact })
 //   useFoodCostWeek(venueId, weekStart, enabled)
@@ -17,7 +18,6 @@ import { Link } from 'react-router-dom'
 import { ChevronRight, Loader2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { usePermission } from '@/hooks/usePermission'
-import { cn } from '@/lib/utils'
 
 const pct = n => (n == null ? '–' : (Math.round(n * 10) / 10).toFixed(1) + '%')
 const pts = n => (n == null ? null : (n > 0 ? '+' : '') + (Math.round(n * 10) / 10).toFixed(1) + ' pts')
@@ -67,7 +67,7 @@ export function FoodCostWeek({ venueId, weekStart, compact = false }) {
             <Tile label={a?.covers ? 'Actual, the period covering it' : 'Actual, latest closed period'} value={pct(a?.pct)} testid="food-cost-week-actual"
               sub={a ? a.period.words + (pts(a.gap_pts) ? ' · gap ' + pts(a.gap_pts) : '') : 'needs a full count at both ends'} />
           </div>
-          <ul className={cn('text-xs text-muted-foreground space-y-1', compact && 'line-clamp-4')} data-testid="food-cost-week-words">
+          <ul className="text-xs text-muted-foreground space-y-1" data-testid="food-cost-week-words">
             {data.lines.map((l, i) => <li key={i}>{l}</li>)}
           </ul>
         </div>

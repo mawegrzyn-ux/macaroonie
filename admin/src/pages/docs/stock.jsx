@@ -2,7 +2,7 @@
 // The Docs page's "Stock" section (inventory phase 4a: the ledger, storage
 // areas, stocktakes, adjustments; phase 4b: waste and its reasons, till voids
 // marked wasted, transfers between venues; phase 5: usage from sales; phase 6a:
-// stock periods and variance). Docs.jsx gathers every file in this
+// stock periods and variance; phase 6b: food cost beyond the period). Docs.jsx gathers every file in this
 // folder (except parts.jsx) and shows them by order, then id.
 import { H2, H3, P, Mono, InfoBox } from './parts.jsx'
 
@@ -463,6 +463,52 @@ export function Section() {
         Tests: <Mono>shared/test/variance.test.mjs</Mono> (with the property check of 14),{' '}
         <Mono>api/test/stock-variance.test.mjs</Mono>; fixtures (late) close, review and reopen a period, and write a
         late sale (<Mono>stock_usage_late</Mono> and its items) for the tenant sweep.
+      </P>
+      <H3>Food cost beyond the period (phase 6b, migration 313)</H3>
+      <P>
+        The rule is <Mono>shared/foodCost.js</Mono> (public): <Mono>daysFoodCost(rows)</Mono> (theoretical food cost of
+        trading days from <Mono>dish_cost_days</Mono>, food by <Mono>isFoodSale()</Mono>, pounds over pence through{' '}
+        <Mono>costShare()</Mono>), <Mono>weekFoodCost({'{ week, period, covers }'})</Mono> (the week&apos;s line: actual
+        only from a stock period&apos;s <Mono>food_cost</Mono> when <Mono>complete</Mono>, the covering one said to be
+        the period&apos;s figure, else the latest closed one named; never one made up for the week),{' '}
+        <Mono>overTarget(rows)</Mono> (dishes over target from <Mono>menuMargins()</Mono> rows, one per dish at its worst
+        order type, a deal at <Mono>cost_pct_max</Mono>), <Mono>targetCrossings(states, now)</Mono>,{' '}
+        <Mono>marginsByMenu(rows, settings)</Mono> (<Mono>soldMargins()</Mono> per menu), <Mono>overviewWords()</Mono>,{' '}
+        <Mono>varianceEvent()</Mono>. Tests <Mono>shared/test/foodCost.test.mjs</Mono>.
+      </P>
+      <P>
+        Service <Mono>services/stockFoodCostSvc.js</Mono> (public): <Mono>weekFigures()</Mono> (a stored period covers
+        the week when its trading days, frozen or <Mono>periodDays()</Mono>, hold all seven; its food cost frozen when
+        closed, else <Mono>periodFigures()</Mono>), <Mono>venueOverTarget()</Mono> (every live menu for the venue at
+        every active order type, standard prices), <Mono>menuMarginsWeek()</Mono> (a dish&apos;s menu through its
+        section), <Mono>setupGaps()</Mono>, <Mono>stockOverview()</Mono>, <Mono>trackCostTargets()</Mono>,{' '}
+        <Mono>sweepCostTargets(app, log, {'{ tenantIds }'})</Mono> (the job <Mono>jobs/cost-targets.js</Mono>, hourly; a
+        group per transaction under an advisory lock). Table <Mono>cost_target_states</Mono> (tenant, venue, plain{' '}
+        <Mono>dish_id</Mono>, band, cost %, <Mono>since</Mono>; RLS forced): the dishes the sweep last found over target,
+        so the rule trigger fires once per crossing.
+      </P>
+      <P>
+        Routes (<Mono>routes/stockFoodCost.js</Mono>, under <Mono>/api/stock</Mono>): <Mono>GET
+        /venues/:venueId/food-cost/week?start=</Mono> (Costing view and till reports view, else 403{' '}
+        <Mono>sales</Mono>), <Mono>GET /venues/:venueId/margins-by-menu?start=</Mono> (Costing view; sales fields need
+        till reports view), <Mono>GET /venues/:venueId/cost-targets</Mono> (Costing view), <Mono>GET /overview</Mono>{' '}
+        (Stock view; food cost with <Mono>sees_sales</Mono>). <Mono>GET /venues/:venueId/variance?period=latest</Mono>{' '}
+        is the newest stored period. <Mono>GET /venues/:venueId/today</Mono> adds <Mono>gaps</Mono> (no storage areas,
+        best sellers with no recipe, items in recipes with no price), which the stock source passes to Home&apos;s
+        suggestions; a <Mono>costing</Mono> source on Today (<Mono>dishes_over_target</Mono>, one card a day).
+      </P>
+      <P>
+        Admin: <Mono>components/stock/FoodCostWeek.jsx</Mono> (lazy in Cash Recon&apos;s week view and the food cost
+        widget), <Mono>widgetTypes.js</Mono> (<Mono>STOCK_WIDGET_TYPES</Mono>: <Mono>stock_food_cost</Mono>,{' '}
+        <Mono>stock_menu_margins</Mono> on costing; <Mono>stock_waste_week</Mono>, <Mono>stock_variance_items</Mono> on
+        stock), <Mono>widgets.jsx</Mono> (the bodies, lazy), <Mono>OverviewTile.jsx</Mono> (the tile{' '}
+        <Mono>stock_status</Mono>, <Mono>TILE_MODULE</Mono> stock). Rule triggers in <Mono>shared/rules.js</Mono>:{' '}
+        <Mono>dish_over_target</Mono> (the sweep), <Mono>variance_over_band</Mono> (<Mono>POST /periods/:id/close</Mono>,
+        keyed by the period and when it was closed), <Mono>waste_logged</Mono> (<Mono>POST /venues/:venueId/waste</Mono>,
+        keyed by the entry); their <Mono>money</Mono> fields go to people with view on <Mono>money_needs</Mono> only
+        (<Mono>ctx.moneyNeeds</Mono> in <Mono>send_notice</Mono>), never into an H&amp;S action, and{' '}
+        <Mono>ruleNeeds()</Mono> is what the maker must view. Tests <Mono>api/test/stock-food-cost.test.mjs</Mono>;
+        fixtures (late) read every route and run the sweep with low targets for a moment.
       </P>
     </section>
   )

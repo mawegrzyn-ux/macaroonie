@@ -1202,7 +1202,9 @@ export function Section() {
       <H3>Rules made from a sentence (step 8B2, migration 286)</H3>
       <P>
         <Mono>shared/rules.js</Mono>: <Mono>TRIGGERS</Mono> (<Mono>fridge_reading</Mono>,{' '}
-        <Mono>supplier_order</Mono>, <Mono>task_late</Mono>, <Mono>review_low</Mono>, each with its conditions and
+        <Mono>supplier_order</Mono>, <Mono>task_late</Mono>, <Mono>review_low</Mono>, and since inventory phase 6b,
+        migration 313, <Mono>dish_over_target</Mono>, <Mono>variance_over_band</Mono>, <Mono>waste_logged</Mono> with{' '}
+        <Mono>needs</Mono> and <Mono>money_needs</Mono>: <Mono>ruleNeeds()</Mono>; each with its conditions and
         the event fields its templates may use), <Mono>RULE_ACTIONS</Mono> (<Mono>add_hs_action</Mono>,{' '}
         <Mono>send_notice</Mono>: reversible tools only, so the never-list can&apos;t be a rule&apos;s action),{' '}
         <Mono>ruleProblem()</Mono>, <Mono>matches()</Mono>, <Mono>fillInput()</Mono>, <Mono>ruleLines()</Mono>.

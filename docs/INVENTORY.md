@@ -7,9 +7,10 @@ built" and "Phase 3 as built" under section 11). Phase 4 built on 27 Nov 2026: 4
 the stock module, storage areas, counts by area with approval, migrations 305 to 307; see "Phase 4a as built") and 4b
 (waste with its reasons and the till's voids marked wasted, transfers between venues, migrations 308 and 309; see "Phase
 4b as built"). Phase 5 built on 27 Nov 2026 (usage from sales: stock on hand takes sales off, dish margins as sold,
-order up to par; migration 311; see "Phase 5 as built"). Phase 6a built on 27 Nov 2026 (stock periods, variance by
+order up to par; migration 311; see "Phase 5 as built"). Phase 6 built on 27 Nov 2026: 6a (stock periods, variance by
 period, food cost actual and theoretical, the Variance tab, explain_variance, Today's variance to review; migration 312;
-see "Phase 6a as built"); 6b (the Cash Recon week line, dashboard widgets, the other Today items, rule triggers) is next.
+see "Phase 6a as built") and 6b (the Cash Recon week line, the stock and costing dashboard widgets and the Overview tile,
+Today's dishes over their cost target and Home's set-up gaps, the rule triggers; migration 313; see "Phase 6b as built").
 Phases 7 to 10 are a plan. The decisions in section 12 are taken as
 recommended, D1 to D12.** The owner's ask when building started: "recipes variations, per revenue stream/order type
 matrix, and per location (or ability to link a different recipe to menu items in different locations)",
@@ -434,7 +435,11 @@ unexplained       = variance - logged waste
 - Key-item counts give the same figures daily for the short list.
 - Closing a period freezes its figures, like a Z. Reopening is Manage and leaves a note.
 - **Actual food cost % = actual usage in pounds / net food sales.** It goes to a Cash Recon week
-  line, a dashboard widget and the reports. Theoretical cost % sits beside it.
+  line, a dashboard widget and the reports. Theoretical cost % sits beside it. *As built (phase 6b): a week
+  rarely starts and ends on a count, so the week line shows the week's own theoretical food cost (from usage
+  from sales) and an actual only from a stock period: the one whose trading days hold the whole week (said to
+  be the period's figure), else the latest closed period, named with its dates; never an actual made up for
+  the week.*
 - Pepper's `explain_variance` lists the evidence for a flagged item: dishes sold without a recipe
   that use it, deliveries corrected after the count, negative on hand during the period, a unit
   that changed, waste logged, and transfers not received.
@@ -535,6 +540,10 @@ cost, GP, plate cost, shrinkage, wastage, stocktake) and re-run the smart builde
   Home: no storage areas, top sellers without a recipe, items with no price.
 - Dashboard widgets: food cost % actual and theoretical, waste this week by reason, top variance
   items, margin by menu. An Overview tile for stock.
+- *As built (phase 6b): the widgets read routes, not report subjects (top variance items is the newest
+  stored period; margin by menu is the week's sold margins by menu, from usage from sales); dishes over their
+  cost target are one Today card a day per venue for Costing view (live menus at today's standard prices, each
+  dish at its worst order type); the set-up gaps are Home suggestions for whoever manages each module.*
 
 ### 10.4 Pepper
 
@@ -545,7 +554,11 @@ cost, GP, plate cost, shrinkage, wastage, stocktake) and re-run the smart builde
   `save_scenario`. Every change tool gets its Activity words and its place in the registry.
 - Forms through `open_form`: waste, a key-item count, a transfer.
 - Rule triggers: a dish over its cost target, a period's variance over the band, waste logged over
-  a value. Actions stay the two a rule may run (a notice, an H&S action).
+  a value. Actions stay the two a rule may run (a notice, an H&S action). *As built (phase 6b):
+  `dish_over_target` from an hourly sweep, once per crossing (`cost_target_states`); `variance_over_band`
+  when a period is closed over the venue's band or with flagged items; `waste_logged` when waste is logged.
+  A cost or a share of sales is left out of a notice for people who can't see it and never goes into an
+  H&S action; a rule on costs needs Costing view to make.*
 - An evaluation file for purchasing and stock (there is none today).
 
 ### 10.5 Copying a venue
@@ -565,7 +578,7 @@ scale; steps that follow the same day run nearer half.
 | 3 | **Built 27 Nov 2026.** Pepper reads recipes (sheet, PDF, photo, text) into drafts; match dishes to recipes; coverage by sales value | Most of a menu costed in a sitting | 50 to 65 |
 | 4 | **Built 27 Nov 2026.** 4a: the `stock` module; storage areas; stocktake (drafts, units, approval, key items, phone and scanner); adjustments; `loadStockMoves()`. 4b: waste (reasons in WRAP's kinds, till voids marked wasted, the phone's waste page); transfers in two steps | Stock run from documents | 90 to 110 |
 | 5 | **Built 27 Nov 2026.** Usage from sales (till, kiosk, online, imported); on hand with sales taken off; order to par minus stock | Stock on hand that follows trading | 70 to 90 |
-| 6 | **6a built 27 Nov 2026**: periods and variance; actual and theoretical food cost; `explain_variance`; variance to review on Today. **6b next**: the Cash Recon line; widgets; the other Today tasks; rule triggers | A pound figure on the gap, per item and venue | 70 to 90 |
+| 6 | **Built 27 Nov 2026.** 6a: periods and variance; actual and theoretical food cost; `explain_variance`; variance to review on Today. 6b: the Cash Recon line; widgets and the Overview tile; dishes over target on Today, Home's set-up gaps; rule triggers | A pound figure on the gap, per item and venue | 70 to 90 |
 | 7 | Engineering from real sales; scenarios; what-if; push prices; price creep and its rule trigger | Pricing decisions made in the app | 60 to 80 |
 | 8 | Allergens on supplier products; the roll-up check and its Today item; suggested calories | Declared allergens checked against recipes | 50 to 65 |
 | 9 | Suggested orders from usage and bookings; returns and credit notes | Orders proposed, not just listed | 60 to 80 |
@@ -783,6 +796,34 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
   period they landed in; Pepper doesn't close or reopen periods (a manager's step on the page, with a note); a period
   can't be reopened while a later one is closed. 6b adds the Cash Recon line, the widgets, the other Today items and the
   rule triggers on top.
+
+### Phase 6b as built (27 Nov 2026)
+
+- **Migration** 313: `cost_target_states` (the dishes over their cost target at each venue as the hourly sweep last
+  found them; plain dish ids; RLS forced), and the rule triggers, dashboard widgets and Overview tile added to their CHECKs.
+- **The rule** `shared/foodCost.js` (rule 12, on top of `shared/variance.js` and `shared/costing.js`):
+  `daysFoodCost()` (theoretical food cost of trading days from `dish_cost_days`, food by `isFoodSale()`),
+  `weekFoodCost()` (the week's line: actual only from a stock period's complete food cost, the covering one or the latest
+  closed one, with the words), `overTarget()` (one per dish at its worst order type from `menuMargins()` rows),
+  `targetCrossings()`, `marginsByMenu()` (`soldMargins()` per menu), `overviewWords()`, `varianceEvent()`.
+- **Cash Recon** (8.1): the week view's Food cost card (`components/stock/FoodCostWeek.jsx`, lazy in `pages/CashRecon.jsx`),
+  `GET /api/stock/venues/:id/food-cost/week` (`routes/stockFoodCost.js`, `services/stockFoodCostSvc.js` `weekFigures()`):
+  a stored period covers a week when its trading days (frozen, or `periodDays()`) hold all seven. Costing view and till
+  reports view.
+- **Dashboards** (10.3): `stock_food_cost`, `stock_waste_week`, `stock_variance_items`, `stock_menu_margins` in a Stock and
+  costing group (`components/stock/widgetTypes.js`, bodies lazy in `widgets.jsx`), on the waste summary, the variance route's
+  `period=latest` and `GET /venues/:id/margins-by-menu`; the Overview tile `stock_status` (`GET /api/stock/overview`).
+- **Today and Home** (10.3): a `costing` source (`dishes_over_target`, from `GET /venues/:id/cost-targets`), and the stock
+  source's set-up gaps (no storage areas, best sellers with no recipe, items in recipes with no price).
+- **Rule triggers** (10.4): `dish_over_target` (the job `jobs/cost-targets.js`, hourly, `sweepCostTargets()`),
+  `variance_over_band` (closing a period), `waste_logged` (logging waste) in `shared/rules.js`; `money_needs` keeps costs
+  and shares of sales out of notices for people without those views (`ctx.moneyNeeds`), `ruleProblem()` keeps them out of
+  H&S actions, `ruleNeeds()` is what the person making the rule must view; make_rule's prompt reads the triggers.
+- **What the build changed in the plan**: a week has no actual of its own (8.1); no report subjects or starters were needed
+  (the widgets read routes); a dish over its cost target is judged at today's standard prices at its worst order type and
+  tells once per crossing, which is the hook phase 7's price creep can use; the variance trigger fires on closing a period,
+  not when its closing count is approved (the figures are final then); till voids marked wasted don't fire the waste
+  trigger. Limits: `docs/claude/outstanding/stock.md` item 77.
 
 ## 12. Decisions for the owner
 

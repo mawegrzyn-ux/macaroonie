@@ -25,10 +25,10 @@ export function Section() {
       <H3>Every dashboard can use every widget</H3>
       <P>
         The H&amp;S, Cash and Rota dashboards work the same way now: <strong>Add widget</strong>{' '}
-        lists all widgets, grouped under Health &amp; safety, Menus, Cash and Rota, with the
+        lists all widgets, grouped under Health &amp; safety, Menus, Cash, Rota and Stock and costing, with the
         page's own group first. So you can, for example, put the rota's Who's on next to the
         fridge checks on the H&amp;S Dashboard, or a checklist on the Cash dashboard. The widget
-        tables under H&amp;S Dashboard, Cash Dashboard and Staff &amp; Rota say what each one shows.
+        tables under H&amp;S Dashboard, Cash Dashboard, Staff &amp; Rota and Stock say what each one shows.
       </P>
       <InfoBox type="info">
         A widget only shows to people who can open its area. Add widget only lists widgets from
