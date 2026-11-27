@@ -18,6 +18,7 @@ import * as locations_ from './locations.js'
 import * as menus_ from './menus.js'
 import * as orders_ from './orders.js'
 import * as purchasing_ from './purchasing.js'
+import * as recipes_ from './recipes.js'
 import * as reportSchedules_ from './reportSchedules.js'
 import * as reports_ from './reports.js'
 import * as rota_ from './rota.js'
@@ -38,6 +39,7 @@ export const FILES = [
   ['menus.js', menus_],
   ['orders.js', orders_],
   ['purchasing.js', purchasing_],
+  ['recipes.js', recipes_],
   ['reportSchedules.js', reportSchedules_],
   ['reports.js', reports_],
   ['rota.js', rota_],
