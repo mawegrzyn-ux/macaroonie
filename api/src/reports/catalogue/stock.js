@@ -20,7 +20,7 @@
 // and transfers between venues (sent, received, lost in transit), both
 // worked out in code too; on hand and the ledger take them in.
 
-import { subject, text, number, money, yesno, choice, moment, sum, count, countDistinct, one } from './define.js'
+import { subject, text, number, money, percent, yesno, choice, moment, sum, count, countDistinct, ratio, one } from './define.js'
 import { STOCK_TABLES, MOVE_TABLES, COUNT_LINE_TABLES, WASTE_TABLES, TRANSFER_TABLES } from '../work/stock.js'
 import { WASTE_KINDS, WASTE_WHAT, TRANSFER_STATUSES, MOVE_KINDS } from '../../../../shared/stock.js'
 
@@ -39,6 +39,10 @@ const TRANSFER_STATUS_LABELS = { ...TRANSFER_STATUSES }
 const TRANSFER_DIRECTIONS = { out: 'Sent from here', in: 'Received here' }
 const ITEM_NAME = '(SELECT i.name FROM inv_items i WHERE i.id = {t}.item_id AND i.tenant_id = {t}.tenant_id)'
 const ITEM_UNIT = '(SELECT i.base_unit FROM inv_items i WHERE i.id = {t}.item_id AND i.tenant_id = {t}.tenant_id)'
+// Phase 5: a sold dish's order type and revenue stream (plain ids: one gone reads empty), and where it was sold.
+const TYPE_NAME = '(SELECT o.name FROM order_types o WHERE o.id = {t}.order_type_id AND o.tenant_id = {t}.tenant_id)'
+const STREAM_NAME = '(SELECT r.name FROM pos_revenue_streams r WHERE r.id = {t}.revenue_stream_id AND r.tenant_id = {t}.tenant_id)'
+const DISH_CHANNELS = { till: 'Till', kiosk: 'Kiosk', online: 'Online orders', imported: 'Other tills', gloriafood: 'GloriaFood' }
 
 /** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
 export const order = 102
@@ -54,7 +58,10 @@ export const decisions = {
     'stock_area_items', 'stock_key_lists', 'stock_key_list_items', 'stock_settings', 'stock_venue_settings',
     // (waste_reasons is read by Waste: a till void counts under the group's reason of its name.)
   ],
-  out: {},
+  out: {
+    // Usage from sales (phase 5): each worked-out day's fingerprint, and each venue's run (its lease, the days marked).
+    'how the usage job keeps track of what it has worked out, not figures': ['stock_usage_marks', 'stock_usage_venues'],
+  },
 }
 
 const itemFields = () => ({
@@ -84,6 +91,7 @@ export const subjects = [
       counted_at: moment('counted_at', { label: 'Counted at' }),
       received_since: number('received_since', { label: 'Received since the count', about: 'Delivered and booked in at the venue after the last count (everything received, when never counted).' }),
       adjusted_since: number('adjusted_since', { label: 'Adjusted since the count' }),
+      sold_since: number('sold_since', { label: 'Taken off by sales since the count', synonyms: ['used by sales', 'sold since'], about: 'What usage from sales took off since the last count (below zero), up to its last run.' }),
       never_counted: yesno('never_counted', { label: 'Never counted' }),
       value: pounds('value', { label: 'Stock value', about: 'On hand at what the item cost at the venue lately: the average paid over the last 90 days, else the last price paid.' }),
     },
@@ -351,5 +359,95 @@ export const subjects = [
     },
     list: ['date', 'number', 'direction', 'venue.name', 'other_venue.name', 'item_name', 'sent', 'received', 'lost', 'base_unit', 'status'],
     sort: [{ by: 'sent_at', dir: 'desc' }],
+  }),
+
+  // Phase 5 (migration 311): usage from sales, kept by the job (jobs/stock-usage.js) per trading day.
+  subject({
+    key: 'stock.usage',
+    label: 'Usage from sales',
+    one: 'item used by sales on a trading day',
+    area: 'stock',
+    module: 'stock',
+    about: 'What each trading day\'s sales took off stock at a venue, per inventory item: every dish sold on the till, kiosks, online and on other tills broken into its items by its recipe (the one its venue, revenue stream and order type use, with its options and a meal deal\'s picks), as bought (each line\'s yield). Test till sales and voids are left out (a void marked wasted is waste). Worked out every few minutes for the last 14 days; today\'s is up to the last run. Quantities are in each item\'s own unit.',
+    from: 'stock_usage_days',
+    id: { sql: "({t}.venue_id::text || '|' || {t}.day::text || '|' || {t}.item_id::text)" },
+    idType: 'text',
+    venue: 'venue_id',
+    date: { sql: '{t}.day', label: 'Trading day' },
+    name: 'item_name',
+    // A row opens the item's history at the venue (its day of sales is a move there).
+    open: { page: '/stock?venue=:venue&item=:id', module: 'stock', id: 'item_id', with: { venue: 'venue_id' } },
+    fields: {
+      item_name: text({ sql: ITEM_NAME }, { label: 'Item' }),
+      base_unit: choice({ sql: ITEM_UNIT }, UNITS, { label: 'Measured in' }),
+      used: number('qty_base', { label: 'Used by sales', adds: true, synonyms: ['usage', 'theoretical usage', 'used', 'sold'], about: 'In the item\'s own unit; below zero when refunds gave more back than sales took (a setting).' }),
+      till: number({ sql: "COALESCE(({t}.channels->>'till')::numeric, 0)" }, { label: 'Used by till sales', adds: true }),
+      kiosk: number({ sql: "COALESCE(({t}.channels->>'kiosk')::numeric, 0)" }, { label: 'Used by kiosk sales', adds: true }),
+      online: number({ sql: "COALESCE(({t}.channels->>'online')::numeric, 0)" }, { label: 'Used by online orders', adds: true }),
+      imported: number({ sql: "COALESCE(({t}.channels->>'imported')::numeric, 0)" }, { label: 'Used by other tills\' sales', adds: true }),
+      cost_per_base: pounds('cost_per_base', { label: 'Cost per unit', adds: false, about: 'Pounds per gram, millilitre or each at the day\'s last sale: the average paid at the venue, else the last paid, else the standard price.' }),
+      cost_how: choice('cost_how', { average: 'Average paid', last: 'Last paid', standard: 'Standard price' }, { label: 'Cost from' }),
+      value: pounds({ sql: '({t}.qty_base * {t}.cost_per_base)' }, { label: 'Value used', synonyms: ['theoretical food cost', 'usage value'] }),
+      last_sale_at: moment('at', { label: 'Last sale of the day' }),
+      worked_out_at: moment('computed_at', { label: 'Worked out at' }),
+    },
+    measures: {
+      used_total: sum('qty_base', { label: 'Used by sales', about: 'Added up in each item\'s own unit: only add up items kept in the same unit.' }),
+      used_value: value({ sql: '({t}.qty_base * {t}.cost_per_base)' }, { label: 'Value used by sales', synonyms: ['theoretical food cost', 'theoretical usage'] }),
+      items: countDistinct('item_id', { label: 'Items used' }),
+    },
+    links: {
+      item: one('purchasing.items', 'item_id', { label: 'Item' }),
+    },
+    list: ['date', 'venue.name', 'item_name', 'used', 'base_unit', 'till', 'online', 'imported', 'value'],
+    sort: [{ by: 'date', dir: 'desc' }],
+  }),
+
+  subject({
+    key: 'stock.dish_sales',
+    label: 'Dish sales and theoretical cost',
+    one: 'dish sold on a trading day',
+    area: 'stock',
+    module: COSTING,
+    about: 'Each dish sold at a venue on a trading day, by revenue stream, order type and where it was sold (till, kiosk, online, other tills, GloriaFood): units, sales and net of VAT, and its theoretical cost (the items its recipe took off stock, at what was paid for them then), so its gross profit and cost % as sold. What couldn\'t be costed (no recipe, an option with no rule, a unit with no size, a draft not checked, an item with no price) is counted with why. Worked out every few minutes for the last 14 days by usage from sales; test till sales are left out.',
+    from: 'dish_cost_days',
+    venue: 'venue_id',
+    date: { sql: '{t}.day', label: 'Trading day' },
+    name: 'dish',
+    open: { page: '/recipes?tab=dishes&dish=:id', module: 'recipes', id: 'dish_id' },
+    fields: {
+      dish: text('name', { label: 'Dish', synonyms: ['menu item', 'dish sold'] }),
+      section: text('section', { label: 'Section' }),
+      channel: choice('channel', DISH_CHANNELS, { label: 'Sold through' }),
+      order_type: text({ sql: TYPE_NAME }, { label: 'Order type' }),
+      revenue_stream: text({ sql: STREAM_NAME }, { label: 'Revenue stream' }),
+      recipe: text('recipe_name', { label: 'Recipe used' }),
+      units: number('qty', { label: 'Units sold', adds: true, decimals: 0 }),
+      sales: money('sales_pence', { label: 'Sales', needs: 'pos_reports', about: 'What it sold for after discounts, VAT included.' }),
+      net: money('net_pence', { label: 'Net sales', needs: 'pos_reports', synonyms: ['net sales', 'sales ex vat'], about: 'After discounts, VAT out.' }),
+      cost: pounds('cost', { label: 'Theoretical cost', synonyms: ['theoretical cost', 'food cost', 'cost of sales', 'plate cost'], about: 'What its recipes took off stock, at what was paid for the items then (the average paid, else the last paid, else the standard price).' }),
+      gp: money({ sql: '({t}.net_pence - round({t}.cost * 100))' }, { label: 'Gross profit', needs: 'pos_reports', synonyms: ['gp', 'gross profit', 'margin'], about: 'Net sales less the theoretical cost.' }),
+      cost_pct: percent({ sql: "(CASE WHEN {t}.net_pence > 0 AND {t}.cost IS NOT NULL THEN {t}.cost * 10000 / {t}.net_pence END)" }, { label: 'Cost %', needs: 'pos_reports', synonyms: ['food cost percent', 'cost percentage'] }),
+      uncosted_units: number('uncosted_qty', { label: 'Units not costed', adds: true, decimals: 0 }),
+      typical_units: number('typical_qty', { label: 'Units at typical meal deal picks', adds: true, decimals: 0, about: 'Meal deals from other tills, whose picks aren\'t known: costed at the dishes guests pick most.' }),
+      costed: yesno({ sql: '({t}.uncosted_qty = 0 AND {t}.left_out IS NULL)' }, { label: 'Fully costed' }),
+      left_out: choice('left_out', { open: 'An open item (no dish)', service: 'A service', gone: 'No longer on a menu' }, { label: 'Left out' }),
+      why: text({ sql: "({t}.gaps->0->>'text')" }, { label: 'Why not costed' }),
+      fix: text({ sql: "({t}.gaps->0->>'fix')" }, { label: 'How to fix' }),
+      worked_out_at: moment('computed_at', { label: 'Worked out at' }),
+    },
+    measures: {
+      units_sold: sum('qty', { label: 'Units sold' }),
+      net_sales: sum('net_pence', { type: 'money', label: 'Net sales', needs: 'pos_reports' }),
+      theoretical_cost: sum('cost', { type: 'money', unit: 'pounds', label: 'Theoretical cost', needs: COSTING, synonyms: ['theoretical food cost', 'food cost', 'cost of sales'] }),
+      gross_profit: sum({ sql: '({t}.net_pence - round(COALESCE({t}.cost, 0) * 100))' }, { type: 'money', label: 'Gross profit', needs: 'pos_reports' }),
+      theoretical_cost_pct: ratio('theoretical_cost', 'net_sales', { type: 'percent', label: 'Theoretical food cost %', needs: 'pos_reports', synonyms: ['theoretical food cost', 'food cost percent'], about: 'The theoretical cost as a share of net sales.' }),
+      uncosted: sum('uncosted_qty', { label: 'Units not costed', synonyms: ['uncosted', 'sold without a recipe'] }),
+      dishes: countDistinct({ sql: "COALESCE({t}.dish_id::text, {t}.name)" }, { label: 'Dishes' }),
+    },
+    // The section and recipe are kept by name (plain ids: a menu save re-inserts sections, a recipe may go).
+    skip: ['section_id', 'recipe_id'],
+    list: ['date', 'venue.name', 'dish', 'channel', 'units', 'net', 'cost', 'gp', 'cost_pct', 'uncosted_units'],
+    sort: [{ by: 'date', dir: 'desc' }],
   }),
 ]

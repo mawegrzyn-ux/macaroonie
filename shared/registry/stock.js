@@ -51,4 +51,6 @@ export const objects = [
 
 export const notObjects = {
   'What is on hand and each item\'s ledger are worked out from the deliveries, counts and adjustments each time: figures, never kept or changed by hand.': ['stock.on_hand', 'stock.moves'],
+  // Phase 5 (migration 311): usage_summary reads them.
+  'Usage from sales and each dish\'s sales with its theoretical cost are worked out from what sold by the usage job: figures, recomputed, never changed by hand.': ['stock.usage', 'stock.dish_sales'],
 }

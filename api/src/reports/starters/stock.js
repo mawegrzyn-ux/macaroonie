@@ -5,7 +5,8 @@
 // count, whatever the period; values need Costing view and are left out
 // without it), and what is on hand now (moved from purchasing with the
 // subject). Phase 4b: this week's waste by reason (the till's voids marked
-// wasted in it) and the transfers in transit.
+// wasted in it) and the transfers in transit. Phase 5: theoretical food cost
+// by week (Dish sales and theoretical cost, from usage from sales).
 
 import { starter, m } from './define.js'
 
@@ -16,7 +17,7 @@ export const starters = [
   starter({
     key: 'stock_last_count_differences',
     name: 'Last count\'s differences',
-    about: 'Each venue\'s latest approved stock count: every item whose count differs from what was expected at that moment (the last approved count before it plus what was received and adjusted since), how much over or short, and what the difference is worth, biggest loss first. Sales aren\'t taken off yet, so items used in dishes show as short.',
+    about: 'Each venue\'s latest approved stock count: every item whose count differs from what was expected at that moment (the last approved count before it plus what was received and adjusted since), how much over or short, and what the difference is worth, biggest loss first. Sales are taken off as usage from sales (by each dish\'s recipe), so what is short beyond them is waste nobody logged, a recipe that uses more than it says, or a delivery booked in wrong.',
     period: false,
     spec: {
       subject: 'stock.count_lines',
@@ -54,6 +55,22 @@ export const starters = [
       rows: ['number', 'venue.name', 'other_venue.name', 'item_name', 'sent', 'base_unit', 'sent_at', 'sent_by'],
       filters: [{ field: 'status', op: 'is', value: 'sent' }, { field: 'direction', op: 'is', value: 'out' }],
       sort: [{ by: 'sent_at', dir: 'asc' }],
+    },
+  }),
+
+  // Phase 5 (migration 311): what sales should have used, in pounds, week by week.
+  starter({
+    key: 'stock_theoretical_food_cost_week',
+    name: 'Theoretical food cost by week',
+    about: 'Week by week at each venue: net sales, the theoretical cost of what was sold (each dish\'s recipe, at what was paid for its items then) and the theoretical food cost %, with the units that couldn\'t be costed beside it (a dish with no recipe makes the % read low). Usage from sales keeps the last 14 days worked out; older days are there once they were. Actual against theoretical comes with variance (phase 6).',
+    period: { relative: 'last_n_days', n: 56 },
+    spec: {
+      subject: 'stock.dish_sales',
+      rows: [{ field: 'date', bucket: 'week' }],
+      values: m('net_sales', 'theoretical_cost', 'theoretical_cost_pct', 'uncosted'),
+      sort: [{ by: 'date:week', dir: 'asc' }],
+      drill: { down: ['venue.name', 'section', 'dish'] },
+      view: { kind: 'line', x: 'date:week', y: ['theoretical_cost_pct'] },
     },
   }),
 ]
