@@ -15,7 +15,8 @@
 //        name, base_unit, qty_base, channels, value? }], by_day: [{ day,
 //        item_id, qty_base, channels, value? }], uncosted: [{ dish_id, name,
 //        channels, qty, uncosted_qty, gaps: [{ reason, text, fix }], days }],
-//        left_out: [{ name, reason, qty }], can_recompute }
+//        left_out: [{ name, reason, qty }], dishes: [{ dish_id, name, qty,
+//        uncosted_qty, channels, cost? }] (every dish sold), can_recompute }
 //   POST /venues/:venueId/usage/recompute     { from, to } (Stock manage): those
 //        days worked out again now (at most RECOMPUTE_MAX_DAYS, none after
 //        today; closed days left alone); 409 while the job is working the
@@ -65,10 +66,9 @@ export default async function stockUsageRoutes(app) {
             WHERE u.tenant_id = ${req.tenantId} AND u.venue_id = ${venueId} AND u.day BETWEEN ${from}::date AND ${to}::date
             ORDER BY u.day, lower(i.name)`,
         tx`SELECT d.day::text AS day, d.channel, d.dish_id, d.name, d.qty::float8 AS qty, d.uncosted_qty::float8 AS uncosted_qty,
-                  d.left_out, d.gaps, d.recipe_name
+                  d.left_out, d.gaps, d.recipe_name, d.cost::float8 AS cost
              FROM dish_cost_days d
-            WHERE d.tenant_id = ${req.tenantId} AND d.venue_id = ${venueId} AND d.day BETWEEN ${from}::date AND ${to}::date
-              AND (d.uncosted_qty > 0 OR d.left_out IS NOT NULL)`,
+            WHERE d.tenant_id = ${req.tenantId} AND d.venue_id = ${venueId} AND d.day BETWEEN ${from}::date AND ${to}::date`,
         salesTakenOff(tx, req.tenantId, [venueId]),
       ])
       const items = new Map()
@@ -91,7 +91,16 @@ export default async function stockUsageRoutes(app) {
       // Sold dishes that took nothing (or not all) off: by dish, with what was missing and how to fix it.
       const unc = new Map()
       const left = new Map()
+      const sold = new Map()
       for (const d of dishes) {
+        // Every dish sold, with each channel's units (and, with Costing view, its theoretical cost).
+        const sk = d.dish_id || 'name:' + d.name.toLowerCase()
+        const s = sold.get(sk) || sold.set(sk, { dish_id: d.dish_id, name: d.name, recipe_name: d.recipe_name, qty: 0, uncosted_qty: 0, channels: {}, cost: 0, costed: false }).get(sk)
+        s.qty += d.qty
+        s.uncosted_qty += d.uncosted_qty
+        s.channels[d.channel] = (s.channels[d.channel] || 0) + d.qty
+        if (d.cost != null) { s.cost += d.cost; s.costed = true }
+        if (!d.left_out && !(d.uncosted_qty > 0)) continue
         if (d.left_out) {
           const k = d.left_out + '|' + d.name.toLowerCase()
           const l = left.get(k) || left.set(k, { name: d.name, reason: d.left_out, qty: 0 }).get(k)
@@ -111,6 +120,10 @@ export default async function stockUsageRoutes(app) {
         from, to, today, timezone, last_run_at: s.last_run_at ?? null, last_error: s.last_error ?? null, dirty_from: s.dirty_from ?? null,
         up_to: taken[venueId]?.up_to ?? null, note: salesNote(taken[venueId], timezone), sees_values: access.sees_values,
         days: marks, items: itemList, by_day: byDay,
+        dishes: [...sold.values()].map(d => ({
+          dish_id: d.dish_id, name: d.name, recipe_name: d.recipe_name, qty: d.qty, uncosted_qty: d.uncosted_qty, channels: d.channels,
+          ...(access.sees_values ? { cost: d.costed ? money(d.cost) : null } : {}),
+        })).sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name)),
         uncosted: [...unc.values()].sort((a, b) => b.uncosted_qty - a.uncosted_qty || a.name.localeCompare(b.name)),
         left_out: [...left.values()].sort((a, b) => b.qty - a.qty),
         can_recompute: access.can_manage, max_days: RECOMPUTE_MAX_DAYS,

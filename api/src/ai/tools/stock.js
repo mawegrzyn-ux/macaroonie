@@ -12,6 +12,9 @@
 //   stock_moves     one item's ledger at a venue: deliveries, counts and
 //                   adjustments with the running balance (values with
 //                   Costing view)                                       read
+//   usage_summary   phase 5: what sales took off at a venue over the last
+//                   days, an item's by day and channel, a dish's sold and
+//                   uncosted with why                                   read
 //   count_stock     a count of the items the person names, in the units
 //                   they say (2 cases and 400 g; the item's own units and
 //                   its supplier packs), by storage area when they say one;
@@ -68,6 +71,8 @@ const stockList = async (ctx, venue) => {
   return { ...st, items: st.items.map(i => ({ ...i, id: i.item_id })) }
 }
 const at = (when, tz) => { const l = localParts(when, tz); return longDate(l.date) + ' ' + l.time }
+// Where a sale came from (usage from sales, phase 5), as Pepper says it.
+const CHANNEL_WORDS = { till: 'till', kiosk: 'kiosk', online: 'online orders', imported: 'other tills', gloriafood: 'GloriaFood' }
 
 // This file's place, its area and what Pepper is told about it (tools/index.js gathers them).
 export const order = 82
@@ -76,7 +81,8 @@ export const sections = {
 }
 export const promptLines = [
   'Stock: stock_on_hand (how much of an item there is at a venue, or what is below its par), stock_moves (an item\'s ' +
-    'history at a venue: deliveries, counts and adjustments with the running balance), count_stock (a count of the ' +
+    'history at a venue: deliveries, counts and adjustments with the running balance), usage_summary (what sales took off: ' +
+    'an item by day and channel, a dish sold with what couldn\'t be costed), count_stock (a count of the ' +
     'items the person names, in their units, by storage area), log_waste (an item, a prep batch or a dish thrown away, ' +
     'with a reason; Undo on its card for 10 minutes), waste_summary (what was wasted by reason, kind, item or person), send_transfer and ' +
     'receive_transfer (stock moved between venues in two steps).',
@@ -187,6 +193,68 @@ export const tools = [
         })),
         ...(h.moves.length > MAX_MOVES ? { showing: MAX_MOVES, of: h.moves.length } : {}),
         ...(!h.moves.length ? { message: 'Nothing moved ' + item.name + ' at ' + venue.name + ' in the last ' + plural(input.days || 30, 'day') + '.' } : {}),
+      }
+    },
+  },
+
+  {
+    name: 'usage_summary',
+    title: 'Usage from sales',
+    activity: 'Looked at usage from sales',
+    description:
+      'What sales took off stock at a venue over the last days (usage from sales, the Stock page\'s Usage tab): for an ' +
+      'inventory item, how much each day with how much came from the till, kiosks, online orders and other tills; ' +
+      'for a menu dish, how many sold each day by channel and how many couldn\'t be costed, with why. With neither, the ' +
+      'items sales used most and the dishes sold without a full recipe. days: how far back (default 7, at most 31, today ' +
+      'included up to the last run). For "how much chicken did we sell through yesterday?" or "why isn\'t the soup taking ' +
+      'anything off stock?".',
+    input: z.object({
+      venue: VenueText,
+      item:  z.string().trim().min(1).max(200).optional().describe('An inventory item: name, code or barcode'),
+      dish:  z.string().trim().min(1).max(200).optional().describe('A menu dish by name'),
+      days:  z.number().int().min(1).max(31).optional(),
+    }),
+    readOnly: true,
+    async run(ctx, input) {
+      await requireView(ctx)
+      const venue = await venueFor(ctx, input.venue)
+      const tz = venue.timezone || 'Europe/London'
+      const days = input.days || 7
+      const today = localParts(new Date(), tz).date
+      const from = localParts(new Date(Date.now() - (days - 1) * 86400000), tz).date
+      const u = await callApi(ctx, 'GET', `/api/stock/venues/${venue.id}/usage?from=${from}&to=${today}`)
+      const split = (channels, unit) => Object.fromEntries(Object.entries(channels || {}).filter(([, v]) => Number(v))
+        .map(([k, v]) => [CHANNEL_WORDS[k] || k, unit ? formatBase(v, unit) : Number(v)]))
+      const base = { venue: venue.name, from, to: today, note: u.note }
+      if (input.item) {
+        const st = await stockList(ctx, venue)
+        const item = pickItem(st.items, input.item)
+        const total = u.items.find(i => i.item_id === item.id)
+        const rows = u.by_day.filter(r => r.item_id === item.id)
+        return {
+          ...base, item: item.name,
+          used: total ? formatBase(total.qty_base, item.base_unit) : 'nothing',
+          ...(total ? { by_channel: split(total.channels, item.base_unit) } : {}),
+          ...(total?.value != null ? { value: pounds(total.value) } : {}),
+          days: rows.map(r => ({ day: longDate(r.day), used: formatBase(r.qty_base, item.base_unit), by_channel: split(r.channels, item.base_unit) })),
+          ...(!total ? { message: 'Sales took no ' + item.name + ' off at ' + venue.name + ' in the last ' + plural(days, 'day') + ': no dish sold there uses it, or its dishes have no recipe linked.' } : {}),
+        }
+      }
+      if (input.dish) {
+        const picked = pickByName(u.dishes, input.dish, d => d.name, 'dish sold', 'Nothing was sold at ' + venue.name + ' in the last ' + plural(days, 'day') + '.')
+        const why = u.uncosted.find(x => (x.dish_id || x.name) === (picked.dish_id || picked.name))
+        return {
+          ...base, dish: picked.name, sold: picked.qty, by_channel: split(picked.channels),
+          ...(picked.recipe_name ? { recipe: picked.recipe_name } : {}),
+          ...(picked.uncosted_qty ? { not_costed: picked.uncosted_qty, why: (why?.gaps || []).map(g => g.text + (g.fix ? ' (' + g.fix + ')' : '')) } : {}),
+          ...(picked.cost != null ? { theoretical_cost: pounds(picked.cost) } : {}),
+        }
+      }
+      return {
+        ...base,
+        used_most: u.items.slice(0, 15).map(i => ({ item: i.name, used: formatBase(i.qty_base, i.base_unit), ...(i.value != null ? { value: pounds(i.value) } : {}) })),
+        sold_without_a_full_recipe: u.uncosted.slice(0, 15).map(x => ({ dish: x.name, not_costed: x.uncosted_qty, of: x.qty, why: x.gaps.map(g => g.text) })),
+        ...(!u.items.length && !u.dishes.length ? { message: 'No sales were worked out at ' + venue.name + ' in the last ' + plural(days, 'day') + ' yet.' } : {}),
       }
     },
   },
