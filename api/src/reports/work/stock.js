@@ -4,7 +4,7 @@
 // 4a, migrations 305 to 307), merged into WORKS in work/index.js. Every
 // figure comes from the Stock page's own rules (services/stockSvc.js,
 // shared/stock.js): on hand is the last approved count plus what moved
-// since; sales aren't taken off yet (phase 5), which the subjects' words say.
+// since, sales taken off as usage from sales (phase 5, stock_usage_days).
 //
 //   stock_on_hand     one row per item per venue with a move there: now (not
 //                     by period); value at what the item cost there lately

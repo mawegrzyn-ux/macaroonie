@@ -20,7 +20,7 @@ const packs = [
 
 test('one rule: procurement re-exports the stock rule', () => {
   assert.equal(reExported, stockOnHand)
-  assert.deepEqual(Object.keys(MOVE_KINDS), ['count', 'delivery', 'adjustment', 'waste', 'transfer_out', 'transfer_in', 'lost_in_transit'], 'phase 4b added waste and transfers')
+  assert.deepEqual(Object.keys(MOVE_KINDS), ['count', 'delivery', 'adjustment', 'waste', 'transfer_out', 'transfer_in', 'lost_in_transit', 'usage'], 'phase 4b added waste and transfers, phase 5 usage from sales')
 })
 
 test('stockOnHand: the last count sets it, later moves add; a move at the count\'s moment is in the count; as at a moment', () => {
@@ -35,7 +35,7 @@ test('stockOnHand: the last count sets it, later moves add; a move at the count\
   const r = stockOnHand({ moves })
   assert.deepEqual([r.on_hand, r.counted, r.counted_at, r.received_since, r.adjusted_since], [5750, 1000, at, 5000, -250])
   assert.deepEqual(r.since, { adjustment: -250, delivery: 5000 })
-  assert.equal(r.sales_counted, false)
+  assert.equal(r.sales_counted, true)
   assert.equal(stockOnHand({ moves, at: '2026-11-21T12:00:00Z' }).on_hand, 750)
   assert.equal(stockOnHand({ moves, at: '2026-11-20T10:00:00Z' }).on_hand, 999, 'before the later count, the earlier one')
   assert.equal(stockOnHand({ moves: [] }).on_hand, null)

@@ -91,6 +91,8 @@ export const MOVE_KINDS = {
   transfer_out: { label: 'Sent to another venue' },
   transfer_in: { label: 'Received from another venue' },
   lost_in_transit: { label: 'Lost in transit' },
+  // Phase 5 (migration 311): what a trading day's sales took off (below zero), one move per item per day.
+  usage: { label: 'Sales' },
 }
 // Units on one line of a count (2 cases + 3 each + 400 g).
 export const MAX_ENTRIES = 6
@@ -135,9 +137,9 @@ export function stockOnHand({ moves = [], at = null } = {}) {
     wasted_since: since.waste || 0,
     transferred_since: round4((since.transfer_out || 0) + (since.transfer_in || 0) + (since.lost_in_transit || 0)),
     since,
-    // Usage from sales comes with phase 5 (recipes linked to what sold).
-    used_since: null,
-    sales_counted: false,
+    // Phase 5: what sales took off since the count (below zero), from usage from sales.
+    used_since: since.usage || 0,
+    sales_counted: true,
   }
 }
 

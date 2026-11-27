@@ -82,8 +82,10 @@ export const promptLines = [
     'receive_transfer (stock moved between venues in two steps).',
 ]
 export const promptNotes = [
-  'Stock: on hand is the last approved count plus the deliveries, adjustments, waste and transfers since; sales aren\'t taken off yet, ' +
-    'so say so. count_stock records only what the person counted, in their numbers and units (2 cases and 400 g is ' +
+  'Stock: on hand is the last approved count plus the deliveries, adjustments, waste and transfers since, less what sales took off ' +
+    '(usage from sales: each sold dish broken into items by its recipe, worked out every few minutes, so today\'s sales count up to ' +
+    'the last run; stock_on_hand\'s note says when). A dish with no recipe takes nothing off: usage_summary lists what sold uncosted. ' +
+    'count_stock records only what the person counted, in their numbers and units (2 cases and 400 g is ' +
     'one item in two units): never work a count out, and with blind counts on never tell the counter what is ' +
     'expected (stock_on_hand) before their count is in. A count someone who can approve makes is approved at once; ' +
     'anyone else\'s waits for approval on the Stock page. A full count of the venue, by area, is done on the Stock ' +
@@ -104,7 +106,8 @@ export const tools = [
     description:
       'How much of an inventory item there is at a venue: its last approved stock count plus what was delivered, ' +
       'adjusted, wasted (the till\'s voids marked wasted too) and moved by transfer since (sent, received, lost in transit), ' +
-      'the Stock page\'s On hand tab, the same figures. Sales aren\'t taken off yet, so say so. items: ' +
+      'and less what sales took off (usage from sales, up to the last run, which its note says), the Stock page\'s On hand ' +
+      'tab, the same figures. items: ' +
       'a few names, codes or barcodes; or low: true for every item below its par at the venue (pars from its order ' +
       'lists); with neither, every counted item. For "how much rice have we got?".',
     input: z.object({
@@ -133,6 +136,7 @@ export const tools = [
           ...(r.adjusted_since ? { adjusted_since: signedBase(r.adjusted_since, r.base_unit) } : {}),
           ...(r.wasted_since ? { wasted_since: signedBase(r.wasted_since, r.base_unit) } : {}),
           ...(r.transferred_since ? { transferred_since: signedBase(r.transferred_since, r.base_unit) } : {}),
+          ...(r.used_since ? { sold_since: signedBase(r.used_since, r.base_unit) } : {}),
           ...(r.par_base != null ? { par: formatBase(r.par_base, r.base_unit) } : {}),
           ...(r.areas?.length ? { kept_in: r.areas.join(', ') } : {}),
           ...(r.value != null ? { value: pounds(r.value) } : {}),

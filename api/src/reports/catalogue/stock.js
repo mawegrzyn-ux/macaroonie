@@ -6,7 +6,8 @@
 // counted), and adjustments. On hand, the ledger and the count lines are
 // worked out in code for each run by the Stock page's own rules
 // (work/stock.js, services/stockSvc.js, shared/stock.js): the last approved
-// count plus deliveries and adjustments since; sales aren't taken off yet.
+// count plus deliveries and adjustments since, less what sales took off
+// (usage from sales, phase 5: one move per item per trading day).
 // Quantities are in each item's base unit (grams, millilitres or each), so
 // only add up items kept in the same unit. Values are in pounds, at what
 // the item cost at the venue then (the average paid, else the last price
@@ -69,7 +70,7 @@ export const subjects = [
     one: 'item at a venue',
     area: 'stock',
     module: 'stock',
-    about: 'Each inventory item at each venue that was counted, delivered or adjusted there: its last approved stock count, what was received and adjusted since, and what that leaves on hand now, in the item\'s own unit (grams, millilitres or each). Sales aren\'t taken off yet. Not by period: it is now.',
+    about: 'Each inventory item at each venue that was counted, delivered or adjusted there: its last approved stock count, what was received and adjusted since, and what that leaves on hand now, in the item\'s own unit (grams, millilitres or each), less what sales took off (usage from sales, up to its last run). Not by period: it is now.',
     from: { work: 'stock_on_hand', tables: STOCK_TABLES },
     idType: 'text',
     venue: 'venue_id',
@@ -105,7 +106,7 @@ export const subjects = [
     one: 'move of stock',
     area: 'stock',
     module: 'stock',
-    about: 'Every move of stock at a venue, the ledger: each delivery booked in, each approved count, each adjustment, each item wasted (the till\'s voids marked wasted too) and each transfer out, in or lost in transit, with the change it made and the balance after it (the balance starts at the first count). A count\'s change is what it found over what was expected. Sales aren\'t taken off yet.',
+    about: 'Every move of stock at a venue, the ledger: each delivery booked in, each approved count, each adjustment, each item wasted (the till\'s voids marked wasted too) and each transfer out, in or lost in transit, with the change it made and the balance after it (the balance starts at the first count). A count\'s change is what it found over what was expected. What each trading day\'s sales took off is one move per item (Sales).',
     from: { work: 'stock_moves', tables: MOVE_TABLES },
     idType: 'text',
     venue: 'venue_id',

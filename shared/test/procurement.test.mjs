@@ -402,7 +402,7 @@ test('stockOnHand: count plus received after it; no count, no figure (re-exporte
   const r = stockOnHand({ moves })
   assert.equal(r.on_hand, 13000)
   assert.equal(r.received_since, 12000, 'what came before the count is in the count')
-  assert.equal(r.sales_counted, false)
+  assert.equal(r.sales_counted, true)
   assert.equal(stockOnHand({ moves: moves.filter(m => m.kind !== 'count') }).on_hand, null)
   assert.equal(countToBase(1.5, 'l', 'ml'), 1500)
   assert.equal(countToBase(3, 'each', 'g'), null)
