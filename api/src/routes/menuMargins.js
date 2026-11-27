@@ -18,6 +18,12 @@
 //                     yesterday when left out)   what sold, by dish and section: units,
 //                     sales, net, theoretical cost, GP and cost % (soldMargins() over
 //                     dish_cost_days, inventory phase 5: usage from sales)
+//   GET  /engineering ?venue_id &from &to (days, up to SOLD_MAX_DAYS; the last 28 up to
+//                     yesterday when left out) &menu_id (that menu's sections only)
+//                     menu engineering from what sold (inventory phase 7a): each
+//                     section's dishes as stars, plough-horses, puzzles and dogs by
+//                     Kasavana and Smith (engineer() in shared/engineering.js over
+//                     dish_cost_days), with GP per unit, total GP and cost %
 //   GET  /settings    the target and limit cost %, with sections' own
 //   PUT  /settings    { target_pct, limit_pct, sections: [{ section_id,
 //                     target_pct, limit_pct }] } the whole of it (rule 13)
@@ -37,6 +43,7 @@ import { loadDishCosting, loadScopes, loadCostingSettings } from '../services/di
 import { loadTaxRates } from '../services/taxSvc.js'
 import { menuMargins, thresholdProblem, scopeText, soldMargins } from '../../../shared/costing.js'
 import { resolveItemTypes } from '../../../shared/catalogue.js'
+import { engineer, withoutSales, CLASSES } from '../../../shared/engineering.js'
 
 const uuid = z.string().uuid()
 const Query = z.object({
@@ -47,6 +54,9 @@ const Query = z.object({
 const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const SoldQuery = z.object({ venue_id: uuid.optional(), from: Day.optional(), to: Day.optional() })
 export const SOLD_MAX_DAYS = 93
+// Menu engineering (inventory phase 7a): the same days, a menu's sections only when one is named.
+const EngineeringQuery = SoldQuery.extend({ menu_id: uuid.optional() })
+export const ENGINEERING_DAYS = 28
 // What the Sold tab leaves out without till reports view: the sales and what is worked out from them.
 export const SALES_FIELDS = ['sales_pence', 'net_pence', 'gp_pence', 'cost_pct', 'gp_pct', 'band']
 const Pct = z.number().gt(0).lt(100)
@@ -57,6 +67,62 @@ export const SettingsBody = z.object({
 }).strict()
 
 const canView = requirePermission('costing', 'view')
+
+/** The days a Sold or Engineering read covers: the query's, else the last `days` up to yesterday; refused past SOLD_MAX_DAYS. */
+export async function soldDays(tx, q, days = 7) {
+  const [range] = await tx`SELECT (current_date - ${days}::int)::text AS from, (current_date - 1)::text AS to`
+  const from = q.from || range.from
+  const to = q.to || range.to
+  if (from > to) throw httpError(422, 'The first day is after the last', { code: 'range' })
+  if ((Date.parse(to) - Date.parse(from)) / 86400000 + 1 > SOLD_MAX_DAYS) throw httpError(422, 'Show up to ' + SOLD_MAX_DAYS + ' days at a time', { code: 'range' })
+  return { from, to }
+}
+
+/**
+ * Menu engineering over dish_cost_days (inventory phase 7a): the rows summed
+ * by dish, section and whether every unit was costed, the dishes' kinds (a
+ * meal deal) and their sections' menus, then engineer(). Shared by the route,
+ * the report work and Pepper (through the route). { sections (each with
+ * menu_id and menu), total, left_out, worked_out_at }; with sales: false,
+ * withoutSales() of it.
+ */
+export async function engineeringFor(tx, tenantId, { venueIds = null, from, to, menuId = null, sales = true } = {}) {
+  const rows = await tx`
+    SELECT d.dish_id, d.name, d.section_id, d.section, d.left_out, (d.cost IS NOT NULL AND d.uncosted_qty = 0) AS costed,
+           sum(d.qty)::float8 AS qty, sum(d.net_pence)::bigint AS net_pence, sum(d.cost)::float8 AS cost,
+           sum(d.typical_qty)::float8 AS typical_qty
+      FROM dish_cost_days d
+     WHERE d.tenant_id = ${tenantId} AND d.day BETWEEN ${from}::date AND ${to}::date
+       ${venueIds ? tx`AND d.venue_id = ANY(${venueIds}::uuid[])` : tx``}
+     GROUP BY d.dish_id, d.name, d.section_id, d.section, d.left_out, 6`
+  const sectionIds = [...new Set(rows.map(r => r.section_id).filter(Boolean))]
+  const dishIds = [...new Set(rows.map(r => r.dish_id).filter(Boolean))]
+  const [sections, dishes, [run]] = await Promise.all([
+    sectionIds.length ? tx`
+      SELECT s.id, s.title, m.id AS menu_id, m.name AS menu FROM menu_sections s JOIN menus m ON m.id = s.menu_id AND m.tenant_id = s.tenant_id
+       WHERE s.tenant_id = ${tenantId} AND s.id = ANY(${sectionIds}::uuid[])` : [],
+    dishIds.length ? tx`SELECT id, kind FROM menu_items WHERE tenant_id = ${tenantId} AND id = ANY(${dishIds}::uuid[])` : [],
+    tx`SELECT max(computed_at) AS at FROM stock_usage_marks WHERE tenant_id = ${tenantId} ${venueIds ? tx`AND venue_id = ANY(${venueIds}::uuid[])` : tx``}`,
+  ])
+  const secOf = new Map(sections.map(s => [s.id, s]))
+  const kindOf = new Map(dishes.map(d => [d.id, d.kind === 'combo' ? 'deal' : 'dish']))
+  // A menu named: its sections only (the draft's; a release keeps the draft's ids).
+  const kept = menuId ? rows.filter(r => r.section_id && secOf.get(r.section_id)?.menu_id === menuId) : rows
+  const result = engineer(kept.map(r => ({
+    dish_id: r.dish_id, name: r.name, section_id: r.section_id, section: secOf.get(r.section_id)?.title ?? r.section,
+    kind: r.dish_id ? (kindOf.get(r.dish_id) ?? null) : null, left_out: r.left_out,
+    qty: r.qty, net_pence: Number(r.net_pence), typical_qty: r.typical_qty,
+    // A row with any unit not costed is left out of GP (all its units), never priced at nil.
+    cost: r.costed ? r.cost : null, uncosted_qty: r.costed ? 0 : r.qty,
+  })))
+  for (const s of result.sections) {
+    const m = secOf.get(s.section_id)
+    s.menu_id = m?.menu_id ?? null
+    s.menu = m?.menu ?? null
+  }
+  const out = { ...result, worked_out_at: run?.at ?? null }
+  return sales ? out : withoutSales(out)
+}
 const canManage = requirePermission('costing', 'manage')
 const who = req => req.user?.email ?? req.user?.sub ?? null
 
@@ -129,11 +195,7 @@ export default async function menuMarginRoutes(app) {
         const [v] = await tx`SELECT id FROM venues WHERE id = ${q.venue_id} AND tenant_id = ${req.tenantId}`
         if (!v) throw httpError(404, 'Venue not found')
       }
-      const [range] = await tx`SELECT (current_date - 7)::text AS from, (current_date - 1)::text AS to`
-      const from = q.from || range.from
-      const to = q.to || range.to
-      if (from > to) throw httpError(422, 'The first day is after the last', { code: 'range' })
-      if ((Date.parse(to) - Date.parse(from)) / 86400000 + 1 > SOLD_MAX_DAYS) throw httpError(422, 'Show up to ' + SOLD_MAX_DAYS + ' days at a time', { code: 'range' })
+      const { from, to } = await soldDays(tx, q, 7)
       const [rows, settings, [run]] = await Promise.all([
         tx`
           SELECT d.dish_id, d.name, d.section_id, d.section, d.left_out, sum(d.qty)::float8 AS qty, sum(d.sales_pence)::bigint AS sales_pence,
@@ -151,6 +213,30 @@ export default async function menuMarginRoutes(app) {
       return {
         venue_id: q.venue_id || null, from, to, max_days: SOLD_MAX_DAYS, worked_out_at: run?.at ?? null, sees_sales: sales,
         dishes: sold.dishes.map(shown), sections: sold.sections.map(shown), total: shown(sold.total),
+      }
+    })
+  })
+
+  // Menu engineering (inventory phase 7a): each section's dishes by Kasavana and Smith, from what sold.
+  app.get('/engineering', { preHandler: canView }, async req => {
+    const q = EngineeringQuery.parse(req.query || {})
+    // GP, net, cost % and the classes (worked out from GP) are the till's sales: till reports view too, as the Sold tab.
+    const lv = await permissionLevels(req, ['pos_reports'])
+    const sales = permissionAtLeast(lv.pos_reports, 'view')
+    return withTenant(req.tenantId, async tx => {
+      if (q.venue_id) {
+        const [v] = await tx`SELECT id FROM venues WHERE id = ${q.venue_id} AND tenant_id = ${req.tenantId}`
+        if (!v) throw httpError(404, 'Venue not found')
+      }
+      if (q.menu_id) {
+        const [m] = await tx`SELECT id FROM menus WHERE id = ${q.menu_id} AND tenant_id = ${req.tenantId}`
+        if (!m) throw httpError(404, 'Menu not found')
+      }
+      const { from, to } = await soldDays(tx, q, ENGINEERING_DAYS)
+      const e = await engineeringFor(tx, req.tenantId, { venueIds: q.venue_id ? [q.venue_id] : null, from, to, menuId: q.menu_id || null, sales })
+      return {
+        venue_id: q.venue_id || null, menu_id: q.menu_id || null, from, to, max_days: SOLD_MAX_DAYS, sees_sales: sales,
+        classes: CLASSES, ...e,
       }
     })
   })

@@ -997,8 +997,10 @@
     "api/test/recipe-reader.test.mjs",
     "api/test/recipes.test.mjs",
     "shared/costing.js",
+    "shared/engineering.js",
     "shared/test/costing.test.mjs",
     "shared/test/dishCost.test.mjs",
+    "shared/test/engineering.test.mjs",
     "shared/test/recipeCoverage.test.mjs"
    ],
    "public": [
@@ -1007,6 +1009,7 @@
     "api/src/services/dishCostSvc.js",
     "api/src/services/recipeCoverageSvc.js",
     "shared/costing.js",
+    "shared/engineering.js",
     "shared/nav/recipes.js"
    ]
   },
