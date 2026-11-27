@@ -100,7 +100,7 @@ test('stock on hand: a count in kilograms, a delivery after it, nothing for sale
   await ok(owner.post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: rice.id, qty: 18000 }] }))
   assert.equal((await ok(owner.get('/api/stock/venues/' + V))).items.find(i => i.item_id === rice.id).on_hand, 18000)
   // The report subject reads the same rule.
-  const rep = await ok(owner.post('/api/reports/preview', { spec: { subject: 'purchasing.stock', kind: 'list', rows: ['item.name', 'on_hand', 'received_since', 'never_counted'] } }))
+  const rep = await ok(owner.post('/api/reports/preview', { spec: { subject: 'stock.on_hand', kind: 'list', rows: ['item_name', 'on_hand', 'received_since', 'never_counted'] } }))
   const byName = Object.fromEntries(rep.rows.map(x => [x.cells[0], x.cells.slice(1)]))
   assert.deepEqual(byName['Basmati rice'], [18000, 0, false])
   assert.deepEqual(byName['Plain flour'], [0, 0, false])

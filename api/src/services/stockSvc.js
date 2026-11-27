@@ -29,6 +29,7 @@
 //        venue with allItems, else only items with a move there
 //   itemCostsAt(tx, tenantId, venueId, itemIds, at) -> Map(item_id -> pounds per base unit
 //        at that moment; now when at is left out: the stock value)
+//   costLookup(tx, tenantId, venueIds, itemIds, to) -> (venueId, itemId, at) -> pounds per base unit
 //   loadCountItems(tx, tenantId, itemIds) -> Map(item_id -> item with `units`
 //        (countUnits(): standard, its own, its packs) and `default_unit`)
 //   loadStockSettings(tx, tenantId), loadVenueSettings(tx, tenantId, venueId)
@@ -165,21 +166,32 @@ function costAt(item, venueId, receipts, at) {
   return itemCost(item, venueId, data, 'last').per_base
 }
 
+/**
+ * A way to ask what an item cost at a venue at a moment, with what was
+ * received read once: (venueId, itemId, at) -> pounds per base unit or null
+ * (costAt()). For many moments at once (a report's count lines).
+ */
+export async function costLookup(tx, tenantId, venueIds, itemIds, to = null) {
+  if (!itemIds.length || !venueIds.length) return () => null
+  const [items, receipts] = await Promise.all([
+    loadCostItems(tx, tenantId, itemIds),
+    deliveryMoves(tx, tenantId, { venueIds, itemIds, to }),
+  ])
+  const byKey = new Map()
+  for (const r of receipts) {
+    const k = r.venue_id + '|' + r.item_id
+    if (!byKey.has(k)) byKey.set(k, [])
+    byKey.get(k).push(r)
+  }
+  return (venueId, itemId, at) => costAt(items.get(itemId), venueId, byKey.get(venueId + '|' + itemId) || [], at ?? new Date())
+}
+
 /** What each item cost at the venue at a moment (now: the stock value), pounds per base unit, by costAt(). */
 export async function itemCostsAt(tx, tenantId, venueId, itemIds, at = null) {
   const out = new Map()
   if (!itemIds.length) return out
-  const [items, receipts] = await Promise.all([
-    loadCostItems(tx, tenantId, itemIds),
-    deliveryMoves(tx, tenantId, { venueIds: [venueId], itemIds, to: at }),
-  ])
-  const byItem = new Map()
-  for (const r of receipts) {
-    if (!byItem.has(r.item_id)) byItem.set(r.item_id, [])
-    byItem.get(r.item_id).push(r)
-  }
-  const when = at ? new Date(at) : new Date()
-  for (const id of itemIds) out.set(id, costAt(items.get(id), venueId, byItem.get(id) || [], when))
+  const costOf = await costLookup(tx, tenantId, [venueId], itemIds, at)
+  for (const id of itemIds) out.set(id, costOf(venueId, id, at))
   return out
 }
 
