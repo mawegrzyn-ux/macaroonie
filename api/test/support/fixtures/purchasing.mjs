@@ -72,8 +72,7 @@ export async function fill(ctx) {
       // A delivery booked in without an order (migration 238), once the
       // setting allows it.
       await step('purchasing settings', () => put('/api/purchasing/settings', { receive_without_order: 'anyone' }))
-      // A stock count (migration 287): the rice in kilograms, kept in grams.
-      await step('stock count', () => post(`/api/stock/venues/${V}/counts`, { lines: [{ item_id: item.id, qty: 2.5, unit: 'kg' }], note: mark + ' Monday count' }))
+      // Stock counts are the stock area's fixtures since inventory phase 4a (fixtures/stock.mjs).
       if (oilQuote) {
         await step('delivery without an order', () => post(`/api/purchasing/venues/${V}/deliveries`, {
           supplier_id: supplier.id, supplier_ref: mark + '-DN1', notes: mark + ' no order',

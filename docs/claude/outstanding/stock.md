@@ -1,3 +1,15 @@
 # Outstanding: stock
 
 What is not built, known limits and follow-ups in this area (`docs/claude/areas/stock.md`). A new item takes the next number after the highest in any file of this folder. Check the live code before calling anything here pending. The phases still to build are in `docs/INVENTORY.md` section 11.
+
+**72. Stock: what phase 4a left for later** *(phase 4a shipped 27 Nov 2026, migrations 305 to 307)*
+- **Phase 4b, next**: waste (`stock_waste`, reasons in WRAP's three kinds, a till void marked wasted counting by itself, the phone's Waste page, Pepper's `log_waste`) and transfers between venues in two steps (sent, received, lost in transit, valued at the sender's average). Both join `MOVE_SOURCES` in `services/stockSvc.js` and `MOVE_KINDS` in `shared/stock.js`; the Stock page has their places in `TABS`.
+- **Sales aren't taken off** until usage from sales (phase 5): on hand rises with deliveries and falls only at a count, so between counts it reads high for anything used in dishes, and a count's difference includes what was sold. Every place that shows on hand says so (`NO_SALES_NOTE`).
+- **A count's moment** is when it was started (or the moment given, up to 14 days back), not when it was submitted: a delivery booked in while the count is being taken counts after it, so goods counted on the shelf and booked in afterwards are counted twice until the next count. Counting before booking in, or setting the count's time, avoids it.
+- **Costs at the time** are the delivery's own price, else the average paid at the venue over the 90 days before (else the last price paid): no weighted average carried through the ledger (the plan's appendix formula), and moves before the first delivery have no value.
+- **A key-item list is the group's**, not a venue's, and a count follows its list as it is while counting (an item added to the list mid-count joins the sheet). There is no key list per venue, no count rota beyond one weekday per venue, and Today's count due doesn't escalate or carry to the next day.
+- **No undo of an approval**: an approved count is replaced by counting again. A submitted count goes back to counting (its confirmed zeros asked again) or is cancelled.
+- **The count sheet** fetches the whole count every 8 seconds while counting (fine at a few hundred items); a long count on a slow phone may want lines only. The phone page counts and submits; approving is on the Stock page.
+- **Areas per venue only**: copying a venue (`createStore()`, 10.5) doesn't copy its areas yet; no area template across venues.
+- **Reports**: Stock adjustments have no value column (the value needs the cost at the time, worked out in code); Stock moves runs every move up to the period's end to get the balance (fine now; a levels table only if a venue's history makes it slow, as the plan says). No dashboard widget or Overview tile for stock yet (10.3).
+- **Pepper** can't approve, adjust or set up areas (a person does that on the page); `count_stock` takes the person's numbers as the card shows them, with no check against the words they said. No evaluation file for stock yet (10.4).

@@ -3,7 +3,9 @@
 **Status: phases 1 to 3 built on 27 Nov 2026 (recipes and the cost engine, migrations 298 to 301; links to
 dishes with the variation matrix, option rules and menu margins, migrations 302 and 303; recipes read in by
 Pepper, drafts, recipes from dishes and coverage by sales, migration 304; see "Phase 1 as built", "Phase 2 as
-built" and "Phase 3 as built" under section 11). Phases 4 to 10 are a plan. The decisions in section 12 are taken as
+built" and "Phase 3 as built" under section 11). Phase 4a built on 27 Nov 2026 (stocktake, the ledger, adjustments:
+the stock module, storage areas, counts by area with approval, migrations 305 to 307; see "Phase 4a as built"); phase 4b
+(waste, transfers) is next. Phases 5 to 10 are a plan. The decisions in section 12 are taken as
 recommended, D1 to D12.** The owner's ask when building started: "recipes variations, per revenue stream/order type
 matrix, and per location (or ability to link a different recipe to menu items in different locations)",
 "stock take module" and "reports". The variation matrix is part of phase 2's links (5.4).
@@ -547,7 +549,7 @@ scale; steps that follow the same day run nearer half.
 | 1 | **Built 27 Nov 2026.** Units and yield on items; recipes and prep recipes; `shared/costing.js`; the Recipes page with live cost, coverage and the explanation; the `recipes` and `costing` modules | A recipe costed at each venue's prices | 80 to 100 |
 | 2 | **Built 27 Nov 2026.** Links to dishes with the variation matrix, option rules, meal deals, goods; the Menu margins page with the order type switch and thresholds; report subjects; Pepper's read tools | Every costed dish shows its margin | 80 to 100 |
 | 3 | **Built 27 Nov 2026.** Pepper reads recipes (sheet, PDF, photo, text) into drafts; match dishes to recipes; coverage by sales value | Most of a menu costed in a sitting | 50 to 65 |
-| 4 | The `stock` module; storage areas; stocktake (drafts, units, approval, key items, phone and scanner); waste; transfers; adjustments; `loadStockMoves()` | Stock run from documents | 90 to 110 |
+| 4 | **4a built 27 Nov 2026**: the `stock` module; storage areas; stocktake (drafts, units, approval, key items, phone and scanner); adjustments; `loadStockMoves()`. **4b next**: waste; transfers | Stock run from documents | 90 to 110 |
 | 5 | Usage from sales (till, kiosk, online, imported); on hand with sales taken off; order to par minus stock | Stock on hand that follows trading | 70 to 90 |
 | 6 | Periods and variance; actual and theoretical food cost; the Cash Recon line; widgets; Today tasks; `explain_variance` | A pound figure on the gap, per item and venue | 70 to 90 |
 | 7 | Engineering from real sales; scenarios; what-if; push prices; price creep and its rule trigger | Pricing decisions made in the app | 60 to 80 |
@@ -634,6 +636,38 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
 - **What the build changed in the plan**: a draft is costed, marked, not left uncosted (5.6); coverage judges a dish's
   options by what it offers, not by what each sale picked (the picks need phase 5's reading of sales); GloriaFood
   orders stay out of coverage until the item mapping takes them (phase 10).
+
+### Phase 4a as built (27 Nov 2026)
+
+- **Migrations** 305 (module `stock`, group Stock: View sees stock, Use counts, Manage approves, adjusts and sets up;
+  custom roles from their purchasing level: setup Manage manages, ordering Manage counts, any purchasing View sees), 306
+  (`stock_areas`, `stock_area_items`, `stock_key_lists`, `stock_key_list_items`, `stock_settings`,
+  `stock_venue_settings`, `stock_adjustments`; `stock_counts` gains kind, status, the key list, `areas_done` and who
+  and when for each step; `stock_count_lines` gains the area, the entries as typed, `confirmed_zero` and who counted;
+  existing counts became approved full counts), 307 (the Stock menu link, after Recipes).
+- **The ledger** (6.1): `loadStockMoves()` in `api/src/services/stockSvc.js` over `MOVE_SOURCES` (deliveries, approved
+  counts, adjustments; 4b adds waste and transfers there) and `stockOnHand({ moves, at })` in `shared/stock.js`
+  (re-exported by `shared/procurement.js`): the last approved count plus every move after it; a move at the count's
+  moment is inside it. Cost at the time: a delivery's price paid, else the average paid at the venue over the 90 days
+  before the move, else the last price paid (`itemCost()`); values need Costing view.
+- **Stocktake** (6.2): areas per venue (drag order, items in shelf order, an item in several); key-item lists for the
+  group; counts full (zeros confirmed on submit) or key (the rest left alone), draft, submitted, approved, cancelled, one
+  draft per venue; lines one item in one area, several units on a line (standard, the item's own units, its supplier
+  packs), saved as typed (the one exception to explicit Save) so two people count two areas at once; the review is
+  expected at the count's moment against counted with each difference's value; approval Manage, a second person when the
+  group says so; blind counts hide expected for everyone until submitted.
+- **Adjustments** (6.4) with a reason, in the item's units, reversed once rather than edited.
+- **Pages**: `/stock` (On hand with each item's history, Counts, Adjustments, Settings; places for Waste and Transfers)
+  and `/mobile/stock-count`; the Inventory page's Stock tab links there. Today: a count due on the venue's count day,
+  a count to approve. Pepper: `count_stock` with areas and units, `stock_moves`, the form New key-item count. Reports:
+  Stock on hand (was `purchasing.stock`), Stock moves, Stock counts, Count lines, Stock adjustments; starter Last
+  count's differences.
+- **What the build changed in the plan**: the count day is one weekday per venue (`stock_venue_settings`), not a rota;
+  key-item lists are the group's, not a venue's; a count's moment is when it was started (or given), so a delivery
+  booked in while counting counts after it; costs at the time are the average over the window before each move, not a
+  weighted average carried through the ledger (the appendix formula waits for a levels table, if one is ever needed);
+  approving is on the Stock page, the phone counts and submits; deleting an area keeps its lines in finished counts
+  (outside an area) and is refused while a count being taken uses it.
 
 ## 12. Decisions for the owner
 

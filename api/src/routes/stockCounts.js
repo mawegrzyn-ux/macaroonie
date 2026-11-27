@@ -146,10 +146,13 @@ async function countView(tx, req, c, access) {
   // Blind counting (a group setting): nobody sees what is expected until the count is submitted.
   const blind = settings.blind_count && c.status === 'draft'
   let review = null
+  let expected = null
   if (!blind && c.status !== 'cancelled') {
     const counted = [...new Set(lines.map(l => l.item_id))]
-    const exp = counted.length ? await loadStockOnHand(tx, tenantId, { venueIds: [c.venue_id], itemIds: counted, at: c.counted_at, exceptCountId: c.id }) : []
-    const expected = Object.fromEntries(exp.map(r => [r.item_id, r.on_hand]))
+    // Expected for every item on the sheet (shown beside each line while counting), the review for those counted.
+    const exp = ids.length ? await loadStockOnHand(tx, tenantId, { venueIds: [c.venue_id], itemIds: ids, at: c.counted_at, exceptCountId: c.id }) : []
+    const onHandOf = new Map(exp.map(r => [r.item_id, r.on_hand]))
+    expected = Object.fromEntries(ids.map(id => [id, onHandOf.get(id) ?? null]))
     const cost = access.sees_values && counted.length ? Object.fromEntries(await itemCostsAt(tx, tenantId, c.venue_id, counted, c.counted_at)) : {}
     const r = countReview(lines, { expected, cost })
     review = {
@@ -176,6 +179,7 @@ async function countView(tx, req, c, access) {
     }])),
     lines,
     not_counted: missing,
+    expected,
     review,
   }
 }
@@ -322,7 +326,8 @@ export default async function stockCountRoutes(app) {
   app.post('/counts/:id/areas/:areaId', { preHandler: canCount }, async req => {
     const b = z.object({ done: z.boolean() }).strict().parse(req.body || {})
     return withTenant(req.tenantId, async tx => {
-      const c = await loadCount(tx, req.tenantId, req.params.id, 'share')
+      // FOR UPDATE: this writes the count's own row (two people finishing two areas wait for each other, briefly).
+      const c = await loadCount(tx, req.tenantId, req.params.id, 'update')
       mustBe(c, 'draft', 'its areas can\'t change')
       const [a] = await tx`SELECT id FROM stock_areas WHERE id = ${req.params.areaId} AND tenant_id = ${req.tenantId} AND venue_id = ${c.venue_id}`
       if (!a) throw httpError(404, 'Storage area not found')

@@ -59,7 +59,7 @@ export async function stockAccess(req) {
 /** A venue's day as the moment it starts there, or the moment the next one starts (`end`). */
 export async function dayStart(tx, tenantId, venueId, day, end = false) {
   const [r] = await tx`
-    SELECT ((${day}::date + ${end ? 1 : 0})::timestamp AT TIME ZONE COALESCE(v.timezone, 'Europe/London')) AS at
+    SELECT ((${day}::date + ${end ? 1 : 0}::int)::timestamp AT TIME ZONE COALESCE(v.timezone, 'Europe/London')) AS at
       FROM venues v WHERE v.id = ${venueId} AND v.tenant_id = ${tenantId}`
   return r?.at ?? null
 }

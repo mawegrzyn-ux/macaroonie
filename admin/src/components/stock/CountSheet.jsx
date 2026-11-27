@@ -34,7 +34,11 @@ const keyOf = (itemId, areaId) => itemId + '|' + (areaId || '')
 
 /** Saves each line on its own a moment after it is typed; flushes what is waiting when the sheet closes. */
 function useLineSaver(countId) {
+  // useApi() is a new object on every render: kept in a ref, so `send` and
+  // `save` stay the same functions and the wait before saving isn't cut short.
   const api = useApi()
+  const apiRef = useRef(api)
+  apiRef.current = api
   const qc = useQueryClient()
   const timers = useRef(new Map())
   const waiting = useRef(new Map())
@@ -43,7 +47,7 @@ function useLineSaver(countId) {
     waiting.current.delete(k)
     setState(s => ({ ...s, [k]: 'saving' }))
     try {
-      const out = await api.put(`/stock/counts/${countId}/lines`, body)
+      const out = await apiRef.current.put(`/stock/counts/${countId}/lines`, body)
       qc.setQueryData(['stock', 'count', countId], c => {
         if (!c) return c
         const lines = c.lines.filter(l => keyOf(l.item_id, l.area_id) !== k)
@@ -53,7 +57,7 @@ function useLineSaver(countId) {
     } catch (err) {
       setState(s => ({ ...s, [k]: { error: err.message } }))
     }
-  }, [api, qc, countId])
+  }, [qc, countId])
   const save = useCallback((itemId, areaId, entries) => {
     const k = keyOf(itemId, areaId)
     const body = { item_id: itemId, area_id: areaId || null, entries: entries.filter(e => e.qty != null).map(e => ({ qty: e.qty, unit: e.unit })) }
@@ -97,7 +101,7 @@ function Counting({ c, venueId, phone, onClose }) {
   const [cancelling, setCancelling] = useState(false)
   const stockList = useStockList(venueId, !!search.trim())
   const lineOf = useMemo(() => new Map(c.lines.map(l => [keyOf(l.item_id, l.area_id), l])), [c.lines])
-  const expectedOf = useMemo(() => new Map((c.review?.rows || []).map(r => [r.item_id, r.expected])), [c.review])
+  const expectedOf = useMemo(() => new Map(Object.entries(c.expected || {})), [c.expected])
   const area = c.areas.find(a => a.id === areaId) || null
   const sheetIds = areaId === 'all' ? [...new Set([...c.areas.flatMap(a => a.item_ids), ...c.other])] : areaId === 'other' ? c.other : area?.item_ids || []
   const counted = new Set(c.lines.map(l => l.item_id))
@@ -125,7 +129,16 @@ function Counting({ c, venueId, phone, onClose }) {
     mutationFn: () => api.post(`/stock/counts/${c.id}/cancel`, {}),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['stock'] }); onClose?.() },
   })
-  const startSubmit = () => { saver.flush(); setTimeout(() => submit.mutate({}), saver.busy ? 600 : 0) }
+  // A full count asks about what nobody counted before it is sent (the API refuses with the same list, 422 not_counted).
+  const startSubmit = () => {
+    saver.flush()
+    if (c.kind === 'full') {
+      const scope = [...new Set([...c.areas.flatMap(a => a.item_ids), ...c.other])]
+      const left = scope.filter(id => !counted.has(id) && !Object.entries(typed).some(([k, e]) => k.startsWith(id + '|') && e?.some(x => x.qty != null)))
+      if (left.length) { setMissing(left.map(id => ({ id, name: c.items[id]?.name || 'An item' })).sort((a, b) => a.name.localeCompare(b.name))); return }
+    }
+    setTimeout(() => submit.mutate({}), saver.busy ? 600 : 0)
+  }
   const progress = a => {
     const n = a.item_ids.filter(id => counted.has(id)).length
     return n + ' of ' + a.item_ids.length
@@ -242,7 +255,7 @@ function Counting({ c, venueId, phone, onClose }) {
       {missing && (
         <Modal title="Not counted yet" onClose={() => setMissing(null)}
           footer={<>
-            <button type="button" className={btn.primary + ' h-12'} disabled={submit.isPending} onClick={() => submit.mutate({ all_zero: true })} data-testid="stock-count-zero-all">
+            <button type="button" className={btn.primary + ' h-12'} disabled={submit.isPending} onClick={() => setTimeout(() => submit.mutate({ all_zero: true }), saver.busy ? 800 : 0)} data-testid="stock-count-zero-all">
               Confirm all {missing.length} as zero and submit
             </button>
             <button type="button" className={btn.outline + ' h-12'} onClick={() => setMissing(null)}>Go back and count</button>

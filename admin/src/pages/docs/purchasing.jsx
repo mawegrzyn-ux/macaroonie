@@ -654,27 +654,18 @@ export function Section() {
         <Mono>find_inventory_items</Mono> match it.
       </P>
       <P>
-        Stock on hand: <Mono>stock_counts</Mono> (venue, <Mono>counted_at</Mono>, who, note) and{' '}
-        <Mono>stock_count_lines</Mono> (item, <Mono>qty_base</Mono> in the item&apos;s base unit). The rule:{' '}
-        <Mono>stockOnHand()</Mono> and <Mono>countToBase()</Mono> in <Mono>shared/procurement.js</Mono> (the last
-        count plus receipts after it, less usage when recipes exist: none do, so <Mono>sales_counted: false</Mono>).{' '}
-        <Mono>loadStockOnHand()</Mono> (<Mono>services/stockSvc.js</Mono>) reads counts and received lines
-        (received_qty x the line&apos;s pack_base_qty at <Mono>received_at</Mono>, deliveries without an order
-        included). Routes <Mono>/api/stock</Mono> (<Mono>routes/stock.js</Mono>): <Mono>GET /venues/:venueId</Mono>,{' '}
-        <Mono>GET /venues/:venueId/counts</Mono>, <Mono>GET /counts/:id</Mono> (View on any purchasing module),{' '}
-        <Mono>POST /venues/:venueId/counts</Mono> (Manage on Purchasing or Purchasing setup; units must fit, the
-        group&apos;s items, no item twice, up to 14 days back). Report subject <Mono>purchasing.stock</Mono>{' '}
-        (work <Mono>stock_on_hand</Mono>, <Mono>reports/work/stock.js</Mono>). Admin:{' '}
-        <Mono>components/purchasing/stockOnHand.jsx</Mono> (the Inventory page&apos;s <Mono>?tab=stock</Mono>; test
-        ids <Mono>stock-row</Mono>, <Mono>stock-on-hand</Mono>, <Mono>stock-count-open</Mono>,{' '}
-        <Mono>stock-count-line</Mono>, <Mono>stock-count-save</Mono>). Tests:{' '}
-        <Mono>api/test/purchasing-stock-on-hand.test.mjs</Mono>.
+        Stock on hand and counts (migration 287) moved to the stock area in inventory phase 4a (27 Nov 2026,
+        migrations 305 to 307): the tables, <Mono>routes/stock.js</Mono>, <Mono>services/stockSvc.js</Mono>, the
+        report subject (now <Mono>stock.on_hand</Mono>) and Pepper&apos;s stock tools are described under Stock.
+        What stays here: <Mono>countToBase()</Mono> and <Mono>stockLow()</Mono> in <Mono>shared/procurement.js</Mono>{' '}
+        (which re-exports <Mono>stockOnHand()</Mono> from <Mono>shared/stock.js</Mono>), and deliveries as the
+        ledger&apos;s first move source (<Mono>received_qty</Mono> x the line&apos;s own <Mono>pack_base_qty</Mono>).
       </P>
       <P>
         Step 9b and 9c (no migration): <Mono>GET /stock/venues/:venueId</Mono> adds each item&apos;s{' '}
         <Mono>par_base</Mono> (the highest par on the venue&apos;s active order lists), <Mono>low</Mono>{' '}
         (<Mono>stockLow(onHand, par)</Mono> in <Mono>shared/procurement.js</Mono>; test id <Mono>stock-low</Mono>) and{' '}
-        <Mono>quote_barcodes</Mono>. Pepper: <Mono>stock_on_hand</Mono> (read; items by name, code or barcode via{' '}
+        <Mono>quote_barcodes</Mono>. Pepper (in <Mono>ai/tools/stock.js</Mono> since phase 4a): <Mono>stock_on_hand</Mono> (read; items by name, code or barcode via{' '}
         <Mono>pickItem()</Mono>, or <Mono>low</Mono>; figures from that route, never recomputed) and{' '}
         <Mono>count_stock</Mono> (consequential; <Mono>countPlan()</Mono> checks units with <Mono>countToBase()</Mono>,
         then <Mono>POST /stock/venues/:venueId/counts</Mono>); <Mono>add_supplier_price</Mono> /{' '}

@@ -486,22 +486,10 @@ export function Section() {
       </P>
       <H3>16. Stock on hand and stock counts</H3>
       <P>
-        The Inventory page&apos;s <strong>Stock on hand</strong> tab lists each item at a venue with what is on
-        hand: the last stock count, plus what was delivered and booked in since. Sales aren&apos;t taken off yet,
-        because no dish is linked to the items it uses (there are no recipes), and the page says so. An item never
-        counted shows <em>Not counted</em>.
-      </P>
-      <P>
-        To count, tap <strong>Count stock</strong>, type what is on the shelf for each item you counted, in a unit
-        that fits it (kg or g, litres or ml, each), and Save. Items you leave empty keep their last count. Counting
-        needs Manage on Purchasing or Purchasing setup; anyone who can see purchasing can see stock on hand. The
-        report <strong>Stock on hand</strong> (Purchasing) shows the same figures.
-      </P>
-      <P>
-        An item whose stock on hand is below its par at the venue (the highest par on the venue&apos;s order lists)
-        is marked <strong>Below par</strong>. Ask Pepper <em>how much rice have we got?</em> or <em>what&apos;s low
-        at Ware?</em> for the same figures, or tell it a count (<em>we&apos;ve got 3 kg of rice and 12 tins of
-        tomatoes</em>): the card shows each item in its unit and the count is saved only when you confirm.
+        Stock on hand and counting have a page of their own now: <strong>Stock</strong> (main menu, under Stock),
+        with counts by storage area, approval, adjustments and each item&apos;s history. See the Stock section of
+        this guide. The Inventory page&apos;s Stock on hand tab links there. An item below its par at a venue (the
+        highest par on the venue&apos;s order lists) is still marked <strong>Below par</strong>, on the Stock page.
       </P>
       <H3>17. Units and yield for recipes</H3>
       <P>
