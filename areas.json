@@ -1358,6 +1358,7 @@
     "shared/stock.js",
     "shared/stockItems.js",
     "shared/test/stock.test.mjs",
+    "shared/test/stockUsage.test.mjs",
     "shared/test/stockWaste.test.mjs"
    ],
    "public": [

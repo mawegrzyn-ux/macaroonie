@@ -835,6 +835,11 @@ function namesOption(label, itemName) {
 }
 
 const workCost = work => work.reduce((s, w) => (w.cost == null ? s : s + w.cost * w.mult), 0)
+// An option's one line as bought (oneLine()'s), for usage: { bought, problem }.
+const boughtOf = c => {
+  const l = c.lines[0]
+  return { bought: l?.bought_qty ?? null, problem: l?.bought_qty == null ? (l?.problem || 'missing') : null }
+}
 
 /**
  * One option applied to the dish's lines as served (work: [{ from: 'recipe'
@@ -898,7 +903,7 @@ function applyOption(work, sel, dish, ctx, gaps) {
         const unit = stated ? rule.unit : w.unit
         const c = oneLine({ item_id: rule.swap_item_id, qty, unit }, ctx, label)
         for (const g of c.gaps) gaps.push(dishGap(g.reason, label + ': ' + g.text, g.fix, { option_id: opt.id }))
-        work.push({ from: 'recipe', item_id: rule.swap_item_id, sub_recipe_id: null, name: to?.name || null, qty, unit, cost: c.cost, mult: pf, yield_pct: c.lines[0]?.yield_pct ?? null })
+        work.push({ from: 'recipe', item_id: rule.swap_item_id, sub_recipe_id: null, name: to?.name || null, qty, unit, cost: c.cost, mult: pf, yield_pct: c.lines[0]?.yield_pct ?? null, ...boughtOf(c) })
         w.mult = 0
       }
       return done((own.lines[0].name || 'it') + ' for ' + (to?.name || 'another item') + (pf !== 1 ? ' x ' + fmtNum(pf) : ''), fromRule)
@@ -908,7 +913,7 @@ function applyOption(work, sel, dish, ctx, gaps) {
       const c = oneLine({ item_id: rule.item_id || null, sub_recipe_id: rule.sub_recipe_id || null, qty, unit: rule.unit }, ctx, label)
       for (const g of c.gaps) gaps.push(dishGap(g.reason, label + ': ' + g.text, g.fix, { option_id: opt.id }))
       const thing = rule.sub_recipe_id ? get(ctx.recipes, rule.sub_recipe_id) : get(ctx.items, rule.item_id)
-      work.push({ from: 'option', item_id: rule.item_id || null, sub_recipe_id: rule.sub_recipe_id || null, name: thing?.name || null, qty, unit: rule.unit, cost: c.cost, mult: 1, yield_pct: c.lines[0]?.yield_pct ?? null })
+      work.push({ from: 'option', item_id: rule.item_id || null, sub_recipe_id: rule.sub_recipe_id || null, name: thing?.name || null, qty, unit: rule.unit, cost: c.cost, mult: 1, yield_pct: c.lines[0]?.yield_pct ?? null, ...boughtOf(c) })
       return done('adds ' + qtyText(qty, rule.unit) + ' ' + (thing?.name || 'of something that is gone'), fromRule)
     }
     case 'recipe': {
@@ -926,7 +931,7 @@ function applyOption(work, sel, dish, ctx, gaps) {
       const rc = recipeCost(side, ctx)
       if (rc.per_unit == null) gaps.push(dishGap('option_recipe', label + ': ' + side.name + ' can\'t be costed yet', 'Open ' + side.name + ' and fix its gaps.', { option_id: opt.id, recipe_id: side.id }))
       else if (rc.gaps.length) gaps.push(dishGap('option_recipe', label + ': ' + side.name + ' is only partly costed', 'Open ' + side.name + ' and fix its gaps.', { option_id: opt.id, recipe_id: side.id }))
-      work.push({ from: 'option', item_id: null, sub_recipe_id: null, recipe_id: side.id, name: side.name, qty: portions, unit: 'portion', cost: rc.per_unit == null ? null : rc.per_unit * portions, mult: 1 })
+      work.push({ from: 'option', item_id: null, sub_recipe_id: null, recipe_id: side.id, name: side.name, qty: portions, unit: 'portion', cost: rc.per_unit == null ? null : rc.per_unit * portions, mult: 1, bought: portions, problem: null })
       return done(fmtNum(portions) + ' x ' + side.name, fromRule)
     }
     default:
@@ -961,6 +966,242 @@ export function flatPicks(picks) {
 
 const coverageOf = (cost, gaps) => (cost == null ? 'none' : gaps.length ? 'partial' : 'full')
 
+// The menus' dishes as the combo rules read them (shared/combos.js stepChoices()).
+function comboCtx(ctx) {
+  if (ctx.combo) return ctx.combo
+  const dishes = ctx.dishes instanceof Map ? Object.fromEntries(ctx.dishes) : (ctx.dishes || {})
+  return { itemsById: dishes, sectionItems: {} }
+}
+
+/**
+ * A meal deal's typical picks (phase 5, docs/INVENTORY.md 5.4 and 7): each
+ * step's dishes guests pick most (ctx.pickMix: { dealId: { stepId: { dishId:
+ * qty } } }, from sales; pickMix() builds it), else the step's first choices
+ * in menu order, as many as the step asks for (its min, the same dish again
+ * in a step that repeats). A step shown only after another's pick, or one a
+ * guest may skip, adds none. [{ dish_id, options: [], step_id }]. What a
+ * mapped deal from another till takes off stock, and the deal's typical cost.
+ */
+export function typicalPicks(dish, ctx = {}) {
+  const combo = comboOf(dish)
+  if (!combo) return []
+  const mctx = comboCtx(ctx)
+  const mix = get(ctx.pickMix, dish.id) || {}
+  const out = []
+  for (const step of combo.steps || []) {
+    const n = step.when ? 0 : Math.max(0, Math.trunc(num(step.min)))
+    if (!n) continue
+    const choices = stepChoices(step, { ...mctx, soldOut: null, selfId: dish.id }).filter(c => c.item_id)
+    if (!choices.length) continue
+    const sold = mix[step.id] || {}
+    const ranked = choices.map((c, i) => ({ c, i, q: num(sold[c.item_id]) })).sort((a, b) => b.q - a.q || a.i - b.i).map(x => x.c)
+    const picked = step.repeat ? Array(n).fill(ranked[0]) : ranked.slice(0, n)
+    for (const c of picked) out.push({ dish_id: c.item_id, options: [], step_id: step.id })
+  }
+  return out
+}
+
+/** ctx.pickMix from sold picks: rows [{ deal_id, step_id, dish_id, qty }] -> { dealId: { stepId: { dishId: qty } } }. */
+export function pickMix(rows = []) {
+  const out = {}
+  for (const r of rows || []) {
+    if (!r?.deal_id || !r.step_id || !r.dish_id) continue
+    const step = ((out[r.deal_id] ||= {})[r.step_id] ||= {})
+    step[r.dish_id] = (step[r.dish_id] || 0) + num(r.qty || 1)
+  }
+  return out
+}
+
+/**
+ * Options kept by their words (an online order's: [{ group, label, qty? }],
+ * "2 x Cheese" for two) as the dish's options now: each matched by its label
+ * within the dish's group of that name, else anywhere in the dish when only
+ * one option has that label. { options: [{ option_id, qty }], unmatched:
+ * [{ group, label }] }. A renamed or removed option can't be matched.
+ */
+export function matchOptions(dish, labelled = []) {
+  const choices = dish ? itemChoices(dish, {}) : []
+  const options = []
+  const unmatched = []
+  for (const o of labelled || []) {
+    if (!o || !String(o.label || '').trim()) continue
+    const m = /^(\d+)\s*x\s+(.+)$/i.exec(String(o.label).trim())
+    const label = lower(m ? m[2] : o.label)
+    const qty = num(o.qty) > 0 ? num(o.qty) : m ? Number(m[1]) : 1
+    const groups = o.group ? choices.filter(c => lower(c.name) === lower(o.group)) : []
+    const hits = (groups.length ? groups : choices).flatMap(c => c.options.filter(x => lower(x.label) === label))
+    if (hits.length === 1 || (hits.length > 1 && groups.length)) options.push({ option_id: hits[0].id, qty })
+    else unmatched.push({ group: o.group ?? null, label: o.label })
+  }
+  return { options, unmatched }
+}
+
+// ── Usage: what a sale takes off stock (phase 5) ─────────────────
+
+// A dish's own gaps that leave what it takes off unknown (the rest, a price
+// missing, change only its cost). A recipe's are read from recipeCost().
+const USAGE_DISH_GAPS = new Set(['no_recipe', 'not_dish', 'no_rule', 'option_gone', 'no_picks', 'custom_choice'])
+const LINE_QTY_PROBLEMS = new Set(['missing', 'no_unit', 'cycle', 'too_deep', 'no_yield'])
+const RECIPE_QTY_GAPS = new Set(['empty', 'no_yield', 'draft'])
+
+/** A recipe's gaps that change what it takes off: its own (nothing in it, no yield, not checked) and lines with no quantity. */
+function qtyGapsOf(rc, recipe, note) {
+  for (const g of rc.gaps) {
+    if (g.line == null) {
+      if (RECIPE_QTY_GAPS.has(g.reason)) note({ reason: g.reason, text: g.text, fix: g.fix, recipe_id: recipe.id })
+    } else if (rc.lines[g.line]?.bought_qty == null) {
+      note({ reason: g.reason, text: recipe.name + ': ' + g.text, fix: g.fix, recipe_id: recipe.id })
+    }
+  }
+}
+
+/**
+ * A batch of a recipe broken into items, on recipeCost()'s own lines (the
+ * one walk: each line as bought after its yield, a prep recipe inside by its
+ * yield less its loss). qty in what the recipe makes (its yield unit, or
+ * portions). add(itemId, qty), note(gap).
+ */
+function batchItems(recipe, qty, ctx, add, note, stack = []) {
+  const rc = recipeCost(recipe, ctx)
+  qtyGapsOf(rc, recipe, note)
+  if (!(rc.makes > 0)) return
+  const f = num(qty) / rc.makes
+  for (const l of rc.lines) {
+    if (l.bought_qty == null) continue
+    if (l.kind === 'item') { add(l.item_id, l.bought_qty * f); continue }
+    const sub = get(ctx.recipes, l.sub_recipe_id)
+    if (!sub) continue
+    if (sub.id === recipe.id || stack.includes(sub.id)) {
+      note({ reason: 'cycle', text: sub.name + ' is inside itself', fix: FIX.cycle(sub.name), recipe_id: recipe.id })
+      continue
+    }
+    if (stack.length + 1 >= MAX_DEPTH) {
+      note({ reason: 'too_deep', text: sub.name + ' is nested more than ' + MAX_DEPTH + ' levels down', fix: FIX.too_deep(), recipe_id: recipe.id })
+      continue
+    }
+    batchItems(sub, l.bought_qty * f, ctx, add, note, [...stack, recipe.id])
+  }
+}
+
+const round4 = n => Math.round(Number(n) * 10000) / 10000
+function usageAcc() {
+  const acc = new Map()
+  const uncosted = []
+  return {
+    add: (id, q) => { if (id && Number.isFinite(q) && q !== 0) acc.set(id, (acc.get(id) || 0) + q) },
+    note: g => { if (g && g.text && !uncosted.some(x => x.text === g.text)) uncosted.push(g) },
+    items: () => [...acc.entries()].map(([item_id, q]) => ({ item_id, qty_base: round4(q) })).filter(i => i.qty_base !== 0),
+    uncosted,
+  }
+}
+
+/**
+ * A batch of a prep recipe (2 l of sauce) as items bought: { items:
+ * [{ item_id, qty_base }], uncosted: [{ reason, text, fix }] }. qty in what
+ * the recipe makes. The waste of a batch (itemsOf() in shared/stockItems.js).
+ */
+export function recipeUsage(recipe, qty, ctx = {}) {
+  const a = usageAcc()
+  if (recipe) batchItems(recipe, qty, ctx, a.add, a.note)
+  return { items: a.items(), uncosted: a.uncosted }
+}
+
+// Options kept by their words (an online order's) as ids; the ones not matched are gaps.
+function idOptions(dish, options, note) {
+  const list = (options || []).filter(Boolean)
+  const labelled = list.filter(o => !o.option_id && o.label)
+  if (!labelled.length) return list
+  const m = matchOptions(dish, labelled)
+  for (const u of m.unmatched) {
+    note({
+      reason: 'option_label', text: (dish?.name || 'A dish') + ': "' + u.label + '"' + (u.group ? ' (' + u.group + ')' : '') + ' is not one of its options now',
+      fix: 'An online order keeps its options by name: one renamed or taken off the menu since can\'t be matched, so what it adds is left out. Name it as it was, or leave it.',
+    })
+  }
+  return [...list.filter(o => o.option_id), ...m.options]
+}
+
+/**
+ * What one sold dish takes off stock (docs/INVENTORY.md 7; phase 5), by the
+ * same walk as its cost: dishCost() at the sale's scope (the recipe
+ * recipeFor() picks for its venue, revenue stream and order type, times the
+ * link's portions, each option's rule and prefix, a meal deal's picks), each
+ * line as bought (its yield), prep recipes inside by their yield and loss
+ * (recipeCost()'s lines).
+ * sold: { dish_id, qty, options (ids: [{ option_id, prefix, qty }], a till
+ * line's modifiers; or words: [{ group, label }], an online order's), picks
+ * (a deal's: a till line's combo, a list, an online order's parts with their
+ * options' words), typical (a deal with no picks takes its typical picks,
+ * typicalPicks(); default true, false for waste logged by hand) }. scope: {
+ * venue_id, revenue_stream_id, order_type_id }. ctx: the dish costing ctx.
+ * Returns { dish_id, name, kind, qty, items: [{ item_id, qty_base }] (each
+ * item once, 4 decimals), uncosted: [{ reason, text, fix }] (what left its
+ * quantities unknown: no recipe, an option with no rule or not matched, a
+ * unit with no size; and a draft Pepper wrote, still counted: it is the best
+ * recipe known), recipe ({ id, name, status } or null; a deal's first
+ * part's), cost (dishCost()'s at ctx's prices and basis, times qty: the sum
+ * of each item's qty x its cost per base unit), coverage, typical (true when
+ * a deal's picks were its typical ones), picks }. A dish with no recipe
+ * takes nothing off; a service needs none.
+ */
+export function usageOf(sold = {}, scope = {}, ctx = {}) {
+  const a = usageAcc()
+  const n = sold.qty == null || sold.qty === '' ? 1 : num(sold.qty)
+  const top = {
+    dish_id: sold.dish_id ?? null, name: get(ctx.dishes, sold.dish_id)?.name || 'A dish that is gone', kind: 'dish',
+    qty: n, items: [], uncosted: a.uncosted, recipe: null, cost: null, coverage: 'none', typical: false, picks: null,
+  }
+  let costed = 0
+  let anyCost = false
+  let allFull = true
+  const one = (dishId, times, options, picks, depth) => {
+    const dish = get(ctx.dishes, dishId)
+    if (dish && isCombo(dish)) {
+      // A meal deal: its picks' dishes, each with its own options (by their words for an online order's parts).
+      if (!depth) top.kind = 'deal'
+      let parts = picks != null ? flatPicks(Array.isArray(picks) ? picks.filter(Boolean).map(p => (Array.isArray(p.options) && p.options.some(o => o && !o.option_id && o.label)
+        ? { ...p, options: idOptions(get(ctx.dishes, p.dish_id || p.item_id), p.options, a.note) } : p)) : picks) : []
+      if (!parts.length && picks == null && sold.typical !== false) {
+        parts = typicalPicks(dish, ctx)
+        if (parts.length && !depth) top.typical = true
+      }
+      if (!depth) top.picks = parts.map(p => ({ dish_id: p.dish_id, options: p.options || [] }))
+      if (!parts.length) {
+        a.note({ reason: 'no_picks', text: 'No dishes are known for ' + dish.name, fix: 'Give the meal deal\'s steps their dishes on the menu.', dish_id: dishId })
+        allFull = false
+        return
+      }
+      for (const p of parts) one(p.dish_id, times, p.options, null, depth + 1)
+      return
+    }
+    const dc = dishCost(dishId, { options: idOptions(dish, options, a.note) }, scope, ctx)
+    if (!depth) top.kind = dc.kind
+    if (dc.kind === 'service') return
+    if (dc.recipe && !top.recipe) top.recipe = { id: dc.recipe.id, name: dc.recipe.name, status: dc.recipe.status ?? null }
+    if (dc.cost != null) { costed += dc.cost * times; anyCost = true }
+    if (dc.coverage !== 'full') allFull = false
+    for (const g of dc.gaps) {
+      if (USAGE_DISH_GAPS.has(g.reason) || (g.reason === 'missing' && (!dc.recipe || g.option_id)) || (g.option_id && LINE_QTY_PROBLEMS.has(g.reason))) {
+        a.note({ reason: g.reason, text: g.text, fix: g.fix, ...(g.option_id ? { option_id: g.option_id } : {}), dish_id: dishId })
+      }
+    }
+    if (!dc.recipe || dc.recipe.kind !== 'dish') return
+    const recipe = get(ctx.recipes, dc.recipe.id)
+    if (recipe) qtyGapsOf(recipeCost(recipe, ctx), recipe, a.note)
+    for (const l of dc.lines) {
+      if (l.bought == null) continue
+      if (l.item_id) { a.add(l.item_id, l.bought * times); continue }
+      const sub = get(ctx.recipes, l.sub_recipe_id || l.recipe_id)
+      if (sub) batchItems(sub, l.bought * times, ctx, a.add, a.note, [dc.recipe.id])
+    }
+  }
+  one(sold.dish_id, n, sold.options, sold.picks ?? null, 0)
+  top.items = a.items()
+  top.cost = anyCost ? round6(costed) : null
+  top.coverage = top.kind === 'service' ? 'not_needed' : !anyCost ? 'none' : allFull && !a.uncosted.length ? 'full' : 'partial'
+  return top
+}
+
 /** A meal deal: the sum of the dishes picked, or the range over its choices when the picks aren't known. */
 function dealCost(dish, selection, scope, ctx, out) {
   out.kind = 'deal'
@@ -983,8 +1224,7 @@ function dealCost(dish, selection, scope, ctx, out) {
   }
   // The picks aren't known (a margins page): the least and the most it can cost.
   const combo = comboOf(dish)
-  const dishes = ctx.dishes instanceof Map ? Object.fromEntries(ctx.dishes) : (ctx.dishes || {})
-  const mctx = ctx.combo || { itemsById: dishes, sectionItems: {} }
+  const mctx = comboCtx(ctx)
   let lo = 0, hi = 0, any = false
   for (const step of combo?.steps || []) {
     const choices = stepChoices(step, { ...mctx, soldOut: null, selfId: dish.id })
@@ -1031,8 +1271,10 @@ function dealCost(dish, selection, scope, ctx, out) {
   }
   out.min = any ? round6(lo) : null
   out.max = any ? round6(hi) : null
-  // Phase 5 hook: the typical cost, from what guests actually pick (usage from sales). Until then null.
-  out.typical = null
+  // The typical cost (phase 5): the dishes guests pick most (ctx.pickMix, from sales), else each step's first.
+  const tp = typicalPicks(dish, ctx)
+  out.typical = tp.length ? dishCost(dish.id, { picks: tp }, scope, ctx).cost : null
+  out.typical_picks = tp
   out.cost = null
   out.coverage = coverageOf(out.max, out.gaps)
   return out
@@ -1042,7 +1284,8 @@ function dealCost(dish, selection, scope, ctx, out) {
  * What a dish costs at a scope: { dish_id, name, kind: 'dish' | 'deal' |
  * 'goods' | 'service', recipe: { id, name, kind, variant_of, status } |
  * null, why, link_id, portions, cost, min, max (a deal without its picks),
- * typical (null until phase 5), recipe_per_portion, lines (as served, with
+ * typical (a deal without its picks: the cost of its typical picks,
+ * typicalPicks(), with typical_picks), recipe_per_portion, lines (as served, with
  * the options applied), steps: [{ kind, label, text, plain?, amount }]
  * (plain: the text without money, where text has some), gaps: [{ reason,
  * text, fix }], coverage: 'full' | 'partial' | 'none' | 'not_needed' (a
@@ -1109,9 +1352,12 @@ export function dishCost(dishId, selection = {}, scope = {}, ctx = {}) {
   // The dish's lines as served: each recipe line's share of one serving.
   // yield_pct: the yield the line is bought at (its own, else its item's; 100 for a prep recipe
   // with none), for what a dish takes off stock (itemsOf() in shared/stock.js).
+  // bought: the line as bought (recipeCost()'s bought_qty: the item's base unit after its yield, or a
+  // prep recipe's own unit), what usage from sales takes off (usageOf()); null with the line's problem.
   const work = rc.lines.map(l => ({
     from: 'recipe', item_id: l.item_id || null, sub_recipe_id: l.sub_recipe_id || null, name: l.name,
     qty: num(l.qty) * f, unit: l.unit, cost: l.cost == null ? null : l.cost * f, mult: 1, yield_pct: l.yield_pct ?? null,
+    bought: l.bought_qty == null ? null : l.bought_qty * f, problem: l.bought_qty == null ? l.problem : null,
   }))
   for (const g of rc.gaps) out.gaps.push(dishGap(g.reason, recipe.name + ': ' + g.text, g.fix, { recipe_id: recipe.id }))
   const partly = rc.coverage === 'partial' ? ' (partly costed)' : ''
@@ -1129,6 +1375,7 @@ export function dishCost(dishId, selection = {}, scope = {}, ctx = {}) {
   out.lines = work.filter(w => w.mult > 0).map(w => ({
     from: w.from, item_id: w.item_id, sub_recipe_id: w.sub_recipe_id, recipe_id: w.recipe_id ?? null, name: w.name,
     qty: round6(w.qty * w.mult), unit: w.unit, cost: w.cost == null ? null : round6(w.cost * w.mult), yield_pct: w.yield_pct ?? null,
+    bought: w.bought == null ? null : round6(w.bought * w.mult), problem: w.problem ?? null,
   }))
   if (out.cost != null) out.steps.push({ kind: 'total', label: 'Cost', text: out.coverage === 'full' ? 'fully costed' : 'partly costed: ' + out.gaps.length + (out.gaps.length === 1 ? ' gap' : ' gaps'), amount: out.cost })
   return out
