@@ -12,7 +12,8 @@
 // VAT steps, and a link to its matrix. The targets (Costing manage) are a
 // card of their own with its Save. Export CSV. Everything is worked out on
 // the server by menuMargins() in shared/costing.js; the page shows it.
-// The choices are in the address (?menu= &venue= &stream= &type= &version=).
+// The choices are in the address (?menu= &venue= &stream= &type= &version=;
+// ?dish= opens one dish's explanation).
 // API: routes/menuMargins.js, routes/recipeLinks.js (a dish's steps).
 
 import { useEffect, useMemo, useState } from 'react'
@@ -68,6 +69,14 @@ export default function MenuMargins() {
   })
   const data = margins.data
   const rows = useMemo(() => sortRows(data?.rows || [], sort), [data, sort])
+  // ?dish= (a report's row) opens that dish's explanation once the rows are in.
+  const dishParam = params.get('dish')
+  useEffect(() => {
+    if (!dishParam || !data?.rows) return
+    const r = data.rows.find(x => x.dish_id === dishParam)
+    if (r) setOpen(r)
+    set({ dish: '' })
+  }, [dishParam, data])
   if (loaded && !canView) {
     return <div className="h-full overflow-y-auto bg-page p-6 text-sm text-muted-foreground">Your role can&apos;t see menu margins: they need Costing view.</div>
   }

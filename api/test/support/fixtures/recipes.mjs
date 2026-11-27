@@ -1,13 +1,25 @@
 // Recipes (inventory phase 1, migrations 298 to 301): an item with a
 // supplier price and a unit of its own, a prep recipe, a dish holding both,
 // the dish saved whole, its live cost asked for, and a variation of it.
+// Phase 2 (migrations 302, 303): the menu's dish linked to the recipe for
+// every venue and at the venue, a goods link, an option rule for the menus'
+// option group and a dish's own exception, the cost targets with the menu
+// section's own; later (fillLate, after the till's order types) links for an
+// order type, a revenue stream and both.
 export const order = 85
+// After the till (140): its order type.
+export const lateOrder = 150
 
-// The tenant sweep's id kinds for this area's tables.
-export const kinds = { recipeId: ['recipes'], unitId: ['inv_item_units'] }
+// The tenant sweep's id kinds for this area's tables (and the menu rows its routes take by plain id).
+export const kinds = {
+  recipeId: ['recipes'], unitId: ['inv_item_units'],
+  dishId: ['menu_items'], recipeLinkId: ['recipe_links'], optionRuleId: ['recipe_option_rules'], optionId: ['menu_variant_options'],
+}
+
+const blankRule = { option_id: null, dish_id: null, option_label: null, item_id: null, sub_recipe_id: null, swap_item_id: null, qty: null, unit: null, factor: null, recipe_id: null, note: null }
 
 export async function fill(ctx) {
-  const { mark, ids, step, post, put, patch } = ctx
+  const { V, mark, ids, step, post, put, patch } = ctx
   const supplier = await step('recipe supplier', () => post('/api/suppliers', { name: mark + ' Dairy Co', send_method: 'print' }))
   const item = await step('recipe item', () => post('/api/inventory/items', { name: mark + ' Cheddar', base_unit: 'g', yield_pct: 95 }))
   if (!item) return
@@ -39,5 +51,40 @@ export async function fill(ctx) {
   // The editor's live cost: nothing written, the other group's ids refused.
   await step('recipe preview', () => post('/api/recipes/preview', { id: dish.id, name: dish.name, kind: 'dish', portions: 2, lines }))
   const variation = await step('recipe variation', () => post(`/api/recipes/${dish.id}/copy`, { name: mark + ' Toastie to take away', variant: true }))
-  if (variation) await step('recipe switched on', () => patch(`/api/recipes/${variation.id}/active`, { is_active: true }))
+  if (variation) {
+    await step('recipe switched on', () => patch(`/api/recipes/${variation.id}/active`, { is_active: true }))
+    ctx.made.recipeVariation = variation
+  }
+
+  // Phase 2: the menu's dish (menus.mjs) linked for every venue, and the venue's own variation.
+  const menuDish = ctx.made.dish
+  if (menuDish) {
+    await step('recipe link', () => put(`/api/recipe-links/dishes/${menuDish.id}/cell`, { recipe_id: dish.id, portions: 1 }))
+    if (variation) await step('recipe link at a venue', () => put(`/api/recipe-links/dishes/${menuDish.id}/cell`, { venue_id: V, recipe_id: variation.id, portions: 2 }))
+    // What its option does, for every dish and for this one (an exception).
+    const option = ctx.made.vg?.options?.find(o => o.label === 'Large')
+    if (option) {
+      await step('option rule', () => put('/api/recipe-options/rules', { ...blankRule, option_id: option.id, action: 'scale', factor: 1.5, note: mark + ' bigger' }))
+      await step('option rule for a dish', () => put('/api/recipe-options/rules', { ...blankRule, option_id: option.id, dish_id: menuDish.id, action: 'add', item_id: item.id, qty: 30, unit: 'g' }))
+    }
+  }
+  // The cost targets, with the menu section's own (migration 302).
+  const section = ctx.made.menuSection
+  await step('costing settings', () => put('/api/menu-margins/settings', {
+    target_pct: 28, limit_pct: 33, sections: section ? [{ section_id: section.id, target_pct: 25, limit_pct: 30 }] : [],
+  }))
+}
+
+/** Links that need the till's order type and a revenue stream of the venue. */
+export async function fillLate(ctx) {
+  const { V, mark, made, step, post, put } = ctx
+  const menuDish = made.dish
+  const recipe = made.recipeVariation || made.recipe
+  if (!menuDish || !recipe) return
+  const stream = await step('recipe link stream', () => post(`/api/pos/venues/${V}/revenue-streams`, { name: mark + ' Terrace' }))
+  if (made.orderType) await step('recipe link for an order type', () => put(`/api/recipe-links/dishes/${menuDish.id}/cell`, { order_type_id: made.orderType.id, recipe_id: recipe.id }))
+  if (stream) await step('recipe link for a stream', () => put(`/api/recipe-links/dishes/${menuDish.id}/cell`, { revenue_stream_id: stream.id, recipe_id: recipe.id }))
+  if (stream && made.orderType) {
+    await step('recipe link for a stream and order type', () => put(`/api/recipe-links/dishes/${menuDish.id}/cell`, { venue_id: V, revenue_stream_id: stream.id, order_type_id: made.orderType.id, recipe_id: recipe.id, portions: 1.5 }))
+  }
 }

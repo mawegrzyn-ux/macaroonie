@@ -33,13 +33,14 @@ function DishCoverage({ coverage }) {
   )
 }
 
-export function DishList({ onOpen, canManage }) {
+export function DishList({ onOpen, canManage, startQ = '' }) {
   const api = useApi()
   const qc = useQueryClient()
   const { data, isLoading, error } = useQuery({ queryKey: ['recipe-dishes'], queryFn: () => api.get('/recipe-links/dishes') })
   const [menuId, setMenuId] = useState('')
   const [only, setOnly] = useState('all')
-  const [q, setQ] = useState('')
+  // ?q= starts the search (Pepper's link to a dish, by its name).
+  const [q, setQ] = useState(startQ)
   const [review, setReview] = useState(null)
   const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
   const rows = useMemo(() => (data?.dishes || [])

@@ -1,5 +1,5 @@
 // src/pages/docs/recipes.jsx
-// The Docs page's "Recipes and costing" section (inventory phase 1). Docs.jsx
+// The Docs page's "Recipes and costing" section (inventory phases 1 and 2). Docs.jsx
 // gathers every file in this folder (except parts.jsx) and shows them by order, then id.
 import { H2, H3, P, Mono, InfoBox } from './parts.jsx'
 
@@ -120,9 +120,93 @@ export function Section() {
         <Mono>api/src/ai/tools/recipes.js</Mono>, <Mono>find_recipes</Mono> and <Mono>recipe</Mono> (read only,
         through the routes, by name; a recipe&apos;s link is <Mono>/recipes?q=</Mono> its name, no id, rule 19); registry <Mono>shared/registry/recipes.js</Mono> (<Mono>recipes.recipes</Mono>).
       </P>
+      <H3>Phase 2: what is sold, linked (migrations 302, 303)</H3>
+      <P>
+        <Mono>recipe_links</Mono>: <Mono>dish_id</Mono> (a <Mono>menu_items.id</Mono>, plain: the menu save deletes and
+        re-inserts dishes under the same ids), <Mono>recipe_id</Mono> (a dish recipe, cascade), <Mono>portions</Mono>{' '}
+        (&gt; 0, default 1), the scope <Mono>venue_id</Mono>, <Mono>revenue_stream_id</Mono>, <Mono>order_type_id</Mono>{' '}
+        (each empty = any; a stream link stores its stream&apos;s venue, CHECK stream needs venue, the API refuses another
+        venue: 422 <Mono>stream_venue</Mono>), <Mono>missing_since</Mono>, <Mono>created_by</Mono>. Unique per dish and
+        scope (<Mono>COALESCE</Mono> to the zero uuid). <Mono>recipe_option_rules</Mono>: <Mono>option_id</Mono> (a{' '}
+        <Mono>menu_variant_options.id</Mono>, plain) or, for a dish&apos;s own one-off option, <Mono>dish_id</Mono> +{' '}
+        <Mono>option_label</Mono> (as sales name it, <Mono>v:&lt;label&gt;</Mono>); <Mono>dish_id</Mono> with an option
+        is that dish&apos;s exception; <Mono>action</Mono> add | remove | swap | scale | recipe | nothing with{' '}
+        <Mono>item_id</Mono> or <Mono>sub_recipe_id</Mono> + <Mono>qty</Mono> + <Mono>unit</Mono> (add),{' '}
+        <Mono>item_id</Mono> (remove), <Mono>item_id</Mono> + <Mono>swap_item_id</Mono> (+ optional <Mono>qty</Mono>,{' '}
+        <Mono>unit</Mono>) (swap), <Mono>factor</Mono> (scale, up to 20), <Mono>recipe_id</Mono> (a dish recipe, qty =
+        portions); <Mono>missing_since</Mono> for dish rules; unique per option and dish, and per dish and lower(label).{' '}
+        <Mono>costing_settings</Mono> (one row per tenant, optional): <Mono>target_pct</Mono>, <Mono>limit_pct</Mono>{' '}
+        (defaults 30 and 35, target &lt;= limit), <Mono>sections</Mono> jsonb{' '}
+        <Mono>{'[{ section_id, target_pct, limit_pct }]'}</Mono>. All three force RLS. Migration 303 puts Menu margins
+        after Recipes in saved menus (record in <Mono>shared/nav/recipes.js</Mono>, module costing).
+      </P>
+      <H3>The engine, phase 2</H3>
+      <P>
+        <Mono>recipeFor(dishId, scope, links, {'{ names }'})</Mono> returns <Mono>{'{ link, why, score }'}</Mono>: a link
+        applies when every scope it sets is the sale&apos;s, and the closest wins, scored as <Mono>taxFor()</Mono> scores a
+        tax rule (<Mono>RULE_WEIGHTS</Mono>: stream 4, order type 2, venue 1; a stream link&apos;s venue adds nothing), so
+        a dish&apos;s recipe and its VAT never disagree on which setting is closer; <Mono>why</Mono> is{' '}
+        <Mono>scopeText()</Mono> (&ldquo;Take out at Bar (Soho)&rdquo;, &ldquo;every venue&rdquo;).{' '}
+        <Mono>ruleFor(dishId, option, rules)</Mono> (the dish&apos;s exception, else the option&apos;s),{' '}
+        <Mono>ruleText()</Mono>, <Mono>ruleProblem()</Mono>. <Mono>dishCost(dishId, {'{ options, picks }'}, scope, ctx)</Mono>:
+        the picked recipe&apos;s lines times portions / what it makes, then each option: add (a one-line recipe costed
+        by <Mono>recipeCost()</Mono>), remove, swap, scale (the recipe&apos;s lines only), recipe (a portion of its own
+        recipe), nothing; prefixes (<Mono>PREFIX_FACTORS</Mono>: No 0, Light 0.5, Extra 2, On the side 1) act on the
+        recipe&apos;s lines of the option&apos;s item when it has them, else on what the option adds; an option with no rule
+        finds its lines by name for a prefix, and otherwise follows its group&apos;s <Mono>variation_type</Mono>{' '}
+        (addition and side: a gap; modification: nothing; no type: nothing unless it is a priced extra). A meal deal
+        sums its picks, or gives <Mono>min</Mono> / <Mono>max</Mono> over its steps&apos; choices
+        (<Mono>stepChoices()</Mono>; a step with a condition adds nothing to the least); <Mono>typical</Mono> stays
+        null until sales (phase 5). Goods with no link offer the inventory item with the same barcode
+        (<Mono>goods_item</Mono>); a service is <Mono>not_needed</Mono>, never a gap.{' '}
+        <Mono>dishMargin()</Mono> / <Mono>menuMargins(menu, scope, ctx, {'{ rates, settings }'})</Mono>: price by{' '}
+        <Mono>fromPrice()</Mono> (the till and online price: one price per dish on a menu), VAT by{' '}
+        <Mono>taxFor([dish, section, menu], scope)</Mono>, <Mono>margin()</Mono>, band by <Mono>costBand()</Mono> against{' '}
+        <Mono>thresholdsFor(settings, sectionId)</Mono>; priced options (an extra&apos;s added cost; a base option&apos;s
+        whole dish); deals at their dearest picks. <Mono>marginSteps()</Mono> words the price and VAT. Tests:{' '}
+        <Mono>shared/test/dishCost.test.mjs</Mono>.
+      </P>
+      <H3>Phase 2 routes</H3>
+      <P>
+        Loaders: <Mono>services/dishCostSvc.js</Mono> (public): <Mono>loadLinks()</Mono>, <Mono>loadOptionRules()</Mono>,{' '}
+        <Mono>loadOptionLibrary()</Mono>, <Mono>loadScopes()</Mono>, <Mono>loadCostingSettings()</Mono>,{' '}
+        <Mono>goodsIndex()</Mono>, <Mono>loadDishCosting()</Mono> (<Mono>loadCosting()</Mono> with the items rules name),{' '}
+        <Mono>menusFor()</Mono> (<Mono>loadMenuVersions()</Mono>), <Mono>dishIdsOnMenus()</Mono> (draft or live),{' '}
+        <Mono>copyRecipeLinks()</Mono> (menus&apos; <Mono>POST /:id/duplicate</Mono>: links, dish rules, section
+        targets onto the new ids), <Mono>sweepRecipeLinks()</Mono>. <Mono>/api/recipe-links</Mono>{' '}
+        (<Mono>routes/recipeLinks.js</Mono>; Recipes view, changes Recipes manage, money Costing view):{' '}
+        <Mono>GET /dishes</Mono> (the Dishes tab, with matches by <Mono>matchThing()</Mono>, goods offers, links on no
+        menu), <Mono>GET /dishes/:dishId</Mono> (rows, columns, each cell&apos;s recipe set or inherited with{' '}
+        <Mono>from</Mono>, cost and margin, the dish&apos;s options), <Mono>PUT /dishes/:dishId/cell</Mono>,{' '}
+        <Mono>DELETE /links/:recipeLinkId</Mono>, <Mono>POST /bulk</Mono>, <Mono>POST /goods</Mono> (a one-line recipe of
+        the item, 1 each, under <Mono>lockRecipes()</Mono>), <Mono>GET /recipes/:recipeId</Mono>,{' '}
+        <Mono>GET /dishes/:dishId/cost</Mono> <Mono>?venue_id &amp;revenue_stream_id &amp;order_type_id &amp;version &amp;options</Mono>{' '}
+        (Recipes or Costing view). <Mono>/api/recipe-options</Mono> (<Mono>routes/recipeOptions.js</Mono>):{' '}
+        <Mono>GET /</Mono>, <Mono>GET /options/:optionId</Mono>, <Mono>PUT /rules</Mono> (strict: every field, rule
+        13), <Mono>DELETE /rules/:optionRuleId</Mono>. <Mono>/api/menu-margins</Mono> (<Mono>routes/menuMargins.js</Mono>,
+        Costing view): <Mono>GET /</Mono> <Mono>?menu_id &amp;venue_id &amp;revenue_stream_id &amp;order_type_id &amp;version</Mono>{' '}
+        (live by default through <Mono>loadMenuVersion()</Mono>), <Mono>GET /settings</Mono>, <Mono>PUT /settings</Mono>{' '}
+        (Costing manage, whole). Every id is checked to be the group&apos;s (rule 4). The job{' '}
+        <Mono>jobs/recipe-links.js</Mono> (daily, system mode, each tenant in its own transaction): marks links and dish
+        rules whose dish is on no menu, clears those that are back, deletes what has been missing 30 days.
+      </P>
+      <H3>Phase 2 admin, reports and Pepper</H3>
+      <P>
+        <Mono>pages/Recipes.jsx</Mono> tabs <Mono>?tab=dishes</Mono> (<Mono>components/recipes/DishList.jsx</Mono>;{' '}
+        <Mono>?dish=</Mono> opens <Mono>DishMatrix.jsx</Mono>, a grid inside its card from 640 px and a list per venue
+        below) and <Mono>?tab=options</Mono> (<Mono>OptionRules.jsx</Mono>: <Mono>OptionList</Mono>,{' '}
+        <Mono>OptionEditor</Mono>, <Mono>RuleForm</Mono>, <Mono>RuleModal</Mono>); the editor&apos;s{' '}
+        <Mono>MenusCard</Mono> (Used on menus, Link a dish). <Mono>pages/MenuMargins.jsx</Mono> (<Mono>/menu-margins</Mono>,
+        lazy; <Mono>?menu= &amp;venue= &amp;stream= &amp;type= &amp;version= &amp;dish=</Mono>; CSV made in the page from the
+        rows). Reports: <Mono>recipes.links</Mono> (module recipes) and <Mono>recipes.margins</Mono> (the work{' '}
+        <Mono>dish_margins</Mono>: each live menu dish at each venue and active order type by <Mono>menuMargins()</Mono>;
+        module costing), starters Dishes over the target cost % and Dishes with no recipe. Pepper:{' '}
+        <Mono>dish_cost</Mono> and <Mono>menu_margins</Mono> (read, through the routes, by names). Registry:{' '}
+        <Mono>recipes.links</Mono>, <Mono>recipes.option_rules</Mono>, <Mono>recipes.margins</Mono>.
+      </P>
       <InfoBox type="info">
-        Not yet: links from recipes to menu dishes and options, the variation matrix per venue, revenue stream and
-        order type, menu margins, recipes read by Pepper, stock. They are the later phases of{' '}
+        Not yet: recipes read by Pepper, coverage by sales value, stock, usage from sales, the typical cost of a meal
+        deal from what guests pick, engineering and scenarios. They are the later phases of{' '}
         <Mono>docs/INVENTORY.md</Mono>; what is left is in <Mono>docs/claude/outstanding/recipes.md</Mono>.
       </InfoBox>
     </section>

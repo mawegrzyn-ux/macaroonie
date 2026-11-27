@@ -1,5 +1,7 @@
 // src/pages/help/recipes.jsx
-// The Help page's "Recipes" section (inventory phase 1). Help.jsx gathers
+// The Help page's "Recipes" section (inventory phases 1 and 2: recipes, links
+// to menu dishes by venue, revenue stream and order type, option rules, Menu
+// margins and cost targets). Help.jsx gathers
 // every file in this folder (except parts.jsx) and shows them by order, then id.
 import { H2, H3, P, InfoBox, DataTable } from './parts.jsx'
 
@@ -50,7 +52,7 @@ export function Section() {
         kitchen&apos;s version, or one venue&apos;s own way of making it. A variation is listed under the recipe it
         varies and is a recipe of its own, so it has its own lines and its own cost. <strong>Copy</strong> makes
         a separate recipe instead. Which variation a dish uses at which venue and for which way of selling it
-        (eat in, takeaway, delivery) is set when recipes are linked to your menus, which comes next.
+        (eat in, takeaway, delivery) is set on the dish&apos;s matrix (below).
       </P>
       <H3>What a recipe costs</H3>
       <P>
@@ -97,18 +99,104 @@ export function Section() {
       <DataTable
         head={['Access', 'View', 'Manage']}
         rows={[
-          ['Recipes', 'Read recipes, their lines, methods and photos, and what can\'t be costed yet: no money.', 'Make and change recipes.'],
-          ['Costing', 'See what recipes cost, line by line, and how it is worked out.', 'Cost targets and price scenarios (coming later).'],
+          ['Recipes', 'Read recipes, their lines, methods and photos, which recipe each dish uses where, and what options do: no money.', 'Make and change recipes, link dishes and set option rules.'],
+          ['Costing', 'See what recipes and dishes cost, how it is worked out, and Menu margins.', 'Set the cost targets on Menu margins (price scenarios come later).'],
         ]}
       />
       <P>
         Owners and admins have both; operators read recipes without costs; viewers have neither. Supplier names
         and pack prices in the explanation also need Purchasing setup.
       </P>
+      <H3>Linking dishes to their recipes</H3>
+      <P>
+        The <strong>Dishes</strong> tab at the top of Recipes lists every dish on your menus with the recipe it
+        uses, how many venues or ways of selling use another one, and whether that recipe can be costed. Filter
+        by menu, or tap <strong>No recipe</strong> to see only the dishes still to link. Tap a dish to open its
+        matrix (below). A recipe can also be linked from its own page: <strong>Used on menus</strong> lists the
+        dishes that use it, and <strong>Link a dish</strong> links one for every venue.
+      </P>
+      <P>
+        To save typing, Macaroonie matches dishes with no recipe to recipes by product code, then by name, and
+        offers <strong>Link 14 dishes to their recipes</strong>. It opens a list to check: sure matches are
+        ticked, untick any that are wrong, then <strong>Save</strong>. Retail goods whose barcode is the barcode
+        of a stock item are offered <strong>Link 6 goods to their stock items</strong>: each gets a recipe of one
+        of that item. Services need no recipe. When a menu is copied, its dishes keep their links. A link whose
+        dish has gone from every menu shows under <strong>No longer on a menu</strong> and is removed after 30
+        days; if the dish comes back in that time it keeps its link.
+      </P>
+      <H3>The matrix: a recipe by venue, revenue stream and order type</H3>
+      <P>
+        A dish&apos;s matrix has a row for every venue, then each venue with its revenue streams (the bar, the
+        terrace) under it, and a column for any order type, then each one (eat in, take out, delivery...). Each
+        cell shows the recipe the dish uses there and, with Costing access, what a portion costs at that
+        venue and its cost %. A cell with a solid border is <strong>set here</strong>; a dashed one is{' '}
+        <strong>inherited</strong> and says which cell it comes from; a yellow one has no recipe yet.
+      </P>
+      <P>
+        The closest setting wins, the same way the VAT on a dish is decided: a revenue stream beats an order type,
+        an order type beats a venue, and a venue beats every venue (an order type at a venue beats both). For
+        example, your burger uses <strong>Burger</strong> for every venue. Set the <strong>Every venue, Take
+        out</strong> cell to its variation <strong>Burger to go</strong> (two buns, a box) and every takeaway
+        burger is costed that way. Soho makes it its own way: set <strong>Soho, any order type</strong> to{' '}
+        <strong>Burger Soho</strong>. Soho takeaways still use Burger to go, because an order type is closer than
+        a venue; if Soho&apos;s takeaway differs too, set <strong>Soho, Take out</strong>. A double burger can use
+        the same recipe with <strong>Portions</strong> 2.
+      </P>
+      <P>
+        Tap a cell to change it: the recipe&apos;s own variations come first, then any recipe, and the portions.
+        Each cell has its own <strong>Save this cell</strong>. To clear a set cell tap it, tap the bin and confirm:
+        it then follows the next closest cell. On a phone the matrix is a list per venue.
+      </P>
+      <H3>Options</H3>
+      <P>
+        An option changes what goes into a dish: extra cheese adds 30 g of cheddar, oat milk swaps the milk, large
+        is the recipe times 1.5, a side of fries is the fries recipe, well done changes nothing. The{' '}
+        <strong>Options</strong> tab lists every option in your option groups with what it does. Open one to give
+        it a rule: <strong>Adds</strong> (an item or a prep recipe, how much), <strong>Takes out</strong> (an
+        item), <strong>Swaps</strong> (an item for another, the same amount or a stated one),{' '}
+        <strong>Scales</strong> (the recipe times a number), <strong>Is a recipe</strong> (a side) or{' '}
+        <strong>Changes nothing</strong>, then <strong>Save rule</strong>. One dish can have its own rule for an
+        option (from the option, or from the dish&apos;s matrix, where its one-off options are too). A rule acts
+        on whichever recipe the dish uses there, so oat milk has nothing to swap in a takeaway version made
+        without milk.
+      </P>
+      <P>
+        An option with no rule follows its group&apos;s type (set on the option group): an option that{' '}
+        <strong>adds to the recipe</strong> or is a <strong>side</strong> needs a rule and is marked{' '}
+        <strong>Needs a rule</strong> until it has one; one that changes the dish changes nothing. The till&apos;s
+        No, Light and Extra act on the option&apos;s own ingredient: No onion takes the recipe&apos;s onion out (found
+        by name when the option has no rule), Light halves it, Extra doubles it; On the side changes nothing.
+      </P>
+      <H3>Menu margins</H3>
+      <P>
+        <strong>Menu margins</strong> (main menu, under Stock) shows every dish on a menu with its price, the price
+        net of VAT, what it costs, its gross profit (GP) and cost %. Pick the menu, the venue (its prices), a
+        revenue stream if you like, the order type, and <strong>Live</strong> (what tills and online sell now) or{' '}
+        <strong>Draft</strong> (the menu as it is being edited). A dish has one price on a menu; its VAT changes
+        with the order type (take out is often zero rated), so the same burger can have two margins. Each dish is
+        costed with the recipe its matrix picks there.
+      </P>
+      <P>
+        Dishes that can&apos;t be costed are listed first with how to fix each: they are never hidden. Options
+        that cost extra show their own margin under their dish (extra cheese sells at 80p and costs 24p). A meal
+        deal shows the range of its cost by what is picked in it. Sort by cost %, GP, name or section. Tap a dish
+        to see why: which recipe and why, each step of its cost, the price and VAT, and a link to its matrix.{' '}
+        <strong>Export CSV</strong> downloads the list.
+      </P>
+      <H3>Cost targets</H3>
+      <P>
+        Cost % is coloured against two figures: at or under the <strong>target</strong> is green (on target), up
+        to the <strong>limit</strong> is amber (over target), above the limit is red (over the limit). They start
+        at 30% and 35%. People with Costing manage change them in the <strong>Cost targets</strong> card at the
+        bottom of Menu margins, and can give a menu section its own (drinks often run lower), then{' '}
+        <strong>Save</strong>.
+      </P>
       <InfoBox type="tip">
-        Ask Pepper &ldquo;what does the cheeseburger cost at Leeds?&rdquo;, &ldquo;which recipes aren&apos;t fully
-        costed?&rdquo; or &ldquo;what goes into the cheese sauce?&rdquo;. Reports has <strong>Recipe cost by
-        venue</strong> and <strong>Recipes not fully costed</strong> (under Recipes and costing).
+        Ask Pepper &ldquo;what does the burger cost to take away at Soho?&rdquo;, &ldquo;which dishes on the lunch
+        menu are over target?&rdquo;, &ldquo;which recipes aren&apos;t fully costed?&rdquo; or &ldquo;what goes into the
+        cheese sauce?&rdquo;. Reports has <strong>Dishes over the target cost %</strong>, <strong>Dishes with no
+        recipe</strong>, <strong>Recipe cost by venue</strong> and <strong>Recipes not fully costed</strong> (under
+        Recipes and costing).
       </InfoBox>
     </section>
   )

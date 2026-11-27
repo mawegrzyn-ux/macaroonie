@@ -74,7 +74,7 @@ export default function Recipes() {
             : optionId
               ? <OptionEditor key={optionId} optionId={optionId} onClose={() => set({ option: '' })} onOpenDish={toDish} canManage={canManage} />
               : tab === 'dishes'
-                ? <DishList onOpen={id => set({ dish: id })} canManage={canManage} />
+                ? <DishList onOpen={id => set({ dish: id })} canManage={canManage} startQ={params.get('q') || ''} />
                 : tab === 'options'
                   ? <OptionList onOpen={id => set({ option: id })} />
                   : <RecipeList venueId={venueId} basis={basis} startQ={params.get('q') || ''} onVenue={v => set({ venue: v })}
