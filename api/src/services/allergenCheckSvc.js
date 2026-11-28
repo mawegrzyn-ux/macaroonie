@@ -51,7 +51,7 @@ import {
   dishScopes, scopeSuggestion, declaredOf, dishCheck, fingerprint, nextCheck, recipeSuggestion, checksDish, gapAt, ALLERGEN_KEYS,
   dishesToCheck, changeWords, substituteKnown, SUBSTITUTE_DAYS, CHANGE_KIND_KEYS,
 } from '../../../shared/allergenCheck.js'
-import { dishEnergy, recipeEnergy, calorieCheck, calorieFingerprint, nextCalorieCheck } from '../../../shared/calorieCheck.js'
+import { dishEnergy, recipeEnergy, calorieCheck, calorieFingerprint, nextCalorieCheck, withinTolerance } from '../../../shared/calorieCheck.js'
 
 const GAPS_KEPT = 30
 
@@ -354,10 +354,24 @@ export async function loadRecipeSuggestion(tx, tenantId, recipeId, bundle = null
     groups.get(sig).venues.push(v.name)
   }
   // A group's gaps are its first venue's: an unknown ingredient is named at every venue of the group.
+  const energy = recipeEnergy(recipe, b.ctx)
+  // The menu dishes linked to it, each with what it declares beside what this recipe gives it (its link's portions).
+  const dishes = []
+  for (const l of b.ctx.links.filter(x => x.recipe_id === recipe.id)) {
+    const dish = b.ctx.dishes.get(l.dish_id)
+    if (!checksDish(dish) || dishes.some(d => d.dish_id === dish.id)) continue
+    const portions = Number(l.portions) > 0 ? Number(l.portions) : 1
+    const suggested = energy.kcal == null || recipe.kind !== 'dish' ? null : Math.round(energy.kcal * portions)
+    const declared = dish.calories ?? null
+    dishes.push({
+      dish_id: dish.id, dish: dish.name, menu: dish.menu, section: dish.section, portions, declared, suggested,
+      agrees: suggested == null ? null : withinTolerance(declared, suggested),
+    })
+  }
   return {
     recipe_id: recipe.id, name: recipe.name, groups: [...groups.values()].map(({ venue_id, ...g }) => ({ ...g, gaps: g.gaps.map(x => gapAt(x, g.venues)) })),
-    // Phase 8b: its own energy (the same at every venue: an item's energy is the item's).
-    calories: recipeEnergy(recipe, b.ctx),
+    // Phase 8b: its own energy (the same at every venue: an item's energy is the item's), and the dishes' declared figures.
+    calories: { ...energy, dishes },
   }
 }
 

@@ -9,6 +9,10 @@
 //   - Its own units: "1 slice = 20 g", "1 each = 150 g" for an item kept in
 //     grams. Recipes cost it through them (toBase() in shared/costing.js);
 //     a unit a recipe uses can't be deleted (the API says which recipes).
+//   - Energy (inventory phase 8b, migration 318): kcal per 100 g (per 100 ml,
+//     or per one for an item kept in each) of the part that goes in, and where
+//     it came from. The recipes area's calorie check reads it
+//     (shared/calorieCheck.js); empty is unknown, a gap there.
 // Each part saves with its own button. The card stays put while the drawer's
 // other cards save: a part not changed here follows the item as stored, a
 // changed one keeps its changes until its own Save. API: routes/inventory.js.
@@ -22,16 +26,71 @@ import { Field, inputCls, ErrorNote, ConfirmDelete } from '@/components/staff/sh
 import { NumInput, Card, btn } from '@/components/purchasing/shared'
 import { UNITS, fmtNum } from '@shared/procurement.js'
 import { unitChoices, unitNameProblem, asBought } from '@shared/costing.js'
+import { energyOf, energyProblem, KCAL_SOURCE_MAX } from '@shared/calorieCheck.js'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
 
 const baseLabel = u => UNITS[u]?.label ?? u
 
 export function UnitsCard({ item, canEdit, onSaved }) {
   return (
-    <Card title="Units and yield" bodyClass="p-0">
+    <Card title="Units, yield and energy" bodyClass="p-0">
       <YieldForm item={item} canEdit={canEdit} onSaved={onSaved} />
+      <EnergyForm item={item} canEdit={canEdit} onSaved={onSaved} />
       <OwnUnits item={item} canEdit={canEdit} onSaved={onSaved} />
     </Card>
+  )
+}
+
+// The item's energy as the form holds it: the figure for its kind of unit, and where it came from.
+const energyOfItem = i => ({ kcal: energyOf(i).figure ?? '', source: i.kcal_source || '' })
+const energyDiffers = (a, b) => String(a.kcal ?? '') !== String(b.kcal ?? '') || a.source !== b.source
+
+/** Energy (phase 8b): what the calorie check adds up. Empty is unknown, never nothing. */
+function EnergyForm({ item, canEdit, onSaved }) {
+  const api = useApi()
+  const initial = energyOfItem(item)
+  const [f, setF] = useState(initial)
+  const [was, setWas] = useState(initial)
+  if (energyDiffers(was, initial)) {
+    setWas(initial)
+    if (!energyDiffers(f, was)) setF(initial)
+  }
+  const each = item.base_unit === 'each'
+  const per = energyOf(item).per
+  const value = f.kcal === '' || f.kcal == null ? null : Number(f.kcal)
+  const body = each ? { kcal_each: value } : { kcal_per_100g: value }
+  const problem = value != null && (Number.isNaN(value) ? 'A number of kcal' : energyProblem(item, body))
+  const dirty = energyDiffers(f, initial)
+  const save = useMutation({
+    mutationFn: () => api.patch('/inventory/items/' + item.id, { ...body, kcal_source: f.source.trim() || null }),
+    onSuccess: saved => { setF(energyOfItem(saved)); setWas(energyOfItem(saved)); onSaved(saved) },
+  })
+  return (
+    <div className="p-4 space-y-3 border-b" data-testid="inv-energy">
+      <div className="grid sm:grid-cols-3 gap-3">
+        <Field label={'Energy (kcal ' + (each ? 'each' : 'per ' + per) + ')'} hint={problem || 'Of the part that goes in, after trimming. Empty: not known'}>
+          <NumInput value={f.kcal} disabled={!canEdit} onChange={v => setF(x => ({ ...x, kcal: v ?? '' }))}
+            className={cn(problem && 'border-destructive')} data-testid="inv-energy-kcal" />
+        </Field>
+        <div className="sm:col-span-2">
+          <Field label="Where it came from" hint="The label, the spec sheet, a food table">
+            <input className={inputCls} value={f.source} maxLength={KCAL_SOURCE_MAX} disabled={!canEdit}
+              onChange={e => setF(x => ({ ...x, source: e.target.value }))} placeholder="Brakes spec sheet, Nov 2026" data-testid="inv-energy-source" />
+          </Field>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        The Recipes page adds this up through each recipe to suggest a dish&apos;s calories, beside what the menu declares. A dish using an item with no energy has no suggestion yet.
+      </p>
+      {canEdit && (
+        <div className="flex justify-end">
+          <button type="button" className={btn.primary} disabled={!dirty || !!problem || save.isPending} onClick={() => save.mutate()} data-testid="inv-energy-save">
+            {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Save
+          </button>
+        </div>
+      )}
+      <ErrorNote error={save.error} />
+    </div>
   )
 }
 
