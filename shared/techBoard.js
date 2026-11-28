@@ -52,47 +52,50 @@ export function agoText(iso, now = Date.now()) {
 export const onHub = (p, setup) => p.connection === 'device' && (setup?.devices || []).find(d => d.id === p.device_id)?.kind === 'hub'
 export const liveHubs = setup => (setup?.devices || []).filter(d => d.kind === 'hub' && !d.revoked_at)
 
-/** What we know about a printer, in a few words: [text, tone]. setup: { devices }. */
+/**
+ * What we know about a printer: [text, tone, word]. The text in a few words;
+ * the word is what its hexagon and a menu screen show, and names the fix: a
+ * printer on a venue hub that is down says Hub down (never Set up, or the
+ * Paper low the hub last reported), one with no hub to print through No hub.
+ * setup: { devices }.
+ */
 export function printerState(p, setup, now = Date.now()) {
-  if (!p.is_active) return ['Switched off', 'muted']
+  if (!p.is_active) return ['Switched off', 'muted', 'Off']
   const devices = setup?.devices || []
   if (onHub(p, setup)) {
     const hub = devices.find(d => d.id === p.device_id)
-    if (hub.revoked_at) return [hub.name + ' was removed: pick another hub', 'warn']
-    if (!p.local_id) return ['Pick which printer on the hub this is', 'warn']
-    if (!deviceOnline(hub, now)) return [hub.name + (hub.paired ? ' is offline (seen ' + agoText(hub.last_seen_at, now) + ')' : ' isn\'t linked yet'), 'warn']
+    if (hub.revoked_at) return [hub.name + ' was removed: pick another hub', 'warn', 'Set up']
+    if (!p.local_id) return ['Pick which printer on the hub this is', 'warn', 'Set up']
+    if (!deviceOnline(hub, now)) {
+      return hub.paired
+        ? [hub.name + ' is offline (seen ' + agoText(hub.last_seen_at, now) + ')', 'warn', 'Hub down']
+        : [hub.name + ' isn\'t linked yet', 'warn', 'No hub']
+    }
     return hubPrinterState(p, now)
   }
   if (p.connection === 'device') {
     const d = devices.find(x => x.id === p.device_id)
-    if (!d) return ['Pick the till, kitchen screen or kiosk it is plugged into', 'warn']
-    if (d.revoked_at) return [d.name + ' was removed: pick another device', 'warn']
-    return ['Printed by ' + d.name + (d.paired ? ', seen ' + agoText(d.last_seen_at, now) : ' (not linked yet)'), d.paired ? 'ok' : 'warn']
+    if (!d) return ['Pick the till, kitchen screen or kiosk it is plugged into', 'warn', 'Set up']
+    if (d.revoked_at) return [d.name + ' was removed: pick another device', 'warn', 'Set up']
+    return d.paired
+      ? ['Printed by ' + d.name + ', seen ' + agoText(d.last_seen_at, now), 'ok', 'Ready']
+      : ['Printed by ' + d.name + ' (not linked yet)', 'warn', 'Set up']
   }
-  if (!p.host) return ['Type its address on the network', 'warn']
-  if (!liveHubs(setup).length) return ['Waiting for a venue hub: link one on the Venue hub page', 'warn']
+  if (!p.host) return ['Type its address on the network', 'warn', 'Set up']
+  if (!liveHubs(setup).length) return ['Waiting for a venue hub: link one on the Venue hub page', 'warn', 'No hub']
   return hubPrinterState(p, now)
 }
 
-/** What the hub last said about a printer it prints to. */
+/** What the hub last said about a printer it prints to: [text, tone, word]. */
 function hubPrinterState(p, now) {
   const s = p.status
-  if (!s || !p.status_at) return ['The hub hasn\'t checked it yet', 'muted']
+  if (!s || !p.status_at) return ['The hub hasn\'t checked it yet', 'muted', 'Not checked']
   const when = ' (' + agoText(p.status_at, now) + ')'
-  if (!s.online) return ['Not answering' + (s.error ? ': ' + s.error : '') + when, 'bad']
-  if (s.paper_out) return ['Out of paper' + when, 'bad']
-  if (s.cover_open) return ['Cover open' + when, 'bad']
-  if (s.paper_low) return ['Paper running low' + when, 'warn']
-  return ['Ready' + when, 'ok']
-}
-
-/** A printer's state in a word or two, from what printerState() decided. */
-function printerWord(p, tone) {
-  const s = p.status || {}
-  if (tone === 'bad') return !s.online ? 'Offline' : s.paper_out ? 'No paper' : s.cover_open ? 'Cover open' : 'Fault'
-  if (tone === 'warn') return s.paper_low ? 'Paper low' : 'Set up'
-  if (tone === 'muted') return 'Not checked'
-  return 'Ready'
+  if (!s.online) return ['Not answering' + (s.error ? ': ' + s.error : '') + when, 'bad', 'Offline']
+  if (s.paper_out) return ['Out of paper' + when, 'bad', 'No paper']
+  if (s.cover_open) return ['Cover open' + when, 'bad', 'Cover open']
+  if (s.paper_low) return ['Paper running low' + when, 'warn', 'Paper low']
+  return ['Ready' + when, 'ok', 'Ready']
 }
 
 // ── The tile model ─────────────────────────────────────────
@@ -101,10 +104,11 @@ function printerWord(p, tone) {
  * The kinds of kit, in the board's order: each a group (one cluster of
  * hexagons) with its icon (shared/techHex.js TECH_ICONS), where it is set
  * up, and its border on the honeycomb (a colour and a line of its own, so
- * the kind reads without the colour too).
+ * the kind reads without the colour too). Each colour is at least 3 : 1
+ * against the light page and the dark boards (the tests check).
  */
 export const TECH_KINDS = [
-  { key: 'hub', label: 'Venue hub', one: 'Venue hub', icon: 'hub', link: '/pos/hub', line: 'double', colour: '#4f46e5' },
+  { key: 'hub', label: 'Venue hub', one: 'Venue hub', icon: 'hub', link: '/pos/hub', line: 'double', colour: '#6366f1' },
   { key: 'till', label: 'Tills', one: 'Till', icon: 'till', link: '/pos/tills', line: 'solid', colour: '#2563eb' },
   { key: 'kitchen', label: 'Kitchen screens', one: 'Kitchen screen', icon: 'kitchen', link: '/pos/kitchen', line: 'dash', colour: '#db2777' },
   { key: 'kiosk', label: 'Kiosks', one: 'Kiosk', icon: 'kiosk', link: '/pos/kiosks', line: 'dot', colour: '#0891b2' },
@@ -116,7 +120,11 @@ export const TECH_KIND = Object.fromEntries(TECH_KINDS.map(k => [k.key, k]))
 /** pos_devices.kind -> the board's kind. */
 export const DEVICE_KINDS = { hub: 'hub', terminal: 'till', kds: 'kitchen', kiosk: 'kiosk' }
 
-/** Tones, worst first. muted: nothing to judge (not linked, not checked yet). */
+/**
+ * Tones, worst first. muted: nothing to judge, either not linked (the tile's
+ * linked is false) or linked with nothing to go on yet (a printer the hub
+ * hasn't checked, a card machine with no payments): "not checked".
+ */
 export const TONES = ['bad', 'warn', 'ok', 'muted']
 const RANK = { bad: 0, warn: 1, ok: 2, muted: 3 }
 /** Each tone's mark, so a state never reads by colour alone (shared/techHex.js MARKS). */
@@ -172,7 +180,9 @@ const fact = (label, value) => (value == null || value === '' ? null : { label, 
  * The board's tiles: board = GET /api/tech-board/venues/:venueId. Each
  * { key, id, kind, name, tone, word, status, detail, seen_at, facts: [{ label,
  * value }], count (printers: failed tickets today), ring (hub: hubCopy()),
- * link, icon }. setup: Store tech's setup (its devices), else the board's.
+ * linked (false: not linked yet, so a muted tile counts as not linked rather
+ * than not checked), link, icon }. setup: Store tech's setup (its devices),
+ * else the board's.
  */
 export function techTiles(board, { now = Date.now(), setup = null } = {}) {
   if (!board) return []
@@ -180,7 +190,7 @@ export function techTiles(board, { now = Date.now(), setup = null } = {}) {
   const add = (kind, id, name, t) => {
     const k = TECH_KIND[kind]
     out.push({
-      key: kind + ':' + id, id, kind, name: String(name ?? ''), count: 0, ring: null, seen_at: null,
+      key: kind + ':' + id, id, kind, name: String(name ?? ''), count: 0, ring: null, seen_at: null, linked: true,
       link: k.link, icon: k.icon, ...t, facts: (t.facts || []).filter(Boolean),
     })
   }
@@ -191,7 +201,7 @@ export function techTiles(board, { now = Date.now(), setup = null } = {}) {
     const did = lastAction(d, now)
     const ring = kind === 'hub' ? hubCopy(d, now) : null
     add(kind, d.id, d.name, {
-      tone, word, status, detail: did, seen_at: d.last_seen_at || null, ring,
+      tone, word, status, detail: did, seen_at: d.last_seen_at || null, ring, linked: !!d.paired,
       facts: [
         fact('State', status), d.paired ? fact('Last seen', agoText(d.last_seen_at, now)) : null,
         fact(kind === 'hub' ? 'Last report' : 'Last activity', did), fact('App version', d.app_version),
@@ -201,16 +211,16 @@ export function techTiles(board, { now = Date.now(), setup = null } = {}) {
   }
   const setupOf = setup || { devices: board.devices || [] }
   for (const p of (board.printers || []).filter(x => x.is_active)) {
-    let [status, tone] = printerState(p, setupOf, now)
-    let word = printerWord(p, tone)
+    let [status, tone, word] = printerState(p, setupOf, now)
     const jobs = p.jobs || {}
     const parts = []
     if (jobs.waiting) parts.push(jobs.waiting + ' waiting')
-    // Failed tickets today make a printer need looking at, whatever it last reported.
+    // Failed tickets today make a printer that seemed fine need looking at,
+    // with the number; a printer with a problem of its own keeps its word
+    // (Hub down, Set up, Paper low: the fix), the number in its state.
     if (jobs.failed) {
       status += ' · ' + jobs.failed + ' failed today'
-      if (tone === 'ok' || tone === 'muted') tone = 'warn'
-      if (tone === 'warn') word = jobs.failed + ' failed'
+      if (tone === 'ok' || tone === 'muted') { tone = 'warn'; word = jobs.failed + ' failed' }
     }
     const last = p.last_job
     const lastText = last ? (last.status === 'failed' ? 'last ticket failed ' + agoText(last.at, now) + (last.error ? ': ' + last.error : '') : 'last ticket ' + agoText(last.at, now)) : null
@@ -236,11 +246,13 @@ export function techTiles(board, { now = Date.now(), setup = null } = {}) {
   }
   for (const s of board.screens || []) {
     const tone = s.state === 'online' ? (s.error ? 'warn' : 'ok') : s.state === 'offline' ? 'bad' : 'muted'
-    const status = s.state === 'online' ? 'Online' + (s.app_version ? ' · ' + s.app_version : '') : s.state === 'offline' ? 'Offline · last seen ' + agoText(s.last_seen_at, now) : 'Not linked yet'
+    const status = s.state === 'online' ? 'Online' + (s.app_version ? ' · ' + s.app_version : '')
+      : s.state === 'offline' ? 'Offline · last seen ' + agoText(s.last_seen_at, now)
+        : s.paired ? 'Linked, not heard from yet' : 'Not linked yet'
     add('screen', s.id, s.name + (s.short_code ? ' (' + s.short_code + ')' : ''), {
-      tone, word: tone === 'warn' ? 'Problem' : tone === 'ok' ? 'Online' : tone === 'bad' ? 'Offline' : 'Not linked',
+      tone, word: tone === 'warn' ? 'Problem' : tone === 'ok' ? 'Online' : tone === 'bad' ? 'Offline' : s.paired ? 'Not seen' : 'Not linked',
       status, detail: [s.showing ? 'Showing ' + s.showing : null, s.error ? 'Problem: ' + s.error : null].filter(Boolean).join(' · ') || null,
-      seen_at: s.last_seen_at || null,
+      seen_at: s.last_seen_at || null, linked: !!s.paired,
       facts: [
         fact('State', status), s.paired ? fact('Last seen', agoText(s.last_seen_at, now)) : null, fact('App version', s.app_version),
         fact('Showing', s.showing), fact('Problem', s.error),
@@ -266,6 +278,18 @@ export function worstTone(tiles = []) {
 }
 
 /**
+ * The muted tiles in words: the ones not linked yet, and the linked ones with
+ * nothing to go on (a printer the hub hasn't checked, a quiet card machine),
+ * never all of them called not linked. -> ['1 not linked', '2 not checked'].
+ */
+export function mutedWords(tiles = []) {
+  const muted = tiles.filter(t => t.tone === 'muted')
+  const unlinked = muted.filter(t => t.linked === false).length
+  const rest = muted.length - unlinked
+  return [unlinked ? unlinked + ' not linked' : null, rest ? rest + ' not checked' : null].filter(Boolean)
+}
+
+/**
  * The venue's health: the worst tone of its kit and the platform's light,
  * the counts by tone, a title and the counts in words ("12 up, 1 down").
  */
@@ -276,14 +300,15 @@ export function techHealth(tiles = [], light = null) {
   if (platform && RANK[platform.tone] < RANK[tone]) tone = platform.tone
   const words = [
     counts.ok + ' up', counts.bad ? counts.bad + ' down' : null, counts.warn ? counts.warn + ' to check' : null,
-    counts.muted ? counts.muted + ' not linked' : null,
+    ...mutedWords(tiles),
   ].filter(Boolean).join(', ')
+  const unlinked = tiles.filter(t => t.tone === 'muted' && t.linked === false).length
   const title = platform?.tone === 'bad' ? 'Macaroonie down'
     : !tiles.length ? 'No kit yet'
       : counts.bad ? counts.bad + ' down'
         : counts.warn ? counts.warn + ' to check'
-          : counts.ok ? 'All working' : 'Nothing linked'
-  return { tone, counts, total: tiles.length, judged: tiles.length - counts.muted, title, words: tiles.length ? words : 'Link kit in Store tech', platform }
+          : counts.ok ? 'All working' : unlinked === tiles.length ? 'Nothing linked' : 'Not checked yet'
+  return { tone, counts, unlinked, total: tiles.length, judged: tiles.length - counts.muted, title, words: tiles.length ? words : 'Link kit in Store tech', platform }
 }
 
 /**
@@ -304,7 +329,7 @@ export function techModel(tiles = [], { light = null } = {}) {
     const judged = mine.length - counts.muted
     groups.push({
       ...k, tiles: mine, counts, up: counts.ok, judged, tone: worstTone(mine),
-      badge: judged ? counts.ok + ' of ' + judged + ' up' : mine.length + ' not linked',
+      badge: judged ? counts.ok + ' of ' + judged + ' up' : mutedWords(mine).join(', '),
     })
   }
   return {
@@ -313,10 +338,14 @@ export function techModel(tiles = [], { light = null } = {}) {
   }
 }
 
-/** When an offline tile was last heard from, for its hexagon and the attention strip ('' when not offline). */
-export function seenText(tile, now = Date.now()) {
+/**
+ * When a down tile was last heard from ('' when it isn't down): "seen 4 min
+ * ago" for the attention strip and a hexagon's label; short, "4 min ago",
+ * for the line on the hexagon itself (the long words don't fit its width).
+ */
+export function seenText(tile, now = Date.now(), { short = false } = {}) {
   if (tile.tone !== 'bad' || !tile.seen_at) return ''
-  return (tile.kind === 'printer' ? 'checked ' : 'seen ') + agoText(tile.seen_at, now)
+  return (short ? '' : tile.kind === 'printer' ? 'checked ' : 'seen ') + agoText(tile.seen_at, now)
 }
 
 /**
@@ -327,6 +356,6 @@ export function seenText(tile, now = Date.now()) {
 export function screenTiles(tiles = []) {
   return tiles.map(t => ({
     kind: t.kind, name: t.name, tone: t.tone, word: t.word, seen_at: t.seen_at || null,
-    count: t.count || 0, ring: t.ring ? { fresh: t.ring.fresh } : null,
+    count: t.count || 0, ring: t.ring ? { fresh: t.ring.fresh } : null, linked: t.linked !== false,
   }))
 }

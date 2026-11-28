@@ -43,9 +43,13 @@ export function Section() {
         kind of kit it is, each kind with its own colour and line (the key under the honeycomb lists them).
         In each group the worst one sits in the middle. The big hexagon first is the venue overall: how many
         are up, down or need a look, and whether Macaroonie itself is up. Something down glows gently (not when
-        your device asks for less movement); an offline one says when it was last seen; a printer with failed
-        tickets today says how many; the venue hub&apos;s thin inner ring shows how up to date its copy for
-        trading offline is (full: just now).
+        your device asks for less movement); an offline one says how long ago it was last seen (8 min ago); a
+        printer with failed tickets today says how many; a printer plugged into a venue hub that is down says{' '}
+        <strong>Hub down</strong> (get the hub back, not the printer), and one waiting for a hub says{' '}
+        <strong>No hub</strong>. The venue hub&apos;s thin inner ring shows how up to date its copy for trading
+        offline is (full: just now; the key says so too). Grey counts as <strong>not linked</strong> for kit
+        that isn&apos;t linked yet and <strong>not checked</strong> for linked kit with nothing to go on yet (a
+        printer the hub hasn&apos;t checked, a card machine with no payments for 30 days).
       </P>
       <P>
         Tap a hexagon (or a line of <strong>Needs attention</strong>) for its details: its state, when it was
@@ -56,11 +60,16 @@ export function Section() {
         look (it follows your device until you choose).
       </P>
       <P>
+        With a keyboard, Tab moves from hexagon to hexagon and Enter opens one; closing its details puts you
+        back on the same hexagon, and you stay on it while the board&apos;s times move on. A screen reader hears
+        when the number that need looking at changes, not every minute.
+      </P>
+      <P>
         <strong>Full screen</strong> puts the board on the whole screen, dark, for a TV or tablet in the back
         office: the venue&apos;s name, the time, whether Macaroonie is up, the honeycomb as big as it fits and
         what needs attention. It checks every 30 seconds by itself. Press Escape or <strong>Close</strong> to
-        leave. To keep the board on a screen all day, put the menu screen <strong>Store status</strong> block on
-        a board (see Menu Screens).
+        leave (you are back on the Full screen button). To keep the board on a screen all day, put the menu
+        screen <strong>Store status</strong> block on a board (see Menu Screens).
       </P>
       <P>
         The board checks again every minute, or press <strong>Check now</strong>. A till or kiosk counts as

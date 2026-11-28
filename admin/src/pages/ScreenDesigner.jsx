@@ -946,6 +946,9 @@ function StatusSection({ o, onOpts, statuses }) {
 // honeycomb (shared/techHex.js through shared/screenLayout.js); the designer
 // shows example kit, a screen its own venue's (GET /screen-api/tech).
 function TechStatusPanel({ o, onOpts }) {
+  // Store tech view decides whether the block may show the tills and other
+  // kit (the API stamps opts.kit as the board is saved); the menu screens always.
+  const { canView: canSeeKit } = usePermission('pos_setup')
   const picked = Array.isArray(o.groups) ? o.groups : []
   const toggle = k => onOpts({ groups: picked.includes(k) ? picked.filter(x => x !== k) : [...picked, k] })
   return (
@@ -958,6 +961,13 @@ function TechStatusPanel({ o, onOpts }) {
         <p className="text-xs rounded-md border border-amber-300 bg-amber-50 text-amber-900 px-2 py-1.5" data-testid="tech-block-staff">
           It names the venue&apos;s kit, so put it on staff screens (the back office, the kitchen), not where guests see it.
         </p>
+        {(o.kit === false || !canSeeKit) && (
+          <p className="text-xs rounded-md border bg-muted/40 px-2 py-1.5" data-testid="tech-block-kit">
+            {o.kit === true
+              ? 'Someone with Store tech access placed this block, so it shows all the kit, and keeps doing so when you save.'
+              : 'This block shows the menu screens only: the tills and other kit show once someone with Store tech access saves this board.'}
+          </p>
+        )}
         <div className="space-y-1">
           <div className="text-xs font-medium">Which kit</div>
           <div className="flex flex-wrap gap-1.5" role="group" aria-label="Which kit" data-testid="tech-block-groups">

@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { techModel, TONES, TONE_MARKS } from '../techBoard.js'
+import { techModel, TONES, TONE_MARKS, TECH_KINDS } from '../techBoard.js'
 import {
-  hexSpiral, hexCentre, honeycomb, fitSize, honeycombHtml, legendHtml, attentionHtml, sampleTechTiles,
-  MARKS, HEX_COLOURS, HEALTH_SCALE, TECH_ICONS, TECH_HEX_CSS,
+  hexSpiral, hexCentre, honeycomb, fitSize, honeycombHtml, honeycombParts, styleText, legendHtml, attentionHtml, sampleTechTiles,
+  MARKS, HEX_COLOURS, HEALTH_SCALE, TECH_ICONS, TECH_HEX_CSS, HUB_COPY_KEY,
 } from '../techHex.js'
 
 const now = Date.parse('2026-11-28T12:00:00Z')
@@ -26,14 +26,32 @@ function model(n = 14) {
   return techModel(sampleTechTiles(now).slice(0, n), { light: 'up' })
 }
 
+// Two flat-topped hexagons (centres, circumradii) overlap unless one of their
+// edge normals separates them (the separating axis test: both have the same
+// three edge directions, at 90, 30 and -30 degrees, and each reaches its
+// inradius, sqrt(3)/2 x its radius, along every one). Touching is not overlapping.
+const NORMALS = [[0, 1], [SQ3 / 2, 0.5], [SQ3 / 2, -0.5]]
+function hexesOverlap(a, b) {
+  const reach = (a.scale + b.scale) * SQ3 / 2
+  return NORMALS.every(([nx, ny]) => Math.abs((b.x - a.x) * nx + (b.y - a.y) * ny) < reach - 1e-6)
+}
+
+test('the overlap test catches hexagons that only a centre distance would pass', () => {
+  const c = (x, y, scale = 1) => ({ x, y, scale })
+  assert.ok(hexesOverlap(c(0, 0), c(1.8, 0)), 'side by side 1.8 apart: each reaches 1 along x')
+  assert.ok(!hexesOverlap(c(0, 0), c(2, 0)), 'side by side 2 apart: touching corners')
+  const grid = (q, r) => ({ ...hexCentre(q, r), scale: 1 })
+  for (const [q, r] of [[1, 0], [0, 1], [1, -1], [-1, 1], [2, -1]]) assert.ok(!hexesOverlap(c(0, 0), grid(q, r)), 'grid cells ' + q + ',' + r + ' touch or are apart')
+  assert.ok(hexesOverlap(c(0, 0), c(1.4, 0.5)), 'a little closer than a neighbour')
+  assert.ok(hexesOverlap(c(0, 0, HEALTH_SCALE), grid(1, 0)), 'the bigger health hexagon reaches further')
+})
+
 function noOverlap(layout) {
   const cells = layout.cells
   for (let i = 0; i < cells.length; i++) {
     for (let j = i + 1; j < cells.length; j++) {
       const a = cells[i], b = cells[j]
-      const d = Math.hypot(a.x - b.x, a.y - b.y)
-      // Flat-topped hexagons that touch have centres sqrt(3) x radius apart at the least.
-      assert.ok(d >= (a.scale + b.scale) * SQ3 / 2 - 1e-6, a.key + ' and ' + b.key + ' overlap (' + d.toFixed(3) + ')')
+      assert.ok(!hexesOverlap(a, b), a.key + ' and ' + b.key + ' overlap (' + a.x.toFixed(2) + ',' + a.y.toFixed(2) + ' / ' + b.x.toFixed(2) + ',' + b.y.toFixed(2) + ')')
     }
   }
   for (const c of cells) {
@@ -94,6 +112,13 @@ test('every tone has a mark and every kind an icon; the words are readable on ea
       assert.ok(contrast(fill, ink) >= 4.5, theme + ' ' + t + ': ' + contrast(fill, ink).toFixed(2))
     }
   }
+  // Each kind's ring is a graphic that has to be seen: 3 : 1 at least on the
+  // light page and on the dark boards (the page's dark card, full screen).
+  for (const k of TECH_KINDS) {
+    for (const bg of ['#ffffff', '#0f172a', '#0b1220']) {
+      assert.ok(contrast(k.colour, bg) >= 3, k.key + ' ring on ' + bg + ': ' + contrast(k.colour, bg).toFixed(2))
+    }
+  }
 })
 
 test('the HTML: a tile per piece of kit with its tone, kind, mark and words; names stay text', () => {
@@ -107,7 +132,8 @@ test('the HTML: a tile per piece of kit with its tone, kind, mark and words; nam
   assert.equal((html.match(/data-tile="/g) || []).length, tiles.length + 1)
   assert.equal((html.match(/<button type="button"/g) || []).length, tiles.length + 1, 'tiles are buttons on the page')
   assert.ok(html.includes('data-tone="bad" data-kind="till"'))
-  assert.ok(html.includes('seen 6 min ago'), 'an offline tile says when it was last seen')
+  assert.ok(html.includes('Drive thru, Till: Offline, seen 6 min ago'), 'an offline tile\'s label says when it was last seen')
+  assert.ok(html.includes('<span class="hx-seen">6 min ago</span>'), 'the line on the hexagon is the short form, to fit')
   assert.ok(html.includes('2 failed'))
   assert.ok(html.includes('pathLength="100" stroke-dasharray="90 100"'), 'the hub\'s copy ring')
   assert.ok(html.includes('1 of 3 up') || html.includes('2 of 3 up'), 'a group badge')
@@ -118,5 +144,46 @@ test('the HTML: a tile per piece of kit with its tone, kind, mark and words; nam
   assert.ok(strip.includes('Needs attention') && strip.includes('Drive thru') && strip.indexOf('Drive thru') < strip.indexOf('Kiosk 2'), 'worst first')
   assert.ok(!strip.includes('<script'))
   assert.ok(attentionHtml(techModel(tiles.filter(t => t.tone === 'ok'), { light: 'up' }), now).includes('Everything is working'))
+  assert.ok(strip.includes('seen 6 min ago'), 'the strip keeps the long words')
   assert.match(TECH_HEX_CSS, /prefers-reduced-motion: reduce/)
+})
+
+test('the parts: the same hexagons as the HTML, each with its key, for a page that keeps each one', () => {
+  const m = model()
+  const l = honeycomb(m, { aspect: 16 / 9 })
+  const opts = { size: 50, now, selected: 'health' }
+  const p = honeycombParts(m, l, opts)
+  assert.deepEqual(p.tiles.map(t => t.key), l.cells.map(c => c.key), 'in the layout\'s order')
+  assert.deepEqual(p.labels.map(x => x.key), m.groups.map(g => g.key))
+  assert.ok(p.tiles.every(t => t.label && t.html.startsWith('<svg class="hx-shape"') && !t.html.includes('<button')))
+  assert.deepEqual([p.tiles[0].key, p.tiles[0].selected, p.tiles[0].cls], ['health', true, 'hx-tile hx-health is-on'])
+  // Only what is inside a hexagon changes as the clock ticks: its box, key and kind stay.
+  const later = honeycombParts(m, l, { ...opts, now: now + 3 * 60_000 })
+  assert.deepEqual(later.tiles.map(t => [t.key, t.cls, t.tone, t.kind, styleText(t.style)]), p.tiles.map(t => [t.key, t.cls, t.tone, t.kind, styleText(t.style)]))
+  const drive = (x) => x.tiles.find(t => t.key.startsWith('till:') && t.tone === 'bad')
+  assert.notEqual(drive(later).html, drive(p).html, 'its "6 min ago" moved on')
+  // The HTML is the parts put together.
+  const html = honeycombHtml(m, l, { ...opts, interactive: true })
+  for (const t of p.tiles) assert.ok(html.includes('data-tile="' + t.key + '"') && html.includes(t.html))
+  assert.ok(html.startsWith('<div class="' + p.cls + '" style="' + styleText(p.style) + '">'))
+})
+
+test('only the hexagon takes a tap, not the corners of its box', () => {
+  // Diagonal neighbours' boxes overlap by half a radius: the button lets taps
+  // through and the hexagon (.hx-focus, inside it) takes them.
+  assert.match(TECH_HEX_CSS, /button\.hx-tile \{[^}]*pointer-events: none/)
+  assert.match(TECH_HEX_CSS, /button\.hx-tile \.hx-focus \{[^}]*pointer-events: fill/)
+  // The down glow is a drop shadow outside the hexagon: nothing clips the tile.
+  assert.doesNotMatch(TECH_HEX_CSS, /\.hx-tile \{[^}]*clip-path/)
+  // The bottom line keeps inside the hexagon's narrow part.
+  assert.match(TECH_HEX_CSS, /\.hx-seen \{[^}]*max-width: 70%; overflow: hidden; text-overflow: ellipsis/)
+})
+
+test('the key explains the hub\'s inner ring when a hub has one', () => {
+  const m = model()
+  assert.ok(m.tiles.some(t => t.ring))
+  const words = HUB_COPY_KEY.replace(/'/g, '&#39;')
+  assert.ok(legendHtml(m).includes(words) && legendHtml(m).includes('class="hx-copy"'))
+  const noHub = techModel(sampleTechTiles(now).filter(t => t.kind !== 'hub'), { light: 'up' })
+  assert.ok(!legendHtml(noHub).includes(words))
 })

@@ -213,12 +213,21 @@ async function screenDesigns(tx, tenantId, s) {
  * the names of the venue's kit.
  */
 export async function screenShowsBlock(tx, tenantId, screenId, type) {
+  return (await screenBlocks(tx, tenantId, screenId, type)).length > 0
+}
+
+/**
+ * The blocks of this type on every board a screen shows (its own, its
+ * playlist's or its wall's), [] when none: GET /screen-api/tech reads their
+ * opts (a Store status block's kit stamp, shared/screenLayout.js stampTechBlocks()).
+ */
+export async function screenBlocks(tx, tenantId, screenId, type) {
   const [s] = await tx`
     SELECT id, playlist_id, design_id, wall_id, wall_col, wall_row FROM screens
      WHERE id = ${screenId} AND tenant_id = ${tenantId}`
-  if (!s) return false
+  if (!s) return []
   const { designs } = await screenDesigns(tx, tenantId, s)
-  return designs.some(d => hasBlock(d, type))
+  return designs.flatMap(d => (d?.layout?.blocks || []).filter(b => b?.type === type))
 }
 
 /**

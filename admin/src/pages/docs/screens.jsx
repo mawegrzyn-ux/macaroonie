@@ -79,7 +79,7 @@ export function Section() {
           ['POST /disconnect', 'The screen forgets its pairing (its settings panel): secret_hash = NULL; the row keeps its name, boards and wall place.'],
           ['POST /heartbeat', 'Every minute: app_version, showing { design_id, name, playlist_item_id }, viewport, error, config_version, offline_secs, clock { offset_ms, rtt_ms }. Written at most once per 50 s per screen; the admin shows a screen online when last_seen_at is under 150 s old.'],
           ['GET /time', '{ now } (server ms), no-store, no auth, 120 a minute. The player takes five samples and keeps the quickest round trip (offset = now + rtt / 2 - received), again every 10 minutes; a jump over 250 ms reschedules the boards.'],
-          ['GET /tech', 'The Store status block\'s data (28 Nov 2026): { tiles, light, checked_at, server_time }. tiles = screenTiles(techTiles(loadTechBoard(...))) for the screen\'s own venue (services/techBoardSvc.js, shared/techBoard.js): kind, name, tone, word, seen_at, count, ring, nothing else (no ids, addresses, serials, errors, versions); light = lightStatus().state. Only for a screen one of whose boards (its own, its playlist\'s or its wall\'s: screenShowsBlock()) has a tech_status block, else 404 no_block. no-store, 60 a minute. The config\'s needs_tech says to fetch it; the player does every 45 s (TECH_EVERY_MS) and draws again each time.'],
+          ['GET /tech', 'The Store status block\'s data (28 Nov 2026): { tiles, light, checked_at, server_time }. tiles = screenTiles(techTiles(loadTechBoard(...))) for the screen\'s own venue (services/techBoardSvc.js, shared/techBoard.js): kind, name, tone, word, seen_at, count, ring, linked, nothing else (no ids, addresses, serials, errors, versions); light = lightStatus().state. Only for a screen one of whose boards (its own, its playlist\'s or its wall\'s: screenBlocks()) has a tech_status block, else 404 no_block. The tills, kitchen screens, kiosks, printers, card machines and hub only when one of those blocks has opts.kit true (stamped on save by stampTechBlocks(): its placer had Store tech view), as /api/tech-board shows kit only to Store tech; else the menu screens alone. no-store, 60 a minute. The config\'s needs_tech says to fetch it; the player does every 45 s (TECH_EVERY_MS) and draws again each time, forgets it when unpaired, and never draws an answer for another venue than its config\'s (techVenue).'],
           ['/ws?screen=<id>&secret=<secret>', 'Joins screen:<id> (screens.changed, screen.identify, screen.reload, screen.removed), screens:<venueId> (screens.sold_out with the item ids), screens-t:<tenantId> (screens.changed after a board or playlist save) and menus:<tenantId> (menus.live from publishing and the minute sweep). Everything except identify / reload / sold out makes the player fetch the config again; so does the socket reopening after a drop (changes meanwhile were pushed to nobody) and the browser coming back online; it also polls every 60 s. A wall change tells each screen it touched.'],
         ]}
       />
@@ -154,8 +154,19 @@ export function Section() {
         (<Mono>TECH_TILE_SIZES</Mono>, the most a radius may be), <Mono>text_size</Mono>, <Mono>label_color</Mono>.
         The strip and the key take an estimate of their lines (<Mono>linesFor()</Mono>) and the hexagons fit
         the rest of the block (<Mono>fitSize()</Mono>); a dark board background (or see-through with light
-        words) takes the dark look. Bad tiles glow only on a playing board (<Mono>.sl-play</Mono>). The
-        designer&apos;s panel is <Mono>TechStatusPanel</Mono> in <Mono>ScreenDesigner.jsx</Mono>.
+        words) takes the dark look. Bad tiles glow only on a playing board (<Mono>.sl-play</Mono>): the rule that
+        stops the glow elsewhere sits after <Mono>TECH_HEX_CSS</Mono> in <Mono>SCREEN_LAYOUT_CSS</Mono> and is more
+        particular than its glow rule. The designer&apos;s panel is <Mono>TechStatusPanel</Mono> in{' '}
+        <Mono>ScreenDesigner.jsx</Mono>.
+      </P>
+      <P>
+        Who may show the kit: <Mono>PUT /api/screens/designs/:id</Mono> and <Mono>POST /api/screens/designs</Mono>{' '}
+        (with a layout) stamp <Mono>opts.kit</Mono> on each <Mono>tech_status</Mono> block with{' '}
+        <Mono>stampTechBlocks(layout, before, canKit)</Mono> (<Mono>shared/screenLayout.js</Mono>): true when the
+        person saving has Store tech (<Mono>pos_setup</Mono>) view, else what the same block id had before, else
+        false; what the browser sends is ignored, and a copy (<Mono>copy_from</Mono>) keeps its board&apos;s stamps.
+        A block with <Mono>kit</Mono> false draws the menu screens only, the designer&apos;s example kit too, and
+        its panel says so to a Screens-only editor.
       </P>
       <H3>Player (screen/, routes/screenSite.js)</H3>
       <P>

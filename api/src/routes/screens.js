@@ -29,18 +29,23 @@
 //   DELETE /walls/:id                  (its screens go back to their own boards)
 //   GET    /menu-data?version=&venue_id=   menus, tags and sold out for the designer
 //
+// A board's Store status blocks are stamped as it is saved (shared/screenLayout.js
+// stampTechBlocks()): whether they may show the venue's kit, from whether the
+// person saving has Store tech view (GET /screen-api/tech honours it).
+//
 // Every change that a screen shows is announced to the tenant's screens
 // ('screens-t:<tenant>' or 'screen:<id>'); they fetch their config again.
 
 import { z } from 'zod'
 import { sql, withTenant } from '../config/db.js'
-import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { requireAuth, requirePermission, permissionLevels } from '../middleware/auth.js'
+import { permissionAtLeast } from '../config/modules.js'
 import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import { sha256, normaliseScreenCode, forgetScreen } from '../services/screenAuth.js'
 import { designerData, tenantRoom, screenRoom } from '../services/screenSvc.js'
 import { screensOrigin } from '../services/platformHost.js'
-import { normalizeBoard, MIN_SIZE, MAX_SIZE, TRANSITION_KEYS, DEFAULT_TRANSITION_MS } from '../../../shared/screenLayout.js'
+import { normalizeBoard, stampTechBlocks, MIN_SIZE, MAX_SIZE, TRANSITION_KEYS, DEFAULT_TRANSITION_MS } from '../../../shared/screenLayout.js'
 import { SCREEN_ONLINE_MS } from '../../../shared/techBoard.js'
 
 const PERM = {
@@ -54,6 +59,12 @@ const HHMM = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
 const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const ONLINE_MS = SCREEN_ONLINE_MS   // shared/techBoard.js
 const MAX_LAYOUT_BYTES = 500_000
+
+/** Can the person saving a board see the venue's kit (Store tech view, as the Tech board asks)? */
+async function canSeeKit(req) {
+  const levels = await permissionLevels(req, ['pos_setup'])
+  return permissionAtLeast(levels.pos_setup, 'view')
+}
 
 const Schedule = z.object({
   from: DATE.nullable().optional(),
@@ -364,6 +375,7 @@ export default async function screensRoutes(app) {
       copy_from: UUID.nullable().optional(),
       layout: LayoutBody.optional(),           // e.g. a wall's guide lines for a new board
     }).parse(req.body)
+    const kit = !b.copy_from && b.layout ? await canSeeKit(req) : false
     return withTenant(req.tenantId, async tx => {
       let width = b.width ?? 1920, height = b.height ?? 1080, layout = {}
       if (b.copy_from) {
@@ -373,7 +385,8 @@ export default async function screensRoutes(app) {
       } else if (b.layout) {
         if (JSON.stringify(b.layout).length > MAX_LAYOUT_BYTES) throw httpError(413, 'This board is too big to save')
         const { width: _w, height: _h, ...clean } = normalizeBoard(b.layout, width, height)
-        layout = clean
+        // A copy keeps its board's stamps (it shows what that board shows); a new layout is stamped now.
+        layout = stampTechBlocks(clean, null, kit)
       }
       const [row] = await tx`
         INSERT INTO screen_designs (tenant_id, name, width, height, layout, created_by, updated_by)
@@ -400,8 +413,13 @@ export default async function screensRoutes(app) {
     }).parse(req.body)
     if (JSON.stringify(b.layout).length > MAX_LAYOUT_BYTES) throw httpError(413, 'This board is too big to save: remove some blocks')
     // Stored as the renderer reads it (unknown block types dropped, sizes clamped).
-    const { width: _w, height: _h, ...layout } = normalizeBoard(b.layout, b.width, b.height)
+    const { width: _w, height: _h, ...clean } = normalizeBoard(b.layout, b.width, b.height)
+    const kit = await canSeeKit(req)
     const row = await withTenant(req.tenantId, async tx => {
+      // Store status blocks: may they show the kit? (stampTechBlocks(): the editor's access, else as saved before)
+      const [before] = await tx`SELECT layout FROM screen_designs WHERE id = ${id} AND tenant_id = ${req.tenantId} FOR UPDATE`
+      if (!before) throw httpError(404, 'Board not found')
+      const layout = stampTechBlocks(clean, before.layout, kit)
       const [r] = await tx`
         UPDATE screen_designs SET name = ${b.name}, width = ${b.width}, height = ${b.height}, layout = ${tx.json(layout)},
                updated_by = ${req.user?.email ?? null}

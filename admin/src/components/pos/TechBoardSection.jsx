@@ -13,7 +13,7 @@
 // GET /api/tech-board/venues/:venueId (routes/techBoard.js); everything the
 // board says comes from the tile model in shared/techBoard.js (techTiles(),
 // techModel()).
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -122,8 +122,11 @@ function Attention({ model, onOpen, big = false }) {
   const box = big
     ? cn('rounded-lg px-4 py-2 border', worst === 'bad' ? 'border-red-400/60 bg-red-500/15' : worst ? 'border-amber-300/60 bg-amber-400/10' : 'border-emerald-400/50 bg-emerald-500/10')
     : cn('rounded-lg border px-4 py-3', worst === 'bad' ? 'border-red-300 bg-red-50' : worst ? 'border-amber-300 bg-amber-50' : 'border-emerald-300 bg-emerald-50')
+  // Not a live region: its times move on every minute, and a screen reader
+  // would read the whole box again each time (TechBoardSection's one quiet
+  // live region says only when the count changes).
   return (
-    <div className={box} data-testid="tech-summary" role="status" style={big ? { fontSize: 'clamp(14px, 1.15vw, 24px)' } : undefined}>
+    <div className={box} data-testid="tech-summary" style={big ? { fontSize: 'clamp(14px, 1.15vw, 24px)' } : undefined}>
       <p className={cn('font-semibold flex items-center gap-2 flex-wrap', !big && 'text-sm')}>
         <ToneMark tone={worst || (h.tone === 'ok' ? 'ok' : 'muted')} />
         {list.length ? list.length + ' need' + (list.length === 1 ? 's' : '') + ' looking at' : 'Everything is working'}
@@ -173,13 +176,17 @@ export function TechBoardSection({ venueId, setup }) {
   const model = useMemo(() => (b ? techModel(techTiles(b, { setup, now }), { light: light.data }) : null), [b, setup, light.data, now])
   const platform = PLATFORM_LIGHT[light.data?.state] || null
   const refresh = useCallback(() => { board.refetch(); light.refetch() }, [board, light])
-  // Closing the details gives the focus back to the hexagon that opened them.
-  const closeSheet = useCallback(() => {
-    const key = openKey
-    setOpenKey(null)
-    if (key) requestAnimationFrame(() => document.querySelector('[data-tile="' + (window.CSS?.escape ? CSS.escape(key) : key) + '"]')?.focus())
-  }, [openKey])
+  // TileSheet gives the focus back to the hexagon that opened it, in its own
+  // view (the page's board or the full screen one: both draw the same keys).
+  const closeSheet = useCallback(() => setOpenKey(null), [])
   const openTile = useCallback(key => setOpenKey(key), [])
+  const fullButton = useRef(null)
+  // Leaving full screen gives the focus back to the button that opened it.
+  const closeFull = useCallback(() => {
+    setFull(false)
+    setOpenKey(null)
+    requestAnimationFrame(() => fullButton.current?.focus())
+  }, [])
 
   if (board.isLoading) return <Waiting />
   if (board.error) return <p className="text-sm text-red-700">Couldn&apos;t load the board: {board.error.message}</p>
@@ -208,12 +215,14 @@ export function TechBoardSection({ venueId, setup }) {
             ))}
           </div>
           {hex && (
-            <button type="button" onClick={() => setTheme(dark ? 'light' : 'dark')} aria-pressed={dark} data-testid="tech-theme"
+            // Its words say what it does (Dark while light), so no pressed state to contradict them.
+            <button type="button" onClick={() => setTheme(dark ? 'light' : 'dark')} data-testid="tech-theme"
+              aria-label={dark ? 'Show the honeycomb light' : 'Show the honeycomb dark'}
               className="inline-flex items-center gap-1.5 h-12 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted">
               {dark ? <Sun className="w-4 h-4" aria-hidden="true" /> : <Moon className="w-4 h-4" aria-hidden="true" />} {dark ? 'Light' : 'Dark'}
             </button>
           )}
-          <button type="button" onClick={() => setFull(true)} disabled={empty} data-testid="tech-full-open"
+          <button ref={fullButton} type="button" onClick={() => setFull(true)} disabled={empty} data-testid="tech-full-open"
             className="inline-flex items-center gap-1.5 h-12 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted disabled:opacity-50">
             <Maximize2 className="w-4 h-4" aria-hidden="true" /> Full screen
           </button>
@@ -225,6 +234,10 @@ export function TechBoardSection({ venueId, setup }) {
         <p className="w-full text-xs text-muted-foreground">Checked {ago(b.checked_at)}; it checks again every minute.</p>
       </div>
 
+      {/* The one live region: a screen reader hears when the count changes, never the minutes moving on. */}
+      <p className="sr-only" role="status" data-testid="tech-announce">
+        {empty ? '' : 'Tech board: ' + (model.attention.length ? model.attention.length + ' need' + (model.attention.length === 1 ? 's' : '') + ' looking at' : 'everything is working')}
+      </p>
       {!empty && <Attention model={model} onOpen={hex ? openTile : null} />}
 
       {empty ? (
@@ -249,7 +262,7 @@ export function TechBoardSection({ venueId, setup }) {
       {full && (
         <Suspense fallback={null}>
           <FullBoard model={model} now={now} venueName={b.venue_name} timezone={b.timezone} checkedAt={b.checked_at}
-            fetching={board.isFetching} onRefresh={refresh} onClose={() => { setFull(false); setOpenKey(null) }}
+            fetching={board.isFetching} onRefresh={refresh} onClose={closeFull}
             openKey={openKey} setOpenKey={openTile} closeSheet={closeSheet}
             attention={<Attention model={model} onOpen={openTile} big />} />
         </Suspense>

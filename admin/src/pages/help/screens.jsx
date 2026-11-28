@@ -128,11 +128,13 @@ export function Section() {
         The <strong>Store status</strong> block shows the venue&apos;s kit as the Tech board&apos;s honeycomb, on
         a menu screen: one hexagon per till, kitchen screen, kiosk, printer, card machine, menu screen and
         the venue hub, grouped by kind, green when working, amber when it needs a look, red when down, grey
-        when not linked, each with its mark (a tick, an exclamation mark, a cross, a dash) and the ring of its
-        kind. The big hexagon first is the venue overall. Under it, <strong>Needs attention</strong> lists
-        what is down or needs a look, worst first, with when it was last seen, and the key says what the
-        rings and fills mean. The screen shows its own venue&apos;s kit and checks about every 45 seconds; the
-        designer shows example kit.
+        when not linked or not checked yet, each with its mark (a tick, an exclamation mark, a cross, a dash)
+        and the ring of its kind. The big hexagon first is the venue overall. Under it, <strong>Needs
+        attention</strong> lists what is down or needs a look, worst first, with when it was last seen, and the
+        key says what the rings, fills and the venue hub&apos;s inner ring mean. The screen shows its own
+        venue&apos;s kit and checks about every 45 seconds (moved to another venue, it shows Checking the kit
+        until that venue&apos;s answer comes); the designer shows example kit. Something down glows on the
+        screen, not in the designer.
       </P>
       <P>
         In the block&apos;s panel: <strong>Which kit</strong> (tap kinds to show only those; none picked shows
@@ -147,6 +149,13 @@ export function Section() {
         board guests can see. A screen only gets the kit when one of its boards has the block, and it gets
         names and states only (no addresses or serial numbers).
       </InfoBox>
+      <P>
+        The tills, kitchen screens, kiosks, printers, card machines and venue hub show only when the block was
+        placed (or the board last saved) by someone with Store tech access, who can see them on the Tech board.
+        Placed by someone with Screens access only, the block shows the menu screens alone, and its panel says
+        so; it shows the rest once someone with Store tech access saves the board. Editing a board doesn&apos;t
+        take that away from a block already on it.
+      </P>
       <P>
         The designer shows the live prices. <strong>Draft prices</strong> shows the menus as saved
         but not yet published, and <strong>Sold out at</strong> shows a venue&apos;s sold out

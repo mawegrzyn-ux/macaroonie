@@ -15,7 +15,10 @@
 //   fitSize(layout, w, h, max)   the radius in px that fits a box
 //   honeycombHtml(model, layout, opts)   the hexagons as HTML (each an SVG
 //       hexagon: the fill is the state, the ring the kind of kit, a mark
-//       for the state so it never reads by colour alone)
+//       for the state so it never reads by colour alone); honeycombParts()
+//       the same in parts, a hexagon each, for a page that keeps each one
+//       as an element of its own (so its focus survives the clock ticking).
+//       Only the hexagon takes a tap, not the corners of its box.
 //   legendHtml(model), attentionHtml(model, now)   the key and the strip
 //   TECH_HEX_CSS   the look (custom properties --hx-* for the colours)
 //
@@ -207,53 +210,95 @@ function shapeSvg(kind, { health = false, ring = null } = {}) {
 }
 
 const px = n => Math.round(n * 10) / 10 + 'px'
+/** A style object ({ left: '4px', '--hx-s': '60px' }) as a style attribute's text. */
+export const styleText = st => Object.entries(st).map(([k, v]) => k + ':' + v).join(';')
 
 /**
- * The honeycomb as HTML. size: a hexagon's radius in px. interactive: each
- * tile a button (data-tile = its key) for the page to open; else plain.
- * names: show each tile's name. selected: the key of the open tile.
+ * The honeycomb in parts, for a page that draws each hexagon as an element of
+ * its own (Store tech's, admin/src/components/pos/TechHoneycomb.jsx: React
+ * keeps each hexagon's button by its key, so when the clock ticks only the
+ * words inside change and the keyboard focus stays where it was) and for
+ * honeycombHtml(). Options as honeycombHtml(). -> { cls, style, labels:
+ * [{ key, style, html }], tiles: [{ key, cls, tone, kind, style, label,
+ * selected, html }] } with style objects (styleText() makes them text) and
+ * html the inside of each label and hexagon.
  */
-export function honeycombHtml(model, layout, { size = 60, now = Date.now(), interactive = false, names = true, selected = null, anim = true, dark = false } = {}) {
+export function honeycombParts(model, layout, { size = 60, now = Date.now(), names = true, selected = null, anim = true, dark = false } = {}) {
   const s = size
   const byKey = Object.fromEntries((model?.tiles || []).map(t => [t.key, t]))
   const groups = Object.fromEntries((model?.groups || []).map(g => [g.key, g]))
-  let h = '<div class="hx' + (anim ? ' hx-anim' : '') + (dark ? ' is-dark' : '') + '" style="--hx-s:' + px(s) + ';width:' + px(layout.width * s) + ';height:' + px(layout.height * s) + '">'
+  const out = {
+    cls: 'hx' + (anim ? ' hx-anim' : '') + (dark ? ' is-dark' : ''),
+    style: { '--hx-s': px(s), width: px(layout.width * s), height: px(layout.height * s) },
+    labels: [], tiles: [],
+  }
   for (const l of layout.labels) {
     const g = groups[l.group]
     if (!g) continue
-    h += '<div class="hx-label" data-group="' + esc(g.key) + '" style="left:' + px(l.x * s) + ';top:' + px(l.y * s) + ';width:' + px(l.w * s) + '">' +
-      '<span class="hx-gname">' + esc(g.label) + '</span> <span class="hx-badge" data-tone="' + g.tone + '">' + esc(g.badge) + '</span></div>'
+    out.labels.push({
+      key: g.key, style: { left: px(l.x * s), top: px(l.y * s), width: px(l.w * s) },
+      html: '<span class="hx-gname">' + esc(g.label) + '</span> <span class="hx-badge" data-tone="' + g.tone + '">' + esc(g.badge) + '</span>',
+    })
   }
   for (const c of layout.cells) {
-    const box = 'left:' + px((c.x - c.scale) * s) + ';top:' + px((c.y - c.scale * SQ3 / 2) * s) + ';width:' + px(2 * c.scale * s) + ';height:' + px(SQ3 * c.scale * s)
-    const open = interactive ? '<button type="button"' : '<div'
-    const close = interactive ? '</button>' : '</div>'
+    const style = { left: px((c.x - c.scale) * s), top: px((c.y - c.scale * SQ3 / 2) * s), width: px(2 * c.scale * s), height: px(SQ3 * c.scale * s) }
+    const on = selected === c.key
     if (c.key === 'health') {
       const hl = model.health
-      const label = 'Overall: ' + hl.title + '. ' + hl.words + (hl.platform ? '. ' + hl.platform.text : '')
-      h += open + ' class="hx-tile hx-health" data-tile="health" data-tone="' + hl.tone + '" style="' + box + '" aria-label="' + esc(label) + '"' + (interactive ? ' aria-haspopup="dialog" aria-expanded="' + (selected === 'health') + '"' : '') + '>' +
-        shapeSvg(null, { health: true }) + '<span class="hx-in" style="font-size:' + px(s * c.scale) + '">' + iconSvg('health') +
-        '<span class="hx-title">' + markSvg(hl.tone) + esc(hl.title) + '</span><span class="hx-counts">' + esc(hl.words) + '</span>' +
-        (hl.platform ? '<span class="hx-plat" data-tone="' + hl.platform.tone + '">' + iconSvg('platform', 'hx-picon') + 'Macaroonie ' + esc(hl.platform.word.toLowerCase()) + '</span>' : '') +
-        '</span>' + close
+      out.tiles.push({
+        key: 'health', cls: 'hx-tile hx-health' + (on ? ' is-on' : ''), tone: hl.tone, kind: null, style, selected: on, health: true,
+        label: 'Overall: ' + hl.title + '. ' + hl.words + (hl.platform ? '. ' + hl.platform.text : ''),
+        html: shapeSvg(null, { health: true }) + '<span class="hx-in" style="font-size:' + px(s * c.scale) + '">' + iconSvg('health') +
+          '<span class="hx-title">' + markSvg(hl.tone) + esc(hl.title) + '</span><span class="hx-counts">' + esc(hl.words) + '</span>' +
+          (hl.platform ? '<span class="hx-plat" data-tone="' + hl.platform.tone + '">' + iconSvg('platform', 'hx-picon') + 'Macaroonie ' + esc(hl.platform.word.toLowerCase()) + '</span>' : '') +
+          '</span>',
+      })
       continue
     }
     const t = byKey[c.key]
     if (!t) continue
     const seen = seenText(t, now)
     const kind = TECH_KIND[t.kind]
-    const label = t.name + ', ' + kind.one + ': ' + t.word + (seen ? ', ' + seen : '')
-    h += open + ' class="hx-tile' + (selected === t.key ? ' is-on' : '') + '" data-tile="' + esc(t.key) + '" data-tone="' + t.tone + '" data-kind="' + t.kind + '" style="' + box + '"' +
-      (interactive ? ' aria-label="' + esc(label) + '" aria-haspopup="dialog" aria-expanded="' + (selected === t.key) + '"' : ' title="' + esc(label) + '"') + '>' +
-      shapeSvg(t.kind, { ring: t.ring }) + '<span class="hx-in">' + iconSvg(t.icon || kind.icon) +
-      (names ? '<span class="hx-name">' + esc(t.name) + '</span>' : '') +
-      '<span class="hx-word">' + markSvg(t.tone) + '<span>' + esc(t.word) + '</span></span>' +
-      (seen ? '<span class="hx-seen">' + esc(seen) + '</span>' : '') + '</span>' + close
+    out.tiles.push({
+      key: t.key, cls: 'hx-tile' + (on ? ' is-on' : ''), tone: t.tone, kind: t.kind, style, selected: on,
+      label: t.name + ', ' + kind.one + ': ' + t.word + (seen ? ', ' + seen : ''),
+      // The line on the hexagon is the short "4 min ago": "checked 12 min ago" ran past its sides.
+      html: shapeSvg(t.kind, { ring: t.ring }) + '<span class="hx-in">' + iconSvg(t.icon || kind.icon) +
+        (names ? '<span class="hx-name">' + esc(t.name) + '</span>' : '') +
+        '<span class="hx-word">' + markSvg(t.tone) + '<span>' + esc(t.word) + '</span></span>' +
+        (seen ? '<span class="hx-seen">' + esc(seenText(t, now, { short: true })) + '</span>' : '') + '</span>',
+    })
+  }
+  return out
+}
+
+/**
+ * The honeycomb as HTML. size: a hexagon's radius in px. interactive: each
+ * tile a button (data-tile = its key) for the page to open; else plain.
+ * names: show each tile's name. selected: the key of the open tile.
+ */
+export function honeycombHtml(model, layout, opts = {}) {
+  const interactive = !!opts.interactive
+  const p = honeycombParts(model, layout, opts)
+  let h = '<div class="' + p.cls + '" style="' + styleText(p.style) + '">'
+  for (const l of p.labels) h += '<div class="hx-label" data-group="' + esc(l.key) + '" style="' + styleText(l.style) + '">' + l.html + '</div>'
+  for (const t of p.tiles) {
+    // A plain tile's words are its title; the health hexagon's are its label either way.
+    const says = interactive || t.health ? ' aria-label="' + esc(t.label) + '"' : ' title="' + esc(t.label) + '"'
+    h += (interactive ? '<button type="button"' : '<div') + ' class="' + t.cls + '" data-tile="' + esc(t.key) + '" data-tone="' + t.tone + '"' +
+      (t.kind ? ' data-kind="' + t.kind + '"' : '') + ' style="' + styleText(t.style) + '"' + says +
+      (interactive ? ' aria-haspopup="dialog" aria-expanded="' + t.selected + '"' : '') + '>' + t.html + (interactive ? '</button>' : '</div>')
   }
   return h + '</div>'
 }
 
-/** The key: each kind of kit's ring, each state's fill and mark. Only the kinds the board has. */
+/** The key's words for the venue hub's inner ring (shown when a hub has one). */
+export const HUB_COPY_KEY = 'Inner ring: how up to date the hub\'s copy for trading offline is'
+
+/**
+ * The key: each kind of kit's ring, each state's fill and mark, and the
+ * venue hub's inner ring when a hub has one. Only the kinds the board has.
+ */
 export function legendHtml(model, { tones = true } = {}) {
   let h = '<div class="hx-legend">'
   for (const g of model?.groups || []) {
@@ -264,6 +309,10 @@ export function legendHtml(model, { tones = true } = {}) {
     for (const tone of ['ok', 'warn', 'bad', 'muted']) {
       h += '<span class="hx-key hx-tkey" data-tone="' + tone + '">' + markSvg(tone, 'hx-mark hx-kmark') + esc(TONE_LABELS[tone]) + '</span>'
     }
+  }
+  if ((model?.tiles || []).some(t => t.ring)) {
+    h += '<span class="hx-key hx-ckey" data-key="copy"><svg class="hx-swatch hx-cswatch" viewBox="-100 -86.6 200 173.2" aria-hidden="true" focusable="false">' +
+      poly('hx-cfill', 96) + poly('hx-copy', 62, ' pathLength="100" stroke-dasharray="70 100"') + '</svg><span>' + esc(HUB_COPY_KEY) + '</span></span>'
   }
   return h + '</div>'
 }
@@ -288,7 +337,7 @@ export function attentionHtml(model, now = Date.now(), { max = 6 } = {}) {
 /** Example kit for the board designer (as the Order status block shows example numbers). */
 export function sampleTechTiles(now = Date.now()) {
   const ago = m => new Date(now - m * 60_000).toISOString()
-  const t = (kind, name, tone, word, extra = {}) => ({ kind, name, tone, word, seen_at: ago(1), count: 0, ring: null, ...extra })
+  const t = (kind, name, tone, word, extra = {}) => ({ kind, name, tone, word, seen_at: ago(1), count: 0, ring: null, linked: true, ...extra })
   return [
     t('hub', 'Back office hub', 'ok', 'Online', { ring: { fresh: 0.9 } }),
     t('till', 'Counter 1', 'ok', 'Online'), t('till', 'Counter 2', 'ok', 'Online'), t('till', 'Drive thru', 'bad', 'Offline', { seen_at: ago(6) }),
@@ -296,7 +345,7 @@ export function sampleTechTiles(now = Date.now()) {
     t('kiosk', 'Kiosk 1', 'ok', 'Online'), t('kiosk', 'Kiosk 2', 'warn', 'Waiting'),
     t('printer', 'Kitchen printer', 'warn', '2 failed', { count: 2 }), t('printer', 'Receipts', 'ok', 'Ready'),
     t('card', 'Card machine', 'ok', 'Working'),
-    t('screen', 'Menu left', 'ok', 'Online'), t('screen', 'Menu right', 'ok', 'Online'), t('screen', 'Order board', 'muted', 'Not linked'),
+    t('screen', 'Menu left', 'ok', 'Online'), t('screen', 'Menu right', 'ok', 'Online'), t('screen', 'Order board', 'muted', 'Not linked', { linked: false }),
   ]
 }
 
@@ -329,7 +378,11 @@ export const TECH_HEX_CSS = `
 .is-dark .hx-badge[data-tone="bad"], .hx.is-dark .hx-badge[data-tone="bad"] { color: #fca5a5; }
 .hx-tile { position: absolute; display: block; margin: 0; padding: 0; border: 0; background: none; color: var(--hx-i); font: inherit; font-size: var(--hx-s);
   text-align: center; -webkit-tap-highlight-color: transparent; outline: none; }
-button.hx-tile { cursor: pointer; touch-action: manipulation; }
+/* A tile's box is its hexagon's bounding box, and diagonal neighbours' boxes
+   overlap: only the hexagon itself takes a tap (the .hx-focus polygon, inside
+   the button, so the click is the button's), never the box's corners. */
+button.hx-tile { touch-action: manipulation; pointer-events: none; }
+button.hx-tile .hx-focus { pointer-events: fill; cursor: pointer; }
 .hx-tile[data-tone="ok"] { --hx-f: var(--hx-ok); --hx-i: var(--hx-ok-ink); }
 .hx-tile[data-tone="warn"] { --hx-f: var(--hx-warn); --hx-i: var(--hx-warn-ink); }
 .hx-tile[data-tone="bad"] { --hx-f: var(--hx-bad); --hx-i: var(--hx-bad-ink); }
@@ -349,7 +402,8 @@ ${kindRules}
 .hx-word > span { overflow: hidden; text-overflow: ellipsis; }
 .hx-mark { width: 1.2em; height: 1.2em; flex: none; fill: none; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round;
   border-radius: 50%; background: rgba(255,255,255,0.24); box-shadow: 0 0 0 1px currentColor inset; }
-.hx-seen { font-size: 0.15em; font-weight: 600; opacity: 0.95; white-space: nowrap; }
+/* The bottom line sits where the hexagon is narrow: kept to 70% of the inner box. */
+.hx-seen { font-size: 0.15em; font-weight: 600; opacity: 0.95; white-space: nowrap; max-width: 70%; overflow: hidden; text-overflow: ellipsis; }
 .hx-health .hx-in { inset: 12% 14%; font-size: inherit; }
 .hx-health .hx-icon { width: 0.3em; height: 0.3em; }
 .hx-title { display: inline-flex; align-items: center; gap: 0.25em; font-size: 0.2em; font-weight: 800; }
@@ -366,6 +420,9 @@ ${kindRules}
 .hx-key > span { color: var(--hx-text, inherit); }
 .hx-tkey { color: var(--hx-text, inherit); }
 .hx-kmark { width: 1.35em; height: 1.35em; color: var(--hx-i); background: var(--hx-f); box-shadow: none; stroke-width: 3.4; padding: 0.12em; }
+.hx-ckey { --hx-f: var(--hx-ok); --hx-i: var(--hx-ok-ink); }
+.hx-cswatch .hx-cfill { fill: var(--hx-f); }
+.hx-cswatch .hx-copy { stroke-width: 13; stroke-opacity: 0.85; }
 .hx-tkey[data-tone="ok"], .hx-aitem[data-tone="ok"], .hx-attn[data-tone="ok"] { --hx-f: var(--hx-ok); --hx-i: var(--hx-ok-ink); }
 .hx-tkey[data-tone="warn"], .hx-aitem[data-tone="warn"] { --hx-f: var(--hx-warn); --hx-i: var(--hx-warn-ink); }
 .hx-tkey[data-tone="bad"], .hx-aitem[data-tone="bad"] { --hx-f: var(--hx-bad); --hx-i: var(--hx-bad-ink); }

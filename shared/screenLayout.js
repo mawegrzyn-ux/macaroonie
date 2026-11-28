@@ -41,7 +41,7 @@ import { itemChoices, variantRules, fromPrice, priceVaries, comboMenuPrice, base
 import { comboGuide, menuCtx } from './combos.js'
 import { orderInfo } from './orderInfo.js'
 import { techModel, TECH_KINDS, TONE_LABELS } from './techBoard.js'
-import { honeycomb, fitSize, honeycombHtml, legendHtml, attentionHtml, sampleTechTiles, TECH_HEX_CSS } from './techHex.js'
+import { honeycomb, fitSize, honeycombHtml, legendHtml, attentionHtml, sampleTechTiles, TECH_HEX_CSS, HUB_COPY_KEY } from './techHex.js'
 
 // ── Constants ───────────────────────────────────────────────
 
@@ -205,7 +205,8 @@ export const BLOCK_DEFAULTS = {
     },
   },
   // The venue's kit as a honeycomb (techStatusHtml(), shared/techHex.js):
-  // groups = the kinds of kit to show (TECH_KINDS keys; empty = all).
+  // groups = the kinds of kit to show (TECH_KINDS keys; empty = all); kit is
+  // stamped by the API on save (stampTechBlocks()), never set here.
   tech_status: {
     w: 0.7, h: 0.8,
     opts: {
@@ -305,6 +306,25 @@ export function normalizeBoard(layout, width = 1920, height = 1080) {
     guide_rows: Math.round(num(l.guide_rows, 1, 6, 1)),
     guide_gap: Math.round(num(l.guide_gap, 0, 400, 0)),
     blocks,
+  }
+}
+
+/**
+ * The Store status block may show the venue's tills, kitchen screens,
+ * kiosks, printers, card machines and hub only when whoever placed it can see
+ * them (Store tech view, as on the Tech board); the menu screens always (a
+ * board's editor has Screens access). The API stamps opts.kit on each
+ * tech_status block as it saves a board: true when the person saving has
+ * Store tech access, else what the same block (by id) had before, else
+ * false. Whatever a browser sends for kit is ignored. before: the board as
+ * saved until now (null for a new one).
+ */
+export function stampTechBlocks(layout, before, canKit) {
+  const had = new Map((before?.blocks || []).filter(b => b?.type === 'tech_status').map(b => [b.id, b.opts?.kit === true]))
+  return {
+    ...layout,
+    blocks: (layout?.blocks || []).map(b => (b.type !== 'tech_status' ? b
+      : { ...b, opts: { ...(b.opts || {}), kit: !!canKit || had.get(b.id) === true } })),
   }
 }
 
@@ -1194,9 +1214,12 @@ function linesFor(texts, extraEm, font, w) {
  * (shared/techBoard.js techModel(), drawn by shared/techHex.js), with what
  * needs attention and the key under it. ctx.tech is the screen's own venue
  * (GET /screen-api/tech); the designer shows example kit. Only the kinds of
- * kit in o.groups (all when empty). The hexagons fit what the strip and the
- * key leave of the block; the board's colours give the words, and a dark
- * board takes the dark look.
+ * kit in o.groups (all when empty), and only the menu screens when o.kit is
+ * false (the API stamps it on save: whoever placed the block had no Store
+ * tech access, so GET /screen-api/tech sends no tills or other kit; the
+ * designer's example kit follows it). The hexagons fit what the strip and
+ * the key leave of the block; the board's colours give the words, and a
+ * dark board takes the dark look.
  */
 function techStatusHtml(block, ctx) {
   const o = block.opts || {}
@@ -1211,9 +1234,12 @@ function techStatusHtml(block, ctx) {
   })
   const cls = 'sl-tech' + (dark ? ' is-dark' : '') + (live ? '' : ' is-sample')
   if (live?.pending) return '<div class="' + cls + ' is-wait" style="' + vars + '"><span>Checking the kit...</span></div>'
-  const picked = new Set((Array.isArray(o.groups) ? o.groups : []).filter(k => TECH_KINDS.some(x => x.key === k)))
+  const picked = (Array.isArray(o.groups) ? o.groups : []).filter(k => TECH_KINDS.some(x => x.key === k))
+  // null: every kind; the menu screens only when the block may not show kit.
+  let kinds = picked.length ? new Set(picked) : null
+  if (o.kit === false) kinds = new Set(kinds ? [...kinds].filter(k => k === 'screen') : ['screen'])
   const all = live ? (Array.isArray(live.tiles) ? live.tiles : []) : sampleTechTiles(now)
-  const model = techModel(picked.size ? all.filter(t => picked.has(t?.kind)) : all, { light: live ? live.light : 'up' })
+  const model = techModel(kinds ? all.filter(t => kinds.has(t?.kind)) : all, { light: live ? live.light : 'up' })
   if (!model.tiles.length) return '<div class="' + cls + ' is-wait" style="' + vars + '"><span>No kit to show yet</span></div>'
   const legendFont = Math.round(text * 0.8)
   const strip = o.show_attention !== false ? attentionHtml(model, now, { max: 6 }) : ''
@@ -1221,7 +1247,7 @@ function techStatusHtml(block, ctx) {
   // Room for the strip and the key, a little more than they take (each item:
   // its words, its mark or swatch and the space after it).
   const stripLines = strip ? linesFor(model.attention.length ? ['Needs attention', ...model.attention.slice(0, 7).map(t => t.name + ' ' + t.word + ' seen 10 min ago')] : ['Everything is working'], 3.2, text, block.w) : 0
-  const legendLines = legend ? linesFor([...model.groups.map(g => g.label), ...Object.values(TONE_LABELS)], 3.8, legendFont, block.w) : 0
+  const legendLines = legend ? linesFor([...model.groups.map(g => g.label), ...Object.values(TONE_LABELS), ...(model.tiles.some(t => t.ring) ? [HUB_COPY_KEY] : [])], 3.8, legendFont, block.w) : 0
   const gap = text * 0.6
   const used = stripLines * text * 1.6 + legendLines * legendFont * 2 + (strip ? gap : 0) + (legend ? gap : 0)
   const hexH = Math.max(40, block.h - used)
@@ -1514,5 +1540,9 @@ export const SCREEN_LAYOUT_CSS = `
 .sl-tech-attn, .sl-tech-key { flex: none; display: flex; justify-content: center; }
 .sl-tech .hx-attn, .sl-tech .hx-legend { justify-content: center; }
 .sl-tech.is-wait { align-items: center; justify-content: center; color: var(--sl-muted); }
-.sl-board:not(.sl-play) .sl-tech .hx-shape { animation: none; }
-` + TECH_HEX_CSS
+` + TECH_HEX_CSS + `
+/* A down hexagon glows only on a playing board (the player, the designer's
+   Play), not in the designer or a preview. After TECH_HEX_CSS and more
+   particular than its glow rule, which it would otherwise lose to. */
+.sl-board:not(.sl-play) .sl-tech .hx-anim .hx-tile .hx-shape { animation: none; }
+`

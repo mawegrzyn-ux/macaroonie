@@ -268,6 +268,10 @@ function unpair(message) {
   save(KEYS.config, null)
   device = null
   config = null
+  // Paired again it may be another venue's (or tenant's) screen: keep nothing of this one's.
+  tech = null
+  techVenue = null
+  orders = null
   stopPaired()
   if (message) panel('<h1>' + escHtml(message) + '</h1><p>Getting a new code…</p>')
   setTimeout(startPairing, message ? 2500 : 0)
@@ -297,6 +301,7 @@ let wsOpenedBefore = false
 // offline tile's "seen 4 min ago" moves on.
 const TECH_EVERY_MS = 45_000
 let tech = null
+let techVenue = null    // the venue the kit is from: moved to another, it is read again
 let techTimer = null
 
 function startPaired() {
@@ -554,10 +559,14 @@ async function fetchOrders() {
 // The venue's kit (Store status blocks): only this screen's venue, only the words the block draws.
 async function fetchTech() {
   if (!device || LIVE || !config?.needs_tech) return
+  const venue = config.venue?.id || null
   try {
     const r = await api('/screen-api/tech', { auth: screenAuth() })
     setServerTime(r.server_time)
+    // The screen moved (or was paired again) while this was on its way: not its kit.
+    if (!config || (config.venue?.id || null) !== venue) return
     tech = { tiles: Array.isArray(r.tiles) ? r.tiles : [], light: r.light || null }
+    techVenue = venue
     redraw()
   } catch { /* offline: keep the last */ }
 }
@@ -566,6 +575,8 @@ function applyConfig() {
   hidePanel()
   if (pollTimer) setPullTimers()
   if (config.needs_orders && !orders) fetchOrders()
+  // Another venue's kit is never drawn: moved, the block waits for this one's ("Checking").
+  if (tech && techVenue !== (config.venue?.id || null)) { tech = null; techVenue = null }
   if (config.needs_tech && !tech) fetchTech()
   fontsFor(Object.values(config.designs || {}))
   cacheVideos()

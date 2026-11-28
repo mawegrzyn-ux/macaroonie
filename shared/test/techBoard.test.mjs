@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   DEVICE_ONLINE_MS, SCREEN_ONLINE_MS, seenState, deviceOnline, agoText, printerState, deviceState,
-  techTiles, techModel, techHealth, screenTiles, seenText, TECH_KINDS, TONES, TONE_MARKS, hubCopy,
+  techTiles, techModel, techHealth, screenTiles, seenText, TECH_KINDS, TONES, TONE_MARKS, TONE_LABELS, hubCopy, mutedWords,
 } from '../techBoard.js'
 
 const now = Date.parse('2026-11-22T12:00:00Z')
@@ -89,11 +89,35 @@ test('tiles: each piece of kit with its tone, its word and where it is set up', 
 test('a printer reads the same on the Printers page and the board', () => {
   const b = board()
   const setup = { devices: b.devices }
-  assert.deepEqual(printerState(b.printers[1], setup, now), ['Not answering: ECONNREFUSED 10.0.0.8 (4 min ago)', 'bad'])
-  assert.deepEqual(printerState({ is_active: true, connection: 'hub', host: '' }, setup, now), ['Type its address on the network', 'warn'])
-  assert.deepEqual(printerState({ is_active: true, connection: 'hub', host: 'x' }, { devices: [] }, now)[1], 'warn', 'no hub')
-  assert.deepEqual(printerState({ is_active: false }, setup, now), ['Switched off', 'muted'])
+  assert.deepEqual(printerState(b.printers[1], setup, now), ['Not answering: ECONNREFUSED 10.0.0.8 (4 min ago)', 'bad', 'Offline'])
+  assert.deepEqual(printerState({ is_active: true, connection: 'hub', host: '' }, setup, now), ['Type its address on the network', 'warn', 'Set up'])
+  assert.deepEqual(printerState({ is_active: true, connection: 'hub', host: 'x' }, { devices: [] }, now).slice(1), ['warn', 'No hub'], 'no hub to print through')
+  assert.deepEqual(printerState({ is_active: false }, setup, now), ['Switched off', 'muted', 'Off'])
   assert.deepEqual(deviceState({ paired: true, last_seen_at: ago(10_000), app_version: '3' }, now), ['Online · 3', 'ok', 'Online'])
+})
+
+test('a printer on a venue hub that is down says Hub down, not Set up or the hub\'s stale Paper low', () => {
+  const hub = { id: 'h9', kind: 'hub', name: 'Office hub', paired: true, last_seen_at: ago(40 * 60_000) }
+  const unlinked = { id: 'h8', kind: 'hub', name: 'New hub', paired: false, last_seen_at: null }
+  const printer = (extra = {}) => ({
+    id: 'p9', name: 'Pass', is_active: true, connection: 'device', device_id: 'h9', local_id: 'usb-1',
+    status: { online: true, paper_low: true }, status_at: ago(41 * 60_000), jobs: { waiting: 0, failed: 0 }, last_job: null, ...extra,
+  })
+  const setup = { devices: [hub, unlinked] }
+  const [text, tone, word] = printerState(printer(), setup, now)
+  assert.deepEqual([tone, word], ['warn', 'Hub down'])
+  assert.match(text, /^Office hub is offline \(seen 40 min ago\)$/)
+  assert.deepEqual(printerState(printer({ device_id: 'h8' }), setup, now).slice(1), ['warn', 'No hub'], 'its hub isn\'t linked yet')
+  assert.deepEqual(printerState(printer({ local_id: null }), setup, now).slice(1), ['warn', 'Set up'], 'pick which printer: a set-up job')
+  // The tile, the attention strip and a menu screen get the same word, failed tickets or not.
+  const tiles = techTiles({ devices: [hub], printers: [printer({ jobs: { waiting: 2, failed: 3 } })] }, { now })
+  const t = tiles.find(x => x.kind === 'printer')
+  assert.deepEqual([t.tone, t.word, t.count], ['warn', 'Hub down', 3])
+  assert.match(t.status, /3 failed today/)
+  assert.equal(screenTiles(tiles).find(x => x.kind === 'printer').word, 'Hub down')
+  // Back online and reporting: the hub's own words again.
+  const back = { ...hub, last_seen_at: ago(20_000) }
+  assert.deepEqual(printerState(printer({ status_at: ago(30_000) }), { devices: [back] }, now).slice(1), ['warn', 'Paper low'])
 })
 
 test('groups: one per kind of kit, in the board\'s order, worst first, with a badge', () => {
@@ -113,13 +137,45 @@ test('health: the worst tone, the counts in words, the platform\'s light', () =>
   const h = techHealth(tiles, 'up')
   assert.equal(h.tone, 'bad')
   assert.deepEqual(h.counts, { ok: 5, warn: 2, bad: 3, muted: 2 })
-  assert.equal(h.words, '5 up, 3 down, 2 to check, 2 not linked')
+  // Till 3 isn't linked; Card B is linked but has had no payments: not checked, never "not linked".
+  assert.equal(h.words, '5 up, 3 down, 2 to check, 1 not linked, 1 not checked')
+  assert.equal(h.unlinked, 1)
   assert.equal(h.title, '3 down')
   const fine = tiles.filter(x => x.tone === 'ok')
   assert.deepEqual([techHealth(fine, 'up').tone, techHealth(fine, 'up').title, techHealth(fine, 'up').words], ['ok', 'All working', '5 up'])
   assert.equal(techHealth(fine, 'degraded').tone, 'warn', 'the platform running slow makes the venue need a look')
   assert.deepEqual([techHealth(fine, { state: 'down' }).tone, techHealth(fine, 'down').title], ['bad', 'Macaroonie down'])
   assert.deepEqual([techHealth([]).title, techHealth([]).tone], ['No kit yet', 'muted'])
+})
+
+test('linked kit with nothing to judge is not checked, not "not linked"', () => {
+  const quiet = techTiles({
+    card_readers: [{ id: 'c1', name: 'Card', last_payment: null }],
+    printers: [{ id: 'p1', name: 'Bar', is_active: true, connection: 'hub', host: '10.0.0.8', status: null, status_at: null, jobs: {}, last_job: null }],
+    devices: [{ id: 'h1', kind: 'hub', name: 'Hub', paired: true, last_seen_at: ago(10_000) }, { id: 't1', kind: 'terminal', name: 'New till', paired: false }],
+    screens: [{ id: 's1', name: 'Menu', paired: true, state: 'never', last_seen_at: null }, { id: 's2', name: 'Spare', paired: false, state: 'never', last_seen_at: null }],
+  }, { now })
+  const t = Object.fromEntries(quiet.map(x => [x.key, x]))
+  assert.deepEqual([t['card:c1'].tone, t['card:c1'].word, t['card:c1'].linked], ['muted', 'Quiet', true])
+  assert.deepEqual([t['printer:p1'].tone, t['printer:p1'].word, t['printer:p1'].linked], ['muted', 'Not checked', true])
+  assert.deepEqual([t['till:t1'].word, t['till:t1'].linked], ['Not linked', false])
+  assert.deepEqual([t['screen:s1'].word, t['screen:s1'].status, t['screen:s1'].linked], ['Not seen', 'Linked, not heard from yet', true], 'a paired screen not heard from')
+  assert.deepEqual([t['screen:s2'].word, t['screen:s2'].linked], ['Not linked', false])
+  const m = techModel(quiet, { light: 'up' })
+  const badge = k => m.groups.find(g => g.key === k).badge
+  assert.equal(badge('card'), '1 not checked', 'an idle card machine is not called not linked')
+  assert.equal(badge('printer'), '1 not checked')
+  assert.equal(badge('till'), '1 not linked')
+  assert.equal(badge('screen'), '1 not linked, 1 not checked')
+  assert.equal(m.health.words, '1 up, 2 not linked, 3 not checked')
+  assert.deepEqual(mutedWords(quiet.filter(x => x.kind === 'card')), ['1 not checked'])
+  assert.equal(techHealth(quiet.filter(x => x.kind === 'card')).title, 'Not checked yet')
+  assert.equal(techHealth(quiet.filter(x => x.kind === 'till')).title, 'Nothing linked')
+  // The words agree with the key.
+  assert.match(TONE_LABELS.muted, /not linked/i)
+  assert.match(TONE_LABELS.muted, /not checked/i)
+  // A menu screen's tiles say which are linked, so the block words them the same.
+  assert.equal(techModel(screenTiles(quiet)).health.words, m.health.words)
 })
 
 test('every tone has its own mark', () => {
@@ -133,7 +189,7 @@ test('a menu screen gets the words to draw and nothing else', () => {
   const tiles = techTiles(board(), { now })
   const pub = screenTiles(tiles)
   assert.equal(pub.length, tiles.length)
-  for (const p of pub) assert.deepEqual(Object.keys(p).sort(), ['count', 'kind', 'name', 'ring', 'seen_at', 'tone', 'word'])
+  for (const p of pub) assert.deepEqual(Object.keys(p).sort(), ['count', 'kind', 'linked', 'name', 'ring', 'seen_at', 'tone', 'word'])
   const text = JSON.stringify(pub)
   for (const secret of ['10.0.0', 'SER-1', 'S700', 'ECONNREFUSED', 'Paper jam', '1.5.0', 'h1', 't1', 'p1', 'c1', 's1']) {
     assert.ok(!text.includes(secret), 'no ' + secret)
@@ -145,4 +201,6 @@ test('a menu screen gets the words to draw and nothing else', () => {
   assert.equal(seenText(m.tiles.find(t => t.name === 'Till 1'), now), 'seen 20 min ago')
   assert.equal(seenText(m.tiles.find(t => t.name === 'Bar'), now), 'checked 4 min ago')
   assert.equal(seenText(m.tiles.find(t => t.name === 'Till 2'), now), '', 'only offline tiles say when')
+  // On the hexagon itself the short form (the long one ran past its sides).
+  assert.equal(seenText(m.tiles.find(t => t.name === 'Bar'), now, { short: true }), '4 min ago')
 })

@@ -27,9 +27,9 @@ async function call(method, url, body, headers = {}) {
 }
 
 /** A menu screen paired at a venue, showing a board: { id, secret, auth }. */
-async function pairScreen(name, venueId, designId) {
+async function pairScreen(name, venueId, designId, by = owner) {
   const p = (await call('POST', '/screen-api/pairings', { device: { width: 1920, height: 1080 } })).json
-  const s = await ok(owner.post('/api/screens/screens/claim', { code: p.code, name, venue_id: venueId, design_id: designId }))
+  const s = await ok(by.post('/api/screens/screens/claim', { code: p.code, name, venue_id: venueId, design_id: designId }))
   return { id: s.id, secret: p.secret, auth: { authorization: `Screen ${s.id}.${p.secret}` } }
 }
 const tech = s => call('GET', '/screen-api/tech', undefined, s.auth)
@@ -47,6 +47,7 @@ before(async () => {
   techBoard = await ok(owner.post('/api/screens/designs', {
     name: 'Zqt Back office', layout: { blocks: [{ id: 't', type: 'tech_status', x: 0, y: 0, w: 1600, h: 900, opts: {} }] },
   }))
+  assert.equal(techBoard.layout.blocks[0].opts.kit, true, 'placed by the owner: it may show the kit')
   plainBoard = await ok(owner.post('/api/screens/designs', {
     name: 'Zqt Menu', layout: { blocks: [{ id: 'h', type: 'heading', x: 0, y: 0, w: 600, h: 100, opts: { text: 'Lunch' } }] },
   }))
@@ -69,7 +70,7 @@ test('a paired screen with the block gets its own venue\'s kit, as the words the
   assert.ok(!names.includes('Zqt Other till'), 'never another venue\'s kit')
   assert.ok(r.json.tiles.some(t => t.kind === 'printer') && r.json.tiles.some(t => t.kind === 'screen' && t.name.startsWith('Zqt Office screen')))
   for (const t of r.json.tiles) {
-    assert.deepEqual(Object.keys(t).sort(), ['count', 'kind', 'name', 'ring', 'seen_at', 'tone', 'word'])
+    assert.deepEqual(Object.keys(t).sort(), ['count', 'kind', 'linked', 'name', 'ring', 'seen_at', 'tone', 'word'])
     assert.ok(['ok', 'warn', 'bad', 'muted'].includes(t.tone))
   }
   // The other venue's screen: that venue's kit only.
@@ -116,6 +117,42 @@ test('refused: no pairing, a wrong secret, a screen without the block, a disconn
   await ok(owner.put('/api/screens/walls/' + wall.id, { venue_id: V, name: 'Zqt Wall', cols: 2, rows: 1, design_id: techBoard.id, places: [{ screen_id: plain.id, col: 0, row: 0 }] }))
   const onWall = await tech(plain)
   assert.equal(onWall.status, 200, 'its wall shows the block: ' + onWall.body)
+})
+
+test('a block placed by someone without Store tech access shows the menu screens only', async () => {
+  // Screens manage, no Store tech: the Tech board shows them no kit, so a board they make mustn't either.
+  const role = await ok(owner.post('/api/access/roles', { key: 'zqt_screens', label: 'Zqt Screens only', permissions: { screens: 'manage' } }))
+  await sql`INSERT INTO users (tenant_id, email, role, auth0_user_id, custom_role_id)
+            VALUES (${ids.a}, 'a-screens@test.local', 'operator', 'a-screens', ${role.id})`
+  const editor = as('a-screens', ids.a)
+  const tb = await ok(editor.get('/api/tech-board/venues/' + V))
+  assert.deepEqual([tb.can, tb.devices.length, tb.printers.length], [{ kit: false, screens: true }, 0, 0])
+
+  // A board of their own with the block, a kit stamp sent from the browser ignored.
+  const block = (id, kit) => ({ id, type: 'tech_status', x: 0, y: 0, w: 1600, h: 900, opts: { kit } })
+  const d = await ok(editor.post('/api/screens/designs', { name: 'Zqt Their board', layout: { blocks: [block('t', true)] } }))
+  assert.equal(d.layout.blocks[0].opts.kit, false, 'stamped from who saved it')
+  const screen = await pairScreen('Zqt Their screen', V, d.id, editor)
+  const only = await tech(screen)
+  assert.equal(only.status, 200, only.body)
+  assert.ok(only.json.tiles.length > 0 && only.json.tiles.every(t => t.kind === 'screen'), 'the menu screens and nothing else: ' + only.json.tiles.map(t => t.kind))
+  const put = await ok(editor.put('/api/screens/designs/' + d.id, { name: 'Zqt Their board', width: 1920, height: 1080, layout: { blocks: [block('t', true)] } }))
+  assert.equal(put.layout.blocks[0].opts.kit, false)
+
+  // Someone with Store tech access saves it: now it shows the kit.
+  const mine = await ok(owner.put('/api/screens/designs/' + d.id, { name: 'Zqt Their board', width: 1920, height: 1080, layout: put.layout }))
+  assert.equal(mine.layout.blocks[0].opts.kit, true)
+  assert.ok((await tech(screen)).json.tiles.some(t => t.kind === 'till'), 'the tills now')
+  // The Screens-only editor changes the board: that block keeps its stamp, a block they add doesn't get one.
+  const heading = { id: 'h', type: 'heading', x: 0, y: 0, w: 600, h: 100, opts: { text: 'Office' } }
+  const again = await ok(editor.put('/api/screens/designs/' + d.id, {
+    name: 'Zqt Their board', width: 1920, height: 1080, layout: { blocks: [...mine.layout.blocks, heading, block('t2', true)] },
+  }))
+  const kitOf = id => again.layout.blocks.find(b => b.id === id).opts.kit
+  assert.deepEqual([kitOf('t'), kitOf('t2')], [true, false])
+  // A copy of a board shows what that board shows.
+  const copy = await ok(editor.post('/api/screens/designs', { name: 'Zqt Copy', copy_from: d.id }))
+  assert.equal(copy.layout.blocks.find(b => b.id === 't').opts.kit, true)
 })
 
 test('the Tech board route answers as before, with the venue\'s name and time zone', async () => {
