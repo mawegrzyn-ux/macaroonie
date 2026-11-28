@@ -123,6 +123,26 @@ export const starters = [
     },
   }),
 
+  // Inventory phase 9b (migration 321): the returns whose credit note hasn't come, by supplier.
+  starter({
+    key: 'purchasing_credits_owed',
+    name: 'Credits still owed',
+    about: 'Each supplier\'s returns still waiting for a credit note (open or sent), how many have waited 14 days or more, and the credit expected for them (the price paid, before VAT). Money needs Purchasing setup: without it the counts show.',
+    // Whenever the goods went back: a credit owed is owed until it comes.
+    period: false,
+    spec: {
+      subject: 'purchasing.returns',
+      rows: ['supplier.name'],
+      values: m('owed_count', 'overdue_count', 'credit_owed'),
+      filters: [{ field: 'owed', op: 'is', value: true }],
+      sort: [{ by: 'owed_count', dir: 'desc' }],
+      drill: {
+        down: ['venue.name', { field: 'date', bucket: 'week' }],
+        rows: ['date', 'number', 'venue.name', 'supplier.name', 'status', 'days_waiting', 'sent_at', 'expected_value'],
+      },
+    },
+  }),
+
   starter({
     key: 'purchasing_out_of_stock',
     name: 'Products out of stock',

@@ -40,7 +40,7 @@
 
 import { loadStockOnHand, loadStockMoves, costLookup, loadWastedVoids } from '../../services/stockSvc.js'
 import { periodFigures, loadReviews, PERIOD_COLS } from '../../services/stockVarianceSvc.js'
-import { runningBalance, stockOnHand, countReview, lostInTransit } from '../../../../shared/stock.js'
+import { runningBalance, stockOnHand, countReview, lostInTransit, MOVE_KINDS } from '../../../../shared/stock.js'
 
 // The tables each work reads (the catalogue's from.tables). On hand and the ledger read waste
 // (the till's voids marked wasted too) and transfers since phase 4b.
@@ -132,8 +132,9 @@ export const STOCK_WORKS = {
             venue_id: m.venue_id, item_id: m.item_id, item_name: i.name, base_unit: i.base_unit,
             at: m.at, date: day, kind: m.kind, change: m.change, counted: m.kind === 'count' ? m.qty_base : null,
             balance: m.balance, source: m.source.label, by: m.by,
-            value: m.kind === 'delivery' ? null : money,
-            paid: m.kind === 'delivery' ? money : null,
+            // A delivery or a return to the supplier is valued at what the supplier charged (MOVE_KINDS' paid).
+            value: MOVE_KINDS[m.kind]?.paid ? null : money,
+            paid: MOVE_KINDS[m.kind]?.paid ? money : null,
           })
         }
       }
@@ -339,7 +340,7 @@ export const VARIANCE_WORKS = {
       ['tenant_id', 'uuid'], ['id', 'text'], ['period_id', 'uuid'], ['venue_id', 'uuid'], ['date', 'date'],
       ['from_at', 'timestamptz'], ['to_at', 'timestamptz'], ['status', 'text'],
       ['item_id', 'uuid'], ['item_name', 'text'], ['base_unit', 'text'], ['category', 'text'],
-      ['opening', 'numeric'], ['received', 'numeric'], ['transfers_in', 'numeric'], ['transfers_out', 'numeric'], ['closing', 'numeric'],
+      ['opening', 'numeric'], ['received', 'numeric'], ['transfers_in', 'numeric'], ['transfers_out', 'numeric'], ['returns', 'numeric'], ['closing', 'numeric'],
       ['actual', 'numeric'], ['theoretical', 'numeric'], ['late', 'numeric'], ['waste', 'numeric'], ['adjusted', 'numeric'],
       ['variance', 'numeric'], ['unexplained', 'numeric'], ['unexplained_pct', 'numeric'],
       ['price', 'numeric'], ['actual_value', 'numeric'], ['theoretical_value', 'numeric'], ['waste_value', 'numeric'],
@@ -359,7 +360,7 @@ export const VARIANCE_WORKS = {
             tenant_id: tenantId, id: p.id + '|' + r.item_id, period_id: p.id, venue_id: p.venue_id, date: p.date,
             from_at: p.from_at, to_at: p.to_at, status: p.status,
             item_id: r.item_id, item_name: r.name, base_unit: r.base_unit, category: r.category ?? null,
-            opening: r.opening, received: r.received, transfers_in: r.transfers_in, transfers_out: r.transfers_out, closing: r.closing,
+            opening: r.opening, received: r.received, transfers_in: r.transfers_in, transfers_out: r.transfers_out, returns: r.returns || 0, closing: r.closing,
             actual: r.actual, theoretical: r.theoretical, late: r.late || 0, waste: r.waste, adjusted: r.adjusted,
             variance: r.variance, unexplained: r.unexplained, unexplained_pct: r.unexplained_pct,
             price: r.price, actual_value: r.actual_value, theoretical_value: r.theoretical_value, waste_value: r.waste_value,
