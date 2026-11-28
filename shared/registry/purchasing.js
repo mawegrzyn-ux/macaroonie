@@ -47,4 +47,12 @@ export const objects = [
     table: 'purchase_invoices', subjects: ['purchasing.invoices'],
     page: '/purchasing',
   },
+  // Inventory phase 9b (migration 321): goods sent back to the supplier, and the credit note owed for them.
+  {
+    key: 'purchasing.returns', label: 'Return to supplier', plural: 'Returns to suppliers',
+    words: ['return', 'returns', 'credit note', 'credit', 'refund from supplier', 'sent back'],
+    table: 'purchase_returns', subjects: ['purchasing.returns', 'purchasing.return_lines'],
+    page: '/purchasing', open: { page: '/purchasing', with: ['tab'] },
+    actions: ['start_return'],
+  },
 ]

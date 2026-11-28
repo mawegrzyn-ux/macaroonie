@@ -55,6 +55,8 @@ export const ACTION_LABELS = {
   request_order: 'Sent an order for approval', send_back_order: 'Sent an order back', split_order: 'Split an order',
   send_purchase_order: 'Sent a purchase order', change_purchase_order: 'Changed a purchase order',
   cancel_purchase_order: 'Cancelled a purchase order', receive_delivery: 'Booked in a delivery',
+  // Inventory phase 9b (migration 321).
+  start_return: 'Returned goods to a supplier',
   create_menu: 'Made a menu', update_menu: 'Changed a menu', duplicate_menu: 'Copied a menu',
   add_dishes: 'Added dishes', update_dish: 'Changed a dish', remove_dishes: 'Removed dishes',
   update_section: 'Changed a menu section', remove_section: 'Removed a menu section', change_prices: 'Changed menu prices',
