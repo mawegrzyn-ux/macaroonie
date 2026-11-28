@@ -162,6 +162,45 @@ Console and on expo.dev (no key or file goes in the repository or the chat):
    Play Console. Once the app is published, `releaseStatus` can become
    `completed` and the track `production`.
 
+### The store listing and its graphics
+
+Everything the Play Console's **Main store listing** asks for is in
+[`store-assets/android/`](store-assets/android/), with
+[`store-listing.md`](store-assets/android/store-listing.md) beside it: the
+name, the short and full descriptions (counted against Play's limits), the
+category, the contact email and privacy policy, and notes for App access,
+Data safety, the content rating and the target audience.
+
+- `icon-512.png`: the app icon, 512 x 512, made from `assets/icon.png` (what
+  phones show), a 32-bit PNG with no transparent pixels: Play rounds the
+  corners itself.
+- `feature-graphic-1024x500.png`: drawn from `feature-graphic.html` (the
+  icon, the name, a line and two of the screenshots on the brand navy).
+- `screenshots/01-hub.png` to `06-rota.png`: 1080 x 1920 (9:16), the phone
+  pages the app shows, with an invented group (Harbour & Co, venues
+  Quayside and West Pier, invented staff, guests and stock). No real
+  business, staff or guest is in them.
+
+To take them again (after the phone pages change), on a computer with
+Postgres 16, Redis and Playwright, from the repo root:
+
+```bash
+eval "$(scripts/test-env.sh playassets)"   # a test database of its own: it is emptied
+node office-app/store-assets/android/make-assets.mjs
+python3 office-app/store-assets/android/make-assets.py
+```
+
+`make-assets.mjs` fills the test database through the API (the API tests'
+sign-in stand-in: no real account, and no model is called), starts the API
+and the admin on ports of their own (`API_PORT` 3091, `ADMIN_PORT` 5291),
+takes each screen in Chrome at 360 x 640 with a device scale of 3, draws
+the feature graphic and stops what it started. `make-assets.py` makes the
+512 px icon, takes the alpha channel off the screenshots and the feature
+graphic (Play wants 24-bit PNGs for those) and checks every size: it fails
+on a wrong one. The screens show the day and time they are taken (the
+fridge check is set a few minutes ahead), so take them while a venue would
+be open, not in the small hours.
+
 ## iPhone
 
 Ready to build (Pepper-first step 6d, 24 Nov 2026), not built or run on an
