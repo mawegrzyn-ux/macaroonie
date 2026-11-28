@@ -62,6 +62,7 @@ import { systemSql, withSystem } from '../config/db.js'
 import { stockOnHand, countUnits, defaultCountUnit, voidReason, transferLineMoves, WASTE_REASON_SEEDS } from '../../../shared/stock.js'
 import { itemsOf } from '../../../shared/stockItems.js'
 import { varianceSettings } from '../../../shared/variance.js'
+import { bufferPct } from '../../../shared/forecast.js'
 import { poNumberLabel } from '../../../shared/procurement.js'
 import { itemCost, AVERAGE_DAYS } from '../../../shared/costing.js'
 import { businessDate } from '../../../shared/pos/reports.js'
@@ -444,12 +445,15 @@ export async function loadCountItems(tx, tenantId, itemIds) {
 export async function loadStockSettings(tx, tenantId) {
   const [s] = await tx`
     SELECT second_person_approves, blind_count, refunds_return_stock,
-           variance_band_pct::float8 AS variance_band_pct, variance_item_pct::float8 AS variance_item_pct, variance_item_pounds::float8 AS variance_item_pounds
+           variance_band_pct::float8 AS variance_band_pct, variance_item_pct::float8 AS variance_item_pct, variance_item_pounds::float8 AS variance_item_pounds,
+           buffer_pct::float8 AS buffer_pct
       FROM stock_settings WHERE tenant_id = ${tenantId}`
   return {
     second_person_approves: !!s?.second_person_approves, blind_count: !!s?.blind_count, refunds_return_stock: !!s?.refunds_return_stock,
     // Phase 6a (migration 312): the variance band (saved on its own: PUT /api/stock/variance-settings).
     variance: varianceSettings(s || null),
+    // Phase 9a (migration 319): the suggested order's buffer (saved on its own: PUT /api/stock/forecast-settings).
+    buffer_pct: bufferPct(s?.buffer_pct ?? null),
   }
 }
 
