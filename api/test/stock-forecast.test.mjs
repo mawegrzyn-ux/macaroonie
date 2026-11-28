@@ -284,7 +284,9 @@ test('permissions: Suggest needs the right to change the order and Stock view; t
 })
 
 test('the report: suggested against ordered, and once its dates have passed, what was really used against the forecast', async () => {
-  const period = { params: [{ key: 'period', type: 'period', default: { relative: 'last_n_days', n: 60 } }], filters: [{ field: 'date', op: 'in_period', param: 'period' }] }
+  // Dates around the trading day, not 'last 60 days': that ends yesterday, and a suggestion is dated by
+  // its trading day, so today's fell outside it from the day start (04:00) on (it failed in CI at 04:02).
+  const period = { params: [{ key: 'period', type: 'period', default: { from: addDays(today, -60), to: addDays(today, 14) } }], filters: [{ field: 'date', op: 'in_period', param: 'period' }] }
   const rows = async () => {
     const r = await ok(owner.post('/api/reports/preview', { spec: { kind: 'list', subject: 'stock.suggestions', rows: ['item_name', 'supplier', 'basis', 'suggested', 'ordered', 'order_status', 'as_suggested', 'forecast', 'actual'], ...period }, fresh: true }))
     const keys = r.columns.map(c => c.key)
