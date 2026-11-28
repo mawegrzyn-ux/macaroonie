@@ -143,21 +143,30 @@ test.before(async () => {
 })
 test.after(closeApp)
 
+// On a Wednesday: from Thursday the fixtures' empty rota for next week is a task (late at the
+// weekend), and a late task outranks a habit, so /rota would come as Due (it failed on a Saturday).
+const lastWednesday = () => {
+  const d = new Date(Date.now() - 7 * 86400000)
+  while (d.getUTCDay() !== 3) d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
 test('the feed carries the suggestions; a habit from the person\'s own record only', async () => {
-  const d = await feed(owner)
+  const onWed = '&time=06:00&date=' + lastWednesday()
+  const d = await feed(owner, V, onWed)
   assert.ok(Array.isArray(d.suggestions))
   const hour = d.now.slice(0, 5)
   for (const n of [7, 14, 21]) await openAt(A.owner, '/rota', back(d.date, n), hour)
   // Someone else's opens never count for the owner.
   for (const n of [7, 14, 21]) await openAt(A.operator, '/bookings', back(d.date, n), hour)
-  const after = await feed(owner)
+  const after = await feed(owner, V, onWed)
   const rota = after.suggestions.find(s => s.path === '/rota')
   assert.ok(rota, 'the habit shows: ' + JSON.stringify(after.suggestions))
   assert.equal(rota.rule, 'habit')
   assert.match(rota.reason, /^You open this most \w+days around now$/)
   assert.equal(rota.link, '/rota?venue=' + V)
   assert.ok(!after.suggestions.some(s => s.path === '/bookings'), 'not from the operator\'s record')
-  assert.ok((await feed(operator)).suggestions.some(s => s.path === '/bookings'), 'the operator sees their own')
+  assert.ok((await feed(operator, V, onWed)).suggestions.some(s => s.path === '/bookings'), 'the operator sees their own')
   assert.ok(after.suggestions.length <= 4)
 })
 

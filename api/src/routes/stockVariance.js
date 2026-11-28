@@ -202,13 +202,17 @@ export default async function stockVarianceRoutes(app) {
     const access = await stockAccess(req)
     return withTenant(req.tenantId, async tx => {
       const venueId = req.params.venueId
-      const { today, timezone } = await venueToday(tx, req.tenantId, venueId)
+      const { today, timezone, day_starts_at } = await venueToday(tx, req.tenantId, venueId)
       const to = q.to || today
       const from = q.from || addDays(to, -13)
       if (from > to) throw httpError(422, 'The first day is after the last', { code: 'range' })
       if ((Date.parse(to) - Date.parse(from)) / DAY + 1 > KEY_MAX_DAYS) throw httpError(422, 'Show up to ' + KEY_MAX_DAYS + ' days at a time', { code: 'range' })
+      // Trading days, not calendar days: a day runs from the till's day start (04:00 when none is
+      // set) to the next day's. With midnight edges, a count taken after midnight but before the
+      // day start (still today's trading day) fell outside today's window.
       const [r] = await tx`
-        SELECT (${from}::date::timestamp AT TIME ZONE ${timezone}) AS from_at, ((${to}::date + 1)::timestamp AT TIME ZONE ${timezone}) AS to_at`
+        SELECT ((${from}::date + ${day_starts_at}::time)::timestamp AT TIME ZONE ${timezone}) AS from_at,
+               (((${to}::date + 1) + ${day_starts_at}::time)::timestamp AT TIME ZONE ${timezone}) AS to_at`
       const items = await keyFigures(tx, req.tenantId, venueId, { from: r.from_at, to: new Date(Math.min(Date.now(), new Date(r.to_at).getTime())) })
       const settings = await loadBand(tx, req.tenantId)
       return {
