@@ -64,13 +64,6 @@ export function Section() {
         wages) as rows, ending in a single <strong>Variance</strong> row — useful for spotting
         a day that doesn't balance at a glance.
       </P>
-      <P>
-        Below the grid (and under the wages in the card view) the week has a <strong>Food cost</strong> card (Costing
-        view and Till reports view):
-        the week&apos;s theoretical food cost % from what sold, and the actual from a stock period, the one that
-        covers the week, else the latest closed one, named. A week has no actual of its own: see Stock, Food cost
-        week by week.
-      </P>
       <H3>How the variance works</H3>
       <P>
         Before the cash is counted, staff pay the day's expenses and the cash wages out of the
