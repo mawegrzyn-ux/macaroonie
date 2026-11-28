@@ -17,7 +17,10 @@ import {
   energyOf, energyProblem, energyWords, dishEnergy, recipeEnergy, calorieCheck, withinTolerance, calorieFingerprint, nextCalorieCheck,
   calorieWords, calorieMoved, CALORIE_TOLERANCE,
 } from '../calorieCheck.js'
-import { dishesToCheck, optionsUsing, changeWords, substituteKnown, scopeSuggestion, dishScopes, dishCheck, evidenceWords } from '../allergenCheck.js'
+import {
+  dishesToCheck, optionsUsing, changeWords, changeMarks, substituteKnown, scopeSuggestion, dishScopes, dishCheck, evidenceWords,
+  unknownSubstitutes, hasReview, fingerprint, checkFingerprint, dismissalHolds, nextCheck,
+} from '../allergenCheck.js'
 import { dishesUsing } from '../priceCreep.js'
 import { usageOf, dishMap } from '../costing.js'
 
@@ -112,6 +115,16 @@ test('one serving through a nested prep recipe: the usable quantity, the batch a
   const glaze = recipeEnergy(ctx.recipes.get('glaze'), ctx)
   assert.equal(glaze.kcal, 6700)
   assert.equal(glaze.per, 'a kg')
+  // A prep made in grams or millilitres is said per 100 of them: a gram's figure in whole kcal would be wrong.
+  const inG = recipeEnergy({ ...ctx.recipes.get('glaze'), yield_qty: 1000, yield_unit: 'g' }, ctx)
+  assert.equal(inG.per, 'per 100 g')
+  assert.equal(inG.qty, 100)
+  assert.equal(inG.kcal, 670, '6.7 kcal a gram')
+  const butterSauce = recipeEnergy({ ...ctx.recipes.get('sauce'), yield_qty: 1000, yield_unit: 'g', loss_pct: 0, lines: [{ id: 'b', sort_order: 0, item_id: 'butter', qty: 200, unit: 'g', yield_pct: null }] }, ctx)
+  assert.equal(butterSauce.kcal, 148, '1.48 kcal a gram is 148 per 100 g, not 1')
+  const stock = recipeEnergy({ ...ctx.recipes.get('sauce'), yield_qty: 1000, yield_unit: 'ml', loss_pct: 0, lines: [{ id: 'o', sort_order: 0, item_id: 'oil', qty: 50, unit: 'ml', yield_pct: null }] }, ctx)
+  assert.equal(stock.per, 'per 100 ml')
+  assert.equal(stock.kcal, 41, '0.41 kcal a millilitre')
 })
 
 test('the walk with the quantity changes nothing else: usage and cost are as before', () => {
@@ -230,6 +243,16 @@ test('the dishes a change can alter: items and recipes up through prep recipes, 
   assert.equal(changeWords({ kind: 'recipe', recipes: ['Pad thai sauce'] }), 'Pad thai sauce changed')
   assert.equal(changeWords({ kind: 'quote_allergens', items: ['Soy sauce'], supplier: 'Brakes' }), 'Soy sauce: a product\'s allergens saved (Brakes)')
   assert.equal(changeWords({ kind: 'link', dishes: ['A', 'B', 'C'] }), 'Which recipe A, B and 1 more uses changed')
+  assert.equal(changeWords({ kind: 'supplier', supplier: 'Bidfood', on: false }), 'Bidfood switched off')
+  assert.equal(changeWords({ kind: 'supplier', supplier: 'Bidfood', on: false, deleted: true }), 'Bidfood deleted, with its prices')
+  // Which check a change marks: only the one it can move (options and supplier products aren't in the calories).
+  assert.deepEqual(changeMarks('quote_allergens'), { allergens: true, calories: false })
+  assert.deepEqual(changeMarks('substitute'), { allergens: true, calories: false })
+  assert.deepEqual(changeMarks('option_rule'), { allergens: true, calories: false })
+  assert.deepEqual(changeMarks('item'), { allergens: false, calories: true })
+  assert.deepEqual(changeMarks('recipe'), { allergens: true, calories: true })
+  assert.deepEqual(changeMarks('link'), { allergens: true, calories: true })
+  assert.deepEqual(changeMarks(null), { allergens: true, calories: true }, 'a kind not known marks both')
 })
 
 test('a substitute delivered counts at its venue: known by the invoice\'s code, else unknown', () => {
@@ -259,4 +282,51 @@ test('a substitute delivered counts at its venue: known by the invoice\'s code, 
   const check = dishCheck(dish, results, { eggs: 'contains', milk: 'contains' }, names)
   assert.deepEqual(check.differences.map(d => d.allergen), ['gluten'])
   assert.equal(check.complete, false)
+})
+
+test('a substitute whose allergens aren\'t known is something to look at: it opens the check, even an accepted one', () => {
+  const ctx = ctxOf()
+  ctx.quotes = new Map([['rice', [quote('q-rice', 'rice')]], ['onion', [quote('q-onion', 'onion')]], ['oil', [quote('q-oil', 'oil')]],
+    ['egg', [quote('q-egg', 'egg', { allergens_contains: ['eggs'] })]], ['butter', [quote('q-butter', 'butter', { allergens_contains: ['milk'] })]]])
+  const dish = ctx.dishes.get('d-rice')
+  const declared = { eggs: 'contains', milk: 'contains' }
+  const checkOf = () => dishCheck(dish, dishScopes(dish, ctx, [SOHO, LEEDS]).map(s => scopeSuggestion('d-rice', s, ctx)), declared, names)
+  const agrees = checkOf()
+  assert.equal(hasReview(agrees), false)
+  assert.equal(checkFingerprint(agrees), '', 'nothing to look at')
+  // Soho was sent a rice nobody recorded: nothing differs among what is known, but it is not a pass.
+  ctx.substitutes = new Map([['rice|' + SOHO, [{ known: false, quote: null, supplier: 'Brakes', product: 'Wild rice', day: '2026-11-26' }]]])
+  const sub = checkOf()
+  assert.deepEqual(sub.differences, [])
+  assert.equal(unknownSubstitutes(sub).length, 1, JSON.stringify(sub.gaps))
+  assert.deepEqual(unknownSubstitutes(sub)[0].where, ['Soho'])
+  assert.equal(hasReview(sub), true)
+  const fp = checkFingerprint(sub)
+  assert.match(fp, /^sub:rice@v-soho@2026-11-26$/)
+  assert.deepEqual(nextCheck(null, sub), { op: 'insert', status: 'open', reopened: false }, 'a dish that agreed opens')
+  assert.deepEqual(nextCheck({ status: 'accepted', fingerprint: '' }, sub), { op: 'update', status: 'open', reopened: true }, 'an accepted check opens again')
+  assert.deepEqual(nextCheck({ status: 'dismissed', fingerprint: '' }, sub), { op: 'update', status: 'open', reopened: true }, 'so does a dismissed one')
+  assert.deepEqual(nextCheck({ status: 'dismissed', fingerprint: fp }, sub), { op: 'update', status: 'dismissed', reopened: false }, 'dismissed with it: holds')
+  // Another delivery of something unrecorded (another day): a new thing to look at.
+  ctx.substitutes = new Map([['rice|' + SOHO, [{ known: false, quote: null, supplier: 'Brakes', product: 'Wild rice', day: '2026-11-28' }]]])
+  assert.deepEqual(nextCheck({ status: 'dismissed', fingerprint: fp }, checkOf()), { op: 'update', status: 'open', reopened: true })
+  // On the price list now, its allergens not put in yet: still something to look at (another key: the product).
+  ctx.substitutes = new Map([['rice|' + SOHO, [{ known: true, quote: quote('q-wild', 'rice', { product_name: 'Wild rice', allergens_checked_at: null }), supplier: 'Brakes', product: 'Wild rice', day: '2026-11-26' }]]])
+  const listed = checkOf()
+  assert.equal(unknownSubstitutes(listed)[0].reason, 'unknown')
+  assert.equal(hasReview(listed), true)
+  assert.notEqual(checkFingerprint(listed), fp)
+  // Its allergens put in, with gluten: a difference now, and no substitute left to look at.
+  ctx.substitutes = new Map([['rice|' + SOHO, [{ known: true, quote: quote('q-wild', 'rice', { product_name: 'Wild rice', allergens_contains: ['gluten'] }), supplier: 'Brakes', product: 'Wild rice', day: '2026-11-26' }]]])
+  const known = checkOf()
+  assert.deepEqual(known.differences.map(d => d.allergen), ['gluten'])
+  assert.deepEqual(unknownSubstitutes(known), [])
+  assert.equal(checkFingerprint(known), fingerprint(known.differences), 'with no substitute, the differences\' own fingerprint')
+  // A dismissal of a difference and a substitute holds once the substitute stops counting; not when the differences change.
+  const was = fingerprint(known.differences, unknownSubstitutes(sub))
+  assert.equal(dismissalHolds(was, fingerprint(known.differences)), true)
+  assert.equal(dismissalHolds(was, fingerprint([])), false)
+  assert.equal(dismissalHolds(fingerprint(known.differences), was), false, 'a substitute that wasn\'t there')
+  ctx.substitutes = new Map()
+  assert.deepEqual(nextCheck({ status: 'open', fingerprint: fp }, checkOf()), { op: 'delete', status: null, reopened: false }, 'gone: nothing to look at')
 })

@@ -8,13 +8,16 @@
 // guests see waits for publishing; Discard changes puts it back and the check
 // opens again); a dismissal holds while the recipe stays within the
 // tolerance, and an item's energy changed opens it again and puts it on
-// Today; the recipe editor's own figure; the reports; another group's ids
-// refused; and who may do what.
+// Today; the recipe editor's own figure (a prep made in grams per 100 g);
+// the reports; another group's ids refused; who may do what; and a change
+// that can't move calories (a product's allergens) works them out again
+// without putting them on Today.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { as, ok, sql, closeApp } from './support/app.mjs'
 import { resetAndSeed, A, B } from './support/seed.mjs'
+import { menuSaveBody } from '../../shared/menuSave.js'
 
 let ids, owner, viewer, bOwner, soho, brakes, rice, onion, butter, egg, mystery, sauce, glaze, friedR, menu, fried, plainDish, bDish
 const check = dishId => ok(owner.get('/api/allergen-checks/dishes/' + dishId))
@@ -127,6 +130,10 @@ test('one serving rolled up through a nested prep recipe, against the declared f
   assert.equal(ed.calories.per, 'a portion')
   assert.deepEqual(ed.calories.dishes.map(d => [d.dish, d.declared, d.suggested, d.agrees]), [['Fried rice', 500, SERVING, false]])
   assert.equal((await ok(owner.get('/api/allergen-checks/recipes/' + glaze.id))).calories.kcal, 6700)
+  // A prep made in grams: per 100 g (1.48 kcal a gram would be "1 kcal a g" in whole kcal).
+  const garlic = await ok(owner.post('/api/recipes', { name: 'Garlic butter', kind: 'prep', yield_qty: 1000, yield_unit: 'g', status: 'live', lines: [{ item_id: butter.id, qty: 200, unit: 'g' }] }))
+  const g = (await ok(owner.get('/api/allergen-checks/recipes/' + garlic.id))).calories
+  assert.deepEqual([g.kcal, g.per, g.complete], [148, 'per 100 g', true])
 })
 
 test('accepting writes the figure into the menu\'s draft only; Discard changes opens it again', async () => {
@@ -210,6 +217,12 @@ test('reports: calorie checks and items with no energy figure', async () => {
   const r3 = await ok(owner.post('/api/reports/starter:items_with_no_energy/run', { fresh: true }), 'starter')
   assert.ok(JSON.stringify(r3).includes('House seasoning'), JSON.stringify(r3).slice(-900))
   assert.equal((await viewer.post('/api/reports/starter:dishes_with_calorie_differences/run', {})).status, 403, 'Recipes view')
+  // The report says a difference as the page does (calorieWords()): "under" with what is known so far.
+  const page = (await check(plainDish)).calories
+  assert.equal(page.difference.kind, 'under')
+  const r4 = await ok(owner.post('/api/reports/starter:dishes_with_calorie_differences/run', { fresh: true }), 'starter')
+  assert.ok(JSON.stringify(r4).includes(page.difference.text), page.difference.text + ' in ' + JSON.stringify(r4).slice(-900))
+  await ok(owner.patch('/api/inventory/items/' + mystery.id, { kcal_per_100g: 0 }))
 })
 
 test('another group\'s dishes are refused, and deciding needs Recipes manage and Menus manage', async () => {
@@ -231,4 +244,34 @@ test('another group\'s dishes are refused, and deciding needs Recipes manage and
     assert.equal(v.calories.suggested, SERVING, 'Recipes view reads the figures')
   })
   assert.equal((await draftDish(fried)).calories, 500, 'nothing refused changed the draft')
+})
+
+test('a change that can\'t move calories (a product\'s allergens) works them out again without putting them on Today', async () => {
+  // The declared figure set on the menu (a menu save isn't a change the hook hears).
+  const setKcal = async kcal => {
+    const full = await ok(owner.get('/api/menus/' + menu.id))
+    full.sections.flatMap(s => s.items).find(i => i.id === fried).calories = kcal
+    await ok(owner.patch('/api/menus/' + menu.id, menuSaveBody(full)))
+  }
+  const riceQuote = (await ok(owner.get('/api/inventory/items/' + rice.id))).quotes[0]
+  const saveAllergens = () => ok(owner.put(`/api/inventory/quotes/${riceQuote.id}/allergens`, { known: true, contains: [], may_contain: [], source: 'Label' }))
+  const row = async () => (await sql`SELECT status, changed_at, change FROM calorie_checks WHERE tenant_id = ${ids.a} AND dish_id = ${fried}`)[0] || null
+  // Right on the menu: nothing differs, the check goes.
+  await setKcal(SERVING)
+  await saveAllergens()
+  assert.equal(await row(), null)
+  // Wrong again, and the rice's allergens saved: the check is kept again, open, but not marked (not on Today).
+  await setKcal(500)
+  await saveAllergens()
+  const r = await row()
+  assert.equal(r?.status, 'open')
+  assert.equal(r.changed_at, null, 'an allergen change never marks a calorie check')
+  const s = await ok(owner.get('/api/allergen-checks/summary?venue_id=' + soho))
+  assert.ok(!s.calories.dishes.some(d => d.dish === 'Fried rice'), JSON.stringify(s.calories))
+  // The rice's energy changed past the tolerance: that marks it.
+  await ok(owner.patch('/api/inventory/items/' + rice.id, { kcal_per_100g: 260 }))
+  const moved = await row()
+  assert.ok(moved.changed_at)
+  assert.equal(moved.change, 'Jasmine rice changed')
+  await ok(owner.patch('/api/inventory/items/' + rice.id, { kcal_per_100g: 130 }))
 })

@@ -35,7 +35,8 @@
 //   energyProblem(item, body)      why an item's energy can't be saved as sent, or null
 //   energyWords(item)              "250 kcal per 100 g" / "Energy not known"
 //   dishEnergy(dishId, scope, ctx) one serving's energy at a scope: { recipe, kcal, known_kcal, lines, gaps, complete }
-//   recipeEnergy(recipe, ctx)      a recipe's own: a portion (a dish recipe) or one of what it makes (a prep)
+//   recipeEnergy(recipe, ctx)      a recipe's own: a portion (a dish recipe), or one of what it makes (a prep;
+//                                  per 100 g or 100 ml of one made in grams or millilitres)
 //   calorieCheck(dish, results, declared, names)   the difference, the scope groups, complete
 //   withinTolerance(declared, suggested)
 //   calorieFingerprint(check)      what a decision is checked against (409 when it moved)
@@ -155,20 +156,27 @@ export function dishEnergy(dishId, scope = {}, ctx = {}) {
   return { scope, recipe, kcal: complete ? round(out.kcal) : null, known_kcal: recipe ? round(out.kcal) : null, lines: out.lines.slice(0, LINES_KEPT), more_lines: Math.max(0, out.lines.length - LINES_KEPT), gaps, complete }
 }
 
+// A prep made in grams or millilitres is said per 100 of them, as an item's energy is (energyOf()):
+// one gram's figure rounded to whole kcal would be badly wrong (1.48 kcal a gram is not 1).
+const PER_100 = { g: 'per 100 g', ml: 'per 100 ml' }
+
 /**
  * A recipe's own energy (the recipe editor): a portion of a dish recipe, or
- * one of what a prep recipe makes (a litre, a kilo, one). { per (words),
+ * of what a prep recipe makes: one (a litre, a kilo, each), or 100 g or
+ * 100 ml of a prep made in grams or millilitres. { per (words: 'a portion',
+ * 'a kg', 'each', 'per 100 g'), qty (how much of the recipe's unit that is),
  * kcal, known_kcal, lines, gaps, complete }.
  */
 export function recipeEnergy(recipe, ctx = {}) {
   const entries = []
-  const u = recipeUsage(recipe, 1, ctx, { trace: { item: e => entries.push(e), recipe: () => {} } })
+  const unit = recipeUnit(recipe)
+  const qty = recipe?.kind === 'prep' && PER_100[unit] ? 100 : 1
+  const u = recipeUsage(recipe, qty, ctx, { trace: { item: e => entries.push(e), recipe: () => {} } })
   const out = energyOfEntries(entries, ctx)
   const gaps = [...u.uncosted.filter(g => QTY_GAPS.has(g.reason)).map(g => ({ reason: g.reason, text: g.text, fix: g.fix })), ...out.gaps]
-  const unit = recipeUnit(recipe)
-  const per = recipe?.kind === 'prep' ? (unit === 'each' ? 'each' : 'a ' + unitWord(unit)) : 'a portion'
+  const per = recipe?.kind === 'prep' ? (PER_100[unit] || (unit === 'each' ? 'each' : 'a ' + unitWord(unit))) : 'a portion'
   const complete = !!recipe && entries.length > 0 && !gaps.length
-  return { per, kcal: complete ? round(out.kcal) : null, known_kcal: round(out.kcal), lines: out.lines.slice(0, LINES_KEPT), gaps, complete }
+  return { per, qty, kcal: complete ? round(out.kcal) : null, known_kcal: round(out.kcal), lines: out.lines.slice(0, LINES_KEPT), gaps, complete }
 }
 
 // ── The check ─────────────────────────────────────────────────

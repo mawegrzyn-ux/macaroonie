@@ -18,7 +18,8 @@
 //                                  always: never "whatever differs now")
 //                                                  Recipes manage + Menus manage
 //   POST /dishes/:dishId/dismiss   { fingerprint, note }: kept as declared, with
-//                                  why; holds until the differences change
+//                                  why; holds until the differences change or
+//                                  another substitute comes (phase 8b)
 //                                                  Recipes manage + Menus manage
 //   POST /dishes/:dishId/reopen    a dismissal taken back
 //                                                  Recipes manage + Menus manage
@@ -59,7 +60,9 @@ import { permissionAtLeast } from '../config/modules.js'
 import { httpError } from '../middleware/error.js'
 import { makeContext, callApi, staffAuthOf, staffPrincipalOf, ToolError } from '../ai/context.js'
 import { checkRows, loadAllergenCtx, loadRecipeSuggestion, checksToReview, caloriesToReview } from '../services/allergenCheckSvc.js'
-import { acceptedLevels, checkCounts, checkState, fingerprint, ALLERGEN_KEYS, NOTE_MAX, ALLERGEN_LABELS } from '../../../shared/allergenCheck.js'
+import {
+  acceptedLevels, checkCounts, checkState, fingerprint, checkFingerprint, hasReview, unknownSubstitutes, ALLERGEN_KEYS, NOTE_MAX, ALLERGEN_LABELS,
+} from '../../../shared/allergenCheck.js'
 import { calorieFingerprint, CALORIE_TOLERANCE } from '../../../shared/calorieCheck.js'
 import { menuSaveBody } from '../../../shared/menuSave.js'
 
@@ -92,10 +95,12 @@ export function checkView(r, venueNames = {}) {
   const view = {
     id: r.id ?? null, dish_id: r.dish_id, dish: r.dish, menu_id: r.menu_id, menu: r.menu, section: r.section,
     venues: (r.venue_ids || []).map(v => venueNames[v]).filter(Boolean),
-    status: c.checkable && (r.status || c.differences.length) ? (r.status || 'open') : null,
+    status: c.checkable && (r.status || hasReview(c)) ? (r.status || 'open') : null,
     checkable: c.checkable, complete: c.complete, suggested: c.suggested, declared: c.declared,
     live_declared: r.live_declared, published: r.published,
-    differences: c.checkable ? c.differences : [], fingerprint: fingerprint(c.checkable ? c.differences : []),
+    differences: c.checkable ? c.differences : [], fingerprint: checkFingerprint(c),
+    // Phase 8b: substitutes delivered whose allergens aren't known (also among the gaps): each keeps the check open.
+    substitutes: unknownSubstitutes(c),
     groups: c.groups, gaps: c.gaps,
     decided_by: r.decided_by ?? null, decided_at: r.decided_at ?? null, note: r.note ?? null, history: r.history || [],
     // What was accepted into the declaration (an accepted check's record).
@@ -153,7 +158,7 @@ export default async function allergenCheckRoutes(app) {
     return { bundle, row: rows[0] }
   }
   function sameAsSeen(row, seen) {
-    if (fingerprint(row.check.checkable ? row.check.differences : []) !== seen) {
+    if (checkFingerprint(row.check) !== seen) {
       throw httpError(409, 'The check changed since you opened it: look at it again before deciding', { code: 'changed' })
     }
   }
@@ -240,7 +245,8 @@ export default async function allergenCheckRoutes(app) {
     const view = await withTenant(req.tenantId, async tx => {
       const { bundle, row } = await oneCheck(tx, req, dishId)
       sameAsSeen(row, body.fingerprint)
-      if (!row.id || !row.check.differences.length) throw httpError(409, 'Nothing differs: there is nothing to dismiss', { code: 'nothing' })
+      // A difference, or (phase 8b) a substitute whose allergens aren't known (the label was checked by hand).
+      if (!row.id || !hasReview(row.check)) throw httpError(409, 'Nothing differs: there is nothing to dismiss', { code: 'nothing' })
       const [saved] = await tx`
         UPDATE allergen_checks SET status = 'dismissed', decided_by = ${who(req)}, decided_at = now(), note = ${body.note},
                changed_at = NULL, change = NULL, updated_at = now()

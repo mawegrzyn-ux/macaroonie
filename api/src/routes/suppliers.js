@@ -158,7 +158,7 @@ export default async function supplierRoutes(app) {
 
   // A supplier with purchase orders can only be switched off (orders keep it).
   app.delete('/:id', { preHandler: canManage }, async req => withTenant(req.tenantId, async tx => {
-    const [s] = await tx`SELECT id FROM suppliers WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
+    const [s] = await tx`SELECT id, name FROM suppliers WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
     if (!s) throw httpError(404, 'Supplier not found')
     const [po] = await tx`SELECT 1 FROM purchase_orders WHERE supplier_id = ${s.id} AND tenant_id = ${req.tenantId} LIMIT 1`
     if (po) throw httpError(409, 'This supplier has orders. Switch it off instead of deleting it.')
@@ -169,7 +169,12 @@ export default async function supplierRoutes(app) {
       throw httpError(409, `This supplier's prices are on an open order at ${venues.join(', ')}. Switch the supplier off instead: those orders then ask for another price.`,
         { code: 'on_open_order' })
     }
+    // The items it priced, read before the delete: its prices go with it (ON DELETE CASCADE).
+    const itemIds = (await tx`SELECT DISTINCT item_id FROM inv_quotes WHERE supplier_id = ${s.id} AND tenant_id = ${req.tenantId}`).map(r => r.item_id)
     await tx`DELETE FROM suppliers WHERE id = ${s.id} AND tenant_id = ${req.tenantId}`
+    // Its products leave what venues choose from (the recipes area's allergen checks, inventory phase 8b): by
+    // item, since the prices are gone.
+    if (itemIds.length) await allergensChanged(tx, req, { kind: 'supplier', itemIds, supplier: s.name, on: false, deleted: true })
     return { ok: true }
   }))
 

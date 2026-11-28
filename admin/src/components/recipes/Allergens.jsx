@@ -18,7 +18,9 @@
 // Phase 8b (migration 317): a check a change opened again says what changed
 // ("Oyster sauce: the usual supplier switched at Leeds"); the Changed filter
 // (&changed=1, Today's "Allergen checks to review") lists those first.
-// What a delivery brought instead of what was ordered counts at its venue.
+// What a delivery brought instead of what was ordered counts at its venue: while
+// its allergens aren't known it keeps the check open (Delivered instead), to be
+// put in or dismissed.
 // Phase 8b (migration 318): each dish's suggested calories beside its declared
 // figure (CaloriesCard: one serving of its recipe at each venue, the
 // ingredients giving the most, what isn't known; Accept writes the figure into
@@ -36,7 +38,7 @@ import { inputCls, ErrorNote, Field } from '@/components/staff/shared'
 import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { Card, btn } from '@/components/purchasing/shared'
 import { STANDARD_ALLERGENS } from '@shared/menuTags.js'
-import { evidenceWords, checkState, pickedDifferences, CHECK_STATES, DIFFERENCE_KINDS, NOTE_MAX } from '@shared/allergenCheck.js'
+import { evidenceWords, checkState, pickedDifferences, isUnknownSubstitute, CHECK_STATES, DIFFERENCE_KINDS, NOTE_MAX } from '@shared/allergenCheck.js'
 import { CALORIE_KINDS, CALORIE_TOLERANCE } from '@shared/calorieCheck.js'
 
 const LABEL = Object.fromEntries(STANDARD_ALLERGENS.map(a => [a.key, a.label]))
@@ -180,6 +182,7 @@ export default function AllergenChecks({ canManage, openId, onOpen, onClose, sta
                       </span>
                     )}
                     {!r.checkable && <span className="block text-xs text-muted-foreground">{r.gaps[0]?.text || 'No recipe linked'}</span>}
+                    {r.substitutes?.length > 0 && <span className="block text-sm" data-testid="allergen-row-substitute">{r.substitutes[0].text}{r.substitutes.length > 1 ? ' (and ' + (r.substitutes.length - 1) + ' more)' : ''}</span>}
                     {r.checkable && r.gaps.length > 0 && <span className="block text-xs text-amber-800">{thingsWords(r.gaps.length)} not known yet</span>}
                   </span>
                   <ChevronRight className="w-4 h-4 mt-1 text-muted-foreground shrink-0" />
@@ -223,6 +226,8 @@ function CheckDetail({ row, venueId, canManage, canDecide, onClose }) {
   const groups = venueId ? row.groups.filter(g => g.scopes.some(s => s.venue_id === venueId)) : row.groups
   const toggle = k => setPicked(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n })
   const state = stateOf(row)
+  // A substitute delivered whose allergens aren't known has its own card (it keeps the check open); the other gaps below.
+  const otherGaps = row.gaps.filter(g => !isUnknownSubstitute(g))
   return (
     <div className="space-y-4" data-testid="allergen-detail">
       <div className="flex flex-wrap items-center gap-2">
@@ -236,7 +241,10 @@ function CheckDetail({ row, venueId, canManage, canDecide, onClose }) {
       </div>
       {isChanged(row) && (
         <p className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm" data-testid="allergen-change">
-          Opened because something changed{row.changed_at ? ' on ' + when(row.changed_at) : ''}: {row.change}. Look at it again and decide.
+          {state === 'open' && row.change
+            ? 'Opened because something changed' + (row.changed_at ? ' on ' + when(row.changed_at) : '') + ': ' + row.change + '. Look at it again and decide.'
+            : 'Its calories were opened because something changed' + (row.calories.changed_at ? ' on ' + when(row.calories.changed_at) : '') + ': '
+              + row.calories.change + '. Look at them again and decide (below).'}
         </p>
       )}
 
@@ -309,10 +317,29 @@ function CheckDetail({ row, venueId, canManage, canDecide, onClose }) {
         </Card>
       )}
 
-      {row.gaps.length > 0 && (
+      {row.substitutes?.length > 0 && (
+        <Card title="Delivered instead, allergens not known">
+          <ul className="space-y-2 text-sm" data-testid="allergen-substitutes">
+            {row.substitutes.map((g, i) => (
+              <li key={i}>
+                <p className="flex gap-1.5"><ShieldAlert className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />{g.text}</p>
+                <p className="text-xs text-muted-foreground pl-6">
+                  {g.fix}{g.item_id && g.reason === 'unknown' ? <> <Link className={linkCls} to={'/inventory?item=' + g.item_id}>Open {g.item}</Link></> : null}
+                </p>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground mt-3">
+            What came may hold an allergen the dish doesn&apos;t declare, so the check stays open: put what came in with its
+            allergens and the check is worked out again, or check its label and dismiss with what you found.
+          </p>
+        </Card>
+      )}
+
+      {otherGaps.length > 0 && (
         <Card title="Not known yet">
           <ul className="space-y-2 text-sm" data-testid="allergen-gaps">
-            {row.gaps.map((g, i) => (
+            {otherGaps.map((g, i) => (
               <li key={i}>
                 <p className="flex gap-1.5"><ShieldAlert className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />{g.text}</p>
                 <p className="text-xs text-muted-foreground pl-6">
@@ -339,9 +366,12 @@ function CheckDetail({ row, venueId, canManage, canDecide, onClose }) {
         <Card title="Decide">
           {!confirming && !dismissing && (
             <div className="flex flex-wrap gap-2">
-              <button type="button" className={cn(btn.primary, 'h-12')} disabled={!chosen.length} onClick={() => setConfirming(true)} data-testid="allergen-accept">
-                <Check className="w-4 h-4" />Accept {chosen.length === row.differences.length ? 'all' : chosen.length}
-              </button>
+              {/* Nothing to accept when only a substitute is open: it is dismissed (the label checked) or put in. */}
+              {row.differences.length > 0 && (
+                <button type="button" className={cn(btn.primary, 'h-12')} disabled={!chosen.length} onClick={() => setConfirming(true)} data-testid="allergen-accept">
+                  <Check className="w-4 h-4" />Accept {chosen.length === row.differences.length ? 'all' : chosen.length}
+                </button>
+              )}
               <button type="button" className={cn(btn.outline, 'h-12')} onClick={() => setDismissing(true)} data-testid="allergen-dismiss">
                 <X className="w-4 h-4" />Dismiss
               </button>
@@ -363,7 +393,7 @@ function CheckDetail({ row, venueId, canManage, canDecide, onClose }) {
           )}
           {dismissing && (
             <div className="space-y-3" data-testid="allergen-dismiss-form">
-              <Field label="Why the declaration stays as it is" hint="Kept with the check. It holds until the differences change.">
+              <Field label="Why the declaration stays as it is" hint="Kept with the check. It holds until the differences change, or another substitute is delivered.">
                 <textarea className={cn(inputCls, 'min-h-[88px]')} value={note} maxLength={NOTE_MAX} onChange={e => setNote(e.target.value)}
                   placeholder="Celery salt is in the garnish, not in the recipe" data-testid="allergen-dismiss-note" />
               </Field>

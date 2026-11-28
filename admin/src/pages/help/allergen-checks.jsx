@@ -107,9 +107,10 @@ export function Section() {
       <P>
         A change that could alter what a dish holds works its check out again straight away: a supplier price added,
         changed, switched off or deleted (another product can become the cheapest), a venue&apos;s own price, a
-        product&apos;s allergens saved, the usual supplier switched, a supplier switched off or on, a product substituted on
-        a delivery, a recipe saved, which recipe a dish uses, or an option&apos;s rule. Only the dishes that use what changed
-        are looked at again, through their prep recipes and the options that add it.
+        product&apos;s allergens saved, the usual supplier switched, a supplier switched off or on, a supplier deleted (its
+        prices go with it), a product substituted on a delivery, a recipe saved, which recipe a dish uses, or an
+        option&apos;s rule. Only the dishes that use what changed are looked at again, through their prep recipes and the
+        options that add it.
       </P>
       <P>
         If that makes a new difference, the check opens (a dismissed or accepted one opens again, its decision kept under{' '}
@@ -117,24 +118,32 @@ export function Section() {
         nothing it decided changes, a dismissal holds. Checks a change opened go on <strong>Today</strong> as{' '}
         <strong>Allergen checks to review</strong>, at each venue that sells the dish, for whoever can decide them (Recipes
         manage and Menus manage). The card opens the Allergens tab on <strong>Changed</strong>, and leaves Today once each is
-        accepted or dismissed. A new change after you skip or finish the card brings it back.
+        accepted or dismissed, or once the dish is taken off its menu&apos;s draft. A new change after you skip or finish the
+        card brings it back. A change marks only what it can move: a product&apos;s allergens or a supplier price can change
+        a dish&apos;s allergens, not its calories; an item&apos;s energy or units can change its calories, not its allergens; a
+        recipe or a link can change both.
       </P>
       <H3>A substitute on a delivery</H3>
       <P>
         When you book a delivery in and mark a line <strong>Substituted</strong>, what came may hold other allergens, so
         for 14 days (or until the item is delivered as ordered again) it counts at that venue as well as the usual product.
-        Until it is a supplier price with its allergens, it is unknown: the check says &quot;a substitute for rice noodles
-        was delivered at Soho: its allergens aren&apos;t known&quot;. On the delivery, <strong>Update the price list</strong>,{' '}
+        Until it is a supplier price with its allergens, it is unknown, and unknown is never a pass: the check of each dish
+        using it opens (one that agreed, and one accepted or dismissed before), goes on <strong>Today</strong>, and says
+        under <strong>Delivered instead, allergens not known</strong> &quot;a substitute for rice noodles was delivered at
+        Soho: its allergens aren&apos;t known&quot;. On the delivery, <strong>Update the price list</strong>,{' '}
         <strong>Add</strong> makes what came a supplier price (from the invoice&apos;s code and name); put its allergens in on
-        the Inventory page and the check uses them.
+        the Inventory page and the check uses them, with any difference they make. Or check the label and{' '}
+        <strong>Dismiss</strong> with what you found (there is nothing to accept while nothing differs): the dismissal holds
+        until another substitute is delivered or the differences change.
       </P>
       <H3>In a recipe</H3>
       <P>
         The recipe editor shows <strong>Suggested allergens</strong>: what the recipe holds from its saved lines and prep
         recipes inside, at each venue&apos;s supplier products (venues that agree together), and what isn&apos;t known yet.
         A suggestion only: a recipe doesn&apos;t declare anything. Below it, <strong>Suggested calories</strong>: the
-        recipe&apos;s own figure (a portion, or one of what a prep recipe makes) and each dish linked to it with what its
-        menu declares, with <strong>Check it</strong> where they differ.
+        recipe&apos;s own figure (a portion, or one of what a prep recipe makes: per 100 g or per 100 ml for a prep made in
+        grams or millilitres) and each dish linked to it with what its menu declares, with <strong>Check it</strong> where
+        they differ.
       </P>
       <H3>Calories</H3>
       <InfoBox type="warn">
@@ -162,7 +171,7 @@ export function Section() {
         rows={[
           ['The recipe comes to 640 kcal; the dish declares no calories', 'Every energy is known and the menu has no figure'],
           ['The recipe comes to 640 kcal; the dish declares 500 kcal', 'They differ by more than 10%'],
-          ['What is known already comes to more than the 100 kcal the dish declares', 'Some energy isn\'t known, but what is known is already more than declared'],
+          ['What is known already comes to 260 kcal; the dish declares 100 kcal', 'Some energy isn\'t known, but what is known is already more than declared'],
           ['Not all known', 'An ingredient has no energy, a quantity is in a unit with no size, or a recipe is missing: there is no suggestion yet'],
         ]}
       />

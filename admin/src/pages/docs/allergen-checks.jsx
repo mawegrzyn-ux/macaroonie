@@ -50,7 +50,8 @@ export function Section() {
           ['dishScopes(dish, ctx, venueIds)', 'each venue the dish\'s menu is sold at (a menu with a venue: that one; else every active venue), and each of the dish\'s links that applies there (a stream\'s, an order type\'s): every recipe the matrix can pick'],
           ['dishCheck(dish, results, declared, names)', 'the union over the scopes against the one declaration: missing, missing_may, weaker (always), not_found and stronger (only when every scope is complete); groups (scopes with the same suggestion, evidence and gaps), gaps once'],
           ['declaredOf(dish, tags)', 'the dish\'s dietary codes and allergen_levels by the tags\' standard_key; a tag outside the 14 is left out; removable counts as contains'],
-          ['fingerprint(differences) / nextCheck(stored, check)', 'what a decision holds for, and insert / update / delete: no differences delete a row unless accepted; dismissed holds while the fingerprint is the same; accepted with differences again reopens, the decision into history'],
+          ['fingerprint(differences, substitutes) / checkFingerprint(check) / nextCheck(stored, check)', 'what a decision holds for (the differences, and phase 8b\'s unknown substitutes as sub:item@venue@day, or sub:item@q<quote>@day once on the list), and insert / update / delete: nothing to look at (hasReview()) deletes a row unless accepted; dismissed holds while dismissalHolds() (the same differences, no substitute that wasn\'t there); accepted with something to look at again reopens, the decision into history'],
+          ['unknownSubstitutes(check) / hasReview(check)', 'phase 8b: a substitute delivered whose allergens aren\'t known (a substitute gap, or an unknown gap of a product a delivery brought) is something to look at, as a difference is: it opens a check that agreed, was accepted or was dismissed for something else; dismiss takes it (accept has nothing to write)'],
           ['acceptedLevels(declared, differences, keys)', 'the declaration\'s new levels: DIFFERENCE_KINDS[kind].suggest (null takes it off)'],
           ['checksDish(dish)', 'food dishes only: meal deals (their allergens are their dishes\') and goods and services are not checked'],
           ['checkState(row) / CHECK_STATES / checkCounts(rows)', 'what the list says of a check: its stored status, else agree only when complete, incomplete ("Not all known") while anything is unknown (never a pass), not_checkable with no recipe. The tab, its counts, the list order and Pepper all read it (rule 12)'],
@@ -90,22 +91,25 @@ export function Section() {
       <P>
         One hook, <Mono>allergensChanged(tx, req, change)</Mono> in <Mono>allergenCheckSvc.js</Mono>, called after the change
         in its own transaction (a savepoint: a failure is logged and the change is saved; never in a dry run). change:{' '}
-        <Mono>{'{ kind, itemIds, quoteIds, recipeIds, dishIds, optionIds, venueIds }'}</Mono>.{' '}
+        <Mono>{'{ kind, itemIds, quoteIds, recipeIds, dishIds, optionIds, venueIds, supplier, on, deleted }'}</Mono>.{' '}
         <Mono>dishesToCheck()</Mono> (<Mono>shared/allergenCheck.js</Mono>) finds the dishes: price creep&apos;s index{' '}
         <Mono>dishesUsing(itemIds, recipes, links, {'{ recipeIds }'})</Mono> (<Mono>shared/priceCreep.js</Mono>, up through
         prep recipes), the dishes offering an option whose rule adds or swaps in one of them (<Mono>optionsUsing()</Mono>), and
         the dishes named. Meal deals aren&apos;t checked, so <Mono>dealsHolding()</Mono> adds nothing. Their checks are kept by{' '}
         <Mono>storeChecks(..., {'{ cause }'})</Mono> and <Mono>storeCalorieChecks()</Mono>: a check inserted, reopened or
-        whose open differences change is marked (<Mono>changed_at</Mono>, <Mono>change</Mono>: <Mono>changeWords()</Mono>).
-        A decision clears it.
+        whose open differences (or unknown substitutes) change is marked (<Mono>changed_at</Mono>, <Mono>change</Mono>:{' '}
+        <Mono>changeWords()</Mono>). Both are worked out on every change, but <Mono>changeMarks(kind)</Mono> says which is
+        marked: the allergen check by every kind but item, the calorie check by recipe, link and item only (options and
+        supplier products aren&apos;t in the calories). A decision clears it. Today (<Mono>checksToReview()</Mono>,{' '}
+        <Mono>caloriesToReview()</Mono>) lists only dishes still on a menu&apos;s draft.
       </P>
       <DataTable
         head={['Kind', 'Called from']}
         rows={[
-          ['quote', 'routes/inventory.js: POST /items/:id/quotes, PATCH /quotes/:id (price, pack, on or off, supplier, name or code), DELETE /quotes/:id, PUT /quotes/:id/venue-prices, POST /price-update, POST /import; routes/purchasing.js POST /pos/:id/price-list'],
+          ['quote', 'routes/inventory.js: POST /items/:id/quotes, PATCH /quotes/:id (price, pack, on or off, supplier, name or code), DELETE /quotes/:id, PUT /quotes/:id/venue-prices, POST /price-update, POST /import; routes/purchasing.js POST /pos/:id/price-list (venueIds the delivery\'s venue only for a venue\'s own price: a company price or one added is every venue\'s)'],
           ['quote_allergens', 'PUT /api/inventory/quotes/:id/allergens'],
           ['preferred', 'PUT /api/inventory/items/:id/preferred (price creep isn\'t told: it compares prices with their history; the hourly sweep sees that crossing)'],
-          ['supplier', 'PATCH /api/suppliers/:id switching is_active'],
+          ['supplier', 'PATCH /api/suppliers/:id switching is_active; DELETE /api/suppliers/:id (its prices go by ON DELETE CASCADE: the item ids are read first and passed as itemIds, deleted: true)'],
           ['substitute', 'receiveInto() (POST /pos/:id/receive, a delivery without an order) when a line is, or was, Substituted'],
           ['recipe', 'PUT /api/recipes/:id, PATCH /:id/active, DELETE (the dishes its links and rules reached)'],
           ['link', 'PUT /api/recipe-links/dishes/:id/cell, DELETE /links/:id, POST /bulk, POST /dishes/:id/recipe'],
@@ -118,7 +122,10 @@ export function Section() {
         <Mono>SUBSTITUTE_DAYS</Mono> (14) days; when it is Substituted, <Mono>substituteKnown()</Mono> says whether the line&apos;s
         supplier price is what came (its code, else its name, is the invoice&apos;s: as the price list&apos;s Add leaves it).
         Known, its allergens count at that venue beside the chosen product (evidence says &quot;a substitute delivered&quot;);
-        unknown, a <Mono>substitute</Mono> gap.
+        unknown, a <Mono>substitute</Mono> gap (with <Mono>venue_id</Mono> and <Mono>day</Mono>), which{' '}
+        <Mono>unknownSubstitutes()</Mono> counts as something to look at, so the check opens and goes on Today.{' '}
+        <Mono>checkView()</Mono> carries them as <Mono>substitutes</Mono> (the tab&apos;s Delivered instead card); its{' '}
+        <Mono>fingerprint</Mono> is <Mono>checkFingerprint()</Mono>, and dismiss takes a check with only a substitute.
       </P>
       <H3>Calories (phase 8b, migration 318): shared/calorieCheck.js</H3>
       <P>
@@ -126,7 +133,9 @@ export function Section() {
         usable base quantity (the line&apos;s, before its yield is bought) times its share of the batch (<Mono>tr.eat</Mono>{' '}
         carries a prep recipe line&apos;s own yield). Without a trace nothing changes. <Mono>dishEnergy()</Mono> sums{' '}
         <Mono>qty x energyOf(item).per_base</Mono> for one serving (no options), with <Mono>usageOf()</Mono>&apos;s quantity
-        gaps and <Mono>no_energy</Mono>; <Mono>recipeEnergy()</Mono> for the editor.
+        gaps and <Mono>no_energy</Mono>; <Mono>recipeEnergy()</Mono> for the editor (a portion; one of what a prep makes, or
+        100 g / 100 ml of a prep made in g or ml, <Mono>per</Mono> &quot;per 100 g&quot;, since a gram&apos;s figure in whole kcal
+        is wrong). The editor&apos;s linked dishes are each <Mono>dishEnergy()</Mono> at the link&apos;s own scope (rounded once).
       </P>
       <DataTable
         head={['Function', 'What']}

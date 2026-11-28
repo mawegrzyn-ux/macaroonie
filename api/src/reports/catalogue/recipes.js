@@ -523,14 +523,17 @@ export const subjects = [
     from: 'calorie_checks',
     name: 'dish',
     open: { page: '/recipes?tab=allergens&check=:id', module: 'recipes', id: 'dish_id' },
-    skip: ['menu_id', 'fingerprint', 'scopes', 'history', 'updated_at', 'venue_ids'],
+    // fingerprint: read by the difference's words only (the 'under' figure), not a field of its own.
+    skip: ['menu_id', 'scopes', 'history', 'updated_at', 'venue_ids'],
     fields: {
       dish: text('dish', { label: 'Dish', synonyms: ['menu item'] }),
       menu: text('menu', { label: 'Menu' }),
       section: text('section', { label: 'Section' }),
       status: choice('status', CHECK_STATUSES, { label: 'Status', about: 'Open: nobody has decided. Accepted: the suggested figure was written into the menu\'s draft. Dismissed: kept as declared, with a note.' }),
       kind: choice('kind', CALORIE_KIND_LABELS, { label: 'What differs', about: 'No calories declared; the declared figure differs (beyond 10%); or the dish declares less than what is known already comes to.' }),
-      difference: text({ sql: "(CASE {t}.kind WHEN 'missing' THEN 'The recipe comes to ' || {t}.suggested_kcal || ' kcal; the dish declares no calories' WHEN 'differs' THEN 'The recipe comes to ' || {t}.suggested_kcal || ' kcal; the dish declares ' || {t}.declared_kcal || ' kcal' WHEN 'under' THEN 'What is known already comes to more than the ' || {t}.declared_kcal || ' kcal the dish declares' END)" }, {
+      // calorieWords() (shared/calorieCheck.js) in SQL, word for word: figures with thousands separators, and the
+      // 'under' figure (what is known so far) from the stored fingerprint (calorieFingerprint(): kind:declared:suggested:lower).
+      difference: text({ sql: "(CASE {t}.kind WHEN 'missing' THEN 'The recipe comes to ' || to_char({t}.suggested_kcal, 'FM999,999,999,990') || ' kcal; the dish declares no calories' WHEN 'differs' THEN 'The recipe comes to ' || to_char({t}.suggested_kcal, 'FM999,999,999,990') || ' kcal; the dish declares ' || to_char({t}.declared_kcal, 'FM999,999,999,990') || ' kcal' WHEN 'under' THEN 'What is known already comes to ' || to_char(NULLIF(split_part({t}.fingerprint, ':', 4), '')::numeric, 'FM999,999,999,990') || ' kcal; the dish declares ' || to_char({t}.declared_kcal, 'FM999,999,999,990') || ' kcal' END)" }, {
         label: 'Calories difference', synonyms: ['calorie', 'calories', 'kcal', 'energy'],
         about: 'The difference in words: "The recipe comes to 722 kcal; the dish declares 600 kcal".',
       }),

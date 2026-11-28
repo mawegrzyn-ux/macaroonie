@@ -84,7 +84,7 @@ function EnergyForm({ item, canEdit, onSaved }) {
       </p>
       {canEdit && (
         <div className="flex justify-end">
-          <button type="button" className={btn.primary} disabled={!dirty || !!problem || save.isPending} onClick={() => save.mutate()} data-testid="inv-energy-save">
+          <button type="button" className={cn(btn.primary, 'h-12')} disabled={!dirty || !!problem || save.isPending} onClick={() => save.mutate()} data-testid="inv-energy-save">
             {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Save
           </button>
         </div>

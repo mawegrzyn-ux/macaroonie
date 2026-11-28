@@ -2192,7 +2192,8 @@ export default async function purchasingRoutes(app) {
       if (moved.length) {
         await priceChanged(tx, req, { quoteIds: moved, venueIds: everyVenue ? null : [po.venue_id], source: 'invoice', poId: po.id })
         // A substitute's own price added (the line points at it now), or the cheapest changed: the allergen checks (phase 8b).
-        await allergensChanged(tx, req, { kind: 'quote', quoteIds: moved, venueIds: [po.venue_id] })
+        // A company price (or a new supplier price) is every venue's: the words then name none.
+        await allergensChanged(tx, req, { kind: 'quote', quoteIds: moved, venueIds: everyVenue ? [] : [po.venue_id] })
       }
       return poDetail(tx, req.tenantId, po.id, true)
     })

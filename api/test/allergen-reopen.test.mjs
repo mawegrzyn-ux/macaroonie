@@ -5,8 +5,10 @@
 // again, with its decision in the history; saving the same holds it), a
 // supplier price edited so another product is the cheapest, the usual
 // supplier switched at one venue, a product substituted on receiving (unknown
-// until it is a supplier price with allergens), a supplier switched off, a
-// recipe line, a link and an option rule. A check a change opened says what
+// until it is a supplier price with allergens: something to look at, so it
+// opens a dish that agreed and one that was accepted, and goes on Today), a
+// supplier switched off and a supplier deleted with its prices, a recipe
+// line, a link and an option rule. A check a change opened says what
 // changed, goes on Today as "Allergen checks to review" for whoever can decide
 // it (Recipes manage and Menus manage), and leaves it once decided. A failure
 // in the hook never stops the change. Another group's changes never touch
@@ -17,6 +19,7 @@ import { randomUUID } from 'node:crypto'
 import { as, ok, sql, closeApp } from './support/app.mjs'
 import { resetAndSeed, A, B } from './support/seed.mjs'
 import { addDays, nowAt } from '../../shared/procurement.js'
+import { menuSaveBody } from '../../shared/menuSave.js'
 
 const blankRule = { option_id: null, dish_id: null, option_label: null, item_id: null, sub_recipe_id: null, swap_item_id: null, qty: null, unit: null, factor: null, recipe_id: null, note: null }
 const CHECK = { packaging_ok: true, damage_ok: true, quality_ok: true, accepted: true, chilled_temp_c: 3 }
@@ -41,6 +44,10 @@ async function asRole(permissions, fn) {
   }
 }
 const todayCard = async (who, venueId) => (await ok(who.get('/api/ops/today?venue_id=' + venueId))).tasks.find(t => t.area === 'allergen_checks') || null
+async function discardDraft() {
+  const live = (await ok(owner.get(`/api/menus/${menu.id}/publish`))).live
+  await ok(owner.post(`/api/menus/${menu.id}/releases/${live.release_id}/restore`, {}))
+}
 
 test.before(async () => {
   ids = await resetAndSeed()
@@ -188,6 +195,42 @@ test('a supplier price changed so another product is the cheapest, and a supplie
   assert.equal((await check(plain)).state, 'agree')
 })
 
+test('a supplier deleted takes its prices with it: the dishes using them are checked again and go on Today', async () => {
+  // Freshways' noodles are the cheapest, with nothing in them; Brakes' dearer than Bidfood's (gluten) for now.
+  const fresh = await ok(owner.post('/api/suppliers', { name: 'Freshways', send_method: 'print', lead_days: 1 }))
+  const withFresh = await ok(owner.post(`/api/inventory/items/${noodles.id}/quotes`, { supplier_id: fresh.id, pack_name: 'Pack', pack_qty: 1, pack_unit: 'kg', price: 1 }))
+  await setAllergens(q(withFresh, fresh.id), [])
+  await ok(owner.patch('/api/inventory/quotes/' + q(noodles, brakes.id).id, { price: 9 }))
+  assert.equal((await check(plain)).state, 'agree', 'Freshways\' noodles: nothing differs')
+  assert.equal(await marks(plain), null)
+  // Deleted: Bidfood's noodles are the cheapest now, with gluten.
+  await ok(owner.delete('/api/suppliers/' + fresh.id))
+  assert.equal((await sql`SELECT count(*)::int AS n FROM inv_quotes WHERE tenant_id = ${ids.a} AND supplier_id = ${fresh.id}`)[0].n, 0)
+  const m = await marks(plain)
+  assert.ok(m?.changed_at, 'marked by the delete\'s hook, not by a read')
+  assert.equal(m.change, 'Freshways deleted, with its prices')
+  const c = await check(plain)
+  assert.equal(c.state, 'open')
+  assert.ok(c.differences.some(d => d.allergen === 'gluten'))
+  assert.equal(c.change, 'Freshways deleted, with its prices')
+  const card = await todayCard(owner, soho)
+  assert.ok(card, 'on Today')
+  assert.match(card.detail, /Plain noodles/)
+  // Taken off the menu's draft: it can't be decided on the tab, so it leaves Today (the nightly sweep deletes it).
+  const onToday = async () => (await ok(owner.get('/api/allergen-checks/summary?venue_id=' + soho))).dishes.map(d => d.dish)
+  const full = await ok(owner.get('/api/menus/' + menu.id))
+  full.sections[0].items = full.sections[0].items.filter(i => i.id !== plain)
+  await ok(owner.patch('/api/menus/' + menu.id, menuSaveBody(full)))
+  assert.ok(!(await onToday()).includes('Plain noodles'))
+  await discardDraft()
+  assert.ok((await onToday()).includes('Plain noodles'), 'back on the draft: back on Today')
+  // Brakes' noodles the cheapest again: nothing differs, off Today.
+  await ok(owner.patch('/api/inventory/quotes/' + q(noodles, brakes.id).id, { price: 3 }))
+  assert.equal((await check(plain)).state, 'agree')
+  assert.equal((await check(padthai)).state, 'agree')
+  assert.equal(await todayCard(owner, soho), null)
+})
+
 test('a product substituted on receiving: unknown at that venue until what came is a supplier price', async () => {
   const today = nowAt('Europe/London').date
   const list = await ok(owner.post('/api/purchasing/lists', { name: 'Dry goods', venue_ids: [soho], item_ids: [noodles.id] }))
@@ -197,22 +240,60 @@ test('a product substituted on receiving: unknown at that venue until what came 
   const poId = (placed.pos || placed.purchase_orders || [])[0]?.id || (await sql`SELECT id FROM purchase_orders WHERE tenant_id = ${ids.a} AND venue_id = ${soho} ORDER BY created_at DESC LIMIT 1`)[0].id
   const po = await ok(owner.get('/api/purchasing/pos/' + poId))
   const line = po.lines.find(l => l.item_id === noodles.id)
+  // Pad thai's check accepted first (celery in the oyster sauce, now declared in the draft): it agrees again.
+  await setAllergens(q(oyster, brakes.id), ['molluscs', 'soya', 'celery'])
+  const before = await check(padthai)
+  assert.deepEqual(before.differences.map(d => d.allergen), ['celery'])
+  await ok(owner.post(`/api/allergen-checks/dishes/${padthai}/accept`, { fingerprint: before.fingerprint, allergens: ['celery'] }))
+  assert.equal((await check(padthai)).state, 'accepted')
+  assert.equal(await marks(plain), null, 'Plain noodles agrees: no check stored')
   await ok(owner.post(`/api/purchasing/pos/${poId}/receive`, { lines: [{ id: line.id, received_qty: 2, status: 'substituted', note: 'Egg noodles instead' }], check: CHECK }))
+  // The hook in receiveInto() marked it (a read never does): what came isn't known, so it is something to look at.
+  const m = await marks(plain)
+  assert.ok(m?.changed_at, 'marked by the receive\'s hook')
+  assert.equal(m.status, 'open')
+  assert.equal(m.change, 'Rice noodles: a substitute delivered at Soho')
   const c = await check(plain)
-  assert.equal(c.state, 'incomplete', 'what came isn\'t known: nothing differs, but it can\'t agree')
+  assert.equal(c.state, 'open', 'unknown is never a pass: nothing differs among what is known, but what came may hold an allergen')
+  assert.deepEqual(c.differences, [])
+  assert.equal(c.change, 'Rice noodles: a substitute delivered at Soho')
   const gap = c.gaps.find(g => g.reason === 'substitute')
   assert.ok(gap, JSON.stringify(c.gaps))
   assert.match(gap.text, /A substitute for Rice noodles was delivered at Soho on .*: its allergens aren't known/)
   assert.deepEqual(gap.where, ['Soho'], 'only at the venue it was delivered to')
-  // What came, read off the invoice, added to the price list as Brakes' product (the line points at it), with egg in it.
+  assert.deepEqual(c.substitutes.map(g => g.text), [gap.text])
+  // The accepted check opens again, its acceptance in the history.
+  const p = await check(padthai)
+  assert.equal(p.state, 'open')
+  assert.equal(p.change, 'Rice noodles: a substitute delivered at Soho')
+  assert.equal(p.history.at(-1).status, 'accepted')
+  // On Today, until decided.
+  const card = await todayCard(owner, soho)
+  assert.ok(card, 'on Today')
+  assert.match(card.detail, /2 dishes' allergens to look at again/)
+  assert.match(card.detail, /Rice noodles: a substitute delivered at Soho/)
+  // Nothing to accept (nothing differs), but it can be dismissed: the label was checked by hand.
+  assert.equal((await owner.post(`/api/allergen-checks/dishes/${padthai}/accept`, { fingerprint: p.fingerprint, allergens: ['gluten'] })).status, 409)
+  await ok(owner.post(`/api/allergen-checks/dishes/${padthai}/dismiss`, { fingerprint: p.fingerprint, note: 'Label checked: rice and water' }))
+  assert.equal((await check(padthai)).state, 'dismissed')
+  // What came, read off the invoice, added to the price list as Brakes' product (the line points at it): its
+  // allergens not put in yet, so still something to look at; the change (a company price) names no venue.
   await sql`UPDATE purchase_order_lines SET invoice_code = 'EN9', invoice_name = 'Egg noodles', invoice_price = 4 WHERE id = ${line.id}`
   await ok(owner.post(`/api/purchasing/pos/${poId}/price-list`, { changes: [{ line_id: line.id, action: 'add', pack: { name: 'Pack', count: 1, qty: 1, unit: 'kg' } }] }))
+  const listed = await check(plain)
+  assert.equal(listed.state, 'open')
+  assert.equal(listed.substitutes.length, 1)
+  assert.equal(listed.substitutes[0].reason, 'unknown')
+  assert.equal(listed.change, 'Rice noodles: a supplier price added, changed or switched off')
+  assert.equal((await check(padthai)).state, 'open', 'a dismissal holds only for what was dismissed: what came is another thing now')
+  // With egg in it.
   const item = await ok(owner.get('/api/inventory/items/' + noodles.id))
   const sub = item.quotes.find(x => x.supplier_code === 'EN9')
   assert.ok(sub)
   await setAllergens(sub, ['eggs', 'gluten'])
   const after = await check(plain)
   assert.equal(after.state, 'open')
+  assert.deepEqual(after.substitutes, [])
   const gluten = after.differences.find(d => d.allergen === 'gluten')
   assert.deepEqual(gluten.where, ['Soho'])
   assert.match(gluten.evidence[0].substitute ? 'substitute' : '', /substitute/)
@@ -220,6 +301,11 @@ test('a product substituted on receiving: unknown at that venue until what came 
   await ok(owner.post(`/api/purchasing/pos/${poId}/receive`, { lines: [{ id: line.id, received_qty: 2, status: 'ok' }], check: CHECK }))
   await sql`UPDATE purchase_order_lines SET quote_id = ${q(noodles, brakes.id).id} WHERE id = ${line.id}`
   assert.equal((await check(plain)).state, 'agree')
+  // Put back: the oyster sauce without celery, Pad thai's draft as live.
+  await setAllergens(q(oyster, brakes.id), ['molluscs', 'soya'])
+  await discardDraft()
+  assert.equal((await check(padthai)).state, 'agree')
+  assert.equal(await todayCard(owner, soho), null)
 })
 
 test('a recipe line, a link and an option rule changed each open the dishes they reach', async () => {
