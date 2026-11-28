@@ -343,7 +343,7 @@ export function Section() {
         <Mono>SharedDeviceSettings</Mono> (see Shared devices); <Mono>MobileShell</Mono> mounts{' '}
         <Mono>SharedDeviceLayer</Mono>. The Office app builds for both platforms (<Mono>app.json</Mono>{' '}
         <Mono>platforms</Mono>, <Mono>ios.infoPlist</Mono> reason strings, <Mono>app.config.js</Mono> push mode,{' '}
-        <Mono>eas.json</Mono> <Mono>app-store</Mono> profile); its bridge tells the page{' '}
+        <Mono>eas.json</Mono>: <Mono>production</Mono> is the store build, an app bundle for Google Play and App Store / TestFlight, <Mono>preview</Mono> and <Mono>development</Mono> an APK to install by hand; <Mono>submit.production.android</Mono> sends to Play&apos;s internal track as a draft); its bridge tells the page{' '}
         <Mono>MacaroonieOffice.platform</Mono> (<Mono>lib/push.js</Mono> labels the device). What differs on an
         iPhone: <Mono>office-app/layout.js</Mono> (<Mono>pagePadding()</Mono>, <Mono>keyboardEvents()</Mono>),{' '}
         <Mono>speechCore.js</Mono> (<Mono>cumulative</Mono>), <Mono>scanCore.js</Mono> (<Mono>scannedCode()</Mono>:

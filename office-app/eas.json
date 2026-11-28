@@ -26,23 +26,19 @@
     },
     "production": {
       "autoIncrement": true,
-      "distribution": "internal",
-      "android": {
-        "buildType": "apk"
-      },
-      "ios": {}
-    },
-    "app-store": {
-      "autoIncrement": true,
       "distribution": "store",
-      "ios": {},
       "android": {
         "buildType": "app-bundle"
-      }
+      },
+      "ios": {}
     }
   },
   "submit": {
     "production": {
+      "android": {
+        "track": "internal",
+        "releaseStatus": "draft"
+      },
       "ios": {}
     }
   }
