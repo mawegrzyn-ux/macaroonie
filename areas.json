@@ -1348,6 +1348,7 @@
     "office-app/scanCore.js",
     "office-app/shareCore.js",
     "office-app/speechCore.js",
+    "office-app/store-assets/**",
     "office-app/test/**",
     "shared/nav/links.js",
     "shared/nav/sections.js",
