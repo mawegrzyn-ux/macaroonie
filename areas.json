@@ -1464,6 +1464,7 @@
     "admin/src/components/pos/RolesSection.jsx",
     "admin/src/components/pos/SettingsSection.jsx",
     "admin/src/components/pos/TechBoardSection.jsx",
+    "admin/src/components/pos/TechHoneycomb.jsx",
     "admin/src/components/pos/TillLayoutsSection.jsx",
     "admin/src/components/pos/TillsSection.jsx",
     "admin/src/components/pos/shared.jsx",

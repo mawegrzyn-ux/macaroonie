@@ -182,12 +182,17 @@ export const hexPoints = r => [[r, 0], [r / 2, r * SQ3 / 2], [-r / 2, r * SQ3 / 
   .map(([x, y]) => x.toFixed(1) + ',' + y.toFixed(1)).join(' ')
 const poly = (cls, r, extra = '') => '<polygon class="' + cls + '" points="' + hexPoints(r) + '"' + extra + '/>'
 
-/** The ring that says which kind of kit a hexagon is (TECH_KINDS line). */
-export function ringSvg(line) {
-  if (line === 'double') return poly('hx-ring', 97, ' stroke-width="3.5"') + poly('hx-ring', 89.5, ' stroke-width="3.5"')
-  const dash = { dash: '24 11', dot: '0.1 12', dashdot: '22 8 2 8', short: '9 8' }[line]
+/**
+ * The ring that says which kind of kit a hexagon is (TECH_KINDS line). k:
+ * how much thicker to draw it (the legend's small swatches).
+ */
+export function ringSvg(line, k = 1) {
+  const n = v => Math.round(v * k * 10) / 10
+  if (line === 'double') return poly('hx-ring', 100 - n(3), ' stroke-width="' + n(3.5) + '"') + poly('hx-ring', 100 - n(10.5), ' stroke-width="' + n(3.5) + '"')
+  const dash = { dash: [24, 11], dot: [0.1, 12], dashdot: [22, 8, 2, 8], short: [9, 8] }[line]
   const width = line === 'thick' ? 10 : line === 'dot' ? 8 : 6
-  return poly('hx-ring', line === 'thick' ? 93 : 94, ' stroke-width="' + width + '"' + (dash ? ' stroke-dasharray="' + dash + '"' : '') + (line === 'dot' ? ' stroke-linecap="round"' : ''))
+  return poly('hx-ring', 100 - n(line === 'thick' ? 7 : 6), ' stroke-width="' + n(width) + '"' + (dash ? ' stroke-dasharray="' + dash.map(n).join(' ') + '"' : '') +
+    (line === 'dot' ? ' stroke-linecap="round"' : ''))
 }
 
 function shapeSvg(kind, { health = false, ring = null } = {}) {
@@ -252,7 +257,7 @@ export function honeycombHtml(model, layout, { size = 60, now = Date.now(), inte
 export function legendHtml(model, { tones = true } = {}) {
   let h = '<div class="hx-legend">'
   for (const g of model?.groups || []) {
-    h += '<span class="hx-key" data-kind="' + esc(g.key) + '"><svg class="hx-swatch" viewBox="-100 -86.6 200 173.2" aria-hidden="true" focusable="false">' + ringSvg(g.line) +
+    h += '<span class="hx-key" data-kind="' + esc(g.key) + '"><svg class="hx-swatch" viewBox="-100 -86.6 200 173.2" aria-hidden="true" focusable="false">' + ringSvg(g.line, 2.6) +
       '</svg><span>' + esc(g.label) + '</span></span>'
   }
   if (tones) {
@@ -356,7 +361,7 @@ ${kindRules}
 @media (prefers-reduced-motion: reduce) { .hx-anim .hx-tile .hx-shape { animation: none !important; } }
 .hx-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35em 1.1em; color: var(--hx-sub, #6b7280); }
 .hx-key { display: inline-flex; align-items: center; gap: 0.4em; white-space: nowrap; }
-.hx-swatch { width: 1.6em; height: 1.4em; flex: none; overflow: visible; }
+.hx-swatch { width: 1.9em; height: 1.65em; flex: none; overflow: visible; }
 .hx-swatch .hx-ring { stroke: var(--hx-kc, #64748b); }
 .hx-key > span { color: var(--hx-text, inherit); }
 .hx-tkey { color: var(--hx-text, inherit); }
