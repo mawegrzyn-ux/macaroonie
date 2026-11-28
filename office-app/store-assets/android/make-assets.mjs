@@ -364,11 +364,6 @@ const SCREENS = [
     before: async p => {
       await p.locator('[data-testid="today-task"][data-kind="fridge_check"] [data-testid="today-task-action"]').click()
       await p.waitForSelector('[data-testid="today-form"]')
-      // The sheet is drawn inside Today's spaced list (space-y-3), whose gap
-      // gives its fixed backdrop a 12 px top margin: a white band above the
-      // dimmed page. That is a bug of the page, not its look, so the picture
-      // is taken without it.
-      await p.addStyleTag({ content: '[data-testid="today-form"] { margin: 0 !important; }' })
       // Today from its top behind the sheet (the click scrolled it to the task).
       await p.evaluate(() => { const main = document.querySelector('main'); if (main) main.scrollTop = 0 })
       await p.waitForTimeout(2000)

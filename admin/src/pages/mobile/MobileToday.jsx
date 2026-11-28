@@ -39,7 +39,10 @@ export default function MobileToday() {
   const name = firstName(me)
   const canPepper = (me?.permissions?.ai_assistant || 'none') !== 'none'
 
+  // The form sheet is drawn after the spaced list, not in it: inside, space-y-3
+  // gave its fixed backdrop a 12 px top margin (a white band above the sheet).
   return (
+    <>
     <div className="p-3 space-y-3" data-testid="mobile-today">
       {d?.venues?.length > 1 && (
         <select value={d.venue.id} onChange={e => pickVenue(e.target.value)} data-testid="today-venue"
@@ -89,7 +92,8 @@ export default function MobileToday() {
         </Link>
       )}
 
-      {form && d && <FormSheet form={form} venueId={d.venue.id} date={d.date} onClose={closeForm} linkFor={opsLink} />}
     </div>
+    {form && d && <FormSheet form={form} venueId={d.venue.id} date={d.date} onClose={closeForm} linkFor={opsLink} />}
+    </>
   )
 }

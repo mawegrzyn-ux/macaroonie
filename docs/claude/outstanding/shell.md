@@ -177,3 +177,9 @@ Not done:
 - No `/cookies` address (it 301s to office like any unknown path); the footer links `/privacy#cookies`.
 - The platform site is light only, so the legal pages are too: with a dark preference they show light (checked in the browser). Google Fonts still come from Google (item 64).
 - Browser checks in Chromium at 390 and 1280 px, light and dark preference, no screen reader.
+
+**86. The Office app's Google Play listing: what the owner does in the Play Console, and what is left (28 Nov 2026, no migration)**
+- **The owner's steps** (`office-app/store-assets/android/store-listing.md`): make a reviewers' demo account on an invented demo group, with a password set in Auth0, and keep it working while the app is on Play (Play signs in again for every update); put its details only in the App access form. Fill in Data safety, the content rating (users interact: yes) and the target audience (18 and over) from the notes.
+- **A delete-account page is needed**: Play asks for a web address where people can ask for their account to be deleted, and the Privacy policy probably won't pass. Make a short page (for example macaroonie.com/delete-account) as the notes describe; not built.
+- **The screenshots show the day they were taken** (Sat 28 Nov, about 18:30) and today's app; take them again with `make-assets.mjs` after a visible change to the phone pages. Two small cuts show in them as in the app: the form sheet's title is one line ("Fridge and fre...", `FormSheet.jsx`, pepper area) and the hub tiles clamp their description to two lines.
+- Only the phone listing is made: no 7 or 10 inch tablet screenshots, no promo video, no other languages, and nothing for the App Store yet.

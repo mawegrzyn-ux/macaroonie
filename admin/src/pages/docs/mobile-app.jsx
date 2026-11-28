@@ -349,6 +349,12 @@ export function Section() {
         <Mono>speechCore.js</Mono> (<Mono>cumulative</Mono>), <Mono>scanCore.js</Mono> (<Mono>scannedCode()</Mono>:
         a UPC-A read as EAN-13). Not built yet: <Mono>eas build -p ios</Mono> needs the owner&apos;s Apple
         developer account (<Mono>office-app/README.md</Mono>). Tests: <Mono>office-app/test/ios.test.mjs</Mono>.
+        The Google Play listing is in <Mono>office-app/store-assets/android/</Mono>: <Mono>store-listing.md</Mono>{' '}
+        (name, short and full description, Play Console notes), <Mono>icon-512.png</Mono>,{' '}
+        <Mono>feature-graphic-1024x500.png</Mono> and seven 1080 x 1920 phone screenshots of the real{' '}
+        <Mono>/mobile</Mono> pages on invented data. <Mono>make-assets.mjs</Mono> takes them again (its own{' '}
+        API and Vite on a test database, the tests&apos; model stand-in for Pepper) and{' '}
+        <Mono>make-assets.py</Mono> checks their sizes and modes.
       </P>
       <H3>Sharing to the Office app (26 Nov 2026)</H3>
       <P>
