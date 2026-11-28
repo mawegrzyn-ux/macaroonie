@@ -1,24 +1,26 @@
 // src/pages/docs/allergen-checks.jsx
 // The Docs page's "Allergen checks" section (inventory phase 8a, migration
-// 316, 27 Nov 2026). Docs.jsx gathers every file in this folder (except
-// parts.jsx) and shows them by order, then id.
+// 316, 27 Nov 2026; phase 8b, migrations 317 and 318: reopening on changes,
+// the Today item, substitutes, calories). Docs.jsx gathers every file in this
+// folder (except parts.jsx) and shows them by order, then id.
 import { H2, H3, P, Mono, InfoBox, DataTable } from './parts.jsx'
 
 export const id = 'allergen-checks'
-export const label = 'Allergen checks'
+export const label = 'Allergen and calorie checks'
 export const order = 256.7
 
 export function Section() {
   return (
     <section id="allergen-checks" data-doc="">
-      <H2>Allergen checks</H2>
+      <H2>Allergen and calorie checks</H2>
       <P>
         Inventory phase 8a (<Mono>docs/INVENTORY.md</Mono> 8.3, decision D6; migration 316, 27 Nov 2026): allergens on the
         supplier&apos;s product, a roll-up through recipes giving each dish&apos;s <em>suggested</em> allergens, and a check
         against what the dish <em>declares</em> (the menus area&apos;s data), which a person accepts or dismisses. Nothing
         changes a declaration by itself. Area: recipes (the product columns are purchasing&apos;s <Mono>inv_quotes</Mono>; the
-        declaration is the menus area&apos;s, written through its own route). Phase 8b adds reopening on changes, the Today
-        item and calories.
+        declaration is the menus area&apos;s, written through its own route). Phase 8b (migrations 317 and 318) works the
+        checks out again where each change is saved, puts what it opened on Today, counts a substitute delivered, and adds
+        suggested calories on the same walk.
       </P>
       <H3>Tables</H3>
       <DataTable
@@ -27,6 +29,9 @@ export function Section() {
           ['inv_quotes.allergens_contains, allergens_may_contain', 'text[] of STANDARD_ALLERGENS keys (shared/menuTags.js, the menus\' 14): one list, rule 12'],
           ['inv_quotes.allergens_checked_at, _by, _source', 'when someone saved them (null = unknown: a gap, never "free"), who, and where from (a note, 300 chars)'],
           ['allergen_checks', 'one row per menu dish (plain dish_id, menu_id: no foreign keys), status open | accepted | dismissed, differences jsonb, fingerprint, suggested, declared, scopes (the scope groups with evidence), gaps, complete, decided_by / _at, note, history jsonb, worked_at. RLS forced. Unique (tenant_id, dish_id).'],
+          ['allergen_checks.venue_ids, changed_at, change (317)', 'the venues the dish is sold at (Today per venue); when and what change opened it, opened it again or changed it while open (500 chars). Cleared by a decision'],
+          ['inv_items.kcal_per_100g, kcal_each, kcal_source (318)', 'energy: per 100 g (per 100 ml for an item kept in ml) or, kept in each, per one, of the part used; null = unknown. The other kind of unit is refused (energyProblem()); a base unit change clears both'],
+          ['calorie_checks (318)', 'one row per menu dish like allergen_checks: status, kind missing | differs | under, suggested_kcal, min_kcal, max_kcal, declared_kcal, fingerprint, complete, gaps, scopes jsonb, decided_kcal (the figure accepted, or the suggestion dismissed), decided_by / _at, note, history, venue_ids, changed_at, change, worked_at. RLS forced. Unique (tenant_id, dish_id); the nightly links sweep deletes those of dishes on no menu'],
         ]}
       />
       <H3>The rule: shared/allergenCheck.js</H3>
@@ -81,6 +86,67 @@ export function Section() {
           ['GET /api/allergen-checks/recipes/:recipeId', 'Recipes view', 'a recipe\'s own suggestion at each active venue, venues with the same answer together'],
         ]}
       />
+      <H3>Opened again on a change (phase 8b, migration 317)</H3>
+      <P>
+        One hook, <Mono>allergensChanged(tx, req, change)</Mono> in <Mono>allergenCheckSvc.js</Mono>, called after the change
+        in its own transaction (a savepoint: a failure is logged and the change is saved; never in a dry run). change:{' '}
+        <Mono>{'{ kind, itemIds, quoteIds, recipeIds, dishIds, optionIds, venueIds }'}</Mono>.{' '}
+        <Mono>dishesToCheck()</Mono> (<Mono>shared/allergenCheck.js</Mono>) finds the dishes: price creep&apos;s index{' '}
+        <Mono>dishesUsing(itemIds, recipes, links, {'{ recipeIds }'})</Mono> (<Mono>shared/priceCreep.js</Mono>, up through
+        prep recipes), the dishes offering an option whose rule adds or swaps in one of them (<Mono>optionsUsing()</Mono>), and
+        the dishes named. Meal deals aren&apos;t checked, so <Mono>dealsHolding()</Mono> adds nothing. Their checks are kept by{' '}
+        <Mono>storeChecks(..., {'{ cause }'})</Mono> and <Mono>storeCalorieChecks()</Mono>: a check inserted, reopened or
+        whose open differences change is marked (<Mono>changed_at</Mono>, <Mono>change</Mono>: <Mono>changeWords()</Mono>).
+        A decision clears it.
+      </P>
+      <DataTable
+        head={['Kind', 'Called from']}
+        rows={[
+          ['quote', 'routes/inventory.js: POST /items/:id/quotes, PATCH /quotes/:id (price, pack, on or off, supplier, name or code), DELETE /quotes/:id, PUT /quotes/:id/venue-prices, POST /price-update, POST /import; routes/purchasing.js POST /pos/:id/price-list'],
+          ['quote_allergens', 'PUT /api/inventory/quotes/:id/allergens'],
+          ['preferred', 'PUT /api/inventory/items/:id/preferred (price creep isn\'t told: it compares prices with their history; the hourly sweep sees that crossing)'],
+          ['supplier', 'PATCH /api/suppliers/:id switching is_active'],
+          ['substitute', 'receiveInto() (POST /pos/:id/receive, a delivery without an order) when a line is, or was, Substituted'],
+          ['recipe', 'PUT /api/recipes/:id, PATCH /:id/active, DELETE (the dishes its links and rules reached)'],
+          ['link', 'PUT /api/recipe-links/dishes/:id/cell, DELETE /links/:id, POST /bulk, POST /dishes/:id/recipe'],
+          ['option_rule', 'PUT /api/recipe-options/rules, DELETE /rules/:id'],
+          ['item', 'PATCH /api/inventory/items/:id (energy or base unit), POST /items/:id/units, PATCH /units/:id (a size): calories'],
+        ]}
+      />
+      <P>
+        Substitutes: <Mono>loadSubstitutes()</Mono> reads, per venue and item, the latest received line in the last{' '}
+        <Mono>SUBSTITUTE_DAYS</Mono> (14) days; when it is Substituted, <Mono>substituteKnown()</Mono> says whether the line&apos;s
+        supplier price is what came (its code, else its name, is the invoice&apos;s: as the price list&apos;s Add leaves it).
+        Known, its allergens count at that venue beside the chosen product (evidence says &quot;a substitute delivered&quot;);
+        unknown, a <Mono>substitute</Mono> gap.
+      </P>
+      <H3>Calories (phase 8b, migration 318): shared/calorieCheck.js</H3>
+      <P>
+        The trace of <Mono>usageOf()</Mono> / <Mono>recipeUsage()</Mono> carries each item line&apos;s <Mono>qty</Mono>: its
+        usable base quantity (the line&apos;s, before its yield is bought) times its share of the batch (<Mono>tr.eat</Mono>{' '}
+        carries a prep recipe line&apos;s own yield). Without a trace nothing changes. <Mono>dishEnergy()</Mono> sums{' '}
+        <Mono>qty x energyOf(item).per_base</Mono> for one serving (no options), with <Mono>usageOf()</Mono>&apos;s quantity
+        gaps and <Mono>no_energy</Mono>; <Mono>recipeEnergy()</Mono> for the editor.
+      </P>
+      <DataTable
+        head={['Function', 'What']}
+        rows={[
+          ['calorieCheck(dish, results, declared, names)', 'over dishScopes(): suggested = the highest complete scope; min, max, spread; lower = the highest known part; difference missing | differs (outside withinTolerance(): 10%, at least 10 kcal) | under (incomplete, the known part already over the declaration)'],
+          ['calorieFingerprint(check) / nextCalorieCheck(stored, check)', 'kind:declared:suggested:lower; a dismissal holds while the kind and declared figure are the same and the figure stays within the tolerance of decided_kcal; accepted with a difference again reopens'],
+          ['calorieMoved(fingerprint, check)', 'a change marks an open check only when its difference moved past the tolerance'],
+          ['energyOf / energyProblem / energyWords', 'an item\'s figure for its kind of unit; validation; words'],
+        ]}
+      />
+      <DataTable
+        head={['Route', 'Who', 'What']}
+        rows={[
+          ['GET /api/allergen-checks, /dishes/:id', 'Recipes view', 'each row carries calories (calorieView(): state by checkState(), difference, groups with their top lines, gaps, decision, change)'],
+          ['POST /dishes/:id/calories/accept', 'Recipes manage + Menus manage', '{ fingerprint }; 422 incomplete with gaps; GET /api/menus/:id then PATCH it with menuSaveBody() as the person (the only route that writes menu_items.calories: every field sent back), the draft only'],
+          ['POST /dishes/:id/calories/dismiss, /reopen', 'Recipes manage + Menus manage', '{ fingerprint, note }; a dismissal taken back'],
+          ['GET /api/allergen-checks/summary?venue_id=', 'Recipes view', 'Today\'s source (services/opsToday.js allergen_checks, module recipes): the marked open checks and calorie checks at the venue, can_decide; read only'],
+          ['GET /api/allergen-checks/recipes/:id', 'Recipes view', 'also calories: the recipe\'s energy and its linked dishes\' declared figures'],
+        ]}
+      />
       <InfoBox type="warn">
         Accepting goes through the Allergen matrix&apos;s <Mono>PUT /api/menus/:id/allergens</Mono>, not the whole-tree menu
         PATCH: that route writes only the dishes sent (<Mono>docs/claude/areas/menus.md</Mono>: a new place that edits dish
@@ -102,6 +168,16 @@ export function Section() {
         <Mono>dishes_with_allergen_differences</Mono> and <Mono>items_with_unknown_allergens</Mono>. Registry:{' '}
         <Mono>recipes.allergen_checks</Mono>; <Mono>read_product_allergens</Mono> on <Mono>purchasing.prices</Mono>. Tests:{' '}
         <Mono>shared/test/allergenCheck.test.mjs</Mono>, <Mono>api/test/allergen-checks.test.mjs</Mono>.
+      </P>
+      <P>
+        Phase 8b: the tab&apos;s <Mono>CaloriesCard</Mono> (keyed by its fingerprint), the Changed and Calories filters
+        (<Mono>&amp;changed=1</Mono>, Today&apos;s link), <Mono>RecipeCalories</Mono> in the editor&apos;s card, and purchasing&apos;s{' '}
+        <Mono>EnergyForm</Mono> in <Mono>components/purchasing/units.jsx</Mono>. Reports: subject{' '}
+        <Mono>recipes.calorie_checks</Mono>, Allergen checks&apos; <Mono>change</Mono> / <Mono>changed_at</Mono>, the energy
+        fields on <Mono>purchasing.items</Mono>, starters <Mono>dishes_with_calorie_differences</Mono> and{' '}
+        <Mono>items_with_no_energy</Mono>. Registry <Mono>recipes.calorie_checks</Mono>. Tests:{' '}
+        <Mono>shared/test/calorieCheck.test.mjs</Mono>, <Mono>api/test/allergen-reopen.test.mjs</Mono>,{' '}
+        <Mono>api/test/calorie-checks.test.mjs</Mono>.
       </P>
     </section>
   )

@@ -40,6 +40,7 @@
 //   withinTolerance(declared, suggested)
 //   calorieFingerprint(check)      what a decision is checked against (409 when it moved)
 //   nextCalorieCheck(stored, check)   what to do with a stored check: insert, update, delete, keep
+//   calorieMoved(fingerprint, check)  whether an open check's difference moved (a change marks it then)
 //   calorieWords(check)            the difference in words
 
 import { usageOf, recipeUsage, scopeText, recipeUnit, unitWord } from './costing.js'
@@ -271,4 +272,20 @@ export function nextCalorieCheck(stored, check) {
     return { op: 'update', status: 'dismissed', reopened: false }
   }
   return { op: 'update', status: 'open', reopened: true }
+}
+
+/**
+ * Whether an open check's difference moved since it was kept (its stored
+ * fingerprint): another kind, another declared figure, or the figure past
+ * the tolerance of what was kept. A change marks an open check (Today) only
+ * then, so a gram of salt doesn't bring a check back to Today.
+ */
+export function calorieMoved(storedFingerprint, check) {
+  const d = check?.checkable ? check.difference : null
+  if (!d) return !!storedFingerprint
+  if (!storedFingerprint) return true
+  const [kind, dec, sug, low] = String(storedFingerprint).split(':')
+  if (kind !== d.kind || dec !== String(d.declared ?? '')) return true
+  const was = sug !== '' ? Number(sug) : low !== '' ? Number(low) : null
+  return !withinTolerance(d.suggested ?? d.lower, was)
 }

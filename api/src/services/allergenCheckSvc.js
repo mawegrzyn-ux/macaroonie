@@ -51,7 +51,7 @@ import {
   dishScopes, scopeSuggestion, declaredOf, dishCheck, fingerprint, nextCheck, recipeSuggestion, checksDish, gapAt, ALLERGEN_KEYS,
   dishesToCheck, changeWords, substituteKnown, SUBSTITUTE_DAYS, CHANGE_KIND_KEYS,
 } from '../../../shared/allergenCheck.js'
-import { dishEnergy, recipeEnergy, calorieCheck, calorieFingerprint, nextCalorieCheck, withinTolerance } from '../../../shared/calorieCheck.js'
+import { dishEnergy, recipeEnergy, calorieCheck, calorieFingerprint, nextCalorieCheck, withinTolerance, calorieMoved } from '../../../shared/calorieCheck.js'
 
 const GAPS_KEPT = 30
 
@@ -283,7 +283,8 @@ export async function storeCalorieChecks(tx, tenantId, rows, { cause = null } = 
     const keep = n.reopened
       ? { decided_by: null, decided_at: null, note: null, decided_kcal: null }
       : { decided_by: s.decided_by, decided_at: s.decided_at, note: s.note, decided_kcal: s.decided_kcal }
-    const marked = !!mark && n.status === 'open' && (n.reopened || s.fingerprint !== fp)
+    // A change opened it again, or moved an open one's figure past the tolerance (calorieMoved()).
+    const marked = !!mark && n.status === 'open' && (n.reopened || calorieMoved(s.fingerprint, c))
     await tx`
       UPDATE calorie_checks SET ${tx({ ...fields, status: n.status, ...keep, history: tx.json(history) })},
              venue_ids = ${venues}::uuid[], worked_at = now(), updated_at = now()
