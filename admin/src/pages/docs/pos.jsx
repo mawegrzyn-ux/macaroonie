@@ -38,6 +38,68 @@ export function Section() {
         with failed tickets today making it need looking at. A Store tech tab with <Mono>readOnly</Mono> skips
         the View-only notice and greyed fieldset. The light at the top is <Mono>GET /api/status/light</Mono>.
       </P>
+      <H3>The honeycomb board and its tile model (28 Nov 2026, no migration)</H3>
+      <P>
+        One model for every place that draws the board, in <Mono>shared/techBoard.js</Mono> (till, public):{' '}
+        <Mono>techTiles(board, {'{ now, setup }'})</Mono> turns the route&apos;s answer into tiles{' '}
+        <Mono>{'{ key, id, kind, name, tone, word, status, detail, seen_at, facts, count, ring, linked, link, icon }'}</Mono>{' '}
+        (kind hub | till | kitchen | kiosk | printer | card | screen, <Mono>TECH_KINDS</Mono> with each kind&apos;s
+        label, link, icon and ring line and colour, each colour at least 3 : 1 on the light page and the dark
+        boards; tone ok | warn | bad | muted; <Mono>deviceState()</Mono>, <Mono>lastAction()</Mono>,{' '}
+        <Mono>printerState()</Mono> (moved here from the Printers section; it returns{' '}
+        <Mono>[text, tone, word]</Mono>, the word naming the fix: Hub down for a printer on a venue hub that is
+        down, No hub, Set up, Paper low; failed tickets today change the word to &ldquo;3 failed&rdquo; only for a
+        printer that seemed fine), <Mono>hubCopy()</Mono> for the hub&apos;s copy for trading offline,{' '}
+        <Mono>agoText()</Mono>, which the admin&apos;s <Mono>ago()</Mono> now calls).{' '}
+        <Mono>techModel(tiles, {'{ light }'})</Mono> gives the groups (worst first, <Mono>badge</Mono> &ldquo;2 of 3
+        up&rdquo;), <Mono>techHealth()</Mono> (worst tone with the platform&apos;s <Mono>PLATFORM_LIGHT</Mono>, counts,
+        &ldquo;12 up, 1 down&rdquo;) and <Mono>attention</Mono>. A muted tile is <em>not linked</em> when its{' '}
+        <Mono>linked</Mono> is false (a device or menu screen not paired) and <em>not checked</em> otherwise (a
+        printer the hub hasn&apos;t checked, a quiet card machine, a paired screen not heard from):{' '}
+        <Mono>mutedWords()</Mono> words them for the health and a group&apos;s badge (&ldquo;1 not linked, 2 not
+        checked&rdquo;). <Mono>seenText(tile, now, {'{ short }'})</Mono> the &ldquo;seen 4 min ago&rdquo; (short,
+        &ldquo;4 min ago&rdquo;, on the hexagon); <Mono>screenTiles()</Mono> what a menu screen may know (with{' '}
+        <Mono>linked</Mono>). <Mono>boardSummary()</Mono> is gone.
+      </P>
+      <P>
+        The drawing is <Mono>shared/techHex.js</Mono> (till, public): <Mono>hexSpiral(n)</Mono> (axial coordinates,
+        flat-topped hexagons, centre then ring by ring), <Mono>honeycomb(model, {'{ aspect | maxWidth, health }'})</Mono>{' '}
+        (one compact spiral per group, the first and worst tile in the middle, the clusters in rows that fit a
+        box of that shape or wrap at a width, the health hexagon first at <Mono>HEALTH_SCALE</Mono>; positions in
+        radii), <Mono>fitSize()</Mono>, <Mono>honeycombHtml()</Mono> (each tile an SVG hexagon: fill by tone from{' '}
+        <Mono>HEX_COLOURS</Mono>, ring by kind from <Mono>ringSvg()</Mono>, a mark per tone from <Mono>MARKS</Mono>,
+        the Lucide icon from <Mono>TECH_ICONS</Mono>, names escaped; buttons with <Mono>data-tile</Mono> when{' '}
+        <Mono>interactive</Mono>), <Mono>honeycombParts()</Mono> (the same in parts: the wrapper&apos;s class and
+        style, each label and each hexagon with its key, class, tone, kind, style object, label and inner HTML;{' '}
+        <Mono>honeycombHtml()</Mono> joins them, <Mono>styleText()</Mono> turns a style object into text),{' '}
+        <Mono>legendHtml()</Mono> (with the hub&apos;s inner ring, <Mono>HUB_COPY_KEY</Mono>, when a hub has one),{' '}
+        <Mono>attentionHtml()</Mono>, <Mono>sampleTechTiles()</Mono> and <Mono>TECH_HEX_CSS</Mono>{' '}
+        (<Mono>--hx-*</Mono> properties; bad tiles glow under <Mono>hx-anim</Mono>, never with reduced motion). A
+        tile&apos;s box is its hexagon&apos;s bounding box, and diagonal neighbours&apos; boxes overlap, so a button
+        tile has <Mono>pointer-events: none</Mono> and its <Mono>.hx-focus</Mono> polygon{' '}
+        <Mono>pointer-events: fill</Mono>: only the hexagon takes a tap (no clip-path, which would cut off the
+        glow). The bottom line (<Mono>.hx-seen</Mono>) is kept to 70% of the inner box, where the hexagon is narrow.
+      </P>
+      <P>
+        The page: <Mono>TechBoardSection.jsx</Mono> (header, view, theme, Full screen, the attention box, the
+        list, and the one live region, <Mono>tech-announce</Mono>, which says only how many need looking at: the
+        attention box is not one, as its times move on every minute) and <Mono>TechHoneycomb.jsx</Mono>, loaded
+        with <Mono>React.lazy</Mono>: <Mono>Honeycomb</Mono> (measures its box with a <Mono>ResizeObserver</Mono>;
+        the page wraps at a 66 px radius, 54 px on a phone where the hexagons then grow to the width up to 76 px,
+        full screen fits the box; each hexagon a React button keyed by the tile&apos;s key from{' '}
+        <Mono>honeycombParts()</Mono>, so the clock&apos;s tick changes only the HTML inside it and the keyboard
+        focus stays), <Mono>TileSheet</Mono> (a tile&apos;s <Mono>facts</Mono> and link, or the health; a dialog that
+        keeps Tab inside; Escape closes and the focus goes back to the hexagon of that key inside the nearest{' '}
+        <Mono>[data-tech-scope]</Mono>, the page&apos;s board or the full screen view, as both draw the same keys),{' '}
+        <Mono>FullBoard</Mono> (a dialog, <Mono>aria-modal</Mono>: Close takes the focus as it opens and Tab stays
+        inside; the Fullscreen API on its own element, a fixed window-sized view where there is none;{' '}
+        <Mono>fullscreenchange</Mono> closes it, and closing gives the focus back to the Full screen button;
+        reads every 30 s). The view and theme are per device (<Mono>localStorage</Mono>{' '}
+        <Mono>mcrn_tech_board_view</Mono>, <Mono>mcrn_tech_board_theme</Mono>). The route now goes through{' '}
+        <Mono>services/techBoardSvc.js</Mono> <Mono>loadTechBoard(tx, tenantId, venueId, can)</Mono> (public, also
+        the menu screen block&apos;s source) and adds <Mono>venue_name</Mono>, <Mono>timezone</Mono> and a hub&apos;s{' '}
+        <Mono>copy_on</Mono> / <Mono>copy_at</Mono> (<Mono>info.mirror.on</Mono>, <Mono>last_follow_at</Mono>).
+      </P>
       <P>
         Platform status (<Mono>services/platformStatus.js</Mono>): each API process writes a heartbeat to Redis
         every 30 s (<Mono>mac:status:proc:host:pid</Mono>, gone after 90 s, <Mono>startProcessBeat()</Mono> in{' '}

@@ -1228,6 +1228,7 @@
     "api/src/utils/importClosure.js",
     "api/test/browser-modules.test.mjs",
     "api/test/order-board-filters.test.mjs",
+    "api/test/screen-tech-status.test.mjs",
     "pos/src/screens/Login.jsx",
     "screen/icon-192.png",
     "screen/icon-512.png",
@@ -1464,6 +1465,7 @@
     "admin/src/components/pos/RolesSection.jsx",
     "admin/src/components/pos/SettingsSection.jsx",
     "admin/src/components/pos/TechBoardSection.jsx",
+    "admin/src/components/pos/TechHoneycomb.jsx",
     "admin/src/components/pos/TillLayoutsSection.jsx",
     "admin/src/components/pos/TillsSection.jsx",
     "admin/src/components/pos/shared.jsx",
@@ -1501,6 +1503,7 @@
     "api/src/services/printDesignSvc.js",
     "api/src/services/soldOut.js",
     "api/src/services/taxSvc.js",
+    "api/src/services/techBoardSvc.js",
     "api/src/services/themeColours.js",
     "api/src/services/tillLayoutSvc.js",
     "api/src/services/tillSalesGen.js",
@@ -1614,9 +1617,11 @@
     "shared/qr.js",
     "shared/tax.js",
     "shared/techBoard.js",
+    "shared/techHex.js",
     "shared/test/guestFlows.test.mjs",
     "shared/test/qr.test.mjs",
-    "shared/test/techBoard.test.mjs"
+    "shared/test/techBoard.test.mjs",
+    "shared/test/techHex.test.mjs"
    ],
    "public": [
     "admin/src/components/pos/shared.jsx",
@@ -1627,6 +1632,7 @@
     "api/src/services/printDesignSvc.js",
     "api/src/services/soldOut.js",
     "api/src/services/taxSvc.js",
+    "api/src/services/techBoardSvc.js",
     "api/src/services/themeColours.js",
     "api/src/services/tillLayoutSvc.js",
     "api/src/services/tillSalesGen.js",
@@ -1685,7 +1691,8 @@
     "shared/pos/tillTaps.js",
     "shared/qr.js",
     "shared/tax.js",
-    "shared/techBoard.js"
+    "shared/techBoard.js",
+    "shared/techHex.js"
    ]
   },
   "website": {

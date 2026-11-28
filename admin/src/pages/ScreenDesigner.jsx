@@ -22,7 +22,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Loader2, Save, Plus, Minus, Maximize2, Trash2, Copy, ChevronsUp, ChevronsDown, ChevronUp, ChevronDown,
   Image as ImageIcon, Type, Heading, ListOrdered, Star, PoundSterling, Square, Clock, Tag, X, Grid3x3, Film, ScrollText,
-  Play, Pause, ClipboardCheck,
+  Play, Pause, ClipboardCheck, Hexagon,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -39,8 +39,9 @@ import {
   BLOCK_TYPES, BLOCK_LABELS, BLOCK_HINTS, BLOCK_DEFAULTS, BOARD_SIZES, SCREEN_FONT_OPTIONS, ANIM_IN, ANIM_LOOP,
   normalizeBoard, boardContext, renderBlockInner, blockStyle, boardStyle, toReactStyle, dishOptionLabels,
   wrapMotion, startBoardMotion, wallRegion, ORDER_CHANGE_ANIMS, TILE_SHAPES, TILE_SHADOWS, TILE_ICON_POSITIONS,
-  ORDER_SHOWS, orderShow,
+  ORDER_SHOWS, orderShow, TECH_TILE_SIZES,
 } from '@shared/screenLayout.js'
+import { TECH_KINDS } from '@shared/techBoard.js'
 import { PicturePick } from '@/components/media/PicturePick'
 import { STATUS_LOOKS, STATUS_ANIMS } from '@shared/pos/kitchen.js'
 import { ORDER_FIELDS, MAIN_FIELDS, normaliseOrderInfo } from '@shared/orderInfo.js'
@@ -50,7 +51,7 @@ import { ThemeMakerButton } from '@/components/themes/ThemeMaker'
 const ICONS = {
   heading: Heading, text: Type, menu: ListOrdered, dish: Star, price: PoundSterling,
   image: ImageIcon, video: Film, ticker: ScrollText, box: Square, clock: Clock, allergen_key: Tag,
-  order_status: ClipboardCheck,
+  order_status: ClipboardCheck, tech_status: Hexagon,
 }
 
 const DESIGNER_CSS = `
@@ -941,6 +942,64 @@ function StatusSection({ o, onOpts, statuses }) {
   )
 }
 
+// Store status block (28 Nov 2026): the venue's kit as the Tech board's
+// honeycomb (shared/techHex.js through shared/screenLayout.js); the designer
+// shows example kit, a screen its own venue's (GET /screen-api/tech).
+function TechStatusPanel({ o, onOpts }) {
+  // Store tech view decides whether the block may show the tills and other
+  // kit (the API stamps opts.kit as the board is saved); the menu screens always.
+  const { canView: canSeeKit } = usePermission('pos_setup')
+  const picked = Array.isArray(o.groups) ? o.groups : []
+  const toggle = k => onOpts({ groups: picked.includes(k) ? picked.filter(x => x !== k) : [...picked, k] })
+  return (
+    <>
+      <Section title="Store status">
+        <p className="text-xs text-muted-foreground">
+          The venue&apos;s tills, kitchen screens, kiosks, printers, card machines, menu screens and venue hub, each a hexagon
+          coloured by whether it is working, as on Store tech &gt; Tech board. The designer shows example kit; a screen shows its own venue&apos;s.
+        </p>
+        <p className="text-xs rounded-md border border-amber-300 bg-amber-50 text-amber-900 px-2 py-1.5" data-testid="tech-block-staff">
+          It names the venue&apos;s kit, so put it on staff screens (the back office, the kitchen), not where guests see it.
+        </p>
+        {(o.kit === false || !canSeeKit) && (
+          <p className="text-xs rounded-md border bg-muted/40 px-2 py-1.5" data-testid="tech-block-kit">
+            {o.kit === true
+              ? 'Someone with Store tech access placed this block, so it shows all the kit, and keeps doing so when you save.'
+              : 'This block shows the menu screens only: the tills and other kit show once someone with Store tech access saves this board.'}
+          </p>
+        )}
+        <div className="space-y-1">
+          <div className="text-xs font-medium">Which kit</div>
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Which kit" data-testid="tech-block-groups">
+            {TECH_KINDS.map(k => (
+              <button key={k.key} type="button" onClick={() => toggle(k.key)} aria-pressed={picked.includes(k.key)} data-k={k.key}
+                className={cn('min-h-[48px] px-3 rounded-lg border text-sm touch-manipulation',
+                  picked.includes(k.key) ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted')}>
+                {k.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground">{picked.length ? 'Only the kit picked.' : 'None picked: all of it.'}</p>
+        </div>
+        <Check label="Names on the hexagons" checked={o.show_names !== false} onChange={v => onOpts({ show_names: v })} />
+        <Check label="The venue's health first" checked={o.show_health !== false} onChange={v => onOpts({ show_health: v })} />
+        <Check label="What needs attention, under it" checked={o.show_attention !== false} onChange={v => onOpts({ show_attention: v })} />
+        <Check label="The key (kinds of kit and states)" checked={o.show_legend !== false} onChange={v => onOpts({ show_legend: v })} />
+      </Section>
+      <Section title="Style">
+        <div className="space-y-1">
+          <span className="block text-[11px] text-muted-foreground">Hexagons</span>
+          <Seg value={TECH_TILE_SIZES.some(t => t.key === o.tiles) ? o.tiles : 'large'} options={TECH_TILE_SIZES.map(t => [t.key, t.label])} onChange={v => onOpts({ tiles: v })} />
+          <p className="text-[11px] text-muted-foreground">They always fit the block; Compact keeps them small when there is little kit.</p>
+        </div>
+        <PxBox label="Words under it" value={o.text_size ?? 26} min={8} max={200} onChange={v => onOpts({ text_size: v })} />
+        <ColourField label="Group names" value={o.label_color || null} optional onChange={v => onOpts({ label_color: v })} />
+        <p className="text-[11px] text-muted-foreground">Otherwise the board&apos;s text colour. The hexagons keep the states&apos; own colours, with a mark for each.</p>
+      </Section>
+    </>
+  )
+}
+
 function Check({ label, checked, onChange }) {
   return (
     <label className="flex items-center gap-2 text-sm min-h-[36px] cursor-pointer touch-manipulation">
@@ -1309,6 +1368,8 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
           <ColourField label="Colour" value={o.color || null} optional onChange={v => onOpts({ color: v })} />
         </Section>
       )}
+
+      {block.type === 'tech_status' && <TechStatusPanel o={o} onOpts={onOpts} />}
 
       {block.type === 'order_status' && (
         <>

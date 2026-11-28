@@ -133,6 +133,45 @@ export async function screenConfig(tx, tenantId, screenId) {
      WHERE s.id = ${screenId} AND s.tenant_id = ${tenantId}`
   if (!s) return null
 
+  const { wall, playlist, designs } = await screenDesigns(tx, tenantId, s)
+  const menuIds = [...new Set(designs.flatMap(d => boardMenuIds(d.layout)))]
+  const menus = menuIds.length ? await loadMenuVersions(tx, tenantId, { menuIds }) : []
+  const soldOut = await soldOutItemIds(tx, tenantId, s.venue_id)
+
+  const config = {
+    player_version: playerVersion(),
+    screen: { id: s.id, name: s.name, short_code: s.short_code, width: s.width, height: s.height, rotation: s.rotation, fit: s.fit },
+    venue: { id: s.venue_id, name: s.venue_name, timezone: s.timezone || 'Europe/London' },
+    wall,
+    playlist,
+    design_id: playlist ? null : (designs[0]?.id ?? null),
+    designs: Object.fromEntries(designs.map(d => [d.id, { id: d.id, name: d.name, width: d.width, height: d.height, layout: d.layout || {} }])),
+    menus: menus.map(slimMenu),
+    tags: slimTags(menus[0]?.dietary_tags),
+    allergen_notice: menus[0]?.allergen_notice || null,
+    sold_out: soldOut,
+    // A board with an Order status block: the player fetches the order
+    // numbers (/screen-api/orders) and refreshes them on kitchen.board.
+    needs_orders: designs.some(d => hasBlock(d, 'order_status')),
+    // A board with a Store status block: the player fetches the venue's kit
+    // (/screen-api/tech) now and then (28 Nov 2026).
+    needs_tech: designs.some(d => hasBlock(d, 'tech_status')),
+    // How often the player asks for changes (migration 216, the location's
+    // Store tech → Device updates; defaults when it has none).
+    pull: (({ screen, board }) => ({ screen, board }))(pullTimes(s)),
+  }
+  config.version = sha256(JSON.stringify(config)).slice(0, 16)
+  return config
+}
+
+const hasBlock = (d, type) => (d?.layout?.blocks || []).some(b => b?.type === type)
+
+/**
+ * The boards a screen shows: its wall's board or playlist when it is in a
+ * wall (migration 167), else its own; s: the screen's row (playlist_id,
+ * design_id, wall_id, wall_col, wall_row). -> { wall, playlist, designs }
+ */
+async function screenDesigns(tx, tenantId, s) {
   let wall = null
   let source = s
   if (s.wall_id) {
@@ -164,31 +203,31 @@ export async function screenConfig(tx, tenantId, screenId) {
   const designs = designIds.length ? await tx`
     SELECT id, name, width, height, layout FROM screen_designs
      WHERE tenant_id = ${tenantId} AND id = ANY(${designIds}::uuid[])` : []
-  const menuIds = [...new Set(designs.flatMap(d => boardMenuIds(d.layout)))]
-  const menus = menuIds.length ? await loadMenuVersions(tx, tenantId, { menuIds }) : []
-  const soldOut = await soldOutItemIds(tx, tenantId, s.venue_id)
+  return { wall, playlist, designs }
+}
 
-  const config = {
-    player_version: playerVersion(),
-    screen: { id: s.id, name: s.name, short_code: s.short_code, width: s.width, height: s.height, rotation: s.rotation, fit: s.fit },
-    venue: { id: s.venue_id, name: s.venue_name, timezone: s.timezone || 'Europe/London' },
-    wall,
-    playlist,
-    design_id: playlist ? null : (designs[0]?.id ?? null),
-    designs: Object.fromEntries(designs.map(d => [d.id, { id: d.id, name: d.name, width: d.width, height: d.height, layout: d.layout || {} }])),
-    menus: menus.map(slimMenu),
-    tags: slimTags(menus[0]?.dietary_tags),
-    allergen_notice: menus[0]?.allergen_notice || null,
-    sold_out: soldOut,
-    // A board with an Order status block: the player fetches the order
-    // numbers (/screen-api/orders) and refreshes them on kitchen.board.
-    needs_orders: designs.some(d => (d.layout?.blocks || []).some(b => b?.type === 'order_status')),
-    // How often the player asks for changes (migration 216, the location's
-    // Store tech → Device updates; defaults when it has none).
-    pull: (({ screen, board }) => ({ screen, board }))(pullTimes(s)),
-  }
-  config.version = sha256(JSON.stringify(config)).slice(0, 16)
-  return config
+/**
+ * Whether a screen shows a block of this type on any of its boards (its
+ * own, its playlist's or its wall's). GET /screen-api/tech answers only a
+ * screen with a Store status block, so a guest-facing screen never reads
+ * the names of the venue's kit.
+ */
+export async function screenShowsBlock(tx, tenantId, screenId, type) {
+  return (await screenBlocks(tx, tenantId, screenId, type)).length > 0
+}
+
+/**
+ * The blocks of this type on every board a screen shows (its own, its
+ * playlist's or its wall's), [] when none: GET /screen-api/tech reads their
+ * opts (a Store status block's kit stamp, shared/screenLayout.js stampTechBlocks()).
+ */
+export async function screenBlocks(tx, tenantId, screenId, type) {
+  const [s] = await tx`
+    SELECT id, playlist_id, design_id, wall_id, wall_col, wall_row FROM screens
+     WHERE id = ${screenId} AND tenant_id = ${tenantId}`
+  if (!s) return []
+  const { designs } = await screenDesigns(tx, tenantId, s)
+  return designs.flatMap(d => (d?.layout?.blocks || []).filter(b => b?.type === type))
 }
 
 /**

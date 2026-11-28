@@ -10,6 +10,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowRight } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { agoText } from '@shared/techBoard.js'
 
 export {
   PageHeader, Modal, Field, inputCls, ErrorNote, ConfirmDelete, SortableRows, Segmented,
@@ -193,12 +194,7 @@ export function ColourPick({ value, onChange, swatches = TILL_COLOURS, custom = 
   )
 }
 
-/** "3 min ago" style time. */
+/** "3 min ago" style time (shared/techBoard.js agoText(), as the Tech board and menu screens say it). */
 export function ago(iso) {
-  if (!iso) return 'never'
-  const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000)
-  if (s < 60) return 'just now'
-  if (s < 3600) return Math.round(s / 60) + ' min ago'
-  if (s < 86400) return Math.round(s / 3600) + ' h ago'
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  return agoText(iso)
 }

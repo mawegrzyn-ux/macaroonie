@@ -40,6 +40,8 @@ import { allergenKey, isRemovable, menuTags } from './menuTags.js'
 import { itemChoices, variantRules, fromPrice, priceVaries, comboMenuPrice, basePrice } from './orderPricing.js'
 import { comboGuide, menuCtx } from './combos.js'
 import { orderInfo } from './orderInfo.js'
+import { techModel, TECH_KINDS, TONE_LABELS } from './techBoard.js'
+import { honeycomb, fitSize, honeycombHtml, legendHtml, attentionHtml, sampleTechTiles, TECH_HEX_CSS, HUB_COPY_KEY } from './techHex.js'
 
 // ── Constants ───────────────────────────────────────────────
 
@@ -56,12 +58,12 @@ export const MIN_SIZE = 240
 export const MAX_SIZE = 8192
 export const MAX_BLOCKS = 300
 
-export const BLOCK_TYPES = ['heading', 'text', 'menu', 'dish', 'price', 'image', 'video', 'ticker', 'box', 'clock', 'allergen_key', 'order_status']
+export const BLOCK_TYPES = ['heading', 'text', 'menu', 'dish', 'price', 'image', 'video', 'ticker', 'box', 'clock', 'allergen_key', 'order_status', 'tech_status']
 
 export const BLOCK_LABELS = {
   heading: 'Heading', text: 'Text', menu: 'Menu list', dish: 'Featured dish', price: 'Price',
   image: 'Image', video: 'Video', ticker: 'Scrolling text', box: 'Box or line', clock: 'Clock', allergen_key: 'Allergen key',
-  order_status: 'Order status',
+  order_status: 'Order status', tech_status: 'Store status',
 }
 
 export const BLOCK_HINTS = {
@@ -77,6 +79,7 @@ export const BLOCK_HINTS = {
   clock: 'The time (and date) at the venue.',
   allergen_key: 'What the tags on this board\'s dishes mean.',
   order_status: 'Order numbers being prepared and ready to collect, from the kitchen screens.',
+  tech_status: 'The venue\'s tills, kitchen screens, printers and other kit, up or down, as a honeycomb. For staff screens.',
 }
 
 // How a block comes on (opts.anim_in) and moves while on (opts.anim_loop).
@@ -201,6 +204,16 @@ export const BLOCK_DEFAULTS = {
       show_status: true, status_looks: {},
     },
   },
+  // The venue's kit as a honeycomb (techStatusHtml(), shared/techHex.js):
+  // groups = the kinds of kit to show (TECH_KINDS keys; empty = all); kit is
+  // stamped by the API on save (stampTechBlocks()), never set here.
+  tech_status: {
+    w: 0.7, h: 0.8,
+    opts: {
+      groups: [], show_names: true, show_health: true, show_attention: true, show_legend: true,
+      tiles: 'large', text_size: 26, label_color: '',
+    },
+  },
 }
 
 // ── Small helpers ───────────────────────────────────────────
@@ -293,6 +306,25 @@ export function normalizeBoard(layout, width = 1920, height = 1080) {
     guide_rows: Math.round(num(l.guide_rows, 1, 6, 1)),
     guide_gap: Math.round(num(l.guide_gap, 0, 400, 0)),
     blocks,
+  }
+}
+
+/**
+ * The Store status block may show the venue's tills, kitchen screens,
+ * kiosks, printers, card machines and hub only when whoever placed it can see
+ * them (Store tech view, as on the Tech board); the menu screens always (a
+ * board's editor has Screens access). The API stamps opts.kit on each
+ * tech_status block as it saves a board: true when the person saving has
+ * Store tech access, else what the same block (by id) had before, else
+ * false. Whatever a browser sends for kit is ignored. before: the board as
+ * saved until now (null for a new one).
+ */
+export function stampTechBlocks(layout, before, canKit) {
+  const had = new Map((before?.blocks || []).filter(b => b?.type === 'tech_status').map(b => [b.id, b.opts?.kit === true]))
+  return {
+    ...layout,
+    blocks: (layout?.blocks || []).map(b => (b.type !== 'tech_status' ? b
+      : { ...b, opts: { ...(b.opts || {}), kit: !!canKit || had.get(b.id) === true } })),
   }
 }
 
@@ -405,6 +437,11 @@ export function boardContext(layout, data = {}) {
     // The kitchen's Setter statuses (designer data order_statuses): the
     // designer shows them on its example numbers.
     statuses: Array.isArray(data.order_statuses) ? data.order_statuses : [],
+    // Store status block: { tiles: shared/techBoard.js screenTiles(), light }
+    // from GET /screen-api/tech; { pending: true } before the first answer,
+    // { hidden: true } where the kit isn't read (the live kitchen view); null
+    // in the designer, which shows example kit.
+    tech: data.tech || null,
     board: normalizeBoard(layout, data.width, data.height),
   }
   ctx.shownItems = shownItems(ctx.board, ctx)
@@ -832,6 +869,8 @@ export function renderBlockInner(block, ctx) {
     }
     case 'order_status':
       return orderStatusHtml(o, ctx)
+    case 'tech_status':
+      return techStatusHtml(block, ctx)
     default:
       return ''
   }
@@ -1142,6 +1181,85 @@ function orderStatusHtml(o, ctx) {
   return '<div class="' + cls + '" data-show="' + show + '" style="' + vars + '">' + (readyFirst ? rdy + prep : prep + rdy) + '</div>'
 }
 
+// ── Store status block (28 Nov 2026) ───────────────────────
+
+/** How big the block's hexagons may grow (they always fit the block). */
+export const TECH_TILE_SIZES = [
+  { key: 'large', label: 'Large', max: 200 },
+  { key: 'compact', label: 'Compact', max: 90 },
+]
+
+// Is a colour dark? null for none or see-through.
+function isDarkColour(c) {
+  const h = colour(c, null)
+  if (!h || h === 'transparent') return null
+  const x = h.length === 4 ? h.slice(1, 4).split('').map(d => d + d) : [h.slice(1, 3), h.slice(3, 5), h.slice(5, 7)]
+  const [r, g, b] = x.map(v => parseInt(v, 16) / 255)
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.45
+}
+
+// About how many lines a row of short items takes in a box w px wide.
+function linesFor(texts, extraEm, font, w) {
+  let line = 0
+  let lines = texts.length ? 1 : 0
+  for (const t of texts) {
+    const iw = (String(t).length * 0.6 + extraEm) * font
+    if (line && line + iw > w) { lines++; line = iw } else line += iw
+  }
+  return lines
+}
+
+/**
+ * The Store status block: the venue's kit as the Tech board's honeycomb
+ * (shared/techBoard.js techModel(), drawn by shared/techHex.js), with what
+ * needs attention and the key under it. ctx.tech is the screen's own venue
+ * (GET /screen-api/tech); the designer shows example kit. Only the kinds of
+ * kit in o.groups (all when empty), and only the menu screens when o.kit is
+ * false (the API stamps it on save: whoever placed the block had no Store
+ * tech access, so GET /screen-api/tech sends no tills or other kit; the
+ * designer's example kit follows it). The hexagons fit what the strip and
+ * the key leave of the block; the board's colours give the words, and a
+ * dark board takes the dark look.
+ */
+function techStatusHtml(block, ctx) {
+  const o = block.opts || {}
+  const live = ctx.tech
+  if (live?.hidden) return ''
+  const text = num(o.text_size, 8, 200, 26)
+  const now = (ctx.now instanceof Date ? ctx.now : new Date(ctx.now || Date.now())).getTime()
+  const board = ctx.board
+  const dark = isDarkColour(board.background) ?? isDarkColour(board.text_color) === false
+  const vars = styleString({
+    '--hx-text': o.label_color ? colour(o.label_color, null) : 'var(--sl-text)', '--hx-sub': 'var(--sl-muted)', 'font-size': text + 'px',
+  })
+  const cls = 'sl-tech' + (dark ? ' is-dark' : '') + (live ? '' : ' is-sample')
+  if (live?.pending) return '<div class="' + cls + ' is-wait" style="' + vars + '"><span>Checking the kit...</span></div>'
+  const picked = (Array.isArray(o.groups) ? o.groups : []).filter(k => TECH_KINDS.some(x => x.key === k))
+  // null: every kind; the menu screens only when the block may not show kit.
+  let kinds = picked.length ? new Set(picked) : null
+  if (o.kit === false) kinds = new Set(kinds ? [...kinds].filter(k => k === 'screen') : ['screen'])
+  const all = live ? (Array.isArray(live.tiles) ? live.tiles : []) : sampleTechTiles(now)
+  const model = techModel(kinds ? all.filter(t => kinds.has(t?.kind)) : all, { light: live ? live.light : 'up' })
+  if (!model.tiles.length) return '<div class="' + cls + ' is-wait" style="' + vars + '"><span>No kit to show yet</span></div>'
+  const legendFont = Math.round(text * 0.8)
+  const strip = o.show_attention !== false ? attentionHtml(model, now, { max: 6 }) : ''
+  const legend = o.show_legend !== false ? legendHtml(model) : ''
+  // Room for the strip and the key, a little more than they take (each item:
+  // its words, its mark or swatch and the space after it).
+  const stripLines = strip ? linesFor(model.attention.length ? ['Needs attention', ...model.attention.slice(0, 7).map(t => t.name + ' ' + t.word + ' seen 10 min ago')] : ['Everything is working'], 3.2, text, block.w) : 0
+  const legendLines = legend ? linesFor([...model.groups.map(g => g.label), ...Object.values(TONE_LABELS), ...(model.tiles.some(t => t.ring) ? [HUB_COPY_KEY] : [])], 3.8, legendFont, block.w) : 0
+  const gap = text * 0.6
+  const used = stripLines * text * 1.6 + legendLines * legendFont * 2 + (strip ? gap : 0) + (legend ? gap : 0)
+  const hexH = Math.max(40, block.h - used)
+  const layout = honeycomb(model, { aspect: block.w / hexH, health: o.show_health !== false })
+  const max = (TECH_TILE_SIZES.find(s => s.key === o.tiles) || TECH_TILE_SIZES[0]).max
+  const size = fitSize(layout, block.w, hexH, max)
+  return '<div class="' + cls + '" style="' + vars + '">' +
+    '<div class="sl-tech-hex" style="height:' + Math.round(hexH) + 'px">' + honeycombHtml(model, layout, { size, now, names: o.show_names !== false, dark }) + '</div>' +
+    (strip ? '<div class="sl-tech-attn">' + strip + '</div>' : '') +
+    (legend ? '<div class="sl-tech-key" style="font-size:' + legendFont + 'px">' + legend + '</div>' : '') + '</div>'
+}
+
 /** The board's own style: size, colours, fonts, background. */
 export function boardStyle(board) {
   const b = board
@@ -1414,4 +1532,17 @@ export const SCREEN_LAYOUT_CSS = `
 .sl-board.sl-play .sl-tk-track { animation: sl-loop-ticker var(--sl-tkd, 20s) linear infinite; }
 .sl-board.sl-play .sl-tk-right { animation-direction: reverse; }
 @keyframes sl-loop-ticker { from { transform: none; } to { transform: translateX(var(--sl-tks, -50%)); } }
+
+/* Store status block (techStatusHtml(); the hexagons' own look is TECH_HEX_CSS below). */
+.sl-tech { width: 100%; height: 100%; display: flex; flex-direction: column; gap: 0.6em; overflow: hidden; color: var(--hx-text); }
+.sl-tech-hex { flex: none; display: flex; align-items: center; justify-content: center; min-height: 0; }
+.sl-tech .hx-gname { font-family: var(--sl-heading); }
+.sl-tech-attn, .sl-tech-key { flex: none; display: flex; justify-content: center; }
+.sl-tech .hx-attn, .sl-tech .hx-legend { justify-content: center; }
+.sl-tech.is-wait { align-items: center; justify-content: center; color: var(--sl-muted); }
+` + TECH_HEX_CSS + `
+/* A down hexagon glows only on a playing board (the player, the designer's
+   Play), not in the designer or a preview. After TECH_HEX_CSS and more
+   particular than its glow rule, which it would otherwise lose to. */
+.sl-board:not(.sl-play) .sl-tech .hx-anim .hx-tile .hx-shape { animation: none; }
 `
