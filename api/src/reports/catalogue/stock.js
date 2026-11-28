@@ -22,9 +22,13 @@
 // (migration 312): stock periods between two approved full counts, their
 // variance per item (actual usage against theoretical, waste, the
 // unexplained part: shared/variance.js) and food cost actual and
-// theoretical, a closed period's figures as they were frozen.
+// theoretical, a closed period's figures as they were frozen. Phase 9a
+// (migrations 319 and 320): the order form's suggestions (Suggest, kept on
+// each restaurant order line, shared/forecast.js) beside what was ordered,
+// and once the days a suggestion was for have passed, what sales took over
+// them against the forecast.
 
-import { subject, text, number, money, percent, yesno, choice, moment, sum, count, countDistinct, ratio, one } from './define.js'
+import { subject, text, number, money, percent, yesno, choice, moment, date, sum, count, countDistinct, ratio, one } from './define.js'
 import { STOCK_TABLES, MOVE_TABLES, COUNT_LINE_TABLES, WASTE_TABLES, TRANSFER_TABLES, VARIANCE_TABLES } from '../work/stock.js'
 import { WASTE_KINDS, WASTE_WHAT, TRANSFER_STATUSES, MOVE_KINDS } from '../../../../shared/stock.js'
 
@@ -48,6 +52,33 @@ const TYPE_NAME = '(SELECT o.name FROM order_types o WHERE o.id = {t}.order_type
 const STREAM_NAME = '(SELECT r.name FROM pos_revenue_streams r WHERE r.id = {t}.revenue_stream_id AND r.tenant_id = {t}.tenant_id)'
 const DISH_CHANNELS = { till: 'Till', kiosk: 'Kiosk', online: 'Online orders', imported: 'Other tills', gloriafood: 'GloriaFood' }
 
+// Phase 9a: each restaurant order line Suggest worked out (the latest suggestion on it), with its order's
+// venue and status; what was ordered in the item's base unit (the line's packs at the size of the price it
+// is ordered on, else the one it was suggested on); and what sales took over the days the suggestion was
+// for (from the day it was made, less what sales had taken that day before it, up to the delivery after
+// next), only once the usage job has worked out a day after them.
+const SUGGESTIONS = `(
+  SELECT l.order_id::text || ':' || l.item_id::text AS id, l.tenant_id, o.venue_id, l.order_id, l.item_id,
+         i.name AS item_name, i.base_unit,
+         l.qty, l.suggested_qty, l.suggested_base, l.suggestion_basis, l.forecast_base, l.window_from, l.window_to,
+         l.suggested_at, l.suggested_by, o.status AS order_status, o.submitted_at,
+         (SELECT s.name FROM inv_quotes q JOIN suppliers s ON s.id = q.supplier_id AND s.tenant_id = q.tenant_id
+           WHERE q.id = l.suggestion_quote_id AND q.tenant_id = l.tenant_id) AS supplier_name,
+         (SELECT q.pack_base_qty FROM inv_quotes q WHERE q.id = COALESCE(l.quote_id, l.suggestion_quote_id) AND q.tenant_id = l.tenant_id) AS pack_base,
+         CASE WHEN EXISTS (SELECT 1 FROM stock_usage_marks m WHERE m.tenant_id = l.tenant_id AND m.venue_id = o.venue_id AND m.day >= l.window_to)
+              THEN COALESCE((SELECT sum(u.qty_base) FROM stock_usage_days u
+                              WHERE u.tenant_id = l.tenant_id AND u.venue_id = o.venue_id AND u.item_id = l.item_id
+                                AND u.day >= l.window_from AND u.day < l.window_to), 0)
+                   - COALESCE((l.suggestion->'days'->0->>'used')::numeric, 0)
+         END AS actual_base
+    FROM supply_order_lines l
+    JOIN supply_orders o ON o.id = l.order_id AND o.tenant_id = l.tenant_id
+    JOIN inv_items i ON i.id = l.item_id AND i.tenant_id = l.tenant_id
+   WHERE l.suggested_at IS NOT NULL
+)`
+const SUGGEST_BASIS = { forecast: 'From sales', par: 'Up to par (no sales use)' }
+const ORDER_STATUS = { draft: 'Being filled in', requested: 'Waiting for approval', submitted: 'Placed' }
+
 /** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
 export const order = 102
 
@@ -68,6 +99,8 @@ export const decisions = {
     // Phase 6b (migration 313): the dishes the cost targets sweep last found over target, so a rule fires once per crossing.
     'what the cost targets sweep last found, so a rule fires once a crossing: Dish margins has the figures': ['cost_target_states'],
   },
+  // Phase 9a (migration 319): stock_settings.buffer_pct is a setting (stock_settings is listed above);
+  // migration 320's columns on supply_order_lines are read by Suggested orders.
 }
 
 const itemFields = () => ({
@@ -585,5 +618,57 @@ export const subjects = [
     list: ['date', 'venue.name', 'from_at', 'to_at', 'status', 'closed_by', 'flagged_items'],
     sort: [{ by: 'to_at', dir: 'desc' }],
     skip: ['opening_count_id', 'closing_count_id', 'days_from', 'days_to', 'history', 'created_at', 'updated_at'],
+  }),
+
+  // Phase 9a (migration 320): the order form's suggestions beside what was ordered.
+  subject({
+    key: 'stock.suggestions',
+    label: 'Suggested orders',
+    one: 'suggested order line',
+    area: 'stock',
+    module: 'stock',
+    about: 'Each restaurant order line the order form\'s Suggest filled (the latest suggestion on it): what was suggested from the forecast until the delivery after next, plus the buffer, less on hand and on order (up to the par for an item with no history), against what the line then ordered and, once those dates have passed, what was really used against the forecast. Quantities are in each item\'s own unit, packs in the price\'s own packs.',
+    from: { sql: SUGGESTIONS, tables: ['supply_order_lines', 'supply_orders'] },
+    idType: 'text',
+    venue: 'venue_id',
+    date: { sql: '{t}.window_from', label: 'Suggested on' },
+    name: 'item_name',
+    open: { page: '/purchasing?order=:id', module: 'purchasing', id: 'order_id' },
+    fields: {
+      ...itemFields(),
+      supplier: text('supplier_name', { label: 'Supplier' }),
+      basis: choice('suggestion_basis', SUGGEST_BASIS, { label: 'Suggested from' }),
+      order_status: choice('order_status', ORDER_STATUS, { label: 'Order' }),
+      suggested_at: moment('suggested_at', { label: 'Suggested at' }),
+      suggested_by: text('suggested_by', { label: 'Suggested by' }),
+      placed_at: moment('submitted_at', { label: 'Placed at' }),
+      until: date('window_to', { label: 'To last until', about: 'The delivery after next: the suggestion is for the dates up to it.' }),
+      suggested: number('suggested_qty', { label: 'Packs suggested', adds: true, synonyms: ['suggested order', 'suggestion', 'suggested quantity'] }),
+      ordered: number('qty', { label: 'Packs ordered', adds: true }),
+      suggested_qty: number('suggested_base', { label: 'Suggested', adds: true, about: 'In the item\'s own unit.' }),
+      ordered_qty: number({ sql: '({t}.qty * {t}.pack_base)' }, { label: 'Ordered', adds: true, about: 'In the item\'s own unit, at the size of the pack it is ordered in.' }),
+      difference: number({ sql: '(({t}.qty * {t}.pack_base) - {t}.suggested_base)' }, { label: 'Ordered over suggested', adds: true, about: 'In the item\'s own unit: above zero when more was ordered than suggested.' }),
+      as_suggested: yesno({ sql: '(abs(COALESCE(({t}.qty * {t}.pack_base), 0) - COALESCE({t}.suggested_base, 0)) < 0.001)' }, { label: 'Ordered as suggested' }),
+      forecast: number('forecast_base', { label: 'Forecast use', adds: true, synonyms: ['forecast', 'expected use'], about: 'The forecast until the delivery after next, before the buffer; empty for an item filled up to its par.' }),
+      actual: number('actual_base', { label: 'Really used', adds: true, about: 'What was taken off by what sold over the same dates, once they have passed (empty until then).' }),
+      forecast_error: percent({ sql: "(CASE WHEN {t}.forecast_base > 0 AND {t}.actual_base IS NOT NULL THEN ({t}.actual_base - {t}.forecast_base) / {t}.forecast_base END)" }, { unit: 'fraction', label: 'Used over the forecast', about: 'How far what was really used was over (above zero) or under the forecast.' }),
+    },
+    measures: {
+      suggestions: count({ label: 'Lines suggested', synonyms: ['suggested orders', 'suggestions'] }),
+      placed: count({ label: 'Lines placed', where: "{t}.order_status = 'submitted'" }),
+      placed_as_suggested: count({ label: 'Placed as suggested', where: "{t}.order_status = 'submitted' AND abs(COALESCE(({t}.qty * {t}.pack_base), 0) - COALESCE({t}.suggested_base, 0)) < 0.001" }),
+      as_suggested_share: ratio('placed_as_suggested', 'placed', { type: 'percent', label: 'Share placed as suggested', synonyms: ['suggestion accuracy', 'taken as suggested'] }),
+      suggested_total: sum('suggested_base', { label: 'Suggested', about: 'Added up in each item\'s own unit: only add up items kept in the same unit.' }),
+      ordered_total: sum({ sql: '({t}.qty * {t}.pack_base)' }, { label: 'Ordered', about: 'Added up in each item\'s own unit.' }),
+      forecast_total: sum('forecast_base', { label: 'Forecast use', where: '{t}.actual_base IS NOT NULL', about: 'Of the suggestions whose dates have passed, in each item\'s own unit.' }),
+      actual_total: sum('actual_base', { label: 'Really used', where: '{t}.forecast_base IS NOT NULL', about: 'Over the same dates, for the same suggestions.' }),
+      forecast_ratio: ratio('actual_total', 'forecast_total', { type: 'percent', label: 'Used against the forecast', synonyms: ['forecast accuracy'], about: 'What was really used as a share of the forecast: 100% is a forecast that was right; over it, more was used.' }),
+    },
+    links: {
+      item: one('purchasing.items', 'item_id', { label: 'Item' }),
+      order: one('purchasing.restaurant_orders', 'order_id', { label: 'Restaurant order' }),
+    },
+    list: ['date', 'venue.name', 'supplier', 'item_name', 'basis', 'suggested', 'ordered', 'order_status', 'forecast', 'actual'],
+    sort: [{ by: 'suggested_at', dir: 'desc' }],
   }),
 ]

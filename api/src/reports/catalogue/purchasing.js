@@ -57,9 +57,8 @@ export const decisions = {
     'purchasing_settings', 'supplier_venues', 'inv_quote_venue_prices', 'inv_preferred',
     'order_lists', 'order_list_items', 'order_list_pars', 'order_list_venues',
   ],
-  out: {
-    'Filled in until placed, then copied onto the purchase order lines reports read': ['supply_order_lines'],
-  },
+  // supply_order_lines (filled in until placed, then copied onto the purchase order lines reports read)
+  // is read by the stock area's Suggested orders since inventory phase 9a (migration 320).
 }
 
 export const subjects = [

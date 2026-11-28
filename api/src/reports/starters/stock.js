@@ -6,7 +6,8 @@
 // without it), and what is on hand now (moved from purchasing with the
 // subject). Phase 4b: this week's waste by reason (the till's voids marked
 // wasted in it) and the transfers in transit. Phase 5: theoretical food cost
-// by week (Dish sales and theoretical cost, from usage from sales).
+// by week (Dish sales and theoretical cost, from usage from sales). Phase 9a:
+// how good the order form's suggestions are (Suggested orders).
 
 import { starter, m } from './define.js'
 
@@ -101,6 +102,21 @@ export const starters = [
       sort: [{ by: 'date:week', dir: 'asc' }],
       drill: { down: ['venue.name'] },
       view: { kind: 'line', x: 'date:week', y: ['actual_food_cost_pct', 'theoretical_food_cost_pct'] },
+    },
+  }),
+
+  // Phase 9a (migration 320): the order form's Suggest judged against what was ordered and what sales used.
+  starter({
+    key: 'stock_suggested_orders_how_good',
+    name: 'How good are the suggested orders',
+    about: 'The last 30 days of the order form\'s Suggest at each supplier: how many lines were suggested and placed, the share placed as suggested, and, for suggestions whose days have passed, what sales really took against the forecast (100% is a forecast that was right). Open a supplier for its items. A low share placed as suggested with sales close to the forecast means the suggestions were right and people ordered more or less anyway; sales far off the forecast mean the forecast needs a look (a recipe, a par, an unusual week).',
+    period: { relative: 'last_n_days', n: 30 },
+    spec: {
+      subject: 'stock.suggestions',
+      rows: ['supplier'],
+      values: m('suggestions', 'placed', 'as_suggested_share', 'forecast_ratio'),
+      sort: [{ by: 'suggestions', dir: 'desc' }],
+      drill: { down: ['item_name', 'venue.name', 'date'], rows: ['date', 'venue.name', 'item_name', 'basis', 'suggested', 'ordered', 'order_status', 'forecast', 'actual', 'base_unit'] },
     },
   }),
 ]

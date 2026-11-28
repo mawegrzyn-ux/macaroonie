@@ -1,6 +1,6 @@
 // shared/registry/stock.js: the Stock area's business objects
 // (shared/registry/index.js says what a record holds). Inventory phase 4a;
-// waste, its reasons and transfers phase 4b.
+// waste, its reasons and transfers phase 4b; suggested orders phase 9a.
 
 export const objects = [
   {
@@ -62,4 +62,6 @@ export const notObjects = {
   'Usage from sales and each dish\'s sales with its theoretical cost are worked out from what sold by the usage job: figures, recomputed, never changed by hand.': ['stock.usage', 'stock.dish_sales'],
   // Phase 6a: variance_summary and explain_variance read them.
   'Variance and food cost by period are worked out from the counts, the ledger and the sales (shared/variance.js), frozen when a period is closed: figures, never changed by hand.': ['stock.variance', 'stock.food_cost'],
+  // Phase 9a (migration 320): suggested_order reads the same rule; the order form keeps each suggestion on its line.
+  'Suggested orders are what Suggest worked out from the forecast (shared/forecast.js), kept on each restaurant order line beside what was ordered: figures, never changed by hand.': ['stock.suggestions'],
 }

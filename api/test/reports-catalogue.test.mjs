@@ -85,7 +85,8 @@ test('every table in the database has one decision, and every decision names a t
   // A table read by rows worked out for each run counts as read by them.
   assert.deepEqual(read.get('cash_wage_entries'), ['cash.days', 'cash.weeks', 'cash.wages', 'rota.staff_weeks', 'rota.weeks', 'rota.pot_weeks', 'rota.tip_shares'])
   assert.deepEqual(read.get('fs_temp_logs'), ['safety.fridge_checks', 'safety.days'])
-  assert.equal(tableDecisions(CATALOGUE).find(x => x.table === 'supply_order_lines').reason, 'Filled in until placed, then copied onto the purchase order lines reports read')
+  // A restaurant order's lines, read by Suggested orders since inventory phase 9a (migration 320): what was suggested beside what was ordered.
+  assert.deepEqual(read.get('supply_order_lines'), ['stock.suggestions'])
   // Past runs' own record: read by Report runs; the files kept are counted on their run.
   assert.deepEqual(read.get('report_runs'), ['group.report_runs'])
   assert.equal(tableDecisions(CATALOGUE).find(x => x.table === 'report_files').kind, 'out')
@@ -139,7 +140,7 @@ test('a table nobody has decided on, one decided twice and a stale name are each
 
 test('every id column of a table a subject reads is linked, offered or left out on purpose', t => {
   const cover = tableCoverage(CATALOGUE, columns)
-  assert.deepEqual(cover.derived, ['till.takers', 'sales.checks', 'sales.dishes', 'sales.tenders', 'online.sales', 'cash.days', 'cash.weeks', 'rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.tip_moves', 'stock.on_hand', 'stock.moves', 'stock.count_lines', 'stock.waste', 'stock.transfers', 'stock.variance', 'stock.food_cost', 'recipes.costs', 'recipes.coverage', 'recipes.margins', 'recipes.engineering', 'safety.days', 'local.weather', 'local.weather_hours'])
+  assert.deepEqual(cover.derived, ['till.takers', 'sales.checks', 'sales.dishes', 'sales.tenders', 'online.sales', 'cash.days', 'cash.weeks', 'rota.staff_weeks', 'rota.weeks', 'rota.days', 'rota.pot_weeks', 'rota.tip_shares', 'rota.tip_moves', 'stock.on_hand', 'stock.moves', 'stock.count_lines', 'stock.waste', 'stock.transfers', 'stock.variance', 'stock.food_cost', 'stock.suggestions', 'recipes.costs', 'recipes.coverage', 'recipes.margins', 'recipes.engineering', 'safety.days', 'local.weather', 'local.weather_hours'])
   // Every table a subject reads as it is, is a table of the database.
   assert.deepEqual(cover.tables.map(x => x.table).filter(x => !tables.includes(x)), [])
 
