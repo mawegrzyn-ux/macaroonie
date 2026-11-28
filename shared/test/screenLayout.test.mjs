@@ -442,3 +442,42 @@ test('order statuses on tiles: the Setter look, the block overrides, hidden ones
   const sample = renderBlockInner(layout.blocks[0], boardContext(layout, { order_statuses: [cooking, bag] }))
   assert.ok((sample.match(/data-status=/g) || []).length >= 3)
 })
+
+// Store status block (28 Nov 2026): the venue's kit as the Tech board's honeycomb.
+test('store status: the screen\'s kit as hexagons, only the kinds picked, names stay text', () => {
+  const now = new Date('2026-11-28T12:00:00Z')
+  const seen = m => new Date(now.getTime() - m * 60_000).toISOString()
+  const tiles = [
+    { kind: 'till', name: '<script>alert(1)</script> Till', tone: 'bad', word: 'Offline', seen_at: seen(7), count: 0, ring: null },
+    { kind: 'till', name: 'Till 2', tone: 'ok', word: 'Online', seen_at: seen(0), count: 0, ring: null },
+    { kind: 'printer', name: 'Pass "printer"', tone: 'warn', word: '2 failed', seen_at: seen(1), count: 2, ring: null },
+    { kind: 'screen', name: 'Menu', tone: 'ok', word: 'Online', seen_at: seen(0), count: 0, ring: null },
+  ]
+  const layout = normalizeBoard({ background: '#101010', blocks: [{ id: 't', type: 'tech_status', x: 0, y: 0, w: 1600, h: 900, opts: {} }] })
+  const live = renderBlockInner(layout.blocks[0], boardContext(layout, { tech: { tiles, light: 'up' }, now }))
+  assert.ok(!live.includes('<script'), 'a device\'s name is text')
+  assert.ok(live.includes('&lt;script&gt;alert(1)&lt;/script&gt; Till'))
+  assert.ok(live.includes('Pass &quot;printer&quot;'))
+  assert.equal((live.match(/class="hx-tile[^"]*" data-tile="(till|printer|screen):/g) || []).length, 4)
+  assert.ok(live.includes('data-tile="health"'), 'the health hexagon')
+  assert.ok(live.includes('seen 7 min ago'), 'when the offline till was last seen, from the screen\'s clock')
+  assert.ok(live.includes('Needs attention') && live.includes('hx-legend'), 'the strip and the key')
+  assert.ok(live.includes('sl-tech is-dark'), 'a dark board takes the dark look')
+  assert.ok(!live.includes('<button'), 'plain tiles on a screen')
+  // Only the tills; no names, strip, key or health hexagon.
+  const o = { groups: ['till'], show_names: false, show_attention: false, show_legend: false, show_health: false }
+  const tillsOnly = normalizeBoard({ background: '#ffffff', blocks: [{ id: 't', type: 'tech_status', x: 0, y: 0, w: 800, h: 400, opts: o }] })
+  const t = renderBlockInner(tillsOnly.blocks[0], boardContext(tillsOnly, { tech: { tiles, light: 'up' }, now }))
+  assert.equal((t.match(/data-tile="till:/g) || []).length, 2)
+  assert.ok(!/data-tile="(printer|screen|health)/.test(t) && !t.includes('hx-name') && !t.includes('hx-attn') && !t.includes('hx-legend'))
+  assert.ok(!t.includes('is-dark'), 'a light board, the light look')
+  // The designer shows example kit; a screen waiting for its first answer says so; the live view leaves it out.
+  const sample = renderBlockInner(layout.blocks[0], boardContext(layout, { now }))
+  assert.ok(sample.includes('is-sample') && (sample.match(/data-tile="/g) || []).length > 10)
+  assert.match(renderBlockInner(layout.blocks[0], boardContext(layout, { tech: { pending: true }, now })), /Checking the kit/)
+  assert.equal(renderBlockInner(layout.blocks[0], boardContext(layout, { tech: { hidden: true }, now })), '')
+  // A whole board draws it too, and the hexagons fit the block.
+  const html = renderBoardHtml(boardContext(layout, { tech: { tiles, light: 'up' }, now }))
+  const size = Number(/--hx-s:([\d.]+)px;width:([\d.]+)px;height:([\d.]+)px/.exec(html)[2])
+  assert.ok(size <= 1600 + 0.5, 'not wider than the block')
+})

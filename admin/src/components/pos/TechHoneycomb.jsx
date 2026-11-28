@@ -231,11 +231,11 @@ export function FullBoard({ model, now, venueName, timezone, checkedAt, fetching
         )}
         <div className="ml-auto flex items-center gap-2">
           <button type="button" onClick={onRefresh} disabled={fetching} aria-label="Check now"
-            className="inline-flex items-center justify-center w-12 h-12 rounded-lg border border-white/20 hover:bg-white/10 touch-manipulation disabled:opacity-50">
+            className="inline-flex items-center justify-center w-12 h-12 rounded-lg border border-white/20 bg-transparent hover:bg-white/10 touch-manipulation disabled:opacity-50">
             <RefreshCw className={cn('w-5 h-5', fetching && 'animate-spin')} />
           </button>
           <button type="button" onClick={onClose} data-testid="tech-full-close"
-            className="inline-flex items-center gap-2 h-12 px-4 rounded-lg border border-white/20 hover:bg-white/10 text-sm font-medium touch-manipulation">
+            className="inline-flex items-center gap-2 h-12 px-4 rounded-lg border border-white/20 bg-transparent hover:bg-white/10 text-sm font-medium touch-manipulation">
             <X className="w-5 h-5" /> Close
           </button>
         </div>

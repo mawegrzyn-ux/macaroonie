@@ -15,3 +15,11 @@ What is not built, known limits and follow-ups in this area (`docs/claude/areas/
 - The designer has no undo; Discard is reloading the page without saving.
 - Sold out from the till needs the till to be online (it isn't an event in the till's outbox).
 - Order ready boards that show only some orders (migration 237) filter on the screen, from the venue's whole feed (40 numbers a column): at a very busy venue a filtered board can miss orders beyond those 40. Filters are by order type and revenue stream name only (not by till, kiosk, dish or section); GloriaFood orders have no stream; orders already in the kitchen when it shipped have no stream either. Not tried on a real screen (the renderer is shared with the designer and unit tested; the designer was tried in Chromium).
+
+**85. Menu screens: what the Store status block (28 Nov 2026) left for later** *(shipped 28 Nov 2026, no migration; the Tech board itself is item 84)*
+- **Cloud only**: the block reads `GET /screen-api/tech` from the cloud every 45 s; with the internet down it keeps the last answer (its "seen X min ago" keeps counting) and the venue hub doesn't serve it, unlike order numbers. Nothing is pushed: a till that drops off shows on the next read.
+- **The live kitchen view leaves it out** (`{ hidden: true }`): a board with both an Order status block and a Store status block shows only the orders there.
+- **Room for the strip and the key is an estimate** (`linesFor()`): very long kit names or a narrow block can still push the key's last line out of the block; make the block taller, the words smaller or turn the key off. The group names take the board's heading font, the rest the body font; the states' colours can't be changed.
+- **Who sees it is up to the person who places it**: the block names the kit, so it is meant for staff screens; a screen only gets the kit when one of its boards has the block, but nothing stops that board being on a screen guests see. There is no PIN or hiding by time of day.
+- Tried in the player in Chromium at 1920 x 1080 and in the designer at 1280 px, not on a real TV, Fully Kiosk Browser or the Android app.
+

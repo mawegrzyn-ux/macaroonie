@@ -38,6 +38,46 @@ export function Section() {
         with failed tickets today making it need looking at. A Store tech tab with <Mono>readOnly</Mono> skips
         the View-only notice and greyed fieldset. The light at the top is <Mono>GET /api/status/light</Mono>.
       </P>
+      <H3>The honeycomb board and its tile model (28 Nov 2026, no migration)</H3>
+      <P>
+        One model for every place that draws the board, in <Mono>shared/techBoard.js</Mono> (till, public):{' '}
+        <Mono>techTiles(board, {'{ now, setup }'})</Mono> turns the route&apos;s answer into tiles{' '}
+        <Mono>{'{ key, id, kind, name, tone, word, status, detail, seen_at, facts, count, ring, link, icon }'}</Mono>{' '}
+        (kind hub | till | kitchen | kiosk | printer | card | screen, <Mono>TECH_KINDS</Mono> with each kind&apos;s
+        label, link, icon and ring line and colour; tone ok | warn | bad | muted; <Mono>deviceState()</Mono>,{' '}
+        <Mono>lastAction()</Mono>, <Mono>printerState()</Mono> moved here from the Printers section,{' '}
+        <Mono>hubCopy()</Mono> for the hub&apos;s copy for trading offline, <Mono>agoText()</Mono>, which the
+        admin&apos;s <Mono>ago()</Mono> now calls). <Mono>techModel(tiles, {'{ light }'})</Mono> gives the groups
+        (worst first, <Mono>badge</Mono> &ldquo;2 of 3 up&rdquo;), <Mono>techHealth()</Mono> (worst tone with the
+        platform&apos;s <Mono>PLATFORM_LIGHT</Mono>, counts, &ldquo;12 up, 1 down&rdquo;) and{' '}
+        <Mono>attention</Mono>; <Mono>seenText()</Mono> the &ldquo;seen 4 min ago&rdquo;; <Mono>screenTiles()</Mono>{' '}
+        what a menu screen may know. <Mono>boardSummary()</Mono> is gone.
+      </P>
+      <P>
+        The drawing is <Mono>shared/techHex.js</Mono> (till, public): <Mono>hexSpiral(n)</Mono> (axial coordinates,
+        flat-topped hexagons, centre then ring by ring), <Mono>honeycomb(model, {'{ aspect | maxWidth, health }'})</Mono>{' '}
+        (one compact spiral per group, the first and worst tile in the middle, the clusters in rows that fit a
+        box of that shape or wrap at a width, the health hexagon first at <Mono>HEALTH_SCALE</Mono>; positions in
+        radii), <Mono>fitSize()</Mono>, <Mono>honeycombHtml()</Mono> (each tile an SVG hexagon: fill by tone from{' '}
+        <Mono>HEX_COLOURS</Mono>, ring by kind from <Mono>ringSvg()</Mono>, a mark per tone from <Mono>MARKS</Mono>,
+        the Lucide icon from <Mono>TECH_ICONS</Mono>, names escaped; buttons with <Mono>data-tile</Mono> when{' '}
+        <Mono>interactive</Mono>), <Mono>legendHtml()</Mono>, <Mono>attentionHtml()</Mono>,{' '}
+        <Mono>sampleTechTiles()</Mono> and <Mono>TECH_HEX_CSS</Mono> (<Mono>--hx-*</Mono> properties; bad tiles
+        glow under <Mono>hx-anim</Mono>, never with reduced motion).
+      </P>
+      <P>
+        The page: <Mono>TechBoardSection.jsx</Mono> (header, view, theme, Full screen, the attention box, the
+        list) and <Mono>TechHoneycomb.jsx</Mono>, loaded with <Mono>React.lazy</Mono>: <Mono>Honeycomb</Mono>{' '}
+        (measures its box with a <Mono>ResizeObserver</Mono>; the page wraps at a 66 px radius, 54 px on a
+        phone, full screen fits the box), <Mono>TileSheet</Mono> (a tile&apos;s <Mono>facts</Mono> and link, or the
+        health; Escape closes and the focus goes back to the hexagon), <Mono>FullBoard</Mono> (the Fullscreen
+        API on its own element, a fixed window-sized view where there is none; <Mono>fullscreenchange</Mono>{' '}
+        closes it; reads every 30 s). The view and theme are per device (<Mono>localStorage</Mono>{' '}
+        <Mono>mcrn_tech_board_view</Mono>, <Mono>mcrn_tech_board_theme</Mono>). The route now goes through{' '}
+        <Mono>services/techBoardSvc.js</Mono> <Mono>loadTechBoard(tx, tenantId, venueId, can)</Mono> (public, also
+        the menu screen block&apos;s source) and adds <Mono>venue_name</Mono>, <Mono>timezone</Mono> and a hub&apos;s{' '}
+        <Mono>copy_on</Mono> / <Mono>copy_at</Mono> (<Mono>info.mirror.on</Mono>, <Mono>last_follow_at</Mono>).
+      </P>
       <P>
         Platform status (<Mono>services/platformStatus.js</Mono>): each API process writes a heartbeat to Redis
         every 30 s (<Mono>mac:status:proc:host:pid</Mono>, gone after 90 s, <Mono>startProcessBeat()</Mono> in{' '}

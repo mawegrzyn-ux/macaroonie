@@ -56,15 +56,16 @@ function useKept(key, initial) {
   return [value, keep]
 }
 
+const darkQuery = () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null)
 function useDeviceDark() {
-  const query = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null
-  const [dark, setDark] = useState(!!query?.matches)
+  const [dark, setDark] = useState(() => !!darkQuery()?.matches)
   useEffect(() => {
+    const query = darkQuery()
     if (!query) return undefined
     const on = e => setDark(e.matches)
     query.addEventListener?.('change', on)
     return () => query.removeEventListener?.('change', on)
-  }, [query])
+  }, [])
   return dark
 }
 

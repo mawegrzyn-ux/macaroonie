@@ -79,6 +79,7 @@ export function Section() {
           ['POST /disconnect', 'The screen forgets its pairing (its settings panel): secret_hash = NULL; the row keeps its name, boards and wall place.'],
           ['POST /heartbeat', 'Every minute: app_version, showing { design_id, name, playlist_item_id }, viewport, error, config_version, offline_secs, clock { offset_ms, rtt_ms }. Written at most once per 50 s per screen; the admin shows a screen online when last_seen_at is under 150 s old.'],
           ['GET /time', '{ now } (server ms), no-store, no auth, 120 a minute. The player takes five samples and keeps the quickest round trip (offset = now + rtt / 2 - received), again every 10 minutes; a jump over 250 ms reschedules the boards.'],
+          ['GET /tech', 'The Store status block\'s data (28 Nov 2026): { tiles, light, checked_at, server_time }. tiles = screenTiles(techTiles(loadTechBoard(...))) for the screen\'s own venue (services/techBoardSvc.js, shared/techBoard.js): kind, name, tone, word, seen_at, count, ring, nothing else (no ids, addresses, serials, errors, versions); light = lightStatus().state. Only for a screen one of whose boards (its own, its playlist\'s or its wall\'s: screenShowsBlock()) has a tech_status block, else 404 no_block. no-store, 60 a minute. The config\'s needs_tech says to fetch it; the player does every 45 s (TECH_EVERY_MS) and draws again each time.'],
           ['/ws?screen=<id>&secret=<secret>', 'Joins screen:<id> (screens.changed, screen.identify, screen.reload, screen.removed), screens:<venueId> (screens.sold_out with the item ids), screens-t:<tenantId> (screens.changed after a board or playlist save) and menus:<tenantId> (menus.live from publishing and the minute sweep). Everything except identify / reload / sold out makes the player fetch the config again; so does the socket reopening after a drop (changes meanwhile were pushed to nobody) and the browser coming back online; it also polls every 60 s. A wall change tells each screen it touched.'],
         ]}
       />
@@ -138,6 +139,23 @@ export function Section() {
         for a wall, <Mono>transitionFrames(kind, W, H)</Mono> the Web Animations keyframes in board
         pixels (a slide crosses the whole wall). The board&apos;s <Mono>guide_cols</Mono> /{' '}
         <Mono>guide_rows</Mono> / <Mono>guide_gap</Mono> only draw the designer&apos;s dashed lines.
+      </P>
+      <P>
+        <strong>Store status</strong> (<Mono>tech_status</Mono>, 28 Nov 2026): the Tech board&apos;s honeycomb on a
+        board, drawn by <Mono>techStatusHtml()</Mono> with the till area&apos;s <Mono>techModel()</Mono>
+        (<Mono>shared/techBoard.js</Mono>) and <Mono>honeycomb()</Mono> / <Mono>honeycombHtml()</Mono> /{' '}
+        <Mono>attentionHtml()</Mono> / <Mono>legendHtml()</Mono> (<Mono>shared/techHex.js</Mono>, whose{' '}
+        <Mono>TECH_HEX_CSS</Mono> is appended to <Mono>SCREEN_LAYOUT_CSS</Mono>). <Mono>ctx.tech</Mono>:{' '}
+        <Mono>{'{ tiles, light }'}</Mono> from <Mono>GET /screen-api/tech</Mono>; <Mono>{'{ pending: true }'}</Mono>{' '}
+        (&ldquo;Checking the kit&rdquo;) before the first answer; <Mono>{'{ hidden: true }'}</Mono> in live mode
+        (nothing); null in the designer (<Mono>sampleTechTiles()</Mono>, class <Mono>is-sample</Mono>). Options:{' '}
+        <Mono>groups</Mono> (TECH_KINDS keys; empty = all), <Mono>show_names</Mono>, <Mono>show_health</Mono>,{' '}
+        <Mono>show_attention</Mono>, <Mono>show_legend</Mono>, <Mono>tiles</Mono> large | compact
+        (<Mono>TECH_TILE_SIZES</Mono>, the most a radius may be), <Mono>text_size</Mono>, <Mono>label_color</Mono>.
+        The strip and the key take an estimate of their lines (<Mono>linesFor()</Mono>) and the hexagons fit
+        the rest of the block (<Mono>fitSize()</Mono>); a dark board background (or see-through with light
+        words) takes the dark look. Bad tiles glow only on a playing board (<Mono>.sl-play</Mono>). The
+        designer&apos;s panel is <Mono>TechStatusPanel</Mono> in <Mono>ScreenDesigner.jsx</Mono>.
       </P>
       <H3>Player (screen/, routes/screenSite.js)</H3>
       <P>

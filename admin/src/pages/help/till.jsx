@@ -35,14 +35,37 @@ export function Section() {
       <H3>The Tech board</H3>
       <P>
         Store tech → <strong>Tech board</strong> shows a venue&apos;s kit on one page: the venue hub, tills,
-        kitchen screens, kiosks, printers, card machines and menu screens. Each has a light (green working,
-        amber or red needs looking at, grey nothing to judge yet), whether it is online, the last thing it
-        did (a till&apos;s last activity, a kiosk&apos;s last order, a printer&apos;s last ticket, a card
-        machine&apos;s last payment) and <strong>Open</strong> to its own page. A box at the top lists what
-        needs someone, worst first. Above that, one light says whether Macaroonie itself is up. The board
-        checks again every minute, or press <strong>Check now</strong>. A till or kiosk counts as online when
-        it was heard from in the last five minutes, a menu screen in the last two and a half. Card machines
-        don&apos;t say whether they&apos;re on, so their last payment is shown instead.
+        kitchen screens, kiosks, printers, card machines and menu screens. It opens as a
+        <strong> honeycomb</strong>: one hexagon for each piece of kit, grouped by kind, each group named with how
+        many are up (Tills 2 of 3 up). The hexagon&apos;s fill says how it is (green working, amber needs a
+        look, red down, grey not linked or nothing to judge yet) and it carries a mark for that too (a tick,
+        an exclamation mark, a cross, a dash), so it reads without the colours. The ring round it says what
+        kind of kit it is, each kind with its own colour and line (the key under the honeycomb lists them).
+        In each group the worst one sits in the middle. The big hexagon first is the venue overall: how many
+        are up, down or need a look, and whether Macaroonie itself is up. Something down glows gently (not when
+        your device asks for less movement); an offline one says when it was last seen; a printer with failed
+        tickets today says how many; the venue hub&apos;s thin inner ring shows how up to date its copy for
+        trading offline is (full: just now).
+      </P>
+      <P>
+        Tap a hexagon (or a line of <strong>Needs attention</strong>) for its details: its state, when it was
+        last seen, the last thing it did, its app version, a printer&apos;s waiting and failed tickets, a card
+        machine&apos;s last payment, and a button to its own page. Close it with Close or Escape. The box at the
+        top lists what needs someone, worst first. <strong>List</strong> shows the same kit as rows (it is
+        remembered on your device); <strong>Dark</strong> or <strong>Light</strong> picks the honeycomb&apos;s
+        look (it follows your device until you choose).
+      </P>
+      <P>
+        <strong>Full screen</strong> puts the board on the whole screen, dark, for a TV or tablet in the back
+        office: the venue&apos;s name, the time, whether Macaroonie is up, the honeycomb as big as it fits and
+        what needs attention. It checks every 30 seconds by itself. Press Escape or <strong>Close</strong> to
+        leave. To keep the board on a screen all day, put the menu screen <strong>Store status</strong> block on
+        a board (see Menu Screens).
+      </P>
+      <P>
+        The board checks again every minute, or press <strong>Check now</strong>. A till or kiosk counts as
+        online when it was heard from in the last five minutes, a menu screen in the last two and a half. Card
+        machines don&apos;t say whether they&apos;re on, so their last payment is shown instead.
       </P>
       <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
         <li><strong>Order types</strong> (shared by every venue): Eat in, Take out, Delivery, Collection and any you add. They decide how a check is served, can change a dish's tax and show on tickets and kitchen screens.</li>

@@ -1183,7 +1183,7 @@ function linesFor(texts, extraEm, font, w) {
   let line = 0
   let lines = texts.length ? 1 : 0
   for (const t of texts) {
-    const iw = (String(t).length * 0.56 + extraEm) * font
+    const iw = (String(t).length * 0.6 + extraEm) * font
     if (line && line + iw > w) { lines++; line = iw } else line += iw
   }
   return lines
@@ -1218,10 +1218,12 @@ function techStatusHtml(block, ctx) {
   const legendFont = Math.round(text * 0.8)
   const strip = o.show_attention !== false ? attentionHtml(model, now, { max: 6 }) : ''
   const legend = o.show_legend !== false ? legendHtml(model) : ''
-  const stripLines = strip ? linesFor(model.attention.length ? ['Needs attention', ...model.attention.slice(0, 7).map(t => t.name + ' ' + t.word + ' seen 10 min ago')] : ['Everything is working'], 2, text, block.w) : 0
-  const legendLines = legend ? linesFor([...model.groups.map(g => g.label), ...Object.values(TONE_LABELS)], 3, legendFont, block.w) : 0
+  // Room for the strip and the key, a little more than they take (each item:
+  // its words, its mark or swatch and the space after it).
+  const stripLines = strip ? linesFor(model.attention.length ? ['Needs attention', ...model.attention.slice(0, 7).map(t => t.name + ' ' + t.word + ' seen 10 min ago')] : ['Everything is working'], 3.2, text, block.w) : 0
+  const legendLines = legend ? linesFor([...model.groups.map(g => g.label), ...Object.values(TONE_LABELS)], 3.8, legendFont, block.w) : 0
   const gap = text * 0.6
-  const used = stripLines * text * 1.5 + legendLines * legendFont * 1.9 + (strip ? gap : 0) + (legend ? gap : 0)
+  const used = stripLines * text * 1.6 + legendLines * legendFont * 2 + (strip ? gap : 0) + (legend ? gap : 0)
   const hexH = Math.max(40, block.h - used)
   const layout = honeycomb(model, { aspect: block.w / hexH, health: o.show_health !== false })
   const max = (TECH_TILE_SIZES.find(s => s.key === o.tiles) || TECH_TILE_SIZES[0]).max

@@ -120,8 +120,33 @@ export function Section() {
           ['Box or line', 'A coloured panel behind other blocks, or a line (make it thin).'],
           ['Clock', 'The venue\'s time, with the date if you like.'],
           ['Allergen key', 'What the tags on this board\'s dishes mean, from your allergen notice.'],
+          ['Store status', 'The venue\'s tills, kitchen screens, kiosks, printers, card machines, menu screens and venue hub as a honeycomb, the same as Store tech → Tech board: each a hexagon coloured and marked by whether it is working, with what needs attention and a key under it. For staff screens only (see below).'],
         ]}
       />
+      <H3>The Store status block: the kit on a back office screen</H3>
+      <P>
+        The <strong>Store status</strong> block shows the venue&apos;s kit as the Tech board&apos;s honeycomb, on
+        a menu screen: one hexagon per till, kitchen screen, kiosk, printer, card machine, menu screen and
+        the venue hub, grouped by kind, green when working, amber when it needs a look, red when down, grey
+        when not linked, each with its mark (a tick, an exclamation mark, a cross, a dash) and the ring of its
+        kind. The big hexagon first is the venue overall. Under it, <strong>Needs attention</strong> lists
+        what is down or needs a look, worst first, with when it was last seen, and the key says what the
+        rings and fills mean. The screen shows its own venue&apos;s kit and checks about every 45 seconds; the
+        designer shows example kit.
+      </P>
+      <P>
+        In the block&apos;s panel: <strong>Which kit</strong> (tap kinds to show only those; none picked shows
+        all of it), names on the hexagons, the venue&apos;s health first, what needs attention, the key,{' '}
+        <strong>Large</strong> or <strong>Compact</strong> hexagons (they always fit the block), the size of
+        the words under it and the colour of the group names. The words take the board&apos;s fonts and text
+        colour; on a dark board the block takes the dark look.
+      </P>
+      <InfoBox type="warn">
+        The Store status block names the venue&apos;s kit (Drive thru till, Kitchen printer), so put it only on
+        boards for staff screens: the back office, the kitchen, the manager&apos;s office. Don&apos;t put it on a
+        board guests can see. A screen only gets the kit when one of its boards has the block, and it gets
+        names and states only (no addresses or serial numbers).
+      </InfoBox>
       <P>
         The designer shows the live prices. <strong>Draft prices</strong> shows the menus as saved
         but not yet published, and <strong>Sold out at</strong> shows a venue&apos;s sold out

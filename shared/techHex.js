@@ -231,7 +231,7 @@ export function honeycombHtml(model, layout, { size = 60, now = Date.now(), inte
     if (c.key === 'health') {
       const hl = model.health
       const label = 'Overall: ' + hl.title + '. ' + hl.words + (hl.platform ? '. ' + hl.platform.text : '')
-      h += open + ' class="hx-tile hx-health" data-tile="health" data-tone="' + hl.tone + '" style="' + box + '" aria-label="' + esc(label) + '">' +
+      h += open + ' class="hx-tile hx-health" data-tile="health" data-tone="' + hl.tone + '" style="' + box + '" aria-label="' + esc(label) + '"' + (interactive ? ' aria-haspopup="dialog" aria-expanded="' + (selected === 'health') + '"' : '') + '>' +
         shapeSvg(null, { health: true }) + '<span class="hx-in" style="font-size:' + px(s * c.scale) + '">' + iconSvg('health') +
         '<span class="hx-title">' + markSvg(hl.tone) + esc(hl.title) + '</span><span class="hx-counts">' + esc(hl.words) + '</span>' +
         (hl.platform ? '<span class="hx-plat" data-tone="' + hl.platform.tone + '">' + iconSvg('platform', 'hx-picon') + 'Macaroonie ' + esc(hl.platform.word.toLowerCase()) + '</span>' : '') +
@@ -244,7 +244,7 @@ export function honeycombHtml(model, layout, { size = 60, now = Date.now(), inte
     const kind = TECH_KIND[t.kind]
     const label = t.name + ', ' + kind.one + ': ' + t.word + (seen ? ', ' + seen : '')
     h += open + ' class="hx-tile' + (selected === t.key ? ' is-on' : '') + '" data-tile="' + esc(t.key) + '" data-tone="' + t.tone + '" data-kind="' + t.kind + '" style="' + box + '"' +
-      (interactive ? ' aria-label="' + esc(label) + '"' + (selected === t.key ? ' aria-pressed="true"' : ' aria-pressed="false"') : ' title="' + esc(label) + '"') + '>' +
+      (interactive ? ' aria-label="' + esc(label) + '" aria-haspopup="dialog" aria-expanded="' + (selected === t.key) + '"' : ' title="' + esc(label) + '"') + '>' +
       shapeSvg(t.kind, { ring: t.ring }) + '<span class="hx-in">' + iconSvg(t.icon || kind.icon) +
       (names ? '<span class="hx-name">' + esc(t.name) + '</span>' : '') +
       '<span class="hx-word">' + markSvg(t.tone) + '<span>' + esc(t.word) + '</span></span>' +

@@ -1228,6 +1228,7 @@
     "api/src/utils/importClosure.js",
     "api/test/browser-modules.test.mjs",
     "api/test/order-board-filters.test.mjs",
+    "api/test/screen-tech-status.test.mjs",
     "pos/src/screens/Login.jsx",
     "screen/icon-192.png",
     "screen/icon-512.png",
