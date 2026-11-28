@@ -464,7 +464,7 @@ export function Section() {
         head={['Where', 'What']}
         rows={[
           ['Stock, Settings, Suggested orders', 'The buffer: a share of the forecast added on top (10% unless you change it). Stock manage.'],
-          ['Reports, Suggested orders', 'Every suggestion beside what was ordered and, once its days have passed, what was really used against the forecast. The starter How good are the suggested orders sums it up by supplier. Stock view shows the suggestions and the forecast; what the restaurant order did with them (its supplier, what was ordered, placed or not, who and when) needs Purchasing view as well, as on Restaurant orders.'],
+          ['Reports, Suggested orders', 'Every suggestion beside what was ordered and, once its days have passed, what was really used against the forecast. The starter How good are the suggested orders sums it up by item (add the supplier as a column with Purchasing view). Stock view shows the suggestions and the forecast; what the restaurant order did with them (its supplier, what was ordered, placed or not, who and when) needs Purchasing view as well, as on Restaurant orders.'],
           ['Pepper', 'Ask "what should we order from Brakes?": suggested_order gives each item\'s packs and why. It orders nothing; ask it to fill the order with those quantities, then check and place it.'],
         ]}
       />

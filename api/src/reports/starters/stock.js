@@ -109,14 +109,16 @@ export const starters = [
   starter({
     key: 'stock_suggested_orders_how_good',
     name: 'How good are the suggested orders',
-    about: 'The last 30 days of the order form\'s Suggest at each supplier: how many lines were suggested and placed, the share placed as suggested, and, for suggestions whose days have passed, what sales really took against the forecast (100% is a forecast that was right). Open a supplier for its items. A low share placed as suggested with sales close to the forecast means the suggestions were right and people ordered more or less anyway; sales far off the forecast mean the forecast needs a look (a recipe, a par, an unusual week).',
+    about: 'The last 30 days of the order form\'s Suggest for each item: how many lines were suggested and placed, the share placed as suggested, and, for suggestions whose days have passed, what sales really took against the forecast (100% is a forecast that was right). Open an item for its venues and days; add the supplier as a column with Purchasing view. A low share placed as suggested with sales close to the forecast means the suggestions were right and people ordered more or less anyway; sales far off the forecast mean the forecast needs a look (a recipe, a par, an unusual week).',
     period: { relative: 'last_n_days', n: 30 },
     spec: {
       subject: 'stock.suggestions',
-      rows: ['supplier'],
+      // By item, not by supplier: Supplier needs Purchasing view, and a starter must run for a role
+      // with only its subject's module (Stock view), grouping included (reports-areas.test.mjs).
+      rows: ['item_name'],
       values: m('suggestions', 'placed', 'as_suggested_share', 'forecast_ratio'),
       sort: [{ by: 'suggestions', dir: 'desc' }],
-      drill: { down: ['item_name', 'venue.name', 'date'], rows: ['date', 'venue.name', 'item_name', 'basis', 'suggested', 'ordered', 'order_status', 'forecast', 'actual', 'base_unit'] },
+      drill: { down: ['venue.name', 'date'], rows: ['date', 'venue.name', 'item_name', 'basis', 'suggested', 'ordered', 'order_status', 'forecast', 'actual', 'base_unit'] },
     },
   }),
 ]
