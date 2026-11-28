@@ -46,6 +46,10 @@
 //   cancel_purchase_order                                              purchasing_approve, manage
 //   receive_delivery        what arrived, checks, temperatures; also
 //                           writes the H&S delivery check              purchasing or approve, manage
+//   start_return            goods from a booked-in delivery back to the
+//                           supplier (inventory phase 9b): the stock comes
+//                           off at once; sending it and its credit note
+//                           stay on the Purchasing page                purchasing use, or approve manage
 //
 // Every read and change goes through the admin routes in-process (callApi)
 // with the caller's own login, so the routes' permission checks, tenant
@@ -74,6 +78,7 @@ import {
 } from '../../../../shared/procurement.js'
 import { DateStr, TimeStr, localParts, longDate, pickByName, zonedInstant, remember, CustomIn, customPlan, VenueText, venueFor } from './util.js'
 import { barcodeProblem } from '../../../../shared/catalogue.js'
+import { returnLinesProblem, returnTotals, RETURN_REASONS, RETURN_REASON_KEYS } from '../../../../shared/returns.js'
 
 const Id = z.string().uuid()
 const PackUnit = z.enum(Object.keys(UNITS))
@@ -163,6 +168,16 @@ async function requireOrderOrApprove(ctx) {
   ])
   if (order !== 'manage' && approve !== 'manage') {
     throw new ToolError('You don\'t have permission to send or receive supplier orders. Ask an owner or admin.', 403)
+  }
+}
+
+/** Returning goods to the supplier (inventory phase 9b): Purchasing Use, or Purchasing approval Manage. */
+async function requireReturnStart(ctx) {
+  const [order, approve] = await Promise.all([
+    staffPermissionLevel(ctx, 'purchasing'), staffPermissionLevel(ctx, 'purchasing_approve'),
+  ])
+  if (!levelAtLeast(order, 'use') && approve !== 'manage') {
+    throw new ToolError('You don\'t have permission to return goods to a supplier: it needs Purchasing (Use) or Purchasing approval. Ask an owner or admin.', 403)
   }
 }
 
@@ -1178,7 +1193,11 @@ export const promptNotes = [
     'basket or quick order), import_supplier_basket sets the order to that basket by the supplier\'s codes, from ' +
     'rows or an attached CSV; codes not found here are left out and listed. When a supplier says something is out ' +
     'of stock, set_out_of_stock records it until the first day it can be delivered again (or back in stock); ' +
-    'orders for a day before it then warn, and nothing moves to another supplier unless the person asks.',
+    'orders for a day before it then warn, and nothing moves to another supplier unless the person asks. When ' +
+    'goods from a delivery go back to the supplier (damaged, the wrong item, short dated, poor quality), ' +
+    'start_return records the return against the delivery that was booked in: the stock comes off at once and the ' +
+    'credit expected is what was paid. It doesn\'t send the return or record the credit note: the person does that ' +
+    'on the Purchasing page (Returns).',
 ]
 
 export const purchasingTools = [
@@ -2796,6 +2815,71 @@ export const purchasingTools = [
       })
     },
   },
+  {
+    // Inventory phase 9b (migration 321): a return to the supplier, through POST /api/purchasing/pos/:id/returns.
+    name: 'start_return',
+    class: 'consequential',
+    title: 'Return goods to a supplier',
+    needs: 'use',
+    modules: ['purchasing', 'purchasing_approve'],
+    description:
+      'Returns goods from a delivery that was booked in to its supplier: the purchase order (po, e.g. PO-00012) or ' +
+      'the supplier (their latest delivery booked in at the venue), and each item going back with its packs (all ' +
+      'that arrived when left out), the reason (damaged, wrong_item, short_dated, quality, other: other needs a ' +
+      'note) and a note. Leave lines out to return what was booked in as damaged (or substituted, as the wrong ' +
+      'item). The stock comes off at the venue at once (with_delivery: true when it went back with the delivery ' +
+      'itself); the credit expected is the price paid. It doesn\'t send the return or record the credit note: the ' +
+      'person emails it or marks it sent, and records the credit note, on the Purchasing page (Returns).',
+    preconditions: [
+      'The delivery was booked in, and the items arrived on it (no more go back than arrived, less what other returns took).',
+      'Purchasing (Use) or Purchasing approval.',
+    ],
+    input: z.object({
+      po:            z.string().min(1).max(60).optional().describe('The purchase order number, e.g. PO-00012'),
+      supplier:      z.string().min(1).max(200).optional().describe('Or the supplier: their latest delivery booked in at the venue'),
+      venue:         VenueText,
+      lines:         z.array(z.object({
+        item:   z.string().min(1).max(200).describe('The item, or the supplier\'s product code'),
+        packs:  Qty.optional().describe('Packs going back; all that arrived (less what already went back) when left out'),
+        reason: z.enum(RETURN_REASON_KEYS),
+        note:   z.string().max(500).optional(),
+      })).max(100).optional().describe('What goes back; left out: the lines booked in as damaged or substituted'),
+      note:          z.string().max(500).optional().describe('A note for the supplier, printed on the return'),
+      with_delivery: z.boolean().optional().describe('true when the goods went back with the delivery (the driver took them)'),
+    }),
+    confirm: true,
+    async describe(ctx, input) {
+      await requireReturnStart(ctx)
+      const p = await returnPlan(ctx, input)
+      return {
+        title: 'Return to ' + p.d.supplier_name + '?',
+        lines: [
+          'From ' + poNumberLabel(p.d.number) + ', delivered ' + longDate(p.d.delivery_date) + ', ' + p.d.venue_name,
+          ...p.lines.map(l => l.line.item_name + ': ' + fmtNum(l.qty) + ' x ' + l.line.pack_label + ' (' + RETURN_REASONS[l.reason].toLowerCase() +
+            (l.note ? ', ' + l.note : '') + ')'),
+          ...(p.prices ? ['Credit expected ' + money(p.totals.net) + ' + VAT ' + money(p.totals.vat)] : []),
+          (input.with_delivery ? 'Went back with the delivery' : 'Goes back now') + ': it comes off stock at ' + p.d.venue_name,
+          'Not sent to ' + p.d.supplier_name + ' yet: email it or mark it sent on the Purchasing page',
+        ],
+        confirmLabel: 'Return',
+      }
+    },
+    async run(ctx, input) {
+      await requireReturnStart(ctx)
+      const p = await returnPlan(ctx, input)
+      return audited(ctx, 'start_return', input, async () => {
+        const r = await callApi(ctx, 'POST', '/api/purchasing/pos/' + p.d.id + '/returns', { body: p.body })
+        return {
+          return: r.label, supplier: r.supplier_name, from: poNumberLabel(p.d.number),
+          lines: r.lines.map(l => l.item_name + ': ' + fmtNum(l.qty) + ' x ' + l.pack_label + ' (' + l.reason_label.toLowerCase() + ')'),
+          ...(r.show_prices && r.credit_expected != null ? { credit_expected: money(r.credit_expected) } : {}),
+          page: '/purchasing?tab=returns',
+          message: 'Returned: it is off stock at ' + p.d.venue_name + '. It isn\'t sent to ' + r.supplier_name +
+            ' yet: email it or mark it sent on the Purchasing page (Returns), and record their credit note there when it comes.',
+        }
+      })
+    },
+  },
 ]
 
 // ── Plans (shared by describe and run) ─────────────────────
@@ -3513,4 +3597,49 @@ async function receivePlan(ctx, input) {
   const date = input.date || venueToday(venue)
   if (date > venueToday(venue)) throw new ToolError('That date is in the future.', 422)
   return { d, lines, chilled, frozen, failed, problem, warnings, date }
+}
+
+/**
+ * A return to the supplier (inventory phase 9b): the delivery (by its number,
+ * else the supplier's latest booked in at the venue), what of it can go back
+ * (GET /api/purchasing/pos/:id/returns: the route's own figures and prefill),
+ * the lines by name or code, checked by returnLinesProblem() (the route's rule).
+ */
+async function returnPlan(ctx, input) {
+  let d
+  if (input.po) d = await findPo(ctx, input.po)
+  else if (input.supplier) {
+    const venue = await venueFor(ctx, input.venue)
+    const sups = await callApi(ctx, 'GET', '/api/purchasing/venues/' + venue.id + '/suppliers?all=1')
+    const s = pickSupplier(sups, input.supplier)
+    const [last] = await callApi(ctx, 'GET', '/api/purchasing/pos?venue_id=' + venue.id + '&supplier_id=' + s.id + '&status=received&limit=1')
+    if (!last) throw new ToolError('There is no delivery from ' + s.name + ' booked in at ' + venue.name + '. Use purchase_orders to find it.', 404)
+    d = await callApi(ctx, 'GET', '/api/purchasing/pos/' + last.id)
+  } else throw new ToolError('Which delivery? Give the purchase order number (PO-00012) or the supplier.', 422)
+  if (d.status !== 'received') {
+    throw new ToolError(poNumberLabel(d.number) + ' isn\'t booked in (it is ' + PO_STATUSES[d.status].toLowerCase() + '), so nothing can go back from it yet.', 409)
+  }
+  const r = await callApi(ctx, 'GET', '/api/purchasing/pos/' + d.id + '/returns')
+  const left = r.lines.filter(l => l.left > 0)
+  if (!left.length) throw new ToolError('Everything that arrived on ' + poNumberLabel(d.number) + ' is already going back.', 409)
+  let lines
+  if (input.lines?.length) {
+    const named = left.map(l => ({ ...l, name: l.item_name }))
+    lines = input.lines.map(g => {
+      const line = pickPoLine(named, g.item, 'line of ' + poNumberLabel(d.number) + ' that can go back')
+      return { line, qty: g.packs ?? line.left, reason: g.reason, note: g.note?.trim() || null }
+    })
+  } else {
+    lines = left.filter(l => l.prefill).map(l => ({ line: l, qty: l.prefill.qty, reason: l.prefill.reason, note: l.prefill.note }))
+    if (!lines.length) throw new ToolError('Nothing on ' + poNumberLabel(d.number) + ' was booked in as damaged or substituted: say which items go back and why.', 422)
+  }
+  const body = {
+    lines: lines.map(l => ({ po_line_id: l.line.id, qty: l.qty, reason: l.reason, note: l.note })),
+    note: input.note?.trim() || null,
+    ...(input.with_delivery && r.received_at ? { returned_at: new Date(r.received_at).toISOString() } : {}),
+  }
+  const problem = returnLinesProblem(body.lines, r.lines)
+  if (problem) throw new ToolError(problem + '.', 422)
+  const totals = r.show_prices ? returnTotals(lines.map(l => ({ qty: l.qty, price: l.line.price, vat_rate: l.line.vat_rate }))) : null
+  return { d, lines, body, prices: !!r.show_prices, totals }
 }

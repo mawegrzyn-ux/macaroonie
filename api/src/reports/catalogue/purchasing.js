@@ -14,6 +14,7 @@
 // real ones, as till test sales are.
 
 import { subject, text, number, money, percent, yesno, choice, date, moment, duration, sum, avg, count, ratio, one, many } from './define.js'
+import { RETURN_STATUSES, RETURN_REASONS, RETURN_SENT_VIA, CREDIT_OVERDUE_DAYS } from '../../../../shared/returns.js'
 
 const PRICES = 'purchasing_setup'
 const pounds = (src, opts = {}) => money(src, { unit: 'pounds', needs: PRICES, ...opts })
@@ -31,6 +32,12 @@ const LATE_BY = 'EXTRACT(EPOCH FROM ({t}.first_sent_at - {t}.deadline_at))'
 const SENT = LIVE + ' AND {t}.sent_late IS NOT NULL'
 const SENT_LATE = LIVE + ' AND {t}.sent_late'
 const PROBLEM = "{t}.receive_status IN ('short', 'damaged', 'substituted', 'missing')"
+// Returns to the supplier (inventory phase 9b, migration 321): a credit is still owed while a return is
+// open or sent; overdue CREDIT_OVERDUE_DAYS (14) after the goods went back (creditOverdue() in shared/returns.js).
+const RETURN_LIVE = "{t}.status <> 'cancelled'"
+const OWED = "{t}.status IN ('open', 'sent')"
+const OVERDUE = "(" + OWED + " AND {t}.returned_at <= now() - interval '" + CREDIT_OVERDUE_DAYS + " days')"
+const RETURN_OWED = "{ret}.status IN ('open', 'sent')"
 
 const STORAGE = { ambient: 'Cupboard', chilled: 'Chilled', frozen: 'Frozen' }
 const UNITS = { g: 'Grams', ml: 'Millilitres', each: 'Each' }
@@ -131,6 +138,7 @@ export const subjects = [
       split_from: one('purchasing.orders', 'split_from', { label: 'Split off from' }),
       lines: many('purchasing.order_lines', 'po_id', { label: 'Lines' }),
       invoices: many('purchasing.invoices', 'po_id', { label: 'Invoices' }),
+      returns: many('purchasing.returns', 'po_id', { label: 'Returns to the supplier' }),
       delivery_checks: many('safety.delivery_checks', 'purchase_order_id', { label: 'Delivery checks' }),
     },
     list: ['number', 'date', 'venue.name', 'supplier.name', 'status', 'total_value'],
@@ -249,6 +257,121 @@ export const subjects = [
     sort: [{ by: 'read_at', dir: 'desc' }],
     // The pictures and the lines as read: the order's lines carry what was matched.
     skip: ['files', 'lines'],
+  }),
+
+  // Inventory phase 9b (migration 321): goods sent back to the supplier, and the credit notes owed for them.
+  subject({
+    key: 'purchasing.returns',
+    label: 'Returns to suppliers',
+    one: 'return',
+    area: 'purchasing',
+    module: 'purchasing',
+    about: 'Goods sent back to the supplier from a delivery that was booked in, on the day they went back, with the credit expected for them (the price paid, before VAT) and the supplier\'s credit note once it came. A credit is still owed while a return is open or sent; cancelled returns count nothing.',
+    from: 'purchase_returns',
+    name: 'number',
+    venue: 'venue_id',
+    open: { page: '/purchasing?tab=returns&return=:id', module: 'purchasing' },
+    date: { sql: '({t}.returned_at AT TIME ZONE {tz})::date', label: 'Returned on', about: 'The day the goods went back (the day the return was made, or the delivery\'s when they went back with it).' },
+    fields: {
+      number: text({ sql: "('RT-' || lpad({t}.number::text, 5, '0'))" }, { label: 'Return number' }),
+      status: choice('status', RETURN_STATUSES),
+      owed: yesno({ sql: '(' + OWED + ')' }, { label: 'Credit still owed', about: 'Open or sent: the supplier\'s credit note hasn\'t come yet.' }),
+      overdue: yesno({ sql: OVERDUE }, { label: 'Credit overdue', about: 'Still owed ' + CREDIT_OVERDUE_DAYS + ' days or more after the goods went back (Today lists these).' }),
+      days_waiting: number({ sql: '(CASE WHEN ' + OWED + ' THEN floor(EXTRACT(EPOCH FROM (now() - {t}.returned_at)) / 86400) END)' }, { label: 'Days waiting for the credit', adds: false }),
+      note: text('note', { label: 'Note to the supplier' }),
+      returned_at: moment('returned_at', { label: 'Went back at' }),
+      made_at: moment('created_at', { label: 'Recorded at' }),
+      made_by: text('created_by', { label: 'Returned by' }),
+      sent_at: moment('sent_at', { label: 'Sent at' }),
+      sent_by: text('sent_by', { label: 'Sent by' }),
+      sent_via: choice('sent_via', RETURN_SENT_VIA, { label: 'Sent as' }),
+      sent_to: text('sent_to', { label: 'Sent to' }),
+      send_error: text('send_error', { label: 'Sending problem' }),
+      credit_note_number: text('credit_note_number', { label: 'Credit note number' }),
+      credit_note_date: date('credit_note_date', { label: 'Credit note date' }),
+      credited_at: moment('credited_at', { label: 'Credit recorded at' }),
+      credited_by: text('credited_by', { label: 'Credit recorded by' }),
+      refused_at: moment('refused_at', { label: 'Refused at' }),
+      refused_by: text('refused_by', { label: 'Refusal recorded by' }),
+      refuse_note: text('refuse_note', { label: 'Why it was refused' }),
+      cancelled_at: moment('cancelled_at', { label: 'Cancelled at' }),
+      cancelled_by: text('cancelled_by', { label: 'Cancelled by' }),
+      cancel_note: text('cancel_note', { label: 'Why it was cancelled' }),
+      expected_value: pounds('credit_expected', { label: 'Credit expected', about: 'What went back at the price paid, before VAT.' }),
+      vat_value: pounds('credit_vat', { label: 'VAT on the credit' }),
+      expected_total_value: pounds({ sql: '({t}.credit_expected + {t}.credit_vat)' }, { label: 'Credit expected with VAT' }),
+      credited_value: pounds('credit_amount', { label: 'Amount credited', about: 'The amount on the supplier\'s credit note, before VAT.' }),
+      difference_value: pounds({ sql: '({t}.credit_amount - {t}.credit_expected)' }, { label: 'Credited over expected', adds: false, about: 'Below zero: the supplier credited less than was expected.' }),
+    },
+    measures: {
+      returns: count({ label: 'Returns', where: RETURN_LIVE, synonyms: ['returned to supplier', 'sent back', 'goods returned'], about: 'Returns to the supplier that weren\'t cancelled.' }),
+      owed_count: count({ label: 'Credits still owed', where: OWED, synonyms: ['credit notes owed', 'waiting for a credit note'], about: 'Returns open or sent: no credit note yet.' }),
+      overdue_count: count({ label: 'Credits overdue', where: OVERDUE, about: 'Credits still owed ' + CREDIT_OVERDUE_DAYS + ' days or more after the goods went back.' }),
+      credited_count: count({ label: 'Credited', where: "{t}.status = 'credited'", about: 'Returns the supplier sent a credit note for.' }),
+      refused_count: count({ label: 'Refused', where: "{t}.status = 'refused'", about: 'Returns the supplier wouldn\'t credit.' }),
+      cancelled_count: count({ label: 'Cancelled', where: "{t}.status = 'cancelled'", about: 'Returns cancelled: nothing went back.' }),
+      credit_expected: spend('credit_expected', { label: 'Credit expected', where: RETURN_LIVE, synonyms: ['credit', 'refund from supplier'], about: 'What went back at the price paid, before VAT, on returns not cancelled.' }),
+      credit_owed: spend('credit_expected', { label: 'Credit still owed', where: OWED, synonyms: ['credit note', 'credits owed', 'money owed by suppliers'], examples: ['which suppliers owe us a credit note'], about: 'The credit expected on returns still open or sent, before VAT.' }),
+      credited: spend('credit_amount', { label: 'Credited', where: "{t}.status = 'credited'", about: 'The amounts on the suppliers\' credit notes, before VAT.' }),
+      credit_short: spend({ sql: '({t}.credit_expected - {t}.credit_amount)' }, { label: 'Credited short', where: "{t}.status = 'credited' AND {t}.credit_amount IS NOT NULL", about: 'What the credit notes came to below what was expected (a minus is more).' }),
+      refused_value: spend('credit_expected', { label: 'Refused credit', where: "{t}.status = 'refused'", about: 'The credit expected on returns the supplier wouldn\'t credit: money lost.' }),
+    },
+    links: {
+      supplier: one('purchasing.suppliers', 'supplier_id', { label: 'Supplier' }),
+      order: one('purchasing.orders', 'po_id', { label: 'Delivery it came on' }),
+      lines: many('purchasing.return_lines', 'return_id', { label: 'Lines' }),
+    },
+    list: ['number', 'date', 'venue.name', 'supplier.name', 'status', 'expected_value', 'credit_note_number'],
+    sort: [{ by: 'date', dir: 'desc' }],
+    // Every step with who and when (the fields above hold the latest of each).
+    skip: ['history', 'updated_at'],
+  }),
+
+  subject({
+    key: 'purchasing.return_lines',
+    label: 'Return lines',
+    one: 'return line',
+    area: 'purchasing',
+    module: 'purchasing',
+    about: 'Each product sent back on a return to the supplier: the packs, why, and the credit expected for them (the price paid, before VAT). Figures leave out cancelled returns.',
+    from: 'purchase_return_lines',
+    name: 'item_name',
+    venue: { sql: '{ret}.venue_id' },
+    open: 'ret',
+    date: { sql: '({ret}.returned_at AT TIME ZONE {tz})::date', label: 'Returned on', about: 'The day its return went back.' },
+    fields: {
+      item_name: text('item_name', { label: 'Item' }),
+      product_name: text('product_name', { label: 'Their product name' }),
+      supplier_code: text('supplier_code', { label: 'Their code' }),
+      pack_label: text('pack_label', { label: 'Pack' }),
+      base_unit: choice('base_unit', UNITS, { label: 'Measured in' }),
+      pack_base_qty: number('pack_base_qty', { label: 'Pack holds (g, ml or each)' }),
+      qty: number('qty', { label: 'Packs returned', adds: true }),
+      qty_base: number('qty_base', { label: 'Returned (g, ml or each)', adds: true }),
+      reason: choice('reason', RETURN_REASONS, { label: 'Why', synonyms: ['return reason', 'damaged', 'short dated', 'wrong item'] }),
+      note: text('note', { label: 'Note' }),
+      price: pounds('price', { label: 'Price paid per pack', adds: false }),
+      vat_rate: percent('vat_rate', { label: 'VAT rate' }),
+      expected_value: pounds('credit_expected', { label: 'Credit expected' }),
+    },
+    measures: {
+      lines: count({ label: 'Lines returned', where: "{ret}.status <> 'cancelled'", about: 'Lines on returns that weren\'t cancelled.' }),
+      packs: sum('qty', { label: 'Packs returned', where: "{ret}.status <> 'cancelled'", about: 'Packs sent back, on returns that weren\'t cancelled.' }),
+      credit_expected: spend('credit_expected', { label: 'Credit expected', where: "{ret}.status <> 'cancelled'", about: 'Packs times the price paid, before VAT, on returns not cancelled.' }),
+      credit_owed: spend('credit_expected', { label: 'Credit still owed', where: RETURN_OWED, about: 'The credit expected on lines of returns still open or sent.' }),
+      damaged: count({ label: 'Damaged', where: "{t}.reason = 'damaged' AND {ret}.status <> 'cancelled'" }),
+      wrong_item: count({ label: 'Wrong item', where: "{t}.reason = 'wrong_item' AND {ret}.status <> 'cancelled'" }),
+      short_dated: count({ label: 'Short dated', where: "{t}.reason = 'short_dated' AND {ret}.status <> 'cancelled'" }),
+      quality: count({ label: 'Quality', where: "{t}.reason = 'quality' AND {ret}.status <> 'cancelled'" }),
+    },
+    links: {
+      ret: one('purchasing.returns', 'return_id', { label: 'Return' }),
+      order_line: one('purchasing.order_lines', 'po_line_id', { label: 'Delivery line' }),
+      item: one('purchasing.items', 'item_id', { label: 'Inventory item' }),
+    },
+    list: ['date', 'ret.number', 'ret.supplier.name', 'item_name', 'pack_label', 'qty', 'reason', 'expected_value'],
+    sort: [{ by: 'date', dir: 'desc' }],
+    skip: ['sort_order'],
   }),
 
   subject({

@@ -172,8 +172,8 @@ export const subjects = [
       balance: number('balance', { label: 'Balance after', about: 'What the ledger says was there after the move; empty before the item\'s first count.' }),
       source: text('source', { label: 'From', about: 'The supplier order, the count or the adjustment\'s reason.' }),
       by: text('by', { label: 'By' }),
-      value: pounds('value', { label: 'Value', about: 'A count\'s, an adjustment\'s or waste\'s change at what the item cost at the venue then (the average paid, else the last price paid); a transfer\'s at the sender\'s average when it was sent. Empty for a delivery: its value is Paid.' }),
-      paid: pounds('paid', { label: 'Paid', needs: PRICES, about: 'A delivery: what was received at the price its supplier charged (the invoice\'s, else the price ordered at). Needs purchasing prices, as supplier orders do.' }),
+      value: pounds('value', { label: 'Value', about: 'A count\'s, an adjustment\'s or waste\'s change at what the item cost at the venue then (the average paid, else the last price paid); a transfer\'s at the sender\'s average when it was sent. Empty for a delivery and a return to the supplier: their value is Paid.' }),
+      paid: pounds('paid', { label: 'Paid', needs: PRICES, about: 'A delivery: what was received at the price its supplier charged (the invoice\'s, else the price ordered at); a return to the supplier: what went back at the price paid for it (below zero). Needs purchasing prices, as supplier orders do.' }),
     },
     measures: {
       moves: count({ label: 'Moves' }),
@@ -186,6 +186,9 @@ export const subjects = [
       wasted: sum('change', { label: 'Wasted', where: "{t}.kind = 'waste'", about: 'In each item\'s own unit: below zero.' }),
       wasted_value: value('value', { label: 'Value wasted', where: "{t}.kind = 'waste'", synonyms: ['wastage'] }),
       transferred: sum('change', { label: 'Moved between venues', where: "{t}.kind IN ('transfer_out', 'transfer_in', 'lost_in_transit')", about: 'In each item\'s own unit: out and lost below zero, in above.' }),
+      // Phase 9b (migration 321): returns to the supplier, at the moment each was made.
+      returned: sum('change', { label: 'Returned to suppliers', where: "{t}.kind = 'return'", about: 'In each item\'s own unit: below zero. A cancelled return moves nothing.' }),
+      returned_value: value('paid', { label: 'Value returned', needs: PRICES, where: "{t}.kind = 'return'", about: 'What went back at the price paid for it (below zero).' }),
     },
     links: {
       item: one('purchasing.items', 'item_id', { label: 'Item' }),
@@ -517,8 +520,9 @@ export const subjects = [
       received: number('received', { label: 'Received' }),
       transfers_in: number('transfers_in', { label: 'Transfers in' }),
       transfers_out: number('transfers_out', { label: 'Transfers out', about: 'What was sent to another venue, what was lost on the way included.' }),
+      returns: number('returns', { label: 'Returned to suppliers', about: 'What went back to the supplier in the period (returns not cancelled).' }),
       closing: number('closing', { label: 'Closing count' }),
-      actual: number('actual', { label: 'Actual usage', synonyms: ['actual usage'], about: 'Opening + received + transfers in - transfers out - closing.' }),
+      actual: number('actual', { label: 'Actual usage', synonyms: ['actual usage'], about: 'Opening + received + transfers in - transfers out - returns - closing.' }),
       theoretical: number('theoretical', { label: 'Theoretical usage', about: 'What sales took by their recipes in the period, late sales from a closed period that landed in it included.' }),
       late: number('late', { label: 'Late sales in it' }),
       waste: number('waste', { label: 'Waste' }),

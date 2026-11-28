@@ -35,6 +35,11 @@
 // Phase 6a (migration 312) added late sales on a closed day (stock_usage_late:
 // what reached a day of a closed period after it was closed), at the day's
 // last sale, marked `late` (variance counts it in the period it landed in).
+// Phase 9b (migration 321) added returns to the supplier (purchasing's
+// purchase_returns): each line of a return not cancelled taken off at the
+// moment the return was made, at the price paid for it (like a delivery's,
+// so its value needs purchasing prices: MOVE_KINDS' paid); variance's
+// returns term reads these same moves (shared/variance.js).
 //
 //   MOVE_SOURCES, SALES_COUNTED, salesTakenOff(tx, tenantId, venueIds) (up to when
 //   sales are taken off at each venue: the last run), salesNote(state, timezone)
@@ -66,6 +71,7 @@ import { itemsOf } from '../../../shared/stockItems.js'
 import { varianceSettings } from '../../../shared/variance.js'
 import { bufferPct } from '../../../shared/forecast.js'
 import { poNumberLabel } from '../../../shared/procurement.js'
+import { returnNumberLabel, RETURN_REASONS } from '../../../shared/returns.js'
 import { itemCost, AVERAGE_DAYS } from '../../../shared/costing.js'
 import { businessDate } from '../../../shared/pos/reports.js'
 import { loadCostItems } from './costingSvc.js'
@@ -327,6 +333,33 @@ async function lateUsageMoves(tx, tenantId, cut) {
   }))
 }
 
+/**
+ * Returns to the supplier (phase 9b, migration 321): each line of a return not
+ * cancelled, out of the venue at the moment the return was made, packs x the
+ * delivery line's own pack size, at the price paid for it (the invoice's,
+ * else the price ordered at, kept on the line). Only lines in the item's
+ * base unit as it is now, as deliveries.
+ */
+async function returnMoves(tx, tenantId, cut) {
+  const rows = await tx`
+    SELECT r.venue_id, rl.item_id, r.returned_at AS at, (-rl.qty_base)::float8 AS qty_base,
+           rl.price::float8 AS price, rl.pack_base_qty::float8 AS pack_base_qty, rl.reason,
+           r.id AS source_id, r.number, s.name AS supplier_name, r.created_by AS by
+      FROM purchase_return_lines rl
+      JOIN purchase_returns r ON r.id = rl.return_id AND r.tenant_id = rl.tenant_id
+      JOIN inv_items i ON i.id = rl.item_id AND i.tenant_id = rl.tenant_id
+      LEFT JOIN suppliers s ON s.id = r.supplier_id AND s.tenant_id = r.tenant_id
+     WHERE rl.tenant_id = ${tenantId} AND r.status <> 'cancelled' AND rl.base_unit = i.base_unit
+       ${cutOf(tx, cut, 'r.venue_id', 'rl.item_id', 'r.returned_at')}
+     ORDER BY r.returned_at, r.number, rl.sort_order`
+  return rows.map(r => ({
+    venue_id: r.venue_id, item_id: r.item_id, at: r.at, kind: 'return', qty_base: r.qty_base,
+    cost_per_base: r.price / r.pack_base_qty, price: r.price, pack_base_qty: r.pack_base_qty,
+    source: { type: 'return', id: r.source_id, label: returnNumberLabel(r.number) + (r.supplier_name ? ' to ' + r.supplier_name : '') + ' (' + (RETURN_REASONS[r.reason] || r.reason).toLowerCase() + ')' },
+    by: r.by,
+  }))
+}
+
 // Where moves come from. Phase 4b added waste (logged, and the till's voids marked wasted) and transfers.
 export const MOVE_SOURCES = [
   { kind: 'delivery', load: deliveryMoves },
@@ -339,6 +372,8 @@ export const MOVE_SOURCES = [
   { kind: 'usage', load: usageMoves },
   // Phase 6a: late sales on a closed day, at the day's last sale.
   { kind: 'usage', load: lateUsageMoves },
+  // Phase 9b: returns to the supplier, at the moment each was made.
+  { kind: 'return', load: returnMoves },
 ]
 
 /**

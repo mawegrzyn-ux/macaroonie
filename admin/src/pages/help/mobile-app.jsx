@@ -68,7 +68,8 @@ export function Section() {
       </P>
       <H3>The Macaroonie Office app</H3>
       <P>
-        <strong>Macaroonie Office</strong> is the phone app for Android, and ready to be built for the iPhone
+        <strong>Macaroonie Office</strong> is the phone app for Android, installed from Google Play (internal
+        testing first: the owner invites the people who try it), and ready to be built for the iPhone
         (that needs the owner&apos;s Apple developer account, so it isn&apos;t in the App Store yet). It
         shows the same phone pages, signs you in through the phone&apos;s browser (Google sign-in works),
         and adds what a web page can&apos;t do well: notices that always arrive, Pepper listening through the

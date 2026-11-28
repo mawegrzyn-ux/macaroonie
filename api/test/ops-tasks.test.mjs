@@ -9,6 +9,7 @@ import { as, ok, closeApp, sql } from './support/app.mjs'
 import { resetAndSeed, A, B } from './support/seed.mjs'
 import { fillTenant } from './support/fixtures.mjs'
 import { applyStates, stateLevel } from '../src/services/opsTasks.js'
+import { taskLevel, moduleOf } from '../src/services/opsToday.js'
 import { SKIP_REASONS, MANUAL_DONE_KINDS } from '../../shared/todayTasks.js'
 
 let ids, owner, viewer, other, V, today
@@ -30,7 +31,14 @@ after(closeApp)
 
 test('the rules: a skip only with a reason, done by hand only where the feed can\'t see it finish', () => {
   assert.equal(stateLevel('food_safety'), 'use', 'a module with Use needs Use')
-  assert.equal(stateLevel('purchasing'), 'manage', 'a module without Use: Manage (View never changes)')
+  assert.equal(stateLevel('purchasing_approve'), 'manage', 'a module without Use: Manage (View never changes)')
+  // Purchasing offers Use since inventory phase 9b (starting returns), but sending orders and booking
+  // deliveries in stay Manage: those tasks say so (taskLevel()).
+  assert.equal(stateLevel('purchasing'), 'use')
+  assert.equal(taskLevel({ kind: 'po_to_send' }), 'manage')
+  assert.equal(taskLevel({ kind: 'delivery_due' }), 'manage')
+  assert.equal(taskLevel({ kind: 'credit_overdue' }), null)
+  assert.equal(moduleOf({ kind: 'credit_overdue', area: 'purchasing' }), 'purchasing_approve', 'recording a credit note is an approver\'s')
   assert.ok(SKIP_REASONS.length >= 3)
   assert.ok(MANUAL_DONE_KINDS.includes('report_alert'))
   const tasks = [{ key: 'a', title: 'A' }, { key: 'b', title: 'B' }, { key: 'c', title: 'C' }, { key: 'd', title: 'D' }]

@@ -50,8 +50,25 @@ test('the iPhone settings: Android only until the Apple account is set up, a bun
   assert.equal(e.ios.infoPlist.ITSAppUsesNonExemptEncryption, false)
   const camera = e.plugins.find(p => Array.isArray(p) && p[0] === 'expo-camera')[1]
   assert.equal(camera.microphonePermission, e.ios.infoPlist.NSMicrophoneUsageDescription, 'one microphone reason, whichever plugin writes it')
-  for (const profile of ['development', 'preview', 'production', 'app-store']) assert.ok(eas.build[profile].ios, profile + ' builds for an iPhone')
-  assert.equal(eas.build['app-store'].distribution, 'store')
+  for (const profile of ['development', 'preview', 'production']) assert.ok(eas.build[profile].ios, profile + ' builds for an iPhone')
+  assert.equal(eas.build.production.distribution, 'store')
+})
+
+test('Android: production is the Google Play bundle, preview and development an APK to install by hand', () => {
+  // expo.dev's Build from GitHub uses production, so it makes what Play takes: an app bundle (.aab),
+  // its version code counted up by EAS (appVersionSource remote, autoIncrement).
+  assert.equal(eas.build.production.android.buildType, 'app-bundle')
+  assert.equal(eas.build.production.autoIncrement, true)
+  assert.equal(eas.cli.appVersionSource, 'remote')
+  for (const profile of ['development', 'preview']) {
+    assert.equal(eas.build[profile].android.buildType, 'apk', profile + ' installs by hand')
+    assert.equal(eas.build[profile].distribution, 'internal')
+  }
+  assert.deepEqual(Object.keys(eas.build).sort(), ['development', 'preview', 'production'], 'one store profile')
+  // eas submit sends it to the internal testing track as a draft (a Play app never published takes
+  // only drafts); the service account key is kept on expo.dev, never in the repository.
+  assert.deepEqual(eas.submit.production.android, { track: 'internal', releaseStatus: 'draft' })
+  assert.ok(!('serviceAccountKeyPath' in eas.submit.production.android))
 })
 
 test('push: the production environment except for development builds', () => {

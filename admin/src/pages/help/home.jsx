@@ -158,6 +158,7 @@ export function Section() {
           ['Send the order to...', 'A supplier order is waiting to be sent (Late once the supplier\'s cutoff for its delivery day has passed)'],
           ['Book in the delivery from...', 'A supplier order sent earlier is due to arrive today, or its day has gone and it was never booked in (Late)'],
           ['Supplier orders waiting for approval', 'Someone asked for an order and you can approve orders'],
+          ['Chase the credit note from...', 'Goods went back to a supplier 14 or more days ago and their credit note hasn\'t come (Late; recording it needs Purchasing approval)'],
           ['Today\'s cash-up', 'The venue is open today; due when it closes (the latest doors close, else last orders, on the booking schedule). It goes once the day is submitted'],
           ['Cash-up for ... not submitted', 'Yesterday\'s cash-up isn\'t submitted (and the venue was open). Earlier days of the last week too, once the venue uses Cash Recon: a cash-up started or submitted on any day of this week or last'],
           ['Wages to pay for the week of ...', 'Last week\'s cash wages aren\'t all paid: what is due in cash (each total less what goes by bank) is more than what has been marked paid'],

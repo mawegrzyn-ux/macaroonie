@@ -319,7 +319,10 @@ function nearPaths(tree, nodes, path) {
 function nearSubjects(catalogue, key) {
   const want = pathWords(key)
   const base = Object.values(catalogue.subjects).filter(s => s.base)
-  const score = s => want.filter(w => (s.key + ' ' + s.label + ' ' + s.about).toLowerCase().includes(w)).length
+  // Whole words, not parts of words: "till" must not match "until" in a subject's about text
+  // (a new subject saying "until the credit note comes" crowded the till subjects out).
+  const wordsOf = s => new Set((s.key + ' ' + s.label + ' ' + (s.about || '')).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean))
+  const score = s => { const have = wordsOf(s); return want.filter(w => have.has(w)).length }
   return base.map(s => ({ s, n: score(s) })).sort((x, y) => y.n - x.n)
     .slice(0, 8).map(({ s }) => ({ subject: s.key, label: s.label }))
 }

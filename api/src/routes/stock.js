@@ -149,7 +149,7 @@ export default async function stockRoutes(app) {
           units: i.count_units, default_unit: i.default_unit, areas: areasOf.get(i.id) || [],
           on_hand: r.on_hand, counted: r.counted, counted_at: r.counted_at,
           received_since: r.received_since, adjusted_since: r.adjusted_since, used_since: r.used_since,
-          wasted_since: r.wasted_since, transferred_since: r.transferred_since,
+          wasted_since: r.wasted_since, transferred_since: r.transferred_since, returned_since: r.returned_since,
           sales_counted: r.sales_counted, par_base: par, low: stockLow(r.on_hand, par),
           ...(access.sees_values ? { cost_per_base: per, value: per != null && r.on_hand != null ? Math.round(r.on_hand * per * 100) / 100 : null } : {}),
         }
@@ -180,8 +180,9 @@ export default async function stockRoutes(app) {
         tx`SELECT timezone FROM venues WHERE id = ${venueId} AND tenant_id = ${req.tenantId}`,
       ])
       const shown = (from ? ledger.filter(m => new Date(m.at) >= new Date(from)) : ledger)
-      // A delivery is valued at what its supplier charged: shown only with purchasing prices as well.
-      const priced = m => m.kind !== 'delivery' || access.sees_prices
+      // A delivery (and a return to the supplier, phase 9b) is valued at what its supplier charged:
+      // shown only with purchasing prices as well (MOVE_KINDS' paid).
+      const priced = m => !MOVE_KINDS[m.kind]?.paid || access.sees_prices
       const rows = shown.slice(-MAX_MOVES).reverse().map(m => ({
         at: m.at, kind: m.kind, kind_label: MOVE_KINDS[m.kind]?.label ?? m.kind,
         qty_base: m.qty_base, change: m.change, balance: m.balance, sets: !!MOVE_KINDS[m.kind]?.sets,

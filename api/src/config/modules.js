@@ -295,7 +295,10 @@ export const MODULES = [
     key:    'purchasing',
     label:  'Purchasing',
     group:  'purchasing',
-    description: 'Order from suppliers, send purchase orders and book deliveries in.',
+    description: 'Order from suppliers, send purchase orders and book deliveries in, and return goods to the supplier.',
+    // Use (inventory phase 9b, migration 321): start a return to the supplier from a delivery; sending it,
+    // its credit note and everything about ordering stay Manage (and Purchasing approval).
+    use: 'Return goods to the supplier from a delivery that was booked in (and cancel a return not sent yet). Ordering, sending purchase orders and booking deliveries in need Manage; sending a return and recording its credit note need Purchasing approval.',
     default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
   },
   {
@@ -309,7 +312,7 @@ export const MODULES = [
     key:    'purchasing_approve',
     label:  'Purchasing approval',
     group:  'purchasing',
-    description: 'Manage: change and place orders, and change, split or cancel purchase orders. People who can order but not approve send their orders for approval.',
+    description: 'Manage: change and place orders, change, split or cancel purchase orders, and send returns to the supplier and record their credit notes. People who can order but not approve send their orders for approval.',
     default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'none' },
   },
   // Recipes and costing (inventory phase 1, migration 299): recipes are a

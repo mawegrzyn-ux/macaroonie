@@ -107,18 +107,60 @@ modules): nothing to set on expo.dev, the build from GitHub picks it up.
 
 ## Building
 
-On Android every profile but `app-store` builds an APK to install by hand,
-like the device app; `app-store` makes the app bundle for Google Play.
+Three profiles (`eas.json`):
+
+- **`production`**: the store build. On Android an **app bundle (`.aab`) for
+  Google Play**, its version code counted up by EAS on every build
+  (`appVersionSource: remote`, `autoIncrement`); on an iPhone, App Store and
+  TestFlight. An app bundle can't be installed on a phone by hand.
+- **`preview`**: an **APK** to install by hand (and ad hoc on registered
+  iPhones), for trying a build before it goes to Play.
+- **`development`**: an APK with the web view's debugging on
+  (`MACAROONIE_WEB_DEBUG`).
 
 - **From GitHub (expo.dev)**: connect the repository with base directory
   **`office-app`** (the device app uses `android-app`). Build from GitHub uses
-  the `production` profile and every platform in `app.json`: Android and, since
-  step 6d, iPhone, which fails until the Apple account is set up (below), so
-  pick Android only there until then. A GitHub build has no shell environment,
-  so everything it needs comes from the EAS environment variables above.
-- **From your computer**: `npx eas build -p android --profile preview` in
-  `office-app/` (signed in with `eas login`), with `google-services.json` in the
-  folder or the EAS variable.
+  the `production` profile, so it makes the Play bundle, and every platform in
+  `app.json`: Android only until the Apple account is set up (below). A GitHub
+  build has no shell environment, so everything it needs comes from the EAS
+  environment variables above.
+- **From your computer**: in `office-app/` (signed in with `eas login`), with
+  `google-services.json` in the folder or the EAS variable:
+  `npx eas build -p android --profile production` for Play, or
+  `--profile preview` for an APK.
+
+## Google Play
+
+The Play developer account is set up; what is left is done once, in the Play
+Console and on expo.dev (no key or file goes in the repository or the chat):
+
+1. **Make the app** in the Play Console with the package name
+   **`com.macaroonie.office`** (`app.json`), and fill in the store listing,
+   content rating, data safety (name and email for sign-in, push token,
+   nothing for advertising) and the privacy policy address
+   **https://macaroonie.com/privacy**.
+2. **The first bundle by hand**: Google takes the first upload only through
+   the Play Console. Build with the `production` profile, download the `.aab`
+   from expo.dev, and upload it to **Testing → Internal testing** as a new
+   release. Play App Signing starts then: the EAS keystore becomes the
+   **upload key**, and Google signs what phones install.
+   - Phones that already have the Office app from an APK were signed with the
+     EAS key, so they can't update to the Play version under Google's own
+     signing key: uninstall and install from Play. To let them update
+     instead, choose to sign with your own key when Play asks, and give it
+     the EAS keystore (expo.dev → Credentials → Android → download).
+3. **Uploads from EAS after that**: in Google Cloud, make a service account
+   for the Play project and give it access in the Play Console (Users and
+   permissions → invite the service account's email, release permissions for
+   this app). Make a JSON key for it and upload the key on expo.dev → the
+   project → Credentials → Android → `com.macaroonie.office` → **Google
+   Service Account Key** (for submissions). Then
+   `npx eas submit -p android --profile production` (or expo.dev's submit
+   after a build) sends the latest bundle to the **internal** track as a
+   **draft** (`eas.json` `submit.production.android`): a Play app that has
+   never been published takes only drafts, so each one is rolled out in the
+   Play Console. Once the app is published, `releaseStatus` can become
+   `completed` and the track `production`.
 
 ## iPhone
 
@@ -140,9 +182,9 @@ What is set up in the code:
 - `app.config.js`: push asks Apple for the production environment
   (`aps-environment`), except for the `development` profile (the sandbox).
 - `eas.json`: every profile builds for an iPhone too; `preview` and
-  `production` are internal (ad hoc: only iPhones registered on the Apple
-  account can install them), and `app-store` is for TestFlight and the App
-  Store (`distribution: store`; on Android it makes an app bundle for Google
+  `development` are internal (ad hoc: only iPhones registered on the Apple
+  account can install them), and `production` is for TestFlight and the App
+  Store (`distribution: store`; on Android it makes the app bundle for Google
   Play).
 - The code paths that differ, each in a file the tests run in Node:
   - push: the same Expo push token (`ExponentPushToken[...]`, the API's `app`
@@ -178,9 +220,9 @@ What the owner does, once:
    already sends to. Nothing changes on the server.
 4. **The first build**: first add `"ios"` to `platforms` in `app.json` (it is left out until now so expo.dev's Build from GitHub doesn't try an iPhone build), then in `office-app/`, `npx eas build -p ios --profile
    preview` for iPhones registered with `npx eas device:create` (internal), or
-   `npx eas build -p ios --profile app-store` for TestFlight. EAS asks to sign
+   `npx eas build -p ios --profile production` for TestFlight. EAS asks to sign
    in to the Apple account and makes the certificate and provisioning
-   profile. `npx eas submit -p ios --profile production` sends an app-store
+   profile. `npx eas submit -p ios --profile production` sends that
    build to App Store Connect (make the app there first, with the bundle id
    above).
 5. **App Store review**: the privacy answers (the app collects the person's

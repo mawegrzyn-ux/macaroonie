@@ -32,7 +32,7 @@ import {
   Home as HomeIcon, Sun, Sunrise, Moon, RefreshCw, Thermometer, Flame, ListChecks, AlertTriangle, Truck, Send,
   Wallet, ShoppingBag, ClipboardList, CheckCircle2, ExternalLink, ChevronRight, CalendarDays,
   Users, Loader2, Info, CloudSun, BarChart3, Pin, Sparkles, MailWarning, MessageSquare, Monitor, MonitorSmartphone,
-  Ban, CalendarRange, Boxes, BadgePercent, ShieldAlert,
+  Ban, CalendarRange, Boxes, BadgePercent, ShieldAlert, ReceiptText,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
@@ -69,6 +69,8 @@ const KIND_ICON = {
   device_offline: MonitorSmartphone, sold_out: Ban, rota_not_ready: CalendarRange,
   stock_count_due: Boxes, stock_count_to_approve: Boxes, stock_transfer_to_receive: Truck, stock_variance_to_review: Boxes,
   dishes_over_target: BadgePercent, allergen_checks_to_review: ShieldAlert,
+  // Inventory phase 9b: a credit note still not in two weeks after goods went back to the supplier.
+  credit_overdue: ReceiptText,
 }
 
 

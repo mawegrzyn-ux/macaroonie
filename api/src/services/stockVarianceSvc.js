@@ -289,14 +289,15 @@ const GENERIC = new Set(['fresh', 'frozen', 'large', 'small', 'whole', 'sliced',
  * that may use it (dish_cost_days with what was missing, whose name, recipe or
  * gaps name the item), deliveries of it booked in the period and changed after
  * the closing count, its own units added or changed, deliveries in an old base
- * unit, its waste entries and till voids, transfers sent not received, and
- * remakes of dishes whose recipe uses it.
+ * unit, its waste entries and till voids, transfers sent not received, the
+ * returns to the supplier it went back on (phase 9b), and remakes of dishes
+ * whose recipe uses it.
  */
 export async function itemFacts(tx, tenantId, period, item, row, { now = new Date() } = {}) {
   const to = period.to_at || now
   const v = period.venue_id
   const mine = words(item.name).filter(w => !GENERIC.has(w))
-  const [dishes, recipes, corrected, units, oldUnits, waste, voids, transit] = await Promise.all([
+  const [dishes, recipes, corrected, units, oldUnits, waste, voids, transit, returned] = await Promise.all([
     tx`SELECT d.dish_id, d.name, d.recipe_name, sum(d.qty)::float8 AS qty, sum(d.uncosted_qty)::float8 AS uncosted,
               (array_agg(d.gaps))[1] AS gaps
          FROM dish_cost_days d
@@ -339,6 +340,11 @@ export async function itemFacts(tx, tenantId, period, item, row, { now = new Dat
          JOIN venues tv ON tv.id = t.to_venue_id AND tv.tenant_id = t.tenant_id
         WHERE l.tenant_id = ${tenantId} AND l.item_id = ${item.id} AND t.status = 'sent'
           AND (t.from_venue_id = ${v} OR t.to_venue_id = ${v}) AND t.sent_at <= ${to}`,
+    // Returns to the supplier (phase 9b, migration 321) not cancelled: the moves behind row.returns.
+    tx`SELECT count(DISTINCT r.id)::int AS n FROM purchase_return_lines rl
+         JOIN purchase_returns r ON r.id = rl.return_id AND r.tenant_id = rl.tenant_id
+        WHERE rl.tenant_id = ${tenantId} AND r.venue_id = ${v} AND rl.item_id = ${item.id} AND r.status <> 'cancelled'
+          AND r.returned_at > ${period.from_at} AND r.returned_at <= ${to}`,
   ])
   const recipeNames = new Set(recipes.map(r => r.name.toLowerCase()))
   const namesIt = d => {
@@ -370,6 +376,7 @@ export async function itemFacts(tx, tenantId, period, item, row, { now = new Dat
       label: 'Transfer ' + t.number + (t.from_venue_id === v ? ' to ' + t.to_name : ' from ' + t.from_name),
       qty_base: t.qty_base, direction: t.from_venue_id === v ? 'out' : 'in',
     })),
+    returns: returned[0]?.n || 0,
     remakes: remakes?.n || 0,
   }
 }

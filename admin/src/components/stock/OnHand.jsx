@@ -81,6 +81,7 @@ export default function OnHand({ venueId, openItem, onOpenItem }) {
                     i.adjusted_since ? (i.adjusted_since > 0 ? '+' : '-') + qty(Math.abs(i.adjusted_since), i.base_unit) + ' adj.' : null,
                     i.wasted_since ? '-' + qty(Math.abs(i.wasted_since), i.base_unit) + ' waste' : null,
                     i.transferred_since ? (i.transferred_since > 0 ? '+' : '-') + qty(Math.abs(i.transferred_since), i.base_unit) + ' moved' : null,
+                    i.returned_since ? '-' + qty(Math.abs(i.returned_since), i.base_unit) + ' returned' : null,
                     i.used_since ? (i.used_since > 0 ? '+' : '-') + qty(Math.abs(i.used_since), i.base_unit) + ' sold' : null,
                   ].filter(Boolean).join(' ') || '–'}
                 </span>

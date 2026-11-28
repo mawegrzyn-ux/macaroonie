@@ -49,8 +49,9 @@ export function personName(u) {
  *  (CLAUDE.md rule 5: changes need Manage, everyday work Use where the module has it; View never changes). */
 export const stateLevel = module => (levelsOf(module).includes('use') ? 'use' : 'manage')
 
-/** Whether a person with `levels` may change a task of `module`. */
-export const canChange = (levels, module) => !!module && permissionAtLeast(levels[module], stateLevel(module))
+/** Whether a person with `levels` may change a task of `module` (at `level` when the task needs more
+ *  than its module's own: taskLevel() in services/opsToday.js). */
+export const canChange = (levels, module, level = null) => !!module && permissionAtLeast(levels[module], level || stateLevel(module))
 
 /** Each venue task's state, with its owner's name. */
 export async function loadStates(tenantId, venueId) {

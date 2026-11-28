@@ -100,6 +100,7 @@ export function Section() {
           ['Food safety logs', 'Log and correct temperature, hold, cooking and delivery checks, and write corrective actions', 'Everything in H&S settings (the units, check times, hold stations, cooking sessions and dishes), and deleting a cooking reading'],
           ['H&S Action Log', 'Log actions, change them and tick them off', 'Deleting an action and changing the categories'],
           ['Cash reconciliation', 'Fill in and submit days, add, change and delete expenses and receipts, fill a day from the till, Loyverse or GloriaFood, and change the week\'s wage list and what was paid, wherever they show: Cash Recon, the Cash dashboard, Today and the phone', 'Cash Recon settings (sources, channels, categories, staff), Set as default on a wage list, unsubmitting a day (also owner or admin) and linking Loyverse or GloriaFood'],
+          ['Purchasing', 'Return goods to the supplier from a delivery that was booked in, and cancel a return not sent yet (Purchasing, a delivery\'s Return items, or Pepper)', 'Ordering, sending purchase orders and booking deliveries in; sending a return and recording its credit note need Purchasing approval'],
         ]}
       />
       <P>
