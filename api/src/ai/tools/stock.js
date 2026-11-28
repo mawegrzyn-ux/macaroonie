@@ -36,6 +36,12 @@
 //   explain_variance  one item's variance in a period and the evidence for it,
 //                   each with where it is put right (shared/variance.js) read
 // Closing and reopening a period stay on the page (a manager's step, with a note).
+// Phase 9a (migrations 319 and 320):
+//   suggested_order  what to order from a supplier for a venue: each item's
+//                   forecast use to the delivery after next plus the buffer,
+//                   less on hand and on order, in packs, with the working
+//                   (GET /api/stock/venues/:id/suggested-order)          read
+// Ordering itself stays with the order tools (update_order, place_order) once the person agrees.
 //
 // The model is given names, never ids (rule 19): items and areas are picked
 // by name, code or barcode, and nothing it returns carries an id.
@@ -46,6 +52,7 @@ import { VenueText, venueFor, pickByName, plural, audited, localParts, longDate 
 import { formatBase, UNITS } from '../../../../shared/procurement.js'
 import { entriesToBase, entriesText, unitChoice, signedBase, lostInTransit, asSentEntry, WASTE_KINDS } from '../../../../shared/stock.js'
 import { pounds } from '../../../../shared/costing.js'
+import { quantityWords, SUGGEST_BASES } from '../../../../shared/forecast.js'
 
 const COUNTED = { g: 'by weight (g / kg)', ml: 'by volume (ml / l)', each: 'by count (each)' }
 const MAX_SHOWN = 60
@@ -145,7 +152,8 @@ export const promptLines = [
     'items the person names, in their units, by storage area), log_waste (an item, a prep batch or a dish thrown away, ' +
     'with a reason; Undo on its card for 10 minutes), waste_summary (what was wasted by reason, kind, item or person), send_transfer and ' +
     'receive_transfer (stock moved between venues in two steps), variance_summary (a period\'s food cost actual against ' +
-    'theoretical and the items flagged) and explain_variance (why one item\'s stock is out, with the evidence and where to put it right).',
+    'theoretical and the items flagged) and explain_variance (why one item\'s stock is out, with the evidence and where to put it right). ' +
+    'suggested_order: what to order from a supplier for a venue, worked out from sales, covers booked, on hand and on order, with the working.',
 ]
 export const promptNotes = [
   'Stock: on hand is the last approved count plus the deliveries, adjustments, waste and transfers since, less what sales took off ' +
@@ -167,6 +175,11 @@ export const promptNotes = [
     'the rest is unexplained (a loss above zero). Give pounds and food cost % only as the tools give them (they need Costing ' +
     'view, and food cost Till reports view too), never work them out. Closing or reopening a period is done on the Stock ' +
     'page\'s Variance tab by a manager: Pepper doesn\'t close or reopen periods.',
+  'Suggested orders: suggested_order gives, for each item a supplier sells the venue, the forecast use until the delivery ' +
+    'after next (the same weekday over the last four weeks of sales, scaled by covers booked against the usual) plus the ' +
+    'group\'s buffer, less what is on hand and on order, in whole packs up to the minimum; an item sales never used is ' +
+    'filled up to its par. Give its figures and its why as it says them, never work a quantity out yourself. It orders ' +
+    'nothing: when the person wants it, fill the order with update_order using those quantities, and let them check and place it.',
 ]
 
 export const tools = [
@@ -320,6 +333,61 @@ export const tools = [
         used_most: u.items.slice(0, 15).map(i => ({ item: i.name, used: formatBase(i.qty_base, i.base_unit), ...(i.value != null ? { value: pounds(i.value) } : {}) })),
         sold_without_a_full_recipe: u.uncosted.slice(0, 15).map(x => ({ dish: x.name, not_costed: x.uncosted_qty, of: x.qty, why: x.gaps.map(g => g.text) })),
         ...(!u.items.length && !u.dishes.length ? { message: 'No sales were worked out at ' + venue.name + ' in the last ' + plural(days, 'day') + ' yet.' } : {}),
+      }
+    },
+  },
+
+  // Phase 9a (migrations 319 and 320): the suggested order, read through the stock route (the order form's Suggest is the same rule).
+  {
+    name: 'suggested_order',
+    title: 'Suggested order',
+    activity: 'Looked at a suggested order',
+    description:
+      'What to order from one supplier for a venue (the order form\'s Suggest, the same rule): for each item the supplier ' +
+      'sells the venue that is on its order lists or that sales used lately, the forecast use until the delivery after next ' +
+      '(what sales took on the same weekday over the last four weeks, scaled by the covers booked against the usual by now), ' +
+      'plus the group\'s buffer, less on hand and on order, in whole packs up to the minimum, each with why. An item sales ' +
+      'never used in those weeks is filled up to its par: here the highest on the venue\'s order lists, where an order ' +
+      'form\'s Suggest takes the par on that order\'s own list, so those two can differ. delivery_date: when the order ' +
+      'would arrive (YYYY-MM-DD; the supplier\'s next delivery when left out). It orders nothing. For "what should we ' +
+      'order from Brakes?".',
+    input: z.object({
+      venue: VenueText,
+      supplier: z.string().trim().min(1).max(200).describe('The supplier by name'),
+      delivery_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      items: z.array(z.string().trim().min(1).max(200)).max(20).optional().describe('Only these items, by name'),
+    }),
+    readOnly: true,
+    async run(ctx, input) {
+      await requireView(ctx)
+      const venue = await venueFor(ctx, input.venue)
+      const suppliers = await callApi(ctx, 'GET', `/api/purchasing/venues/${venue.id}/suppliers?all=1`)
+      const supplier = pickByName(suppliers, input.supplier, x => x.name, 'supplier', 'There are no suppliers yet.')
+      const q = new URLSearchParams({ supplier_id: supplier.id, ...(input.delivery_date ? { delivery_date: input.delivery_date } : {}) })
+      const s = await callApi(ctx, 'GET', `/api/stock/venues/${venue.id}/suggested-order?${q}`)
+      let lines = s.lines
+      if (input.items?.length) lines = [...new Map(input.items.map(t => { const l = pickByName(s.lines, t, x => x.name, 'item from ' + supplier.name); return [l.item_id, l] })).values()]
+      const shown = lines.filter(l => l.basis !== 'none')
+      const covers = s.covers.filter(c => c.words).map(c => longDate(c.day) + ': ' + c.words)
+      return {
+        venue: venue.name, supplier: s.supplier_name,
+        arrives: longDate(s.next_delivery), lasts_until: longDate(s.after) + ' (the delivery after next)',
+        buffer: s.buffer_pct + '%',
+        ...(covers.length ? { covers } : {}),
+        lines: shown.slice(0, MAX_SHOWN).map(l => ({
+          item: l.name,
+          suggest: !l.qty ? 'nothing: on hand and on order cover it' : l.qty + ' x ' + l.pack_label,
+          basis: SUGGEST_BASES[l.basis]?.label || l.basis,
+          ...(l.forecast_base != null ? { forecast: quantityWords(l.forecast_base, l.base_unit) } : {}),
+          on_hand: l.on_hand == null ? 'never counted here' : quantityWords(l.on_hand, l.base_unit),
+          ...(l.on_order ? { on_order: quantityWords(l.on_order, l.base_unit) } : {}),
+          why: l.summary,
+          working: l.words,
+        })),
+        ...(shown.length > MAX_SHOWN ? { showing: MAX_SHOWN, of: shown.length } : {}),
+        not_suggested: lines.filter(l => l.basis === 'none').map(l => ({ item: l.name, why: 'No sales use in the last four weeks and no par on the venue\'s order lists' })),
+        page: '/purchasing',
+        ...(!lines.length ? { message: supplier.name + ' sells ' + venue.name + ' nothing on its order lists, and sales used none of what it sells lately.' } : {}),
       }
     },
   },

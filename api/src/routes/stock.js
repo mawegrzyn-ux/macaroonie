@@ -43,44 +43,16 @@ import { stockLow, PRICES_MODULE, seesPurchasingPrices } from '../../../shared/p
 import { runningBalance, stockOnHand, MOVE_KINDS } from '../../../shared/stock.js'
 import {
   loadStockOnHand, loadStockMoves, loadCountItems, loadStockSettings, itemCostsAt, SALES_COUNTED, salesTakenOff, salesNote,
+  stockPerson, who,
 } from '../services/stockSvc.js'
 
 const canView = requirePermission('stock', 'view')
 const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const MAX_MOVES = 500
 
-/**
- * The person who does it, as the stock documents keep them (counted_by,
- * submitted_by, approved_by, adjusted_by, an area's done by): the person,
- * never only the account (core's rule for shared devices). On a shared
- * device that is the office PIN person switched in, kept by their own
- * sign-in email (users.email), so what they do there and from their own
- * login reads the same and the second person rule compares like with like;
- * else the signed-in account's email (its sub when the token has none).
- * { by, ids }: `by` is what is written, `ids` every form this person's name
- * takes in what was written before (email and sub), for approvalProblem().
- * Read once a request.
- */
-export async function stockPerson(req) {
-  if (req.stockPerson) return req.stockPerson
-  let by
-  let ids
-  if (req.acting) {
-    const [u] = req.acting.userId
-      ? await withTenant(req.tenantId, tx => tx`SELECT email FROM users WHERE id = ${req.acting.userId} AND tenant_id = ${req.tenantId} LIMIT 1`)
-      : []
-    by = u?.email || req.acting.sub || req.acting.name || null
-    ids = [u?.email, req.acting.sub, by]
-  } else {
-    by = req.user?.email ?? req.user?.sub ?? null
-    ids = [req.user?.email, req.user?.sub]
-  }
-  req.stockPerson = { by, ids: [...new Set(ids.filter(Boolean))] }
-  return req.stockPerson
-}
-
-/** Who did it, as the stock documents keep it (stockPerson()'s `by`). */
-export const who = async req => (await stockPerson(req)).by
+// The person who does it, as the stock documents keep them: stockPerson() and who() live in
+// services/stockSvc.js (purchasing's Suggest keeps its suggested_by the same way).
+export { stockPerson, who }
 
 /**
  * Whether the person may act at a venue (inventory phase 4b: a transfer is

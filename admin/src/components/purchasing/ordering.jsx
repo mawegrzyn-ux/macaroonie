@@ -9,7 +9,10 @@
 //   OrderForm      fill in a list: quantities (saved as they're typed),
 //                  par fill, supplier switch, extra items, a supplier's
 //                  basket brought in (basket.jsx), prices out of stock
-//                  for the next delivery (stock.jsx); Place order
+//                  for the next delivery (stock.jsx), Suggest (suggest.jsx,
+//                  inventory phase 9a: one supplier's quantities from the
+//                  forecast, marked until OK, kept beside what is ordered);
+//                  Place order
 //                  splits it into one purchase order per supplier. Without
 //                  Purchasing approval it is sent for approval instead; an
 //                  approver changes the request, places it, splits it into a
@@ -36,7 +39,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Loader2, Plus, Search, Printer, FileText, FileSpreadsheet, Mail, Check, AlertTriangle, Truck,
   ClipboardList, ChevronRight, ChevronDown, X, PackageCheck, Send, Repeat, Thermometer, Snowflake, Eye,
-  Hourglass, Scissors, Undo2, Copy, Clock, Phone, Pencil, ShoppingBasket, PackagePlus, MoreVertical, History,
+  Hourglass, Scissors, Undo2, Copy, Clock, Phone, Pencil, ShoppingBasket, PackagePlus, MoreVertical, History, Wand2,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { canScan, scanBarcode } from '@/lib/officeApp'
@@ -54,6 +57,7 @@ import {
   deadlinePassed, quickOrder, quickOrderCsv, outOfStock, parStock, PAR_MODES,
 } from '@shared/procurement.js'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
+import { waitSuggestions, unwaitSuggestion, putBackQuantities } from '@shared/forecast.js'
 import {
   InvoiceReader, readingToForm, extraOf, extraProblem, InvoiceLineNote, ExtrasSection, PriceListModal, InvoiceList,
   ItemPickModal, manualExtra, priceTyped,
@@ -62,6 +66,7 @@ import { NoOrderSupplierModal, noOrderPo } from '@/components/purchasing/noOrder
 import { BasketModal } from '@/components/purchasing/basket'
 import { StockBadge, StockNote, StockControl } from '@/components/purchasing/stock'
 import { useFormFill, PepperMark, FILLED_CLASS } from '@/components/forms/fill'
+import { SuggestModal, SuggestMark, SuggestWorking, SUGGEST_CLASS, orderSuppliers } from '@/components/purchasing/suggest'
 
 const SENT_VIA = [
   { key: 'print', label: 'Printed and handed over' },
@@ -344,6 +349,15 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
   const fill = useFormFill()
   const [pepper, setPepper] = useState(null)   // { item_id: qty } still waiting for the person
   const [pepperMissing, setPepperMissing] = useState([])
+  // Suggest (inventory phase 9a): the quantities waiting for OK, each with what its line had before
+  // (Put back: { item_id: { qty, before } }, gone with the mark), the latest suggestion's working per
+  // line, and what the last Suggest did.
+  const [suggested, setSuggested] = useState({})
+  const [suggestInfo, setSuggestInfo] = useState({})
+  const [suggestNote, setSuggestNote] = useState(null)
+  const [suggesting, setSuggesting] = useState(false)
+  const [suggestBusy, setSuggestBusy] = useState(null)
+  const [suggestError, setSuggestError] = useState(null)
   const prices = !!order?.show_prices
   const editable = !!order?.can_edit
   // Recording what a supplier said (out of stock until a date): anyone who
@@ -387,6 +401,8 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
   const reload = fresh => {
     qc.setQueryData(['supply-order', orderId], fresh)
     setLines(Object.fromEntries(fresh.items.map(it => [it.item_id, { qty: it.qty, quote_id: it.quote?.id ?? null }])))
+    // Their quantities are gone from the lines, so nothing is waiting for OK or to be put back.
+    setSuggested({})
     qc.invalidateQueries({ queryKey: ['supply-orders'] })
   }
   const withdraw = useMutation({ mutationFn: () => api.post(`/purchasing/orders/${orderId}/withdraw`), onSuccess: reload })
@@ -409,18 +425,23 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
     (goneOf(it) ? null : it.quotes.find(q => q.id === it.default_quote_id) || null)
 
   // Each quantity is saved with the price it is shown on (the line keeps it).
-  // A change to a line Pepper filled takes its mark off.
+  // A change to a line Pepper filled, or Suggest filled, takes its mark off.
   const setQty = (it, qty) => {
     if (pepper && it.item_id in pepper) setPepper(p => { const n = { ...p }; delete n[it.item_id]; return n })
+    if (it.item_id in suggested) setSuggested(p => unwaitSuggestion(p, it.item_id))
     const q = quoteOf(it)
     setLines(l => ({ ...l, [it.item_id]: { ...l[it.item_id], qty, ...(q ? { quote_id: q.id } : {}) } }))
     save.queue({ item_id: it.item_id, qty, ...(q ? { quote_id: q.id } : {}) })
   }
-  // Another supplier or pack keeps the amount: 3 x 5 kg becomes 2 x 10 kg.
+  // Another supplier or pack keeps the amount: 3 x 5 kg becomes 2 x 10 kg. It is saved, so a
+  // waiting mark comes off as for a typed change: OK would put the count in packs of the old price
+  // on the new one.
   const setQuote = (it, quoteId) => {
     const from = quoteOf(it) || it.gone?.quote || null
     const to = it.quotes.find(q => q.id === quoteId)
     const qty = from && to ? convertQty(qtyOf(it), from, to) : qtyOf(it)
+    if (pepper && it.item_id in pepper) setPepper(p => { const n = { ...p }; delete n[it.item_id]; return n })
+    if (it.item_id in suggested) setSuggested(p => unwaitSuggestion(p, it.item_id))
     setLines(l => ({ ...l, [it.item_id]: { ...l[it.item_id], qty, quote_id: quoteId } }))
     save.queue({ item_id: it.item_id, qty, quote_id: quoteId })
   }
@@ -434,6 +455,46 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
     }
   }
   const clearAll = () => { for (const it of order.items) if (qtyOf(it) > 0) setQty(it, 0) }
+
+  // Suggest for one supplier: the lines' quantities saved first (the server works from them), then
+  // each suggestion that differs from its line goes on it marked, unsaved, until OK or a change.
+  const suggestFor = async supplier => {
+    setSuggestBusy(supplier.id)
+    setSuggestError(null)
+    try {
+      await save.flush()
+      const r = await api.post(`/purchasing/orders/${orderId}/suggest`, { supplier_id: supplier.id })
+      const made = {}, info = {}
+      for (const l of r.lines) {
+        if (!l.kept) continue
+        info[l.item_id] = {
+          qty: l.qty, base: l.suggested_base, quote_id: l.quote_id, pack_label: l.pack_label,
+          basis: l.basis, summary: l.summary, words: l.words,
+        }
+        const it = order.items.find(x => x.item_id === l.item_id)
+        if (!it || Number(l.qty) === qtyOf(it)) continue
+        made[l.item_id] = { qty: l.qty, current: qtyOf(it) }
+      }
+      // A line still waiting from an earlier Suggest keeps what it had before that one (waitSuggestions()).
+      setSuggested(p => waitSuggestions(p, made))
+      setSuggestInfo(p => ({ ...p, ...info }))
+      setLines(prev => {
+        const next = { ...prev }
+        for (const [id, m] of Object.entries(made)) next[id] = { ...next[id], qty: m.qty }
+        return next
+      })
+      setSuggestNote({
+        supplier: r.supplier_name, after: r.after, changed: Object.keys(made).length,
+        same: Object.keys(info).length - Object.keys(made).length, none: r.lines.filter(l => !l.kept).map(l => l.name),
+      })
+      setSuggesting(false)
+      qc.invalidateQueries({ queryKey: ['supply-order', orderId] })
+    } catch (e) {
+      setSuggestError(e)
+    } finally {
+      setSuggestBusy(null)
+    }
+  }
   const removeExtra = useMutation({
     mutationFn: itemId => api.delete(`/purchasing/orders/${orderId}/lines/${itemId}`),
     onSuccess: (_, itemId) => { setLines(l => { const n = { ...l }; delete n[itemId]; return n }); qc.invalidateQueries({ queryKey: ['supply-order', orderId] }) },
@@ -479,6 +540,24 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
   const waiting = Object.keys(pepper || {})
   const okPepper = it => setQty(it, pepper[it.item_id])
   const okAllPepper = () => { for (const it of order.items) if (waiting.includes(it.item_id)) setQty(it, pepper[it.item_id]) }
+  const suggestWaiting = Object.keys(suggested)
+  const okSuggest = it => setQty(it, suggested[it.item_id].qty)
+  const okAllSuggest = () => { for (const it of order.items) if (it.item_id in suggested) setQty(it, suggested[it.item_id].qty) }
+  // Put back: the lines as they were before Suggest. A waiting quantity is never saved (OK, a typed
+  // change, another price and the server's lines all take the mark off), so the server has these already.
+  const putBack = () => {
+    const back = putBackQuantities(suggested)
+    setLines(prev => {
+      const next = { ...prev }
+      for (const [id, qty] of Object.entries(back)) next[id] = { ...next[id], qty }
+      return next
+    })
+    setSuggested({})
+    setSuggestNote(null)
+  }
+  const canSuggest = editable && !!order.sees_stock
+  const suggestSuppliers = canSuggest ? orderSuppliers(order, quoteOf) : []
+  const held = waiting.length > 0 || suggestWaiting.length > 0
   const goneLines = order.items.filter(goneOf)
   const grand = prices ? bySupplier.reduce((s, g) => s + g.totals.total, 0) : null
   const hasPars = order.items.some(it => it.par_base != null)
@@ -504,7 +583,7 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
             </p>
           </div>
           {mainAction && (
-            <button type="button" className={btn.primary} disabled={!lineCount || goneLines.length > 0 || waiting.length > 0} onClick={openReview}>
+            <button type="button" className={btn.primary} disabled={!lineCount || goneLines.length > 0 || held} onClick={openReview}>
               {mainLabel}{lineCount ? ` (${lineCount})` : ''}
             </button>
           )}
@@ -520,6 +599,11 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
           <button type="button" onClick={() => setOnlyQty(v => !v)}
             className={cn(btn.outline, onlyQty && 'bg-primary/10 border-primary')}>{onlyQty ? 'Showing ordered' : 'Only ordered'}</button>
           {hasPars && editable && <button type="button" className={btn.outline} onClick={fillPars}>Fill to par</button>}
+          {suggestSuppliers.length > 0 && (
+            <button type="button" className={cn(btn.outline, 'min-h-[48px]')} onClick={() => { setSuggestError(null); setSuggesting(true) }} data-testid="order-suggest">
+              <Wand2 className="w-4 h-4" />Suggest
+            </button>
+          )}
           <button type="button" className={cn(btn.outline, showCount > 0 && 'bg-primary/10 border-primary')} onClick={() => setShowing(true)}>
             <Eye className="w-4 h-4" />Show{showCount ? ` (${showCount})` : ''}
           </button>
@@ -545,6 +629,7 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
           </p>
         )}
         <ErrorNote error={save.error} />
+        {!suggesting && <ErrorNote error={suggestError} />}
       </div>
 
       <RequestPanel order={order} phone={phone} busy={withdraw.isPending || decline.isPending}
@@ -568,6 +653,20 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
           {waiting.length > 1 && <button type="button" className={btn.outline} onClick={okAllPepper} data-testid="order-pepper-ok-all">OK all</button>}
         </div>
       )}
+      {suggestNote && (
+        <div className="mx-4 mt-3 text-sm rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 flex flex-wrap items-center gap-2" data-testid="order-suggest-note">
+          <span className="flex-1 min-w-[200px]">
+            {suggestWaiting.length > 0
+              ? <>Suggested {suggestWaiting.length} quantit{suggestWaiting.length === 1 ? 'y' : 'ies'} for {suggestNote.supplier}, to last until {fmtDate(suggestNote.after)}: check each, then OK it or change it. Nothing is saved until you do. </>
+              : <>Suggested for {suggestNote.supplier}, to last until {fmtDate(suggestNote.after)}. </>}
+            {suggestNote.same > 0 && <>{suggestNote.same} line{suggestNote.same === 1 ? ' was' : 's were'} already right. </>}
+            {suggestNote.none.length > 0 && <>No sales use in four weeks and no par, so nothing suggested: {suggestNote.none.join(', ')}.</>}
+          </span>
+          {suggestWaiting.length > 1 && <button type="button" className={cn(btn.outline, 'min-h-[48px]')} onClick={okAllSuggest} data-testid="order-suggest-ok-all">OK all</button>}
+          {suggestWaiting.length > 0 && <button type="button" className={cn(btn.ghost, 'min-h-[48px]')} onClick={putBack} data-testid="order-suggest-put-back"><Undo2 className="w-4 h-4" />Put back</button>}
+          {!suggestWaiting.length && <button type="button" className={cn(btn.ghost, 'min-h-[48px]')} onClick={() => setSuggestNote(null)}>Close</button>}
+        </div>
+      )}
       {goneLines.length > 0 && (
         <p className="mx-4 mt-3 text-sm rounded-lg bg-red-50 border border-red-200 px-3 py-2 flex items-start gap-2" data-testid="order-gone-note">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-700" />
@@ -582,9 +681,15 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
         {!order.items.length && <p className="text-sm text-muted-foreground text-center py-8">Nothing here yet. Add items to order.</p>}
         {groups.map(g => (
           <section key={g.key} className="rounded-xl border bg-background overflow-hidden">
-            <div className="section-head px-4 py-2 flex items-center gap-2">
+            <div className="section-head px-4 py-2 flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-semibold flex-1">{g.name}</h3>
               {g.sub && <span className="text-xs text-muted-foreground">{g.sub}</span>}
+              {groupBy === 'supplier' && suggestSuppliers.some(x => x.id === g.key) && (
+                <button type="button" className={cn(btn.outline, 'min-h-[48px]')} disabled={!!suggestBusy}
+                  onClick={() => suggestFor(suggestSuppliers.find(x => x.id === g.key))} data-testid="order-group-suggest">
+                  {suggestBusy === g.key ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}Suggest
+                </button>
+              )}
             </div>
             <div className="divide-y">
               {g.items.map(it => (
@@ -593,7 +698,9 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
                   stockDay={stockDayOf(quoteOf(it))} canMark={canMark} parMode={order.par_mode}
                   onQty={v => setQty(it, v)} onSwitch={() => setSwitching(it)}
                   onRemove={editable && !it.on_list ? () => removeExtra.mutate(it.item_id) : null}
-                  pepper={waiting.includes(it.item_id)} onPepperOk={() => okPepper(it)} />
+                  pepper={waiting.includes(it.item_id)} onPepperOk={() => okPepper(it)}
+                  suggest={it.item_id in suggested} suggestion={order.sees_stock ? suggestInfo[it.item_id] || it.suggestion || null : null}
+                  onSuggestOk={() => okSuggest(it)} />
               ))}
             </div>
           </section>
@@ -610,7 +717,7 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
             {prices && <> · <strong>{money(grand)}</strong> inc VAT</>}
           </span>
           {mainAction && (
-            <button type="button" className={btn.primary} disabled={goneLines.length > 0 || waiting.length > 0} onClick={openReview}>
+            <button type="button" className={btn.primary} disabled={goneLines.length > 0 || held} onClick={openReview}>
               {mainAction === 'place' ? 'Review & place' : 'Send for approval'}
             </button>
           )}
@@ -640,6 +747,10 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
           }))} />
       )}
       {basket && <BasketModal order={order} meta={meta} onClose={() => setBasket(false)} onApplied={reload} />}
+      {suggesting && (
+        <SuggestModal suppliers={suggestSuppliers} busy={suggestBusy} error={suggestError}
+          onSuggest={suggestFor} onClose={() => setSuggesting(false)} />
+      )}
       {switching && (() => {
         // The item as the order has it now (a stock change reloads the order).
         const it = order.items.find(x => x.item_id === switching.item_id) || switching
@@ -779,7 +890,7 @@ function StockLine({ stock, unit }) {
   return <p className="text-xs text-muted-foreground" data-testid="order-line-stock-figures">{parts.join(' · ')}</p>
 }
 
-function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, asked, stockDay, canMark, parMode = 'order', onQty, onSwitch, onRemove, pepper = false, onPepperOk }) {
+function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, asked, stockDay, canMark, parMode = 'order', onQty, onSwitch, onRemove, pepper = false, onPepperOk, suggest = false, suggestion = null, onSuggestOk }) {
   const problem = quote && !gone ? qtyProblem(qty, quote) : null
   // A switched-off price still shows its pack (struck through) as the
   // button that picks another.
@@ -810,7 +921,8 @@ function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, as
   // Below sm the item text gets a line of its own, so Par and remove sit
   // beside the name and the pack, quantity and last figure fit one line.
   return (
-    <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-4 py-3', qty > 0 && 'bg-primary/[0.03]', pepper && FILLED_CLASS)} data-pepper={pepper ? 'yes' : undefined}>
+    <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-4 py-3', qty > 0 && 'bg-primary/[0.03]', pepper && FILLED_CLASS, suggest && SUGGEST_CLASS)}
+      data-pepper={pepper ? 'yes' : undefined} data-suggested={suggest ? 'yes' : undefined}>
       <div className="flex-1 min-w-[180px] flex items-start gap-2">
         <div className="flex-1 min-w-0">
           <p className="font-medium text-sm">{it.name} <StorageBadge storage={it.storage} /></p>
@@ -847,6 +959,8 @@ function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, as
           {problem && <p className="text-xs text-amber-700">{problem}: will order {fmtNum(fitQty(qty, quote))}</p>}
           {asked != null && asked !== qty && <p className="text-xs text-blue-800">Asked for {fmtNum(asked)}</p>}
           {pepper && <PepperMark k={'items:' + it.item_id} onAccept={onPepperOk} />}
+          {suggest && <SuggestMark basis={suggestion?.basis} onAccept={onSuggestOk} />}
+          {suggestion && <SuggestWorking s={suggestion} kept={!suggest} qty={qty} quote={quote} quotes={it.quotes} readOnly={readOnly || !!gone} onUse={onQty} />}
         </div>
         {(parBtn || removeBtn) && <div className="sm:hidden flex items-center gap-1 shrink-0">{parBtn}{removeBtn}</div>}
       </div>

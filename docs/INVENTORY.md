@@ -18,7 +18,10 @@ built. Phase 8a built on 27 Nov 2026 (allergens on supplier products and Pepper'
 through recipes, the check against declared allergens with accept and dismiss, the Allergens tab, `allergen_check`
 and the reports; migration 316; see "Phase 8a as built") and 8b (checks worked out again where each change is saved
 and put on Today, a substitute on a delivery counted, suggested calories checked against the declared figure;
-migrations 317 and 318; see "Phase 8b as built"), so phase 8 is built. Phases 9 and 10 are a plan. The decisions in section 12 are taken as
+migrations 317 and 318; see "Phase 8b as built"), so phase 8 is built. Phase 9a built on 27 Nov 2026 (the forecast from
+usage and covers booked, Suggest on the order form with each suggestion kept beside what was ordered, Pepper's
+`suggested_order`, the report Suggested orders; migrations 319 and 320; see "Phase 9a as built"); 9b (returns and credit
+notes) is still to come. Phase 10 is a plan. The decisions in section 12 are taken as
 recommended, D1 to D12.** The owner's ask when building started: "recipes variations, per revenue stream/order type
 matrix, and per location (or ability to link a different recipe to menu items in different locations)",
 "stock take module" and "reports". The variation matrix is part of phase 2's links (5.4).
@@ -534,12 +537,18 @@ unexplained       = variance - logged waste
 - **Order to par takes stock off**: `packsToPar()` receives on hand and what is already on order. *Built in phase 5,
   with a venue setting (up to par once the venue has an approved count, else the par as it is).*
 - **Suggested order** per supplier: `forecast usage until the delivery after next + a buffer -
-  on hand - on order`, rounded up to packs and minimums by the existing `fitQty()`.
+  on hand - on order`, rounded up to packs and minimums by the existing `fitQty()`. *Built in phase 9a
+  (`suggestedOrder()` in `shared/forecast.js`, packs by `packsToPar()`); on order counts only what arrives before the
+  delivery after next; an item with no usage history is filled up to its par.*
 - **Forecast, first version**: the average usage on the same weekday over the last four weeks,
   scaled by booked covers against the usual. It is shown with its working ("Tuesdays use 6.2 kg;
-  18% more covers booked"). Weather and local events can join later.
+  18% more covers booked"). Weather and local events can join later. *Built in phase 9a: "the usual" is what had been
+  booked by the same point before on each of those weekdays (pace), never how those days ended, over the weeks the venue
+  was already taking bookings (review fixes, 28 Nov 2026), held between half and twice, no scaling for a venue averaging
+  under 4 covers; a weekday never worked out takes the average day.*
 - The order form shows on hand, on order and usage beside each line; what was suggested against
-  what was ordered is kept, so the suggestion can be judged.
+  what was ordered is kept, so the suggestion can be judged. *Built in phase 9a: on `supply_order_lines`, with the report
+  Suggested orders, which also compares the forecast with what was really used once its days have passed.*
 
 ## 10. Where it plugs in
 
@@ -590,7 +599,8 @@ cost, GP, plate cost, shrinkage, wastage, stocktake) and re-run the smart builde
 ### 10.4 Pepper
 
 - Read: `dish_cost` (with the explanation), `menu_margins`, `find_recipes`, `recipe`,
-  `explain_variance`, `why_cost_changed`, `waste_summary`, `suggested_order`.
+  `explain_variance`, `why_cost_changed`, `waste_summary`, `suggested_order` (*built in phase 9a: a supplier's
+  suggestion for a venue with the working, by names; it orders nothing*).
 - Change: `log_waste` (reversible, with Undo), `count_stock` (extended to areas and units),
   `send_transfer` / `receive_transfer`, `read_recipes` (drafts only), `link_recipes`,
   `save_scenario`. Every change tool gets its Activity words and its place in the registry. *As built (phase 7a):
@@ -626,7 +636,7 @@ scale; steps that follow the same day run nearer half.
 | 6 | **Built 27 Nov 2026.** 6a: periods and variance; actual and theoretical food cost; `explain_variance`; variance to review on Today. 6b: the Cash Recon line; widgets and the Overview tile; dishes over target on Today, Home's set-up gaps; rule triggers | A pound figure on the gap, per item and venue | 70 to 90 |
 | 7 | **Built 27 Nov 2026.** 7a: engineering from real sales; scenarios; what-if; push prices. 7b: price creep and its rule trigger, cost alerts, `why_cost_changed` | Pricing decisions made in the app | 60 to 80 |
 | 8 | **Built 27 Nov 2026.** 8a: allergens on supplier products, the roll-up check, accept and dismiss, the Allergens tab, Pepper and reports. 8b: reopening on changes, its Today item, substitutes, suggested calories | Declared allergens checked against recipes | 50 to 65 |
-| 9 | Suggested orders from usage and bookings; returns and credit notes | Orders proposed, not just listed | 60 to 80 |
+| 9 | 9a **built 27 Nov 2026**: suggested orders from usage and bookings, kept beside what was ordered. 9b, next: returns and credit notes | Orders proposed, not just listed | 60 to 80 |
 | 10 | Later, not estimated: production of prep batches held as stock, labels, a central kitchen, recipe packs passed from a franchisor to its franchisees, GloriaFood through the mapping tool, remakes with dish ids | | |
 
 Phases 1 to 9: about 610 to 780 minutes. Phases 1 to 3 give costing; 4 to 6 give stock control;
@@ -984,6 +994,31 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
   the dish's highest scope, since a dish declares one figure; energy is on the item (not the supplier product, unlike
   allergens), of the part used; `menu_items.calories` has no route of its own, so accepting saves the whole menu with every
   field, as Push prices does. Limits: `docs/claude/outstanding/recipes.md` item 81.
+
+### Phase 9a as built (27 Nov 2026)
+
+- **Migrations** 319 (`stock_settings.buffer_pct`, 10 by default, 0 to 200) and 320 (the suggestion kept on
+  `supply_order_lines`: `suggested_qty`, `suggested_base`, `suggestion_quote_id`, `suggestion_basis`, `forecast_base`,
+  `window_from`, `window_to`, `suggestion` (the working), `suggested_at`, `suggested_by`; the table's RLS as before).
+- **The rule** `shared/forecast.js` (rule 12): `forecastUsage()` over the 28 trading days before today the usage job worked
+  out (`stock_usage_marks`; on a worked-out day an item with no row used none), each window day's weekday average scaled by
+  `coversFactor()`; `bookedCovers()` compares covers booked now with what had been booked by the same point before on the four
+  same weekdays (those since the venue's first booking); today counts what is left after what sales took so far; `suggestedOrder()` targets the forecast plus the buffer
+  (or the par with no history), less on hand (none when never counted) and on order, in packs by `packsToPar()`; every figure
+  with its words. Read by `services/stockForecastSvc.js` `suggestFor()` (history, bookings by trading day, on hand,
+  `onOrderBefore()`, the buffer).
+- **Where it shows**: `GET /api/stock/venues/:id/suggested-order` (Stock view and a purchasing view: what the supplier sells
+  the venue that it orders or sales used) and the buffer on the Stock page's Settings (`PUT /api/stock/forecast-settings`);
+  the order form's **Suggest** (`POST /api/purchasing/orders/:id/suggest`: one supplier's lines, kept on each, the quantities
+  marked on the form until OK as Pepper's are, the order held while any waits, Put back, a Suggest per supplier group, the kept
+  suggestion with Use after a reload); Pepper `suggested_order` (read); the report subject Suggested orders (suggested against
+  ordered, and what was really used against the forecast once its days have passed) and the starter How good are the
+  suggested orders.
+- **What the build changed in the plan**: "the usual" covers are those booked by the same point before (pace), since a future
+  day's bookings are never complete; on order for a suggestion is what arrives before the delivery after next, not every
+  placed order (up to par is unchanged); an item sales never used (no recipe, cleaning stock) falls back to its par, and with
+  no par it isn't suggested; the suggestion is kept on the restaurant order's line (the latest one), not in a table of its own;
+  phase 9 is split in two, returns and credit notes (9b) still to come. Limits: `docs/claude/outstanding/stock.md` item 82.
 
 ## 12. Decisions for the owner
 

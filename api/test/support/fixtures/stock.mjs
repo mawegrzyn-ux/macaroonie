@@ -23,7 +23,9 @@
 // period's variance and the item's ledger. Phase 6b (migration 313), late:
 // the week's food cost line, margin by menu, the newest period's variance,
 // the dishes over target, Home's set-up gaps, the Overview tile, a stock widget, and the cost
-// targets sweep with the targets low for a moment (cost_target_states).
+// targets sweep with the targets low for a moment (cost_target_states). Phase 9a (migrations 319 and
+// 320), late: the buffer saved as it is by default and the stock supplier's suggested order read (the
+// order form's Suggest is purchasing's fixture: a draft's lines suggested and kept).
 import { sql, getApp } from '../app.mjs'
 
 export const order = 87
@@ -45,6 +47,7 @@ export async function fill(ctx) {
   await step('stock item unit', () => post(`/api/inventory/items/${item.id}/units`, { name: 'tray', base_qty: 2500 }))
   const supplier = await step('stock supplier', () => post('/api/suppliers', { name: mark + ' Poultry Co', send_method: 'print' }))
   if (supplier) await step('stock item price', () => post(`/api/inventory/items/${item.id}/quotes`, { supplier_id: supplier.id, pack_name: 'Case', pack_count: 4, pack_qty: 2.5, pack_unit: 'kg', price: 38 }))
+  if (supplier) ids.stockSupplier = supplier.id
 
   // Storage areas, ordered, with their items (an item may be in two).
   const walkIn = await step('stock area', () => post(`/api/stock/venues/${V}/areas`, { name: mark + ' Walk-in' }))
@@ -136,6 +139,17 @@ export async function fill(ctx) {
 export async function fillLate(ctx) {
   await fillUsageAndVariance(ctx)
   await fillFoodCost(ctx)
+  await fillForecast(ctx)
+}
+
+// The forecast and the suggested order (phase 9a, migrations 319 and 320), late: after usage from sales
+// is worked out. The buffer saved as it is by default (10%, so nothing later reads another figure), the
+// group's buffer read, and the stock supplier's suggestion at the venue (what Pepper's suggested_order reads).
+async function fillForecast(ctx) {
+  const { V, step, get, put, ids } = ctx
+  await step('stock forecast settings', () => put('/api/stock/forecast-settings', { buffer_pct: 10 }))
+  await step('stock forecast settings read', () => get('/api/stock/forecast-settings'))
+  if (ids.stockSupplier) await step('stock suggested order', () => get(`/api/stock/venues/${V}/suggested-order?supplier_id=${ids.stockSupplier}`))
 }
 
 async function fillUsageAndVariance(ctx) {
