@@ -517,8 +517,8 @@ export function Section() {
         (<Mono>dishes_over_target</Mono>, one card a day).
       </P>
       <P>
-        Admin: <Mono>components/stock/FoodCostWeek.jsx</Mono> (lazy in Cash Recon&apos;s week view and the food cost
-        widget; on the page only, not in the dashboards&apos; Reconciliation grid widget), <Mono>widgetTypes.js</Mono>{' '}
+        Admin: <Mono>components/stock/FoodCostWeek.jsx</Mono> (the food cost widget&apos;s body; it was on Cash
+        Recon&apos;s week view until 28 Nov 2026, when the owner asked for Cash Recon to show the cash only), <Mono>widgetTypes.js</Mono>{' '}
         (<Mono>STOCK_WIDGET_TYPES</Mono>: <Mono>stock_food_cost</Mono>,{' '}
         <Mono>stock_menu_margins</Mono> on costing; <Mono>stock_waste_week</Mono>, <Mono>stock_variance_items</Mono> on
         stock), <Mono>widgets.jsx</Mono> (the bodies, lazy), <Mono>OverviewTile.jsx</Mono> (the tile{' '}

@@ -452,8 +452,8 @@ unexplained       = variance - logged waste
   over £50) decides what is flagged.
 - Key-item counts give the same figures daily for the short list.
 - Closing a period freezes its figures, like a Z. Reopening is Manage and leaves a note.
-- **Actual food cost % = actual usage in pounds / net food sales.** It goes to a Cash Recon week
-  line, a dashboard widget and the reports. Theoretical cost % sits beside it. *As built (phase 6b): a week
+- **Actual food cost % = actual usage in pounds / net food sales.** It goes to a dashboard widget and the reports (a Cash Recon week
+  line was built in 6b and taken off on 28 Nov 2026: Cash Recon shows the cash only). Theoretical cost % sits beside it. *As built (phase 6b): a week
   rarely starts and ends on a count, so the week line shows the week's own theoretical food cost (from usage
   from sales) and an actual only from a stock period: the one whose trading days hold the whole week (said to
   be the period's figure), else the latest closed period, named with its dates; never an actual made up for
@@ -878,7 +878,7 @@ is in `docs/claude/outstanding/` (recipes 69 to 71 and 78 to 81, stock 72 to 82,
   `weekFoodCost()` (the week's line: actual only from a stock period's complete food cost, the covering one or the latest
   closed one, with the words), `overTarget()` (one per dish at its worst order type from `menuMargins()` rows),
   `targetCrossings()`, `marginsByMenu()` (`soldMargins()` per menu), `overviewWords()`, `varianceEvent()`.
-- **Cash Recon** (8.1): the week view's Food cost card (`components/stock/FoodCostWeek.jsx`, lazy in `pages/CashRecon.jsx`),
+- **Cash Recon** (8.1): the week view's Food cost card (`components/stock/FoodCostWeek.jsx`, lazy in `pages/CashRecon.jsx`; taken off Cash Recon on 28 Nov 2026 at the owner's request, so Cash Recon shows the cash only and the week's food cost is the dashboards' Food cost widget),
   `GET /api/stock/venues/:id/food-cost/week` (`routes/stockFoodCost.js`, `services/stockFoodCostSvc.js` `weekFigures()`):
   a stored period covers a week when its trading days (frozen, or `periodDays()`) hold all seven. Costing view and till
   reports view.

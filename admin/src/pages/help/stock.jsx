@@ -7,7 +7,7 @@
 // phase 5: usage from sales, the Usage tab, Recompute, ordering up to par;
 // phase 6a: variance by period, food cost actual and theoretical, closing and
 // reopening a period, why an item is out, reviewing, the variance band;
-// phase 6b: food cost week by week on Cash Recon, the stock and costing
+// phase 6b: food cost week by week (the Food cost widget; not on Cash Recon since 28 Nov 2026), the stock and costing
 // widgets and the Overview tile, dishes over their cost target on Today,
 // Home's set-up gaps, rules on food cost and waste).
 // Help.jsx gathers every file in this folder
@@ -390,8 +390,8 @@ export function Section() {
       </P>
       <H3>Food cost week by week</H3>
       <P>
-        Cash Recon&apos;s week has a <strong>Food cost</strong> card, below the grid and under the wages in the card view
-        (for people with Costing view and Till reports view). <strong>Theoretical, this week</strong> is what the week&apos;s sales should have used
+        The <strong>Food cost</strong> widget on a dashboard (Add widget, Stock and costing) shows it a week at a time
+        (for people with Costing view and Till reports view). Cash Recon shows the cash only, not food cost. <strong>Theoretical, this week</strong> is what the week&apos;s sales should have used
         by their recipes, as a share of its net food sales; dishes sold without a full recipe make it read low, and so
         do open items and dishes no longer on a menu (their sales count, with nothing to cost them by): the card says
         how many of each. <strong>Actual</strong> needs a full count at both ends, and a week rarely starts and
