@@ -7,8 +7,10 @@ export const pages = [
   {
     path: '/purchasing', label: 'Purchasing', icon: 'ShoppingCart', module: 'purchasing',
     section: 'Stock', order: 10, catalogOrder: 140,
-    keywords: 'purchasing stock ordering suppliers purchase orders deliveries receive book in goods order form approve',
-    description: 'Order stock from suppliers: fill in an order list, send purchase orders and book deliveries in against them.',
+    keywords: 'purchasing stock ordering suppliers purchase orders deliveries receive book in goods order form approve returns return to supplier credit note credit notes refund from supplier',
+    description: 'Order stock from suppliers: fill in an order list, send purchase orders, book deliveries in against them, and return goods with their credit notes.',
+    // Inventory phase 9b: the Returns tab (?tab=returns), beside Order and Deliveries.
+    accepts: ['tab'], tabs: ['order', 'deliveries', 'returns'],
   },
   {
     path: '/purchasing/lists', label: 'Order lists', icon: 'ClipboardList', module: 'purchasing_setup',

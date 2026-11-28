@@ -206,6 +206,7 @@ function ItemDrawer({ venueId, periodId, row, onClose }) {
         {line('Received', qty(r.received, u))}
         {line('Transfers in', qty(r.transfers_in, u))}
         {line('Transfers out (lost in transit too)', qty(r.transfers_out, u))}
+        {r.returns ? line('Returned to suppliers', qty(r.returns, u), 'variance-returns') : null}
         {line('Closing', r.closing == null ? 'not counted' : qty(r.closing, u))}
         {line('Actual usage', qty(r.actual, u), 'variance-actual')}
         {line('Theoretical (sales by their recipes)' + (r.late ? ', late sales ' + qty(r.late, u) : ''), qty(r.theoretical, u), 'variance-theoretical')}

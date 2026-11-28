@@ -24,6 +24,9 @@
 //                  products while it waits in To send (AddPoItemsModal) /
 //                  split for another day / cancel / book the delivery in.
 //                  Lines the supplier said are out of stock on its day say so.
+//   Returns        the Returns tab and a booked-in delivery's returns to the
+//                  supplier with their credit notes (returns.jsx, lazy;
+//                  inventory phase 9b, migration 321).
 //   ReceiveForm    what arrived, the checks and temperatures; writes the
 //                  venue's H&S delivery check. Pepper can read the invoice
 //                  first (components/purchasing/invoice.jsx, migration 197):
@@ -33,7 +36,7 @@
 // The view lives in the URL (?order=, ?po=, ?tab=) so a refresh keeps it.
 // Prices show only for people with purchasing_setup view (meta.show_prices).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -81,13 +84,18 @@ const SENT_VIA = [
 // How far back a delivery without an order can be booked in (as the API).
 const NO_ORDER_DAYS = 31
 
+// Returns to the supplier and their credit notes (inventory phase 9b): their own file, loaded when shown.
+const PoReturns = lazy(() => import('@/components/purchasing/returns').then(m => ({ default: m.PoReturns })))
+const ReturnsTab = lazy(() => import('@/components/purchasing/returns').then(m => ({ default: m.ReturnsTab })))
+
 // ── App shell ───────────────────────────────────────────────────
 
 export function PurchasingApp({ venueId, phone = false }) {
   const [params, setParams] = useSearchParams()
   const orderId = params.get('order')
   const poId = params.get('po')
-  const tab = params.get('tab') === 'deliveries' ? 'deliveries' : 'order'
+  const returnId = params.get('return')
+  const tab = ['deliveries', 'returns'].includes(params.get('tab')) ? params.get('tab') : returnId ? 'returns' : 'order'
   const go = useCallback(next => setParams(next, { replace: false }), [setParams])
   const { data: meta } = usePurchasingMeta()
   const requests = useRequests(venueId)
@@ -103,11 +111,19 @@ export function PurchasingApp({ venueId, phone = false }) {
 
   return (
     <div className={cn('space-y-4', phone ? 'p-3' : 'p-4 max-w-5xl mx-auto')}>
-      <Segmented value={tab} onChange={t => go(t === 'order' ? {} : { tab: t })} className="w-full sm:w-auto [&>button]:flex-1"
-        options={[{ value: 'order', label: toApprove ? `Order (${toApprove} to approve)` : 'Order' }, { value: 'deliveries', label: 'Deliveries' }]} />
-      {tab === 'order'
-        ? <OrderHome venueId={venueId} meta={meta} onOpen={id => go({ order: id })} />
-        : <Deliveries venueId={venueId} meta={meta} onOpen={id => go({ po: id })} />}
+      <Segmented value={tab} onChange={t => go(t === 'order' ? {} : { tab: t })} className="w-full sm:w-auto [&>button]:flex-1" testid="purchasing-tabs"
+        options={[
+          { value: 'order', label: toApprove ? `Order (${toApprove} to approve)` : 'Order' },
+          { value: 'deliveries', label: 'Deliveries' },
+          { value: 'returns', label: 'Returns' },
+        ]} />
+      {tab === 'order' && <OrderHome venueId={venueId} meta={meta} onOpen={id => go({ order: id })} />}
+      {tab === 'deliveries' && <Deliveries venueId={venueId} meta={meta} onOpen={id => go({ po: id })} />}
+      {tab === 'returns' && (
+        <Suspense fallback={<Loader2 className="w-5 h-5 animate-spin mx-auto my-10 text-muted-foreground" />}>
+          <ReturnsTab venueId={venueId} openId={returnId} onOpen={id => go({ tab: 'returns', return: id })} onClose={() => go({ tab: 'returns' })} />
+        </Suspense>
+      )}
     </div>
   )
 }
@@ -1989,6 +2005,12 @@ function PoDetail({ poId, meta, phone, onBack, onOpenPo }) {
         )}
       </section>
 
+      {/* Returns to the supplier once it is booked in (inventory phase 9b): its own lazy file. */}
+      {po.status === 'received' && (
+        <Suspense fallback={null}>
+          <PoReturns po={po} />
+        </Suspense>
+      )}
       {po.delivery_check && <CheckSummary check={po.delivery_check} />}
       <InvoiceList invoices={po.invoices} prices={prices} />
       {meta?.can_setup && po.status === 'received' && po.price_list?.length > 0 && (

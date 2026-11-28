@@ -62,6 +62,7 @@ import { suggestFor } from '../services/stockForecastSvc.js'
 import { venueToday } from '../services/stockUsageSvc.js'
 import { priceChanged, firesCostAlerts } from '../services/priceCreepSvc.js'
 import { allergensChanged } from '../services/allergenCheckSvc.js'
+import { returnedOnPo } from '../services/purchaseReturnsSvc.js'
 import {
   resolveQuotes, loadItemQuotes, loadQuotesById, quoteView, loadVenue, venueNow, loadSuppliersForVenue, createPurchaseOrder,
   loadPo, loadPoLines, poFile, emailPo, nextPoNumber, judgeFirstSend,
@@ -1034,6 +1035,15 @@ async function receiveInto(tx, req, po, b, prices) {
   // line of a delivery without an order.
   const dropped = received.filter(l => (l.added_on_receipt || noOrder) && !(l.received_qty > 0))
   const kept = received.filter(l => !dropped.includes(l))
+  // Goods already going back to the supplier (inventory phase 9b, migration 321) arrived: correcting the
+  // delivery can't book in fewer of a line than its returns not cancelled take back.
+  const back = await returnedOnPo(tx, req.tenantId, po.id)
+  for (const l of received) {
+    const n = back.get(l.id) || 0
+    if (n > 0 && !(Number(l.received_qty) + 1e-9 >= n)) {
+      throw httpError(422, `${fmtNum(n)} of ${l.item_name} went back to the supplier on a return, so at least that many arrived. Cancel the return first to book in fewer.`, { code: 'returned' })
+    }
+  }
   if (noOrder && !kept.length) throw httpError(422, 'Nothing left on the delivery: at least one line has to have arrived')
   for (const l of dropped) await tx`DELETE FROM purchase_order_lines WHERE id = ${l.id} AND tenant_id = ${req.tenantId}`
   const arrived = kept.filter(l => l.received_qty > 0)

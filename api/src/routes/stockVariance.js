@@ -65,7 +65,7 @@ const DAY = 86400000
 const addDays = (d, n) => new Date(Date.parse(d + 'T00:00:00Z') + n * DAY).toISOString().slice(0, 10)
 
 // The keys of a row (and of the totals and food cost) that carry pounds.
-const MONEY = ['price', 'actual_value', 'theoretical_value', 'waste_value', 'adjusted_value', 'explained_value', 'variance_value', 'unexplained_value', 'loss_value', 'gain_value']
+const MONEY = ['price', 'actual_value', 'theoretical_value', 'waste_value', 'adjusted_value', 'explained_value', 'returns_value', 'variance_value', 'unexplained_value', 'loss_value', 'gain_value']
 const strip = (o, keys) => Object.fromEntries(Object.entries(o || {}).filter(([k]) => !keys.includes(k)))
 
 /** A period as the page lists it (no figures), with how many items were flagged and reviewed when closed. */

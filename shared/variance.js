@@ -25,7 +25,9 @@
 // unexplained part is nothing: unexplained is what the counts found against
 // what the documents said, summed over the counts in the period. Transfers
 // out include what was lost in transit (it left the venue, and the transfer
-// says so); returns are 0 until returns to suppliers are built (phase 9).
+// says so); returns are what went back to the supplier (phase 9b, migration
+// 321): the 'return' moves on the same ledger, so on hand and variance read
+// one set of moves.
 // Pounds are at one price per item for the period (the average paid at the
 // venue over the 90 days before its end, else the last paid, else the
 // standard price: the price usage from sales costs at), so variance in
@@ -114,7 +116,8 @@ export function itemVariance({ moves = [], from, to = null, price = null, late =
   const adjusted = sum(['adjustment'])
   const lateQty = round4(num(late))
   const theoretical = round4(-sum(['usage']) + lateQty)
-  const returns = 0
+  // Phase 9b: what went back to the supplier (the 'return' moves, below zero on the ledger).
+  const returns = round4(-sum(['return'])) || 0
   const closing = closingMove ? round4(num(closingMove.qty_base)) : null
   const actual = opening == null || closing == null ? null : round4(opening + received + transfers_in - transfers_out - returns - closing)
   const variance = actual == null ? null : round4(actual - theoretical)
@@ -127,7 +130,7 @@ export function itemVariance({ moves = [], from, to = null, price = null, late =
     actual, theoretical, late: lateQty, waste, adjusted, explained, variance, unexplained,
     price: p,
     actual_value: priced(actual, p), theoretical_value: priced(theoretical, p), waste_value: priced(waste, p),
-    adjusted_value: priced(adjusted, p), explained_value: priced(explained, p),
+    adjusted_value: priced(adjusted, p), explained_value: priced(explained, p), returns_value: priced(returns, p),
     variance_value: priced(variance, p), unexplained_value: priced(unexplained, p),
     // Unexplained as a share of what sales took (null with no sales: any loss is all of it).
     unexplained_pct: unexplained == null || !(theoretical > 0) ? null : round2(unexplained / theoretical * 100),
@@ -197,7 +200,7 @@ export function periodVariance({ items = [], net_food_pence = null, settings = V
   const s = varianceSettings(settings)
   const net = net_food_pence == null ? null : num(net_food_pence)
   const quiet = r => !num(r.opening) && !num(r.closing) && !num(r.received) && !num(r.transfers_in) && !num(r.transfers_out)
-    && !num(r.theoretical) && !num(r.waste) && !num(r.adjusted)
+    && !num(r.theoretical) && !num(r.waste) && !num(r.adjusted) && !num(r.returns)
   const rows = (items || []).filter(r => !quiet(r)).map(r => {
     const f = itemFlag(r, s)
     return { ...r, flagged: f.flagged, flag_why: f.why, share_pct: net == null ? null : costShare(r.unexplained_value, net) }
@@ -269,6 +272,7 @@ export const EVIDENCE_KINDS = {
   waste: { label: 'Waste logged', fix: 'Waste is explained loss; see what it was on the Waste tab.', page: '/stock?tab=waste' },
   adjusted: { label: 'Adjustments', fix: 'Adjustments explain their part: check their reasons on the Adjustments tab.', page: '/stock?tab=adjustments' },
   in_transit: { label: 'Transfers not received', fix: 'A transfer sent and not received yet has left the sender: receive it at the other venue.', page: '/stock?tab=transfers' },
+  returned: { label: 'Returned to the supplier', fix: 'What went back is taken out of actual usage, so it isn\'t loss: check the return and its credit note on the Purchasing page.', page: '/purchasing?tab=returns' },
   lost_in_transit: { label: 'Lost in transit', fix: 'What didn\'t arrive is on the transfer; it isn\'t in this variance.', page: '/stock?tab=transfers' },
   late_sales: { label: 'Late sales from a closed period', fix: 'Sales that reached a closed period late count here: they make this period look better, the closed one worse.', page: '/stock?tab=usage' },
   remakes: { label: 'Remakes', fix: 'The kitchen logs remakes by dish name, so they aren\'t taken off as usage yet (a known gap): they show as loss.', page: null },
@@ -306,6 +310,7 @@ const dayText = at => {
  *   old_unit_deliveries n           deliveries in an old base unit (left out of stock)
  *   waste { entries, voids }        the waste entries and till voids behind row.waste
  *   in_transit [{ label, qty_base, direction }]   transfers of it sent, not received
+ *   returns n                       returns to the supplier behind row.returns (phase 9b)
  *   remakes n                       remakes of dishes whose recipe uses it
  * A gap that applies to every item (remakes) is listed only when there were
  * some; the rest only when they bear on this item.
@@ -338,6 +343,10 @@ export function explainVariance(facts = {}) {
     add('waste', fmt(row.waste, unit) + (sv && row.waste_value != null ? ' (' + money(row.waste_value) + ')' : '') + ' was logged as waste' + (parts.length ? ' (' + parts.join(', ') + ')' : '') + ': explained, so it is taken out of the unexplained figure.')
   }
   if (num(row.adjusted) !== 0) add('adjusted', 'Adjustments ' + (row.adjusted > 0 ? 'added ' : 'took off ') + fmt(Math.abs(row.adjusted), unit) + ': explained by their reasons.')
+  if (num(row.returns) !== 0) {
+    const n = num(facts.returns)
+    add('returned', fmt(row.returns, unit) + ' went back to the supplier' + (n ? ' (' + plural(n, 'return') + ')' : '') + ': it is taken out of actual usage, not counted as loss.')
+  }
   const transit = facts.in_transit || []
   if (transit.length) add('in_transit', transit.slice(0, 4).map(t => t.label + ' (' + fmt(t.qty_base, unit) + (t.direction === 'in' ? ', on its way here' : ', sent from here') + ')').join('; ') + ' not received yet.')
   if (num(row.lost_in_transit) > 0) add('lost_in_transit', fmt(row.lost_in_transit, unit) + ' sent from here didn\'t arrive at the other venue.')

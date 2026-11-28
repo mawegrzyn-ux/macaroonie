@@ -8,10 +8,13 @@
 import inventoryRoutes from '../routes/inventory.js'
 import supplierRoutes from '../routes/suppliers.js'
 import purchasingRoutes from '../routes/purchasing.js'
+import purchaseReturnRoutes from '../routes/purchaseReturns.js'
 
 export const routes = [
   [inventoryRoutes, { prefix: '/api/inventory' }],
   [supplierRoutes, { prefix: '/api/suppliers' }],
   [purchasingRoutes, { prefix: '/api/purchasing' }],
+  // Returns to the supplier and their credit notes (inventory phase 9b, migration 321)
+  [purchaseReturnRoutes, { prefix: '/api/purchasing' }],
   // Stock on hand and counts are the stock area's since inventory phase 4a (src/areas/stock.js).
 ]

@@ -220,6 +220,7 @@ export const tools = [
           ...(r.adjusted_since ? { adjusted_since: signedBase(r.adjusted_since, r.base_unit) } : {}),
           ...(r.wasted_since ? { wasted_since: signedBase(r.wasted_since, r.base_unit) } : {}),
           ...(r.transferred_since ? { transferred_since: signedBase(r.transferred_since, r.base_unit) } : {}),
+          ...(r.returned_since ? { returned_to_suppliers_since: signedBase(r.returned_since, r.base_unit) } : {}),
           ...(r.used_since ? { sold_since: signedBase(r.used_since, r.base_unit) } : {}),
           ...(r.par_base != null ? { par: formatBase(r.par_base, r.base_unit) } : {}),
           ...(r.areas?.length ? { kept_in: r.areas.join(', ') } : {}),
@@ -457,6 +458,7 @@ export const tools = [
         ...(r ? {
           figures: {
             opening: f(r.opening), received: f(r.received), transfers_in: f(r.transfers_in), transfers_out: f(r.transfers_out),
+            ...(r.returns ? { returned_to_suppliers: f(r.returns) } : {}),
             closing: r.closing == null ? 'not counted' : f(r.closing), actual_usage: f(r.actual),
             theoretical_usage: f(r.theoretical), ...(r.late ? { of_it_late_sales: f(r.late) } : {}),
             waste: f(r.waste), ...(r.adjusted ? { adjusted: signedBase(r.adjusted, unit) } : {}),

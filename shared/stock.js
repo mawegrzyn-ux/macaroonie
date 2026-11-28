@@ -15,7 +15,7 @@
 //                          before `at`, else any) plus the moves after it ->
 //                          { on_hand, counted, counted_at, received_since,
 //                            adjusted_since, since: { kind: qty }, used_since,
-//                            sales_counted }
+//                            returned_since, sales_counted }
 //   runningBalance(moves)  the ledger: each move in time order with its
 //                          change and the balance after it (null before the
 //                          first count)
@@ -82,9 +82,11 @@ export const COUNT_STATUSES = {
   cancelled: 'Cancelled',
 }
 // How each kind of move acts on the quantity. `sets`: a count replaces it.
+// paid: a move valued at what its supplier charged (a delivery, a return to the supplier), so its
+// cost and value show only with purchasing prices as well as Costing view (seesPurchasingPrices()).
 export const MOVE_KINDS = {
   count: { label: 'Count', sets: true },
-  delivery: { label: 'Delivery' },
+  delivery: { label: 'Delivery', paid: true },
   adjustment: { label: 'Adjustment' },
   // Phase 4b (migrations 308 and 309): each signed, minus takes stock off.
   waste: { label: 'Waste' },
@@ -93,6 +95,8 @@ export const MOVE_KINDS = {
   lost_in_transit: { label: 'Lost in transit' },
   // Phase 5 (migration 311): what a trading day's sales took off (below zero), one move per item per day.
   usage: { label: 'Sales' },
+  // Phase 9b (migration 321): what went back to the supplier (below zero), at the moment the return was made.
+  return: { label: 'Returned to the supplier', paid: true },
 }
 // Units on one line of a count (2 cases + 3 each + 400 g).
 export const MAX_ENTRIES = 6
@@ -139,6 +143,8 @@ export function stockOnHand({ moves = [], at = null } = {}) {
     since,
     // Phase 5: what sales took off since the count (below zero), from usage from sales.
     used_since: since.usage || 0,
+    // Phase 9b: what went back to the supplier since the count (below zero).
+    returned_since: since.return || 0,
     sales_counted: true,
   }
 }
