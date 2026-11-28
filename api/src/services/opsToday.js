@@ -103,8 +103,23 @@ export const AREAS = {
   allergen_checks: 'recipes',
 }
 
-/** The module a task belongs to: its area's, or Purchasing approval for orders to approve. */
-export const moduleOf = t => (t.kind === 'orders_to_approve' ? 'purchasing_approve' : AREAS[t.area])
+// Tasks whose work is Purchasing approval's, whatever their area: orders to approve, and credit
+// notes to chase (inventory phase 9b: recording a credit note is an approver's).
+const APPROVE_KINDS = new Set(['orders_to_approve', 'credit_overdue'])
+
+/** The module a task belongs to: its area's, or Purchasing approval for orders to approve and credits to chase. */
+export const moduleOf = t => (APPROVE_KINDS.has(t.kind) ? 'purchasing_approve' : AREAS[t.area])
+
+// Tasks that need Manage on their module even where the module offers Use: Purchasing's Use only
+// starts returns to the supplier (inventory phase 9b), so sending orders and booking deliveries in stay Manage.
+const MANAGE_KINDS = new Set(['po_to_send', 'delivery_due', 'delivery_not_booked'])
+
+/**
+ * The level a task's work needs on moduleOf(t), when it isn't the module's
+ * own (workLevel() to act, stateLevel() to assign, snooze or skip): Manage
+ * for MANAGE_KINDS, else null.
+ */
+export const taskLevel = t => (MANAGE_KINDS.has(t.kind) ? 'manage' : null)
 
 /**
  * When a venue closes on a day, from the booking schedule's sittings
@@ -267,8 +282,9 @@ const SOURCES = {
   },
 
   // Orders to send (late once the supplier's order deadline for the day has
-  // passed, deadlinePassed()), deliveries due today, and deliveries sent for
-  // an earlier day that nobody booked in (late).
+  // passed, deadlinePassed()), deliveries due today, deliveries sent for an
+  // earlier day that nobody booked in (late), and credit notes still not in
+  // two weeks after goods went back to the supplier (late).
   async purchasing(ctx, v, s) {
     const yesterday = addDays(s.date, -1)
     const [toSend, sent, unbooked] = await Promise.all([
@@ -309,6 +325,21 @@ const SOURCES = {
         action: { path: '/purchasing?po=' + p.id, label: 'Book it in' },
       })),
     ]
+    // Credit notes expected and not received CREDIT_OVERDUE_DAYS after the goods went back (inventory
+    // phase 9b, migration 321): returns open or sent, oldest first. Money only for people who see prices
+    // (the route strips it).
+    const overdue = await callApi(ctx, 'GET', `/api/purchasing/returns?venue_id=${v.id}&overdue=1&limit=60`)
+    for (const r of [...(overdue.returns || [])].reverse().slice(0, 10)) {
+      tasks.push({
+        key: 'credit:' + r.id, area: 'purchasing', kind: 'credit_overdue', compliance: false,
+        title: 'Chase the credit note from ' + r.supplier_name,
+        detail: r.label + ' · returned ' + shortDate(localParts(new Date(r.returned_at), v.timezone).date) + ' · ' +
+          (r.status === 'open' ? 'not sent to them yet' : 'waiting ' + plural(r.days_waiting ?? 0, 'day')) +
+          (r.credit_expected != null ? ' · ' + money(r.credit_expected) + ' expected' : ''),
+        due: null, group: 'late',
+        action: { path: '/purchasing?tab=returns&return=' + r.id, label: 'Open the return' },
+      })
+    }
     if (s.levels.purchasing_approve === 'manage') {
       const waiting = await callApi(ctx, 'GET', `/api/purchasing/orders?status=requested&venue_id=${v.id}`)
       if (waiting.length) tasks.push({
@@ -727,7 +758,8 @@ export async function opsToday(ctx, venue, { date, time, levels }) {
         // can_change: the person can assign, snooze or skip it (the task
         // store): Use where the module offers it, else Manage (stateLevel()).
         const module = moduleOf(t)
-        tasks.push({ ...t, can_act: permissionAtLeast(levels[module], workLevel(module)), can_change: canChange(levels, module) })
+        const level = taskLevel(t)
+        tasks.push({ ...t, can_act: permissionAtLeast(levels[module], level || workLevel(module)), can_change: canChange(levels, module, level) })
       }
     } catch (err) {
       if (err instanceof ToolError && err.status === 403) notIncluded.push(area)

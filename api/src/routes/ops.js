@@ -36,7 +36,7 @@ import { httpError } from '../middleware/error.js'
 import { tenantSql, withTenant } from '../config/db.js'
 import { permissionAtLeast, workLevel } from '../config/modules.js'
 import { makeContext, staffAuthOf, staffPrincipalOf } from '../ai/context.js'
-import { opsToday, OPS_MODULES, HOME_MODULES, AREAS, moduleOf } from '../services/opsToday.js'
+import { opsToday, OPS_MODULES, HOME_MODULES, AREAS, moduleOf, taskLevel } from '../services/opsToday.js'
 import { changeTask, taskHistory, canChange, personName, localParts, TaskError } from '../services/opsTasks.js'
 import { REASON_MAX, SNOOZE_MAX_MINUTES } from '../../../shared/todayTasks.js'
 import { gatherFacts, suggestionsFor } from '../services/suggestions.js'
@@ -126,9 +126,9 @@ export default async function opsRoutes(app) {
     if (!parsed.success) throw httpError(422, parsed.error.issues[0].message)
     const b = parsed.data
     const { venue, feed, task, levels } = await findTask(req, b.venue_id, b.key, b.date)
-    if (!canChange(levels, moduleOf(task))) throw httpError(403, 'Your role can\'t change this task.')
+    if (!canChange(levels, moduleOf(task), taskLevel(task))) throw httpError(403, 'Your role can\'t change this task.')
     let owner = null
-    if (b.action === 'assign' && b.owner_id) owner = await assignable(req, b.owner_id, moduleOf(task))
+    if (b.action === 'assign' && b.owner_id) owner = await assignable(req, b.owner_id, moduleOf(task), taskLevel(task))
     if (b.action === 'snooze' && !b.minutes && !b.until) throw httpError(422, 'Say how long to snooze it for.')
     const [me] = await withTenant(req.tenantId, tx => tx`
       SELECT full_name, email FROM users WHERE tenant_id = ${req.tenantId} AND auth0_user_id = ${req.user.sub} LIMIT 1`)
@@ -153,14 +153,14 @@ export default async function opsRoutes(app) {
   })
 
   /** A team member a task of `module` can be given to: active, signed in once, able to do it. */
-  async function assignable(req, userId, module) {
+  async function assignable(req, userId, module, level = null) {
     const [u] = await withTenant(req.tenantId, tx => tx`
       SELECT id, full_name, email, auth0_user_id FROM users
        WHERE id = ${userId} AND tenant_id = ${req.tenantId} AND is_active = true`)
     if (!u) throw httpError(404, 'Team member not found')
     if (!u.auth0_user_id) throw httpError(422, personName(u) + ' hasn\'t signed in yet, so can\'t be given tasks.')
     const lv = await permissionLevels({ tenantId: req.tenantId, user: { sub: u.auth0_user_id }, isPlatformAdmin: false }, [module])
-    if (!permissionAtLeast(lv[module], workLevel(module))) throw httpError(422, personName(u) + '\'s role can\'t do this task.')
+    if (!permissionAtLeast(lv[module], level || workLevel(module))) throw httpError(422, personName(u) + '\'s role can\'t do this task.')
     return u
   }
 
@@ -169,7 +169,8 @@ export default async function opsRoutes(app) {
     if (!q.success) throw httpError(422, 'Say which venue and task.')
     const { task, levels } = await findTask(req, q.data.venue_id, q.data.key, q.data.date)
     const module = moduleOf(task)
-    if (!canChange(levels, module)) throw httpError(403, 'Your role can\'t change this task.')
+    const level = taskLevel(task)
+    if (!canChange(levels, module, level)) throw httpError(403, 'Your role can\'t change this task.')
     const users = await withTenant(req.tenantId, tx => tx`
       SELECT id, full_name, email, auth0_user_id FROM users
        WHERE tenant_id = ${req.tenantId} AND is_active = true AND auth0_user_id IS NOT NULL
@@ -177,7 +178,7 @@ export default async function opsRoutes(app) {
     const people = []
     for (const u of users) {
       const lv = await permissionLevels({ tenantId: req.tenantId, user: { sub: u.auth0_user_id }, isPlatformAdmin: false }, [module])
-      if (permissionAtLeast(lv[module], workLevel(module))) people.push({ id: u.id, name: personName(u), me: u.auth0_user_id === req.user.sub })
+      if (permissionAtLeast(lv[module], level || workLevel(module))) people.push({ id: u.id, name: personName(u), me: u.auth0_user_id === req.user.sub })
     }
     return { key: task.key, owner: task.owner ?? null, people }
   })

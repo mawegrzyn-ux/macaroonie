@@ -37,7 +37,7 @@ import { officeOrigin } from './platformHost.js'
 import { makeContext } from '../ai/context.js'
 import { permissionLevels, INTERNAL_AS_PREFIX } from '../middleware/auth.js'
 import { permissionAtLeast, workLevel } from '../config/modules.js'
-import { opsToday, OPS_MODULES, AREAS } from './opsToday.js'
+import { opsToday, OPS_MODULES, moduleOf, taskLevel } from './opsToday.js'
 import { localParts } from '../ai/tools/util.js'
 import { TASK_AREAS, ESCALATE_MINUTES } from '../../../shared/todayTasks.js'
 import { recordFeed, lateSince } from './opsTasks.js'
@@ -104,8 +104,9 @@ export function wants(person, { venueId, task, kind, time }) {
   if (kind === 'due_soon' && !s.due_soon) return false
   if (kind === 'late' && !s.late) return false
   if (inQuietHours(time, s.quiet_from, s.quiet_to)) return false
-  const module = task.kind === 'orders_to_approve' ? 'purchasing_approve' : AREAS[task.area]
-  return !!module && permissionAtLeast(person.levels[module], workLevel(module))
+  // The task's module and the level its work needs there (opsToday's moduleOf() and taskLevel()).
+  const module = moduleOf(task)
+  return !!module && permissionAtLeast(person.levels[module], taskLevel(task) || workLevel(module))
 }
 
 /**
@@ -126,7 +127,7 @@ export function wantsEscalation(person, { venueId, task, time }) {
   if (s.venue_ids.length && !s.venue_ids.includes(venueId)) return false
   if (s.areas.length && !s.areas.includes(task.area)) return false
   if (inQuietHours(time, s.quiet_from, s.quiet_to)) return false
-  const module = task.kind === 'orders_to_approve' ? 'purchasing_approve' : AREAS[task.area]
+  const module = moduleOf(task)
   return !!module && permissionAtLeast(person.levels[module], 'manage')
 }
 
