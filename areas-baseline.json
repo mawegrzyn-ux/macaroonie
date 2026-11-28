@@ -17,7 +17,6 @@
     "admin/src/components/pos/KiosksSection.jsx -> admin/src/components/pos/CardMachinesSection.jsx",
     "admin/src/components/pos/KiosksSection.jsx -> admin/src/components/pos/TillsSection.jsx",
     "admin/src/components/pos/KitchenSection.jsx -> admin/src/components/pos/TillsSection.jsx",
-    "admin/src/components/pos/TechBoardSection.jsx -> admin/src/components/pos/PrintersSection.jsx",
     "admin/src/components/staff/rota.jsx -> admin/src/pages/CashRecon.jsx",
     "admin/src/components/staff/rotaWidgets.jsx -> admin/src/components/staff/rota.jsx",
     "admin/src/components/staff/rotaWidgets.jsx -> admin/src/pages/CashRecon.jsx",

@@ -20,7 +20,7 @@ import { Plus, Loader2, Pencil, Server, RotateCcw, Printer, Usb, ChevronRight, C
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, NumberBox, Toggle, ago } from './shared'
-import { deviceOnline } from '@shared/techBoard.js'
+import { deviceOnline, printerState, onHub, liveHubs } from '@shared/techBoard.js'
 
 const KINDS = [
   { value: 'station', label: 'Kitchen / bar' },
@@ -44,47 +44,14 @@ const DEVICE_KINDS = { terminal: 'Till', kds: 'Kitchen screen', kiosk: 'Kiosk' }
 
 /** The devices a printer can be plugged into (the hub has its own option). */
 const plugDevices = setup => setup.devices.filter(d => !d.revoked_at && DEVICE_KINDS[d.kind])
-export const liveHubs = setup => setup.devices.filter(d => d.kind === 'hub' && !d.revoked_at)
-/** Is this printer plugged into a venue hub's computer? */
-export const onHub = (p, setup) => p.connection === 'device' && setup.devices.find(d => d.id === p.device_id)?.kind === 'hub'
 /** The hub a new USB printer starts on: one that found USB printers, else the first. */
 const defaultHub = hubs => (hubs.find(h => h.info?.local_printers?.length) || hubs[0])?.id || ''
 /** The hub has been heard from in the last few minutes. */
 export const hubOnline = d => deviceOnline(d)   // shared/techBoard.js
-
-/** What we know about a printer, in a few words: [text, tone]. */
-export function printerState(p, setup) {
-  if (!p.is_active) return ['Switched off', 'muted']
-  if (onHub(p, setup)) {
-    const hub = setup.devices.find(d => d.id === p.device_id)
-    if (hub.revoked_at) return [hub.name + ' was removed: pick another hub', 'warn']
-    if (!p.local_id) return ['Pick which printer on the hub this is', 'warn']
-    if (!hubOnline(hub)) return [hub.name + (hub.paired ? ' is offline (seen ' + ago(hub.last_seen_at) + ')' : ' isn\'t linked yet'), 'warn']
-    return hubPrinterState(p)
-  }
-  if (p.connection === 'device') {
-    const d = setup.devices.find(x => x.id === p.device_id)
-    if (!d) return ['Pick the till, kitchen screen or kiosk it is plugged into', 'warn']
-    if (d.revoked_at) return [d.name + ' was removed: pick another device', 'warn']
-    return ['Printed by ' + d.name + (d.paired ? ', seen ' + ago(d.last_seen_at) : ' (not linked yet)'), d.paired ? 'ok' : 'warn']
-  }
-  const hubs = liveHubs(setup)
-  if (!p.host) return ['Type its address on the network', 'warn']
-  if (!hubs.length) return ['Waiting for a venue hub: link one on the Venue hub page', 'warn']
-  return hubPrinterState(p)
-}
-
-/** What the hub last said about a printer it prints to. */
-function hubPrinterState(p) {
-  const s = p.status
-  if (!s || !p.status_at) return ['The hub hasn\'t checked it yet', 'muted']
-  const when = ' (' + ago(p.status_at) + ')'
-  if (!s.online) return ['Not answering' + (s.error ? ': ' + s.error : '') + when, 'bad']
-  if (s.paper_out) return ['Out of paper' + when, 'bad']
-  if (s.cover_open) return ['Cover open' + when, 'bad']
-  if (s.paper_low) return ['Paper running low' + when, 'warn']
-  return ['Ready' + when, 'ok']
-}
+// How a printer reads ([text, tone]), whether it is on a hub's computer and
+// the hubs it can print through are the Tech board's rules too (28 Nov 2026):
+// shared/techBoard.js printerState(), onHub(), liveHubs().
+export { printerState, onHub, liveHubs }
 
 export const TONE = { ok: 'text-green-700', warn: 'text-amber-700', bad: 'text-red-700', muted: 'text-muted-foreground' }
 

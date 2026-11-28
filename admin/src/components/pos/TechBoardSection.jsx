@@ -16,36 +16,12 @@ import { Loader2, RefreshCw, Server, MonitorSmartphone, CookingPot, TabletSmartp
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ago } from './shared'
-import { printerState } from './PrintersSection'
-import { deviceOnline, boardSummary } from '@shared/techBoard.js'
+import { techTiles, techModel, PLATFORM_LIGHT } from '@shared/techBoard.js'
+
+const ICON = { hub: Server, till: MonitorSmartphone, kitchen: CookingPot, kiosk: TabletSmartphone, printer: Printer, card: CreditCard, screen: Monitor }
 
 const DOT = { ok: 'bg-emerald-500', warn: 'bg-amber-500', bad: 'bg-red-600', muted: 'bg-muted-foreground/40' }
 const WORDS = { ok: 'text-emerald-800', warn: 'text-amber-800', bad: 'text-red-700', muted: 'text-muted-foreground' }
-const PLATFORM = {
-  up: { tone: 'ok', text: 'Macaroonie is up' },
-  degraded: { tone: 'warn', text: 'Macaroonie is running slow or partly: live updates or background work may be late' },
-  down: { tone: 'bad', text: 'Macaroonie isn\'t answering properly: tills keep trading offline' },
-}
-
-const pence = p => '£' + (Number(p || 0) / 100).toFixed(2)
-
-/** A till, kitchen screen, kiosk or hub as [text, tone]. */
-function deviceState(d) {
-  if (!d.paired) return ['Not linked yet', 'muted']
-  if (deviceOnline(d)) return ['Online' + (d.app_version ? ' · ' + d.app_version : ''), 'ok']
-  if (!d.last_seen_at) return ['Linked, not heard from yet', 'warn']
-  return ['Offline · last seen ' + ago(d.last_seen_at), 'bad']
-}
-
-function lastAction(d) {
-  const a = d.last_action
-  if (d.kind === 'hub') {
-    return [a ? 'Reported ' + ago(a.at) : null, d.backup_uploaded_at ? 'copy for trading offline uploaded ' + ago(d.backup_uploaded_at) : null].filter(Boolean).join(' · ') || 'Nothing reported yet'
-  }
-  if (!a) return d.kind === 'kiosk' ? 'No visits yet' : 'No activity lately'
-  if (d.kind === 'kiosk') return (a.what === 'order' ? 'Last order ' : 'Last visit ') + ago(a.at)
-  return 'Last activity ' + ago(a.at)
-}
 
 function Row({ tone, name, state, detail, to, testId, kind }) {
   return (
@@ -87,45 +63,14 @@ export function TechBoardSection({ venueId, setup }) {
   const light = useQuery({ queryKey: ['status-light'], queryFn: () => api.get('/status/light'), refetchInterval: 60_000 })
   const b = board.data
 
-  const rows = useMemo(() => {
-    if (!b) return null
-    const dev = kind => b.devices.filter(d => d.kind === kind).map(d => {
-      const [state, tone] = deviceState(d)
-      return { id: d.id, kind, name: d.name, state, tone, detail: lastAction(d) }
-    })
-    const printers = b.printers.filter(p => p.is_active).map(p => {
-      let [state, tone] = printerState(p, setup || { devices: b.devices })
-      const parts = []
-      if (p.jobs.waiting) parts.push(p.jobs.waiting + ' waiting')
-      // Failed tickets today make a printer need looking at, whatever it last reported.
-      if (p.jobs.failed) { state += ' · ' + p.jobs.failed + ' failed today'; if (tone === 'ok' || tone === 'muted') tone = 'warn' }
-      if (p.last_job) parts.push(p.last_job.status === 'failed' ? 'last ticket failed ' + ago(p.last_job.at) + (p.last_job.error ? ': ' + p.last_job.error : '') : 'last ticket ' + ago(p.last_job.at))
-      return { id: p.id, kind: 'printer', name: p.name, state, tone, detail: parts.join(' · ') || 'No tickets this week' }
-    })
-    const cards = b.card_readers.map(r => {
-      const p = r.last_payment
-      const tone = !p ? 'muted' : p.status === 'approved' ? 'ok' : (p.status === 'failed' || p.status === 'declined') ? 'warn' : 'muted'
-      return {
-        id: r.id, kind: 'card', name: r.name, tone,
-        state: p ? 'Last ' + (p.kind === 'refund' ? 'refund' : 'payment') + ' ' + ago(p.at) + ': ' + p.status + ', ' + pence(p.amount) : 'No payments in 30 days',
-        detail: [r.model, r.serial].filter(Boolean).join(' · ') || null,
-      }
-    })
-    const screens = b.screens.map(s => ({
-      id: s.id, kind: 'screen', name: s.name + (s.short_code ? ' (' + s.short_code + ')' : ''),
-      tone: s.state === 'online' ? (s.error ? 'warn' : 'ok') : s.state === 'offline' ? 'bad' : 'muted',
-      state: s.state === 'online' ? 'Online' + (s.app_version ? ' · ' + s.app_version : '') : s.state === 'offline' ? 'Offline · last seen ' + ago(s.last_seen_at) : 'Not linked yet',
-      detail: [s.showing ? 'Showing ' + s.showing : null, s.error ? 'Problem: ' + s.error : null].filter(Boolean).join(' · ') || null,
-    }))
-    return { hubs: dev('hub'), tills: dev('terminal'), kitchen: dev('kds'), kiosks: dev('kiosk'), printers, cards, screens }
-  }, [b, setup])
-
-  const summary = useMemo(() => (rows ? boardSummary(Object.values(rows).flat()) : null), [rows])
-  const platform = PLATFORM[light.data?.state] || null
+  // The one tile model (shared/techBoard.js): tiles, groups, health, what needs someone.
+  const model = useMemo(() => (b ? techModel(techTiles(b, { setup }), { light: light.data }) : null), [b, setup, light.data])
+  const summary = model && { needs: model.attention, good: model.health.counts.ok, total: model.health.judged }
+  const platform = PLATFORM_LIGHT[light.data?.state] || null
 
   if (board.isLoading) return <div className="py-10 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
   if (board.error) return <p className="text-sm text-red-700">Couldn&apos;t load the board: {board.error.message}</p>
-  const empty = rows && !Object.values(rows).some(l => l.length)
+  const empty = model && !model.tiles.length
 
   return (
     <div className="space-y-4" data-testid="tech-board">
@@ -153,7 +98,7 @@ export function TechBoardSection({ venueId, setup }) {
           </p>
           {summary.needs.length > 0 && (
             <ul className="mt-1 text-sm space-y-0.5">
-              {summary.needs.map(n => <li key={n.kind + n.id}><span className={WORDS[n.tone]}>{n.name}</span>: {n.state}</li>)}
+              {summary.needs.map(n => <li key={n.key}><span className={WORDS[n.tone]}>{n.name}</span>: {n.status}</li>)}
             </ul>
           )}
         </div>
@@ -163,19 +108,14 @@ export function TechBoardSection({ venueId, setup }) {
         <p className="text-sm text-muted-foreground rounded-lg border bg-background px-4 py-6 text-center">
           No kit at this venue yet. Link tills on <Link to="/pos/tills" className="text-primary underline">Tills</Link>, or use the installer app.
         </p>
-      ) : rows && (
+      ) : model && (
         <div className="grid gap-4 lg:grid-cols-2">
-          {rows.hubs.length > 0 && <Group icon={Server} title="Venue hub" testId="tech-hubs">{rows.hubs.map(r => <Row key={r.id} {...r} to="/pos/hub" testId="tech-item" />)}</Group>}
-          {rows.tills.length > 0 && <Group icon={MonitorSmartphone} title="Tills" testId="tech-tills">{rows.tills.map(r => <Row key={r.id} {...r} to="/pos/tills" testId="tech-item" />)}</Group>}
-          {rows.kitchen.length > 0 && <Group icon={CookingPot} title="Kitchen screens" testId="tech-kitchen">{rows.kitchen.map(r => <Row key={r.id} {...r} to="/pos/kitchen" testId="tech-item" />)}</Group>}
-          {rows.kiosks.length > 0 && <Group icon={TabletSmartphone} title="Kiosks" testId="tech-kiosks">{rows.kiosks.map(r => <Row key={r.id} {...r} to="/pos/kiosks" testId="tech-item" />)}</Group>}
-          {rows.printers.length > 0 && <Group icon={Printer} title="Printers" testId="tech-printers">{rows.printers.map(r => <Row key={r.id} {...r} to="/pos/printers" testId="tech-item" />)}</Group>}
-          {rows.cards.length > 0 && (
-            <Group icon={CreditCard} title="Card machines" testId="tech-cards" note="Card machines don't report whether they're on: the last payment shows they worked.">
-              {rows.cards.map(r => <Row key={r.id} {...r} to="/pos/cards" testId="tech-item" />)}
+          {model.groups.map(g => (
+            <Group key={g.key} icon={ICON[g.key]} title={g.label} testId={'tech-' + g.key}
+              note={g.key === 'card' ? 'Card machines don\'t report whether they\'re on: the last payment shows they worked.' : null}>
+              {g.tiles.map(t => <Row key={t.key} tone={t.tone} name={t.name} state={t.status} detail={t.detail} kind={t.kind} to={t.link} testId="tech-item" />)}
             </Group>
-          )}
-          {rows.screens.length > 0 && <Group icon={Monitor} title="Menu screens" testId="tech-screens">{rows.screens.map(r => <Row key={r.id} {...r} to="/screens" testId="tech-item" />)}</Group>}
+          ))}
         </div>
       )}
     </div>

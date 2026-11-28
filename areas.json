@@ -1501,6 +1501,7 @@
     "api/src/services/printDesignSvc.js",
     "api/src/services/soldOut.js",
     "api/src/services/taxSvc.js",
+    "api/src/services/techBoardSvc.js",
     "api/src/services/themeColours.js",
     "api/src/services/tillLayoutSvc.js",
     "api/src/services/tillSalesGen.js",
@@ -1614,9 +1615,11 @@
     "shared/qr.js",
     "shared/tax.js",
     "shared/techBoard.js",
+    "shared/techHex.js",
     "shared/test/guestFlows.test.mjs",
     "shared/test/qr.test.mjs",
-    "shared/test/techBoard.test.mjs"
+    "shared/test/techBoard.test.mjs",
+    "shared/test/techHex.test.mjs"
    ],
    "public": [
     "admin/src/components/pos/shared.jsx",
@@ -1627,6 +1630,7 @@
     "api/src/services/printDesignSvc.js",
     "api/src/services/soldOut.js",
     "api/src/services/taxSvc.js",
+    "api/src/services/techBoardSvc.js",
     "api/src/services/themeColours.js",
     "api/src/services/tillLayoutSvc.js",
     "api/src/services/tillSalesGen.js",
@@ -1685,7 +1689,8 @@
     "shared/pos/tillTaps.js",
     "shared/qr.js",
     "shared/tax.js",
-    "shared/techBoard.js"
+    "shared/techBoard.js",
+    "shared/techHex.js"
    ]
   },
   "website": {
