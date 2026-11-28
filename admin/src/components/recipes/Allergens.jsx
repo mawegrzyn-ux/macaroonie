@@ -15,6 +15,10 @@
 // known", never "Agrees" (checkState() in shared/allergenCheck.js).
 // The rule is shared/allergenCheck.js; API: routes/allergenChecks.js.
 // RecipeSuggestion is the recipe editor's card (its own suggestion per venue).
+// Phase 8b (migration 317): a check a change opened again says what changed
+// ("Oyster sauce: the usual supplier switched at Leeds"); the Changed filter
+// (&changed=1, Today's "Allergen checks to review") lists those first.
+// What a delivery brought instead of what was ordered counts at its venue.
 
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -39,9 +43,12 @@ const STATUS_LOOK = {
 }
 const STATUS_WORDS = CHECK_STATES
 const FILTERS = [
+  // Phase 8b: open checks a change opened, opened again or changed (Today's "Allergen checks to review").
+  { value: 'changed', label: 'Changed' },
   ...['open', 'incomplete', 'dismissed', 'accepted', 'agree', 'not_checkable'].map(value => ({ value, label: CHECK_STATES[value] })),
   { value: 'all', label: 'All' },
 ]
+const isChanged = r => stateOf(r) === 'open' && !!r.change
 const stateOf = checkState
 // A scope group's suggestion with no allergens: none only when everything is known.
 const groupEmpty = g => (!g.recipe ? 'No recipe linked here' : g.complete ? 'None of the 14' : 'Not known yet')
@@ -71,10 +78,10 @@ export function AllergenChips({ levels, empty, testid }) {
   )
 }
 
-export default function AllergenChecks({ canManage, openId, onOpen, onClose, startQ = '' }) {
+export default function AllergenChecks({ canManage, openId, onOpen, onClose, startQ = '', startChanged = false }) {
   const api = useApi()
   const [venueId, setVenueId] = useState('')
-  const [filter, setFilter] = useState('open')
+  const [filter, setFilter] = useState(startChanged ? 'changed' : 'open')
   const [q, setQ] = useState(startQ)
   const { data, isLoading, error } = useQuery({
     queryKey: ['allergen-checks', venueId],
@@ -82,7 +89,7 @@ export default function AllergenChecks({ canManage, openId, onOpen, onClose, sta
   })
   const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
   const rows = useMemo(() => (data?.rows || [])
-    .filter(r => filter === 'all' || words.length > 0 || stateOf(r) === filter)
+    .filter(r => filter === 'all' || words.length > 0 || (filter === 'changed' ? isChanged(r) : stateOf(r) === filter))
     .filter(r => words.every(w => [r.dish, r.menu, r.section].some(x => (x || '').toLowerCase().includes(w)))),
   [data, filter, q])
   if (isLoading) return <div className="py-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" /></div>
@@ -116,7 +123,7 @@ export default function AllergenChecks({ canManage, openId, onOpen, onClose, sta
       </div>
       <div className="flex flex-wrap gap-1.5" role="group" aria-label="Show" data-testid="allergen-filter">
         {FILTERS.map(f => {
-          const n = f.value === 'all' ? data.rows.length : counts[f.value]
+          const n = f.value === 'all' ? data.rows.length : f.value === 'changed' ? data.rows.filter(isChanged).length : counts[f.value]
           return (
             <button key={f.value} type="button" aria-pressed={filter === f.value} onClick={() => setFilter(f.value)} data-value={f.value}
               className={cn('h-12 px-3 rounded-full border text-sm touch-manipulation', filter === f.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted')}>
@@ -128,7 +135,8 @@ export default function AllergenChecks({ canManage, openId, onOpen, onClose, sta
       <Card bodyClass="p-0">
         {!rows.length ? (
           <p className="p-4 text-sm text-muted-foreground" data-testid="allergen-none">
-            {filter !== 'open' ? 'No dishes here.'
+            {filter === 'changed' ? 'No check is open because of a change: anything a change opened has been decided.'
+              : filter !== 'open' ? 'No dishes here.'
               : counts.incomplete ? 'Nothing open: no dish\'s known ingredients differ from what it declares. ' + (counts.incomplete === 1 ? '1 dish has' : counts.incomplete + ' dishes have')
                 + ' ingredients whose allergens aren\'t known yet, so it can\'t be confirmed: see Not all known.'
                 : 'Nothing open: every dish that can be checked agrees with its recipes, or has been decided.'}
@@ -145,6 +153,7 @@ export default function AllergenChecks({ canManage, openId, onOpen, onClose, sta
                       {!r.published && r.live_declared && <span className="text-xs text-amber-800">Draft not live yet</span>}
                     </span>
                     <span className="block text-xs text-muted-foreground">{[r.menu, r.section].filter(Boolean).join(' · ')}{r.venues.length ? ' · ' + r.venues.join(', ') : ''}</span>
+                    {isChanged(r) && <span className="block text-xs text-amber-900" data-testid="allergen-row-change">Changed: {r.change}</span>}
                     {r.differences.length > 0 && (
                       <span className="block text-sm space-y-0.5">
                         {r.differences.slice(0, 3).map(d => <span key={d.allergen} className="block">{d.text}{d.kind !== 'not_found' && d.where.length ? ' (' + d.where.join(', ') + ')' : ''}</span>)}
@@ -206,6 +215,11 @@ function CheckDetail({ row, venueId, canManage, canDecide, onClose }) {
       <div className="rounded-xl border border-sky-200 bg-sky-50 text-sky-900 px-4 py-3 text-sm flex gap-2">
         <Info className="w-4 h-4 shrink-0 mt-0.5" /><span>{LIABILITY}</span>
       </div>
+      {isChanged(row) && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm" data-testid="allergen-change">
+          Opened because something changed{row.changed_at ? ' on ' + when(row.changed_at) : ''}: {row.change}. Look at it again and decide.
+        </p>
+      )}
 
       <Card title="Declared on the menu">
         <div className="space-y-2">

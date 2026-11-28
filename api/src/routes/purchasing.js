@@ -51,6 +51,7 @@ import {
 } from '../../../shared/procurement.js'
 import { loadStockOnHand } from '../services/stockSvc.js'
 import { priceChanged, firesCostAlerts } from '../services/priceCreepSvc.js'
+import { allergensChanged } from '../services/allergenCheckSvc.js'
 import {
   resolveQuotes, loadItemQuotes, loadQuotesById, quoteView, loadVenue, venueNow, loadSuppliersForVenue, createPurchaseOrder,
   loadPo, loadPoLines, poFile, emailPo, nextPoNumber, judgeFirstSend,
@@ -1038,6 +1039,11 @@ async function receiveInto(tx, req, po, b, prices) {
   } else {
     await tx`INSERT INTO fs_delivery_checks ${tx({ ...check, tenant_id: req.tenantId, venue_id: po.venue_id, purchase_order_id: po.id })}`
   }
+  // A product substituted on receiving (or a line no longer marked so, on correcting the delivery): the
+  // allergen checks of the dishes using the item (the recipes area's, inventory phase 8b). What came may
+  // hold other allergens: it counts at the venue for SUBSTITUTE_DAYS (shared/allergenCheck.js).
+  const subs = [...lines, ...kept].filter(l => l.receive_status === 'substituted' && l.item_id).map(l => l.item_id)
+  if (subs.length) await allergensChanged(tx, req, { kind: 'substitute', itemIds: [...new Set(subs)], venueIds: [po.venue_id] })
 }
 
 /** A delivery without an order arrived on a day up to NO_ORDER_DAYS back, not after today. */
@@ -2183,7 +2189,11 @@ export default async function purchasingRoutes(app) {
         }
       }
       // An invoice's prices applied: the dishes they took over their cost target (inventory phase 7b).
-      if (moved.length) await priceChanged(tx, req, { quoteIds: moved, venueIds: everyVenue ? null : [po.venue_id], source: 'invoice', poId: po.id })
+      if (moved.length) {
+        await priceChanged(tx, req, { quoteIds: moved, venueIds: everyVenue ? null : [po.venue_id], source: 'invoice', poId: po.id })
+        // A substitute's own price added (the line points at it now), or the cheapest changed: the allergen checks (phase 8b).
+        await allergensChanged(tx, req, { kind: 'quote', quoteIds: moved, venueIds: [po.venue_id] })
+      }
       return poDetail(tx, req.tenantId, po.id, true)
     })
   })

@@ -32,7 +32,7 @@ import {
   Home as HomeIcon, Sun, Sunrise, Moon, RefreshCw, Thermometer, Flame, ListChecks, AlertTriangle, Truck, Send,
   Wallet, ShoppingBag, ClipboardList, CheckCircle2, ExternalLink, ChevronRight, CalendarDays,
   Users, Loader2, Info, CloudSun, BarChart3, Pin, Sparkles, MailWarning, MessageSquare, Monitor, MonitorSmartphone,
-  Ban, CalendarRange, Boxes, BadgePercent,
+  Ban, CalendarRange, Boxes, BadgePercent, ShieldAlert,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
@@ -68,7 +68,7 @@ const KIND_ICON = {
   report_alert: BarChart3, failed_email: MailWarning, review_to_check: MessageSquare, screen_offline: Monitor,
   device_offline: MonitorSmartphone, sold_out: Ban, rota_not_ready: CalendarRange,
   stock_count_due: Boxes, stock_count_to_approve: Boxes, stock_transfer_to_receive: Truck, stock_variance_to_review: Boxes,
-  dishes_over_target: BadgePercent,
+  dishes_over_target: BadgePercent, allergen_checks_to_review: ShieldAlert,
 }
 
 
@@ -77,7 +77,7 @@ const AREA_NAMES = {
   purchasing: 'purchasing', cash: 'cash reconciliation', wages: 'wages', online_orders: 'online orders',
   report_alerts: 'report alerts', failed_emails: 'failed booking emails', reviews: 'reviews', screens: 'menu screens',
   devices: 'tills and devices', sold_out: 'sold out dishes', rota: 'the rota', stock: 'stock counts, transfers and variance',
-  costing: 'dishes over their cost target',
+  costing: 'dishes over their cost target', allergen_checks: 'allergen checks to review',
 }
 
 export function readVenue() { try { return localStorage.getItem(VENUE_KEY) || '' } catch { return '' } }

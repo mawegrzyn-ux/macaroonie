@@ -24,6 +24,15 @@
 //                                                  Recipes manage + Menus manage
 //   GET  /recipes/:recipeId        a recipe's own suggestion at each venue
 //                                  (the recipe editor)                 Recipes view
+//   GET  /summary?venue_id=        (phase 8b) the open checks a change opened
+//                                  or changed, for Today's "Allergen checks to
+//                                  review"; read from what is kept, nothing
+//                                  worked out                          Recipes view
+//
+// Phase 8b (migration 317): a change that could alter a suggestion works
+// the affected checks out again where it is saved (allergensChanged() in
+// services/allergenCheckSvc.js) and marks what it opened (changed_at,
+// change); a decision here clears the mark.
 //
 // fingerprint: what the person saw (the check's `fingerprint`); a check that
 // changed since is refused (409 changed), so nobody accepts what they didn't see.
@@ -34,7 +43,7 @@ import { requireAuth, requirePermission, permissionLevels } from '../middleware/
 import { permissionAtLeast } from '../config/modules.js'
 import { httpError } from '../middleware/error.js'
 import { makeContext, callApi, staffAuthOf, staffPrincipalOf, ToolError } from '../ai/context.js'
-import { checkRows, loadAllergenCtx, loadRecipeSuggestion } from '../services/allergenCheckSvc.js'
+import { checkRows, loadAllergenCtx, loadRecipeSuggestion, checksToReview } from '../services/allergenCheckSvc.js'
 import { acceptedLevels, checkCounts, checkState, fingerprint, ALLERGEN_KEYS, NOTE_MAX, ALLERGEN_LABELS } from '../../../shared/allergenCheck.js'
 
 const uuid = z.string().uuid()
@@ -70,6 +79,8 @@ export function checkView(r, venueNames = {}) {
     // What was accepted into the declaration (an accepted check's record).
     accepted: r.status === 'accepted' ? r.accepted || [] : [],
     reopened: !!r.reopened,
+    // Phase 8b: what change opened it (or changed it) while open, until someone decides.
+    change: r.status === 'open' ? r.change ?? null : null, changed_at: r.status === 'open' ? r.changed_at ?? null : null,
   }
   // What the list says of it (checkState(): never "agrees" while anything is unknown).
   return { ...view, state: checkState(view) }
@@ -173,7 +184,7 @@ export default async function allergenCheckRoutes(app) {
       if (had) {
         await tx`
           UPDATE allergen_checks SET status = 'accepted', decided_by = ${who(req)}, decided_at = now(), note = NULL,
-                 differences = ${tx.json(accepted)}, fingerprint = ${fingerprint(accepted)}, updated_at = now()
+                 differences = ${tx.json(accepted)}, fingerprint = ${fingerprint(accepted)}, changed_at = NULL, change = NULL, updated_at = now()
            WHERE id = ${had.id} AND tenant_id = ${req.tenantId}`
       }
       const { bundle, row: again } = await oneCheck(tx, req, dishId)
@@ -191,7 +202,8 @@ export default async function allergenCheckRoutes(app) {
       sameAsSeen(row, body.fingerprint)
       if (!row.id || !row.check.differences.length) throw httpError(409, 'Nothing differs: there is nothing to dismiss', { code: 'nothing' })
       const [saved] = await tx`
-        UPDATE allergen_checks SET status = 'dismissed', decided_by = ${who(req)}, decided_at = now(), note = ${body.note}, updated_at = now()
+        UPDATE allergen_checks SET status = 'dismissed', decided_by = ${who(req)}, decided_at = now(), note = ${body.note},
+               changed_at = NULL, change = NULL, updated_at = now()
          WHERE id = ${row.id} AND tenant_id = ${req.tenantId}
          RETURNING status, decided_by, decided_at, note`
       return checkView({ ...row, ...saved }, venueNamesOf(bundle))
@@ -207,12 +219,33 @@ export default async function allergenCheckRoutes(app) {
       if (!row.id || row.status !== 'dismissed') throw httpError(409, 'Only a dismissed check can be opened again', { code: 'not_dismissed' })
       const history = [...(row.history || []), { status: row.status, by: row.decided_by, at: row.decided_at, note: row.note, differences: row.check.differences }]
       const [saved] = await tx`
-        UPDATE allergen_checks SET status = 'open', decided_by = NULL, decided_at = NULL, note = NULL, history = ${tx.json(history)}, updated_at = now()
+        UPDATE allergen_checks SET status = 'open', decided_by = NULL, decided_at = NULL, note = NULL, history = ${tx.json(history)},
+               changed_at = NULL, change = NULL, updated_at = now()
          WHERE id = ${row.id} AND tenant_id = ${req.tenantId}
          RETURNING status, decided_by, decided_at, note, history`
       return checkView({ ...row, ...saved }, venueNamesOf(bundle))
     })
     return view
+  })
+
+  // Phase 8b: Today's "Allergen checks to review" (services/opsToday.js): the open checks a change marked, at the venue.
+  app.get('/summary', { preHandler: canView }, async req => {
+    const q = ListQuery.parse(req.query || {})
+    const rows = await withTenant(req.tenantId, async tx => {
+      if (q.venue_id) {
+        const [v] = await tx`SELECT id FROM venues WHERE id = ${q.venue_id} AND tenant_id = ${req.tenantId}`
+        if (!v) throw httpError(404, 'Venue not found')
+      }
+      return checksToReview(tx, req.tenantId, q.venue_id ?? null)
+    })
+    const latest = rows[0] || null
+    return {
+      count: rows.length,
+      dishes: rows.slice(0, 5).map(r => ({ dish: r.dish, menu: r.menu, change: r.change })),
+      latest_at: latest?.changed_at ?? null,
+      words: latest ? latest.change : null,
+      can_decide: await mayDecide(req),
+    }
   })
 
   app.get('/recipes/:recipeId', { preHandler: canView }, async req => {

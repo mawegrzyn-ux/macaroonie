@@ -14,6 +14,7 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 import { openOrderVenues } from '../services/purchasingSvc.js'
+import { allergensChanged } from '../services/allergenCheckSvc.js'
 import { CustomInput, customValues, writeCustom } from '../services/customFields.js'
 
 const uuid = z.string().uuid()
@@ -139,11 +140,17 @@ export default async function supplierRoutes(app) {
   app.patch('/:id', { preHandler: canManage }, async req => {
     const { custom, ...b } = clean(SupplierBody.partial().parse(req.body || {}))
     return withTenant(req.tenantId, async tx => {
-      const [s] = await tx`SELECT id FROM suppliers WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
+      const [s] = await tx`SELECT id, name, is_active FROM suppliers WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
       if (!s) throw httpError(404, 'Supplier not found')
       await writeCustom(tx, req.tenantId, 'purchasing.suppliers', s.id, await customValues(tx, req.tenantId, 'purchasing.suppliers', custom))
       if (Object.keys(b).length) {
         await tx`UPDATE suppliers SET ${tx(b)}, updated_at = now() WHERE id = ${s.id} AND tenant_id = ${req.tenantId}`
+      }
+      // Switched off or on: its products leave or join what venues choose from (the recipes area's
+      // allergen checks, inventory phase 8b).
+      if (b.is_active !== undefined && b.is_active !== s.is_active) {
+        const quoteIds = (await tx`SELECT id FROM inv_quotes WHERE supplier_id = ${s.id} AND tenant_id = ${req.tenantId}`).map(q => q.id)
+        if (quoteIds.length) await allergensChanged(tx, req, { kind: 'supplier', quoteIds, supplier: b.name || s.name, on: b.is_active })
       }
       return loadSupplier(tx, req.tenantId, s.id)
     })

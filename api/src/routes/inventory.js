@@ -35,6 +35,16 @@
 //                              whole of it (rule 13); known false = unknown again
 // The recipes area's allergen check (shared/allergenCheck.js) reads them at
 // the product chooseQuote() picks at each venue; nothing here changes a dish.
+//
+// Allergen checks opened again (inventory phase 8b, migration 317): a change
+// here that could alter which product a venue uses or what it holds (a
+// supplier price added, edited, switched off or deleted, a venue's own price,
+// a product's allergens, the usual supplier, the import, the price update by
+// code) calls allergensChanged() (services/allergenCheckSvc.js, the recipes
+// area's) in the same transaction, after the change (never in a dry run): the
+// dishes it can alter are checked again and the checks it opens go on Today.
+// Price creep doesn't hear of a usual supplier switched (the hourly sweep
+// sees that crossing, as before).
 
 import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
@@ -51,6 +61,7 @@ import { barcodeProblem, cleanBarcode } from '../../../shared/catalogue.js'
 import { unitChoices, unitNameProblem } from '../../../shared/costing.js'
 import { importColumns, importValues } from '../../../shared/customFields.js'
 import { priceChanged, firesCostAlerts } from '../services/priceCreepSvc.js'
+import { allergensChanged } from '../services/allergenCheckSvc.js'
 import { ALLERGEN_KEYS, allergenListProblem, SOURCE_MAX } from '../../../shared/allergenCheck.js'
 
 const uuid = z.string().uuid()
@@ -1044,6 +1055,8 @@ export default async function inventoryRoutes(app) {
       await recordPrice(tx, req.tenantId, q.id, null, v.price, req.user?.email ?? null, 'manual', v.pack_base_qty)
       // A new price can be the one a venue costs by (the cheapest, the usual): price creep.
       await priceChanged(tx, req, { quoteIds: [q.id], source: 'manual' })
+      // And the product a venue uses: the allergen checks of the dishes using the item (phase 8b).
+      await allergensChanged(tx, req, { kind: 'quote', quoteIds: [q.id] })
       return (await loadItems(tx, req.tenantId, [item.id]))[0]
     })
   })
@@ -1085,6 +1098,10 @@ export default async function inventoryRoutes(app) {
         await recordPrice(tx, req.tenantId, q.id, null, v.price, req.user?.email ?? null, 'manual', v.pack_base_qty)
         await priceChanged(tx, req, { quoteIds: [q.id], source: 'manual' })
       }
+      // Which product a venue uses (the cheapest, switched off or on, another supplier) or what it is called (phase 8b).
+      const productMoved = priceMoved || packMoved || v.is_active !== q.is_active || supplierId !== q.supplier_id
+        || norm(v.product_name) !== norm(q.product_name) || codeMoves
+      if (productMoved) await allergensChanged(tx, req, { kind: 'quote', quoteIds: [q.id] })
       return (await loadItems(tx, req.tenantId, [q.item_id]))[0]
     })
   })
@@ -1100,6 +1117,8 @@ export default async function inventoryRoutes(app) {
         { code: 'on_open_order' })
     }
     await tx`DELETE FROM inv_quotes WHERE id = ${q.id} AND tenant_id = ${req.tenantId}`
+    // Another product (or none) for the item now: the allergen checks of the dishes using it (phase 8b).
+    await allergensChanged(tx, req, { kind: 'quote', itemIds: [q.item_id] })
     return (await loadItems(tx, req.tenantId, [q.item_id]))[0]
   }))
 
@@ -1133,8 +1152,11 @@ export default async function inventoryRoutes(app) {
           moved.push(p.venue_id)
         }
       }
-      // Price creep at the venues whose own price changed.
-      if (moved.length) await priceChanged(tx, req, { quoteIds: [q.id], venueIds: moved, source: 'manual' })
+      // Price creep at the venues whose own price changed, and the cheapest product there (phase 8b).
+      if (moved.length) {
+        await priceChanged(tx, req, { quoteIds: [q.id], venueIds: moved, source: 'manual' })
+        await allergensChanged(tx, req, { kind: 'quote', quoteIds: [q.id], venueIds: moved })
+      }
       return (await loadItems(tx, req.tenantId, [q.item_id]))[0]
     })
   })
@@ -1158,6 +1180,9 @@ export default async function inventoryRoutes(app) {
                allergens_checked_at = ${b.known ? tx`now()` : null}, allergens_checked_by = ${b.known ? req.user?.email ?? null : null},
                allergens_source = ${b.known ? b.source || null : null}, updated_at = now()
          WHERE id = ${q.id} AND tenant_id = ${req.tenantId}`
+      // The dishes using it are checked again: a check whose differences change goes on Today (phase 8b).
+      const [sup] = await tx`SELECT name FROM suppliers WHERE id = ${q.supplier_id} AND tenant_id = ${req.tenantId}`
+      await allergensChanged(tx, req, { kind: 'quote_allergens', quoteIds: [q.id], supplier: sup?.name ?? null })
       return (await loadItems(tx, req.tenantId, [q.item_id]))[0]
     })
     return item
@@ -1198,6 +1223,9 @@ export default async function inventoryRoutes(app) {
           VALUES (${req.tenantId}, ${item.id}, ${b.venue_id}, ${b.quote_id})
         `
       }
+      // The usual supplier switched: the product the venue's dishes use (phase 8b). Price creep isn't told
+      // (it compares prices with their history; the hourly cost targets sweep sees the crossing).
+      await allergensChanged(tx, req, { kind: 'preferred', itemIds: [item.id], venueIds: b.venue_id ? [b.venue_id] : [] })
       return (await loadItems(tx, req.tenantId, [item.id]))[0]
     })
   })
@@ -1244,7 +1272,10 @@ export default async function inventoryRoutes(app) {
       if (!supplier) throw httpError(404, 'Supplier not found')
       const out = await runPriceUpdate(tx, req.tenantId, supplier, rows, req.user?.email ?? null, { apply: !b.dry_run })
       // A supplier's price list: price creep over what changed.
-      if (!b.dry_run && out.changes.length) await priceChanged(tx, req, { quoteIds: out.changes.map(c => c.quote_id), source: 'price_update' })
+      if (!b.dry_run && out.changes.length) {
+        await priceChanged(tx, req, { quoteIds: out.changes.map(c => c.quote_id), source: 'price_update' })
+        await allergensChanged(tx, req, { kind: 'quote', quoteIds: out.changes.map(c => c.quote_id) })
+      }
       return { ...out, collection_ignored: collection, dry_run: !!b.dry_run }
     })
   })
@@ -1269,7 +1300,10 @@ export default async function inventoryRoutes(app) {
         result = await runImport(tx, req.tenantId, rows, req.user?.email ?? null, changed)
         if (b.dry_run) throw new DryRun()
         // The prices and packs the import set: price creep (never for a dry run, which is rolled back).
-        if (changed.length) await priceChanged(tx, req, { quoteIds: changed, source: 'import' })
+        if (changed.length) {
+          await priceChanged(tx, req, { quoteIds: changed, source: 'import' })
+          await allergensChanged(tx, req, { kind: 'quote', quoteIds: changed })
+        }
       })
     } catch (err) {
       if (!(err instanceof DryRun)) throw err

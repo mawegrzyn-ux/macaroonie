@@ -57,6 +57,7 @@
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { marksUsageOnChange } from '../services/stockUsageSvc.js'
+import { allergensChanged } from '../services/allergenCheckSvc.js'
 import { permissionAtLeast } from '../config/modules.js'
 import { requireAuth, requirePermission, permissionLevels } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
@@ -539,6 +540,7 @@ export default async function recipeRoutes(app) {
         INSERT INTO recipes ${tx({ ...recipeValues(b), tenant_id: req.tenantId, created_by: who(req) })}
         RETURNING id`
       await writeLines(tx, req.tenantId, r.id, b.lines)
+      // A new recipe is linked to nothing yet; nothing to check again.
       return oneView(tx, req, r.id)
     })
     return reply.code(201).send(out)
@@ -554,6 +556,8 @@ export default async function recipeRoutes(app) {
       await checkRecipe(tx, req.tenantId, r.id, b, all)
       await tx`UPDATE recipes SET ${tx(recipeValues(b))}, updated_at = now() WHERE id = ${r.id} AND tenant_id = ${req.tenantId}`
       await writeLines(tx, req.tenantId, r.id, b.lines)
+      // Its lines (or whether it is a checked draft) changed: the allergen and calorie checks of the dishes using it (phase 8b).
+      await allergensChanged(tx, req, { kind: 'recipe', recipeIds: [r.id] })
       return oneView(tx, req, r.id, { venueId: q.venue_id, basis: q.basis })
     })
   })
@@ -592,6 +596,7 @@ export default async function recipeRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       const r = await ownRecipe(tx, req.tenantId, req.params.recipeId)
       await tx`UPDATE recipes SET is_active = ${b.is_active}, updated_at = now() WHERE id = ${r.id} AND tenant_id = ${req.tenantId}`
+      await allergensChanged(tx, req, { kind: 'recipe', recipeIds: [r.id] })
       return { id: r.id, is_active: b.is_active }
     })
   })
@@ -606,7 +611,15 @@ export default async function recipeRoutes(app) {
       throw httpError(409, `${names.slice(0, 5).join(', ')}${names.length > 5 ? ' and ' + (names.length - 5) + ' more' : ''} ${names.length === 1 ? 'uses' : 'use'} ${r.name}: take it out of ${names.length === 1 ? 'that recipe' : 'those'} first, or switch it off`,
         { code: 'in_use', recipes: names })
     }
+    // Its links and rules go with it: the dishes they reached are checked again (phase 8b).
+    const linked = await tx`SELECT DISTINCT dish_id FROM recipe_links WHERE tenant_id = ${req.tenantId} AND recipe_id = ${r.id}`
+    const ruled = await tx`
+      SELECT option_id, dish_id FROM recipe_option_rules
+       WHERE tenant_id = ${req.tenantId} AND (recipe_id = ${r.id} OR sub_recipe_id = ${r.id})`
     await tx`DELETE FROM recipes WHERE id = ${r.id} AND tenant_id = ${req.tenantId}`
+    const dishIds = [...linked.map(l => l.dish_id), ...ruled.map(x => x.dish_id).filter(Boolean)]
+    const optionIds = ruled.filter(x => !x.dish_id).map(x => x.option_id).filter(Boolean)
+    if (dishIds.length || optionIds.length) await allergensChanged(tx, req, { kind: 'recipe', dishIds, optionIds, recipeNames: [r.name] })
     return { deleted: true }
   }))
 }
