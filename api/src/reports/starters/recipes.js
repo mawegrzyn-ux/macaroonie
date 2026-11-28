@@ -10,7 +10,9 @@
 // Phase 7a: menu engineering this month, from Menu engineering. Phase 7b:
 // dishes that crossed the cost limit after a price change, from Cost alerts.
 // Phase 8a: dishes with allergen differences (Allergen checks) and items with
-// unknown allergens (Supplier prices' allergen fields).
+// unknown allergens (Supplier prices' allergen fields). Phase 8b: dishes whose
+// calories differ (Calorie checks) and items with no energy figure (Inventory
+// items' energy fields).
 
 import { starter } from './define.js'
 
@@ -150,6 +152,37 @@ export const starters = [
       rows: ['product', 'supplier.name', 'product_name', 'supplier_code', 'allergens_known'],
       filters: [{ field: 'allergens_known', op: 'is', value: false }, { field: 'in_recipes', op: 'is', value: true }, { field: 'active', op: 'is', value: true }],
       sort: [{ by: 'product', dir: 'asc' }],
+    },
+  }),
+
+  // Phase 8b (migration 318): the calorie check, from Calorie checks (Recipes view).
+  starter({
+    key: 'dishes_with_calorie_differences',
+    name: 'Dishes with calorie differences',
+    about: 'Dishes whose declared calories differ from what one serving of their recipe comes to (beyond 10%), or that declare none, and nobody has decided yet, as last worked out on the Recipes page\'s Allergens tab. Open one to see what gives the most and accept or dismiss it. Calorie labelling applies in England to businesses with 250 or more employees, counting a franchise\'s whole network: confirm the detail before relying on it.',
+    period: false,
+    venues: false,
+    spec: {
+      subject: 'recipes.calorie_checks',
+      kind: 'list',
+      rows: ['dish', 'menu', 'section', 'difference', 'suggested_kcal', 'declared_kcal', 'worked_at'],
+      filters: [{ field: 'status', op: 'is', value: 'open' }],
+      sort: [{ by: 'dish', dir: 'asc' }],
+    },
+  }),
+  // From Inventory items (Purchasing setup view): the gaps in the calorie check.
+  starter({
+    key: 'items_with_no_energy',
+    name: 'Items with no energy figure',
+    about: 'Inventory items in use, in a recipe, with no energy (kcal per 100 g, per 100 ml, or each). A dish using one has no suggested calories until it is put in, from the item\'s label, its spec sheet or a food table, on the Inventory page.',
+    period: false,
+    venues: false,
+    spec: {
+      subject: 'purchasing.items',
+      kind: 'list',
+      rows: ['name', 'category.name', 'base_unit', 'energy_known'],
+      filters: [{ field: 'energy_known', op: 'is', value: false }, { field: 'in_recipes', op: 'is', value: true }, { field: 'active', op: 'is', value: true }],
+      sort: [{ by: 'name', dir: 'asc' }],
     },
   }),
 ]
