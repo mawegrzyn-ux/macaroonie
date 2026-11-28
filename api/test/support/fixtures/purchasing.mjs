@@ -1,5 +1,6 @@
 // Purchasing: suppliers and their prices, the inventory, order lists,
-// restaurant orders (approval and splitting, Suggest), purchase orders, receiving.
+// restaurant orders (approval and splitting, Suggest), purchase orders, receiving,
+// returns to the supplier with their credit notes.
 export const order = 80
 
 export const kinds = { itemId: ['inv_items'] }
@@ -68,6 +69,20 @@ export async function fill(ctx) {
         }))
         const extra = got?.lines?.find(l => l.added_on_receipt)
         if (extra) await step('price list from invoice', () => post(`/api/purchasing/pos/${po.id}/price-list`, { changes: [{ line_id: extra.id, action: 'add', product_name: mark + ' Rice 5kg' }] }))
+        // Returns to the supplier (inventory phase 9b, migration 321): the ordered line goes back damaged,
+        // is marked sent and credited; the extra line's return is cancelled (so its stock is as it was).
+        const ordered = got?.lines?.find(l => !l.added_on_receipt && l.received_qty > 0)
+        const back = ordered && await step('return to supplier', () => post(`/api/purchasing/pos/${po.id}/returns`, {
+          lines: [{ po_line_id: ordered.id, qty: 1, reason: 'damaged', note: mark + ' crushed bag' }], note: mark + ' driver took it',
+        }))
+        if (back) {
+          await step('return marked sent', () => post(`/api/purchasing/returns/${back.id}/mark-sent`, { via: 'driver' }))
+          await step('return credited', () => post(`/api/purchasing/returns/${back.id}/credit`, { credit_note_number: mark + '-CN1', credit_amount: 11 }))
+        }
+        const kept = extra && await step('return to cancel', () => post(`/api/purchasing/pos/${po.id}/returns`, {
+          lines: [{ po_line_id: extra.id, qty: 1, reason: 'quality' }],
+        }))
+        if (kept) await step('return cancelled', () => post(`/api/purchasing/returns/${kept.id}/cancel`, { note: mark + ' kept it' }))
       }
       // A delivery booked in without an order (migration 238), once the
       // setting allows it.

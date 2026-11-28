@@ -765,6 +765,53 @@ export function Section() {
         later, else the next delivery. Placing and sending for approval wait while any is marked. The report subject{' '}
         <Mono>stock.suggestions</Mono> reads the kept columns (see Stock).
       </P>
+      <H3>Returns and credit notes (inventory phase 9b, migration 321)</H3>
+      <P>
+        Goods sent back to the supplier from a delivery that was booked in (a purchase order <Mono>received</Mono>,
+        with or without an order). The rule is <Mono>shared/returns.js</Mono>; the routes{' '}
+        <Mono>routes/purchaseReturns.js</Mono> (mounted at <Mono>/api/purchasing</Mono> by{' '}
+        <Mono>src/areas/purchasing.js</Mono>); loading, the supplier&apos;s copy and the email{' '}
+        <Mono>services/purchaseReturnsSvc.js</Mono>; the stock move the stock area&apos;s <Mono>returnMoves</Mono>{' '}
+        (<Mono>MOVE_SOURCES</Mono>, see Stock). Both tables have RLS enabled and forced.
+      </P>
+      <DataTable
+        head={['Table', 'What it holds']}
+        rows={[
+          ['purchase_returns', 'number (per tenant, RT-00012: returnNumberLabel()), venue_id, po_id, supplier_id (RESTRICT, as purchase orders), status open | sent | credited | refused | cancelled, note (for the supplier, 500), returned_at (the stock move\'s moment: now, or up to RETURN_BACK_DAYS 14 back, never before the delivery was booked in), created_by (stockPerson(): the PIN person on a shared device), credit_expected / credit_vat (the lines\' lineAmounts() before VAT and the VAT), sent_at / sent_by / sent_via (email | driver | phone | website | print | other) / sent_to / send_error, credit_note_number (required when credited), credit_note_date, credit_amount (before VAT; null when recorded by someone who doesn\'t see prices), credited_at / credited_by, refused_at / refused_by / refuse_note, cancelled_at / cancelled_by / cancel_note, history ([{ action, by, at, note }]: emailed, marked_sent, credited, credit_changed, refused, cancelled).'],
+          ['purchase_return_lines', 'return_id, po_line_id (the delivery\'s line; UNIQUE per return), item_id (SET NULL), copies of item_name, product_name, supplier_code, pack_label, base_unit, pack_base_qty (the line\'s own pack); qty (packs) and qty_base; price and vat_rate paid (paidPrice() / paidVatRate(): the invoice\'s where read, else the order\'s); credit_expected (qty x price, rounded); reason damaged | wrong_item | short_dated | quality | other; note (Other needs one).'],
+        ]}
+      />
+      <DataTable
+        head={['Route', 'What it does']}
+        rows={[
+          ['GET /pos/:id/returns', 'Any purchasing view. The delivery\'s returns (returnView()s) and, once received, its returnable lines (returnableLines(): received_qty over 0, an item still, returned_qty from returns not cancelled, left), each with returnPrefill() (a damaged line as damaged, a substituted one as wrong_item, all that is left, the receive note) and the price paid with prices; can_start, can_approve, show_prices.'],
+          ['POST /pos/:id/returns', 'Purchasing Use or Purchasing approval Manage (canStart). StartBody { lines: [{ po_line_id, qty, reason, note }], note, returned_at? }. Locks the purchase order FOR UPDATE; 409 not_received unless received; 422 returned_at (returnedAtProblem()), 422 lines (returnLinesProblem(): a line of this delivery once, qty above 0 and no more than left, a reason, Other with a note). Number under an advisory lock (nextReturnNumber()). 201 with the view, sent after the transaction commits.'],
+          ['GET /returns', 'Any purchasing view. ?venue_id (another group\'s venue is refused by the venue middleware) &supplier_id &po_id &status (csv) &owed=1 (open or sent) &overdue=1 (owed and returned_at at least CREDIT_OVERDUE_DAYS 14 before `at`, default now) &at &limit (500). { returns, can_start, can_approve, show_prices, overdue_days }.'],
+          ['GET /returns/:id, GET /returns/:id/file?format=pdf | html', 'Any purchasing view. The file is the supplier\'s copy (returnPdf() through pdfDoc.js, returnHtml()): it always carries the prices, as a purchase order\'s file does.'],
+          ['POST /returns/:id/send', 'Purchasing approval Manage. Checked in one transaction (can_email: open or sent), then emailReturn() after it commits: the venue\'s email provider, the supplier\'s email and cc list, the PDF attached; an open return becomes sent (sent_via email); a failure keeps send_error and answers 422 email_failed; no email address 422 no_email.'],
+          ['POST /returns/:id/mark-sent', 'Purchasing approval Manage. MarkSentBody { via, sent_at? } (not in the future, the last 14 days, not before returned_at): an open return only (409 otherwise).'],
+          ['POST /returns/:id/credit', 'Purchasing approval Manage. CreditBody { credit_note_number, credit_note_date? (not after today at the venue), credit_amount? }: open, sent, refused or credited (a correction; credit_changed in the history). An amount from someone without purchasing prices is 403 prices; left out, the stored amount stays.'],
+          ['POST /returns/:id/refuse', 'Purchasing approval Manage. RefuseBody { note } (required): open or sent. The stock move stays.'],
+          ['POST /returns/:id/cancel', 'canStart. CancelBody { note? }: an open return by whoever may start one; a sent one only with Purchasing approval (403 approval); never credited or refused (409). Its moves are gone (status cancelled is left out of returnMoves).'],
+        ]}
+      />
+      <P>
+        What may be done is <Mono>returnActions(ret, {'{ canStart, canApprove }'})</Mono> (can_email, can_mark_sent,
+        can_credit, can_refuse, can_cancel), on every view and checked by each route (<Mono>mustAllow()</Mono>, 409{' '}
+        <Mono>return_status</Mono>). Money (each line&apos;s price, vat_rate and credit_expected, the return&apos;s credit
+        expected, VAT, total, credit_amount and credit_difference) is left out of <Mono>returnView()</Mono> without
+        purchasing prices. <Mono>receiveInto()</Mono> (Correct the delivery) refuses 422 <Mono>returned</Mono> when a
+        line would be booked in below what its returns not cancelled take back (<Mono>returnedOnPo()</Mono>). The{' '}
+        <Mono>purchasing</Mono> module has a Use level since this phase (starting returns); every ordering route
+        still needs Manage, and Today&apos;s purchasing tasks need Manage too (<Mono>taskLevel()</Mono> in{' '}
+        <Mono>services/opsToday.js</Mono>). Today&apos;s <Mono>credit_overdue</Mono> (the purchasing source, through{' '}
+        <Mono>GET /returns?overdue=1</Mono>) belongs to Purchasing approval (<Mono>moduleOf()</Mono>). Admin:{' '}
+        <Mono>components/purchasing/returns.jsx</Mono> (lazy from <Mono>ordering.jsx</Mono>): <Mono>PoReturns</Mono>{' '}
+        under a booked-in delivery&apos;s lines, <Mono>StartReturnModal</Mono>, <Mono>ReturnModal</Mono>,{' '}
+        <Mono>ReturnsTab</Mono> (<Mono>?tab=returns&amp;return=</Mono>; the nav record&apos;s tabs order, deliveries,
+        returns). Pepper: <Mono>start_return</Mono> (consequential, needs Use, through these routes). Reports:{' '}
+        <Mono>purchasing.returns</Mono>, <Mono>purchasing.return_lines</Mono>, the starter Credits still owed.
+      </P>
     </section>
   )
 }

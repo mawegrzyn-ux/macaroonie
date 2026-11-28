@@ -150,6 +150,7 @@ export function Section() {
           ['checklists', 'PUT /checklists/instance', 'templates and their items'],
           ['food_safety', 'POST / PATCH of temp-logs, deliveries, holds and cooking', 'equipment, capture times, hold stations and times, cooking sessions, settings and items; DELETE /cooking/:id'],
           ['hs_action_log', 'POST /entries, PATCH /entries/:id and /complete', 'DELETE /entries/:id, the categories'],
+          ['purchasing', 'POST /api/purchasing/pos/:id/returns, POST /returns/:id/cancel of an open return (inventory phase 9b; or purchasing_approve manage)', 'every ordering, sending and receiving route; Today\'s purchasing tasks need Manage too (taskLevel() in services/opsToday.js)'],
         ]}
       />
       <P>

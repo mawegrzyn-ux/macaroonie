@@ -23,7 +23,7 @@ What is not built, known limits and follow-ups now live in one file per area, `d
 | [`menus`](outstanding/menus.md) | 19, 21, 25, 40, 48 |
 | [`ordering`](outstanding/ordering.md) | 14, 36 |
 | [`pepper`](outstanding/pepper.md) | 15, 28, 31, 51, 53, 54, 56, 58, 61, 62 |
-| [`purchasing`](outstanding/purchasing.md) | 16, 32, 63, 68 |
+| [`purchasing`](outstanding/purchasing.md) | 16, 32, 63, 68, 83 |
 | [`recipes`](outstanding/recipes.md) | 69, 70, 71, 78, 79, 80, 81 |
 | [`reports`](outstanding/reports.md) | 41 |
 | [`rota`](outstanding/rota.md) | - |

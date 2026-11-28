@@ -48,7 +48,7 @@ export function Section() {
           ['food_safety (food_safety)', 'fridge_check and hold_check per check time with units not logged; cooking_check per session short of required_items_count; corrective_action per out-of-range reading or failed delivery with no action', '/api/food-safety equipment, capture-times, temp-logs, hold-stations, hold-capture-times, holds, cooking-sessions, cooking, deliveries'],
           ['checklists (checklists)', 'checklist per template not completed (daily = now, weekly / monthly = later)', '/api/checklists/due'],
           ['hs_actions (hs_action_log)', 'hs_action per open entry due today or overdue', '/api/hs-action-log/entries'],
-          ['purchasing (purchasing)', 'po_to_send (soonest first; late once deadlinePassed() for its day, listed first); delivery_due (sent, delivery today); delivery_not_booked (sent, delivery day before today: late); orders_to_approve (only with purchasing_approve manage)', '/api/purchasing/pos (order=asc for to_send), /api/purchasing/orders'],
+          ['purchasing (purchasing)', 'po_to_send (soonest first; late once deadlinePassed() for its day, listed first); delivery_due (sent, delivery today); delivery_not_booked (sent, delivery day before today: late); these three need Purchasing manage to act on or change, though the module offers Use (taskLevel(), inventory phase 9b); credit_overdue (a return open or sent 14 days or more after the goods went back, oldest first, up to 10: late; Purchasing approval\'s, moduleOf()); orders_to_approve (only with purchasing_approve manage)', '/api/purchasing/pos (order=asc for to_send), /api/purchasing/returns?overdue=1, /api/purchasing/orders'],
           ['cash (cash_recon)', "cash_up per open day (openDatesOrNull()) of the last CASH_DAYS_BACK (7) and the feed's own day that isn't submitted: the day's own due at closingTime() of its sittings (now / next / later, late once the day has passed), yesterday late, earlier days late only once the venue uses Cash Recon (a report on any day of this week or last); days after the venue's today never", '/api/venues/:id/cash-recon/week/:monday (this week and last), /api/venues/:id/schedule/sittings-for-date'],
           ['wages (cash_recon)', 'wages_to_pay when last week has cash still to pay: per entry max(0, total - bank_amount - cash_amount), one late task with the sum and how many people', '/api/venues/:id/cash-recon/wages/:monday'],
           ['online_orders (web_orders)', 'online_orders when orders are placed but not accepted', '/api/orders'],
@@ -69,7 +69,9 @@ export function Section() {
         <Mono>{'{ form, label, ref }'}</Mono> (temps, holds, cooking, checklist, cash_up with{' '}
         <Mono>{'ref.date'}</Mono>, wages with <Mono>{'ref.week'}</Mono>) or <Mono>{'{ path, label }'}</Mono>, and{' '}
         <Mono>can_act</Mono> is the module's work level (<Mono>workLevel()</Mono>: Use where the module offers it,
-        else Manage, so Manage for Cash Recon) (U1). <Mono>closingTime(sittings)</Mono> (exported) is the latest
+        else Manage, so Manage for Cash Recon) (U1), or the task's own when it needs more (<Mono>taskLevel(t)</Mono>:
+        Manage for purchasing's orders to send and deliveries to book in, since Purchasing&apos;s Use only starts
+        returns; also used for <Mono>can_change</Mono>, the people a task can be assigned to and notices). <Mono>closingTime(sittings)</Mono> (exported) is the latest
         of the day's sittings' doors close, else last orders; a sitting closing after midnight counts as 23:59.
         The context <Mono>s</Mono> carries <Mono>today</Mono> (the venue's date now) beside the feed's{' '}
         <Mono>date</Mono>, so a feed for another day never counts a day that hasn't passed as missed.

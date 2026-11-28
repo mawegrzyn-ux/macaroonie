@@ -204,7 +204,7 @@ function StartReturnModal({ po, data, prefill = {}, onClose, onSaved }) {
                     {l.receive_status && l.receive_status !== 'ok' ? ` · ${l.receive_status === 'substituted' ? 'something else came' : l.receive_status}` : ''}
                   </span>
                 </span>
-                {data.show_prices && l.price != null && <span className="text-xs tabular-nums text-muted-foreground shrink-0">{money(l.price)} each</span>}
+                {data.show_prices && l.price != null && <span className="text-xs tabular-nums text-muted-foreground shrink-0">{money(l.price)} a pack</span>}
               </button>
               {row && (
                 <div className="grid gap-2 sm:grid-cols-[auto_1fr]">
@@ -315,7 +315,7 @@ export function ReturnModal({ id, onClose, onChanged }) {
             <p>Credit expected {money(ret.credit_expected)} + VAT {money(ret.credit_vat)} = {money(ret.credit_total)}</p>
             {ret.credit_amount != null && (
               <p className={cn(ret.credit_difference != null && Math.abs(ret.credit_difference) >= 0.005 && 'text-amber-800')}>
-                Credited {money(ret.credit_amount)}{ret.credit_difference != null && Math.abs(ret.credit_difference) >= 0.005 ? ` (${ret.credit_difference > 0 ? '+' : ''}${money(ret.credit_difference)} against expected)` : ''}
+                Credited {money(ret.credit_amount)}{ret.credit_difference != null && Math.abs(ret.credit_difference) >= 0.005 ? ` (${ret.credit_difference > 0 ? '+' : '-'}${money(Math.abs(ret.credit_difference))} against expected)` : ''}
               </p>
             )}
           </div>
@@ -326,7 +326,7 @@ export function ReturnModal({ id, onClose, onChanged }) {
         {ret.can_email && ret.supplier_email && (
           <button type="button" className={btn.primary} disabled={act.isPending} onClick={() => act.mutate({ path: 'send' })} data-testid="return-email">
             {act.isPending && act.variables?.path === 'send' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-            {ret.status === 'sent' ? 'Email again' : 'Email to ' + ret.supplier_email}
+            {ret.sent_via === 'email' ? 'Email again' : 'Email to ' + ret.supplier_email}
           </button>
         )}
         {ret.can_mark_sent && <button type="button" className={btn.outline} onClick={() => setMode('sent')} data-testid="return-mark-sent"><Send className="w-4 h-4" />Mark as sent</button>}

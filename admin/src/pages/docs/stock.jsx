@@ -394,7 +394,8 @@ export function Section() {
         after the opening and up to the end (none: actual, variance and unexplained are null); within (opening,
         closing]: received, transfers in, transfers out (lost in transit included), waste (logged and till voids),
         adjusted, theoretical (usage moves not marked <Mono>late</Mono>, plus <Mono>late</Mono> landed here). actual =
-        opening + received + transfers in - transfers out - returns (0) - closing; variance = actual - theoretical;
+        opening + received + transfers in - transfers out - returns - closing (returns: the <Mono>return</Mono> moves,
+        phase 9b); variance = actual - theoretical;
         explained = waste - adjusted; unexplained = variance - explained, which is the closing count against the
         ledger summed over the counts in between. One price per item for the period (<Mono>pricesAt()</Mono>: the
         average paid over the 90 days before its end, else the last paid, else <Mono>itemCost()</Mono>&apos;s
@@ -599,6 +600,27 @@ export function Section() {
         out a day after the window), starter <Mono>stock_suggested_orders_how_good</Mono>. Tests{' '}
         <Mono>api/test/stock-forecast.test.mjs</Mono>; fixtures (late) save the buffer as it is and read a suggestion,
         purchasing&apos;s fixtures suggest on a draft.
+      </P>
+      <H3>Returns to the supplier on the ledger (phase 9b, migration 321)</H3>
+      <P>
+        Purchasing&apos;s returns (<Mono>purchase_returns</Mono>, <Mono>purchase_return_lines</Mono>; see Purchasing,
+        Returns and credit notes) are a move source: <Mono>returnMoves</Mono> in <Mono>MOVE_SOURCES</Mono> reads every
+        line of a return not cancelled, in the item&apos;s base unit as it is now (as deliveries), as kind{' '}
+        <Mono>return</Mono> (<Mono>MOVE_KINDS.return</Mono>, label Returned to the supplier) at the return&apos;s{' '}
+        <Mono>returned_at</Mono>, <Mono>qty_base</Mono> below zero, <Mono>cost_per_base</Mono> the price paid over the
+        line&apos;s pack. <Mono>MOVE_KINDS</Mono> marks <Mono>delivery</Mono> and <Mono>return</Mono>{' '}
+        <Mono>paid</Mono>: their cost and value are a supplier&apos;s price, so the item history route leaves them
+        out without purchasing prices (<Mono>stockAccess().sees_prices</Mono>) and the report subject{' '}
+        <Mono>stock.moves</Mono> puts them in <Mono>paid</Mono> (measures Returned to suppliers and Value returned).{' '}
+        <Mono>stockOnHand()</Mono> gives <Mono>returned_since</Mono>; the On hand tab and Pepper&apos;s{' '}
+        <Mono>stock_on_hand</Mono> show it. Variance: <Mono>itemVariance()</Mono>&apos;s <Mono>returns</Mono> (and{' '}
+        <Mono>returns_value</Mono>, money the variance routes strip without Costing view) is minus the return moves in
+        (opening, closing], so a closing count that finds what the ledger expected leaves nothing unexplained; an item
+        whose only move is a return isn&apos;t quiet; <Mono>itemFacts()</Mono> counts the returns behind it and{' '}
+        <Mono>explainVariance()</Mono> lists <Mono>returned</Mono> evidence (fix: the Purchasing page&apos;s Returns tab).
+        A cancelled return&apos;s moves disappear (none dated at the cancelling: the goods never left). The work{' '}
+        <Mono>stock_variance</Mono> and the subject <Mono>stock.variance</Mono> carry <Mono>returns</Mono>. Tests{' '}
+        <Mono>shared/test/returns.test.mjs</Mono>, <Mono>api/test/purchasing-returns.test.mjs</Mono>.
       </P>
     </section>
   )

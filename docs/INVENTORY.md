@@ -20,8 +20,11 @@ and the reports; migration 316; see "Phase 8a as built") and 8b (checks worked o
 and put on Today, a substitute on a delivery counted, suggested calories checked against the declared figure;
 migrations 317 and 318; see "Phase 8b as built"), so phase 8 is built. Phase 9a built on 27 Nov 2026 (the forecast from
 usage and covers booked, Suggest on the order form with each suggestion kept beside what was ordered, Pepper's
-`suggested_order`, the report Suggested orders; migrations 319 and 320; see "Phase 9a as built"); 9b (returns and credit
-notes) is still to come. Phase 10 is a plan. The decisions in section 12 are taken as
+`suggested_order`, the report Suggested orders; migrations 319 and 320; see "Phase 9a as built") and 9b (returns to the
+supplier and credit notes against a delivery, the stock out as a return move on the ledger and variance's returns term
+from it, Pepper's `start_return`, Today's credit notes still owed after 14 days, the report Returns to suppliers;
+migration 321; see "Phase 9b as built"), so phase 9 is built: **phases 1 to 9 are built; phase 10 is left** (a plan, not
+estimated). The decisions in section 12 are taken as
 recommended, D1 to D12.** The owner's ask when building started: "recipes variations, per revenue stream/order type
 matrix, and per location (or ability to link a different recipe to menu items in different locations)",
 "stock take module" and "reports". The variation matrix is part of phase 2's links (5.4).
@@ -346,7 +349,7 @@ Each thing that moves stock is its own record:
 | Waste | `stock_waste` | New |
 | Transfer | `stock_transfers`, `stock_transfer_lines` | New |
 | Adjustment | `stock_adjustments` (a reason is required) | New |
-| Return to supplier | `purchase_returns`, lines | New, phase 9 |
+| Return to supplier | `purchase_returns`, `purchase_return_lines` | Built in phase 9b (migration 321): kind `return` |
 | Usage from sales | `stock_usage_days` | New, section 7 |
 | Production | `stock_production` | New, phase 10 |
 
@@ -393,7 +396,12 @@ three kinds: spoilage, preparation, plate.
   transit). Cancelling a sent transfer brings the stock back. Valued at the sender's average cost.
 - **Adjustments** for what fits nothing else, always with a reason.
 - **Returns and credit notes** against a delivery: lines, a reason, credit expected and received.
-  Receiving's line statuses (short, damaged, missing) stay as they are.
+  Receiving's line statuses (short, damaged, missing) stay as they are. *Built in phase 9b (migration 321): a return is
+  against one booked-in delivery, its lines that delivery's (never more than arrived, less what other returns took), each
+  with a reason (damaged, wrong item, short dated, quality, other) and the credit expected at the price paid; open, sent
+  (emailed with a PDF or marked sent), credited (the credit note's number and amount) or refused; cancelled moves nothing.
+  The stock goes out when the return is made (a `return` move), and variance's returns term reads the same moves. A
+  damaged line can start a return filled in.*
 
 ## 7. Usage from sales
 
@@ -586,7 +594,8 @@ cost, GP, plate cost, shrinkage, wastage, stocktake) and re-run the smart builde
 
 - Today tasks: a count due (from the rota), a count waiting for approval, a transfer to receive,
   variance to review, dishes over their cost target, allergen checks reopened. Set-up gaps for
-  Home: no storage areas, top sellers without a recipe, items with no price.
+  Home: no storage areas, top sellers without a recipe, items with no price. *Phase 9b: credit notes still owed 14 days
+  after the goods went back to the supplier (Chase the credit note, for Purchasing approval).*
 - Dashboard widgets: food cost % actual and theoretical, waste this week by reason, top variance
   items, margin by menu. An Overview tile for stock.
 - *As built (phase 6b): the widgets read routes, not report subjects (top variance items is the newest
@@ -603,7 +612,9 @@ cost, GP, plate cost, shrinkage, wastage, stocktake) and re-run the smart builde
   suggestion for a venue with the working, by names; it orders nothing*).
 - Change: `log_waste` (reversible, with Undo), `count_stock` (extended to areas and units),
   `send_transfer` / `receive_transfer`, `read_recipes` (drafts only), `link_recipes`,
-  `save_scenario`. Every change tool gets its Activity words and its place in the registry. *As built (phase 7a):
+  `save_scenario`. Every change tool gets its Activity words and its place in the registry. *Phase 9b: `start_return`
+  (consequential, Purchasing Use: goods from a booked-in delivery back to the supplier; sending and the credit note stay
+  on the page).* *As built (phase 7a):
   `menu_engineering` (read) and `save_scenario` (consequential, confirms with the figures at the mix; pushing
   prices and publishing stay on the pages). Phase 7b: `why_cost_changed` (read), a dish's cost now against a day's
   supplier prices on today's recipe, from the price history.*
@@ -636,11 +647,17 @@ scale; steps that follow the same day run nearer half.
 | 6 | **Built 27 Nov 2026.** 6a: periods and variance; actual and theoretical food cost; `explain_variance`; variance to review on Today. 6b: the Cash Recon line; widgets and the Overview tile; dishes over target on Today, Home's set-up gaps; rule triggers | A pound figure on the gap, per item and venue | 70 to 90 |
 | 7 | **Built 27 Nov 2026.** 7a: engineering from real sales; scenarios; what-if; push prices. 7b: price creep and its rule trigger, cost alerts, `why_cost_changed` | Pricing decisions made in the app | 60 to 80 |
 | 8 | **Built 27 Nov 2026.** 8a: allergens on supplier products, the roll-up check, accept and dismiss, the Allergens tab, Pepper and reports. 8b: reopening on changes, its Today item, substitutes, suggested calories | Declared allergens checked against recipes | 50 to 65 |
-| 9 | 9a **built 27 Nov 2026**: suggested orders from usage and bookings, kept beside what was ordered. 9b, next: returns and credit notes | Orders proposed, not just listed | 60 to 80 |
+| 9 | **Built 27 Nov 2026.** 9a: suggested orders from usage and bookings, kept beside what was ordered. 9b: returns and credit notes, the return move on the ledger and variance's returns term | Orders proposed, not just listed | 60 to 80 |
 | 10 | Later, not estimated: production of prep batches held as stock, labels, a central kitchen, recipe packs passed from a franchisor to its franchisees, GloriaFood through the mapping tool, remakes with dish ids | | |
 
 Phases 1 to 9: about 610 to 780 minutes. Phases 1 to 3 give costing; 4 to 6 give stock control;
 either half is useful alone, and 4 can be built beside 2 and 3 by a second agent.
+
+**Where it stands (27 Nov 2026): phases 1 to 9 are built; phase 10 is left.** Phases 1, 2, 3 and 5 were one pull request
+each; phases 4, 6, 7, 8 and 9 were each split into two pull requests, a and b (4a stocktake and the ledger, 4b waste and
+transfers; 6a periods and variance, 6b food cost beyond the period; 7a engineering and scenarios, 7b price creep; 8a the
+allergen check, 8b reopening on changes and calories; 9a suggested orders, 9b returns and credit notes). What each left
+is in `docs/claude/outstanding/` (recipes 69 to 71 and 78 to 81, stock 72 to 82, purchasing 83).
 
 ### Phase 1 as built (27 Nov 2026)
 
@@ -1018,7 +1035,41 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
   day's bookings are never complete; on order for a suggestion is what arrives before the delivery after next, not every
   placed order (up to par is unchanged); an item sales never used (no recipe, cleaning stock) falls back to its par, and with
   no par it isn't suggested; the suggestion is kept on the restaurant order's line (the latest one), not in a table of its own;
-  phase 9 is split in two, returns and credit notes (9b) still to come. Limits: `docs/claude/outstanding/stock.md` item 82.
+  phase 9 is split in two, returns and credit notes (9b, built the same day). Limits: `docs/claude/outstanding/stock.md` item 82.
+
+### Phase 9b as built (27 Nov 2026)
+
+- **Migration** 321 (`purchase_returns`: the group's running number RT-00012, the venue, the delivery `po_id`, the supplier,
+  status open | sent | credited | refused | cancelled, a note for the supplier, `returned_at`, the credit expected and its VAT,
+  who sent it how and when, the credit note's number, date and amount, refused and cancelled with notes, the history;
+  `purchase_return_lines`: the delivery line, the item and the supplier's copy of the product, the line's own pack, packs and
+  base units, the price and VAT paid, the credit expected, the reason and a note; both RLS forced). Purchasing's area.
+- **The rule** `shared/returns.js` (rule 12): what can go back (`returnableLines()`: what arrived less what returns not
+  cancelled took), a damaged line filled in (`returnPrefill()`; a substituted one as the wrong item), the checks
+  (`returnLinesProblem()`, `returnedAtProblem()`: now or up to 14 days back, never before the delivery was booked in), the
+  credit (`returnTotals()` on `lineAmounts()`, the price paid: the invoice's, else the price ordered at), what may be done
+  (`returnActions()`), owed and overdue (`creditOverdue()`, 14 days).
+- **The API** `routes/purchaseReturns.js` (`/api/purchasing`): a delivery's returns and what can go back, start (Purchasing
+  Use, or approval), the list (owed, overdue, `at`), one, the file (PDF through `pdfDoc.js`, HTML), email (after the
+  transaction, as `emailPo()`), mark sent, the credit note (its amount only from someone who sees prices), refused, cancel;
+  `services/purchaseReturnsSvc.js`. Correct the delivery can't book in fewer than went back. The `purchasing` module gains a
+  **Use** level (starting returns); sending, the credit note and refused are Purchasing approval's.
+- **The ledger** (the stock area): a `return` move source (`returnMoves`, `MOVE_KINDS.return`, valued at the price paid and
+  marked `paid` like a delivery), `returned_since` on hand, and variance's returns term (`itemVariance()`) read from the same
+  moves, with its evidence; stock moves and variance reports carry it.
+- **Pages**: a booked-in delivery's Returns card (a damaged line's Return it, Return items), the return's sheet (email, mark
+  sent, the credit note, refused, cancel, PDF, print), and the Purchasing page's Returns tab (credits owed first, those
+  waiting 14 days marked; `?tab=returns&return=`), all in `components/purchasing/returns.jsx` (lazy); on the phone too.
+- **Pepper** `start_return` (consequential, needs Use: the delivery by number or the supplier's latest, the lines by name or
+  code, the damaged lines when none are named; refs, never ids). **Today**: Chase the credit note, for Purchasing approval,
+  14 days after the goods went back; orders to send and deliveries to book in keep needing Purchasing manage
+  (`taskLevel()`). **Reports**: Returns to suppliers, Return lines, the starter Credits still owed; synonyms return, credit
+  note, credit, refund from supplier.
+- **What the build changed in the plan**: a return is against one delivery's lines, so what goes back is limited to what
+  arrived (a shortage has nothing to return: its credit stays the delivery note); the stock goes out when the return is made,
+  not when it is credited, and a cancelled return moves nothing while a refused one stays out (the goods went); the credit
+  is before VAT and doesn't feed the average or last paid price; "Purchasing Use" meant giving the purchasing module a Use
+  level, which needed Today's purchasing tasks to keep Manage. Limits: `docs/claude/outstanding/purchasing.md` item 83.
 
 ## 12. Decisions for the owner
 

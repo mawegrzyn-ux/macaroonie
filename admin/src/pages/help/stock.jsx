@@ -306,7 +306,7 @@ export function Section() {
       <DataTable
         head={['Figure', 'What it is']}
         rows={[
-          ['Actual usage', 'The opening count, plus what was received and sent here from another venue, less what was sent away (and lost on the way), less the closing count.'],
+          ['Actual usage', 'The opening count, plus what was received and sent here from another venue, less what was sent away (and lost on the way), less what went back to the supplier on a return, less the closing count.'],
           ['Theoretical', 'What sales took off by their recipes in the period (the Usage tab). Late sales from a closed period that landed here are marked.'],
           ['Waste', 'Waste logged, and dishes voided on the till as wasted.'],
           ['Variance', 'Actual less theoretical: above zero, more was used than sales explain.'],
@@ -339,8 +339,9 @@ export function Section() {
         Tap an item for its figures and <strong>Why it may be</strong>: what the documents say about it in the
         period, each with where to put it right. Dishes sold without a recipe that may use it (by their names),
         deliveries changed after the count, on hand going below zero (a delivery not booked in, or a recipe taking
-        too much off), a unit that changed, waste logged, adjustments, transfers not received yet, late sales from a
-        closed period, and remakes the kitchen logged (they aren&apos;t taken off as usage yet). <strong>Between its
+        too much off), a unit that changed, waste logged, adjustments, transfers not received yet, goods returned to
+        the supplier (taken out of actual usage, so not loss), late sales from a closed period, and remakes the kitchen
+        logged (they aren&apos;t taken off as usage yet). <strong>Between its
         counts</strong> shows the item&apos;s figures between each pair of its counts in the period.
       </P>
       <H3>Closing and reopening a period</H3>
@@ -472,6 +473,15 @@ export function Section() {
         The forecast reads usage from sales, so it is as good as the recipes: a dish with no recipe uses nothing, and
         its items look quieter than they are. Weather and local events don&apos;t count yet.
       </InfoBox>
+      <H3>Goods returned to the supplier</H3>
+      <P>
+        A return to the supplier (Purchasing, a delivery&apos;s <strong>Return items</strong>: see Purchasing, Returns to
+        the supplier and credit notes) takes the goods off stock at the venue the moment it is made, or at the
+        delivery&apos;s time when they went back with the driver. On hand says <em>returned</em> beside the item, its
+        history shows the return (valued at what was paid, for people who see purchasing prices), a count&apos;s expected
+        figure leaves it out, and variance takes it out of actual usage. Cancelling a return puts the stock back as it
+        was; a refused one stays off (the goods went).
+      </P>
     </section>
   )
 }

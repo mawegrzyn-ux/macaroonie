@@ -525,6 +525,43 @@ export function Section() {
         worked out on: if the line has moved to another pack or supplier since, it says which pack it was in, and Use
         orders the same amount in the line&apos;s own packs (4 x 5 kg becomes 2 x 10 kg).
       </P>
+      <H3>19. Returns to the supplier and credit notes</H3>
+      <P>
+        When goods from a delivery go back to the supplier (damaged, the wrong item, short dated or poor quality),
+        record a <strong>return</strong> against that delivery once it is booked in. What goes back comes off stock at
+        the venue straight away, and the credit you expect for it (what you paid, before VAT) is chased until the
+        supplier&apos;s <strong>credit note</strong> comes. Marking a line Damaged when you book the delivery in stays as it
+        was (it is the delivery check&apos;s record); a return is what you then send back.
+      </P>
+      <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+        <li>Open the delivery (Deliveries, then the order). Under its lines, <strong>Returns to</strong> the supplier lists its returns. A line booked in as damaged (or with something else in its place) offers <strong>Return it</strong>, filled in: all that is left of it, the reason and the delivery&apos;s note.</li>
+        <li>Or tap <strong>Return items</strong>: tick each line going back, set the packs (never more than arrived, less what other returns took), pick why, add a note (Other needs one), and say whether it goes back <strong>Now</strong> or went back <strong>With the delivery</strong> (the driver took it). Tap <strong>Return</strong>.</li>
+        <li>Send it to the supplier: <strong>Email to</strong> their address sends it with a PDF (the return&apos;s lines, why, the price paid and the credit expected), or <strong>Mark as sent</strong> when it went another way (handed to the driver, phoned, on their website). <strong>PDF</strong> and <strong>Print</strong> give the same document.</li>
+        <li>When their credit note comes, tap <strong>Credit note came</strong>: its number, its date and the amount before VAT (the amount only for people who see purchasing prices; someone else can add it later). A different amount than expected is shown beside it. <strong>Refused</strong>, with why, when the supplier won&apos;t credit it: the goods stay off stock.</li>
+        <li>Not going back after all? <strong>Cancel return</strong> (asked twice) puts the stock back as it was. A return that has gone to the supplier can only be cancelled by someone with Purchasing approval, and a credited or refused one not at all.</li>
+      </ol>
+      <DataTable
+        head={['Status', 'What it means']}
+        rows={[
+          ['Open', 'Made: the stock has gone out, the supplier not told yet.'],
+          ['Sent', 'Emailed to the supplier, or marked sent: waiting for the credit note.'],
+          ['Credited', 'Their credit note came (its number, and the amount).'],
+          ['Refused', 'The supplier won\'t credit it. The goods stay off stock: if they are still here, cancel the return instead.'],
+          ['Cancelled', 'Not returned: nothing went out.'],
+        ]}
+      />
+      <P>
+        The <strong>Returns</strong> tab (beside Order and Deliveries) lists the venue&apos;s returns, the credits still
+        owed first; one waiting 14 days or more since the goods went back says so, and is on <strong>Today</strong> as{' '}
+        <em>Chase the credit note</em> for whoever can record it. Who can do what: starting a return (and cancelling one
+        not sent yet) needs Purchasing at <strong>Use</strong> or more (a role can be given Use to return goods without
+        ordering); sending it, the credit note and refused need <strong>Purchasing approval</strong>. Prices and money
+        show only to people who see purchasing prices. Stock shows what went back as <em>returned</em> on the item&apos;s
+        history, and variance takes it out of actual usage, so goods sent back aren&apos;t counted as loss. The report
+        starter <strong>Credits still owed</strong> lists each supplier&apos;s returns waiting for a credit note. Pepper
+        can start a return too (&quot;send back the two crushed cases of chicken from today&apos;s Brakes delivery&quot;);
+        sending it and the credit note stay on this page.
+      </P>
       <InfoBox type="info">
         All of this can also be done by chat with Pepper (Ask Pepper): ordering, booking deliveries
         in, changing prices and importing a supplier's price list from a PDF or photo. Pepper understands
