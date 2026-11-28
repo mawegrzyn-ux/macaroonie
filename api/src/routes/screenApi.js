@@ -20,6 +20,11 @@
 //                               New device for this screen pairs it again with its boards
 //   GET  /orders                order numbers for the Order status block (kitchen
 //                               screens: services/kitchenSvc.js boardFor())
+//   GET  /tech                  the venue's kit for the Store status block (28 Nov
+//                               2026): the words its hexagons show (shared/techBoard.js
+//                               screenTiles(): kind, name, tone, word, last seen) and
+//                               the platform's light; only for a screen one of whose
+//                               boards has the block (404 no_block otherwise)
 //   GET  /time                  (no auth) { now } in ms: screens set their clock
 //                               from a few of these (lowest round trip wins), so
 //                               a wall's screens change boards together
@@ -45,7 +50,10 @@ import {
   sha256, newSecret, newScreenCode, normaliseScreenCode, sameHash, verifyScreen, PAIRING_MINUTES,
   forgetScreen,
 } from '../services/screenAuth.js'
-import { screenConfig, liveScreenConfig, liveBoardConfig } from '../services/screenSvc.js'
+import { screenConfig, liveScreenConfig, liveBoardConfig, screenShowsBlock } from '../services/screenSvc.js'
+import { loadTechBoard } from '../services/techBoardSvc.js'
+import { lightStatus } from '../services/platformStatus.js'
+import { techTiles, screenTiles } from '../../../shared/techBoard.js'
 import { hubFor } from '../services/hubFirstSvc.js'
 import { linkCodeTaken, linkUrl } from '../services/linkCodes.js'
 import { boardFor, readKitchenLiveToken } from '../services/kitchenSvc.js'
@@ -173,6 +181,21 @@ export default async function screenApiRoutes(app) {
       const s = req.screen
       reply.header('Cache-Control', 'no-store')
       return { orders: await boardFor(s.tenant_id, s.venue_id, { clearMins: 120 }), server_time: new Date().toISOString() }
+    })
+
+    // The venue's kit for the Store status block: its own venue only, the
+    // words the block draws only (no ids, addresses, serials or errors).
+    scoped.get('/tech', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
+      const s = req.screen
+      reply.header('Cache-Control', 'no-store')
+      const board = await withTenant(s.tenant_id, async tx => (
+        await screenShowsBlock(tx, s.tenant_id, s.id, 'tech_status')
+          ? loadTechBoard(tx, s.tenant_id, s.venue_id, { kit: true, screens: true })
+          : null
+      ))
+      if (!board) throw httpError(404, 'None of this screen\'s boards has a Store status block', { code: 'no_block' })
+      const light = await lightStatus().catch(() => null)
+      return { tiles: screenTiles(techTiles(board)), light: light?.state || null, checked_at: board.checked_at, server_time: new Date().toISOString() }
     })
 
     scoped.post('/heartbeat', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async req => {

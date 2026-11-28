@@ -292,6 +292,12 @@ let ordersSoon = null
 let pullKey = null
 let wsDelay = 2000
 let wsOpenedBefore = false
+// The venue's kit for Store status blocks (config.needs_tech, 28 Nov 2026):
+// fetched on start and every TECH_EVERY_MS; drawn again each time, so an
+// offline tile's "seen 4 min ago" moves on.
+const TECH_EVERY_MS = 45_000
+let tech = null
+let techTimer = null
 
 function startPaired() {
   if (config) applyConfig()
@@ -300,6 +306,7 @@ function startPaired() {
   connect()
   setPullTimers(true)
   clearInterval(beatTimer); beatTimer = setInterval(heartbeat, HEARTBEAT_MS)
+  clearInterval(techTimer); techTimer = setInterval(fetchTech, TECH_EVERY_MS)
   clearInterval(tickTimer); tickTimer = setInterval(tick, 5000)
   clearInterval(clockTimer); clockTimer = setInterval(syncClock, 10 * 60_000)
   clearInterval(videoTimer); videoTimer = setInterval(syncVideos, 1000)
@@ -341,7 +348,7 @@ function setPullTimers(force) {
 
 function stopPaired() {
   clearInterval(pollTimer); clearInterval(beatTimer); clearInterval(tickTimer); clearInterval(clockTimer); clearInterval(videoTimer)
-  clearInterval(ordersTimer); clearTimeout(ordersSoon)
+  clearInterval(ordersTimer); clearTimeout(ordersSoon); clearInterval(techTimer)
   clearTimeout(slotTimer); clearTimeout(prepTimer); clearTimeout(replayTimer); clearTimeout(wsTimer)
   if (ws) { ws.onclose = null; try { ws.close() } catch { /* closed */ } ws = null }
 }
@@ -544,10 +551,22 @@ async function fetchOrders() {
   } catch { /* offline: keep the last numbers */ }
 }
 
+// The venue's kit (Store status blocks): only this screen's venue, only the words the block draws.
+async function fetchTech() {
+  if (!device || LIVE || !config?.needs_tech) return
+  try {
+    const r = await api('/screen-api/tech', { auth: screenAuth() })
+    setServerTime(r.server_time)
+    tech = { tiles: Array.isArray(r.tiles) ? r.tiles : [], light: r.light || null }
+    redraw()
+  } catch { /* offline: keep the last */ }
+}
+
 function applyConfig() {
   hidePanel()
   if (pollTimer) setPullTimers()
   if (config.needs_orders && !orders) fetchOrders()
+  if (config.needs_tech && !tech) fetchTech()
   fontsFor(Object.values(config.designs || {}))
   cacheVideos()
   schedule({ fresh: true })
@@ -615,6 +634,8 @@ function buildLayer(item, { hidden = false } = {}) {
     now: now(), tz: config.venue?.timezone, width: design.width, height: design.height,
     // A real screen never shows the designer's example numbers.
     orders: { ...(orders || { preparing: [], ready: [] }), changes: keepOrderChanges(orderMoves, nowMs()) },
+    // Nor example kit: "Checking" until the first answer; the live view doesn't read the kit.
+    tech: LIVE ? { hidden: true } : (tech || { pending: true }),
   })
   const html = renderBoardHtml(ctx)
   const layer = document.createElement('div')
