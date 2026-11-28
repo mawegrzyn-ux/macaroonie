@@ -57,6 +57,7 @@ import {
   deadlinePassed, quickOrder, quickOrderCsv, outOfStock, parStock, PAR_MODES,
 } from '@shared/procurement.js'
 import { ASSISTANT_NAME } from '@shared/assistant.js'
+import { waitSuggestions, unwaitSuggestion, putBackQuantities } from '@shared/forecast.js'
 import {
   InvoiceReader, readingToForm, extraOf, extraProblem, InvoiceLineNote, ExtrasSection, PriceListModal, InvoiceList,
   ItemPickModal, manualExtra, priceTyped,
@@ -348,10 +349,10 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
   const fill = useFormFill()
   const [pepper, setPepper] = useState(null)   // { item_id: qty } still waiting for the person
   const [pepperMissing, setPepperMissing] = useState([])
-  // Suggest (inventory phase 9a): the quantities waiting for OK, what each line had before (Put back),
-  // the latest suggestion's working per line, and what the last Suggest did.
+  // Suggest (inventory phase 9a): the quantities waiting for OK, each with what its line had before
+  // (Put back: { item_id: { qty, before } }, gone with the mark), the latest suggestion's working per
+  // line, and what the last Suggest did.
   const [suggested, setSuggested] = useState({})
-  const [suggestBefore, setSuggestBefore] = useState({})
   const [suggestInfo, setSuggestInfo] = useState({})
   const [suggestNote, setSuggestNote] = useState(null)
   const [suggesting, setSuggesting] = useState(false)
@@ -400,6 +401,8 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
   const reload = fresh => {
     qc.setQueryData(['supply-order', orderId], fresh)
     setLines(Object.fromEntries(fresh.items.map(it => [it.item_id, { qty: it.qty, quote_id: it.quote?.id ?? null }])))
+    // Their quantities are gone from the lines, so nothing is waiting for OK or to be put back.
+    setSuggested({})
     qc.invalidateQueries({ queryKey: ['supply-orders'] })
   }
   const withdraw = useMutation({ mutationFn: () => api.post(`/purchasing/orders/${orderId}/withdraw`), onSuccess: reload })
@@ -425,16 +428,20 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
   // A change to a line Pepper filled, or Suggest filled, takes its mark off.
   const setQty = (it, qty) => {
     if (pepper && it.item_id in pepper) setPepper(p => { const n = { ...p }; delete n[it.item_id]; return n })
-    if (it.item_id in suggested) setSuggested(p => { const n = { ...p }; delete n[it.item_id]; return n })
+    if (it.item_id in suggested) setSuggested(p => unwaitSuggestion(p, it.item_id))
     const q = quoteOf(it)
     setLines(l => ({ ...l, [it.item_id]: { ...l[it.item_id], qty, ...(q ? { quote_id: q.id } : {}) } }))
     save.queue({ item_id: it.item_id, qty, ...(q ? { quote_id: q.id } : {}) })
   }
-  // Another supplier or pack keeps the amount: 3 x 5 kg becomes 2 x 10 kg.
+  // Another supplier or pack keeps the amount: 3 x 5 kg becomes 2 x 10 kg. It is saved, so a
+  // waiting mark comes off as for a typed change: OK would put the count in packs of the old price
+  // on the new one.
   const setQuote = (it, quoteId) => {
     const from = quoteOf(it) || it.gone?.quote || null
     const to = it.quotes.find(q => q.id === quoteId)
     const qty = from && to ? convertQty(qtyOf(it), from, to) : qtyOf(it)
+    if (pepper && it.item_id in pepper) setPepper(p => { const n = { ...p }; delete n[it.item_id]; return n })
+    if (it.item_id in suggested) setSuggested(p => unwaitSuggestion(p, it.item_id))
     setLines(l => ({ ...l, [it.item_id]: { ...l[it.item_id], qty, quote_id: quoteId } }))
     save.queue({ item_id: it.item_id, qty, quote_id: quoteId })
   }
@@ -457,26 +464,28 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
     try {
       await save.flush()
       const r = await api.post(`/purchasing/orders/${orderId}/suggest`, { supplier_id: supplier.id })
-      const waitingNew = {}, before = {}, info = {}
+      const made = {}, info = {}
       for (const l of r.lines) {
         if (!l.kept) continue
-        info[l.item_id] = { qty: l.qty, basis: l.basis, summary: l.summary, words: l.words }
+        info[l.item_id] = {
+          qty: l.qty, base: l.suggested_base, quote_id: l.quote_id, pack_label: l.pack_label,
+          basis: l.basis, summary: l.summary, words: l.words,
+        }
         const it = order.items.find(x => x.item_id === l.item_id)
         if (!it || Number(l.qty) === qtyOf(it)) continue
-        waitingNew[l.item_id] = l.qty
-        before[l.item_id] = qtyOf(it)
+        made[l.item_id] = { qty: l.qty, current: qtyOf(it) }
       }
-      setSuggested(p => ({ ...p, ...waitingNew }))
-      setSuggestBefore(p => ({ ...before, ...p }))
+      // A line still waiting from an earlier Suggest keeps what it had before that one (waitSuggestions()).
+      setSuggested(p => waitSuggestions(p, made))
       setSuggestInfo(p => ({ ...p, ...info }))
       setLines(prev => {
         const next = { ...prev }
-        for (const [id, qty] of Object.entries(waitingNew)) next[id] = { ...next[id], qty }
+        for (const [id, m] of Object.entries(made)) next[id] = { ...next[id], qty: m.qty }
         return next
       })
       setSuggestNote({
-        supplier: r.supplier_name, after: r.after, changed: Object.keys(waitingNew).length,
-        same: Object.keys(info).length - Object.keys(waitingNew).length, none: r.lines.filter(l => !l.kept).map(l => l.name),
+        supplier: r.supplier_name, after: r.after, changed: Object.keys(made).length,
+        same: Object.keys(info).length - Object.keys(made).length, none: r.lines.filter(l => !l.kept).map(l => l.name),
       })
       setSuggesting(false)
       qc.invalidateQueries({ queryKey: ['supply-order', orderId] })
@@ -532,13 +541,15 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
   const okPepper = it => setQty(it, pepper[it.item_id])
   const okAllPepper = () => { for (const it of order.items) if (waiting.includes(it.item_id)) setQty(it, pepper[it.item_id]) }
   const suggestWaiting = Object.keys(suggested)
-  const okSuggest = it => setQty(it, suggested[it.item_id])
-  const okAllSuggest = () => { for (const it of order.items) if (it.item_id in suggested) setQty(it, suggested[it.item_id]) }
-  // Put back: the lines as they were before Suggest (never saved, so the server has them already).
+  const okSuggest = it => setQty(it, suggested[it.item_id].qty)
+  const okAllSuggest = () => { for (const it of order.items) if (it.item_id in suggested) setQty(it, suggested[it.item_id].qty) }
+  // Put back: the lines as they were before Suggest. A waiting quantity is never saved (OK, a typed
+  // change, another price and the server's lines all take the mark off), so the server has these already.
   const putBack = () => {
+    const back = putBackQuantities(suggested)
     setLines(prev => {
       const next = { ...prev }
-      for (const id of suggestWaiting) next[id] = { ...next[id], qty: suggestBefore[id] ?? 0 }
+      for (const [id, qty] of Object.entries(back)) next[id] = { ...next[id], qty }
       return next
     })
     setSuggested({})
@@ -589,7 +600,7 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo, onOpenOrd
             className={cn(btn.outline, onlyQty && 'bg-primary/10 border-primary')}>{onlyQty ? 'Showing ordered' : 'Only ordered'}</button>
           {hasPars && editable && <button type="button" className={btn.outline} onClick={fillPars}>Fill to par</button>}
           {suggestSuppliers.length > 0 && (
-            <button type="button" className={btn.outline} onClick={() => { setSuggestError(null); setSuggesting(true) }} data-testid="order-suggest">
+            <button type="button" className={cn(btn.outline, 'min-h-[48px]')} onClick={() => { setSuggestError(null); setSuggesting(true) }} data-testid="order-suggest">
               <Wand2 className="w-4 h-4" />Suggest
             </button>
           )}
@@ -949,7 +960,7 @@ function OrderRow({ it, quote, gone, qty, view, hasPars, hasExtras, readOnly, as
           {asked != null && asked !== qty && <p className="text-xs text-blue-800">Asked for {fmtNum(asked)}</p>}
           {pepper && <PepperMark k={'items:' + it.item_id} onAccept={onPepperOk} />}
           {suggest && <SuggestMark basis={suggestion?.basis} onAccept={onSuggestOk} />}
-          {suggestion && <SuggestWorking s={suggestion} kept={!suggest} qty={qty} readOnly={readOnly || !!gone} onUse={onQty} />}
+          {suggestion && <SuggestWorking s={suggestion} kept={!suggest} qty={qty} quote={quote} quotes={it.quotes} readOnly={readOnly || !!gone} onUse={onQty} />}
         </div>
         {(parBtn || removeBtn) && <div className="sm:hidden flex items-center gap-1 shrink-0">{parBtn}{removeBtn}</div>}
       </div>

@@ -12,9 +12,9 @@
 // worked out: stock_usage_marks; a day it worked out with no use of the item
 // counts as none), scaled by the covers booked for that day against the
 // usual for that weekday by the same point (coversFactor(): booked so far
-// against what had been booked as far ahead on each of those weekdays). A
-// weekday never worked out in those weeks takes the average day of those
-// that were. An item sales took nothing of in those weeks has no history:
+// against what had been booked as far ahead on each of those weekdays the
+// venue was already taking bookings: bookedCovers()). A weekday never
+// worked out in those weeks takes the average day of those that were. An item sales took nothing of in those weeks has no history:
 // its suggestion is up to its par instead (suggestedOrder()).
 //
 // The suggested order for an item of a supplier:
@@ -36,7 +36,8 @@
 //   historyDays(today, weeks)                    the trading days the forecast looks back over
 //   deliveryAfter(settings, date)                the supplier's delivery day after `date`
 //   windowDays(today, after)                     the trading days from today up to the delivery after next
-//   bookedCovers(bookings, { days, now, weeks }) booked and usual covers by the same point, per day
+//   bookedCovers(bookings, { days, now, weeks, since }) booked and usual covers by the same point, per day
+//                                                (only the weeks since the venue started taking bookings)
 //   coversFactor({ booked, usual })              the scaling and its words
 //   weekdayUsage(history, weekday)               an item's usual use on a weekday
 //   hasHistory(history)                          whether sales used the item in those weeks
@@ -44,12 +45,15 @@
 //   forecastUsage({ history, days, unit })       the forecast over a window, with its words
 //   suggestedOrder({ forecast, par_base, stock, quote, buffer_pct, unit, after })
 //   quantityWords(qty, unit)                     "6.2 kg", "350 g", "12 each"
+//   suggestionPacks(s, quote, quotes)            a suggestion in packs of the price its line is on now
+//   waitSuggestions(waiting, made), unwaitSuggestion(waiting, itemId), putBackQuantities(waiting)
+//                                                the order form's suggestions waiting for OK, and Put back
 //
 // Quantities are in the item's base unit (g, ml or each); days are trading
 // days 'YYYY-MM-DD' (the till's day start, 04:00 when none is set: a day's
 // weekday is its trading day's).
 
-import { addDays, weekdayOf, dayText, deliveryDateChoices, packsToPar, parPacks, packLabel, fmtNum } from './procurement.js'
+import { addDays, weekdayOf, dayText, deliveryDateChoices, packsToPar, parPacks, packLabel, fmtNum, convertQty } from './procurement.js'
 
 export const FORECAST_WEEKS = 4
 export const BUFFER_PCT_DEFAULT = 10
@@ -127,26 +131,40 @@ export function windowDays(today, after) {
  * what had been booked for that day by the same point before it (created at
  * or before `now` less those weeks), so a day a week off is compared with
  * what was booked a week off before, not with how those days ended.
- * -> Map day -> { booked, usual } (usual null when none of those days had any).
+ *
+ * Only the weeks the venue was already taking bookings by that point count
+ * (since: when it started, its first booking's created_at; the earliest
+ * booking given when left out): a venue two weeks into bookings averages
+ * those two weeks, not four with two empty ones, as weekdayUsage() averages
+ * only the days the usage job worked out.
+ * -> Map day -> { booked, usual } (usual null when none of the weeks that
+ * count had any bookings for that weekday, or no week counts yet).
  */
-export function bookedCovers(bookings, { days, now, weeks = FORECAST_WEEKS }) {
+export function bookedCovers(bookings, { days, now, weeks = FORECAST_WEEKS, since = null }) {
   const at = new Date(now).getTime()
   const byDay = new Map()
+  let first = null
   for (const b of bookings || []) {
     if (!byDay.has(b.day)) byDay.set(b.day, [])
-    byDay.get(b.day).push({ covers: num(b.covers), at: new Date(b.created_at).getTime() })
+    const made = new Date(b.created_at).getTime()
+    byDay.get(b.day).push({ covers: num(b.covers), at: made })
+    if (Number.isFinite(made) && (first == null || made < first)) first = made
   }
+  const started = since != null && Number.isFinite(new Date(since).getTime()) ? new Date(since).getTime() : first
   const out = new Map()
   for (const day of days || []) {
     const booked = (byDay.get(day) || []).reduce((n, b) => n + b.covers, 0)
-    let total = 0, any = false
+    let total = 0, counted = 0, any = false
     for (let k = 1; k <= weeks; k++) {
-      const past = byDay.get(addDays(day, -7 * k)) || []
       const by = at - 7 * k * DAY
+      // Not taking bookings yet by then: an empty week that says nothing about the pace.
+      if (started == null || by < started) continue
+      const past = byDay.get(addDays(day, -7 * k)) || []
+      counted++
       if (past.length) any = true
       total += past.filter(b => b.at <= by).reduce((n, b) => n + b.covers, 0)
     }
-    out.set(day, { booked, usual: any ? round4(total / weeks) : null })
+    out.set(day, { booked, usual: any && counted ? round4(total / counted) : null })
   }
   return out
 }
@@ -307,4 +325,54 @@ export function suggestedOrder({ forecast, par_base = null, stock = {}, quote, b
     buffer_base: buffer, target_base: target, need_base: need, pack_base_qty: packBase || null, raised,
     summary, words,
   }
+}
+
+/**
+ * A suggestion in packs of the price a line is on now (`quote`). A
+ * suggestion is a count of packs of the price it was worked out on
+ * (s.quote_id); on another pack or supplier the amount is kept, as switching
+ * a line's price keeps it (convertQty(): 4 x 5 kg is 2 x 10 kg), from that
+ * price when it is among the line's (`quotes`), else from the amount
+ * suggested (s.base, in the item's base unit). s = { qty, quote_id, base }.
+ * -> packs, or null when it can't be said.
+ */
+export function suggestionPacks(s, quote, quotes = []) {
+  if (s?.qty == null) return null
+  const n = num(s.qty)
+  if (!quote || !s.quote_id || s.quote_id === quote.id) return n
+  const from = (quotes || []).find(q => q.id === s.quote_id)
+    || (num(s.base) > 0 && n > 0 ? { pack_base_qty: num(s.base) / n } : null)
+  return from ? convertQty(n, from, quote) : null
+}
+
+/**
+ * The order form's suggestions waiting for OK: { [item_id]: { qty, before } },
+ * `before` what the line had before Suggest, which Put back restores (the
+ * server has it: a waiting quantity is never saved). waitSuggestions() puts a
+ * Suggest's quantities on their lines (made: { [item_id]: { qty, current } },
+ * current the line's quantity now): a line still waiting from an earlier
+ * Suggest keeps its `before`, any other starts from `current`. OK, a typed
+ * change, another price and the server's own lines take a line's entry off
+ * with its mark (unwaitSuggestion()), so Put back never brings back a
+ * quantity the server no longer has.
+ */
+export function waitSuggestions(waiting, made) {
+  const out = { ...(waiting || {}) }
+  for (const [id, m] of Object.entries(made || {})) {
+    out[id] = { qty: m.qty, before: waiting?.[id] ? waiting[id].before : num(m.current) }
+  }
+  return out
+}
+
+/** The waiting suggestions without one line's (its OK, a change, another price). */
+export function unwaitSuggestion(waiting, itemId) {
+  if (!waiting || !(itemId in waiting)) return waiting
+  const out = { ...waiting }
+  delete out[itemId]
+  return out
+}
+
+/** Put back: each waiting line's quantity before Suggest. -> { [item_id]: qty } */
+export function putBackQuantities(waiting) {
+  return Object.fromEntries(Object.entries(waiting || {}).map(([id, w]) => [id, num(w?.before)]))
 }

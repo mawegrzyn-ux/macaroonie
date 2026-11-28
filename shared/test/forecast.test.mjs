@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 import {
   historyDays, deliveryAfter, windowDays, bookedCovers, coversFactor, weekdayUsage, hasHistory, forecastDay, forecastUsage,
   suggestedOrder, bufferPct, bufferProblem, quantityWords, BUFFER_PCT_DEFAULT, FORECAST_WEEKS, SUGGEST_BASES,
+  suggestionPacks, waitSuggestions, unwaitSuggestion, putBackQuantities,
 } from '../forecast.js'
 import { addDays, weekdayOf, fitQty } from '../procurement.js'
 
@@ -80,6 +81,30 @@ test('covers are compared by the same point: booked so far against what had been
   assert.deepEqual(c.get('2026-12-08'), { booked: 47, usual: 40 }, '(30 + 44 + 42 + 44) / 4')
   assert.equal(coversFactor(c.get('2026-12-08')).words, '18% more covers booked')
   assert.deepEqual(c.get('2026-12-09'), { booked: 0, usual: null }, 'no Wednesdays were booked: nothing to compare')
+})
+
+test('covers: only the weeks the venue was already taking bookings count towards the usual', () => {
+  const now = '2026-12-01T12:00:00Z'
+  const b = (day, covers, created) => ({ day, covers, created_at: created })
+  // A venue that started taking bookings on 16 Nov: 40 covers booked a week ahead on each of the two Tuesdays since.
+  const two = [
+    b('2026-12-08', 40, '2026-11-30T10:00:00Z'),
+    b('2026-12-01', 40, '2026-11-20T10:00:00Z'),
+    b('2026-11-24', 40, '2026-11-16T09:00:00Z'),
+  ]
+  const c = bookedCovers(two, { days: ['2026-12-08'], now })
+  assert.deepEqual(c.get('2026-12-08'), { booked: 40, usual: 40 }, '(40 + 40) / 2: the two weeks before it started say nothing')
+  assert.equal(coversFactor(c.get('2026-12-08')).factor, 1, 'on pace: not scaled up')
+  assert.equal(coversFactor(c.get('2026-12-08')).words, 'as many covers booked as usual')
+  // Told it started earlier (its first booking was for some other day): those weeks booked nothing that far ahead, and count.
+  assert.equal(bookedCovers(two, { days: ['2026-12-08'], now, since: '2026-11-01T00:00:00Z' }).get('2026-12-08').usual, 20, '(40 + 40 + 0 + 0) / 4')
+  // One week in: that week alone.
+  const one = [b('2026-12-08', 50, '2026-11-30T10:00:00Z'), b('2026-12-01', 40, '2026-11-23T10:00:00Z')]
+  assert.deepEqual(bookedCovers(one, { days: ['2026-12-08'], now }).get('2026-12-08'), { booked: 50, usual: 40 })
+  // Taking bookings for less than a week: nothing to compare with yet, so no scaling.
+  const fresh = [b('2026-12-08', 40, '2026-11-30T10:00:00Z')]
+  assert.deepEqual(bookedCovers(fresh, { days: ['2026-12-08'], now }).get('2026-12-08'), { booked: 40, usual: null })
+  assert.equal(coversFactor({ booked: 40, usual: null }).factor, 1)
 })
 
 test("one day's forecast: the weekday's use, scaled, and today's rest after what sales took off so far", () => {
@@ -181,4 +206,36 @@ test('the buffer, and quantities in words', () => {
   assert.equal(quantityWords(350, 'g'), '350 g')
   assert.equal(quantityWords(1500, 'ml'), '1.5 l')
   assert.equal(quantityWords(2.25, 'each'), '2.3 each')
+})
+
+test('a suggestion keeps its amount on another pack or supplier: Use and OK never order its count of the old pack', () => {
+  const bag5 = { id: 'bag5', pack_base_qty: 5000, min_qty: 0, order_multiple: 0 }
+  const sack10 = { id: 'sack10', pack_base_qty: 10000, min_qty: 0, order_multiple: 0 }
+  const s = { qty: 4, quote_id: 'bag5', base: 20000 }
+  assert.equal(suggestionPacks(s, bag5, [bag5, sack10]), 4, 'on the price it was worked out on: as it is')
+  assert.equal(suggestionPacks(s, sack10, [bag5, sack10]), 2, '4 x 5 kg is 2 x 10 kg, never 4 x 10 kg')
+  assert.equal(suggestionPacks(s, sack10, [sack10]), 2, 'its price gone from the line: from the amount suggested')
+  assert.equal(suggestionPacks({ qty: 3, quote_id: 'bag5', base: 15000 }, sack10, [bag5, sack10]), 2, '15 kg in 10 kg sacks: 2, whole packs')
+  assert.equal(suggestionPacks({ ...s, qty: 4 }, { ...sack10, min_qty: 3 }, [bag5]), 3, 'up to the new price\'s minimum')
+  assert.equal(suggestionPacks({ qty: 0, quote_id: 'bag5', base: 0 }, sack10, [bag5]), 0)
+  assert.equal(suggestionPacks({ qty: 4, quote_id: 'bag5' }, sack10, []), null, 'nothing to go by: not said')
+  assert.equal(suggestionPacks({ qty: null }, sack10), null)
+  assert.equal(suggestionPacks({ qty: 4 }, sack10), 4, 'no price kept with it (an older suggestion): as it is')
+})
+
+test('waiting suggestions: Put back brings back what the server has, after OK, a change or a second Suggest', () => {
+  // The line is saved at 2; Suggest proposes 5; OK saves it.
+  let w = waitSuggestions({}, { X: { qty: 5, current: 2 } })
+  assert.deepEqual(w, { X: { qty: 5, before: 2 } })
+  w = unwaitSuggestion(w, 'X')
+  assert.deepEqual(w, {}, 'OK takes the line off, and what it had before with it')
+  // The person types 6 (saved); Suggest proposes 5 again: Put back is 6, the server's, never the 2 of before.
+  w = waitSuggestions(w, { X: { qty: 5, current: 6 } })
+  assert.deepEqual(putBackQuantities(w), { X: 6 })
+  // Suggest twice before OK: the line keeps what it had before the first (5 was never saved).
+  const twice = waitSuggestions(waitSuggestions({}, { Y: { qty: 5, current: 0 } }), { Y: { qty: 7, current: 5 }, Z: { qty: 1, current: 3 } })
+  assert.deepEqual(twice, { Y: { qty: 7, before: 0 }, Z: { qty: 1, before: 3 } })
+  assert.deepEqual(putBackQuantities(twice), { Y: 0, Z: 3 })
+  assert.equal(unwaitSuggestion(twice, 'nope'), twice, 'a line not waiting: unchanged')
+  assert.deepEqual(putBackQuantities({}), {})
 })

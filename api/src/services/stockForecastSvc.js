@@ -12,7 +12,8 @@
 //     cancelled ones) for the window and the same weekdays before it, by
 //     their trading day (the till's day start, 04:00 when none is set), with
 //     when each was made, so booked so far is compared with what had been
-//     booked as far ahead before (bookedCovers());
+//     booked as far ahead before (bookedCovers()), over the weeks since the
+//     venue's first booking was made;
 //   - on hand (the stock area's loadStockOnHand()) and on order: placed
 //     purchase orders not yet received at the venue (to send or sent) whose
 //     delivery day is before the delivery after next, an order's own left out;
@@ -75,19 +76,24 @@ export async function loadHistory(tx, tenantId, venueId, itemIds, today) {
 /**
  * Covers booked for each day and the usual by the same point (bookedCovers()),
  * from the venue's bookings that aren't cancelled, by trading day: a booking
- * at 01:00 is the trading day before's.
+ * at 01:00 is the trading day before's. The usual counts only the weeks the
+ * venue was already taking bookings: since its first booking was made (any
+ * booking, cancelled too, for any day).
  */
 export async function loadCovers(tx, tenantId, venueId, days, { timezone, day_starts_at, now }) {
   if (!days.length) return new Map()
   const first = addDays(days[0], -7 * FORECAST_WEEKS), last = days[days.length - 1]
   const tz = timezone || 'Europe/London'
-  const rows = await tx`
-    SELECT ((b.starts_at AT TIME ZONE ${tz}) - ${day_starts_at}::time::interval)::date::text AS day, b.covers, b.created_at
-      FROM bookings b
-     WHERE b.tenant_id = ${tenantId} AND b.venue_id = ${venueId} AND b.status <> 'cancelled'
-       AND b.starts_at >= ((${first}::date + ${day_starts_at}::time)::timestamp AT TIME ZONE ${tz})
-       AND b.starts_at <  ((${last}::date + 1 + ${day_starts_at}::time)::timestamp AT TIME ZONE ${tz})`
-  return bookedCovers(rows, { days, now })
+  const [rows, [started]] = await Promise.all([
+    tx`
+      SELECT ((b.starts_at AT TIME ZONE ${tz}) - ${day_starts_at}::time::interval)::date::text AS day, b.covers, b.created_at
+        FROM bookings b
+       WHERE b.tenant_id = ${tenantId} AND b.venue_id = ${venueId} AND b.status <> 'cancelled'
+         AND b.starts_at >= ((${first}::date + ${day_starts_at}::time)::timestamp AT TIME ZONE ${tz})
+         AND b.starts_at <  ((${last}::date + 1 + ${day_starts_at}::time)::timestamp AT TIME ZONE ${tz})`,
+    tx`SELECT min(created_at) AS since FROM bookings WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
+  ])
+  return bookedCovers(rows, { days, now, since: started?.since ?? null })
 }
 
 /**
@@ -107,7 +113,7 @@ export async function onOrderBefore(tx, tenantId, venueId, itemIds, before, { ex
      WHERE pl.tenant_id = ${tenantId} AND po.venue_id = ${venueId} AND po.status IN ('to_send', 'sent') AND NOT po.no_order
        AND pl.item_id = ANY(${itemIds}::uuid[]) AND pl.qty > 0 AND pl.pack_base_qty > 0 AND pl.base_unit = i.base_unit
        AND po.delivery_date < ${before}::date
-       AND po.supply_order_id IS DISTINCT FROM ${exceptOrderId}
+       AND (${exceptOrderId}::uuid IS NULL OR po.supply_order_id IS DISTINCT FROM ${exceptOrderId}::uuid)
      GROUP BY pl.item_id`
   return new Map(rows.map(r => [r.item_id, round4(r.qty)]))
 }

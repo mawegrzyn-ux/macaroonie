@@ -538,9 +538,10 @@ export function Section() {
         today), <Mono>weekdayUsage(history, weekday)</Mono> (the average over the days of that weekday the usage job
         worked out, a day with no row of the item counting 0; else the average of every day worked out,{' '}
         <Mono>average_day</Mono>), <Mono>hasHistory()</Mono> (any use of the item on a worked-out day),{' '}
-        <Mono>bookedCovers(bookings, {'{ days, now }'})</Mono> (booked now against the average over the same weekday each
-        of the four weeks before of what had been booked by <Mono>now</Mono> less those weeks: pace, not how those days
-        ended), <Mono>coversFactor({'{ booked, usual }'})</Mono> (no scaling under <Mono>COVERS_MIN_USUAL</Mono> 4,
+        <Mono>bookedCovers(bookings, {'{ days, now, since }'})</Mono> (booked now against the average over the same weekday
+        each of the four weeks before of what had been booked by <Mono>now</Mono> less those weeks: pace, not how those
+        days ended; only the weeks whose point is on or after <Mono>since</Mono>, when the venue started taking bookings,
+        count, so a venue two weeks in averages two weeks, and none counting is no usual), <Mono>coversFactor({'{ booked, usual }'})</Mono> (no scaling under <Mono>COVERS_MIN_USUAL</Mono> 4,
         held between <Mono>COVERS_FACTOR_MIN</Mono> 0.5 and <Mono>COVERS_FACTOR_MAX</Mono> 2),{' '}
         <Mono>forecastDay()</Mono> / <Mono>forecastUsage({'{ history, days, unit, todayDay }'})</Mono> (each day&apos;s
         usual times the factor; today&apos;s <Mono>rest</Mono> is what is left after <Mono>used</Mono> so far; the words
@@ -550,15 +551,21 @@ export function Section() {
         + buffer, or the par when there is no history (<Mono>basis</Mono> <Mono>forecast</Mono> | <Mono>par</Mono> |{' '}
         <Mono>none</Mono>), packs by <Mono>packsToPar(target, quote, {'{ on_hand, on_order }'})</Mono> (so{' '}
         <Mono>fitQty()</Mono>&apos;s minimum and steps, as Fill to par), with <Mono>raised</Mono>, the{' '}
-        <Mono>summary</Mono> and the <Mono>words</Mono> of the working. Tests <Mono>shared/test/forecast.test.mjs</Mono>{' '}
-        (dates pinned).
+        <Mono>summary</Mono> and the <Mono>words</Mono> of the working. For the order form:{' '}
+        <Mono>suggestionPacks(s, quote, quotes)</Mono> (a suggestion, in packs of <Mono>s.quote_id</Mono>, in packs of the
+        price its line is on now by <Mono>convertQty()</Mono>, from <Mono>s.base</Mono> when that price is gone) and the
+        waiting suggestions <Mono>waitSuggestions()</Mono>, <Mono>unwaitSuggestion()</Mono>,{' '}
+        <Mono>putBackQuantities()</Mono> (<Mono>{'{ item_id: { qty, before } }'}</Mono>: a line still waiting keeps its
+        before; the entry goes with its mark). Tests <Mono>shared/test/forecast.test.mjs</Mono> (dates pinned).
       </P>
       <P>
         Service <Mono>services/stockForecastSvc.js</Mono> (public): <Mono>loadHistory()</Mono> (<Mono>stock_usage_marks</Mono>{' '}
         and <Mono>stock_usage_days</Mono> of the 28 days, and today&apos;s so far), <Mono>loadCovers()</Mono> (the
-        venue&apos;s bookings not cancelled, by trading day: the till&apos;s day start, 04:00 when none; read only),{' '}
+        venue&apos;s bookings not cancelled, by trading day: the till&apos;s day start, 04:00 when none; read only; since
+        is the venue&apos;s first booking&apos;s <Mono>created_at</Mono>, cancelled ones too),{' '}
         <Mono>onOrderBefore()</Mono> (purchase orders to send or sent at the venue arriving before the delivery after
-        next, late ones included, a restaurant order&apos;s own left out), <Mono>venuePars()</Mono>,{' '}
+        next, late ones included, a restaurant order&apos;s own left out when one is given, purchase orders with no
+        restaurant order counted), <Mono>venuePars()</Mono>,{' '}
         <Mono>loadBuffer()</Mono>, <Mono>supplierItems()</Mono> (what a supplier sells the venue as its usual price that
         is on the venue&apos;s active lists or that sales used) and{' '}
         <Mono>suggestFor(tx, tenantId, {'{ venue, supplier, items, deliveryDate, orderId, now }'})</Mono>. Nothing reads
@@ -581,8 +588,12 @@ export function Section() {
         Admin: the Stock page&apos;s Settings <Mono>BufferCard</Mono> (<Mono>components/stock/StockSettings.jsx</Mono>);
         the order form&apos;s Suggest is purchasing&apos;s <Mono>components/purchasing/suggest.jsx</Mono>. Pepper{' '}
         <Mono>suggested_order</Mono> (read, <Mono>ai/tools/stock.js</Mono>: venue and supplier by name, the route&apos;s
-        figures and words, no ids). Report subject <Mono>stock.suggestions</Mono> (Suggested orders, Stock view: a
-        derived subject over <Mono>supply_order_lines</Mono> and <Mono>supply_orders</Mono>; ordered in the item&apos;s
+        figures and words, no ids; its par for an item with no history is the highest on the venue&apos;s lists, the order
+        form&apos;s the order&apos;s own list&apos;s). Report subject <Mono>stock.suggestions</Mono> (Suggested orders,
+        Stock view: a derived subject over <Mono>supply_order_lines</Mono> and <Mono>supply_orders</Mono>; what the
+        restaurant order did, its supplier, order status, placed at, suggested by, ordered, the differences, as
+        suggested, the placed counts and the link to the order, has <Mono>needs: &apos;purchasing&apos;</Mono>, as the
+        stock route needs ordering view; ordered in the item&apos;s
         unit at the pack of the line&apos;s price, what was really used over <Mono>window_from</Mono> to{' '}
         <Mono>window_to</Mono> less what sales had taken on the first day before it, only once the usage job has worked
         out a day after the window), starter <Mono>stock_suggested_orders_how_good</Mono>. Tests{' '}

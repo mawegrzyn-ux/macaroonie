@@ -33,6 +33,8 @@
 //           suggestFor(), the rule shared/forecast.js), kept on each line
 //           beside what is then ordered; the quantities change only when
 //           the person OKs them. Needs Stock view (it reads on hand).
+//           suggested_by is the person as the stock documents keep them
+//           (stockPerson(): the PIN person on a shared device).
 //   stock   a supplier price out of stock until a date (PUT
 //           /quotes/:id/stock, migration 234): anyone who orders, approves
 //           or keeps the catalogue may record what the supplier said.
@@ -55,7 +57,7 @@ import {
   basketFromText, basketFromSheet, mergeBasket, basketDiff, BASKET_MAX_ROWS, nowAt, addDays,
   PRICES_MODULE, seesPurchasingPrices, parModeOf, parStock,
 } from '../../../shared/procurement.js'
-import { loadStockOnHand } from '../services/stockSvc.js'
+import { loadStockOnHand, stockPerson } from '../services/stockSvc.js'
 import { suggestFor } from '../services/stockForecastSvc.js'
 import { venueToday } from '../services/stockUsageSvc.js'
 import { priceChanged, firesCostAlerts } from '../services/priceCreepSvc.js'
@@ -1527,6 +1529,8 @@ export default async function purchasingRoutes(app) {
     const b = SuggestBody.parse(req.body || {})
     const who = await accessOf(req)
     if (!who.stock) throw httpError(403, 'Suggesting quantities needs Stock view: it reads what is on hand')
+    // Kept under the person, as the stock documents keep them: the PIN person on a shared device.
+    const suggestedBy = (await stockPerson(req)).by
     const made = await withTenant(req.tenantId, async tx => {
       const o = await ownOrder(tx, req.tenantId, req.params.id, { lock: true })
       assertEditable(o, who)
@@ -1558,7 +1562,7 @@ export default async function purchasingRoutes(app) {
           INSERT INTO supply_order_lines (order_id, item_id, tenant_id, quote_id, qty, suggested_qty, suggested_base, suggestion_quote_id,
                                           suggestion_basis, forecast_base, window_from, window_to, suggestion, suggested_at, suggested_by)
           VALUES (${o.id}, ${l.item_id}, ${req.tenantId}, NULL, 0, ${l.qty}, ${l.suggested_base}, ${l.quote_id}, ${l.basis},
-                  ${l.forecast_base}, ${s.window.from}, ${s.after}, ${tx.json(working)}, ${at}, ${by(req)})
+                  ${l.forecast_base}, ${s.window.from}, ${s.after}, ${tx.json(working)}, ${at}, ${suggestedBy})
           ON CONFLICT (order_id, item_id) DO UPDATE
             SET suggested_qty = EXCLUDED.suggested_qty, suggested_base = EXCLUDED.suggested_base,
                 suggestion_quote_id = EXCLUDED.suggestion_quote_id, suggestion_basis = EXCLUDED.suggestion_basis,

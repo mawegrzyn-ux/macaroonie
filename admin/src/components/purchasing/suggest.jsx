@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils'
 import { Modal, ErrorNote } from '@/components/staff/shared'
 import { btn, fmtDate } from '@/components/purchasing/shared'
 import { fmtNum } from '@shared/procurement.js'
-import { deliveryAfter, SUGGEST_BASES } from '@shared/forecast.js'
+import { deliveryAfter, suggestionPacks, SUGGEST_BASES } from '@shared/forecast.js'
 
 export const SUGGEST_CLASS = 'border-sky-400 bg-sky-50 ring-1 ring-sky-300'
 
@@ -35,14 +35,21 @@ const localDay = at => {
   return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-')
 }
 
-/** The suppliers whose prices the order's lines are on, with their next delivery there. */
+/**
+ * The suppliers whose prices the order's lines are on, each with the day a
+ * Suggest works out for (`arrives`): the delivery day the order already asks
+ * of it when that is today or later, else its next delivery there (as the
+ * server does).
+ */
 export function orderSuppliers(order, quoteOf) {
   const m = new Map()
   for (const it of order?.items || []) {
     const q = quoteOf(it)
     if (!q || m.has(q.supplier_id)) continue
     const s = order.suppliers?.[q.supplier_id]
-    if (s) m.set(q.supplier_id, s)
+    if (!s) continue
+    const asked = order.supplier_options?.[q.supplier_id]?.delivery_date
+    m.set(q.supplier_id, { ...s, arrives: asked && (!order.today || asked >= order.today) ? asked : s.next_delivery })
   }
   return [...m.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
@@ -62,12 +69,13 @@ export function SuggestModal({ suppliers, busy, error, onSuggest, onClose }) {
       {!suppliers.length && <p className="text-sm text-muted-foreground">No line has a supplier price yet.</p>}
       <div className="divide-y rounded-lg border" data-testid="suggest-suppliers">
         {suppliers.map(s => {
-          const after = deliveryAfter(s, s.next_delivery)
+          const arrives = s.arrives || s.next_delivery
+          const after = deliveryAfter(s, arrives)
           return (
             <div key={s.id} className="flex flex-wrap items-center gap-3 px-3 py-2">
               <div className="flex-1 min-w-[180px]">
                 <p className="text-sm font-medium">{s.name}</p>
-                <p className="text-xs text-muted-foreground">Arrives {fmtDate(s.next_delivery)}, to last until {fmtDate(after)}</p>
+                <p className="text-xs text-muted-foreground">Arrives {fmtDate(arrives)}, to last until {fmtDate(after)}</p>
               </div>
               <button type="button" className={cn(btn.outline, 'min-h-[48px]')} disabled={!!busy} onClick={() => onSuggest(s)} data-testid="suggest-supplier">
                 {busy === s.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}Suggest
@@ -97,17 +105,22 @@ export function SuggestMark({ basis, onAccept }) {
 /**
  * A line's suggestion in a sentence (the working's summary), the steps
  * behind How. kept: the one kept on the line (not waiting): with when it was
- * made, and Use when the line's quantity is another.
+ * made, and Use when the line's quantity is another. quote: the price the
+ * line is on now (quotes: the line's prices), so Use orders the amount
+ * suggested in the line's own packs, whatever price it was worked out on
+ * (suggestionPacks()).
  */
-export function SuggestWorking({ s, kept = false, qty, readOnly, onUse }) {
+export function SuggestWorking({ s, kept = false, qty, quote = null, quotes = [], readOnly, onUse }) {
   const [open, setOpen] = useState(false)
   if (!s?.summary) return null
-  const differs = kept && s.qty != null && Number(qty) !== Number(s.qty)
+  const packs = suggestionPacks(s, quote, quotes)
+  const otherPack = !!quote && !!s.quote_id && s.quote_id !== quote.id
+  const differs = kept && packs != null && Number(qty) !== packs
   return (
     <div className="text-xs text-sky-900 space-y-1" data-testid="suggest-working">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="flex-1 min-w-[180px]">
-          {kept && <>Suggested {fmtNum(s.qty)}{s.at ? ` on ${fmtDate(localDay(s.at))}` : ''}: </>}{s.summary}
+          {kept && <>Suggested {fmtNum(s.qty)}{otherPack && s.pack_label ? ` x ${s.pack_label}` : ''}{s.at ? ` on ${fmtDate(localDay(s.at))}` : ''}: </>}{s.summary}
         </span>
         {s.words?.length > 0 && (
           <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open} data-testid="suggest-how"
@@ -116,8 +129,8 @@ export function SuggestWorking({ s, kept = false, qty, readOnly, onUse }) {
           </button>
         )}
         {differs && !readOnly && onUse && (
-          <button type="button" className={cn(btn.outline, 'min-h-[48px] text-xs')} onClick={() => onUse(s.qty)} data-testid="suggest-use">
-            Use {fmtNum(s.qty)}
+          <button type="button" className={cn(btn.outline, 'min-h-[48px] text-xs')} onClick={() => onUse(packs)} data-testid="suggest-use">
+            Use {fmtNum(packs)}
           </button>
         )}
       </div>

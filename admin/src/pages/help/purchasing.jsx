@@ -514,14 +514,16 @@ export function Section() {
         par. It needs Stock view, as it reads what is on hand (see Stock, Forecasts and suggested orders).
       </P>
       <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-        <li>Tap <strong>Suggest</strong>, then <strong>Suggest</strong> beside the supplier (each says when its order would arrive and what it has to last until). Grouped by supplier, each supplier&apos;s heading has its own Suggest.</li>
+        <li>Tap <strong>Suggest</strong>, then <strong>Suggest</strong> beside the supplier (each says when its order would arrive and what it has to last until: the delivery day the order already asks for, else the supplier&apos;s next delivery). Grouped by supplier, each supplier&apos;s heading has its own Suggest.</li>
         <li>The lines that change are marked in blue with <strong>Suggested from sales</strong> (or <strong>up to par</strong>) and why in a sentence; <strong>How</strong> shows each day&apos;s forecast, the buffer, on hand and on order.</li>
-        <li>Check each and tap <strong>OK</strong>, or <strong>OK all</strong>, or type another quantity. Nothing is saved until you do, and the order can&apos;t be placed while a suggestion waits. <strong>Put back</strong> returns the lines to what they were.</li>
+        <li>Check each and tap <strong>OK</strong>, or <strong>OK all</strong>, or type another quantity. Nothing is saved until you do, and the order can&apos;t be placed while a suggestion waits. Picking another price or pack for a line keeps its amount and saves it, so its mark comes off too. <strong>Put back</strong> returns the lines still waiting to what they were.</li>
       </ol>
       <P>
         Every suggestion is kept beside the line, with what you then order, so the report <strong>Suggested orders</strong>{' '}
         can show how often they were taken and how close the forecast came to what was really used. After a reload a line
-        still says what was suggested, with <strong>Use</strong> to take it.
+        still says what was suggested, with <strong>Use</strong> to take it. A suggestion is in packs of the price it was
+        worked out on: if the line has moved to another pack or supplier since, it says which pack it was in, and Use
+        orders the same amount in the line&apos;s own packs (4 x 5 kg becomes 2 x 10 kg).
       </P>
       <InfoBox type="info">
         All of this can also be done by chat with Pepper (Ask Pepper): ordering, booking deliveries

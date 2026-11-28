@@ -343,12 +343,14 @@ export const tools = [
     title: 'Suggested order',
     activity: 'Looked at a suggested order',
     description:
-      'What to order from one supplier for a venue (the order form\'s Suggest, the same figures): for each item the supplier ' +
+      'What to order from one supplier for a venue (the order form\'s Suggest, the same rule): for each item the supplier ' +
       'sells the venue that is on its order lists or that sales used lately, the forecast use until the delivery after next ' +
       '(what sales took on the same weekday over the last four weeks, scaled by the covers booked against the usual by now), ' +
       'plus the group\'s buffer, less on hand and on order, in whole packs up to the minimum, each with why. An item sales ' +
-      'never used in those weeks is filled up to its par. delivery_date: when the order would arrive (YYYY-MM-DD; the ' +
-      'supplier\'s next delivery when left out). It orders nothing. For "what should we order from Brakes?".',
+      'never used in those weeks is filled up to its par: here the highest on the venue\'s order lists, where an order ' +
+      'form\'s Suggest takes the par on that order\'s own list, so those two can differ. delivery_date: when the order ' +
+      'would arrive (YYYY-MM-DD; the supplier\'s next delivery when left out). It orders nothing. For "what should we ' +
+      'order from Brakes?".',
     input: z.object({
       venue: VenueText,
       supplier: z.string().trim().min(1).max(200).describe('The supplier by name'),

@@ -57,8 +57,10 @@
 //   days, ctx, stale, since }) (the till's voids marked wasted, with their
 //   items: kept in stock_void_waste the first time, migration 310),
 //   sweepVoidWaste(log) (jobs/stock-voids.js: keeps new voids' items within minutes)
+//   stockPerson(req), who(req): the person a stock document (or purchasing's suggested_by)
+//   is kept under: the PIN person on a shared device, else the account (routes/stock.js re-exports them)
 
-import { systemSql, withSystem } from '../config/db.js'
+import { systemSql, withSystem, withTenant } from '../config/db.js'
 import { stockOnHand, countUnits, defaultCountUnit, voidReason, transferLineMoves, WASTE_REASON_SEEDS } from '../../../shared/stock.js'
 import { itemsOf } from '../../../shared/stockItems.js'
 import { varianceSettings } from '../../../shared/variance.js'
@@ -72,6 +74,39 @@ import { coverageCtx } from './recipeCoverageSvc.js'
 export const SALES_COUNTED = true
 // A venue's trading day starts at its till's day start, else at 04:00 (the till's own default).
 export const DAY_STARTS_AT = '04:00'
+
+/**
+ * The person who does it, as the stock documents keep them (counted_by,
+ * submitted_by, approved_by, adjusted_by, an area's done by): the person,
+ * never only the account (core's rule for shared devices). On a shared
+ * device that is the office PIN person switched in, kept by their own
+ * sign-in email (users.email), so what they do there and from their own
+ * login reads the same and the second person rule compares like with like;
+ * else the signed-in account's email (its sub when the token has none).
+ * { by, ids }: `by` is what is written, `ids` every form this person's name
+ * takes in what was written before (email and sub), for approvalProblem().
+ * Read once a request.
+ */
+export async function stockPerson(req) {
+  if (req.stockPerson) return req.stockPerson
+  let by
+  let ids
+  if (req.acting) {
+    const [u] = req.acting.userId
+      ? await withTenant(req.tenantId, tx => tx`SELECT email FROM users WHERE id = ${req.acting.userId} AND tenant_id = ${req.tenantId} LIMIT 1`)
+      : []
+    by = u?.email || req.acting.sub || req.acting.name || null
+    ids = [u?.email, req.acting.sub, by]
+  } else {
+    by = req.user?.email ?? req.user?.sub ?? null
+    ids = [req.user?.email, req.user?.sub]
+  }
+  req.stockPerson = { by, ids: [...new Set(ids.filter(Boolean))] }
+  return req.stockPerson
+}
+
+/** Who did it, as the stock documents keep it (stockPerson()'s `by`). */
+export const who = async req => (await stockPerson(req)).by
 
 const DAY = 86400000
 const ts = v => (v == null ? null : v instanceof Date ? v : new Date(v))

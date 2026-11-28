@@ -145,6 +145,11 @@ test('on order counts only what arrives before the delivery after next; the buff
   const c = s.lines.find(l => l.item_id === chicken.id)
   assert.equal(c.on_order, 5000, 'the case arriving on the next delivery; the three on the delivery after next don\'t count')
   assert.equal(c.qty, expectChicken(s, { onOrder: 5000 }).packs)
+  // A purchase order with no restaurant order behind it (its order was taken off) is still coming.
+  await sql`UPDATE purchase_orders SET supply_order_id = NULL
+             WHERE tenant_id = ${ids.a} AND venue_id = ${soho} AND delivery_date = ${before.next_delivery}::date`
+  const loose = await ok(owner.get(`/api/stock/venues/${soho}/suggested-order?supplier_id=${brakes.id}`))
+  assert.equal(loose.lines.find(l => l.item_id === chicken.id).on_order, 5000, 'on order whether or not a restaurant order placed it')
   // The buffer: Stock manage saves it on its own; Stock view reads it.
   assert.equal((await viewer.put('/api/stock/forecast-settings', { buffer_pct: 25 })).status, 403)
   assert.equal((await owner.put('/api/stock/forecast-settings', { buffer_pct: 500 })).status, 400)
@@ -194,6 +199,13 @@ test('covers booked scale a day by what was booked as far ahead on the same week
   assert.equal(c.qty, expectChicken(s, { onOrder: 5000, factor: { [day]: 1.5 } }).packs)
   assert.ok(!JSON.stringify(s.covers).match(/\b60\b|\b40\b/), 'covers are a share, never the bookings themselves')
   await sql`DELETE FROM bookings WHERE venue_id = ${soho}`
+  // A venue two weeks into taking bookings: the usual is those two weeks' 40, not four weeks with two empty (20, held at twice).
+  await book(day, 60, daysAgo(1), 1)
+  for (let k = 1; k <= 2; k++) await book(addDays(day, -7 * k), 40, daysAgo(7 * k + 1), 1)
+  const two = await ok(owner.get(`/api/stock/venues/${soho}/suggested-order?supplier_id=${brakes.id}`))
+  assert.equal(two.covers.find(c => c.day === day).pct, 50, 'booked 60 against the 40 of the two weeks it took bookings')
+  near(two.lines.find(l => l.item_id === chicken.id).days.find(d => d.day === day).qty, usual(day) * 1.5, 'scaled by half again, not doubled')
+  await sql`DELETE FROM bookings WHERE venue_id = ${soho}`
 })
 
 let order
@@ -231,6 +243,25 @@ test('the order form\'s Suggest: one supplier\'s lines, kept on each line beside
   assert.deepEqual(Object.fromEntries(kept.map(k => [k.item_id, [k.suggested, k.qty]])), { [chicken.id]: [c.qty, c.qty + 1], [rice.id]: [4, 4] })
   // A placed order can't be suggested for any more.
   assert.equal((await owner.post(`/api/purchasing/orders/${order.id}/suggest`, { supplier_id: brakes.id })).status, 409)
+})
+
+test('Suggest on a shared device is kept under the person switched in, as the stock documents are', async () => {
+  const { DEVICE_HEADER, ACT_HEADER } = await import('../src/middleware/sharedDevice.js')
+  await ok(as(A.admin, ids.a).put('/api/shared-devices/my-pin', { pin: '5928' }))
+  const device = await ok(owner.post('/api/shared-devices', { venue_id: soho, name: 'Soho office tablet' }))
+  const [adminRow] = await sql`SELECT id, email FROM users WHERE tenant_id = ${ids.a} AND auth0_user_id = ${A.admin}`
+  const on = act => ({ [DEVICE_HEADER]: device.token, ...(act ? { [ACT_HEADER]: act } : {}) })
+  try {
+    const asAdmin = on((await ok(owner.post('/api/shared-devices/act', { person: 'user:' + adminRow.id, pin: '5928' }, on()))).token)
+    const draft = await ok(owner.post('/api/purchasing/orders', { venue_id: soho, list_id: list.id }))
+    await ok(owner.post(`/api/purchasing/orders/${draft.id}/suggest`, { supplier_id: brakes.id }, asAdmin), 'Suggest on the tablet')
+    const [row] = await sql`SELECT suggested_by FROM supply_order_lines WHERE order_id = ${draft.id} AND item_id = ${chicken.id}`
+    assert.equal(row.suggested_by, adminRow.email, 'the person who switched in, not the device\'s account')
+    assert.notEqual(adminRow.email, A.owner + '@test.local')
+    await ok(owner.delete(`/api/purchasing/orders/${draft.id}`))
+  } finally {
+    await ok(owner.delete('/api/shared-devices/' + device.device.id))
+  }
 })
 
 test('permissions: Suggest needs the right to change the order and Stock view; the stock route Stock view and ordering view', async () => {
@@ -281,6 +312,24 @@ test('the report: suggested against ordered, and once its dates have passed, wha
   // Stock view is the subject's module: a role without it can't report on suggestions.
   const noStock = await as('a-fc-buyer', ids.a).post('/api/reports/preview', { spec: { kind: 'list', subject: 'stock.suggestions', rows: ['item_name'], ...period } })
   assert.ok(noStock.status >= 400, 'needs Stock view: ' + noStock.status)
+  // Stock view and reports but no purchasing (the stock route refuses this role): the suggestions and the forecast,
+  // never what the restaurant order did with them (its supplier, what it ordered, its status, who, when).
+  const role = await ok(owner.post('/api/access/roles', { key: 'fcstockrep', label: 'Stock reports', permissions: { stock: 'view', reports: 'use', purchasing: 'none', purchasing_setup: 'none', purchasing_approve: 'none' } }))
+  await sql`INSERT INTO users (tenant_id, email, role, auth0_user_id, custom_role_id) VALUES (${ids.a}, 'fc-stockrep@test.local', 'viewer', 'a-fc-stockrep', ${role.id})`
+  const stockRep = as('a-fc-stockrep', ids.a)
+  const orderFields = ['supplier', 'ordered', 'ordered_qty', 'difference', 'as_suggested', 'order_status', 'placed_at', 'suggested_by', 'order.status']
+  const theirs = await ok(stockRep.post('/api/reports/preview', { spec: { kind: 'list', subject: 'stock.suggestions', rows: ['item_name', 'suggested', 'forecast', ...orderFields], ...period }, fresh: true }), 'Stock view reports on suggestions')
+  assert.deepEqual(theirs.columns.map(c => c.key), ['item_name', 'suggested', 'forecast'], 'the order\'s fields are left out')
+  assert.ok(theirs.rows.length >= 1)
+  const counted = await ok(stockRep.post('/api/reports/preview', { spec: { subject: 'stock.suggestions', rows: ['item_name'], values: ['suggestions', 'placed', 'placed_as_suggested', 'as_suggested_share', 'ordered_total', 'forecast_ratio'].map(measure => ({ measure })), ...period }, fresh: true }))
+  const shown = JSON.stringify(counted.columns)
+  for (const k of ['placed', 'placed_as_suggested', 'as_suggested_share', 'ordered_total']) assert.ok(!shown.includes('"' + k + '"'), k + ' is left out: ' + shown)
+  assert.ok(shown.includes('"suggestions"') && shown.includes('"forecast_ratio"'), 'the suggestion\'s own figures stay: ' + shown)
+  const bySupplier = await stockRep.post('/api/reports/preview', { spec: { subject: 'stock.suggestions', rows: ['supplier'], values: [{ measure: 'suggestions' }], ...period } })
+  assert.equal(bySupplier.status, 403, 'grouped by supplier: purchasing\'s')
+  // With purchasing view as well, they are there.
+  const all = await ok(owner.post('/api/reports/preview', { spec: { kind: 'list', subject: 'stock.suggestions', rows: ['item_name', ...orderFields], ...period }, fresh: true }))
+  assert.deepEqual(all.columns.map(c => c.key), ['item_name', ...orderFields])
 })
 
 test('another group\'s orders, suppliers, items and venues are refused', async () => {

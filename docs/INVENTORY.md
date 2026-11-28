@@ -543,8 +543,9 @@ unexplained       = variance - logged waste
 - **Forecast, first version**: the average usage on the same weekday over the last four weeks,
   scaled by booked covers against the usual. It is shown with its working ("Tuesdays use 6.2 kg;
   18% more covers booked"). Weather and local events can join later. *Built in phase 9a: "the usual" is what had been
-  booked by the same point before on each of those weekdays (pace), never how those days ended, held between half and
-  twice, no scaling for a venue averaging under 4 covers; a weekday never worked out takes the average day.*
+  booked by the same point before on each of those weekdays (pace), never how those days ended, over the weeks the venue
+  was already taking bookings (review fixes, 28 Nov 2026), held between half and twice, no scaling for a venue averaging
+  under 4 covers; a weekday never worked out takes the average day.*
 - The order form shows on hand, on order and usage beside each line; what was suggested against
   what was ordered is kept, so the suggestion can be judged. *Built in phase 9a: on `supply_order_lines`, with the report
   Suggested orders, which also compares the forecast with what was really used once its days have passed.*
@@ -1002,7 +1003,7 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
 - **The rule** `shared/forecast.js` (rule 12): `forecastUsage()` over the 28 trading days before today the usage job worked
   out (`stock_usage_marks`; on a worked-out day an item with no row used none), each window day's weekday average scaled by
   `coversFactor()`; `bookedCovers()` compares covers booked now with what had been booked by the same point before on the four
-  same weekdays; today counts what is left after what sales took so far; `suggestedOrder()` targets the forecast plus the buffer
+  same weekdays (those since the venue's first booking); today counts what is left after what sales took so far; `suggestedOrder()` targets the forecast plus the buffer
   (or the par with no history), less on hand (none when never counted) and on order, in packs by `packsToPar()`; every figure
   with its words. Read by `services/stockForecastSvc.js` `suggestFor()` (history, bookings by trading day, on hand,
   `onOrderBefore()`, the buffer).

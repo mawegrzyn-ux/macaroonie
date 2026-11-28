@@ -446,8 +446,10 @@ export function Section() {
       <P>
         Macaroonie forecasts what each item will use from what sales took. For a day, it takes what sales used on the
         same weekday over the last four weeks (Tuesdays use 6.2 kg), and scales it by the covers booked for that day
-        against what was usually booked as far ahead for that weekday (<em>18% more covers booked</em>). A venue that
-        takes few bookings isn&apos;t scaled, and the scaling is held between half and twice the usual. A weekday with no
+        against what was usually booked as far ahead for that weekday (<em>18% more covers booked</em>). Only the weeks
+        the venue was already taking bookings count, so a venue two weeks into bookings is compared with those two weeks.
+        A venue that takes few bookings isn&apos;t scaled, nor one taking bookings for less than a week, and the scaling is
+        held between half and twice the usual. A weekday with no
         sales worked out yet uses an average day. Today counts only what is left after what sales took so far.
       </P>
       <P>
@@ -462,7 +464,7 @@ export function Section() {
         head={['Where', 'What']}
         rows={[
           ['Stock, Settings, Suggested orders', 'The buffer: a share of the forecast added on top (10% unless you change it). Stock manage.'],
-          ['Reports, Suggested orders', 'Every suggestion beside what was ordered and, once its days have passed, what was really used against the forecast. The starter How good are the suggested orders sums it up by supplier.'],
+          ['Reports, Suggested orders', 'Every suggestion beside what was ordered and, once its days have passed, what was really used against the forecast. The starter How good are the suggested orders sums it up by supplier. Stock view shows the suggestions and the forecast; what the restaurant order did with them (its supplier, what was ordered, placed or not, who and when) needs Purchasing view as well, as on Restaurant orders.'],
           ['Pepper', 'Ask "what should we order from Brakes?": suggested_order gives each item\'s packs and why. It orders nothing; ask it to fill the order with those quantities, then check and place it.'],
         ]}
       />

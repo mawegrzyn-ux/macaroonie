@@ -742,7 +742,9 @@ export function Section() {
         or par) is kept on <Mono>supply_order_lines</Mono>: <Mono>suggested_qty</Mono> (packs of{' '}
         <Mono>suggestion_quote_id</Mono>), <Mono>suggested_base</Mono>, <Mono>suggestion_basis</Mono>,{' '}
         <Mono>forecast_base</Mono>, <Mono>window_from</Mono> / <Mono>window_to</Mono>, the working in{' '}
-        <Mono>suggestion</Mono> (jsonb), <Mono>suggested_at</Mono> / <Mono>suggested_by</Mono>, the latest one per line.
+        <Mono>suggestion</Mono> (jsonb), <Mono>suggested_at</Mono> / <Mono>suggested_by</Mono> (the person as the stock
+        documents keep them: the stock area&apos;s <Mono>stockPerson()</Mono>, the PIN person on a shared device), the
+        latest one per line.
         A line Suggest makes is inserted with qty 0 and no pinned price; an existing line&apos;s{' '}
         <Mono>qty</Mono> and <Mono>quote_id</Mono> are never touched. The reply is sent after the transaction commits.
       </P>
@@ -751,10 +753,16 @@ export function Section() {
         qty, base, basis, the delivery after next, when, by whom, summary, words) only with Stock view. The form
         (<Mono>components/purchasing/suggest.jsx</Mono>: <Mono>SuggestModal</Mono>, <Mono>SuggestMark</Mono>,{' '}
         <Mono>SuggestWorking</Mono>, <Mono>orderSuppliers()</Mono>; <Mono>OrderForm</Mono>&apos;s{' '}
-        <Mono>suggested</Mono> map in <Mono>ordering.jsx</Mono>) flushes the autosave, asks, puts each suggestion that
-        differs from its line on the line marked (<Mono>data-suggested</Mono>, not saved), and saves it only on OK, OK
-        all or a change (<Mono>setQty()</Mono> takes the mark off), as Pepper&apos;s quantities are kept; Put back
-        restores the quantities before. Placing and sending for approval wait while any is marked. The report subject{' '}
+        <Mono>suggested</Mono> map in <Mono>ordering.jsx</Mono>, <Mono>{'{ item_id: { qty, before } }'}</Mono> by{' '}
+        <Mono>waitSuggestions()</Mono> in <Mono>shared/forecast.js</Mono>) flushes the autosave, asks, puts each
+        suggestion that differs from its line on the line marked (<Mono>data-suggested</Mono>, not saved), and saves it
+        only on OK, OK all or a change (<Mono>setQty()</Mono> takes the mark off, with what the line had before; so do{' '}
+        <Mono>setQuote()</Mono>, which saves the amount on another price, and the server&apos;s lines after a basket or
+        a split), as Pepper&apos;s quantities are kept; Put back restores the quantities before
+        (<Mono>putBackQuantities()</Mono>), which the server has. A kept suggestion&apos;s Use is in the line&apos;s
+        own packs (<Mono>suggestionPacks()</Mono>: the suggestion was in packs of <Mono>suggestion_quote_id</Mono>).
+        The Suggest modal names the day the server works out for: the order&apos;s asked delivery day when today or
+        later, else the next delivery. Placing and sending for approval wait while any is marked. The report subject{' '}
         <Mono>stock.suggestions</Mono> reads the kept columns (see Stock).
       </P>
     </section>

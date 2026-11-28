@@ -77,6 +77,9 @@ const SUGGESTIONS = `(
    WHERE l.suggested_at IS NOT NULL
 )`
 const SUGGEST_BASIS = { forecast: 'From sales', par: 'Up to par (no sales use)' }
+// What the restaurant order did with a suggestion (its supplier, what was ordered, its status, who and when) is
+// purchasing's, as on Restaurant orders: Stock view alone sees the suggestion and the forecast, not the order.
+const ORDERING = 'purchasing'
 const ORDER_STATUS = { draft: 'Being filled in', requested: 'Waiting for approval', submitted: 'Placed' }
 
 /** Where these subjects come in the catalogue (index.js gathers this folder by it, then by file name). */
@@ -636,37 +639,37 @@ export const subjects = [
     open: { page: '/purchasing?order=:id', module: 'purchasing', id: 'order_id' },
     fields: {
       ...itemFields(),
-      supplier: text('supplier_name', { label: 'Supplier' }),
+      supplier: text('supplier_name', { label: 'Supplier', needs: ORDERING }),
       basis: choice('suggestion_basis', SUGGEST_BASIS, { label: 'Suggested from' }),
-      order_status: choice('order_status', ORDER_STATUS, { label: 'Order' }),
+      order_status: choice('order_status', ORDER_STATUS, { label: 'Order', needs: ORDERING }),
       suggested_at: moment('suggested_at', { label: 'Suggested at' }),
-      suggested_by: text('suggested_by', { label: 'Suggested by' }),
-      placed_at: moment('submitted_at', { label: 'Placed at' }),
+      suggested_by: text('suggested_by', { label: 'Suggested by', needs: ORDERING }),
+      placed_at: moment('submitted_at', { label: 'Placed at', needs: ORDERING }),
       until: date('window_to', { label: 'To last until', about: 'The delivery after next: the suggestion is for the dates up to it.' }),
       suggested: number('suggested_qty', { label: 'Packs suggested', adds: true, synonyms: ['suggested order', 'suggestion', 'suggested quantity'] }),
-      ordered: number('qty', { label: 'Packs ordered', adds: true }),
+      ordered: number('qty', { label: 'Packs ordered', adds: true, needs: ORDERING }),
       suggested_qty: number('suggested_base', { label: 'Suggested', adds: true, about: 'In the item\'s own unit.' }),
-      ordered_qty: number({ sql: '({t}.qty * {t}.pack_base)' }, { label: 'Ordered', adds: true, about: 'In the item\'s own unit, at the size of the pack it is ordered in.' }),
-      difference: number({ sql: '(({t}.qty * {t}.pack_base) - {t}.suggested_base)' }, { label: 'Ordered over suggested', adds: true, about: 'In the item\'s own unit: above zero when more was ordered than suggested.' }),
-      as_suggested: yesno({ sql: '(abs(COALESCE(({t}.qty * {t}.pack_base), 0) - COALESCE({t}.suggested_base, 0)) < 0.001)' }, { label: 'Ordered as suggested' }),
+      ordered_qty: number({ sql: '({t}.qty * {t}.pack_base)' }, { label: 'Ordered', adds: true, needs: ORDERING, about: 'In the item\'s own unit, at the size of the pack it is ordered in.' }),
+      difference: number({ sql: '(({t}.qty * {t}.pack_base) - {t}.suggested_base)' }, { label: 'Ordered over suggested', adds: true, needs: ORDERING, about: 'In the item\'s own unit: above zero when more was ordered than suggested.' }),
+      as_suggested: yesno({ sql: '(abs(COALESCE(({t}.qty * {t}.pack_base), 0) - COALESCE({t}.suggested_base, 0)) < 0.001)' }, { label: 'Ordered as suggested', needs: ORDERING }),
       forecast: number('forecast_base', { label: 'Forecast use', adds: true, synonyms: ['forecast', 'expected use'], about: 'The forecast until the delivery after next, before the buffer; empty for an item filled up to its par.' }),
       actual: number('actual_base', { label: 'Really used', adds: true, about: 'What was taken off by what sold over the same dates, once they have passed (empty until then).' }),
       forecast_error: percent({ sql: "(CASE WHEN {t}.forecast_base > 0 AND {t}.actual_base IS NOT NULL THEN ({t}.actual_base - {t}.forecast_base) / {t}.forecast_base END)" }, { unit: 'fraction', label: 'Used over the forecast', about: 'How far what was really used was over (above zero) or under the forecast.' }),
     },
     measures: {
       suggestions: count({ label: 'Lines suggested', synonyms: ['suggested orders', 'suggestions'] }),
-      placed: count({ label: 'Lines placed', where: "{t}.order_status = 'submitted'" }),
-      placed_as_suggested: count({ label: 'Placed as suggested', where: "{t}.order_status = 'submitted' AND abs(COALESCE(({t}.qty * {t}.pack_base), 0) - COALESCE({t}.suggested_base, 0)) < 0.001" }),
-      as_suggested_share: ratio('placed_as_suggested', 'placed', { type: 'percent', label: 'Share placed as suggested', synonyms: ['suggestion accuracy', 'taken as suggested'] }),
+      placed: count({ label: 'Lines placed', where: "{t}.order_status = 'submitted'", needs: ORDERING }),
+      placed_as_suggested: count({ label: 'Placed as suggested', where: "{t}.order_status = 'submitted' AND abs(COALESCE(({t}.qty * {t}.pack_base), 0) - COALESCE({t}.suggested_base, 0)) < 0.001", needs: ORDERING }),
+      as_suggested_share: ratio('placed_as_suggested', 'placed', { type: 'percent', label: 'Share placed as suggested', needs: ORDERING, synonyms: ['suggestion accuracy', 'taken as suggested'] }),
       suggested_total: sum('suggested_base', { label: 'Suggested', about: 'Added up in each item\'s own unit: only add up items kept in the same unit.' }),
-      ordered_total: sum({ sql: '({t}.qty * {t}.pack_base)' }, { label: 'Ordered', about: 'Added up in each item\'s own unit.' }),
+      ordered_total: sum({ sql: '({t}.qty * {t}.pack_base)' }, { label: 'Ordered', needs: ORDERING, about: 'Added up in each item\'s own unit.' }),
       forecast_total: sum('forecast_base', { label: 'Forecast use', where: '{t}.actual_base IS NOT NULL', about: 'Of the suggestions whose dates have passed, in each item\'s own unit.' }),
       actual_total: sum('actual_base', { label: 'Really used', where: '{t}.forecast_base IS NOT NULL', about: 'Over the same dates, for the same suggestions.' }),
       forecast_ratio: ratio('actual_total', 'forecast_total', { type: 'percent', label: 'Used against the forecast', synonyms: ['forecast accuracy'], about: 'What was really used as a share of the forecast: 100% is a forecast that was right; over it, more was used.' }),
     },
     links: {
       item: one('purchasing.items', 'item_id', { label: 'Item' }),
-      order: one('purchasing.restaurant_orders', 'order_id', { label: 'Restaurant order' }),
+      order: one('purchasing.restaurant_orders', 'order_id', { label: 'Restaurant order', needs: ORDERING }),
     },
     list: ['date', 'venue.name', 'supplier', 'item_name', 'basis', 'suggested', 'ordered', 'order_status', 'forecast', 'actual'],
     sort: [{ by: 'suggested_at', dir: 'desc' }],
