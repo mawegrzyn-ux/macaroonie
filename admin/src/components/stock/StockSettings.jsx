@@ -6,12 +6,13 @@
 // them), the group's key-item lists, how counts are approved (a second
 // person) and counted (blind), and the venue's count day for Today; the
 // group's waste reasons in WRAP's kinds (phase 4b: drag to order, switched
-// off once used). Each card saves on its own (the areas' and reasons' order
-// as it is dropped).
+// off once used), the variance band (phase 6a) and the suggested order's
+// buffer (phase 9a). Each card saves on its own (the areas' and reasons'
+// order as it is dropped).
 //
 //   StockSettings({ venueId, canManage })
 //   API routes/stockSetup.js: /api/stock/venues/:id/areas, /areas/:id, /key-lists, /settings;
-//       routes/stockWaste.js: /api/stock/waste-reasons
+//       routes/stockWaste.js: /api/stock/waste-reasons; routes/stockForecast.js: /api/stock/forecast-settings
 
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -24,6 +25,7 @@ import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { useStockList, matchItem, KindBadge } from '@/components/stock/shared'
 import { WEEKDAYS, WASTE_KINDS, WASTE_KIND_KEYS } from '@shared/stock.js'
 import { PAR_MODES } from '@shared/procurement.js'
+import { bufferProblem, BUFFER_PCT_MAX } from '@shared/forecast.js'
 
 /** Items in order, with a search to add more and a cross to take one off; Save sends the whole list. */
 function ItemsEditor({ title, subtitle, venueId, initial, name, onSave, saving, error, onClose, canManage, onDelete }) {
@@ -386,6 +388,40 @@ function VarianceBandCard({ canManage }) {
   )
 }
 
+// The suggested order's buffer (inventory phase 9a, migration 319): a share of the forecast added on top
+// before what is on hand and on order is taken off. Saved on its own (PUT /api/stock/forecast-settings).
+function BufferCard({ canManage }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { data } = useQuery({ queryKey: ['stock', 'settings'], queryFn: () => api.get('/stock/settings') })
+  const [draft, setDraft] = useState(null)
+  useEffect(() => { if (data?.buffer_pct != null) setDraft(String(data.buffer_pct)) }, [data])
+  const save = useMutation({
+    mutationFn: () => api.put('/stock/forecast-settings', { buffer_pct: Number(draft) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['stock'] }),
+  })
+  const problem = draft == null ? null : bufferProblem(draft)
+  const dirty = draft != null && data && Number(draft) !== Number(data.buffer_pct)
+  return (
+    <Card title="Suggested orders">
+      {draft == null ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+        <ReadOnlyFieldset disabled={!canManage} className="space-y-3" data-testid="stock-buffer">
+          <Field label="Buffer on top of the forecast (%)" hint={problem || 'Suggest on the order form adds this share of what sales are forecast to use until the delivery after next, then takes off what is on hand and on order. 10 unless you change it.'}>
+            <input type="number" inputMode="decimal" min="0" max={BUFFER_PCT_MAX} step="1" className={inputCls} value={draft}
+              onChange={e => setDraft(e.target.value)} data-testid="stock-buffer-pct" />
+          </Field>
+          {canManage && (
+            <button type="button" className={btn.primary + ' h-12'} disabled={!dirty || !!problem || save.isPending} onClick={() => save.mutate()} data-testid="stock-buffer-save">
+              {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Save
+            </button>
+          )}
+          <ErrorNote error={save.error} />
+        </ReadOnlyFieldset>
+      )}
+    </Card>
+  )
+}
+
 export default function StockSettings({ venueId, canManage }) {
   return (
     <div className="space-y-4" data-testid="stock-settings">
@@ -397,7 +433,10 @@ export default function StockSettings({ venueId, canManage }) {
         <CountDayCard venueId={venueId} canManage={canManage} />
       </div>
       <WasteReasonsCard canManage={canManage} />
-      <VarianceBandCard canManage={canManage} />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <VarianceBandCard canManage={canManage} />
+        <BufferCard canManage={canManage} />
+      </div>
     </div>
   )
 }

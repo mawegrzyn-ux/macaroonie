@@ -27,6 +27,12 @@
 //   basket  a supplier's basket (their website's basket or quick order,
 //           pasted or as a file) compared with an order and applied to it
 //           (POST /orders/:id/reconcile): matched by the supplier's codes.
+//   suggest the order form's Suggest (POST /orders/:id/suggest, inventory
+//           phase 9a, migration 320): one supplier's lines worked out from
+//           the stock area's forecast (services/stockForecastSvc.js
+//           suggestFor(), the rule shared/forecast.js), kept on each line
+//           beside what is then ordered; the quantities change only when
+//           the person OKs them. Needs Stock view (it reads on hand).
 //   stock   a supplier price out of stock until a date (PUT
 //           /quotes/:id/stock, migration 234): anyone who orders, approves
 //           or keeps the catalogue may record what the supplier said.
@@ -50,6 +56,8 @@ import {
   PRICES_MODULE, seesPurchasingPrices, parModeOf, parStock,
 } from '../../../shared/procurement.js'
 import { loadStockOnHand } from '../services/stockSvc.js'
+import { suggestFor } from '../services/stockForecastSvc.js'
+import { venueToday } from '../services/stockUsageSvc.js'
 import { priceChanged, firesCostAlerts } from '../services/priceCreepSvc.js'
 import { allergensChanged } from '../services/allergenCheckSvc.js'
 import {
@@ -279,7 +287,10 @@ async function loadOrder(tx, tenantId, order, who) {
   const venue = await loadVenue(tx, tenantId, order.venue_id)
   const listed = order.list_id ? await listItems(tx, tenantId, order.list_id) : []
   const lines = await tx`
-    SELECT item_id, quote_id, qty::float8 AS qty FROM supply_order_lines
+    SELECT item_id, quote_id, qty::float8 AS qty,
+           suggested_qty::float8 AS suggested_qty, suggested_base::float8 AS suggested_base, suggestion_quote_id,
+           suggestion_basis, window_to::text AS window_to, suggestion, suggested_at, suggested_by
+      FROM supply_order_lines
      WHERE order_id = ${order.id} AND tenant_id = ${tenantId}
   `
   const lineBy = new Map(lines.map(l => [l.item_id, l]))
@@ -356,6 +367,8 @@ async function loadOrder(tx, tenantId, order, who) {
       ...(gone ? { gone } : {}),
       ...(asked ? { requested_qty: Number(asked[r.item_id]?.qty ?? 0) } : {}),
       last: lastBy.get(r.item_id) || null,
+      // What Suggest last proposed for the line (inventory phase 9a): it reads on hand, so Stock view only.
+      ...(who.stock && line?.suggested_at ? { suggestion: keptSuggestion(line) } : {}),
     }
   })
   return {
@@ -417,6 +430,50 @@ async function orderStock(tx, tenantId, venue, order, ids, today) {
       on_order: Math.round((orderOf.get(id) || 0) * 10000) / 10000, used_7d: Math.round((usedOf.get(id) || 0) * 10000) / 10000,
     }),
   }
+}
+
+/** A line's kept suggestion as the order form shows it. */
+function keptSuggestion(l) {
+  const w = l.suggestion || {}
+  return {
+    qty: l.suggested_qty, base: l.suggested_base, quote_id: l.suggestion_quote_id, basis: l.suggestion_basis,
+    after: l.window_to, at: l.suggested_at, by: l.suggested_by,
+    summary: w.summary || null, words: w.words || [], pack_label: w.pack_label || null,
+  }
+}
+
+/**
+ * The order's items whose price is a supplier's (inventory phase 9a: what
+ * Suggest works out): the list's active items and the lines added, each on
+ * the price it is ordered on (the one its line is pinned to, else the
+ * venue's usual one; a line whose pinned price is switched off is left out:
+ * it waits for another price), with its par at the venue and its quantity.
+ */
+async function supplierLines(tx, tenantId, order, venueId, supplierId) {
+  const listed = order.list_id ? await listItems(tx, tenantId, order.list_id) : []
+  const lines = await tx`
+    SELECT sl.item_id, sl.quote_id, sl.qty::float8 AS qty, i.name, i.base_unit, i.is_active
+      FROM supply_order_lines sl JOIN inv_items i ON i.id = sl.item_id AND i.tenant_id = ${tenantId}
+     WHERE sl.order_id = ${order.id} AND sl.tenant_id = ${tenantId}
+  `
+  const lineBy = new Map(lines.map(l => [l.item_id, l]))
+  const listedIds = new Set(listed.map(i => i.item_id))
+  const rows = [
+    ...listed.filter(i => i.is_active).map(i => ({ item_id: i.item_id, name: i.name, base_unit: i.base_unit, par_base: i.pars?.[venueId] ?? null })),
+    ...lines.filter(l => l.is_active && !listedIds.has(l.item_id)).map(l => ({ item_id: l.item_id, name: l.name, base_unit: l.base_unit, par_base: null })),
+  ]
+  const { picks, quotes } = await resolveQuotes(tx, tenantId, venueId, rows.map(r => r.item_id))
+  const out = []
+  for (const r of rows) {
+    const line = lineBy.get(r.item_id)
+    const all = quotes.get(r.item_id) || []
+    const pinned = line?.quote_id ? all.find(q => q.id === line.quote_id) || null : null
+    if (line?.qty > 0 && line.quote_id && !pinned) continue
+    const quote = pinned || picks.get(r.item_id)?.quote || null
+    if (quote?.supplier_id !== supplierId) continue
+    out.push({ ...r, quote, qty: line?.qty ?? 0 })
+  }
+  return out
 }
 
 /**
@@ -716,6 +773,15 @@ const ParsBody = z.object({
 const LinesBody = z.object({
   lines: z.array(z.object({ item_id: uuid, quote_id: uuid.nullable().optional(), qty: qtyNum })).max(2000),
 })
+
+// Suggest quantities for one supplier's lines (inventory phase 9a): the day
+// the order arrives (the supplier's next delivery, or the day already asked
+// for, when left out) and, to suggest only some lines, their items.
+export const SuggestBody = z.object({
+  supplier_id:   uuid,
+  delivery_date: date.optional(),
+  item_ids:      z.array(uuid).min(1).max(2000).optional(),
+}).strict()
 
 // agreed: the person says the supplier agreed to a day they don't deliver,
 // or one past its order deadline (checkDeliveryDay()).
@@ -1446,6 +1512,65 @@ export default async function purchasingRoutes(app) {
       await tx`DELETE FROM supply_order_lines WHERE order_id = ${o.id} AND item_id = ${req.params.itemId} AND tenant_id = ${req.tenantId}`
       return { ok: true }
     })
+  })
+
+  // Suggest quantities for one supplier's lines (inventory phase 9a,
+  // docs/INVENTORY.md 9): the forecast use until the delivery after next plus
+  // the buffer, less on hand and on order, in packs up to the price's minimum
+  // and steps (suggestFor(), shared/forecast.js). Each suggestion is kept on
+  // its line (suggested_qty, the working), the latest one per line, so it can
+  // be judged against what is ordered; the line's quantity changes only when
+  // the person OKs it or types over it (PUT /orders/:id/lines). Lines with no
+  // sales history and no par get no suggestion. Needs the right to change
+  // the order and Stock view (it reads what is on hand).
+  app.post('/orders/:id/suggest', { preHandler: canOrderOrApprove }, async req => {
+    const b = SuggestBody.parse(req.body || {})
+    const who = await accessOf(req)
+    if (!who.stock) throw httpError(403, 'Suggesting quantities needs Stock view: it reads what is on hand')
+    const made = await withTenant(req.tenantId, async tx => {
+      const o = await ownOrder(tx, req.tenantId, req.params.id, { lock: true })
+      assertEditable(o, who)
+      const [own] = await tx`SELECT id FROM suppliers WHERE id = ${b.supplier_id} AND tenant_id = ${req.tenantId}`
+      if (!own) throw httpError(404, 'Supplier not found')
+      if (b.item_ids) await checkItems(tx, req.tenantId, [...new Set(b.item_ids)])
+      const venue = await loadVenue(tx, req.tenantId, o.venue_id)
+      const { today } = await venueToday(tx, req.tenantId, venue.id)
+      if (b.delivery_date && b.delivery_date < today) throw httpError(422, 'The delivery day has gone: pick today or later', { code: 'delivery_date' })
+      const supplier = (await loadSuppliersForVenue(tx, req.tenantId, venue, [b.supplier_id]))[b.supplier_id]
+      let items = await supplierLines(tx, req.tenantId, o, venue.id, b.supplier_id)
+      if (b.item_ids) {
+        const off = b.item_ids.filter(id => !items.some(i => i.item_id === id))
+        if (off.length) throw httpError(422, `Not on this order from ${supplier.name}`, { code: 'suggest_items', item_ids: off })
+        items = items.filter(i => b.item_ids.includes(i.item_id))
+      }
+      const asked = o.supplier_options?.[b.supplier_id]?.delivery_date
+      const deliveryDate = b.delivery_date || (asked && asked >= today ? asked : null)
+      const s = await suggestFor(tx, req.tenantId, { venue, supplier, items, deliveryDate, orderId: o.id })
+      const at = new Date()
+      const kept = s.lines.filter(l => l.qty != null && (l.basis === 'forecast' || l.basis === 'par'))
+      for (const l of kept) {
+        const working = {
+          summary: l.summary, words: l.words, pack_label: l.pack_label, on_hand: l.on_hand, on_order: l.on_order,
+          buffer_pct: l.buffer_pct, buffer_base: l.buffer_base, target_base: l.target_base, need_base: l.need_base,
+          pack_base_qty: l.pack_base_qty, raised: l.raised, par_base: l.par_base, next_delivery: s.next_delivery, days: l.days,
+        }
+        await tx`
+          INSERT INTO supply_order_lines (order_id, item_id, tenant_id, quote_id, qty, suggested_qty, suggested_base, suggestion_quote_id,
+                                          suggestion_basis, forecast_base, window_from, window_to, suggestion, suggested_at, suggested_by)
+          VALUES (${o.id}, ${l.item_id}, ${req.tenantId}, NULL, 0, ${l.qty}, ${l.suggested_base}, ${l.quote_id}, ${l.basis},
+                  ${l.forecast_base}, ${s.window.from}, ${s.after}, ${tx.json(working)}, ${at}, ${by(req)})
+          ON CONFLICT (order_id, item_id) DO UPDATE
+            SET suggested_qty = EXCLUDED.suggested_qty, suggested_base = EXCLUDED.suggested_base,
+                suggestion_quote_id = EXCLUDED.suggestion_quote_id, suggestion_basis = EXCLUDED.suggestion_basis,
+                forecast_base = EXCLUDED.forecast_base, window_from = EXCLUDED.window_from, window_to = EXCLUDED.window_to,
+                suggestion = EXCLUDED.suggestion, suggested_at = EXCLUDED.suggested_at, suggested_by = EXCLUDED.suggested_by
+        `
+      }
+      if (kept.length) await tx`UPDATE supply_orders SET updated_at = now() WHERE id = ${o.id} AND tenant_id = ${req.tenantId}`
+      const qtyOf = new Map(items.map(i => [i.item_id, i.qty]))
+      return { order_id: o.id, ...s, lines: s.lines.map(l => ({ ...l, current_qty: qtyOf.get(l.item_id) ?? 0, kept: kept.includes(l) })) }
+    })
+    return made
   })
 
   // A supplier's basket brought into the order: pasted text (CODE:QTY,
