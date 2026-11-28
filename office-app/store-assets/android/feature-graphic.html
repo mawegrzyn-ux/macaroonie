@@ -1,41 +1,44 @@
 <!doctype html>
 <!-- The Google Play feature graphic (1024 x 500), drawn by make-assets.mjs:
      the app icon, the name and what it is for on the brand navy, with two of
-     the phone screenshots in a plain frame (no maker's device or marks). The
-     words stay inside the middle of the picture, where Play never crops. -->
+     the phone screenshots in a plain frame (no maker's device or marks). Each
+     frame's screen is 9:16, the screenshots' own shape, so the whole of each
+     screen shows, nothing cut off its sides. The words and both phones stay
+     well inside the edges, where Play may crop. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <title>Macaroonie Office feature graphic</title>
 <style>
-  :root { --navy: #1f2a44; --navy-deep: #151d31; --pink: #f4a7b9; --cream: #fbf3cd; --ink: #ffffff; --soft: #c9d1e3; }
+  :root { --navy: #1f2a44; --navy-deep: #151d31; --pink: #f4a7b9; --ink: #ffffff; --soft: #e6eaf3; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { width: 1024px; height: 500px; overflow: hidden; background: var(--navy); }
   body { font-family: Inter, 'Helvetica Neue', Arial, sans-serif; color: var(--ink); position: relative; }
   .glow { position: absolute; inset: 0; background:
-    radial-gradient(520px 420px at 820px 260px, rgba(244, 167, 185, 0.20), transparent 70%),
+    radial-gradient(520px 420px at 790px 260px, rgba(244, 167, 185, 0.20), transparent 70%),
     radial-gradient(600px 500px at 120px 520px, rgba(21, 29, 49, 0.9), transparent 70%),
     linear-gradient(135deg, #24314f 0%, var(--navy) 55%, var(--navy-deep) 100%); }
-  .words { position: absolute; left: 72px; top: 0; bottom: 0; width: 520px; display: flex; flex-direction: column; justify-content: center; gap: 0; }
+  .words { position: absolute; left: 64px; top: 0; bottom: 0; width: 480px; display: flex; flex-direction: column; justify-content: center; }
   .brand { display: flex; align-items: center; gap: 22px; }
   .brand img { width: 104px; height: 104px; border-radius: 24px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.10); }
   h1 { font-size: 50px; line-height: 1.02; font-weight: 700; letter-spacing: -0.02em; }
   h1 span { display: block; color: var(--pink); }
-  .line { margin-top: 30px; font-size: 27px; line-height: 1.25; font-weight: 600; letter-spacing: -0.01em; }
-  ul { margin-top: 18px; list-style: none; display: grid; gap: 9px; }
-  li { font-size: 18px; color: var(--soft); display: flex; align-items: center; gap: 12px; }
-  li::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--pink); flex: none; }
-  .phone { position: absolute; width: 214px; height: 438px; border-radius: 34px; background: #0b1020; padding: 9px;
+  .line { margin-top: 30px; font-size: 29px; line-height: 1.2; font-weight: 700; letter-spacing: -0.01em; }
+  ul { margin-top: 18px; list-style: none; display: grid; gap: 10px; }
+  li { font-size: 23px; line-height: 1.2; font-weight: 600; color: var(--soft); display: flex; align-items: center; gap: 12px; }
+  li::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--pink); flex: none; }
+  /* The screen inside each frame: 216 x 384, exactly 9:16. */
+  .phone { position: absolute; width: 234px; height: 402px; border-radius: 32px; background: #0b1020; padding: 9px;
     box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.08); }
-  .phone img { width: 100%; height: 100%; border-radius: 26px; display: block; object-fit: cover; object-position: top; }
-  .back { left: 606px; top: 56px; transform: rotate(-8deg); }
-  .front { left: 748px; top: 36px; transform: rotate(6deg); }
+  .phone img { width: 216px; height: 384px; border-radius: 24px; display: block; object-fit: contain; background: #fff; }
+  .back { left: 572px; top: 62px; transform: rotate(-7deg); }
+  .front { left: 734px; top: 44px; transform: rotate(5deg); }
 </style>
 </head>
 <body>
   <div class="glow"></div>
-  <div class="phone back"><img src="screenshots/02-today.png" alt=""></div>
-  <div class="phone front"><img src="screenshots/01-hub.png" alt=""></div>
+  <div class="phone back"><img src="screenshots/01-hub.png" alt=""></div>
+  <div class="phone front"><img src="screenshots/02-pepper.png" alt=""></div>
   <div class="words">
     <div class="brand">
       <img src="../../assets/icon.png" alt="">

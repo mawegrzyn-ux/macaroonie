@@ -175,11 +175,13 @@ Data safety, the content rating and the target audience.
   phones show), a 32-bit PNG with no transparent pixels: Play rounds the
   corners itself.
 - `feature-graphic-1024x500.png`: drawn from `feature-graphic.html` (the
-  icon, the name, a line and two of the screenshots on the brand navy).
-- `screenshots/01-hub.png` to `06-rota.png`: 1080 x 1920 (9:16), the phone
-  pages the app shows, with an invented group (Harbour & Co, venues
-  Quayside and West Pier, invented staff, guests and stock). No real
-  business, staff or guest is in them.
+  icon, the name, a line and two of the screenshots on the brand navy, each
+  in a frame whose screen is 9:16, so none of a screen is cut off).
+- `screenshots/01-hub.png` to `07-rota.png`: 1080 x 1920 (9:16), the phone
+  pages the app shows (the hub, Pepper, Today, the fridge check, the stock
+  count, the guest list and the rota), with an invented group (Harbour &
+  Co, venues Quayside and West Pier, invented staff, guests and stock). No
+  real business, staff or guest is in them.
 
 To take them again (after the phone pages change), on a computer with
 Postgres 16, Redis and Playwright, from the repo root:
@@ -191,7 +193,9 @@ python3 office-app/store-assets/android/make-assets.py
 ```
 
 `make-assets.mjs` fills the test database through the API (the API tests'
-sign-in stand-in: no real account, and no model is called), starts the API
+sign-in stand-in: no real account; Pepper's chat runs its real tools on the
+demo data against the tests' stand-in for the model, so no model is called
+and only Pepper's words are written in the script), starts the API
 and the admin on ports of their own (`API_PORT` 3091, `ADMIN_PORT` 5291),
 takes each screen in Chrome at 360 x 640 with a device scale of 3, draws
 the feature graphic and stops what it started. `make-assets.py` makes the

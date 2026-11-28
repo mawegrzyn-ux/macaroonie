@@ -13,14 +13,17 @@
 //
 // What it does: empties that test database (it must be a test one: rule 27)
 // and fills it with an invented group, Harbour & Co, venues Quayside and West
-// Pier, invented staff, guests and stock, all through the API as the owner;
-// starts the API with the tests' sign-in stand-in (api/test/support) and the
-// admin on Vite with an Auth0 stand-in (both on ports of their own, API_PORT
-// and ADMIN_PORT); takes each screen in Chrome at 360 x 640 CSS px with
-// deviceScaleFactor 3 (1080 x 1920); draws the feature graphic from
-// feature-graphic.html; then stops what it started. Nothing here is a
-// secret: the sign-in is the tests' own stand-in, and no model is called (the
-// Anthropic key is a dummy, so Pepper's bar shows).
+// Pier, invented staff, guests and stock, and one Pepper chat (a fridge
+// reading said aloud, its card waiting to be confirmed), all through the API
+// as the owner; starts the API with the tests' sign-in stand-in
+// (api/test/support) and the admin on Vite with an Auth0 stand-in (both on
+// ports of their own, API_PORT and ADMIN_PORT); takes each screen in Chrome
+// at 360 x 640 CSS px with deviceScaleFactor 3 (1080 x 1920); draws the
+// feature graphic from feature-graphic.html; then stops what it started.
+// Nothing here is a secret: the sign-in is the tests' own stand-in, and no
+// model is called (Pepper's chat runs its real tools against the API tests'
+// stand-in for the model, which says the words written here; the API itself
+// gets a dummy Anthropic key, so Pepper's bar shows).
 //
 // Options: PLAYWRIGHT_DIR (a folder whose node_modules has playwright; the
 // global npm folder is tried too), CHROME (a Chrome to use instead of
@@ -61,17 +64,23 @@ const hhmm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m %
 // Every name is invented: first names and an initial, no real business.
 const GROUP = 'Harbour & Co'
 const OWNER_NAME = 'Maya R.'
+// The staff and their usual week, Monday to Sunday: L lunch, E evening, - a
+// day off. Two days off each, mostly early in the week, so Friday and
+// Saturday have the most on and every service has a chef.
 const STAFF = [
-  ['Jonah P.', 'Head chef', 'Evening'], ['Aisha K.', 'Chef', 'Evening'], ['Tomas V.', 'Chef', 'Lunch'],
-  ['Leah M.', 'Front of house', 'Evening'], ['Ravi D.', 'Front of house', 'Evening'], ['Nora B.', 'Front of house', 'Lunch'],
-  ['Felix H.', 'Bar', 'Evening'], ['Iris C.', 'Bar', 'Lunch'],
+  ['Jonah P.', 'Head chef', '--EEEEE'], ['Marta S.', 'Sous chef', '--LLEEL'],
+  ['Aisha K.', 'Chef', 'EE-EEE-'], ['Tomas V.', 'Chef', 'LL--LLL'],
+  ['Leah M.', 'Front of house', '--EEEEE'], ['Ravi D.', 'Front of house', 'EE--EEE'], ['Nora B.', 'Front of house', 'LLLL-L-'],
+  ['Felix H.', 'Bar', '--EEEEE'], ['Iris C.', 'Bar', 'EE--LLL'],
 ]
+const KITCHEN = new Set(['Head chef', 'Sous chef', 'Chef'])
+const SHIFT_OF = { L: 'Lunch', E: 'Evening' }
 // Guests tonight: [minutes past 12:00, covers, name, table, note].
 const GUESTS = [
   [30, 2, 'Elena M.', 'T2', null], [60, 4, 'Sam O.', 'T5', 'High chair needed'], [90, 2, 'Grace L.', 'T3', null],
   [300, 2, 'Owen T.', 'T1', 'Window table if possible'], [360, 4, 'Hannah W.', 'T6', null],
   [375, 2, 'Daniel F.', 'T2', 'Shellfish allergy'], [390, 3, 'Chloe A.', 'T4', null],
-  [420, 2, 'Marcus J.', 'T3', 'Anniversary'], [435, 8, 'Ravi S.', 'T9', 'Birthday: candle on dessert'],
+  [420, 2, 'Marcus J.', 'T3', 'Anniversary'], [435, 8, 'Hugo S.', 'T9', 'Birthday, candle on dessert'],
   [450, 2, 'Lucy N.', 'T1', null], [465, 4, 'Ben K.', 'T7', null], [480, 2, 'Zara P.', 'T8', 'Gluten free'],
   [510, 6, 'Theo G.', 'T10', null], [525, 2, 'Mia C.', 'T5', null], [540, 2, 'Adam E.', 'T2', null],
 ]
@@ -105,6 +114,12 @@ const WEATHER = [ // [weather code, min, max, rain mm, wind kph, title]
 
 async function seed() {
   const support = p => pathToFileURL(path.join(API_DIR, 'test/support', p)).href
+  // Pepper's model is the API tests' stand-in (support/fake-claude.mjs): the
+  // chat below runs Pepper's real tools on the demo data, and only Pepper's
+  // words are written here. It starts before the app is imported, which
+  // reads its address from the environment.
+  const { startFakeClaude } = await import(support('fake-claude.mjs'))
+  const claude = await startFakeClaude()
   const { as, ok, sql, closeApp } = await import(support('app.mjs'))
   const { resetAndSeed, A } = await import(support('seed.mjs'))
   const ids = await resetAndSeed()
@@ -166,20 +181,26 @@ async function seed() {
   const roles = {}
   for (const name of new Set(STAFF.map(s => s[1]))) roles[name] = (await post('/api/rota/roles', { name, points_multiplier: 1 })).id
   const people = []
-  for (const [name, role, shift] of STAFF) {
-    people.push({ ...(await post(`/api/rota/venues/${V}/staff`, { name, role_id: roles[role], pay_type: 'hourly', default_rate: 12.6 })), shift })
+  for (const [name, role, week] of STAFF) {
+    const rate = role === 'Head chef' ? 17.5 : role === 'Sous chef' ? 15.2 : 12.6
+    people.push({ ...(await post(`/api/rota/venues/${V}/staff`, { name, role_id: roles[role], pay_type: 'hourly', default_rate: rate })), name, role, week })
   }
   // This week and next (an empty next week is a late task on Today).
   for (const week of [monday, addDays(monday, 7)]) {
     const entries = []
-    for (const [n, person] of people.entries()) {
+    for (const person of people) {
       for (let d = 0; d < 7; d++) {
-        if ((d + n) % 7 === 5 || (d + n) % 7 === 6) continue // two days off each
-        entries.push({ staff_id: person.id, work_date: addDays(week, d), shift_id: shifts[d === 5 && n % 2 ? 'Lunch' : person.shift] })
+        const shift = SHIFT_OF[person.week[d]]
+        if (shift) entries.push({ staff_id: person.id, work_date: addDays(week, d), shift_id: shifts[shift] })
       }
     }
     await put(`/api/rota/venues/${V}/weeks/${week}/entries`, { entries })
   }
+  // Who is in the kitchen today: the checks and the count are theirs.
+  const todayAt = (weekday(today) + 6) % 7
+  const cooks = people.filter(p => KITCHEN.has(p.role) && p.week[todayAt] !== '-')
+  const onNow = cooks.find(p => p.week[todayAt] === (now < 16 * 60 + 15 ? 'L' : 'E')) || cooks[0]
+  const counter = cooks.find(p => p !== onNow) || onNow
 
   // ── Cash Recon: the last week's days cashed up and submitted ──
   const C = `/api/venues/${V}/cash-recon`
@@ -206,7 +227,7 @@ async function seed() {
   const due = Math.min(23 * 60 + 45, Math.ceil((now + 10) / 15) * 15)
   const evening = await post('/api/food-safety/capture-times', { venue_id: V, label: 'Evening', time_of_day: hhmm(due) })
   for (const [i, temperature_c] of [3.4, 2.9].entries()) {
-    await post('/api/food-safety/temp-logs', { venue_id: V, equipment_id: units[i].id, capture_time_id: evening.id, log_date: today, temperature_c, recorded_by: 'Jonah P.' })
+    await post('/api/food-safety/temp-logs', { venue_id: V, equipment_id: units[i].id, capture_time_id: evening.id, log_date: today, temperature_c, recorded_by: onNow.name })
   }
   const closing = await post('/api/checklists/templates', { venue_id: V, name: 'Closing checks', department: 'Kitchen', frequency: 'daily' })
   for (const label of ['Fryers off and covered', 'Probe wipes restocked', 'Walk-in door shut and sealed', 'Floors mopped', 'Bins out', 'Back door locked']) {
@@ -236,7 +257,7 @@ async function seed() {
   }
   // Who started it and who is counting, by name (the tests' sign-in gives only the email).
   await sql`UPDATE stock_counts SET started_by = ${OWNER_NAME}, counted_by = ${OWNER_NAME} WHERE id = ${count.id}`
-  await sql`UPDATE stock_count_lines SET counted_by = 'Aisha K.' WHERE count_id = ${count.id}`
+  await sql`UPDATE stock_count_lines SET counted_by = ${counter.name} WHERE count_id = ${count.id}`
 
   // ── The week ahead: a forecast (a weather capture's findings) and a local event ──
   const src = await post(`/api/local-info/venues/${V}/sources`, { kind: 'weather', place: 'Quayside', enabled: false })
@@ -248,11 +269,27 @@ async function seed() {
   }
   await post('/api/local-info/items', { venue_id: V, title: 'Winter market on the quay', starts_on: addDays(today, 3), severity: 'notice' })
 
+  // ── Pepper: a reading said aloud, and its card waiting to be confirmed ──
+  // (One exchange: the card fills most of a phone's chat, and the screenshot
+  // shows the whole of it.)
+  claude.script.push(
+    () => ({ stop_reason: 'tool_use', content: [
+      { type: 'tool_use', id: 'toolu_demo_temp', name: 'log_temperature', input: { venue_id: V, fridge: 'Bar fridge', temperature_c: 4.2 } },
+    ] }),
+    () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Here it is for the evening check. Confirm and I\'ll log it.' }] }),
+  )
+  const chat = await post('/api/ai/chat', { message: 'The bar fridge is reading 4.2', voice: true })
+  const shown = chat.items.map(i => i.type).join(' ')
+  if (!/action/.test(shown) || chat.items.some(i => i.type === 'action' && i.status !== 'pending')) {
+    throw new Error('Pepper\'s chat did not end on a card waiting to be confirmed: ' + shown)
+  }
+  await claude.close()
+
   const { queue: emails } = await import(pathToFileURL(path.join(API_DIR, 'src/jobs/notifications.js')).href)
   await emails.obliterate({ force: true })
   await emails.close()
 
-  console.log(JSON.stringify({ venue: V, venue2: V2, count: count.id, today }))
+  console.log(JSON.stringify({ venue: V, venue2: V2, count: count.id, chat: chat.conversation_id, today }))
   await closeApp()
 }
 
@@ -320,22 +357,35 @@ function loadPlaywright() {
 // Each: the file, the address, and what to do before the picture.
 const SCREENS = [
   { file: '01-hub.png', path: '/mobile', ready: '[data-testid="mobile-tile-today"] [data-testid="mobile-tile-badge"]' },
-  { file: '02-today.png', path: '/mobile/today', ready: '[data-testid="today-task"]', scrollTo: '[data-testid="today-tasks"]' },
+  { file: '02-pepper.png', path: '/mobile/assistant', ready: '[data-testid="chat-answer"]', settle: 2500 },
+  { file: '03-today.png', path: '/mobile/today', ready: '[data-testid="today-task"]', scrollTo: '[data-testid="today-tasks"]' },
   {
-    file: '03-fridge-check.png', path: '/mobile/today', ready: '[data-testid="today-task"][data-kind="fridge_check"]',
+    file: '04-fridge-check.png', path: '/mobile/today', ready: '[data-testid="today-task"][data-kind="fridge_check"]',
     before: async p => {
       await p.locator('[data-testid="today-task"][data-kind="fridge_check"] [data-testid="today-task-action"]').click()
+      await p.waitForSelector('[data-testid="today-form"]')
+      // The sheet is drawn inside Today's spaced list (space-y-3), whose gap
+      // gives its fixed backdrop a 12 px top margin: a white band above the
+      // dimmed page. That is a bug of the page, not its look, so the picture
+      // is taken without it.
+      await p.addStyleTag({ content: '[data-testid="today-form"] { margin: 0 !important; }' })
+      // Today from its top behind the sheet (the click scrolled it to the task).
+      await p.evaluate(() => { const main = document.querySelector('main'); if (main) main.scrollTop = 0 })
       await p.waitForTimeout(2000)
     },
   },
-  { file: '04-stock-count.png', path: '/mobile/stock-count', ready: '[data-testid="stock-count-line"]', settle: 2500, scrollTo: '[data-testid="stock-count-areas"]' },
-  { file: '05-guest-list.png', path: '/mobile/guest-list', ready: 'main', settle: 2500 },
-  { file: '06-rota.png', path: '/mobile/rota', ready: 'main', settle: 2500 },
+  { file: '05-stock-count.png', path: '/mobile/stock-count', ready: '[data-testid="stock-count-line"]', settle: 2500, scrollTo: '[data-testid="stock-count-areas"]' },
+  { file: '06-guest-list.png', path: '/mobile/guest-list', ready: 'main', settle: 2500 },
+  { file: '07-rota.png', path: '/mobile/rota', ready: 'main', settle: 2500 },
 ]
 
 async function shoot(seeded) {
   const { chromium } = loadPlaywright()
   fs.mkdirSync(SHOTS, { recursive: true })
+  // Screenshots no longer in the list go, so the folder holds exactly these.
+  for (const f of fs.readdirSync(SHOTS)) {
+    if (f.endsWith('.png') && !SCREENS.some(s => s.file === f)) fs.rmSync(path.join(SHOTS, f))
+  }
   const browser = await chromium.launch({ ...(process.env.CHROME ? { executablePath: process.env.CHROME } : {}), args: ['--no-sandbox'] })
   const base = `http://localhost:${ADMIN_PORT}`
   let ip = 20
@@ -344,7 +394,10 @@ async function shoot(seeded) {
     const ctx = await browser.newContext({ viewport: { width: 360, height: 640 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, locale: 'en-GB', timezoneId: TZ })
     // A new address per page load keeps the API's rate limit out of the way (infra.md).
     await ctx.route('**/api/**', r => r.continue({ headers: { ...r.request().headers(), 'x-forwarded-for': '10.0.7.' + (ip++ % 250) } }))
-    await ctx.addInitScript(v => { try { localStorage.setItem('maca_today_venue', v) } catch { /* none */ } }, seeded.venue)
+    // The venue Today opens on, and the chat Pepper's page opens (the one the seed had).
+    await ctx.addInitScript(([v, c]) => {
+      try { localStorage.setItem('maca_today_venue', v); localStorage.setItem('maca_ai_conversation', c) } catch { /* none */ }
+    }, [seeded.venue, seeded.chat])
     const p = await ctx.newPage()
     p.on('pageerror', e => problems.push('page error: ' + e.message))
     p.on('response', r => { if (r.status() >= 400 && r.url().includes('/api/')) problems.push(r.status() + ' ' + r.url().replace(base, '')) })

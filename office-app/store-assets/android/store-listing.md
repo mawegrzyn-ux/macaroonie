@@ -70,18 +70,21 @@ Privacy policy: https://macaroonie.com/privacy
 | File | Pixels | Mode | Size | Play field |
 |---|---|---|---|---|
 | `icon-512.png` | 512 x 512 | RGBA, every pixel opaque | 24 KB | App icon (32-bit PNG) |
-| `feature-graphic-1024x500.png` | 1024 x 500 | RGB | 307 KB | Feature graphic (24-bit PNG, under 1 MB) |
+| `feature-graphic-1024x500.png` | 1024 x 500 | RGB | 316 KB | Feature graphic (24-bit PNG, under 1 MB) |
 | `screenshots/01-hub.png` | 1080 x 1920 | RGB | 166 KB | Phone screenshot 1: the home screen, with Capture, the tiles and Pepper's bar |
-| `screenshots/02-today.png` | 1080 x 1920 | RGB | 136 KB | Phone screenshot 2: Today, a late task and what to do now |
-| `screenshots/03-fridge-check.png` | 1080 x 1920 | RGB | 111 KB | Phone screenshot 3: logging the evening fridge check |
-| `screenshots/04-stock-count.png` | 1080 x 1920 | RGB | 121 KB | Phone screenshot 4: counting the walk-in, in boxes and grams |
-| `screenshots/05-guest-list.png` | 1080 x 1920 | RGB | 153 KB | Phone screenshot 5: tonight's guests, with notes and an allergy |
-| `screenshots/06-rota.png` | 1080 x 1920 | RGB | 153 KB | Phone screenshot 6: who is working today |
+| `screenshots/02-pepper.png` | 1080 x 1920 | RGB | 178 KB | Phone screenshot 2: Pepper, a fridge reading said aloud and its card to confirm |
+| `screenshots/03-today.png` | 1080 x 1920 | RGB | 136 KB | Phone screenshot 3: Today, a late task and what to do now |
+| `screenshots/04-fridge-check.png` | 1080 x 1920 | RGB | 119 KB | Phone screenshot 4: logging the evening fridge check |
+| `screenshots/05-stock-count.png` | 1080 x 1920 | RGB | 121 KB | Phone screenshot 5: counting the walk-in, in boxes and grams |
+| `screenshots/06-guest-list.png` | 1080 x 1920 | RGB | 159 KB | Phone screenshot 6: tonight's guests, with notes and an allergy |
+| `screenshots/07-rota.png` | 1080 x 1920 | RGB | 160 KB | Phone screenshot 7: who is working today, a Saturday |
 
-Upload the screenshots in that order. The data in them is invented: the
-group Harbour & Co, venues Quayside and West Pier, and staff and guests
-named by a first name and an initial. `make-assets.py` checks the sizes and
-modes again whenever it runs.
+Upload the screenshots in that order (Play takes up to 8). The data in them
+is invented: the group Harbour & Co, venues Quayside and West Pier, and
+staff and guests named by a first name and an initial. Pepper's chat in
+screenshot 2 is the real chat page and its real fridge check tool on that
+data; only Pepper's own words were written for it (no AI model was called).
+`make-assets.py` checks the sizes and modes again whenever it runs.
 
 ## Store settings
 
@@ -107,8 +110,13 @@ is restricted** and give Play's reviewers a way in:
   set a password for it in Auth0 so the reviewer doesn't need Google
   sign-in or an emailed code.
 - Put the username and password only in the Play Console's App access form,
-  never in this file, the repository or a chat. Change the password, or
-  remove the account, when the review is done.
+  never in this file, the repository or a chat.
+- Keep the demo account and its password working for as long as the app is
+  on Play: Play signs in with them again to review every update, and may
+  check the live app at any time. An update whose review can't get past the
+  sign-in is rejected. If the password ever changes, enter the new one in
+  the App access form at the same time. Keep the demo group to invented data
+  only.
 - Instructions for the reviewer, for example: "Open the app and tap Sign
   in. The phone's browser opens the Macaroonie sign-in page: enter the email
   and password above. If you are asked to choose a business, pick the demo
@@ -130,6 +138,10 @@ kept and 15 for what the app stores on the phone):
   history), used to improve the service and suggest pages.
 - **Photos**: only a photo or picture the person chooses to capture, attach
   or share to the app (Photos, optional).
+- **Files and docs** (optional): files the person attaches to Pepper's chat,
+  such as a PDF invoice or a CSV (the paperclip takes PDF, CSV, TSV, text,
+  Markdown and JSON files as well as pictures), for app functionality. The
+  Privacy policy's section 5 lists them ("any files you attach").
 - **Audio**: none. The phone's own speech recognition turns speech into
   words; only the words reach Macaroonie, and no audio is kept. Say so if
   the form asks about voice.
@@ -139,19 +151,36 @@ kept and 15 for what the app stores on the phone):
 - **Security**: all data is encrypted in transit (HTTPS).
 - **Deletion**: accounts are made by the employer, not in the app; a person
   can ask their employer, or info@macaroonie.com, to delete their account
-  and data. Give https://macaroonie.com/privacy as the web address where
-  Play asks for one.
+  and data. Play also asks for a web address where people can ask for their
+  account to be deleted, and that page must name the app (or Macaroonie) and
+  show the steps prominently. The Privacy policy is long and has no section
+  that does this, so it probably won't pass. Make a short page first (for
+  example macaroonie.com/delete-account) that says: ask your employer to
+  delete your account, or email info@macaroonie.com from the address you
+  sign in with; what is deleted (the account, and the sign-in with Auth0
+  when you ask); and what the business may keep and for how long (the
+  Privacy policy's section 9). Then give that page's address.
 - **Ads and tracking**: none; nothing is used for advertising.
 
 ### Content rating
 
 Fill in the questionnaire as a business tool: no violence, sexual content,
-bad language, drugs or gambling; no purchases; users don't talk to each
-other through the app or share content publicly. Pepper writes answers with
-an AI model for the business's own staff; answer Play's question on
-AI-generated content accordingly. The rating that should come out is the
-lowest for each region (Everyone, PEGI 3), but it is whatever the
-questionnaire gives.
+bad language, drugs or gambling; no purchases.
+
+Users can send each other text in the app: someone with Manage on Pepper
+(a manager) can ask Pepper to send a notice they word (a title and a short
+message) to the phones of a teammate or of everyone with a role (Pepper's
+send_notice, shown on a card to confirm first), and the records people
+enter (checks, counts, notes on bookings) are seen by their colleagues. So
+answer **yes** to the question on users interacting or exchanging content,
+and describe it as private messages and records between the staff of one
+business, who the employer invites and controls: nothing is shared
+publicly, there are no public profiles and no chat with strangers, and the
+app doesn't share the person's location. Pepper writes answers with an AI
+model for the business's own staff; answer Play's question on AI-generated
+content accordingly. The rating that should come out is still the lowest
+for each region (Everyone, PEGI 3), with Users Interact listed beside it,
+but it is whatever the questionnaire gives.
 
 ### Target audience and content
 
