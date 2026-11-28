@@ -19,7 +19,7 @@ export function Section() {
         with its pay and tips, the kitchen screens, self-order kiosk visits, loyalty, purchasing,
         food safety, checklists and the H&S action log, menus, reviews and the website, local news
         and the weather, and Store tech&apos;s tills, card machines, printers and menu screens,
-        with the rest to follow. It comes with 72 starter reports, such as Sales by day, Payments by tender, No-shows and
+        with the rest to follow. It comes with over a hundred starter reports, such as Sales by day (and Sales by day, every till, with another till such as Loyverse), Payments by tender, No-shows and
         cancellations, Cash variance by day, Hours and pay by person, Ticket times by station and
         Spend by supplier, and you can build your own. A report can be
         drawn as a chart above its table, opened up row by row down to the check, order or

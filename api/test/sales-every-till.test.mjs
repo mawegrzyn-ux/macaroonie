@@ -320,6 +320,36 @@ test('mapping coverage: mapped, kept and bucket value over the item value, ignor
   if (pagePercent != null) assert.ok(Math.abs(Number(t30.mapping_coverage) * 100 - pagePercent) < 0.06, t30.mapping_coverage + ' vs ' + pagePercent)
 })
 
+test('the every-till starters: by till, by day, our dishes from the mapping, sections, payments and the items still to map', async () => {
+  const { STARTERS } = await import('../src/reports/starters/index.js')
+  const get = key => {
+    const s = STARTERS.find(x => x.key === key)
+    assert.ok(s, key + ' is a starter')
+    return s
+  }
+  const given = { period: { from: FROM(), to: TO() }, venues: [V] }
+  // By till: our till and Loyverse, adding up to the two together (the subject's own figures, as above).
+  const byTill = await run(get('till_every_sales_by_till').spec, given)
+  const tills = bySource(rowsOf(byTill))
+  assert.deepEqual(Object.keys(tills).sort(), ['loyverse', 'macaroonie'])
+  const same = bySource(rowsOf(await run({ subject: 'sales.checks', rows: [{ field: 'source' }], values: measures(['net_sales']), filters: [period(FROM(), TO()), here()] })))
+  for (const k of ['loyverse', 'macaroonie']) assert.equal(tills[k].net_sales, same[k].net_sales, k)
+  // By day: every day the stand-in sold on is a row.
+  const byDay = rowsOf(await run(get('till_every_sales_by_day').spec, given)).map(r => r.date)
+  for (const d of dates) assert.ok(byDay.includes(d), d + ' in ' + byDay.join(', '))
+  // Dishes: the mapped coffee as our dish, the croissant (no rule) by its name as sold.
+  const [dish] = await sql`SELECT mi.name FROM ext_map_rules r JOIN menu_items mi ON mi.id = r.target_item_id WHERE r.item_ref = 'it-coffee' AND r.venue_id = ${V}`
+  const names = rowsOf(await run(get('till_every_dishes_sold').spec, given)).map(r => r.name)
+  assert.ok(names.includes(dish.name) && names.includes('Croissant'), names.join(', '))
+  assert.ok(rowsOf(await run(get('till_every_sales_by_section').spec, given)).length >= 1)
+  const tenders = rowsOf(await run(get('till_every_payments_by_tender').spec, given))
+  assert.ok(tenders.length >= 1 && tenders.every(t => t.tender), JSON.stringify(tenders))
+  // Items still to map: the croissant, never the mapped coffee.
+  const toMap = rowsOf(await run(get('till_items_to_map').spec, given)).map(r => r.sold_as)
+  assert.ok(toMap.includes('Croissant'), toMap.join(', '))
+  assert.ok(!toMap.some(n => /flat white/i.test(n || '')), 'the mapped coffee is placed: ' + toMap.join(', '))
+})
+
 test('payments: our till as till.payments; Loyverse tips sit on the biggest payment and takings add up', async () => {
   const filters = [period(FROM(), TO()), here()]
   const ms = ['payments', 'taken', 'tips', 'refunded', 'takings']

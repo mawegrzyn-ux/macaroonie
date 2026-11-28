@@ -11,6 +11,10 @@ const CLOSED = { field: 'status', op: 'is', value: 'closed' }
 const ON_CLOSED = { field: 'check.status', op: 'is', value: 'closed' }
 const CHECK_ROWS = ['number', 'date', 'venue.name', 'mode', 'server.name', 'order_type.name', 'covers', 'net', 'service_charge', 'total']
 const LINE_ROWS = ['date', 'check.number', 'name', 'qty', 'gross', 'discount', 'net', 'section.name', 'check.server.name']
+// The every-till subjects' rows (catalogue/sales.js): our till and other tills together, with the Till.
+const EVERY_CHECK_ROWS = ['date', 'source', 'number', 'venue.name', 'kind', 'status', 'net', 'total']
+const EVERY_DISH_ROWS = ['date', 'source', 'name', 'sold_as', 'qty', 'net', 'mapping', 'section.name']
+const EVERY_TENDER_ROWS = ['date', 'at', 'source', 'check.number', 'kind', 'tender', 'amount', 'tip']
 
 /** Where these starters come in the list (index.js gathers this folder by it, then by file name). */
 export const order = 10
@@ -75,6 +79,96 @@ export const starters = [
       sort: [{ by: 'net_sales', dir: 'desc' }],
       drill: { down: ['name', 'date', 'venue.name'], rows: LINE_ROWS },
       view: { kind: 'parts', x: 'section.name', y: ['net_sales'] },
+    },
+  }),
+
+  // Every till: our till and other tills linked on the Integrations page (Loyverse) together, from the
+  // sales.* subjects (catalogue/sales.js). The starters above are our own till only.
+  starter({
+    key: 'till_every_sales_by_day',
+    name: 'Sales by day, every till',
+    about: 'Each trading day\'s sales on our till and on other tills linked on the Integrations page (Loyverse) together: checks and receipts, gross and net sales, discounts, the total and what other tills refunded. Open a day to see it by till.',
+    period: { relative: 'last_n_days', n: 28 },
+    spec: {
+      subject: 'sales.checks',
+      rows: ['date'],
+      values: m('checks', 'gross_sales', 'discounts', 'net_sales', 'total_sales', 'refunded', 'average_check'),
+      sort: [{ by: 'date', dir: 'asc' }],
+      drill: { down: ['source', 'venue.name'], rows: EVERY_CHECK_ROWS },
+      view: { kind: 'bar', x: 'date', y: ['net_sales'] },
+    },
+  }),
+
+  starter({
+    key: 'till_every_sales_by_till',
+    name: 'Sales by till',
+    about: 'Our till against other tills linked on the Integrations page (Loyverse): checks and receipts, net sales, the total, the average check and each till\'s share of net sales. Open a till to see its days.',
+    period: { relative: 'last_n_days', n: 28 },
+    spec: {
+      subject: 'sales.checks',
+      rows: ['source'],
+      values: [...m('checks', 'net_sales', 'total_sales', 'average_check'), share('net_sales', 'Share of net sales')],
+      sort: [{ by: 'net_sales', dir: 'desc' }],
+      drill: { down: ['date', 'venue.name'], rows: EVERY_CHECK_ROWS },
+      view: { kind: 'parts', x: 'source', y: ['net_sales'] },
+    },
+  }),
+
+  starter({
+    key: 'till_every_dishes_sold',
+    name: 'Dishes sold, every till',
+    about: 'Dishes sold on every till, best seller first: another till\'s items count as our dishes where the item mapping has them, and under the name they were sold as where it hasn\'t. Quantity, sales before and after discounts, the average price and each dish\'s share of net sales. Open a dish to see it by till.',
+    spec: {
+      subject: 'sales.dishes',
+      rows: ['name'],
+      values: [...m('qty_sold', 'gross_sales', 'discounts', 'net_sales', 'average_price'), share('net_sales', 'Share of net sales')],
+      sort: [{ by: 'net_sales', dir: 'desc' }],
+      limit: { top: 50, rest_as: 'Every other dish' },
+      drill: { down: ['source', 'section.name', 'date', 'venue.name'], rows: EVERY_DISH_ROWS },
+      view: { kind: 'bar', x: 'name', y: ['net_sales'], sideways: true },
+    },
+  }),
+
+  starter({
+    key: 'till_every_sales_by_section',
+    name: 'Sales by section, every till',
+    about: 'Dishes sold on every till by our menu section (another till\'s category counted under a section is there too), with each section\'s share of net sales. Items not mapped to a dish or a section have no section of their own. Open a section to see its dishes.',
+    spec: {
+      subject: 'sales.dishes',
+      rows: ['section.name'],
+      values: [...m('qty_sold', 'net_sales'), share('net_sales', 'Share of net sales')],
+      sort: [{ by: 'net_sales', dir: 'desc' }],
+      drill: { down: ['name', 'source', 'date', 'venue.name'], rows: EVERY_DISH_ROWS },
+      view: { kind: 'parts', x: 'section.name', y: ['net_sales'] },
+    },
+  }),
+
+  starter({
+    key: 'till_every_payments_by_tender',
+    name: 'Payments by tender, every till',
+    about: 'Payments on every till by tender, as each till names it: how many, what was taken, tips, refunds and the takings. Open a tender to see it by till and day.',
+    spec: {
+      subject: 'sales.tenders',
+      rows: ['tender'],
+      values: m('payments', 'taken', 'tips', 'refunded', 'takings'),
+      sort: [{ by: 'takings', dir: 'desc' }],
+      drill: { down: ['source', 'date', 'venue.name'], rows: EVERY_TENDER_ROWS },
+    },
+  }),
+
+  starter({
+    key: 'till_items_to_map',
+    name: 'Items still to map',
+    about: 'Another till\'s items that the item mapping doesn\'t place yet, most sold first: how many and their sales. Map them on the Integrations page (Item mapping) so they count as your dishes; the mapping coverage there is the same figure over the last 30 days.',
+    period: { relative: 'last_n_days', n: 30 },
+    spec: {
+      subject: 'sales.dishes',
+      rows: ['sold_as'],
+      values: m('qty_sold', 'other_till_sales'),
+      filters: [{ field: 'mapping', op: 'is', value: 'unmapped' }],
+      sort: [{ by: 'other_till_sales', dir: 'desc' }],
+      limit: { top: 50, rest_as: 'Every other item' },
+      drill: { down: ['source', 'date', 'venue.name'], rows: EVERY_DISH_ROWS },
     },
   }),
 
