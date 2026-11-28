@@ -48,7 +48,8 @@ export async function loadCostItems(tx, tenantId, ids = null) {
   if (ids && !ids.length) return new Map()
   const items = await tx`
     SELECT i.id, i.name, i.base_unit, i.yield_pct::float8 AS yield_pct, i.recipe_unit, i.count_unit, i.is_active,
-           i.code, i.storage, c.name AS category_name
+           i.code, i.storage, c.name AS category_name,
+           i.kcal_per_100g::float8 AS kcal_per_100g, i.kcal_each::float8 AS kcal_each, i.kcal_source
       FROM inv_items i LEFT JOIN inv_categories c ON c.id = i.category_id AND c.tenant_id = i.tenant_id
      WHERE i.tenant_id = ${tenantId} ${ids ? tx`AND i.id = ANY(${ids}::uuid[])` : tx``}
      ORDER BY lower(i.name)`

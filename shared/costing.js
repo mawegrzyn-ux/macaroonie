@@ -1062,6 +1062,9 @@ const USAGE_DISH_GAPS = new Set(['no_recipe', 'not_dish', 'no_rule', 'option_gon
 const LINE_QTY_PROBLEMS = new Set(['missing', 'no_unit', 'cycle', 'too_deep', 'no_yield'])
 const RECIPE_QTY_GAPS = new Set(['empty', 'no_yield', 'draft'])
 
+// The usable share of a line bought at its yield (phase 8b's trace quantity): 1 with none.
+const eatOf = y => (y == null || y === '' || !(Number(y) > 0) ? 1 : Number(y) / 100)
+
 /** A recipe's gaps that change what it takes off: its own (nothing in it, no yield, not checked) and lines with no quantity. */
 function qtyGapsOf(rc, recipe, note) {
   for (const g of rc.gaps) {
@@ -1084,6 +1087,12 @@ function qtyGapsOf(rc, recipe, note) {
  * ingredient is in the dish even with no size for its unit); qty null walks
  * for the trace only, adding and noting nothing. Without tr the walk is
  * exactly as it was.
+ * Phase 8b (calories, shared/calorieCheck.js): each traced item line also
+ * carries qty, what goes into the dish of it (the line's usable quantity in
+ * the item's base unit, before its yield is bought: the trimmed onion, not
+ * the one with its skin), its share of the batch, or null when not known;
+ * tr.eat is the usable share of the batch above (a prep recipe's line yield).
+ * Never a fourth walk: the cost, usage, allergens and calories all hear this one.
  */
 function batchItems(recipe, qty, ctx, add, note, stack = [], tr = null) {
   const rc = recipeCost(recipe, ctx)
@@ -1094,7 +1103,9 @@ function batchItems(recipe, qty, ctx, add, note, stack = [], tr = null) {
   if (f == null && !tr) return
   for (const l of rc.lines) {
     if (l.kind === 'item') {
-      if (tr && l.item_id) tr.trace.item({ item_id: l.item_id, via: tr.via, from: tr.from || 'recipe' })
+      if (tr && l.item_id) {
+        tr.trace.item({ item_id: l.item_id, via: tr.via, from: tr.from || 'recipe', qty: f != null && l.base_qty != null ? l.base_qty * f * (tr.eat ?? 1) : null })
+      }
       if (l.bought_qty != null && f != null) add(l.item_id, l.bought_qty * f)
       continue
     }
@@ -1110,7 +1121,7 @@ function batchItems(recipe, qty, ctx, add, note, stack = [], tr = null) {
       if (subQty != null) note({ reason: 'too_deep', text: sub.name + ' is nested more than ' + MAX_DEPTH + ' levels down', fix: FIX.too_deep(), recipe_id: recipe.id })
       continue
     }
-    batchItems(sub, subQty, ctx, add, note, [...stack, recipe.id], tr && { ...tr, via: [...tr.via, sub.name] })
+    batchItems(sub, subQty, ctx, add, note, [...stack, recipe.id], tr && { ...tr, via: [...tr.via, sub.name], eat: (tr.eat ?? 1) * eatOf(l.yield_pct) })
   }
 }
 const NOOP = () => {}
@@ -1182,6 +1193,9 @@ function idOptions(dish, options, note) {
  * line on the same walk (via: the recipes above it, the dish's first; from:
  * 'option' for what an option's rule adds) and every recipe walked, whether
  * the line's quantity is known or not. Without it nothing changes.
+ * Phase 8b: each item entry also has qty (what goes into the sale of it:
+ * the usable base quantity, its yield taken back off what is bought; null
+ * when not known), for the calories (shared/calorieCheck.js).
  */
 export function usageOf(sold = {}, scope = {}, ctx = {}, { trace = null } = {}) {
   const a = usageAcc()
@@ -1232,13 +1246,13 @@ export function usageOf(sold = {}, scope = {}, ctx = {}, { trace = null } = {}) 
       // The trace hears of every line, its quantity known or not; an option's own line has no recipe above it.
       const via = l.from === 'option' ? [] : [dc.recipe.name]
       if (l.item_id) {
-        if (trace) trace.item({ item_id: l.item_id, via, from: l.from })
+        if (trace) trace.item({ item_id: l.item_id, via, from: l.from, qty: l.bought != null ? l.bought * times * eatOf(l.yield_pct) : null })
         if (l.bought != null) a.add(l.item_id, l.bought * times)
         continue
       }
       const sub = get(ctx.recipes, l.sub_recipe_id || l.recipe_id)
       if (!sub) continue
-      const tr = trace ? { trace, via: [...via, sub.name], from: l.from } : null
+      const tr = trace ? { trace, via: [...via, sub.name], from: l.from, eat: eatOf(l.yield_pct) } : null
       if (l.bought != null) batchItems(sub, l.bought * times, ctx, a.add, a.note, [dc.recipe.id], tr)
       else if (tr) batchItems(sub, null, ctx, NOOP, NOOP, [dc.recipe.id], tr)
     }
