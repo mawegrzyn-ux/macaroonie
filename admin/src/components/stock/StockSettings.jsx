@@ -405,7 +405,7 @@ function BufferCard({ canManage }) {
   return (
     <Card title="Suggested orders">
       {draft == null ? <Loader2 className="w-5 h-5 animate-spin" /> : (
-        <ReadOnlyFieldset disabled={!canManage} className="space-y-3" data-testid="stock-buffer">
+        <div data-testid="stock-buffer"><ReadOnlyFieldset disabled={!canManage} className="space-y-3">
           <Field label="Buffer on top of the forecast (%)" hint={problem || 'Suggest on the order form adds this share of what sales are forecast to use until the delivery after next, then takes off what is on hand and on order. 10 unless you change it.'}>
             <input type="number" inputMode="decimal" min="0" max={BUFFER_PCT_MAX} step="1" className={inputCls} value={draft}
               onChange={e => setDraft(e.target.value)} data-testid="stock-buffer-pct" />
@@ -416,7 +416,7 @@ function BufferCard({ canManage }) {
             </button>
           )}
           <ErrorNote error={save.error} />
-        </ReadOnlyFieldset>
+        </ReadOnlyFieldset></div>
       )}
     </Card>
   )

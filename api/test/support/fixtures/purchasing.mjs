@@ -1,5 +1,5 @@
 // Purchasing: suppliers and their prices, the inventory, order lists,
-// restaurant orders (approval and splitting), purchase orders, receiving.
+// restaurant orders (approval and splitting, Suggest), purchase orders, receiving.
 export const order = 80
 
 export const kinds = { itemId: ['inv_items'] }
@@ -80,6 +80,11 @@ export async function fill(ctx) {
           check: { packaging_ok: true, damage_ok: true, quality_ok: true, accepted: true },
         }))
       }
+      // Suggest (inventory phase 9a, migration 320): the list's draft with the supplier's lines worked
+      // out from the forecast (the rice up to its par: no sales history yet), kept on each line beside
+      // what is ordered; the quantities themselves stay as they were until someone OKs them.
+      const draft = await step('order to suggest for', () => post('/api/purchasing/orders', { venue_id: V, list_id: list.id }))
+      if (draft && supplier) await step('order suggest', () => post(`/api/purchasing/orders/${draft.id}/suggest`, { supplier_id: supplier.id }))
     }
   }
 }

@@ -505,6 +505,24 @@ export function Section() {
         clears a usual unit that no longer fits (kg for an item now counted in ml). Deleting an item a recipe uses
         switches it off instead.
       </P>
+      <H3>18. Suggested quantities from sales</H3>
+      <P>
+        <strong>Suggest</strong> on the order form works out how much of each line to order from one supplier: what
+        sales are forecast to use until the supplier&apos;s <em>delivery after next</em> (the same weekday over the last
+        four weeks, scaled by the covers booked), plus the buffer, less what is on hand and what is already on order to
+        arrive before then, in whole packs up to the supplier&apos;s minimum. An item sales never used is filled up to its
+        par. It needs Stock view, as it reads what is on hand (see Stock, Forecasts and suggested orders).
+      </P>
+      <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+        <li>Tap <strong>Suggest</strong>, then <strong>Suggest</strong> beside the supplier (each says when its order would arrive and what it has to last until). Grouped by supplier, each supplier&apos;s heading has its own Suggest.</li>
+        <li>The lines that change are marked in blue with <strong>Suggested from sales</strong> (or <strong>up to par</strong>) and why in a sentence; <strong>How</strong> shows each day&apos;s forecast, the buffer, on hand and on order.</li>
+        <li>Check each and tap <strong>OK</strong>, or <strong>OK all</strong>, or type another quantity. Nothing is saved until you do, and the order can&apos;t be placed while a suggestion waits. <strong>Put back</strong> returns the lines to what they were.</li>
+      </ol>
+      <P>
+        Every suggestion is kept beside the line, with what you then order, so the report <strong>Suggested orders</strong>{' '}
+        can show how often they were taken and how close the forecast came to what was really used. After a reload a line
+        still says what was suggested, with <strong>Use</strong> to take it.
+      </P>
       <InfoBox type="info">
         All of this can also be done by chat with Pepper (Ask Pepper): ordering, booking deliveries
         in, changing prices and importing a supplier's price list from a PDF or photo. Pepper understands

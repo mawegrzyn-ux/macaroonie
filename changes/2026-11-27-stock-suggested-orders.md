@@ -1,0 +1,8 @@
+# Stock: a forecast from sales and bookings, and suggested orders
+
+- Macaroonie now forecasts what each inventory item will use: what sales took on the same weekday over the last four weeks ("Tuesdays use 6.2 kg"), scaled by the covers booked for the day against what was usually booked as far ahead ("18% more covers booked"). A venue that takes few bookings isn't scaled; a weekday with no sales worked out yet uses an average day.
+- The order form has **Suggest**: pick a supplier (or tap Suggest on its group when grouped by supplier) and each of its lines gets the forecast until the supplier's delivery after next, plus a buffer, less what is on hand and already on order to arrive before then, in whole packs up to the supplier's minimum. Items sales never used are filled up to their par; with no par either they aren't suggested, and the note says which. Suggested quantities are marked in blue with why in a sentence and How for the working (each day, the buffer, on hand, on order); nothing is saved until you OK them (or OK all, or change them), Put back returns the lines, and the order can't be placed while a suggestion waits. It needs Stock view.
+- What was suggested is kept beside each line, so the new report **Suggested orders** (and the starter **How good are the suggested orders**) shows how often suggestions were taken and, once their days have passed, what was really used against the forecast.
+- The buffer is on the Stock page's Settings (Suggested orders card): 10% unless you change it.
+- Pepper answers "what should we order from Brakes?" with each item's packs and why (suggested_order); it orders nothing until you ask it to fill the order.
+- Migrations 319 (the buffer) and 320 (the suggestion kept on each order line).

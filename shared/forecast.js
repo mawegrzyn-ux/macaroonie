@@ -217,7 +217,8 @@ export function forecastDay({ history, day, covers = null, used = null, unit = '
   const head = today ? `Today (${dayText(day)})` : dayText(day)
   const tail = used == null
     ? `: ${quantityWords(qty, unit)}`
-    : `: ${quantityWords(qty, unit)}, ${quantityWords(used, unit)} used so far, ${quantityWords(rest, unit)} left`
+    : num(used) === 0 ? `: ${quantityWords(qty, unit)}, none used yet`
+      : `: ${quantityWords(qty, unit)}, ${quantityWords(used, unit)} used so far, ${quantityWords(rest, unit)} left`
   return {
     day, weekday, usual: base.qty, how: base.how, days_seen: base.days,
     factor: f.factor, covers_pct: f.pct, covers_words: f.words,

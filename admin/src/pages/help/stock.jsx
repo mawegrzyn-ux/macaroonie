@@ -442,6 +442,34 @@ export function Section() {
         view (and Costing view and Till reports view to use an amount, or to put the unexplained loss in its text: the
         points over the band are a share of sales).
       </P>
+      <H3>Forecasts and suggested orders</H3>
+      <P>
+        Macaroonie forecasts what each item will use from what sales took. For a day, it takes what sales used on the
+        same weekday over the last four weeks (Tuesdays use 6.2 kg), and scales it by the covers booked for that day
+        against what was usually booked as far ahead for that weekday (<em>18% more covers booked</em>). A venue that
+        takes few bookings isn&apos;t scaled, and the scaling is held between half and twice the usual. A weekday with no
+        sales worked out yet uses an average day. Today counts only what is left after what sales took so far.
+      </P>
+      <P>
+        <strong>Suggest</strong> on the order form (Purchasing, see Purchasing in this guide) uses it: for each line from
+        a supplier, the forecast until the <em>delivery after next</em> (the order arrives on the supplier&apos;s next
+        delivery and has to last until the one after), plus the <strong>buffer</strong>, less what is on hand and
+        what is already on order to arrive before then, in whole packs up to the supplier&apos;s minimum. An item sales
+        never used in the four weeks (cleaning stock, an item with no recipe) is filled up to its par instead; with no
+        par either it isn&apos;t suggested.
+      </P>
+      <DataTable
+        head={['Where', 'What']}
+        rows={[
+          ['Stock, Settings, Suggested orders', 'The buffer: a share of the forecast added on top (10% unless you change it). Stock manage.'],
+          ['Reports, Suggested orders', 'Every suggestion beside what was ordered and, once its days have passed, what was really used against the forecast. The starter How good are the suggested orders sums it up by supplier.'],
+          ['Pepper', 'Ask "what should we order from Brakes?": suggested_order gives each item\'s packs and why. It orders nothing; ask it to fill the order with those quantities, then check and place it.'],
+        ]}
+      />
+      <InfoBox type="info">
+        The forecast reads usage from sales, so it is as good as the recipes: a dish with no recipe uses nothing, and
+        its items look quieter than they are. Weather and local events don&apos;t count yet.
+      </InfoBox>
     </section>
   )
 }

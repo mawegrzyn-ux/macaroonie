@@ -29,6 +29,12 @@ import { deliveryAfter, SUGGEST_BASES } from '@shared/forecast.js'
 
 export const SUGGEST_CLASS = 'border-sky-400 bg-sky-50 ring-1 ring-sky-300'
 
+// A moment's day where the page is open ('YYYY-MM-DD').
+const localDay = at => {
+  const d = new Date(at)
+  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-')
+}
+
 /** The suppliers whose prices the order's lines are on, with their next delivery there. */
 export function orderSuppliers(order, quoteOf) {
   const m = new Map()
@@ -101,7 +107,7 @@ export function SuggestWorking({ s, kept = false, qty, readOnly, onUse }) {
     <div className="text-xs text-sky-900 space-y-1" data-testid="suggest-working">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="flex-1 min-w-[180px]">
-          {kept && <>Suggested {fmtNum(s.qty)}{s.at ? ` on ${fmtDate(String(s.at).slice(0, 10))}` : ''}: </>}{s.summary}
+          {kept && <>Suggested {fmtNum(s.qty)}{s.at ? ` on ${fmtDate(localDay(s.at))}` : ''}: </>}{s.summary}
         </span>
         {s.words?.length > 0 && (
           <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open} data-testid="suggest-how"

@@ -727,6 +727,36 @@ export function Section() {
         supplier. Below <Mono>sm</Mono> Par and remove move beside the item name so the pack, quantity and last
         figure stay on one line.
       </P>
+      <H3>Suggest (inventory phase 9a, migration 320)</H3>
+      <P>
+        <Mono>POST /api/purchasing/orders/:id/suggest</Mono> <Mono>{'{ supplier_id, delivery_date?, item_ids? }'}</Mono>{' '}
+        (<Mono>SuggestBody</Mono>, strict): Purchasing or Purchasing approval manage, the order editable by the caller
+        (<Mono>assertEditable()</Mono>: 409 once placed) and Stock view (403 without: it reads on hand). The supplier
+        and the items must be the group&apos;s (404), the items lines of the order on that supplier&apos;s price (422{' '}
+        <Mono>suggest_items</Mono>), the day today or later (422 <Mono>delivery_date</Mono>); left out, the day the
+        order already asks the supplier for, else its next delivery. <Mono>supplierLines()</Mono> takes the list&apos;s
+        active items and the lines added, each on the price it is pinned to or the venue&apos;s usual one (a line whose
+        pinned price is switched off is left out), with the list&apos;s par at the venue; the stock area&apos;s{' '}
+        <Mono>suggestFor()</Mono> (<Mono>services/stockForecastSvc.js</Mono>, the rule <Mono>shared/forecast.js</Mono>)
+        works each out, the order&apos;s own purchase orders left out of on order. Each line with a suggestion (forecast
+        or par) is kept on <Mono>supply_order_lines</Mono>: <Mono>suggested_qty</Mono> (packs of{' '}
+        <Mono>suggestion_quote_id</Mono>), <Mono>suggested_base</Mono>, <Mono>suggestion_basis</Mono>,{' '}
+        <Mono>forecast_base</Mono>, <Mono>window_from</Mono> / <Mono>window_to</Mono>, the working in{' '}
+        <Mono>suggestion</Mono> (jsonb), <Mono>suggested_at</Mono> / <Mono>suggested_by</Mono>, the latest one per line.
+        A line Suggest makes is inserted with qty 0 and no pinned price; an existing line&apos;s{' '}
+        <Mono>qty</Mono> and <Mono>quote_id</Mono> are never touched. The reply is sent after the transaction commits.
+      </P>
+      <P>
+        <Mono>loadOrder()</Mono> gives each line its kept <Mono>suggestion</Mono> (<Mono>keptSuggestion()</Mono>:
+        qty, base, basis, the delivery after next, when, by whom, summary, words) only with Stock view. The form
+        (<Mono>components/purchasing/suggest.jsx</Mono>: <Mono>SuggestModal</Mono>, <Mono>SuggestMark</Mono>,{' '}
+        <Mono>SuggestWorking</Mono>, <Mono>orderSuppliers()</Mono>; <Mono>OrderForm</Mono>&apos;s{' '}
+        <Mono>suggested</Mono> map in <Mono>ordering.jsx</Mono>) flushes the autosave, asks, puts each suggestion that
+        differs from its line on the line marked (<Mono>data-suggested</Mono>, not saved), and saves it only on OK, OK
+        all or a change (<Mono>setQty()</Mono> takes the mark off), as Pepper&apos;s quantities are kept; Put back
+        restores the quantities before. Placing and sending for approval wait while any is marked. The report subject{' '}
+        <Mono>stock.suggestions</Mono> reads the kept columns (see Stock).
+      </P>
     </section>
   )
 }
