@@ -13,8 +13,9 @@
 //                                               the price history (inv_price_history): each price
 //                                               and pack, each venue's own price, the prices that
 //                                               didn't exist yet left out
-//   dishesUsing(itemIds, recipes, links)        the index from items to recipes (up through the prep
-//                                               recipes they sit in) to the dishes linked to them
+//   dishesUsing(itemIds, recipes, links, { recipeIds })   the index from items (and changed recipes) to
+//                                               recipes (up through the prep recipes they sit in) to the
+//                                               dishes linked to them
 //   dealsHolding(menus, dishIds)                the meal deals whose steps can hold one of those dishes
 //   itemMoves(items, before, after, venueId)    which items' cost per base unit moved, and by how much
 //   dishMoves(dishId, scope, before, after, { picksBefore, picksAfter })
@@ -119,12 +120,14 @@ export function pricesAt(quotes, history = [], at, { strict = false } = {}) {
  * items, the recipes those sit in as prep recipes (and up, to any depth; a
  * loop is walked once), and the dishes linked to any of them (recipe_links,
  * at any venue, stream or order type). recipes: Map id -> recipe with lines;
- * links: recipe_links rows. -> { recipeIds: Set, dishIds: Set }
+ * links: recipe_links rows. recipeIds (inventory phase 8b, the allergen and
+ * calorie checks opened again on a change): recipes changed themselves, walked
+ * up the same way. -> { recipeIds: Set, dishIds: Set }
  */
-export function dishesUsing(itemIds = [], recipes = new Map(), links = []) {
+export function dishesUsing(itemIds = [], recipes = new Map(), links = [], { recipeIds = [] } = {}) {
   const items = new Set((itemIds || []).filter(Boolean))
   const usedIn = new Map()   // sub recipe id -> recipes holding it
-  const reached = new Set()
+  const reached = new Set((recipeIds || []).filter(id => id && get(recipes, id)))
   for (const [, r] of entries(recipes)) {
     for (const l of r.lines || []) {
       if (l.item_id && items.has(l.item_id)) reached.add(r.id)

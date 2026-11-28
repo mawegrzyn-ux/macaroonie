@@ -16,8 +16,9 @@ menu's draft; migration 314; see "Phase 7a as built") and 7b (price creep and co
 the rule trigger from the same place, Pepper's `why_cost_changed`; migration 315; see "Phase 7b as built"), so phase 7 is
 built. Phase 8a built on 27 Nov 2026 (allergens on supplier products and Pepper's spec sheet reader, the roll-up
 through recipes, the check against declared allergens with accept and dismiss, the Allergens tab, `allergen_check`
-and the reports; migration 316; see "Phase 8a as built"); 8b (reopening checks when something changes, the Today
-item, calories) is still to come. Phases 9 and 10 are a plan. The decisions in section 12 are taken as
+and the reports; migration 316; see "Phase 8a as built") and 8b (checks worked out again where each change is saved
+and put on Today, a substitute on a delivery counted, suggested calories checked against the declared figure;
+migrations 317 and 318; see "Phase 8b as built"), so phase 8 is built. Phases 9 and 10 are a plan. The decisions in section 12 are taken as
 recommended, D1 to D12.** The owner's ask when building started: "recipes variations, per revenue stream/order type
 matrix, and per location (or ability to link a different recipe to menu items in different locations)",
 "stock take module" and "reports". The variation matrix is part of phase 2's links (5.4).
@@ -504,12 +505,20 @@ unexplained       = variance - logged waste
   suggestion and the declaration differ ("the recipe has sesame; the dish does not say so"). A
   person accepts or dismisses each; nothing changes the declared allergens by itself.
 - A change that could alter them (a preferred supplier switched, a product substituted on
-  receiving, a recipe line changed) reopens the dish's check and puts it on Today.
+  receiving, a recipe line changed) reopens the dish's check and puts it on Today. *Built in phase 8b (migration 317): one
+  hook, `allergensChanged()`, where each change is saved (supplier prices, a product's allergens, the usual supplier, a
+  supplier on or off, a Substituted delivery line, recipes, links, option rules, an item's energy or units); a check it
+  opens or changes is marked with what changed and goes on Today as "Allergen checks to review"; a substitute counts at its
+  venue for 14 days, unknown until it is a supplier price with allergens.*
 - Why not automatic: the food business is liable for the declaration, and a roll-up is only as
   good as the supplier data under it.
 - **Calories**: `menu_items.calories` exists. Energy per 100 g on an item gives a suggested figure
   the same way. Calorie labelling applies to businesses of 250 or more employees in England, and a
-  franchise counts the whole network; confirm the detail before relying on it.
+  franchise counts the whole network; confirm the detail before relying on it. *Built in phase 8b (migration 318):
+  `inv_items.kcal_per_100g` (per 100 ml for an item kept in ml) and `kcal_each`, of the part used; one serving of the
+  dish's recipe at each scope, without options, on the same walk (its trace now carries the usable quantity); the highest
+  scope is the suggestion; within 10% (at least 10 kcal) agrees; unknown energy is a gap and leaves no suggestion, only
+  "at least". Accepted into the menu's draft through the whole menu save (the only route for `menu_items.calories`).*
 - *As built (phase 8a): a dish has one declaration on its menu, so the check compares it with the union of the
   suggestions over every scope the dish is sold at (each venue, and each of its links that applies there), and the
   scopes are groups inside one check per dish, not a check per scope. A declared allergen nothing has, and contains
@@ -574,7 +583,9 @@ cost, GP, plate cost, shrinkage, wastage, stocktake) and re-run the smart builde
 - *As built (phase 6b): the widgets read routes, not report subjects (top variance items is the newest
   stored period; margin by menu is the week's sold margins by menu, from usage from sales); dishes over their
   cost target are one Today card a day per venue for Costing view (live menus at today's standard prices, each
-  dish at its worst order type); the set-up gaps are Home suggestions for whoever manages each module.*
+  dish at its worst order type); the set-up gaps are Home suggestions for whoever manages each module. Phase 8b: "Allergen
+  checks to review" is a card per venue for whoever can decide them (Recipes manage and Menus manage), of the allergen and
+  calorie checks a change opened.*
 
 ### 10.4 Pepper
 
@@ -614,7 +625,7 @@ scale; steps that follow the same day run nearer half.
 | 5 | **Built 27 Nov 2026.** Usage from sales (till, kiosk, online, imported); on hand with sales taken off; order to par minus stock | Stock on hand that follows trading | 70 to 90 |
 | 6 | **Built 27 Nov 2026.** 6a: periods and variance; actual and theoretical food cost; `explain_variance`; variance to review on Today. 6b: the Cash Recon line; widgets and the Overview tile; dishes over target on Today, Home's set-up gaps; rule triggers | A pound figure on the gap, per item and venue | 70 to 90 |
 | 7 | **Built 27 Nov 2026.** 7a: engineering from real sales; scenarios; what-if; push prices. 7b: price creep and its rule trigger, cost alerts, `why_cost_changed` | Pricing decisions made in the app | 60 to 80 |
-| 8 | **8a built 27 Nov 2026**: allergens on supplier products, the roll-up check, accept and dismiss, the Allergens tab, Pepper and reports. 8b: reopening on changes, its Today item, suggested calories | Declared allergens checked against recipes | 50 to 65 |
+| 8 | **Built 27 Nov 2026.** 8a: allergens on supplier products, the roll-up check, accept and dismiss, the Allergens tab, Pepper and reports. 8b: reopening on changes, its Today item, substitutes, suggested calories | Declared allergens checked against recipes | 50 to 65 |
 | 9 | Suggested orders from usage and bookings; returns and credit notes | Orders proposed, not just listed | 60 to 80 |
 | 10 | Later, not estimated: production of prep batches held as stock, labels, a central kitchen, recipe packs passed from a franchisor to its franchisees, GloriaFood through the mapping tool, remakes with dish ids | | |
 
@@ -947,6 +958,33 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
   recipe"); accepting goes through the Allergen matrix's route, not the whole-menu save (the menus area's rule for writing
   dish tags); unknown products hold back "declared but in nothing". Limits: `docs/claude/outstanding/recipes.md` item 80.
 
+### Phase 8b as built (27 Nov 2026)
+
+- **Migrations** 317 (`allergen_checks.venue_ids`, `changed_at`, `change`) and 318 (`inv_items.kcal_per_100g`, `kcal_each`,
+  `kcal_source`; `calorie_checks`, one per menu dish like `allergen_checks`, plain ids, RLS forced).
+- **The hook** `allergensChanged(tx, req, change)` in `services/allergenCheckSvc.js`, in a savepoint in the change's
+  transaction, called from purchasing's `routes/inventory.js` (quotes added, edited, deleted, venue prices, allergens, the usual
+  supplier, the price update, the import, an item's energy and units), `routes/suppliers.js` (on or off), `routes/purchasing.js`
+  (`receiveInto()` with a Substituted line, the price list) and this area's recipe, link and option rule routes. The dishes are
+  `dishesToCheck()`: price creep's `dishesUsing()` (now also from changed recipes) and the option rules that bring the items in.
+  `storeChecks()` / `storeCalorieChecks()` mark what they open or change; a decision clears the mark; `GET
+  /api/allergen-checks/summary` feeds the shell's Today source. Price creep isn't called on a usual supplier switch.
+- **Substitutes**: the latest received line of an item at a venue in the last 14 days, when Substituted, counts beside the
+  chosen product (`loadSubstitutes()`, `substituteKnown()`: known once the line points at a supplier price with the invoice's
+  code, as the price list's Add leaves it; else a gap).
+- **Calories** (`shared/calorieCheck.js`): the cost walk's trace carries each line's usable quantity; one serving per scope,
+  the highest suggested, 10% tolerance, kinds missing, differs and under; accept through GET and PATCH `/api/menus/:id` with
+  `menuSaveBody()`, dismiss with a note (holds within the tolerance of the figure dismissed), reopen. The Allergens tab's
+  Calories card and Changed and Calories filters, the recipe editor's Suggested calories with its dishes, the item drawer's
+  energy. Reports: Calorie checks, What changed on Allergen checks, energy on Inventory items, starters Dishes with calorie
+  differences and Items with no energy figure.
+- **What the build changed in the plan**: the substitute needed a rule of its own (what came is known only through the
+  delivery line's supplier price, so until then it is a gap at that venue, for 14 days); a check is marked only when a change
+  opens or changes it, so Today shows what changes opened, not every open check; calories are one serving without options and
+  the dish's highest scope, since a dish declares one figure; energy is on the item (not the supplier product, unlike
+  allergens), of the part used; `menu_items.calories` has no route of its own, so accepting saves the whole menu with every
+  field, as Push prices does. Limits: `docs/claude/outstanding/recipes.md` item 81.
+
 ## 12. Decisions for the owner
 
 | | Decision | Recommended |
@@ -980,7 +1018,8 @@ either half is useful alone, and 4 can be built beside 2 and 3 by a second agent
   that mixes them would be a bug waiting.
 - **The menu save.** Anything pointing at a dish must survive it. The links are plain ids; a test
   saves a menu and checks every link, rule and usage figure is unchanged.
-- **Calories and labelling law** were not confirmed from the legislation in this research.
+- **Calories and labelling law** were not confirmed from the legislation in this research. *Phase 8b's Help says who it
+  applies to (250 or more employees in England, a franchise counting its whole network) and to confirm the detail.*
 - **The research** read search extracts, not vendors' full documentation; figures marked
   unverified in the briefing are rules of thumb.
 

@@ -99,6 +99,8 @@ export const AREAS = {
   stock: 'stock',
   // Inventory phase 6b: dishes over their cost target.
   costing: 'costing',
+  // Inventory phase 8b: allergen checks a change opened again (and calorie figures, migration 318).
+  allergen_checks: 'recipes',
 }
 
 /** The module a task belongs to: its area's, or Purchasing approval for orders to approve. */
@@ -603,6 +605,29 @@ const SOURCES = {
       action: crept
         ? { path: '/menu-margins?venue=' + v.id + '&alerts=1', label: 'See what crossed' }
         : { path: '/menu-margins?venue=' + v.id, label: 'See the margins' },
+    }]
+  },
+
+  // Allergen checks to review (inventory phase 8b, migration 317): the open checks of dishes sold at
+  // the venue that a change opened, opened again or changed (a supplier price, a product's allergens,
+  // the usual supplier, a substitute delivered, a recipe, a link or an option rule), and (migration 318)
+  // the calorie figures the same changes opened, for whoever may decide them (Recipes manage and Menus
+  // manage). From /api/allergen-checks/summary as the person; one card, its key carrying the newest
+  // change, so a change after the card was skipped or done brings it back. Opens the Allergens tab.
+  async allergen_checks(ctx, v, s) {
+    const r = await callApi(ctx, 'GET', `/api/allergen-checks/summary?venue_id=${v.id}`)
+    const kcal = r.calories?.count || 0
+    if (!r.can_decide || (!r.count && !kcal)) return []
+    const latest = [r.latest_at, r.calories?.latest_at].filter(Boolean).map(t => new Date(t).getTime()).sort((a, b) => b - a)[0]
+    const dishes = r.dishes.map(d => d.dish)
+    const what = [r.count ? plural(r.count, 'dish', 'dishes') + '\' allergens' : null, kcal ? plural(kcal, 'calorie figure') : null].filter(Boolean).join(' and ')
+    return [{
+      key: 'allergen_checks:' + v.id + ':' + (latest || 0), area: 'allergen_checks', kind: 'allergen_checks_to_review', compliance: false,
+      title: 'Allergen checks to review',
+      detail: what + ' to look at again' + (dishes.length ? ': ' + dishes.slice(0, 3).join(', ') + (r.count > 3 ? ' and ' + (r.count - 3) + ' more' : '') : '')
+        + ((r.words || r.calories?.words) ? ' · ' + (r.words || r.calories.words) : ''),
+      due: null, group: 'now',
+      action: { path: '/recipes?tab=allergens&changed=1', label: 'Review them' },
     }]
   },
 }

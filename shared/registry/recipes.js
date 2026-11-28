@@ -48,6 +48,13 @@ export const objects = [
     table: 'allergen_checks', subjects: ['recipes.allergen_checks'],
     page: '/recipes',
   },
+  // Phase 8b (migration 318): a dish's declared calories against one serving of its recipe, kept so a decision holds;
+  // accepted (the figure into the menu's draft) or dismissed on the Recipes page's Allergens tab.
+  {
+    key: 'recipes.calorie_checks', label: 'Calorie check', plural: 'Calorie checks', words: ['calorie check', 'calories', 'kcal', 'energy'],
+    table: 'calorie_checks', subjects: ['recipes.calorie_checks'],
+    page: '/recipes',
+  },
 ]
 
 export const notObjects = {

@@ -35,6 +35,23 @@
 //                              whole of it (rule 13); known false = unknown again
 // The recipes area's allergen check (shared/allergenCheck.js) reads them at
 // the product chooseQuote() picks at each venue; nothing here changes a dish.
+//
+// Allergen checks opened again (inventory phase 8b, migration 317): a change
+// here that could alter which product a venue uses or what it holds (a
+// supplier price added, edited, switched off or deleted, a venue's own price,
+// a product's allergens, the usual supplier, the import, the price update by
+// code) calls allergensChanged() (services/allergenCheckSvc.js, the recipes
+// area's) in the same transaction, after the change (never in a dry run): the
+// dishes it can alter are checked again and the checks it opens go on Today.
+// Price creep doesn't hear of a usual supplier switched (the hourly sweep
+// sees that crossing, as before).
+//
+// Energy (inventory phase 8b, migration 318): an item's kcal per 100 g (per
+// 100 ml for an item kept in ml) or, kept in each, per one, of the part that
+// goes into a recipe; null is unknown (a gap in the calorie check), and a
+// figure for the other kind of unit is refused (energyProblem() in
+// shared/calorieCheck.js). Changing it, or an own unit's size, calls the same
+// hook: the dishes using the item have their calorie checks worked out again.
 
 import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
@@ -51,7 +68,9 @@ import { barcodeProblem, cleanBarcode } from '../../../shared/catalogue.js'
 import { unitChoices, unitNameProblem } from '../../../shared/costing.js'
 import { importColumns, importValues } from '../../../shared/customFields.js'
 import { priceChanged, firesCostAlerts } from '../services/priceCreepSvc.js'
+import { allergensChanged } from '../services/allergenCheckSvc.js'
 import { ALLERGEN_KEYS, allergenListProblem, SOURCE_MAX } from '../../../shared/allergenCheck.js'
+import { energyProblem, KCAL_MAX_100G, KCAL_MAX_EACH, KCAL_SOURCE_MAX } from '../../../shared/calorieCheck.js'
 
 const uuid = z.string().uuid()
 const text = (max = 200) => z.string().trim().max(max)
@@ -81,6 +100,10 @@ const ItemBody = z.object({
   yield_pct:   z.number().min(1).max(100).optional(),
   recipe_unit: optText(30),
   count_unit:  optText(30),
+  // Energy (migration 318): per 100 g / 100 ml, or per one for an item kept in each (energyProblem()).
+  kcal_per_100g: z.number().min(0).max(KCAL_MAX_100G).nullable().optional(),
+  kcal_each:     z.number().min(0).max(KCAL_MAX_EACH).nullable().optional(),
+  kcal_source:   optText(KCAL_SOURCE_MAX),
   // The group's own fields (migration 285), checked against their definitions.
   custom:      CustomInput.optional(),
 })
@@ -236,6 +259,7 @@ async function loadItems(tx, tenantId, itemIds = null) {
   const items = await tx`
     SELECT i.id, i.name, i.category_id, c.name AS category_name, i.base_unit, i.storage, i.code, i.barcode, i.notes,
            i.is_active, i.updated_at, i.custom, i.yield_pct::float8 AS yield_pct, i.recipe_unit, i.count_unit,
+           i.kcal_per_100g::float8 AS kcal_per_100g, i.kcal_each::float8 AS kcal_each, i.kcal_source,
            (SELECT count(DISTINCT rl.recipe_id)::int FROM recipe_lines rl WHERE rl.item_id = i.id AND rl.tenant_id = ${tenantId}) AS recipe_count,
            (SELECT count(*)::int FROM order_list_items li WHERE li.item_id = i.id AND li.tenant_id = ${tenantId}) AS list_count
       FROM inv_items i
@@ -828,11 +852,14 @@ export default async function inventoryRoutes(app) {
       // A new item has no units of its own yet: its usual units are standard ones.
       const usual = { recipe_unit: b.recipe_unit ?? null, count_unit: b.count_unit ?? null }
       checkUsualUnits({ name: b.name, base_unit: b.base_unit || 'each', units: [] }, usual)
+      const energy = energyProblem({ name: b.name, base_unit: b.base_unit || 'each' }, b)
+      if (energy) throw httpError(422, energy, { code: 'energy' })
       const [i] = await tx`
-        INSERT INTO inv_items (tenant_id, name, category_id, base_unit, storage, code, barcode, notes, is_active, yield_pct, recipe_unit, count_unit)
+        INSERT INTO inv_items (tenant_id, name, category_id, base_unit, storage, code, barcode, notes, is_active, yield_pct, recipe_unit, count_unit,
+                               kcal_per_100g, kcal_each, kcal_source)
         VALUES (${req.tenantId}, ${b.name}, ${b.category_id ?? null}, ${b.base_unit || 'each'}, ${b.storage || 'ambient'},
                 ${b.code ?? null}, ${b.barcode ?? null}, ${b.notes ?? null}, ${b.is_active ?? true}, ${b.yield_pct ?? 100},
-                ${usual.recipe_unit}, ${usual.count_unit})
+                ${usual.recipe_unit}, ${usual.count_unit}, ${b.kcal_per_100g ?? null}, ${b.kcal_each ?? null}, ${b.kcal_source ?? null})
         RETURNING id
       `
       await writeCustom(tx, req.tenantId, 'purchasing.items', i.id, values)
@@ -877,10 +904,27 @@ export default async function inventoryRoutes(app) {
         const units = (await loadUnits(tx, req.tenantId, [item.id])).get(item.id) || []
         checkUsualUnits({ ...item, base_unit: fields.base_unit || item.base_unit, units }, fields)
       }
+      // Energy (migration 318): a new base unit takes the figure for the other kind of unit off; a figure
+      // sent is checked against the base unit it will have.
+      const baseNow = fields.base_unit || item.base_unit
+      if (fields.base_unit && fields.base_unit !== item.base_unit) {
+        if (fields.kcal_per_100g === undefined) fields.kcal_per_100g = null
+        if (fields.kcal_each === undefined) fields.kcal_each = null
+      }
+      const energyMoved = ['kcal_per_100g', 'kcal_each', 'base_unit'].some(k => fields[k] !== undefined && fields[k] !== (k === 'base_unit' ? item.base_unit : (item[k] == null ? null : Number(item[k]))))
+      if (fields.kcal_per_100g !== undefined || fields.kcal_each !== undefined) {
+        const energy = energyProblem({ name: fields.name || item.name, base_unit: baseNow }, {
+          kcal_per_100g: fields.kcal_per_100g !== undefined ? fields.kcal_per_100g : (baseNow === 'each' ? null : item.kcal_per_100g),
+          kcal_each: fields.kcal_each !== undefined ? fields.kcal_each : (baseNow === 'each' ? item.kcal_each : null),
+        })
+        if (energy) throw httpError(422, energy, { code: 'energy' })
+      }
       if (Object.keys(fields).length) {
         await tx`UPDATE inv_items SET ${tx(fields)}, updated_at = now() WHERE id = ${item.id} AND tenant_id = ${req.tenantId}`
       }
       await writeCustom(tx, req.tenantId, 'purchasing.items', item.id, await customValues(tx, req.tenantId, 'purchasing.items', custom))
+      // Its energy changed: the calorie checks of the dishes using it (phase 8b).
+      if (energyMoved) await allergensChanged(tx, req, { kind: 'item', itemIds: [item.id] })
       return (await loadItems(tx, req.tenantId, [item.id]))[0]
     })
   })
@@ -976,6 +1020,8 @@ export default async function inventoryRoutes(app) {
         INSERT INTO inv_item_units (tenant_id, item_id, name, base_qty)
         VALUES (${req.tenantId}, ${item.id}, ${b.name}, ${b.base_qty})`
       await touchItem(tx, req.tenantId, item.id)
+      // A size for a unit a recipe line gave it in: what goes in is known now (calories, phase 8b).
+      await allergensChanged(tx, req, { kind: 'item', itemIds: [item.id] })
       return (await loadItems(tx, req.tenantId, [item.id]))[0]
     })
   })
@@ -1005,6 +1051,7 @@ export default async function inventoryRoutes(app) {
            WHERE id = ${item.id} AND tenant_id = ${req.tenantId}`
       }
       await touchItem(tx, req.tenantId, item.id)
+      if (b.base_qty !== undefined && Number(b.base_qty) !== Number(unit.base_qty)) await allergensChanged(tx, req, { kind: 'item', itemIds: [item.id] })
       return (await loadItems(tx, req.tenantId, [item.id]))[0]
     })
   })
@@ -1044,6 +1091,8 @@ export default async function inventoryRoutes(app) {
       await recordPrice(tx, req.tenantId, q.id, null, v.price, req.user?.email ?? null, 'manual', v.pack_base_qty)
       // A new price can be the one a venue costs by (the cheapest, the usual): price creep.
       await priceChanged(tx, req, { quoteIds: [q.id], source: 'manual' })
+      // And the product a venue uses: the allergen checks of the dishes using the item (phase 8b).
+      await allergensChanged(tx, req, { kind: 'quote', quoteIds: [q.id] })
       return (await loadItems(tx, req.tenantId, [item.id]))[0]
     })
   })
@@ -1085,6 +1134,10 @@ export default async function inventoryRoutes(app) {
         await recordPrice(tx, req.tenantId, q.id, null, v.price, req.user?.email ?? null, 'manual', v.pack_base_qty)
         await priceChanged(tx, req, { quoteIds: [q.id], source: 'manual' })
       }
+      // Which product a venue uses (the cheapest, switched off or on, another supplier) or what it is called (phase 8b).
+      const productMoved = priceMoved || packMoved || v.is_active !== q.is_active || supplierId !== q.supplier_id
+        || norm(v.product_name) !== norm(q.product_name) || codeMoves
+      if (productMoved) await allergensChanged(tx, req, { kind: 'quote', quoteIds: [q.id] })
       return (await loadItems(tx, req.tenantId, [q.item_id]))[0]
     })
   })
@@ -1100,6 +1153,8 @@ export default async function inventoryRoutes(app) {
         { code: 'on_open_order' })
     }
     await tx`DELETE FROM inv_quotes WHERE id = ${q.id} AND tenant_id = ${req.tenantId}`
+    // Another product (or none) for the item now: the allergen checks of the dishes using it (phase 8b).
+    await allergensChanged(tx, req, { kind: 'quote', itemIds: [q.item_id] })
     return (await loadItems(tx, req.tenantId, [q.item_id]))[0]
   }))
 
@@ -1133,8 +1188,11 @@ export default async function inventoryRoutes(app) {
           moved.push(p.venue_id)
         }
       }
-      // Price creep at the venues whose own price changed.
-      if (moved.length) await priceChanged(tx, req, { quoteIds: [q.id], venueIds: moved, source: 'manual' })
+      // Price creep at the venues whose own price changed, and the cheapest product there (phase 8b).
+      if (moved.length) {
+        await priceChanged(tx, req, { quoteIds: [q.id], venueIds: moved, source: 'manual' })
+        await allergensChanged(tx, req, { kind: 'quote', quoteIds: [q.id], venueIds: moved })
+      }
       return (await loadItems(tx, req.tenantId, [q.item_id]))[0]
     })
   })
@@ -1158,6 +1216,9 @@ export default async function inventoryRoutes(app) {
                allergens_checked_at = ${b.known ? tx`now()` : null}, allergens_checked_by = ${b.known ? req.user?.email ?? null : null},
                allergens_source = ${b.known ? b.source || null : null}, updated_at = now()
          WHERE id = ${q.id} AND tenant_id = ${req.tenantId}`
+      // The dishes using it are checked again: a check whose differences change goes on Today (phase 8b).
+      const [sup] = await tx`SELECT name FROM suppliers WHERE id = ${q.supplier_id} AND tenant_id = ${req.tenantId}`
+      await allergensChanged(tx, req, { kind: 'quote_allergens', quoteIds: [q.id], supplier: sup?.name ?? null })
       return (await loadItems(tx, req.tenantId, [q.item_id]))[0]
     })
     return item
@@ -1198,6 +1259,9 @@ export default async function inventoryRoutes(app) {
           VALUES (${req.tenantId}, ${item.id}, ${b.venue_id}, ${b.quote_id})
         `
       }
+      // The usual supplier switched: the product the venue's dishes use (phase 8b). Price creep isn't told
+      // (it compares prices with their history; the hourly cost targets sweep sees the crossing).
+      await allergensChanged(tx, req, { kind: 'preferred', itemIds: [item.id], venueIds: b.venue_id ? [b.venue_id] : [] })
       return (await loadItems(tx, req.tenantId, [item.id]))[0]
     })
   })
@@ -1244,7 +1308,10 @@ export default async function inventoryRoutes(app) {
       if (!supplier) throw httpError(404, 'Supplier not found')
       const out = await runPriceUpdate(tx, req.tenantId, supplier, rows, req.user?.email ?? null, { apply: !b.dry_run })
       // A supplier's price list: price creep over what changed.
-      if (!b.dry_run && out.changes.length) await priceChanged(tx, req, { quoteIds: out.changes.map(c => c.quote_id), source: 'price_update' })
+      if (!b.dry_run && out.changes.length) {
+        await priceChanged(tx, req, { quoteIds: out.changes.map(c => c.quote_id), source: 'price_update' })
+        await allergensChanged(tx, req, { kind: 'quote', quoteIds: out.changes.map(c => c.quote_id) })
+      }
       return { ...out, collection_ignored: collection, dry_run: !!b.dry_run }
     })
   })
@@ -1269,7 +1336,10 @@ export default async function inventoryRoutes(app) {
         result = await runImport(tx, req.tenantId, rows, req.user?.email ?? null, changed)
         if (b.dry_run) throw new DryRun()
         // The prices and packs the import set: price creep (never for a dry run, which is rolled back).
-        if (changed.length) await priceChanged(tx, req, { quoteIds: changed, source: 'import' })
+        if (changed.length) {
+          await priceChanged(tx, req, { quoteIds: changed, source: 'import' })
+          await allergensChanged(tx, req, { kind: 'quote', quoteIds: changed })
+        }
       })
     } catch (err) {
       if (!(err instanceof DryRun)) throw err

@@ -19,6 +19,9 @@
 // Phase 8a (migration 316): the cheese's allergens on its supplier price, the
 // allergen checks, one dish's check dismissed, opened again and accepted
 // into the menu's draft, the draft put back, and a recipe's suggestion.
+// Phase 8b (migrations 317 and 318): the cheddar's energy, the dish's
+// calorie check dismissed, opened again, accepted into the draft and the
+// draft put back, and Today's summary.
 export const order = 85
 // After the till (140): its order type.
 export const lateOrder = 150
@@ -124,6 +127,24 @@ export async function fill(ctx) {
       if (live?.release_id) await step('discard accepted allergens', () => post(`/api/menus/${menu.id}/releases/${live.release_id}/restore`, {}))
     }
   }
+  // Phase 8b (migrations 317 and 318): the cheddar's energy (the hook works the menu dish's checks out again); the
+  // dish's calorie check (its draft declares none) read, dismissed with a note, opened again, accepted into the
+  // menu's draft and the draft put back (Discard changes, as above), so the menu stays as published for later
+  // files; and Today's summary of what changes opened.
+  await step('item energy', () => patch('/api/inventory/items/' + item.id, { kcal_per_100g: 400, kcal_source: mark + ' label' }))
+  if (menuDish && menu) {
+    const cal = (await step('calorie check', () => get('/api/allergen-checks/dishes/' + menuDish.id)))?.calories
+    if (cal?.difference && cal.state === 'open') {
+      const dismissed = await step('calories dismissed', () => post(`/api/allergen-checks/dishes/${menuDish.id}/calories/dismiss`, { fingerprint: cal.fingerprint, note: mark + ' lab tested' }))
+      if (dismissed) await step('calories opened again', () => post(`/api/allergen-checks/dishes/${menuDish.id}/calories/reopen`, {}))
+      if (cal.complete && cal.difference.kind !== 'under') {
+        const accepted = await step('calories accepted', () => post(`/api/allergen-checks/dishes/${menuDish.id}/calories/accept`, { fingerprint: cal.fingerprint }))
+        const live = accepted && (await step('menu publish status after calories', () => get(`/api/menus/${menu.id}/publish`)))?.live
+        if (live?.release_id) await step('discard accepted calories', () => post(`/api/menus/${menu.id}/releases/${live.release_id}/restore`, {}))
+      }
+    }
+  }
+  await step('allergen checks summary', () => get('/api/allergen-checks/summary?venue_id=' + V))
 }
 
 /** Links that need the till's order type and a revenue stream of the venue. */

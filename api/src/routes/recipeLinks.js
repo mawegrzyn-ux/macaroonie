@@ -58,6 +58,7 @@
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { marksUsageOnChange } from '../services/stockUsageSvc.js'
+import { allergensChanged } from '../services/allergenCheckSvc.js'
 import { requireAuth, requirePermission, requireAnyPermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { access, lockRecipes } from './recipes.js'
@@ -381,14 +382,17 @@ export default async function recipeLinkRoutes(app) {
         : await tx`
             INSERT INTO recipe_links ${tx({ tenant_id: req.tenantId, dish_id: dishId, recipe_id: recipe.id, portions, ...scope, created_by: who(req) })}
             RETURNING id, dish_id, recipe_id, portions::float8 AS portions, venue_id, revenue_stream_id, order_type_id`
+      // Another recipe for the dish here: its allergen and calorie checks (phase 8b).
+      await allergensChanged(tx, req, { kind: 'link', dishIds: [dishId] })
       return { link: { ...link, recipe_name: recipe.name }, made: !found }
     })
   })
 
   app.delete('/links/:recipeLinkId', { preHandler: canManage }, async req => withTenant(req.tenantId, async tx => {
     const id = uuid.safeParse(req.params.recipeLinkId).success ? req.params.recipeLinkId : null
-    const [gone] = id ? await tx`DELETE FROM recipe_links WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING id` : []
+    const [gone] = id ? await tx`DELETE FROM recipe_links WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING id, dish_id` : []
     if (!gone) throw httpError(404, 'Link not found')
+    await allergensChanged(tx, req, { kind: 'link', dishIds: [gone.dish_id] })
     return { deleted: true }
   }))
 
@@ -410,6 +414,7 @@ export default async function recipeLinkRoutes(app) {
           ON CONFLICT DO NOTHING RETURNING id`
         linked += rows.length
       }
+      if (linked) await allergensChanged(tx, req, { kind: 'link', dishIds: [...new Set(b.links.map(l => l.dish_id))] })
       return { linked, kept: b.links.length - linked }
     })
   })
@@ -436,6 +441,7 @@ export default async function recipeLinkRoutes(app) {
            AND l.venue_id IS NULL AND l.revenue_stream_id IS NULL AND l.order_type_id IS NULL`
       if (!has) {
         await tx`INSERT INTO recipe_links ${tx({ tenant_id: req.tenantId, dish_id: dishId, recipe_id: r.id, portions: 1, created_by: who(req) })}`
+        await allergensChanged(tx, req, { kind: 'link', dishIds: [dishId] })
       }
       return { recipe_id: r.id, name: r.name, linked: !has, kept: has ? has.name : null }
     })

@@ -21,25 +21,94 @@
 //   loadRecipeSuggestion(tx, tenantId, recipeId)     a recipe's own, per venue
 //   (checks whose dish is on no menu go in the nightly recipe links sweep,
 //   sweepTenantLinks() in dishCostSvc.js)
+//
+// Phase 8b (migration 317): opened again when something changes.
+//   allergensChanged(tx, req, change)   the hook, called where each change
+//       that could alter a suggestion is saved, in its transaction (a
+//       savepoint: a failure never stops the save): the dishes it can alter
+//       (dishesToCheck(): price creep's index from items and recipes to
+//       dishes, and the options whose rules bring them in) worked out again
+//       and kept; a check it opens, opens again or changes is marked with
+//       when and what changed (changed_at, change), which Today shows: the
+//       allergen check, the calorie check, or both, as changeMarks(kind) says.
+//       change: { kind (CHANGE_KINDS), itemIds, quoteIds, recipeIds, dishIds,
+//       optionIds, venueIds, words, supplier, on, deleted }
+//   checksToReview(tx, tenantId, venueId)   the marked open checks at a
+//       venue (Today's "Allergen checks to review")
+//   loadSubstitutes(tx, tenantId)   what deliveries brought instead lately
+//
+// Phase 8b (migration 318): suggested calories, on the same rows. Each
+// dish's declared calories (menu_items.calories, the draft) against one
+// serving of its recipe at each scope (shared/calorieCheck.js: the cost
+// engine's walk with the usable quantity, each item's energy), kept in
+// calorie_checks by storeCalorieChecks() as nextCalorieCheck() says, and
+// worked out again by the same hook (a recipe, a link, an item's energy or
+// units). The recipe editor's suggestion has the recipe's own energy.
+//   caloriesToReview(tx, tenantId, venueId)   the marked open calorie checks
 
 import { loadDishCosting, menusFor } from './dishCostSvc.js'
 import { dishMap } from '../../../shared/costing.js'
 import {
-  dishScopes, scopeSuggestion, declaredOf, dishCheck, fingerprint, nextCheck, recipeSuggestion, checksDish, gapAt, ALLERGEN_KEYS,
+  dishScopes, scopeSuggestion, declaredOf, dishCheck, checkFingerprint, nextCheck, recipeSuggestion, checksDish, gapAt, ALLERGEN_KEYS,
+  dishesToCheck, changeWords, changeMarks, substituteKnown, SUBSTITUTE_DAYS, CHANGE_KIND_KEYS,
 } from '../../../shared/allergenCheck.js'
+import { dishEnergy, recipeEnergy, calorieCheck, calorieFingerprint, nextCalorieCheck, withinTolerance, calorieMoved } from '../../../shared/calorieCheck.js'
 
 const GAPS_KEPT = 30
 
+/**
+ * What deliveries brought instead of what was ordered lately (phase 8b): at
+ * each venue, an item whose latest delivery in the last SUBSTITUTE_DAYS days
+ * was marked Substituted, with the product the line now points at (its own
+ * supplier price once the delivery's price list added it) and whether that
+ * is what came (substituteKnown()). Map 'item|venue' -> [{ known, quote,
+ * supplier, product, day, number }].
+ */
+export async function loadSubstitutes(tx, tenantId) {
+  const rows = await tx`
+    SELECT DISTINCT ON (po.venue_id, pl.item_id)
+           po.venue_id, pl.item_id, pl.receive_status, pl.invoice_code, pl.invoice_name, pl.product_name AS ordered_name,
+           po.number, (po.received_at AT TIME ZONE COALESCE(v.timezone, 'Europe/London'))::date::text AS day,
+           s.name AS supplier_name,
+           q.id AS q_id, q.supplier_code AS q_code, q.product_name AS q_name, q.allergens_contains, q.allergens_may_contain,
+           q.allergens_checked_at, q.allergens_checked_by, q.allergens_source, qs.name AS q_supplier
+      FROM purchase_order_lines pl
+      JOIN purchase_orders po ON po.id = pl.po_id AND po.tenant_id = pl.tenant_id
+      JOIN venues v ON v.id = po.venue_id AND v.tenant_id = po.tenant_id
+      LEFT JOIN suppliers s ON s.id = po.supplier_id AND s.tenant_id = po.tenant_id
+      LEFT JOIN inv_quotes q ON q.id = pl.quote_id AND q.tenant_id = pl.tenant_id
+      LEFT JOIN suppliers qs ON qs.id = q.supplier_id AND qs.tenant_id = q.tenant_id
+     WHERE pl.tenant_id = ${tenantId} AND pl.item_id IS NOT NULL AND pl.received_qty > 0
+       AND po.status = 'received' AND po.received_at >= now() - make_interval(days => ${SUBSTITUTE_DAYS})
+     ORDER BY po.venue_id, pl.item_id, po.received_at DESC, pl.id`
+  const out = new Map()
+  for (const r of rows) {
+    if (r.receive_status !== 'substituted') continue
+    const quote = r.q_id ? {
+      id: r.q_id, supplier_code: r.q_code, product_name: r.q_name, supplier_name: r.q_supplier,
+      allergens_contains: r.allergens_contains, allergens_may_contain: r.allergens_may_contain,
+      allergens_checked_at: r.allergens_checked_at, allergens_checked_by: r.allergens_checked_by, allergens_source: r.allergens_source,
+    } : null
+    const known = substituteKnown({ invoice_code: r.invoice_code, invoice_name: r.invoice_name, quote })
+    out.set(r.item_id + '|' + r.venue_id, [{
+      known, quote: known ? quote : null, supplier: r.supplier_name ?? null,
+      product: known ? quote.product_name || null : r.invoice_name || null, day: r.day, number: r.number,
+    }])
+  }
+  return out
+}
+
 /** What the check reads, once per request. */
 export async function loadAllergenCtx(tx, tenantId) {
-  const [draft, live, tags, venues] = await Promise.all([
+  const [draft, live, tags, venues, substitutes] = await Promise.all([
     menusFor(tx, tenantId, 'draft'),
     menusFor(tx, tenantId, 'live'),
     tx`SELECT id, code, label, kind, standard_key FROM menu_dietary_tags WHERE tenant_id = ${tenantId}`,
     tx`SELECT id, name FROM venues WHERE tenant_id = ${tenantId} AND is_active ORDER BY created_at, name`,
+    loadSubstitutes(tx, tenantId),
   ])
   const ctx = await loadDishCosting(tx, tenantId, null, { menus: draft })
-  return { ctx, draft, live: dishMap(live), tags, venues }
+  return { ctx: { ...ctx, substitutes }, draft, live: dishMap(live), tags, venues }
 }
 
 const sameDeclared = (a, b) => ALLERGEN_KEYS.every(k => (a?.[k] || null) === (b?.[k] || null))
@@ -64,14 +133,20 @@ export function workOut(bundle, { dishIds = null } = {}) {
         if (want && !want.has(i.id)) continue
         const dish = ctx.dishes.get(i.id)
         if (!checksDish(dish)) continue
-        const results = dishScopes(dish, ctx, venueIds).map(scope => scopeSuggestion(dish.id, scope, ctx))
+        const scopes = dishScopes(dish, ctx, venueIds)
+        const results = scopes.map(scope => scopeSuggestion(dish.id, scope, ctx))
         const declared = declaredOf(dish, tags)
         const check = dishCheck(dish, results, declared, ctx.names)
         const liveDish = live.get(dish.id)
         const liveDeclared = liveDish ? declaredOf(liveDish, tags) : null
+        // Phase 8b: one serving's calories at the same scopes, against the dish's declared figure.
+        const calories = calorieCheck(dish, scopes.map(scope => dishEnergy(dish.id, scope, ctx)), dish.calories ?? null, ctx.names)
+        const liveKcal = liveDish ? liveDish.calories ?? null : undefined
         out.push({
           dish_id: dish.id, dish: dish.name, menu_id: menu.id, menu: menu.name, section: s.title ?? null, venue_ids: venueIds,
           check, live_declared: liveDeclared, published: !!liveDeclared && sameDeclared(liveDeclared, declared),
+          calories, live_kcal: liveKcal === undefined ? null : liveKcal, kcal_live: liveKcal !== undefined,
+          kcal_published: liveKcal !== undefined && (liveKcal ?? null) === (dish.calories ?? null),
         })
       }
     }
@@ -89,29 +164,39 @@ const decision = row => ({ status: row.status, by: row.decided_by ?? null, at: r
 
 /**
  * Keeps each worked-out check as nextCheck() says (shared/allergenCheck.js):
- * a new difference opens a check, a dismissal holds while the differences
- * are the same, an accepted check stays as the record of who accepted.
+ * a new difference (or, phase 8b, a substitute delivered whose allergens
+ * aren't known) opens a check, a dismissal holds while the differences are
+ * the same and no new substitute came, an accepted check stays as the record
+ * of who accepted.
  * Under a per-group lock so two readers don't both insert. Returns the rows
  * with the stored status and decision (status null: nothing to check).
+ * cause (phase 8b, the change hook): a check this opens, opens again, or
+ * whose open differences (or unknown substitutes) this changes is marked with when and what changed
+ * (changed_at, change: Today's item); a check read on the tab is never
+ * marked, and a mark stays until someone decides.
  */
-export async function storeChecks(tx, tenantId, rows) {
+export async function storeChecks(tx, tenantId, rows, { cause = null } = {}) {
   if (!rows.length) return []
   await tx`SELECT pg_advisory_xact_lock(hashtext(${'allergen_checks:' + tenantId}))`
   const stored = await tx`
-    SELECT id, dish_id, status, fingerprint, differences, decided_by, decided_at, note, history
+    SELECT id, dish_id, status, fingerprint, differences, decided_by, decided_at, note, history, changed_at, change
       FROM allergen_checks WHERE tenant_id = ${tenantId} AND dish_id = ANY(${rows.map(r => r.dish_id)}::uuid[])`
   const byDish = new Map(stored.map(s => [s.dish_id, s]))
+  const mark = cause ? { change: String(cause).slice(0, 500), changed_at: new Date() } : null
   const out = []
   for (const r of rows) {
     const s = byDish.get(r.dish_id) || null
     const n = nextCheck(s, r.check)
     const diffs = r.check.checkable ? r.check.differences : []
+    // The differences and (phase 8b) the substitutes whose allergens aren't known: what a decision holds for.
+    const fp = checkFingerprint(r.check)
     const fields = {
       menu_id: r.menu_id, dish: r.dish, menu: r.menu, section: r.section,
-      differences: tx.json(diffs), fingerprint: fingerprint(diffs), suggested: tx.json(r.check.suggested),
+      differences: tx.json(diffs), fingerprint: fp, suggested: tx.json(r.check.suggested),
       declared: tx.json(r.check.declared), scopes: tx.json(groupsKept(r.check.groups)), gaps: r.check.gaps.length,
       complete: r.check.complete,
     }
+    const venues = r.venue_ids || []
     if (n.op === 'none') { out.push({ ...r, id: null, status: null, decided_by: null, decided_at: null, note: null, history: [] }); continue }
     if (n.op === 'delete') {
       await tx`DELETE FROM allergen_checks WHERE id = ${s.id} AND tenant_id = ${tenantId}`
@@ -122,46 +207,144 @@ export async function storeChecks(tx, tenantId, rows) {
       const [row] = await tx`
         INSERT INTO allergen_checks ${tx({ tenant_id: tenantId, dish_id: r.dish_id, status: 'open', ...fields })}
         RETURNING id`
-      out.push({ ...r, id: row.id, status: 'open', decided_by: null, decided_at: null, note: null, history: [] })
+      await tx`
+        UPDATE allergen_checks SET venue_ids = ${venues}::uuid[]
+               ${mark ? tx`, changed_at = now(), change = ${mark.change}` : tx``}
+         WHERE id = ${row.id} AND tenant_id = ${tenantId}`
+      out.push({ ...r, id: row.id, status: 'open', decided_by: null, decided_at: null, note: null, history: [], ...(mark ? { ...mark, marked: true } : {}) })
       continue
     }
     // Opened again: the decision goes into the history.
     const history = n.reopened ? [...(s.history || []), decision(s)] : (s.history || [])
     const keep = n.reopened ? { decided_by: null, decided_at: null, note: null } : { decided_by: s.decided_by, decided_at: s.decided_at, note: s.note }
     // An accepted check keeps what was accepted (its differences then) as the record.
-    const { differences, fingerprint: fp, ...rest } = fields
+    const { differences, fingerprint: _fp, ...rest } = fields
     const set = n.status === 'accepted' ? rest : fields
+    // A change opened it again, or changed what an open one says (a difference, or a substitute delivered).
+    const marked = !!mark && n.status === 'open' && (n.reopened || s.fingerprint !== fp)
     await tx`
       UPDATE allergen_checks SET ${tx({ ...set, status: n.status, ...keep, history: tx.json(history) })},
-             worked_at = now(), updated_at = now()
+             venue_ids = ${venues}::uuid[], worked_at = now(), updated_at = now()
+             ${marked ? tx`, changed_at = now(), change = ${mark.change}` : tx``}
        WHERE id = ${s.id} AND tenant_id = ${tenantId}`
-    out.push({ ...r, id: s.id, status: n.status, ...keep, history, reopened: n.reopened, accepted: n.status === 'accepted' ? s.differences || [] : null })
+    out.push({
+      ...r, id: s.id, status: n.status, ...keep, history, reopened: n.reopened, accepted: n.status === 'accepted' ? s.differences || [] : null,
+      change: marked ? mark.change : s.change ?? null, changed_at: marked ? mark.changed_at : s.changed_at ?? null, marked,
+    })
   }
   return out
 }
 
-/** The list's rows: worked out now and (store) kept. */
+// What is kept of a calorie check's scope groups: their words, recipe, figures, top lines and first gaps.
+const calorieGroupsKept = groups => groups.map(g => ({
+  where: g.where, scopes: g.scopes, recipe: g.recipe, kcal: g.kcal, known_kcal: g.known_kcal, complete: g.complete,
+  lines: g.lines, more_lines: g.more_lines || 0, gaps: g.gaps.slice(0, GAPS_KEPT), more_gaps: Math.max(0, g.gaps.length - GAPS_KEPT),
+}))
+const calorieDecision = row => ({ status: row.status, by: row.decided_by ?? null, at: row.decided_at ?? null, note: row.note ?? null, kcal: row.decided_kcal ?? null, kind: row.kind ?? null })
+
+/**
+ * Keeps each worked-out calorie check as nextCalorieCheck() says
+ * (shared/calorieCheck.js), as storeChecks() keeps the allergen one, under
+ * the same per-group lock. Sets each row's `cal` (the stored status and
+ * decision). cause: marks a check this opens, opens again or changes.
+ */
+export async function storeCalorieChecks(tx, tenantId, rows, { cause = null } = {}) {
+  if (!rows.length) return rows
+  await tx`SELECT pg_advisory_xact_lock(hashtext(${'allergen_checks:' + tenantId}))`
+  const stored = await tx`
+    SELECT id, dish_id, status, kind, fingerprint, declared_kcal, decided_kcal, decided_by, decided_at, note, history, changed_at, change
+      FROM calorie_checks WHERE tenant_id = ${tenantId} AND dish_id = ANY(${rows.map(r => r.dish_id)}::uuid[])`
+  const byDish = new Map(stored.map(s => [s.dish_id, s]))
+  const mark = cause ? { change: String(cause).slice(0, 500), changed_at: new Date() } : null
+  for (const r of rows) {
+    const c = r.calories
+    const s = byDish.get(r.dish_id) || null
+    const n = nextCalorieCheck(s, c)
+    const d = c.checkable ? c.difference : null
+    const fp = calorieFingerprint(c)
+    const fields = {
+      menu_id: r.menu_id, dish: r.dish, menu: r.menu, section: r.section, kind: d?.kind ?? null,
+      suggested_kcal: d ? d.suggested ?? null : c.suggested, min_kcal: c.min, max_kcal: c.max, declared_kcal: c.declared,
+      fingerprint: fp, complete: c.complete, gaps: c.gaps.length, scopes: tx.json(calorieGroupsKept(c.groups)),
+    }
+    const venues = r.venue_ids || []
+    const blank = { id: null, status: null, decided_by: null, decided_at: null, note: null, decided_kcal: null, history: [], change: null, changed_at: null }
+    if (n.op === 'none') { r.cal = blank; continue }
+    if (n.op === 'delete') {
+      await tx`DELETE FROM calorie_checks WHERE id = ${s.id} AND tenant_id = ${tenantId}`
+      r.cal = { ...blank, history: s.history || [] }
+      continue
+    }
+    if (n.op === 'insert') {
+      const [row] = await tx`INSERT INTO calorie_checks ${tx({ tenant_id: tenantId, dish_id: r.dish_id, status: 'open', ...fields })} RETURNING id`
+      await tx`
+        UPDATE calorie_checks SET venue_ids = ${venues}::uuid[]
+               ${mark ? tx`, changed_at = now(), change = ${mark.change}` : tx``}
+         WHERE id = ${row.id} AND tenant_id = ${tenantId}`
+      r.cal = { ...blank, id: row.id, status: 'open', ...(mark ? { ...mark, marked: true } : {}) }
+      continue
+    }
+    const history = n.reopened ? [...(s.history || []), calorieDecision(s)] : (s.history || [])
+    const keep = n.reopened
+      ? { decided_by: null, decided_at: null, note: null, decided_kcal: null }
+      : { decided_by: s.decided_by, decided_at: s.decided_at, note: s.note, decided_kcal: s.decided_kcal }
+    // A change opened it again, or moved an open one's figure past the tolerance (calorieMoved()).
+    const marked = !!mark && n.status === 'open' && (n.reopened || calorieMoved(s.fingerprint, c))
+    await tx`
+      UPDATE calorie_checks SET ${tx({ ...fields, status: n.status, ...keep, history: tx.json(history) })},
+             venue_ids = ${venues}::uuid[], worked_at = now(), updated_at = now()
+             ${marked ? tx`, changed_at = now(), change = ${mark.change}` : tx``}
+       WHERE id = ${s.id} AND tenant_id = ${tenantId}`
+    r.cal = {
+      id: s.id, status: n.status, ...keep, history, reopened: n.reopened,
+      change: marked ? mark.change : s.change ?? null, changed_at: marked ? mark.changed_at : s.changed_at ?? null, marked,
+    }
+  }
+  return rows
+}
+
+/** The stored calorie decisions of rows worked out, as nextCalorieCheck() would keep them (read only: a report run). */
+async function calorieKept(tx, tenantId, rows) {
+  const stored = rows.length ? await tx`
+    SELECT id, dish_id, status, kind, fingerprint, declared_kcal, decided_kcal, decided_by, decided_at, note, history, changed_at, change
+      FROM calorie_checks WHERE tenant_id = ${tenantId} AND dish_id = ANY(${rows.map(r => r.dish_id)}::uuid[])` : []
+  const byDish = new Map(stored.map(s => [s.dish_id, s]))
+  for (const r of rows) {
+    const s = byDish.get(r.dish_id) || null
+    const n = nextCalorieCheck(s, r.calories)
+    const kept = s && n.op === 'update' && !n.reopened
+    r.cal = {
+      id: s?.id ?? null, status: n.status, decided_by: kept ? s.decided_by : null, decided_at: kept ? s.decided_at : null, note: kept ? s.note : null,
+      decided_kcal: kept ? s.decided_kcal : null, history: s?.history || [], change: kept ? s.change : null, changed_at: kept ? s.changed_at : null,
+    }
+  }
+  return rows
+}
+
+/** The list's rows: worked out now and (store) kept, the allergen check and (phase 8b) the calorie check. */
 export async function checkRows(tx, tenantId, { dishIds = null, store = true, bundle = null } = {}) {
   const b = bundle || await loadAllergenCtx(tx, tenantId)
   const rows = workOut(b, { dishIds })
-  if (store) return { bundle: b, rows: await storeChecks(tx, tenantId, rows) }
+  if (store) {
+    const kept = await storeChecks(tx, tenantId, rows)
+    await storeCalorieChecks(tx, tenantId, kept)
+    return { bundle: b, rows: kept }
+  }
   // Read only (a report run): the stored decisions, as nextCheck() would keep them.
   const stored = rows.length ? await tx`
     SELECT id, dish_id, status, fingerprint, differences, decided_by, decided_at, note, history FROM allergen_checks
      WHERE tenant_id = ${tenantId} AND dish_id = ANY(${rows.map(r => r.dish_id)}::uuid[])` : []
   const byDish = new Map(stored.map(s => [s.dish_id, s]))
-  return {
-    bundle: b,
-    rows: rows.map(r => {
-      const s = byDish.get(r.dish_id) || null
-      const n = nextCheck(s, r.check)
-      const kept = s && (n.op === 'update' && !n.reopened)
-      return {
-        ...r, id: s?.id ?? null, status: n.status, decided_by: kept ? s.decided_by : null, decided_at: kept ? s.decided_at : null, note: kept ? s.note : null,
-        history: s?.history || [], accepted: n.status === 'accepted' ? s.differences || [] : null,
-      }
-    }),
-  }
+  const out = rows.map(r => {
+    const s = byDish.get(r.dish_id) || null
+    const n = nextCheck(s, r.check)
+    const kept = s && (n.op === 'update' && !n.reopened)
+    return {
+      ...r, id: s?.id ?? null, status: n.status, decided_by: kept ? s.decided_by : null, decided_at: kept ? s.decided_at : null, note: kept ? s.note : null,
+      history: s?.history || [], accepted: n.status === 'accepted' ? s.differences || [] : null,
+    }
+  })
+  return { bundle: b, rows: await calorieKept(tx, tenantId, out) }
 }
 
 /** A recipe's own suggested allergens at each active venue, venues with the same answer together. */
@@ -177,5 +360,109 @@ export async function loadRecipeSuggestion(tx, tenantId, recipeId, bundle = null
     groups.get(sig).venues.push(v.name)
   }
   // A group's gaps are its first venue's: an unknown ingredient is named at every venue of the group.
-  return { recipe_id: recipe.id, name: recipe.name, groups: [...groups.values()].map(({ venue_id, ...g }) => ({ ...g, gaps: g.gaps.map(x => gapAt(x, g.venues)) })) }
+  const energy = recipeEnergy(recipe, b.ctx)
+  // The menu dishes linked to it, each with what it declares beside what this recipe gives it (its link's portions).
+  const dishes = []
+  for (const l of b.ctx.links.filter(x => x.recipe_id === recipe.id)) {
+    const dish = b.ctx.dishes.get(l.dish_id)
+    if (!checksDish(dish) || dishes.some(d => d.dish_id === dish.id)) continue
+    const portions = Number(l.portions) > 0 ? Number(l.portions) : 1
+    // One serving at the link's own scope (it picks this link), rounded once: the Allergens tab's figure for that scope.
+    const scope = { venue_id: l.venue_id ?? null, revenue_stream_id: l.revenue_stream_id ?? null, order_type_id: l.order_type_id ?? null }
+    const serving = recipe.kind === 'dish' ? dishEnergy(dish.id, scope, b.ctx) : null
+    const suggested = serving?.complete ? serving.kcal : null
+    const declared = dish.calories ?? null
+    dishes.push({
+      dish_id: dish.id, dish: dish.name, menu: dish.menu, section: dish.section, portions, declared, suggested,
+      agrees: suggested == null ? null : withinTolerance(declared, suggested),
+    })
+  }
+  return {
+    recipe_id: recipe.id, name: recipe.name, groups: [...groups.values()].map(({ venue_id, ...g }) => ({ ...g, gaps: g.gaps.map(x => gapAt(x, g.venues)) })),
+    // Phase 8b: its own energy (the same at every venue: an item's energy is the item's), and the dishes' declared figures.
+    calories: { ...energy, dishes },
+  }
+}
+
+// ── Opened again on a change (phase 8b, migration 317) ────────
+
+const names = (rows, key = 'name') => [...new Set(rows.map(r => r[key]).filter(Boolean))]
+
+/**
+ * The hook (phase 8b): called where a change that could alter a dish's
+ * suggested allergens (or, migration 318, its calories) is saved, in that
+ * transaction. In a savepoint, so a failure is logged and the change is
+ * still saved (the check is worked out again when the tab is opened). Works
+ * out the dishes the change can alter (dishesToCheck()), keeps their checks
+ * (storeChecks() with the change in words: a check opened, opened again or
+ * changed by it goes on Today) and returns { worked: [dish ids], marked:
+ * [dish ids] }. Never call it in a dry run.
+ */
+export async function allergensChanged(tx, req, change = {}) {
+  try {
+    return await tx.savepoint(sp => recheck(sp, req.tenantId, change))
+  } catch (err) {
+    req.log?.warn?.({ err: err?.message }, 'Allergen checks not worked out again')
+    return { worked: [], marked: [], failed: true }
+  }
+}
+
+async function recheck(tx, tenantId, change) {
+  const kind = CHANGE_KIND_KEYS.includes(change.kind) ? change.kind : null
+  const quoteIds = [...new Set((change.quoteIds || []).filter(Boolean))]
+  const fromQuotes = quoteIds.length
+    ? await tx`SELECT DISTINCT item_id FROM inv_quotes WHERE tenant_id = ${tenantId} AND id = ANY(${quoteIds}::uuid[])` : []
+  const itemIds = [...new Set([...(change.itemIds || []), ...fromQuotes.map(r => r.item_id)].filter(Boolean))]
+  const want = { itemIds, recipeIds: change.recipeIds || [], dishIds: change.dishIds || [], optionIds: change.optionIds || [] }
+  if (!want.itemIds.length && !want.recipeIds.length && !want.dishIds.length && !want.optionIds.length) return { worked: [], marked: [] }
+  const bundle = await loadAllergenCtx(tx, tenantId)
+  const dishIds = dishesToCheck(want, bundle.ctx)
+  if (!dishIds.size) return { worked: [], marked: [] }
+  // What changed, in words, with the names it is about.
+  let cause = change.words || null
+  if (!cause) {
+    const items = itemIds.map(id => bundle.ctx.items.get(id)?.name).filter(Boolean)
+    const missing = itemIds.filter(id => !bundle.ctx.items.has(id))
+    const more = missing.length ? names(await tx`SELECT name FROM inv_items WHERE tenant_id = ${tenantId} AND id = ANY(${missing}::uuid[])`) : []
+    const venueNames = (change.venueIds || []).map(id => bundle.venues.find(v => v.id === id)?.name).filter(Boolean)
+    const recipes = (change.recipeIds || []).map(id => bundle.ctx.recipes.get(id)?.name).filter(Boolean)
+    const dishes = (change.dishIds || []).map(id => bundle.ctx.dishes.get(id)?.name).filter(Boolean)
+    const options = (change.optionIds || []).map(id => bundle.ctx.options?.get?.(id)?.label).filter(Boolean)
+    cause = changeWords({ kind, items: [...items, ...more], venues: venueNames, recipes: [...recipes, ...(change.recipeNames || [])], dishes, options, supplier: change.supplier, on: change.on, deleted: change.deleted })
+  }
+  const rows = workOut(bundle, { dishIds: [...dishIds] })
+  // Both checks are kept; each is marked only by a change that can move it (changeMarks()).
+  const marks = changeMarks(kind)
+  const kept = await storeChecks(tx, tenantId, rows, { cause: marks.allergens ? cause : null })
+  await storeCalorieChecks(tx, tenantId, kept, { cause: marks.calories ? cause : null })
+  return {
+    worked: [...dishIds], marked: kept.filter(r => r.marked).map(r => r.dish_id),
+    calories_marked: kept.filter(r => r.cal?.marked).map(r => r.dish_id), cause,
+  }
+}
+
+/**
+ * The open checks a change marked (Today's "Allergen checks to review"), at
+ * a venue (the dish sold there) or every venue: [{ id, dish_id, dish, menu,
+ * change, changed_at }], newest change first. Only dishes still on a menu's
+ * draft (what the Allergens tab lists): one taken off since can't be decided
+ * there, and the nightly links sweep deletes its check.
+ */
+export function checksToReview(tx, tenantId, venueId = null) {
+  return tx`
+    SELECT c.id, c.dish_id, c.dish, c.menu, c.change, c.changed_at FROM allergen_checks c
+     WHERE c.tenant_id = ${tenantId} AND c.status = 'open' AND c.changed_at IS NOT NULL
+       AND EXISTS (SELECT 1 FROM menu_items mi WHERE mi.id = c.dish_id AND mi.tenant_id = c.tenant_id)
+       ${venueId ? tx`AND ${venueId}::uuid = ANY(c.venue_ids)` : tx``}
+     ORDER BY c.changed_at DESC, c.dish`
+}
+
+/** The open calorie checks a change marked (phase 8b, migration 318), at a venue or every venue, newest change first. */
+export function caloriesToReview(tx, tenantId, venueId = null) {
+  return tx`
+    SELECT c.id, c.dish_id, c.dish, c.menu, c.change, c.changed_at FROM calorie_checks c
+     WHERE c.tenant_id = ${tenantId} AND c.status = 'open' AND c.changed_at IS NOT NULL
+       AND EXISTS (SELECT 1 FROM menu_items mi WHERE mi.id = c.dish_id AND mi.tenant_id = c.tenant_id)
+       ${venueId ? tx`AND ${venueId}::uuid = ANY(c.venue_ids)` : tx``}
+     ORDER BY c.changed_at DESC, c.dish`
 }

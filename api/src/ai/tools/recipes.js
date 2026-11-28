@@ -1197,6 +1197,8 @@ export const allergenTools = [
           ? r.differences.map(d => d.text + (d.where?.length && d.kind !== 'not_found' ? ' (' + d.where.join(', ') + ')' : ''))
           : [!r.checkable ? 'Can\'t be checked yet.'
             : r.complete ? 'None: the recipe and the declaration agree.'
+            // Phase 8b: a product delivered instead whose allergens aren't known keeps the check open.
+            : r.substitutes?.length ? 'None found so far, but it is open: ' + r.substitutes[0].text + '. It needs looking at (its label, or put in with its allergens) before the declaration can be confirmed.'
               : 'None found so far, but not everything is known: the declaration can\'t be confirmed until the unknown ingredients\' allergens are put in.'],
         ...(evidence.length ? { evidence } : {}),
         ...(r.gaps.length ? { unknown: r.gaps.slice(0, 10).map(g => g.text + '. ' + g.fix), complete: false } : { complete: r.checkable }),

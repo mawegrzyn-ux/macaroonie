@@ -362,6 +362,12 @@ export const subjects = [
       storage: choice('storage', STORAGE),
       // Inventory phase 1 (migration 298): the usable share after trimming.
       yield_pct: percent('yield_pct', { label: 'Yield', about: 'The usable share after trimming, which recipes cost the item by.' }),
+      // Inventory phase 8b (migration 318): its energy, which the Recipes page's calorie check adds up.
+      kcal_per_100g: number('kcal_per_100g', { label: 'Energy per 100 g or ml (kcal)', decimals: 1, synonyms: ['calorie', 'calories', 'kcal', 'energy'], about: 'For an item kept in grams or millilitres: kcal per 100 g (or 100 ml) of the part that goes in.' }),
+      kcal_each: number('kcal_each', { label: 'Energy each (kcal)', decimals: 1, synonyms: ['calorie', 'kcal', 'energy'], about: 'For an item kept in each: kcal for one.' }),
+      energy_known: yesno({ sql: "(CASE WHEN {t}.base_unit = 'each' THEN {t}.kcal_each IS NOT NULL ELSE {t}.kcal_per_100g IS NOT NULL END)" }, { label: 'Energy known', synonyms: ['calorie', 'kcal', 'energy', 'nutrition'], about: 'Its energy has been put in. Not known is a gap in the Recipes page\'s calorie check.' }),
+      kcal_source: text('kcal_source', { label: 'Energy from', about: 'Where the energy came from: the label, the spec sheet, a food table.' }),
+      in_recipes: yesno({ sql: '(EXISTS (SELECT 1 FROM recipe_lines rl WHERE rl.item_id = {t}.id AND rl.tenant_id = {t}.tenant_id))' }, { label: 'In a recipe' }),
       active: yesno('is_active', { label: 'In use' }),
       notes: text('notes'),
       added_at: moment('created_at', { label: 'Added at' }),

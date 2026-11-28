@@ -13,10 +13,16 @@
 // took over their cost target or limit (price creep), as the price change
 // hook recorded them. Phase 8a (migration 316): allergen checks, each dish's
 // declared allergens against what its recipes suggest, as last worked out.
+// Phase 8b (migrations 317 and 318): what change opened an allergen check
+// again, and calorie checks, each dish's declared calories against one
+// serving of its recipe (shared/calorieCheck.js), as last worked out.
 
 import { subject, text, number, money, percent, yesno, choice, moment, sum, avg, count, countDistinct, one, many } from './define.js'
 import { CREEP_SOURCES } from '../../../../shared/priceCreep.js'
 import { CHECK_STATUSES } from '../../../../shared/allergenCheck.js'
+import { CALORIE_KINDS } from '../../../../shared/calorieCheck.js'
+
+const CALORIE_KIND_LABELS = Object.fromEntries(Object.entries(CALORIE_KINDS).map(([k, v]) => [k, v.label]))
 
 const COSTING = 'costing'
 const pounds = (src, opts = {}) => money(src, { unit: 'pounds', needs: COSTING, ...opts })
@@ -470,7 +476,8 @@ export const subjects = [
     name: 'dish',
     open: { page: '/recipes?tab=allergens&check=:id', module: 'recipes', id: 'dish_id' },
     // updated_at: any save of the row (worked out again, decided); Last worked out and Decided at say when.
-    skip: ['menu_id', 'fingerprint', 'suggested', 'declared', 'scopes', 'history', 'updated_at'],
+    // venue_ids (phase 8b): where Today shows a check, the dish's menu's venues.
+    skip: ['menu_id', 'fingerprint', 'suggested', 'declared', 'scopes', 'history', 'updated_at', 'venue_ids'],
     fields: {
       dish: text('dish', { label: 'Dish', synonyms: ['menu item'] }),
       menu: text('menu', { label: 'Menu' }),
@@ -489,6 +496,9 @@ export const subjects = [
       note: text('note', { label: 'Why dismissed', about: 'The note left when the check was dismissed.' }),
       worked_at: moment('worked_at', { label: 'Last worked out' }),
       first_found: moment('created_at', { label: 'First found' }),
+      // Phase 8b (migration 317): opened again by a change, until someone decides.
+      change: text('change', { label: 'What changed', synonyms: ['reopened', 'opened again', 'substitute'], about: 'The change that opened the check again or changed it while open ("Oyster sauce: the usual supplier switched at Leeds"), until someone decides.' }),
+      changed_at: moment('changed_at', { label: 'Changed at' }),
     },
     measures: {
       checks: count({ label: 'Allergen checks', synonyms: ['allergen check', 'allergen differences'] }),
@@ -497,6 +507,58 @@ export const subjects = [
       unknown: sum('gaps', { label: 'Allergens unknown' }),
     },
     list: ['dish', 'menu', 'status', 'what_differs', 'gaps', 'decided_by', 'decided_at'],
+    sort: [{ by: 'dish', dir: 'asc' }],
+  }),
+
+  // Phase 8b (migration 318): each dish's declared calories against one serving
+  // of its recipe, as the Allergens tab, the recipe editor or a change last
+  // worked it out.
+  subject({
+    key: 'recipes.calorie_checks',
+    label: 'Calorie checks',
+    one: 'calorie check',
+    area: 'recipes',
+    module: 'recipes',
+    about: 'Each menu dish whose declared calories differ from what one serving of its recipe comes to (each ingredient\'s energy through its prep recipes, at each venue it is sold at: the highest), or did: open, accepted (the figure was written into the menu\'s draft) or dismissed (kept, with why). A figure within 10% (at least 10 kcal) agrees. While an ingredient\'s energy is unknown there is no suggestion, only what is known so far. As last worked out on the Recipes page\'s Allergens tab. Calorie labelling applies in England to businesses with 250 or more employees, counting a franchise\'s whole network: confirm the detail.',
+    from: 'calorie_checks',
+    name: 'dish',
+    open: { page: '/recipes?tab=allergens&check=:id', module: 'recipes', id: 'dish_id' },
+    // fingerprint: read by the difference's words only (the 'under' figure), not a field of its own.
+    skip: ['menu_id', 'scopes', 'history', 'updated_at', 'venue_ids'],
+    fields: {
+      dish: text('dish', { label: 'Dish', synonyms: ['menu item'] }),
+      menu: text('menu', { label: 'Menu' }),
+      section: text('section', { label: 'Section' }),
+      status: choice('status', CHECK_STATUSES, { label: 'Status', about: 'Open: nobody has decided. Accepted: the suggested figure was written into the menu\'s draft. Dismissed: kept as declared, with a note.' }),
+      kind: choice('kind', CALORIE_KIND_LABELS, { label: 'What differs', about: 'No calories declared; the declared figure differs (beyond 10%); or the dish declares less than what is known already comes to.' }),
+      // calorieWords() (shared/calorieCheck.js) in SQL, word for word: figures with thousands separators, and the
+      // 'under' figure (what is known so far) from the stored fingerprint (calorieFingerprint(): kind:declared:suggested:lower).
+      difference: text({ sql: "(CASE {t}.kind WHEN 'missing' THEN 'The recipe comes to ' || to_char({t}.suggested_kcal, 'FM999,999,999,990') || ' kcal; the dish declares no calories' WHEN 'differs' THEN 'The recipe comes to ' || to_char({t}.suggested_kcal, 'FM999,999,999,990') || ' kcal; the dish declares ' || to_char({t}.declared_kcal, 'FM999,999,999,990') || ' kcal' WHEN 'under' THEN 'What is known already comes to ' || to_char(NULLIF(split_part({t}.fingerprint, ':', 4), '')::numeric, 'FM999,999,999,990') || ' kcal; the dish declares ' || to_char({t}.declared_kcal, 'FM999,999,999,990') || ' kcal' END)" }, {
+        label: 'Calories difference', synonyms: ['calorie', 'calories', 'kcal', 'energy'],
+        about: 'The difference in words: "The recipe comes to 722 kcal; the dish declares 600 kcal".',
+      }),
+      suggested_kcal: number('suggested_kcal', { label: 'Suggested kcal', decimals: 0, synonyms: ['calorie', 'kcal', 'energy', 'calories from the recipe'], about: 'One serving of the recipe, at the venue where it comes to most. Empty while anything is unknown.' }),
+      declared_kcal: number('declared_kcal', { label: 'Declared kcal', decimals: 0, synonyms: ['menu calories'], about: 'What the dish declares on the menu\'s draft.' }),
+      min_kcal: number('min_kcal', { label: 'Lowest at a venue (kcal)', decimals: 0 }),
+      max_kcal: number('max_kcal', { label: 'Highest at a venue (kcal)', decimals: 0 }),
+      complete: yesno('complete', { label: 'Every energy known', about: 'Every ingredient has its energy and every quantity is known; when not, there is no suggestion.' }),
+      gaps: number('gaps', { label: 'Not known', decimals: 0, about: 'Ingredients with no energy figure, quantities in a unit with no size, and other gaps such as no recipe at a venue.' }),
+      decided_kcal: number('decided_kcal', { label: 'Decided kcal', decimals: 0, about: 'The figure written into the draft (accepted) or the suggestion dismissed.' }),
+      decided_by: text('decided_by', { label: 'Decided by' }),
+      decided_at: moment('decided_at', { label: 'Decided at' }),
+      note: text('note', { label: 'Why dismissed' }),
+      change: text('change', { label: 'What changed', about: 'The change that opened it again, until someone decides.' }),
+      changed_at: moment('changed_at', { label: 'Changed at' }),
+      worked_at: moment('worked_at', { label: 'Last worked out' }),
+      first_found: moment('created_at', { label: 'First found' }),
+    },
+    measures: {
+      checks: count({ label: 'Calorie checks', synonyms: ['calorie check', 'calorie differences', 'kcal'] }),
+      open: count({ label: 'Open', where: "{t}.status = 'open'", synonyms: ['calories to check'] }),
+      dishes: countDistinct('dish_id', { label: 'Dishes' }),
+      unknown: sum('gaps', { label: 'Energy not known' }),
+    },
+    list: ['dish', 'menu', 'status', 'difference', 'suggested_kcal', 'declared_kcal', 'gaps', 'decided_by'],
     sort: [{ by: 'dish', dir: 'asc' }],
   }),
 ]

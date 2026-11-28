@@ -113,7 +113,7 @@ export default function Recipes() {
                   : tab === 'allergens'
                     ? (
                       <Suspense fallback={<Waiting />}>
-                        <AllergenChecks canManage={canManage} openId={params.get('check')} startQ={params.get('q') || ''}
+                        <AllergenChecks canManage={canManage} openId={params.get('check')} startQ={params.get('q') || ''} startChanged={params.get('changed') === '1'}
                           onOpen={id => setParams(p => { const n = new URLSearchParams(p); n.set('check', id); return n })}
                           onClose={() => set({ check: '' })} />
                       </Suspense>

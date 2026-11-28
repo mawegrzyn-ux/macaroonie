@@ -44,6 +44,7 @@ export const TASK_AREAS = {
   report_alerts: 'Report alerts', failed_emails: 'Failed booking emails', reviews: 'Reviews to check',
   screens: 'Menu screens offline', devices: 'Tills and devices offline', sold_out: 'Sold out dishes',
   rota: 'Next week\'s rota', stock: 'Stock counts, transfers and variance', costing: 'Dishes over their cost target',
+  allergen_checks: 'Allergen checks to review',
 }
 
 /** A skip's reason, tidied: null when it is empty or too long. */

@@ -31,12 +31,28 @@
 //   recipeSuggestion(recipe, venueId, ctx)   a recipe's own (the recipe editor)
 //   declaredOf(dish, tags)         the dish's declared allergens by standard key
 //   dishCheck(dish, results, declared, names)   the differences, the scope groups, complete
-//   fingerprint(differences)       what a decision holds for
+//   fingerprint(differences, substitutes)   what a decision holds for
 //   nextCheck(stored, check)       what to do with a stored check: insert, update, delete, keep
 //   acceptedLevels(declared, differences, keys)   the declaration after accepting
 //   pickedDifferences(differences, keys)   the differences ticked, of those there now
 //   checkState(row)                what a dish's check says in a list (CHECK_STATES)
 //   checkCounts(rows)              how many of each
+//
+// Phase 8b (migrations 317 and 318): a change that could alter a suggestion
+// opens the affected dishes' checks again (allergensChanged() in
+// services/allergenCheckSvc.js, called where each change is saved):
+//   CHANGE_KINDS, changeWords(change)   what changed, in words (Today, the check)
+//   optionsUsing(itemIds, recipeIds, rules)    the option rules that bring those in
+//   dishesToCheck(change, ctx)     the dishes a change can alter: dishesUsing()'s index (shared/priceCreep.js)
+//                                  from items and recipes to dishes, the dishes offering an option
+//                                  whose rule brings one of them in, and the dishes named
+//   substituteKnown(line)          whether a delivery's substitute is a product on the list
+//   SUBSTITUTE_DAYS                how long a substitute delivered counts at its venue
+//   unknownSubstitutes(check), hasReview(check)   a substitute whose allergens aren't known is
+//                                  something to look at, as a difference is: it opens the check
+//   checkFingerprint(check), dismissalHolds(was, now)   the fingerprint with those in it, and
+//                                  whether a dismissal still holds
+//   changeMarks(kind)              which checks a kind of change marks (allergens, calories)
 
 import { STANDARD_ALLERGENS, LEVEL_LABELS } from './menuTags.js'
 import { usageOf, recipeUsage, offeredOptions, scopeText, needsCheck } from './costing.js'
@@ -44,6 +60,7 @@ import { ASSISTANT_NAME } from './assistant.js'
 import { chooseQuote } from './procurement.js'
 import { isCombo } from './combos.js'
 import { needsAllergens } from './catalogue.js'
+import { dishesUsing } from './priceCreep.js'
 
 export const ALLERGEN_KEYS = STANDARD_ALLERGENS.map(a => a.key)
 export const ALLERGEN_LABELS = Object.fromEntries(STANDARD_ALLERGENS.map(a => [a.key, a.label]))
@@ -215,6 +232,37 @@ export function gapAt(gap, venueNames = []) {
   return { ...gap, venues, text: itemGapText({ ...gap, venues }) }
 }
 
+// ── A substitute on receiving (phase 8b) ──────────────────────
+
+/** How many days a substitute delivered counts at its venue (unless the item was delivered as ordered since). */
+export const SUBSTITUTE_DAYS = 14
+const norm = v => String(v ?? '').trim().toLowerCase()
+
+/**
+ * Whether what a delivery line marked Substituted brought is a product on the
+ * list: the line's supplier price carries the code the invoice gave (or, with
+ * no code, its name), as it does once the delivery's Update the price list
+ * added it (the line then points at it). Else what came isn't recorded, so
+ * its allergens are unknown. line: { invoice_code, invoice_name, quote: {
+ * supplier_code, product_name } | null }.
+ */
+export function substituteKnown(line) {
+  const q = line?.quote
+  if (!q) return false
+  if (norm(line.invoice_code)) return norm(line.invoice_code) === norm(q.supplier_code)
+  if (norm(line.invoice_name)) return norm(line.invoice_name) === norm(q.product_name)
+  return false
+}
+
+const dayWords = day => {
+  if (!day) return ''
+  const d = new Date(String(day).slice(0, 10) + 'T12:00:00Z')
+  return Number.isNaN(d.getTime()) ? String(day) : d.toLocaleDateString('en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short' })
+}
+
+/** The substitutes delivered lately for an item at a venue (ctx.substitutes: Map 'item|venue' -> list). */
+const substitutesAt = (itemId, venueId, ctx) => (venueId ? get(ctx.substitutes, itemId + '|' + venueId) || [] : [])
+
 /** The entries' allergens at a venue: { levels, evidence: { key: [line] }, gaps }. */
 function rollUp(entries, venueId, ctx, venueName) {
   const levels = {}
@@ -229,18 +277,35 @@ function rollUp(entries, venueId, ctx, venueName) {
       continue
     }
     const p = productAt(e.item_id, venueId, ctx)
-    if (!p.quote) {
-      gaps.push(gapAt({ ...line, reason: 'no_product', fix: 'Add a supplier price for ' + item.name + ' with its allergens on the Inventory page.' }, venues))
-      continue
+    // The product the venue orders and (phase 8b) what a delivery brought instead lately: both may be in the kitchen.
+    const products = []
+    if (p.quote) products.push({ quote: p.quote, allergens: p.allergens, sub: null })
+    else gaps.push(gapAt({ ...line, reason: 'no_product', fix: 'Add a supplier price for ' + item.name + ' with its allergens on the Inventory page.' }, venues))
+    for (const s of substitutesAt(e.item_id, venueId, ctx)) {
+      if (s.known && s.quote) {
+        if (!p.quote || s.quote.id !== p.quote.id) products.push({ quote: s.quote, allergens: quoteAllergens(s.quote), sub: s })
+        continue
+      }
+      const what = [s.supplier, s.product].filter(Boolean).join(': ')
+      gaps.push({
+        ...line, reason: 'substitute', supplier: s.supplier ?? null, product: s.product ?? null, day: s.day ?? null, venue: venueName, venue_id: venueId ?? null,
+        text: 'A substitute for ' + item.name + ' was delivered' + (venueName ? ' at ' + venueName : '') + (s.day ? ' on ' + dayWords(s.day) : '') + (what ? ' (' + what + ')' : '') + ': its allergens aren\'t known',
+        fix: 'Add what came as a supplier price with its allergens (the delivery\'s Update the price list, Add), or check its label. It counts for ' + SUBSTITUTE_DAYS + ' days, or until ' + item.name + ' is delivered as ordered.',
+      })
     }
-    const product = { quote_id: p.quote.id, supplier: p.quote.supplier_name ?? null, product: productName(p.quote, item), code: p.quote.supplier_code ?? null }
-    if (!p.allergens.known) {
-      gaps.push(gapAt({ ...line, ...product, reason: 'unknown', fix: 'Add the allergens of ' + (product.supplier ? product.supplier + '\'s ' : '') + product.product + ' on the Inventory page (from its spec sheet).' }, venues))
-      continue
-    }
-    for (const [key, lvl] of Object.entries(p.allergens.levels)) {
-      if (rank(lvl) > rank(levels[key])) levels[key] = lvl
-      ;(evidence[key] ||= []).push({ ...line, ...product, level: lvl })
+    for (const pr of products) {
+      const product = {
+        quote_id: pr.quote.id, supplier: pr.quote.supplier_name ?? null, product: productName(pr.quote, item), code: pr.quote.supplier_code ?? null,
+        ...(pr.sub ? { substitute: { day: pr.sub.day ?? null } } : {}),
+      }
+      if (!pr.allergens.known) {
+        gaps.push(gapAt({ ...line, ...product, reason: 'unknown', fix: 'Add the allergens of ' + (product.supplier ? product.supplier + '\'s ' : '') + product.product + ' on the Inventory page (from its spec sheet).' }, venues))
+        continue
+      }
+      for (const [key, lvl] of Object.entries(pr.allergens.levels)) {
+        if (rank(lvl) > rank(levels[key])) levels[key] = lvl
+        ;(evidence[key] ||= []).push({ ...line, ...product, level: lvl })
+      }
     }
   }
   return { levels, evidence, gaps }
@@ -320,7 +385,7 @@ function groupScopes(results, names) {
       r.recipe?.id || null,
       ALLERGEN_KEYS.map(k => r.levels[k] || ''),
       ALLERGEN_KEYS.map(k => (r.evidence[k] || []).map(e => e.quote_id + e.item_id).sort()),
-      r.gaps.map(g => g.reason + (g.item_id || '') + (g.option || '')).sort(),
+      r.gaps.map(g => g.reason + (g.item_id || '') + (g.option || '') + (g.reason === 'substitute' ? g.text : '')).sort(),
     ])
     if (!groups.has(sig)) groups.set(sig, { ...r, scopes: [] })
     groups.get(sig).scopes.push(r.scope)
@@ -345,7 +410,10 @@ export function evidenceWords(e) {
   const via = (e.via || []).slice(1)
   const where = e.option ? ' with ' + e.option : via.length ? ' in ' + via.join(' in ') : ''
   const product = [e.supplier, e.product && e.product !== e.item ? e.product : null].filter(Boolean).join(': ')
-  return e.item + where + (product ? ' (' + product + ')' : '') + (e.level === 'may_contain' ? ', may contain' : '')
+  // Phase 8b: a product a delivery brought instead of the one ordered.
+  const sub = e.substitute ? 'a substitute delivered' + (e.substitute.day ? ' ' + dayWords(e.substitute.day) : '') : ''
+  const said = [product, sub].filter(Boolean).join(', ')
+  return e.item + where + (said ? ' (' + said + ')' : '') + (e.level === 'may_contain' ? ', may contain' : '')
 }
 
 /**
@@ -432,30 +500,80 @@ export function differenceText(key, kind, s, d) {
   }
 }
 
-/** The differences' fingerprint: a decision holds while it is the same (the evidence aside). */
-export function fingerprint(differences = []) {
-  return differences.map(d => [d.allergen, d.kind, d.suggested || '', d.declared || ''].join(':')).sort().join('|')
+/**
+ * The substitutes delivered whose allergens aren't known (phase 8b), each
+ * once: a check's `substitute` gaps (what came isn't on the price list), and
+ * its `unknown` gaps of a product a delivery brought instead (on the list,
+ * its allergens not put in yet). What came may hold an allergen the dish
+ * doesn't declare, and unknown is never a pass, so each is something to look
+ * at, as a difference is: a check holding one is open (a new one opens a
+ * dismissed or accepted check again) until someone decides, or what came is
+ * put in as a supplier price with its allergens.
+ */
+export function unknownSubstitutes(check) {
+  return check?.checkable ? (check.gaps || []).filter(isUnknownSubstitute) : []
+}
+/** Whether a gap is a substitute whose allergens aren't known (unknownSubstitutes()'s). */
+export const isUnknownSubstitute = g => g?.reason === 'substitute' || (g?.reason === 'unknown' && !!g.substitute)
+
+/** Whether a check has anything to look at: a difference, or a substitute whose allergens aren't known. */
+export const hasReview = check => !!check?.checkable && ((check.differences || []).length > 0 || unknownSubstitutes(check).length > 0)
+
+const SUB_PREFIX = 'sub:'
+// A substitute in a fingerprint: the item, where (the venue; the product once it is on the list) and the day.
+const subKey = g => SUB_PREFIX + (g.reason === 'unknown'
+  ? [g.item_id || '', 'q' + (g.quote_id || ''), g.substitute?.day || '']
+  : [g.item_id || '', g.venue_id || g.venue || '', g.day || '']).join('@')
+
+/**
+ * The differences' fingerprint: a decision holds while it is the same (the
+ * evidence aside). substitutes (unknownSubstitutes()): each delivery is in
+ * it too (the item, the venue, the day), so a new one is a change. With
+ * none, it is the differences' alone.
+ */
+export function fingerprint(differences = [], substitutes = []) {
+  const parts = differences.map(d => [d.allergen, d.kind, d.suggested || '', d.declared || ''].join(':'))
+  return [...parts, ...new Set((substitutes || []).map(subKey))].sort().join('|')
+}
+
+/** A worked-out check's fingerprint: its differences and its unknown substitutes (what the page sends back to decide). */
+export const checkFingerprint = check => fingerprint(check?.checkable ? check.differences : [], unknownSubstitutes(check))
+
+/**
+ * Whether a dismissal (its stored fingerprint) holds for a check's
+ * fingerprint now: the same differences, and no substitute that wasn't there
+ * when it was dismissed (one that stopped counting, or was put in with
+ * allergens adding nothing, leaves it standing).
+ */
+export function dismissalHolds(was, now) {
+  if (String(was ?? '') === String(now ?? '')) return true
+  const split = fp => String(fp ?? '').split('|').filter(Boolean)
+  const diffsOf = list => list.filter(p => !p.startsWith(SUB_PREFIX)).sort().join('|')
+  const a = split(was), b = split(now)
+  if (diffsOf(a) !== diffsOf(b)) return false
+  const had = new Set(a)
+  return b.every(p => !p.startsWith(SUB_PREFIX) || had.has(p))
 }
 
 /**
  * What to do with a dish's stored check now that it was worked out again:
- * { op: 'none' | 'insert' | 'update' | 'delete', status, reopened }. No
- * differences: no row, except an accepted one, kept as the record of who
- * accepted. Differences: a new one is open; an open one stays open; a
- * dismissed one holds while its differences are the same (else it opens
- * again); an accepted one with differences again (the draft was put back,
- * or something changed) opens again.
+ * { op: 'none' | 'insert' | 'update' | 'delete', status, reopened }. Nothing
+ * to look at (no differences, no unknown substitute): no row, except an
+ * accepted one, kept as the record of who accepted. Something to look at: a
+ * new one is open; an open one stays open; a dismissed one holds while its
+ * differences are the same and no new substitute came (dismissalHolds(),
+ * else it opens again); an accepted one with something to look at again
+ * (the draft was put back, something changed, a substitute came) opens again.
  */
 export function nextCheck(stored, check) {
-  const diffs = check?.checkable ? check.differences : []
-  if (!diffs.length) {
+  if (!hasReview(check)) {
     if (!stored) return { op: 'none', status: null, reopened: false }
     if (stored.status === 'accepted') return { op: 'update', status: 'accepted', reopened: false }
     return { op: 'delete', status: null, reopened: false }
   }
   if (!stored) return { op: 'insert', status: 'open', reopened: false }
   if (stored.status === 'open') return { op: 'update', status: 'open', reopened: false }
-  if (stored.status === 'dismissed' && stored.fingerprint === fingerprint(diffs)) return { op: 'update', status: 'dismissed', reopened: false }
+  if (stored.status === 'dismissed' && dismissalHolds(stored.fingerprint, checkFingerprint(check))) return { op: 'update', status: 'dismissed', reopened: false }
   return { op: 'update', status: 'open', reopened: true }
 }
 
@@ -510,3 +628,111 @@ export function checkCounts(rows = []) {
 /** Whether a dish is one the check is for: food on a menu, not a meal deal (its allergens are its dishes'). */
 export const checksDish = dish => !!dish && !isCombo(dish) && needsAllergens(dish.item_type || 'food')
 
+
+// ── Opened again on a change (phase 8b) ───────────────────────
+
+/**
+ * What can change a dish's suggestion (the reopened check's `change` and
+ * Today's card say which). Each is called from where the change is saved
+ * (allergensChanged() in services/allergenCheckSvc.js).
+ */
+export const CHANGE_KINDS = {
+  quote: 'A supplier price added, changed or switched off',
+  quote_allergens: 'A product\'s allergens saved',
+  preferred: 'The usual supplier switched',
+  substitute: 'A substitute delivered',
+  recipe: 'A recipe changed',
+  link: 'Which recipe a dish uses changed',
+  option_rule: 'An option\'s rule changed',
+  item: 'An inventory item changed',
+  supplier: 'A supplier switched off or on, or deleted',
+}
+export const CHANGE_KIND_KEYS = Object.keys(CHANGE_KINDS)
+
+// The kinds that can move a dish's calories (an item's energy or units, a recipe, a link: options and
+// supplier products aren't counted in them); every kind but an item's energy or units can move its allergens.
+const CALORIE_CHANGE_KINDS = new Set(['recipe', 'link', 'item'])
+const ALLERGEN_CHANGE_KINDS = new Set(CHANGE_KIND_KEYS.filter(k => k !== 'item'))
+
+/**
+ * Which checks a kind of change marks (Today's items): { allergens, calories }.
+ * Both checks are worked out again on every change, but only the one the
+ * change can move is marked with it, so Today never says a calorie figure was
+ * opened by a product's allergens. A kind not known marks both.
+ */
+export function changeMarks(kind) {
+  if (!CHANGE_KIND_KEYS.includes(kind)) return { allergens: true, calories: true }
+  return { allergens: ALLERGEN_CHANGE_KINDS.has(kind), calories: CALORIE_CHANGE_KINDS.has(kind) }
+}
+
+const few = list => {
+  const l = [...new Set((list || []).filter(Boolean))]
+  return l.length <= 2 ? l.join(', ') : l.slice(0, 2).join(', ') + ' and ' + (l.length - 2) + ' more'
+}
+
+/**
+ * A change in words: "Oyster sauce: the usual supplier switched at Leeds",
+ * "Pad thai sauce changed". change: { kind, items, recipes, dishes, options,
+ * venues (names), supplier, on, deleted (a supplier deleted) }. Up to two
+ * names, then "and N more".
+ */
+export function changeWords(change = {}) {
+  const at = change.venues?.length ? ' at ' + few(change.venues) : ''
+  const items = few(change.items)
+  const recipes = few(change.recipes)
+  switch (change.kind) {
+    case 'quote': return (items ? items + ': a supplier price added, changed or switched off' : 'A supplier price changed') + at
+    case 'quote_allergens': return (items ? items + ': ' : '') + 'a product\'s allergens saved' + (change.supplier ? ' (' + change.supplier + ')' : '')
+    case 'preferred': return (items ? items + ': ' : '') + 'the usual supplier switched' + at
+    case 'substitute': return (items ? items + ': ' : '') + 'a substitute delivered' + at
+    case 'recipe': return recipes ? recipes + ' changed' : 'A recipe changed'
+    case 'link': return 'Which recipe ' + (change.dishes?.length ? few(change.dishes) : 'a dish') + ' uses changed'
+    case 'option_rule': return (change.options?.length ? few(change.options) + ': ' : '') + 'an option\'s rule changed'
+    case 'item': return (items || 'An inventory item') + ' changed'
+    case 'supplier': return (change.supplier || 'A supplier') + (change.deleted ? ' deleted, with its prices' : ' switched ' + (change.on ? 'on' : 'off'))
+    default: return 'Something it uses changed'
+  }
+}
+
+/**
+ * The option rules that bring these items or recipes into a dish (adds,
+ * swaps in, is a recipe): { optionIds: Set, dishIds: Set (a rule for one
+ * dish only) }. rules: recipe_option_rules rows.
+ */
+export function optionsUsing(itemIds = [], recipeIds = [], rules = []) {
+  const items = new Set((itemIds || []).filter(Boolean))
+  const recipes = new Set((recipeIds || []).filter(Boolean))
+  const optionIds = new Set()
+  const dishIds = new Set()
+  for (const r of rules || []) {
+    const hit = (r.item_id && items.has(r.item_id)) || (r.swap_item_id && items.has(r.swap_item_id))
+      || (r.sub_recipe_id && recipes.has(r.sub_recipe_id)) || (r.recipe_id && recipes.has(r.recipe_id))
+    if (!hit) continue
+    if (r.dish_id) dishIds.add(r.dish_id)
+    else if (r.option_id) optionIds.add(r.option_id)
+  }
+  return { optionIds, dishIds }
+}
+
+/**
+ * The menu dishes a change can alter (rule 12: price creep's index, never
+ * another walk): the dishes whose recipes use the items or recipes changed
+ * (dishesUsing(), up through the prep recipes they sit in), the dishes
+ * offering an option whose rule brings one of them in (or whose own rule
+ * changed: optionIds), and the dishes named. Meal deals aren't checked
+ * (their allergens are their dishes'), so dealsHolding() has nothing to add.
+ * change: { itemIds, recipeIds, dishIds, optionIds }; ctx: the check's dish
+ * ctx (recipes, links, rules, options, dishes). -> Set of the ctx's dish ids.
+ */
+export function dishesToCheck(change = {}, ctx = {}) {
+  const used = dishesUsing(change.itemIds || [], ctx.recipes || new Map(), ctx.links || [], { recipeIds: change.recipeIds || [] })
+  const out = new Set([...used.dishIds, ...(change.dishIds || []).filter(Boolean)])
+  const opts = optionsUsing(change.itemIds || [], [...used.recipeIds], ctx.rules || [])
+  for (const id of opts.dishIds) out.add(id)
+  const optionIds = new Set([...opts.optionIds, ...(change.optionIds || []).filter(Boolean)])
+  const dishes = ctx.dishes instanceof Map ? ctx.dishes : new Map(Object.entries(ctx.dishes || {}))
+  if (optionIds.size) {
+    for (const d of dishes.values()) if (offeredOptions(d, ctx).some(o => optionIds.has(o.option_id))) out.add(d.id)
+  }
+  return new Set([...out].filter(id => dishes.has(id)))
+}

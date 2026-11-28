@@ -27,6 +27,7 @@
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { marksUsageOnChange } from '../services/stockUsageSvc.js'
+import { allergensChanged } from '../services/allergenCheckSvc.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { loadRecipes, loadCostItems } from '../services/costingSvc.js'
@@ -172,14 +173,17 @@ export default async function recipeOptionRoutes(app) {
                     WHERE id = ${found.id} AND tenant_id = ${req.tenantId} RETURNING *`
         : await tx`INSERT INTO recipe_option_rules ${tx({ ...v, ...key, tenant_id: req.tenantId, created_by: who(req) })} RETURNING *`
       const recipes = await loadRecipes(tx, req.tenantId, [v.recipe_id, v.sub_recipe_id].filter(Boolean))
+      // What the option brings into a dish changed: the allergen checks of the dishes offering it (phase 8b).
+      await allergensChanged(tx, req, rule.dish_id ? { kind: 'option_rule', dishIds: [rule.dish_id] } : { kind: 'option_rule', optionIds: [rule.option_id] })
       return { rule: { ...rule, qty: rule.qty == null ? null : Number(rule.qty), factor: rule.factor == null ? null : Number(rule.factor), text: ruleText({ ...v }, { items, recipes }) }, made: !found }
     })
   })
 
   app.delete('/rules/:optionRuleId', { preHandler: canManage }, async req => withTenant(req.tenantId, async tx => {
     const id = uuid.safeParse(req.params.optionRuleId).success ? req.params.optionRuleId : null
-    const [gone] = id ? await tx`DELETE FROM recipe_option_rules WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING id` : []
+    const [gone] = id ? await tx`DELETE FROM recipe_option_rules WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING id, option_id, dish_id` : []
     if (!gone) throw httpError(404, 'Rule not found')
+    await allergensChanged(tx, req, gone.dish_id ? { kind: 'option_rule', dishIds: [gone.dish_id] } : { kind: 'option_rule', optionIds: [gone.option_id] })
     return { deleted: true }
   }))
 }
